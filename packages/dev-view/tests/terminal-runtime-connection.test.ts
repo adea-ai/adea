@@ -486,6 +486,38 @@ describe('terminal runtime grant connection', () => {
     expect(harness.frames).toHaveLength(0)
   })
 
+  test('bounds active reconnect scans even when every cursor is unique', async () => {
+    const harness = makeHarness({
+      executeOverride: (command, index) => {
+        if (index > 100) throw new Error('fixture stops an unbounded scan')
+        return successReply(command, { items: [], nextCursor: `page-${index + 1}` })
+      },
+    })
+    connect(harness, { fromSequence: '7', generation: 3 })
+    await settle()
+    expect(harness.commands).toHaveLength(64)
+    expect(harness.frames.find((frame) => frame.type === 'error')).toMatchObject({
+      type: 'error',
+      error: { code: 'limit_exceeded', retryable: false },
+    })
+    expect(harness.sockets).toHaveLength(0)
+    expect(harness.commands.every(({ operation }) => operation === 'dev.terminal.list')).toBe(true)
+  })
+
+  test('rejects pages larger than the requested terminal record bound', async () => {
+    const harness = makeHarness({
+      currentRecords: [Array.from({ length: 501 }, () => terminal())],
+    })
+    connect(harness, { fromSequence: '7', generation: 3 })
+    await settle()
+    expect(harness.commands).toHaveLength(1)
+    expect(harness.frames.find((frame) => frame.type === 'error')).toMatchObject({
+      type: 'error',
+      error: { code: 'limit_exceeded', retryable: false },
+    })
+    expect(harness.sockets).toHaveLength(0)
+  })
+
   test('requires real bufferedAmount measurements from both relay sockets', async () => {
     const harness = makeHarness({ omitBufferedAmount: 'write' })
     const socket = connect(harness)

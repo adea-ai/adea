@@ -1250,7 +1250,9 @@ read and input grants with matching scope, terminal identity and generation;
 both authenticated stream headers must arrive before output is presented.
 Read streams send ACKs and accept host heartbeats; input byte offsets are owned
 by the adapter and continue only within the same terminal generation. Reconnect
-revalidates the captured terminal across the session-filtered terminal pages.
+revalidates the captured terminal across the session-filtered terminal pages,
+with at most 64 pages of 500 records. A larger page or continuing cursor after
+that bound fails closed with `limit_exceeded` before stream grants are minted.
 Closing or replacing its socket retires that attempt: a late page reply cannot
 request another page or mint grants, and late frames cannot reach the new pane.
 

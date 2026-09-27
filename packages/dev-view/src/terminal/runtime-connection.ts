@@ -26,6 +26,7 @@ const maxUint64 = (1n << 64n) - 1n
 const maxPendingReadBytes = 1024 * 1024
 const maxPendingReadFrames = 256
 const terminalListPageSize = 500
+const maxTerminalListPages = 64
 
 type TerminalOperation = Extract<
   DevOperation,
@@ -316,9 +317,13 @@ export function createTerminalRuntimeConnection(
 
     let cursor: string | undefined
     const seenCursors = new Set<string>()
+    let pageCount = 0
     const matches: TerminalRecord[] = []
     do {
       if (!isCurrent(attempt)) return undefined
+      if (++pageCount > maxTerminalListPages) {
+        fail('limit_exceeded', 'The terminal reconnect scan exceeded its page limit.')
+      }
       const body: Record<string, unknown> = {
         runtimeSessionId: captured.runtimeSessionId,
         limit: terminalListPageSize,
@@ -328,6 +333,9 @@ export function createTerminalRuntimeConnection(
       if (!isCurrent(attempt)) return undefined
       if (!isRecord(value) || !Array.isArray(value.items)) {
         fail('unsupported_version', 'The runtime returned an invalid terminal list page.')
+      }
+      if (value.items.length > terminalListPageSize) {
+        fail('limit_exceeded', 'The runtime terminal page exceeded its requested size.')
       }
       for (const candidate of value.items) {
         let record: TerminalRecord
