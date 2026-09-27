@@ -1376,6 +1376,11 @@ Payload hints and run completion cannot authorize grouping or hide an action.
 
 ### Desktop Chat presentation notifications
 
+The canonical `test:e2e` gate includes returning-session and first-run Chat
+component journeys. Returning-session coverage observes the actual component
+through a synthetic bridge and verifies presentation clearing while attaching
+and on disposal; this is separate from native notification delivery.
+
 The desktop shell derives notification intents from the canonical bounded
 `RunHistoryStore.list()` snapshot. It seeds a baseline after host composition
 and compares snapshots only after the harness has durably recorded a
