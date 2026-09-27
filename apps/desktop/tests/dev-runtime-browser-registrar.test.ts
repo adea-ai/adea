@@ -26,6 +26,7 @@ import {
   encryptChromiumValue,
 } from '../shell/src/dev-runtime/browser/lane-cookie-store'
 import { deriveChromiumKey } from '../shell/src/dev-runtime/browser/cookie-sources'
+import { RESPONSIVE_DEVICE_INVENTORY_ID } from '../shell/src/dev-runtime/devices/device-sessions'
 import { registerBrowserDeviceRuntime } from '../shell/src/dev-runtime/browser/register'
 
 const SECRET = 'registrar-profile-secret'
@@ -147,9 +148,13 @@ describe('production registrar composition', () => {
     })
     const listed = await executeCommand(authority, channel, issue('dev.device.list', {}))
     expect(listed.ok).toBe(true)
-    const inventory = (listed.value as { items: { id: string; generation: number }[] }).items
-    const responsive = inventory.find((item) => item.id === 'responsive')!
-    expect(responsive.generation).toBe(1)
+    const inventory = (
+      listed.value as {
+        items: { id: string; kind: string; generation: number }[]
+      }
+    ).items
+    const responsive = inventory.find((item) => item.kind === 'responsive')!
+    expect(responsive).toMatchObject({ id: RESPONSIVE_DEVICE_INVENTORY_ID, generation: 1 })
     const runtimeSessionId = '00000000-0000-4000-8000-000000000020'
     const started = await executeCommand(
       authority,
@@ -161,8 +166,16 @@ describe('production registrar composition', () => {
       )
     )
     expect(started.ok).toBe(true)
-    const session = started.value as { id: string; generation: number; state: string }
-    expect(session.state).toBe('attached')
+    const session = started.value as {
+      id: string
+      inventoryId: string
+      generation: number
+      state: string
+    }
+    expect(session).toMatchObject({
+      inventoryId: RESPONSIVE_DEVICE_INVENTORY_ID,
+      state: 'attached',
+    })
     runtime.deviceSessions.startResponsive(
       { ...scope, workspaceId: '00000000-0000-4000-8000-000000000099' },
       runtimeSessionId

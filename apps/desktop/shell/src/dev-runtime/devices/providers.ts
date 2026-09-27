@@ -13,6 +13,8 @@ import type { ChannelIdentity } from '../channel/authority'
 
 import {
   DeviceSessionError,
+  RESPONSIVE_DEVICE_INVENTORY_ID,
+  assertNoResponsiveInventoryIdCollision,
   type DeviceSessionRegistry,
   type VerifiedInventory,
 } from './device-sessions'
@@ -86,14 +88,23 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
     return session
   }
 
+  function verifiedInventory() {
+    const verified = input.verifiedInventory()
+    assertNoResponsiveInventoryIdCollision([
+      ...(verified.ios?.items ?? []),
+      ...(verified.android?.items ?? []),
+    ])
+    return verified
+  }
+
   const providers: Partial<
     Record<string, (command: DevCommand, identity?: ChannelIdentity) => unknown | Promise<unknown>>
   > = {
     'dev.device.list': (command) => {
-      const verified = input.verifiedInventory()
+      const verified = verifiedInventory()
       const items = [
         {
-          id: 'responsive',
+          id: RESPONSIVE_DEVICE_INVENTORY_ID,
           kind: 'responsive',
           name: 'Responsive viewport',
           platform: 'responsive',
@@ -140,8 +151,9 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
           'invalid_state',
           'start requires inventory and session ids'
         )
+      const verified = verifiedInventory()
       // The responsive lane never owns a process and is always available.
-      if (inventoryId === 'responsive') {
+      if (inventoryId === RESPONSIVE_DEVICE_INVENTORY_ID) {
         if (req.expectedGeneration !== 1)
           throw new DevCommandProviderError(
             'stale_generation',
@@ -150,7 +162,6 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
         return input.sessions.startResponsive(command.scope, runtimeSessionId)
       }
       const platform = inventoryPlatformHint(inventoryId)
-      const verified = input.verifiedInventory()
       const inventory = platform === 'ios' ? verified.ios : verified.android
       if (!inventory)
         throw new DevCommandProviderError(

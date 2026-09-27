@@ -4790,15 +4790,21 @@ can distinguish intentional spec evolution from drift:
   grant-minting seam and the #400 agent-event attachment land; agent-event attachment remains explicitly unavailable for #422 closure.
 
 - **2026-09-27 — responsive inventory and scoped device sessions.**
-  `dev.device.list` includes the process-free `responsive` inventory item at
-  generation 1, even without simulator tooling. Kind filtering and limits
-  apply to that item exactly as they do to verified host inventory. A
-  responsive start binds the advertised inventory generation and refuses a
-  stale one. `dev.device.sessions` returns only records matching the command's
-  account, workspace and runtime node, in addition to its session/kind filters.
-  The signed-channel list → resource-bound start → scoped sessions → stop path
-  is pinned by `apps/desktop/tests/dev-runtime-browser-registrar.test.ts`;
-  provider regressions are pinned by `dev-runtime-devices-engine.test.ts`.
+  `dev.device.list` includes the process-free responsive row at generation 1
+  with the reserved host ID `adea:responsive`, even without simulator tooling.
+  Kind filtering and limits apply to that row exactly as they do to verified
+  host inventory. Host items using the reserved ID fail closed with
+  `identity_mismatch` on list and start; an Android AVD actually named
+  `responsive` remains an Android inventory row and starts through the Android
+  launch path. The pane selects the responsive row by its `kind`, not its
+  opaque ID. Responsive start binds the advertised inventory generation and
+  refuses a stale one. `dev.device.sessions` returns only records matching the
+  command's account, workspace and runtime node, in addition to its
+  session/kind filters. The signed-channel list → resource-bound start → scoped
+  sessions → stop path is pinned by
+  `apps/desktop/tests/dev-runtime-browser-registrar.test.ts`; provider and
+  registry collision regressions are pinned by
+  `dev-runtime-devices-engine.test.ts` and `dev-runtime-devices.test.ts`.
   This does not establish a responsive pixel stream or make the pane's local
   preset/rotation controls a host viewport operation.
 
