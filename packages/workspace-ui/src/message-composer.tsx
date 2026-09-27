@@ -198,7 +198,7 @@ export function MessageComposer(props: {
               </div>
             </Show>
             <p id={`composer-help-${props.channelId}`} class="visually-hidden">
-              Enter to send · Shift+Enter newline
+              Enter to send · Shift+Enter newline · Mod+Shift+M focus
             </p>
           </>
         }
@@ -207,7 +207,11 @@ export function MessageComposer(props: {
             <ComposerAttachmentButton
               count={attachmentIds().length}
               open={attachmentsOpen()}
-              aria-label="Attach an Artifact"
+              aria-label={
+                attachmentIds().length === 0
+                  ? 'Attach an Artifact'
+                  : `${attachmentIds().length} Artifact${attachmentIds().length === 1 ? '' : 's'} attached, add an Artifact`
+              }
               disabled={props.disabled || !props.artifacts.length}
               onClick={() => setAttachmentsOpen((open) => !open)}
             />

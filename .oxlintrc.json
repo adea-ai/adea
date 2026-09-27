@@ -24,7 +24,6 @@
           "plugin-*",
           "plugins-*",
           "virtual-*",
-          "visually-hidden",
           "workspace-*"
         ]
       }

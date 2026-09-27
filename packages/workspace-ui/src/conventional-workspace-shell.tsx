@@ -187,7 +187,7 @@ export function ConventionalWorkspaceShell(props: {
       }
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'm') {
         event.preventDefault()
-        document.querySelector<HTMLTextAreaElement>('[id^="composer-"]')?.focus()
+        document.querySelector<HTMLTextAreaElement>('textarea[id^="composer-"]')?.focus()
       }
       if (event.altKey && !editable && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
         const destinations = controller.channels.filter(

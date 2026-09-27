@@ -689,18 +689,58 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
   await page.getByRole('button', { name: /^Product( |$)/ }).click()
 
   const composer = page.getByRole('textbox', { name: 'Message' }).first()
+  const composerForm = page.locator('form[data-slot="message-composer"]').first()
   await expect(composer).toHaveAttribute('aria-describedby', 'composer-help-channel-product')
+  await expect(composer).toHaveAttribute('id', 'composer-channel-product')
   await expect(page.getByRole('button', { name: 'Start dictation' })).toBeDisabled()
+  await composerForm.evaluate((form) => {
+    form.dataset.submitEventCount = '0'
+    form.addEventListener(
+      'submit',
+      () => {
+        form.dataset.submitEventCount = String(Number(form.dataset.submitEventCount) + 1)
+      },
+      { capture: true }
+    )
+  })
   await composer.fill('Ask @Research')
-  await page
+  const mentionOption = page
     .locator('.conventional-mention-menu')
     .getByRole('button', { name: 'Research Agent', exact: true })
-    .click()
+  const mentionButtonSemantics = await mentionOption.evaluate((element) => {
+    const button = element as HTMLButtonElement
+    return {
+      type: button.type,
+      formAssociated: Boolean(button.form),
+      insideComposerForm: button.closest('form[data-slot="message-composer"]') !== null,
+    }
+  })
+  expect(mentionButtonSemantics).toEqual({
+    type: 'button',
+    formAssociated: true,
+    insideComposerForm: true,
+  })
+  await mentionOption.click()
+  expect(await composerForm.getAttribute('data-submit-event-count')).toBe('0')
+  expect(submissions).toHaveLength(0)
+  await expect(composer).toBeFocused()
+  await composer.evaluate((element) => element.blur())
+  await page.keyboard.press('Control+Shift+m')
   await expect(composer).toBeFocused()
   await composer.press('Shift+Enter')
   await composer.type('with attached notes')
   await page.getByRole('button', { name: 'Attach an Artifact' }).click()
   await page.locator('.conventional-attachment-menu').getByRole('checkbox').check()
+  await expect(
+    page.getByRole('button', { name: '1 Artifact attached, add an Artifact' })
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Remove launch-brief.md' }).click()
+  await expect(page.getByRole('button', { name: 'Attach an Artifact' })).toBeVisible()
+  await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
+  await page.locator('.conventional-attachment-menu').getByRole('checkbox').check()
+  await expect(
+    page.getByRole('button', { name: '1 Artifact attached, add an Artifact' })
+  ).toBeVisible()
   await composer.press('Enter')
 
   await expect.poll(() => submissions.length).toBe(1)
@@ -713,6 +753,7 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
   expect(submissions[0]?.idempotencyKey).toEqual(expect.any(String))
   await expect(composer).toHaveValue('')
   await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Attach an Artifact' })).toBeVisible()
 })
 
 test('keeps the room draft and attachments after a failed send, then clears on retry', async ({
