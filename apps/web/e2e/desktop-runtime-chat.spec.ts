@@ -6,7 +6,7 @@ async function mount(page: import('@playwright/test').Page) {
   await page.route('**' + path, (route) =>
     route.fulfill({
       contentType: 'text/html',
-      body: '<html><head><style>html,body,#harness-root{margin:0;height:100%;}#harness-root>.dev-workspace__body{height:100%;}</style></head><body><div id="harness-root"></div></body></html>',
+      body: '<html><head><style>html,body,#harness-root{margin:0;height:100%;}</style></head><body><div id="harness-root"></div></body></html>',
     })
   )
   await page.goto(path)
@@ -22,6 +22,15 @@ test('returning desktop Chat mounts canonical sessions and retains draft through
   page.on('pageerror', (error) => errors.push(error.message))
   await mount(page)
   await expect(page.getByRole('complementary', { name: 'Projects and sessions' })).toBeVisible()
+  const layout = await page.evaluate(() => ({
+    viewport: window.innerHeight,
+    chat: document.querySelector('.dev-chat')!.getBoundingClientRect().height,
+    sidebar: document.querySelector('.dev-sidebar')!.getBoundingClientRect().height,
+    background: getComputedStyle(document.querySelector('.dev-sidebar')!).backgroundColor,
+  }))
+  expect(layout.chat).toBeGreaterThanOrEqual(layout.viewport - 2)
+  expect(layout.sidebar).toBeGreaterThanOrEqual(layout.viewport - 2)
+  expect(layout.background).not.toBe('rgba(0, 0, 0, 0)')
   await page.evaluate(() => window.desktopRuntimeChatHarness.saveDraft('Scoped unfinished draft'))
   await page.evaluate(() => window.desktopRuntimeChatHarness.unmount())
   await expect(page.getByText('Dev surface', { exact: true })).toBeVisible()

@@ -1,3 +1,4 @@
+import '../../src/start/globals.css'
 import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
