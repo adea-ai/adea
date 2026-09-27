@@ -308,19 +308,24 @@ export function createTerminalRuntimeConnection(
     return replyValue(raw, operation, command.requestId)
   }
 
-  async function currentTerminal(context: TerminalAttachContext): Promise<TerminalRecord> {
+  async function currentTerminal(
+    context: TerminalAttachContext,
+    attempt: Attempt
+  ): Promise<TerminalRecord | undefined> {
     if (context.generation === undefined) return captured
 
     let cursor: string | undefined
     const seenCursors = new Set<string>()
     const matches: TerminalRecord[] = []
     do {
+      if (!isCurrent(attempt)) return undefined
       const body: Record<string, unknown> = {
         runtimeSessionId: captured.runtimeSessionId,
         limit: terminalListPageSize,
         ...(cursor !== undefined ? { cursor } : {}),
       }
       const value = await execute('dev.terminal.list', captured, body)
+      if (!isCurrent(attempt)) return undefined
       if (!isRecord(value) || !Array.isArray(value.items)) {
         fail('unsupported_version', 'The runtime returned an invalid terminal list page.')
       }
@@ -729,8 +734,8 @@ export function createTerminalRuntimeConnection(
         }
         const streams = runtime.streams?.()
         if (!streams) fail('capability_unavailable')
-        const selected = await currentTerminal(context)
-        if (!isCurrent(attempt)) return
+        const selected = await currentTerminal(context, attempt)
+        if (!selected || !isCurrent(attempt)) return
         const changedGeneration =
           context.generation !== undefined && context.generation !== selected.generation
         if (changedGeneration && pendingResize?.generation !== selected.generation) {

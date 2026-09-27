@@ -1244,6 +1244,16 @@ A session may own several terminals through splits.
 `dev.terminal.list` enumerates every terminal a session or worktree owns,
 including split leaves and terminals re-created after a restart.
 
+The renderer's terminal connection adapter captures an exact `TerminalRecord`,
+never the first item returned by a session query. Each attach mints distinct
+read and input grants with matching scope, terminal identity and generation;
+both authenticated stream headers must arrive before output is presented.
+Read streams send ACKs and accept host heartbeats; input byte offsets are owned
+by the adapter and continue only within the same terminal generation. Reconnect
+revalidates the captured terminal across the session-filtered terminal pages.
+Closing or replacing its socket retires that attempt: a late page reply cannot
+request another page or mint grants, and late frames cannot reach the new pane.
+
 ### Runtime session and harness run
 
 ```text

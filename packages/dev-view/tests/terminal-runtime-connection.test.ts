@@ -470,6 +470,22 @@ describe('terminal runtime grant connection', () => {
     })
   })
 
+  test('stops reconnect pagination when the owning socket closes', async () => {
+    let resolvePage!: (reply: DevReply) => void
+    const page = new Promise<DevReply>((resolve) => {
+      resolvePage = resolve
+    })
+    const harness = makeHarness({ executeOverride: () => page })
+    const socket = connect(harness, { fromSequence: '7', generation: 3 })
+    expect(harness.commands).toHaveLength(1)
+    socket.close(1000, 'selection changed')
+    resolvePage(successReply(harness.commands[0]!, { items: [], nextCursor: 'next-page' }))
+    await settle()
+    expect(harness.commands.map(({ operation }) => operation)).toEqual(['dev.terminal.list'])
+    expect(harness.sockets).toHaveLength(0)
+    expect(harness.frames).toHaveLength(0)
+  })
+
   test('requires real bufferedAmount measurements from both relay sockets', async () => {
     const harness = makeHarness({ omitBufferedAmount: 'write' })
     const socket = connect(harness)
