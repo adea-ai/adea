@@ -35,3 +35,31 @@ test('focused controls and full contract share one decoder and validation', () =
       expect(() => decodeDevStreamFrame(frame)).toThrow()
   }
 })
+
+test('rejects rollover dates and cursors beyond the uint64 wire range', () => {
+  for (const frame of [
+    { type: 'heartbeat', observedAt: '2026-02-31T18:00:00Z', throughSequence: '0' },
+    { type: 'heartbeat', observedAt: '2026-09-27T24:00:00Z', throughSequence: '0' },
+    {
+      type: 'heartbeat',
+      observedAt: '2026-09-27T18:00:00Z',
+      throughSequence: '18446744073709551616',
+    },
+    { type: 'resync', reason: 'checkpoint_required', checkpointSequence: '18446744073709551616' },
+  ]) {
+    expect(() => decodeDevStreamControlFrame(frame)).toThrow()
+    expect(() => decodeDevStreamFrame(frame)).toThrow()
+  }
+})
+
+test('retains valid leap days and nanosecond timestamp precision', () => {
+  for (const observedAt of [
+    '2024-02-29T12:00:00Z',
+    '2026-09-27T18:00:00.123456789Z',
+    '0000-01-01T00:00:00Z',
+  ]) {
+    const frame = { type: 'heartbeat', observedAt, throughSequence: '18446744073709551615' }
+    expect(decodeDevStreamControlFrame(frame)).toEqual(frame)
+    expect(decodeDevStreamFrame(frame)).toEqual(frame)
+  }
+})
