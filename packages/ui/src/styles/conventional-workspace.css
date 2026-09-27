@@ -1001,10 +1001,6 @@
   position: relative;
   grid-column: 1;
   margin: 0 clamp(0.8rem, 3vw, 2.5rem) 1.15rem;
-  border: 1px solid var(--cw-border);
-  border-radius: 1.35rem;
-  background: var(--cw-surface);
-  box-shadow: var(--cw-shadow-raised);
 }
 .conventional-composer__context {
   padding: 0.45rem 0.9rem;
@@ -1012,16 +1008,13 @@
   color: var(--cw-muted);
   font-size: 0.72rem;
 }
-.conventional-composer__editor {
-  position: relative;
-}
 .conventional-composer textarea {
   display: block;
   width: 100%;
   min-height: 4.1rem;
   max-height: 12rem;
   resize: vertical;
-  padding: 0.9rem 3.4rem 0.85rem;
+  padding: 0.65rem 0.75rem;
   border: 0;
   border-radius: inherit;
   outline: 0;
@@ -1038,46 +1031,9 @@
   outline: 3px solid var(--cw-focus);
   outline-offset: 2px;
 }
-.conventional-composer__toolbar {
-  position: relative;
-  display: block;
-  height: 0;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-}
-.conventional-composer__toolbar > div {
-  position: absolute;
-  bottom: 0.65rem;
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-}
 .conventional-composer__attachment-control {
-  left: 0.55rem;
-  position: absolute !important;
+  position: relative;
 }
-.conventional-composer__voice-control {
-  right: 0.55rem;
-}
-.conventional-composer__toolbar > div > button {
-  display: grid;
-  width: 2.3rem;
-  height: 2.3rem;
-  place-items: center;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-}
-.conventional-composer__toolbar > div > button:hover {
-  background: var(--cw-surface-muted);
-}
-.conventional-composer__toolbar > p {
-  flex: 1;
-  color: var(--cw-muted);
-  font-size: 0.7rem;
-}
-.conventional-send-button,
 .conventional-primary-button {
   display: inline-flex;
   min-height: 2.4rem;
@@ -1093,28 +1049,6 @@
   font-weight: 700;
   white-space: nowrap;
 }
-.conventional-composer .conventional-send-button {
-  position: absolute;
-  right: 0.55rem;
-  bottom: 0.65rem;
-  display: grid;
-  width: 2.3rem;
-  height: 2.3rem;
-  min-height: 0;
-  padding: 0;
-  border-radius: 999px;
-  opacity: 1;
-  transition: opacity 0.15s ease;
-}
-.conventional-composer .conventional-send-button:disabled {
-  opacity: 0;
-  pointer-events: none;
-}
-.conventional-composer:has(.conventional-send-button:not(:disabled))
-  .conventional-composer__voice-control {
-  right: 3.05rem;
-}
-.conventional-send-button svg,
 .conventional-primary-button svg {
   width: 1rem;
   height: 1rem;
@@ -1144,7 +1078,16 @@
   border: 0;
   background: transparent;
 }
-.conventional-mention-menu,
+.conventional-mention-menu {
+  min-width: 15rem;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.35rem;
+  border: 1px solid var(--cw-border);
+  border-radius: 0.5rem;
+  background: var(--cw-surface);
+  box-shadow: var(--cw-shadow-floating);
+}
 .conventional-attachment-menu {
   position: absolute;
   z-index: 8;
@@ -2760,9 +2703,6 @@
   }
   .conventional-composer {
     margin-inline: 0.5rem;
-  }
-  .conventional-composer__toolbar > p {
-    display: none;
   }
   .conventional-message {
     grid-template-columns: 1.75rem minmax(0, 1fr);

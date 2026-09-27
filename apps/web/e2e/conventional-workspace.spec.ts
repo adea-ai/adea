@@ -616,6 +616,166 @@ async function mockConnectedWorkspace(page: Page) {
   })
 }
 
+async function captureMessageSubmissions(
+  page: Page,
+  failAttempts: readonly number[] = []
+): Promise<Record<string, unknown>[]> {
+  const submissions: Record<string, unknown>[] = []
+  let attempt = 0
+  await page.route('**/api/v1/workspaces/workspace-e2e/channels/*/messages', async (route) => {
+    const request = route.request()
+    if (request.method() !== 'POST') return route.fallback()
+
+    attempt += 1
+    const body = request.postDataJSON() as Record<string, unknown>
+    const channelId = decodeURIComponent(new URL(request.url()).pathname.split('/').at(-2) ?? '')
+    submissions.push({
+      ...body,
+      channelId,
+      idempotencyKey: request.headers()['idempotency-key'],
+    })
+    if (failAttempts.includes(attempt)) {
+      return route.fulfill({
+        contentType: 'application/json',
+        json: { error: 'temporary failure' },
+        status: 503,
+      })
+    }
+
+    const message = {
+      ...messages[0],
+      ...body,
+      channelId,
+      id: `message-composer-${attempt}`,
+      sender: user,
+      sequence: 20 + attempt,
+    }
+    return route.fulfill({
+      contentType: 'application/json',
+      json: { message },
+      status: 201,
+    })
+  })
+  return submissions
+}
+
+test('keeps a composition Enter from submitting a workspace message', async ({ page }) => {
+  await mockWorkspace(page)
+  const submissions = await captureMessageSubmissions(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+
+  const composer = page.getByRole('textbox', { name: 'Message' }).first()
+  await composer.fill('候補')
+  await composer.evaluate((element) => {
+    if (!(element instanceof HTMLTextAreaElement)) throw new Error('Composer is not a textarea')
+    element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '候補' }))
+    element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '候補' }))
+    element.dispatchEvent(
+      new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', keyCode: 229 })
+    )
+  })
+
+  await expect.poll(() => submissions.length, { timeout: 1_000 }).toBe(0)
+  await expect(composer).toHaveValue('候補')
+})
+
+test('submits channel messages with mentions, artifacts, and Shift+Enter newlines', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  const submissions = await captureMessageSubmissions(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+
+  const composer = page.getByRole('textbox', { name: 'Message' }).first()
+  await expect(composer).toHaveAttribute('aria-describedby', 'composer-help-channel-product')
+  await expect(page.getByRole('button', { name: 'Start dictation' })).toBeDisabled()
+  await composer.fill('Ask @Research')
+  await page
+    .locator('.conventional-mention-menu')
+    .getByRole('button', { name: 'Research Agent', exact: true })
+    .click()
+  await expect(composer).toBeFocused()
+  await composer.press('Shift+Enter')
+  await composer.type('with attached notes')
+  await page.getByRole('button', { name: 'Attach an Artifact' }).click()
+  await page.locator('.conventional-attachment-menu').getByRole('checkbox').check()
+  await composer.press('Enter')
+
+  await expect.poll(() => submissions.length).toBe(1)
+  expect(submissions[0]).toMatchObject({
+    artifactIds: ['artifact-brief'],
+    bodyText: 'Ask @Research Agent \nwith attached notes',
+    channelId: 'channel-product',
+    mentions: [{ agentId: 'agent-research', kind: 'agent' }],
+  })
+  expect(submissions[0]?.idempotencyKey).toEqual(expect.any(String))
+  await expect(composer).toHaveValue('')
+  await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
+})
+
+test('keeps the room draft and attachments after a failed send, then clears on retry', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  const submissions = await captureMessageSubmissions(page, [1])
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+
+  const composer = page.getByRole('textbox', { name: 'Message' }).first()
+  const draft = 'Keep this draft when the connection fails.'
+  await composer.fill(draft)
+  await page.getByRole('button', { name: 'Attach an Artifact' }).click()
+  await page.locator('.conventional-attachment-menu').getByRole('checkbox').check()
+  await page.getByRole('button', { name: 'Send message' }).first().click()
+
+  await expect(
+    page.getByText(
+      'Message not sent. Your draft is still here; retry when the connection recovers.'
+    )
+  ).toBeVisible()
+  await expect(composer).toHaveValue(draft)
+  await expect(page.getByLabel('Selected attachments')).toContainText('launch-brief.md')
+  await composer.press('Enter')
+
+  await expect.poll(() => submissions.length).toBe(2)
+  expect(submissions[0]).toMatchObject({ artifactIds: ['artifact-brief'], bodyText: draft })
+  expect(submissions[1]).toMatchObject({ artifactIds: ['artifact-brief'], bodyText: draft })
+  expect(submissions[1]?.idempotencyKey).not.toBe(submissions[0]?.idempotencyKey)
+  await expect(composer).toHaveValue('')
+  await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
+})
+
+test('keeps thread reply metadata separate from the room draft', async ({ page }) => {
+  await mockWorkspace(page)
+  const submissions = await captureMessageSubmissions(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+
+  const roomComposer = page.getByRole('textbox', { name: 'Message' }).first()
+  await roomComposer.fill('Room draft remains here.')
+  await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
+  const threadComposer = page.getByRole('textbox', { name: 'Message' }).nth(1)
+  await expect(threadComposer).toHaveAttribute(
+    'aria-describedby',
+    'composer-help-thread-message-root'
+  )
+  await expect(page.getByText(/^Replying in thread ·/)).toBeVisible()
+  await threadComposer.fill('Reply with the root identity preserved.')
+  await threadComposer.press('Enter')
+
+  await expect.poll(() => submissions.length).toBe(1)
+  expect(submissions[0]).toMatchObject({
+    bodyText: 'Reply with the root identity preserved.',
+    channelId: 'channel-product',
+    replyToMessageId: 'message-root',
+    threadRootMessageId: 'message-root',
+  })
+  await expect(roomComposer).toHaveValue('Room draft remains here.')
+  await expect(threadComposer).toHaveValue('')
+})
+
 test('renders empty and populated Room-first workspace states', async ({ page }) => {
   await mockWorkspace(page, true)
   await page.goto('/')

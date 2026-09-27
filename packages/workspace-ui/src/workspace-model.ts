@@ -64,17 +64,6 @@ export function projectWorkspaceNavigation(
   })
 }
 
-export function composerKeyboardAction(
-  input: Readonly<{
-    isComposing: boolean
-    key: string
-    shiftKey: boolean
-  }>
-): 'newline' | 'none' | 'send' {
-  if (input.key !== 'Enter' || input.isComposing) return 'none'
-  return input.shiftKey ? 'newline' : 'send'
-}
-
 export function searchKeyboardSelection(
   key: string,
   selectedIndex: number,

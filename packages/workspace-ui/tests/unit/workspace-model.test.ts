@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test'
 import type { AgentSummary, ChannelSummary, RoomSummary } from '@adea-ai/types'
 
 import {
-  composerKeyboardAction,
   fuzzySearchMatch,
   parseAgentMentions,
   projectWorkspaceNavigation,
@@ -71,18 +70,6 @@ describe('conventional workspace projection', () => {
     ])
     expect(navigation.directAgentChannels.map(({ id }) => id)).toEqual(['agent-dm'])
     expect(navigation.groupChannels.map(({ id }) => id)).toEqual(['group-1'])
-  })
-
-  test('uses Enter to send and Shift+Enter for a newline', () => {
-    expect(composerKeyboardAction({ isComposing: false, key: 'Enter', shiftKey: false })).toBe(
-      'send'
-    )
-    expect(composerKeyboardAction({ isComposing: false, key: 'Enter', shiftKey: true })).toBe(
-      'newline'
-    )
-    expect(composerKeyboardAction({ isComposing: true, key: 'Enter', shiftKey: false })).toBe(
-      'none'
-    )
   })
 
   test('moves command-palette selection within bounds and opens with Enter', () => {
