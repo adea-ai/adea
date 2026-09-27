@@ -165,9 +165,27 @@ export function createDesktopStreamTransport(options: {
               ),
           })
         : undefined
-    const queued: DevStreamFrame[] = []
+    type PendingFrame = { frame: DevStreamFrame; bytes: number }
+    const queued: PendingFrame[] = []
+    let bufferedBytes = 0
+    let terminalInputBytes = 0
+    let retainedFrames = 0
+    const terminalInputQueueMaxBytes = 1024 * 1024
+
+    function discardQueued(): void {
+      for (const pending of queued.splice(0)) release(pending)
+    }
+
+    function release(pending: PendingFrame): void {
+      retainedFrames -= 1
+      bufferedBytes -= pending.bytes
+      if (pending.frame.type === 'input') terminalInputBytes -= pending.frame.bytes.byteLength
+    }
 
     const socket: DevStreamTransportSocket = {
+      get bufferedAmount() {
+        return bufferedBytes
+      },
       // Logically open as soon as the pane holds the socket — the model sends
       // its write/input frames immediately after connect and expects the
       // transport to queue them until the attach bind completes (the same
@@ -177,11 +195,46 @@ export function createDesktopStreamTransport(options: {
       },
       send(frame: DevStreamFrame) {
         if (settled) return
-        if (!bound) {
-          queued.push(frame)
+        if (frame.type !== 'ack' && frame.type !== 'input') return
+        if (frame.type === 'input') {
+          if (frame.bytes.byteLength > grant.maxFrameBytes) {
+            fail(relayError('invalid_state', 'stream input exceeds the grant frame limit').error)
+            return
+          }
+          if (
+            grant.protocol === 'terminal-bytes-v1' &&
+            terminalInputBytes + frame.bytes.byteLength > terminalInputQueueMaxBytes
+          ) {
+            fail(relayError('backpressure', 'terminal relay input queue is full').error)
+            return
+          }
+        }
+        // Retain a snapshot; callers may reuse a mutable byte array after send.
+        const retained =
+          frame.type === 'input' ? { ...frame, bytes: frame.bytes.slice() } : { ...frame }
+        // Account for the JSON-safe byte encoding and the frame header. This is
+        // the local relay backlog, not the kernel socket or host input queue.
+        const bytes =
+          frame.type === 'input'
+            ? 4 * Math.ceil(frame.bytes.byteLength / 3) +
+              JSON.stringify({ ...frame, bytes: '' }).length
+            : JSON.stringify(frame).length
+        if (
+          grant.protocol === 'terminal-bytes-v1' &&
+          (bufferedBytes + bytes > terminalInputQueueMaxBytes || retainedFrames >= 4096)
+        ) {
+          fail(relayError('backpressure', 'terminal relay frame queue is full').error)
           return
         }
-        enqueue(frame)
+        const pending = { frame: retained, bytes }
+        retainedFrames += 1
+        bufferedBytes += bytes
+        if (frame.type === 'input') terminalInputBytes += frame.bytes.byteLength
+        if (!bound) {
+          queued.push(pending)
+          return
+        }
+        enqueue(pending)
       },
       close(code: number, reason: string) {
         void settle(code, reason)
@@ -192,6 +245,7 @@ export function createDesktopStreamTransport(options: {
       if (settled) return
       settled = true
       bound = false
+      discardQueued()
       try {
         handlers.onFrame({ type: 'error', error })
       } catch {
@@ -205,6 +259,7 @@ export function createDesktopStreamTransport(options: {
       videoReassembler?.close()
       const unsubscribe = disposeEventSource
       disposeEventSource = undefined
+      unsubscribe?.()
       try {
         await bridge.invoke(RELAY_COMMANDS.close, {
           channelId: bindIdentity?.channelId,
@@ -214,11 +269,10 @@ export function createDesktopStreamTransport(options: {
       } catch {
         /* best-effort teardown; the relay sweeps abandoned sessions */
       }
-      unsubscribe?.()
     }
 
     async function deliver(frame: DevStreamFrame): Promise<void> {
-      if (frame.type !== 'ack' && frame.type !== 'input') return
+      if (settled || (frame.type !== 'ack' && frame.type !== 'input')) return
       const framePayload: Record<string, unknown> =
         frame.type === 'ack'
           ? {
@@ -254,8 +308,11 @@ export function createDesktopStreamTransport(options: {
     // window and input contiguity both assume the channel's FIFO discipline,
     // so concurrent invokes are chained, never raced.
     let deliveryChain: Promise<void> = Promise.resolve()
-    function enqueue(frame: DevStreamFrame): void {
-      deliveryChain = deliveryChain.then(() => deliver(frame)).catch(() => {})
+    function enqueue(pending: PendingFrame): void {
+      deliveryChain = deliveryChain
+        .then(() => deliver(pending.frame))
+        .catch(() => {})
+        .finally(() => release(pending))
     }
 
     function onEvent(payload: unknown): void {
@@ -291,6 +348,7 @@ export function createDesktopStreamTransport(options: {
       if (frame.type === 'close') {
         settled = true
         bound = false
+        discardQueued()
         videoReassembler?.close()
         void teardown()
       }
@@ -309,13 +367,19 @@ export function createDesktopStreamTransport(options: {
           nonce,
           fromSequence: grant.fromSequence,
         })
+        if (settled) return
         bindIdentity = {
           channelId: signed.channelId,
           clientCredentialId: signed.clientCredentialId,
         }
         // Subscribe before the open invoke: the relay starts pumping the
         // moment the provider attaches, and no frame may be missed.
-        disposeEventSource = await bridge.listen(FILE_STREAM_RELAY_EVENT, onEvent)
+        const unsubscribe = await bridge.listen(FILE_STREAM_RELAY_EVENT, onEvent)
+        if (settled) {
+          unsubscribe()
+          return
+        }
+        disposeEventSource = unsubscribe
         const result = (await bridge.invoke(RELAY_COMMANDS.open, {
           channelId: signed.channelId,
           clientCredentialId: signed.clientCredentialId,
@@ -328,6 +392,11 @@ export function createDesktopStreamTransport(options: {
             proof: signed.proof,
           },
         })) as { status?: string; code?: string; message?: string } | undefined
+        if (settled) {
+          // Open may have completed after local close; retire that late host bind.
+          await teardown()
+          return
+        }
         if (!result || result.status !== 'granted') {
           fail(
             relayError(
@@ -338,10 +407,7 @@ export function createDesktopStreamTransport(options: {
           return
         }
         bound = true
-        for (const frame of queued.splice(0)) {
-          if (settled) break
-          enqueue(frame)
-        }
+        for (const pending of queued.splice(0)) enqueue(pending)
       } catch (error) {
         fail(
           relayError(
@@ -356,6 +422,7 @@ export function createDesktopStreamTransport(options: {
       if (settled) return
       settled = true
       bound = false
+      discardQueued()
       handlers.onClose(code, reason)
       await teardown()
     }
