@@ -37,6 +37,8 @@ const state = {
   restarts: 0,
   dataFramesEmitted: 0,
   echo: true,
+  bufferedAmount: 0,
+  failNextInputSend: false,
 }
 
 function recordInput(generation: number, bytes: Uint8Array): void {
@@ -56,10 +58,16 @@ function scriptedConnect(handlers: ConnectHandlers): StreamSocket {
     get open() {
       return open && state.activeSocketSerial === serial
     },
-    bufferedAmount: 0,
+    get bufferedAmount() {
+      return state.bufferedAmount
+    },
     send: (frame: DevStreamFrame) => {
       if (frame.type !== 'input') return
       recordInput(generation, frame.bytes)
+      if (state.failNextInputSend) {
+        state.failNextInputSend = false
+        throw new Error('scripted ambiguous input send')
+      }
       // A real PTY echoes what it receives; the scripted sidecar mirrors that
       // so the round trip is observable for every input seam — the compose
       // editor's `write` prop and the surface's transport queue alike.
@@ -101,6 +109,7 @@ function writeOutput(text: string): void {
 function restartSidecar(): void {
   state.restarts += 1
   state.generation += 1
+  state.bufferedAmount = 0
   const handlers = state.handlers
   state.handlers = null
   state.activeSocketSerial = 0
@@ -125,6 +134,12 @@ const harness = {
   restart: restartSidecar,
   setEcho(on: boolean) {
     state.echo = on
+  },
+  setBufferedAmount(bytes: number) {
+    state.bufferedAmount = bytes
+  },
+  failNextInputSend() {
+    state.failNextInputSend = true
   },
   report() {
     return {

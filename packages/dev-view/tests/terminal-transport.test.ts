@@ -9,10 +9,12 @@ import type { DevStreamFrame } from '@adea-ai/types/dev-runtime'
 import {
   createTerminalTransport,
   DEFAULT_TRANSPORT_LIMITS,
+  type TerminalAttachContext,
   type TerminalStreamSocket,
 } from '../src/terminal/transport'
 
 type FakeServer = {
+  context: TerminalAttachContext
   frames: DevStreamFrame[]
   closed: Array<{ code: number; reason: string }>
   deliver: (frame: DevStreamFrame) => void
@@ -20,23 +22,52 @@ type FakeServer = {
   bufferedAmount: number
 }
 
-function makeHarness(limitOverrides: Partial<typeof DEFAULT_TRANSPORT_LIMITS> = {}) {
+type HarnessOptions = {
+  generations?: number[]
+  sequences?: string[]
+  bufferedAmounts?: number[]
+  synchronousFrames?: DevStreamFrame[][]
+  connectFailures?: unknown[]
+  sendFailures?: Array<{
+    attempt: number
+    type: DevStreamFrame['type']
+    afterDelivery?: boolean
+  }>
+}
+
+function makeHarness(
+  limitOverrides: Partial<typeof DEFAULT_TRANSPORT_LIMITS> = {},
+  harnessOptions: HarnessOptions = {}
+) {
   let server: FakeServer | null = null
+  let connectAttempt = 0
   const sockets: FakeServer[] = []
+  const contexts: TerminalAttachContext[] = []
   const output: Array<{ sequence: string; text: string }> = []
   const states: string[] = []
   const gaps: Array<{ expected: string; received: string }> = []
   const resyncs: string[] = []
   const overflows: number[] = []
+  const errors: Array<{ code: string; retryable: boolean; message: string }> = []
 
-  function connect(): TerminalStreamSocket {
+  function connect(
+    handlers: {
+      onFrame: (frame: DevStreamFrame) => void
+      onClose: () => void
+    },
+    context: TerminalAttachContext
+  ): TerminalStreamSocket {
+    const attempt = connectAttempt++
+    contexts.push(context)
+    const connectFailure = harnessOptions.connectFailures?.[attempt]
+    if (connectFailure !== undefined) throw connectFailure
+    const generation = harnessOptions.generations?.[attempt] ?? 1
     const fake: FakeServer = {
+      context,
       frames: [],
       closed: [],
-      bufferedAmount: 0,
-      deliver: (frame) => {
-        queueMicrotask(() => handlers.onFrame(frame))
-      },
+      bufferedAmount: harnessOptions.bufferedAmounts?.[attempt] ?? 0,
+      deliver: (frame) => queueMicrotask(() => handlers.onFrame(frame)),
       close: (code, reason) => {
         fake.closed.push({ code, reason })
         queueMicrotask(() => handlers.onClose())
@@ -44,25 +75,7 @@ function makeHarness(limitOverrides: Partial<typeof DEFAULT_TRANSPORT_LIMITS> = 
     }
     server = fake
     sockets.push(fake)
-    const handlers = {
-      onFrame: (frame: DevStreamFrame) => void frame,
-      onClose: () => {},
-    }
-    // Wire the handlers lazily through the transport's connect callback.
-    queueMicrotask(() => undefined)
-    fake.deliver = (frame) => {
-      queueMicrotask(() => currentHandlers?.onFrame(frame))
-    }
-    fake.close = (code, reason) => {
-      fake.closed.push({ code, reason })
-      queueMicrotask(() => currentHandlers?.onClose())
-    }
-    let currentHandlers: { onFrame: (frame: DevStreamFrame) => void; onClose: () => void } | null =
-      null
-    pendingHandlers = (handlers2) => {
-      currentHandlers = handlers2
-    }
-    return {
+    const socket: TerminalStreamSocket = {
       get bufferedAmount() {
         return fake.bufferedAmount
       },
@@ -70,24 +83,35 @@ function makeHarness(limitOverrides: Partial<typeof DEFAULT_TRANSPORT_LIMITS> = 
         return true
       },
       send: (frame) => {
+        const sendFailure = harnessOptions.sendFailures?.find(
+          (candidate) => candidate.attempt === attempt && candidate.type === frame.type
+        )
+        if (sendFailure?.afterDelivery) fake.frames.push(frame)
+        if (sendFailure) throw new Error('fake socket send failed')
         fake.frames.push(frame)
       },
       close: (code, reason) => fake.close(code, reason),
     }
+    const immediate = harnessOptions.synchronousFrames?.[attempt]
+    const opened: DevStreamFrame = {
+      type: 'opened',
+      protocol: 'terminal-bytes-v1',
+      generation,
+      nextSequence: harnessOptions.sequences?.[attempt] ?? context.fromSequence,
+    }
+    if (immediate) {
+      for (const frame of immediate) handlers.onFrame(frame)
+    } else {
+      queueMicrotask(() => handlers.onFrame(opened))
+    }
+    return socket
   }
 
-  let pendingHandlers:
-    | ((handlers: { onFrame: (frame: DevStreamFrame) => void; onClose: () => void }) => void)
-    | null = null
-
   const transport = createTerminalTransport({
-    connect: (handlers) => {
-      const socket = connect()
-      pendingHandlers?.(handlers)
-      return socket
-    },
+    connect,
     onOutput: (sequence, bytes) => output.push({ sequence, text: new TextDecoder().decode(bytes) }),
     onConnectionState: (state) => states.push(state),
+    onConnectionError: (error) => errors.push(error),
     onSequenceGap: (expected, received) => gaps.push({ expected, received }),
     onResyncRequired: (anchor) => resyncs.push(anchor),
     onInputOverflow: (max) => overflows.push(max),
@@ -106,11 +130,13 @@ function makeHarness(limitOverrides: Partial<typeof DEFAULT_TRANSPORT_LIMITS> = 
       return server
     },
     sockets,
+    contexts,
     output,
     states,
     gaps,
     resyncs,
     overflows,
+    errors,
   }
 }
 
@@ -119,6 +145,327 @@ function data(sequence: string, text: string): DevStreamFrame {
 }
 
 describe('terminal transport', () => {
+  test('uses the first authenticated open generation for queued input and resize', async () => {
+    const harness = makeHarness()
+    harness.transport.start('7')
+    expect(harness.contexts).toEqual([{ fromSequence: '7' }])
+    expect(harness.transport.write(new TextEncoder().encode('queued'))).toBe(true)
+    harness.transport.resize(100, 30)
+    expect(harness.server!.frames).toEqual([])
+
+    await Bun.sleep(5)
+
+    expect(harness.server!.frames).toContainEqual({
+      type: 'input',
+      sequence: '0',
+      generation: 1,
+      bytes: new TextEncoder().encode('queued'),
+    })
+    expect(harness.server!.frames).toContainEqual({
+      type: 'resize',
+      sequence: '0',
+      generation: 1,
+      cols: 100,
+      rows: 30,
+    })
+    harness.transport.dispose()
+  })
+
+  test('reconnect supplies the accepted cursor and last verified generation', async () => {
+    const harness = makeHarness()
+    harness.transport.start('10')
+    await Bun.sleep(5)
+    harness.server!.deliver(data('10', 'accepted'))
+    await Bun.sleep(5)
+    harness.server!.close(1006, 'network flap')
+    await Bun.sleep(40)
+
+    expect(harness.contexts[0]).toEqual({ fromSequence: '10' })
+    expect(harness.contexts[1]).toEqual({ fromSequence: '11', generation: 1 })
+    harness.transport.dispose()
+  })
+
+  test('synchronous replay is acknowledged after connect returns its socket', () => {
+    const harness = makeHarness(
+      {},
+      {
+        synchronousFrames: [
+          [
+            {
+              type: 'opened',
+              protocol: 'terminal-bytes-v1',
+              generation: 4,
+              nextSequence: '0',
+            },
+            data('0', 'synchronous replay'),
+          ],
+        ],
+      }
+    )
+    harness.transport.start('0')
+
+    expect(harness.output.map((entry) => entry.text)).toEqual(['synchronous replay'])
+    expect(harness.sockets[0]!.frames).toContainEqual({
+      type: 'ack',
+      throughSequence: '0',
+      availableCreditBytes: new TextEncoder().encode('synchronous replay').byteLength,
+    })
+    harness.transport.dispose()
+  })
+
+  test('stale socket frames and closes cannot affect the replacement connection', async () => {
+    const harness = makeHarness()
+    harness.transport.start('0')
+    await Bun.sleep(5)
+    const stale = harness.sockets[0]!
+    stale.close(1006, 'network flap')
+    await Bun.sleep(40)
+    expect(harness.sockets).toHaveLength(2)
+
+    stale.deliver(data('0', 'must be ignored'))
+    stale.close(1006, 'late old close')
+    await Bun.sleep(10)
+
+    expect(harness.output).toEqual([])
+    expect(harness.transport.snapshot().nextOutputSeq).toBe('0')
+    expect(harness.transport.snapshot().state).toBe('open')
+    expect(harness.sockets).toHaveLength(2)
+    harness.transport.dispose()
+  })
+
+  test('a new authenticated generation resets the output cursor before accepting data', async () => {
+    const harness = makeHarness({}, { generations: [3, 4], sequences: ['0', '0'] })
+    harness.transport.start('0')
+    await Bun.sleep(5)
+    harness.sockets[0]!.deliver(data('0', 'generation three'))
+    await Bun.sleep(5)
+    harness.sockets[0]!.close(1006, 'network flap')
+    await Bun.sleep(40)
+
+    expect(harness.contexts[1]).toEqual({ fromSequence: '1', generation: 3 })
+    expect(harness.transport.snapshot().state).toBe('open')
+    expect(harness.transport.snapshot().nextOutputSeq).toBe('0')
+    harness.sockets[1]!.deliver(data('0', 'generation four'))
+    await Bun.sleep(5)
+    expect(harness.output.map((entry) => entry.text)).toEqual([
+      'generation three',
+      'generation four',
+    ])
+    expect(harness.transport.snapshot().nextOutputSeq).toBe('1')
+    expect(harness.transport.write(new Uint8Array([1]))).toBe(true)
+    expect(harness.sockets[1]!.frames).toContainEqual({
+      type: 'input',
+      sequence: '0',
+      generation: 4,
+      bytes: new Uint8Array([1]),
+    })
+    harness.transport.dispose()
+  })
+
+  test('a changed generation drops queued old-generation input but keeps the fresh stream usable', async () => {
+    const full = 2 * 1024 * 1024
+    const harness = makeHarness({}, { generations: [3, 4], sequences: ['0', '0'] })
+    harness.transport.start('0')
+    await Bun.sleep(5)
+    harness.sockets[0]!.bufferedAmount = full
+    expect(harness.transport.write(new TextEncoder().encode('belongs to generation three'))).toBe(
+      true
+    )
+    harness.sockets[0]!.close(1006, 'network flap')
+    await Bun.sleep(40)
+
+    expect(harness.transport.snapshot()).toMatchObject({ state: 'open', pendingInputBytes: 0 })
+    expect(harness.errors).toContainEqual(
+      expect.objectContaining({ code: 'stale_generation', retryable: false })
+    )
+    expect(harness.sockets[1]!.frames.filter((frame) => frame.type === 'input')).toHaveLength(0)
+
+    harness.sockets[1]!.deliver(data('0', 'new generation output'))
+    await Bun.sleep(5)
+    expect(harness.output.map((entry) => entry.text)).toEqual(['new generation output'])
+    expect(harness.transport.write(new TextEncoder().encode('new input'))).toBe(true)
+    expect(harness.sockets[1]!.frames).toContainEqual({
+      type: 'input',
+      sequence: '0',
+      generation: 4,
+      bytes: new TextEncoder().encode('new input'),
+    })
+    harness.transport.dispose()
+  })
+
+  test('an opened cursor mismatch cannot authorize the stream', () => {
+    const harness = makeHarness(
+      {},
+      {
+        synchronousFrames: [
+          [
+            {
+              type: 'opened',
+              protocol: 'terminal-bytes-v1',
+              generation: 1,
+              nextSequence: '1',
+            },
+          ],
+        ],
+      }
+    )
+    harness.transport.start('0')
+
+    expect(harness.transport.snapshot().state).toBe('closed')
+    expect(harness.transport.write(new Uint8Array([1]))).toBe(false)
+    expect(harness.sockets[0]!.frames.filter((frame) => frame.type === 'input')).toHaveLength(0)
+    expect(harness.errors[0]).toMatchObject({ code: 'sequence_gap', retryable: false })
+    harness.transport.dispose()
+  })
+
+  test('an incompatible protocol or malformed generation cannot authorize writes', () => {
+    const openedFrames: Array<{ frame: DevStreamFrame; code: string }> = [
+      {
+        frame: {
+          type: 'opened',
+          protocol: 'browser-frames-v1',
+          generation: 1,
+          nextSequence: '0',
+        },
+        code: 'unsupported_version',
+      },
+      {
+        frame: {
+          type: 'opened',
+          protocol: 'terminal-bytes-v1',
+          generation: -1,
+          nextSequence: '0',
+        },
+        code: 'stale_generation',
+      },
+    ]
+    for (const candidate of openedFrames) {
+      const harness = makeHarness({}, { synchronousFrames: [[candidate.frame]] })
+      harness.transport.start('0')
+
+      expect(harness.transport.snapshot().state).toBe('closed')
+      expect(harness.transport.write(new Uint8Array([1]))).toBe(false)
+      expect(harness.sockets[0]!.frames.filter((frame) => frame.type === 'input')).toHaveLength(0)
+      expect(harness.errors[0]).toMatchObject({ code: candidate.code, retryable: false })
+      harness.transport.dispose()
+    }
+  })
+
+  test('nonretryable permission and generation errors stop reconnecting', async () => {
+    for (const code of ['permission_denied', 'stale_generation'] as const) {
+      const harness = makeHarness()
+      harness.transport.start('0')
+      await Bun.sleep(5)
+      harness.server!.deliver({
+        type: 'error',
+        error: { code, retryable: false, message: 'attach refused' },
+      })
+      await Bun.sleep(25)
+
+      expect(harness.errors).toContainEqual({ code, retryable: false, message: 'attach refused' })
+      expect(harness.transport.snapshot().state).toBe('closed')
+      expect(harness.sockets).toHaveLength(1)
+      harness.transport.dispose()
+    }
+  })
+
+  test('synchronous typed connect failures stop or retry without leaving a stuck attach', async () => {
+    const denied = makeHarness(
+      {},
+      {
+        connectFailures: [
+          { code: 'permission_denied', retryable: false, message: 'attach refused' },
+        ],
+      }
+    )
+    denied.transport.start('0')
+    expect(denied.transport.snapshot().state).toBe('closed')
+    expect(denied.errors).toContainEqual({
+      code: 'permission_denied',
+      retryable: false,
+      message: 'attach refused',
+    })
+    await Bun.sleep(20)
+    expect(denied.contexts).toHaveLength(1)
+    denied.transport.dispose()
+
+    const temporary = makeHarness(
+      {},
+      {
+        connectFailures: [
+          { code: 'timeout', retryable: true, message: 'temporary attach failure' },
+        ],
+      }
+    )
+    temporary.transport.start('0')
+    await Bun.sleep(25)
+    expect(temporary.contexts).toHaveLength(2)
+    expect(temporary.transport.snapshot().state).toBe('open')
+    expect(temporary.errors).toContainEqual({
+      code: 'timeout',
+      retryable: true,
+      message: 'temporary attach failure',
+    })
+    temporary.transport.dispose()
+
+    const malformed = makeHarness(
+      {},
+      { connectFailures: [new Error('do not expose adapter details')] }
+    )
+    malformed.transport.start('0')
+    expect(malformed.transport.snapshot().state).toBe('closed')
+    expect(malformed.errors).toEqual([
+      {
+        code: 'runtime_node_unavailable',
+        retryable: false,
+        message: 'terminal stream connection could not be opened',
+      },
+    ])
+    malformed.transport.dispose()
+  })
+
+  test('failed control sends best-effort close their socket before reconnecting', async () => {
+    for (const frameType of ['ack', 'resize', 'heartbeat'] as const) {
+      const harness = makeHarness(
+        { heartbeatIntervalMs: 5, heartbeatUnhealthyAfterMs: 10_000 },
+        { sendFailures: [{ attempt: 0, type: frameType }] }
+      )
+      if (frameType === 'resize') harness.transport.resize(100, 30)
+      harness.transport.start('0')
+      await Bun.sleep(5)
+      if (frameType === 'ack') {
+        harness.server!.deliver(data('0', 'ack trigger'))
+        await Bun.sleep(5)
+      }
+      if (frameType === 'heartbeat') await Bun.sleep(10)
+
+      expect(harness.sockets[0]!.closed).toContainEqual({
+        code: 4001,
+        reason: `${frameType} send failed`,
+      })
+      await Bun.sleep(25)
+      expect(harness.sockets.length).toBeGreaterThanOrEqual(2)
+      harness.transport.dispose()
+    }
+  })
+
+  test('retryable stream errors reconnect with the same cursor and generation', async () => {
+    const harness = makeHarness()
+    harness.transport.start('0')
+    await Bun.sleep(5)
+    harness.server!.deliver(data('0', 'kept'))
+    await Bun.sleep(5)
+    harness.server!.deliver({
+      type: 'error',
+      error: { code: 'timeout', retryable: true, message: 'temporary failure' },
+    })
+    await Bun.sleep(40)
+
+    expect(harness.contexts[1]).toEqual({ fromSequence: '1', generation: 1 })
+    expect(harness.transport.snapshot().state).toBe('open')
+    harness.transport.dispose()
+  })
+
   test('delivers replay and live output exactly once in order', async () => {
     const harness = makeHarness()
     harness.transport.start('0')
@@ -189,6 +536,65 @@ describe('terminal transport', () => {
     harness.server!.bufferedAmount = 0
     await Bun.sleep(10)
     expect(harness.server!.frames.filter((frame) => frame.type === 'input').length).toBe(2)
+    harness.transport.dispose()
+  })
+
+  test('an ambiguous input send failure is reported, closed, and never replayed', async () => {
+    for (const queued of [false, true]) {
+      const harness = makeHarness(
+        { heartbeatUnhealthyAfterMs: 60_000 },
+        { sendFailures: [{ attempt: 0, type: 'input', afterDelivery: true }] }
+      )
+      harness.transport.start('0')
+      await Bun.sleep(5)
+      const bytes = new TextEncoder().encode('possibly delivered')
+      if (queued) {
+        harness.sockets[0]!.bufferedAmount = 2 * 1024 * 1024
+        expect(harness.transport.write(bytes)).toBe(true)
+        harness.sockets[0]!.bufferedAmount = 0
+        await Bun.sleep(25)
+      } else {
+        expect(harness.transport.write(bytes)).toBe(false)
+      }
+
+      expect(harness.errors).toContainEqual(
+        expect.objectContaining({ code: 'delivery_ambiguous', retryable: false })
+      )
+      expect(harness.transport.snapshot()).toMatchObject({ state: 'closed', pendingInputBytes: 0 })
+      expect(harness.sockets[0]!.frames.filter((frame) => frame.type === 'input')).toHaveLength(1)
+      expect(harness.sockets[0]!.closed).toContainEqual(
+        expect.objectContaining({ code: 1000, reason: 'delivery_ambiguous' })
+      )
+      await Bun.sleep(25)
+      expect(harness.sockets).toHaveLength(1)
+      harness.transport.dispose()
+    }
+  })
+
+  test('queued input keeps polling after reconnect when the new socket is backpressured', async () => {
+    const full = 2 * 1024 * 1024
+    const harness = makeHarness(
+      { heartbeatUnhealthyAfterMs: 60_000 },
+      { bufferedAmounts: [0, full] }
+    )
+    harness.transport.start('0')
+    await Bun.sleep(5)
+    harness.server!.bufferedAmount = full
+    expect(harness.transport.write(new TextEncoder().encode('after-reconnect'))).toBe(true)
+    harness.sockets[0]!.close(1006, 'network flap')
+    await Bun.sleep(40)
+    expect(harness.sockets).toHaveLength(2)
+    expect(harness.sockets[1]!.frames.filter((frame) => frame.type === 'input')).toHaveLength(0)
+
+    harness.sockets[1]!.bufferedAmount = 0
+    // The bounded drain poll backs off to 100ms while the new socket is full.
+    await Bun.sleep(120)
+    expect(harness.sockets[1]!.frames).toContainEqual({
+      type: 'input',
+      sequence: '0',
+      generation: 1,
+      bytes: new TextEncoder().encode('after-reconnect'),
+    })
     harness.transport.dispose()
   })
 

@@ -1837,6 +1837,14 @@ CBOR with a 64 KiB maximum unless the grant's lower bound applies. Server output
 pauses when credit is zero; client input never exceeds the grant and subsystem
 queue caps. Reconnect obtains a new grant and starts from the last acknowledged
 sequence/checkpoint; it never reuses attach proof or guesses continuity.
+If a newly authenticated `opened` frame changes the terminal generation, the
+client may continue reading from that frame's generation-scoped cursor, but it
+MUST discard queued input from the old generation and report typed
+`stale_generation`; later writes use only the newly authenticated generation.
+If a client input send throws, delivery is ambiguous; the client MUST close the
+stream, discard queued input, report typed `delivery_ambiguous`, and never retry
+those bytes automatically. The pane presents safe copy derived from the error
+code rather than rendering host-provided error text.
 
 The desktop renderer's signed `desktop_file_stream` event bridge is a JSON
 relay, so browser video crossing that leg is split into strict `video_chunk`

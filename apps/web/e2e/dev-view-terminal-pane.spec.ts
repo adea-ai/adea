@@ -269,4 +269,60 @@ test.describe('terminal pane (real xterm surface)', () => {
     expect(consoleErrors).toEqual([])
     expect(pageErrors).toEqual([])
   })
+
+  test('announces dropped queued input while preserving the fresh generation stream', async ({
+    page,
+  }) => {
+    const pane = await openHarness(page)
+    await pane.locator('.xterm').click()
+    await page.evaluate(() => {
+      window.__adeaTerminalPaneHarness.setBufferedAmount(2 * 1024 * 1024)
+    })
+    await page.keyboard.type('old-generation-input')
+    await page.evaluate(() => {
+      window.__adeaTerminalPaneHarness.restart()
+    })
+
+    const status = pane.locator('.dev-terminal-pane-status')
+    await expect(status).toHaveAttribute('data-state', 'open', { timeout: 15_000 })
+    await expect(status).toHaveAttribute('data-error', 'stale_generation')
+    await expect(pane.locator('.dev-terminal-sr')).toContainText(
+      'Queued input from the previous generation was discarded'
+    )
+    await expect(pane.locator('.xterm-rows')).toContainText('generation 2)')
+
+    await pane.locator('.xterm').click()
+    await page.keyboard.type('fresh-input')
+    await expect
+      .poll(async () => (await report(page)).inputsByGeneration['2']?.join(''))
+      .toBe('fresh-input')
+    const state = await report(page)
+    expect(state.inputsByGeneration['1']).toBeUndefined()
+    expect(state.sockets).toBe(2)
+    expect(consoleErrors).toEqual([])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('announces ambiguous input delivery and does not retry possibly delivered bytes', async ({
+    page,
+  }) => {
+    const pane = await openHarness(page)
+    await pane.locator('.xterm').click()
+    await page.evaluate(() => {
+      window.__adeaTerminalPaneHarness.failNextInputSend()
+    })
+    await page.keyboard.type('x')
+
+    const status = pane.locator('.dev-terminal-pane-status')
+    await expect(status).toHaveAttribute('data-state', 'closed')
+    await expect(status).toHaveAttribute('data-error', 'delivery_ambiguous')
+    await expect(pane.locator('.dev-terminal-sr')).toContainText(
+      'Input may have reached the terminal and was not retried'
+    )
+    const state = await report(page)
+    expect(state.inputsByGeneration['1']).toEqual(['x'])
+    expect(state.sockets).toBe(1)
+    expect(consoleErrors).toEqual([])
+    expect(pageErrors).toEqual([])
+  })
 })
