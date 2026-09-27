@@ -37,6 +37,11 @@ layout hooks bound their widths; the shared component supplies the scrim,
 scrolling surface, and outward drag behavior. The copied Drawer and its private
 exports and direct dependency have been removed.
 
+VersionDialog is a thin Adea adapter to the published UpdateDialog. It maps
+native update snapshots and forwards install version checks without owning the
+generic renderer or release-note formatter. The private Dialog remains while
+workspace and appearance compositions still depend on it.
+
 ## Theming contract: CSS custom properties are the only color surface
 
 Components in this package never contain a color literal. Colors come from the
