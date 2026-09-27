@@ -11,6 +11,7 @@ import {
   createFirstRunConversationHandler,
   type DesktopChatModelHost,
 } from '../lib/desktop-chat-host'
+import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
 import { resolveDesktopFirstRun, type DesktopFirstRunWorktree } from '../lib/desktop-first-run-chat'
 
 type WorktreePage = Readonly<{ items: readonly DesktopFirstRunWorktree[] }>
@@ -42,6 +43,8 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   const [ready, setReady] = createSignal<ReadyState>()
   const [conversation, setConversation] = createSignal<ChatConversation>()
   const lifecycle = createDesktopChatLifecycleFence()
+
+  bindDesktopChatPresentation('chat', () => conversation()?.runtimeSessionId)
 
   createEffect(() => {
     // These reads make auth/workspace changes start a fresh scoped load even

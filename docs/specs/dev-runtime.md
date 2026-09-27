@@ -3256,11 +3256,29 @@ entries and never crosses the wire inside the `HarnessRun` DTO.
 
 ### Run history retention
 
-`HarnessRun` records persist durably per scope with bounded retention:
-at most 200 runs, evicting the oldest TERMINAL runs first and never an active
-run. History reads (`dev.harness.runs`) are newest-first with bounded pages
-(default 100, maximum 500) and an opaque cursor. Resume remains
+`HarnessRun` records persist durably per scope with a target of 200 total
+records. When that target is exceeded, the oldest terminal runs are evicted
+first; active runs are never evicted, so the store can exceed 200 while more
+than 200 runs remain active. History reads
+(`dev.harness.runs`) are newest-first with bounded pages (default 100, maximum 500) and an opaque cursor. Resume remains
 resume-as-new-generation under the same canonical `RuntimeSession`.
+
+### Desktop harness notifications
+
+The shell may request a generic desktop notification when a canonical durable
+`run.status` transition enters `awaiting_input`, `awaiting_approval`, or
+`completed`. It compares the durable run snapshot before and after the event;
+initial composition and non-status events do not notify. The selected
+non-archived runtime session is an ephemeral presentation hint sent through
+the signed legacy invoke channel. It is revalidated against the current
+authenticated host projection, and never grants input authority. A focused
+desktop window with a selected runtime session suppresses notifications. The native
+request contains only the fixed title `Adea` and body
+`A conversation needs your attention.` — no IDs, display names, prompts,
+paths, or tool output. A missing or throwing host API is ignored after the
+durable transition; an API call returning records only a request, not proof of
+user-visible delivery. Composition changes dispose the old observer and seed
+the new one from existing history, preventing old runs from replaying.
 
 ### The runtime-events-v1 stream
 

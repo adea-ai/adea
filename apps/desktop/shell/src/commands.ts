@@ -65,7 +65,10 @@ export type BridgeResult = { ok: true; value: unknown } | { ok: false; error: st
 
 export function createCommandSurface(
   dataDir: string,
-  options?: { macPermissions?: MacPermissionService }
+  options?: {
+    macPermissions?: MacPermissionService
+    onChatPresentation?: (focusedSessionId: string | undefined) => void
+  }
 ) {
   const stateDir = join(dataDir, 'desktop-state')
   const contentDir = join(dataDir, 'local-content')
@@ -305,6 +308,18 @@ export function createCommandSurface(
       macPermissions.snapshot({ force: args?.force === true }),
     desktop_permissions_open_settings: (args) =>
       macPermissions.openSettings(String(args?.permissionId ?? '')),
+    // Ephemeral presentation only. The signed legacy invoke gate protects
+    // this hint; the host validates the session against its current scoped
+    // projection and never treats it as command or input authority.
+    desktop_chat_presentation: (args) => {
+      const candidate = args?.focusedSessionId
+      options?.onChatPresentation?.(
+        typeof candidate === 'string' && candidate.length > 0 && candidate.length <= 128
+          ? candidate
+          : undefined
+      )
+      return null
+    },
     // App metadata for the client's version surface.
     adea_app_version: () => APP_VERSION,
   }

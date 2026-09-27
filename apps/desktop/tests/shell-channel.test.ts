@@ -400,6 +400,7 @@ describe('channel gateway', () => {
   let gateway!: ReturnType<typeof createChannelGateway>
   let server: Bun.Server | undefined
   let origin: string
+  const presentationHints: Array<string | undefined> = []
 
   const bootstrap = () => gateway.bootstrapToken()
 
@@ -480,10 +481,9 @@ describe('channel gateway', () => {
     authority = createChannelAuthority({ shellHost, shellOrigin })
     gateway = createChannelGateway({
       authority,
-      invoke: createCommandSurface(dataDir) as (
-        cmd: string,
-        args?: Record<string, unknown>
-      ) => BridgeResult | Promise<BridgeResult>,
+      invoke: createCommandSurface(dataDir, {
+        onChatPresentation: (sessionId) => presentationHints.push(sessionId),
+      }) as (cmd: string, args?: Record<string, unknown>) => BridgeResult | Promise<BridgeResult>,
       shellOrigin,
     })
   })
@@ -524,6 +524,30 @@ describe('channel gateway', () => {
     const devRouted = await signedInvoke(reply, 'dev.capability.snapshot')
     expect(devRouted.status).toBe(200)
     expect(await devRouted.json()).toMatchObject({ ok: false })
+  })
+
+  test('accepts presentation hints only through the signed legacy invoke path', async () => {
+    const { reply } = await handshake(bootstrap())
+    const identity = reply as unknown as {
+      channelId: string
+      clientCredentialId: string
+      clientSecret: string
+    }
+
+    const refused = await fetch(`${origin}/__adea/invoke`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin },
+      body: JSON.stringify({ cmd: 'desktop_chat_presentation', args: { focusedSessionId: 'x' } }),
+    })
+    expect(refused.status).toBe(401)
+    expect(presentationHints).toEqual([])
+
+    const accepted = await signedInvoke(identity, 'desktop_chat_presentation', {
+      focusedSessionId: 'session-1',
+    })
+    expect(accepted.status).toBe(200)
+    expect(await accepted.json()).toEqual({ ok: true, value: null })
+    expect(presentationHints).toEqual(['session-1'])
   })
 
   test('round-trips the pinned command families over the guarded invoke path', async () => {

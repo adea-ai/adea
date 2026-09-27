@@ -29,6 +29,7 @@ import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail
 import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
+import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
 import { isDesktopRuntime } from '../lib/desktop-bridge'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
@@ -300,6 +301,11 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     return props.activeWorkspace?.scene ?? (value === 'work' ? 'work' : 'home')
   }
   const currentSearch = () => search() as WorkspaceSearch
+  // Dev selection is presentation-only. Chat reports its visible canonical
+  // conversation separately; leaving Dev clears only this source.
+  bindDesktopChatPresentation('dev', () =>
+    view() === 'dev' ? (devSelectedSessionId() ?? undefined) : undefined
+  )
   // The ChatView visual fixture selector (#536 evidence lane). Only a DEV
   // build mounts the fixture; the param is inert in production.
   const chatVisualState = (): 'attention' | 'conversation' | 'reconnect' | 'streaming' => {

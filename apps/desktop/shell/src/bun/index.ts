@@ -7,13 +7,18 @@
 // src/dev-runtime/channel/. The Dev Runtime scope is not injected as a
 // global: it is verified against the cloud from the app's own signed bind
 // request and enforced at the gate before any privileged dispatch.
-import { BrowserWindow } from 'electrobun/main'
+import { BrowserWindow, Utils } from 'electrobun/main'
 import { promises as dns } from 'node:dns'
 import { existsSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { agentSimResponse } from '../agent-sim-assets'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface, type BridgeResult } from '../commands'
+import {
+  createHarnessRunNotificationPublisher,
+  requestNativeChatNotification,
+  type RunNotificationPublisher,
+} from '../notifications/harness-run-notifications'
 import {
   createCloudIdentityVerifier,
   createDesktopIdentityAuthority,
@@ -128,7 +133,27 @@ const credentialStore = await createBunSecretsVaultKeyStore({
   runtimeVersion: Bun.version,
 })
 
-const baseInvoke = createCommandSurface(DATA_DIR)
+let host: DevRuntimeHost | undefined
+let notificationPublisher: RunNotificationPublisher | undefined
+let presentedRuntimeSessionId: string | undefined
+// Electrobun activates a BrowserWindow by default. Focus events keep this
+// presentation signal current without polling or querying the OS.
+let desktopWindowFocused = true
+
+function setPresentedRuntimeSession(candidate: string | undefined): void {
+  presentedRuntimeSessionId = undefined
+  if (!candidate || candidate.length > 128) return
+  try {
+    const session = host?.projectSession?.getSession(candidate)
+    if (session?.id === candidate && !session.archived) presentedRuntimeSessionId = candidate
+  } catch {
+    // A stale or unbound renderer hint simply clears the presentation state.
+  }
+}
+
+const baseInvoke = createCommandSurface(DATA_DIR, {
+  onChatPresentation: setPresentedRuntimeSession,
+})
 // The authenticated scope authority: the verified (account, workspace,
 // runtime node) binding plus bounded-TTL runtime-node eligibility.
 const identity = createDesktopIdentityAuthority({
@@ -253,12 +278,20 @@ const streamRelayCommands: Record<string, (args?: Record<string, unknown>) => un
 // worktrees, terminal when the sidecar is present) and typed-unavailable
 // providers for everything else. Re-binding under a different scope
 // recomposes after the composition revoked the old binding's channels.
-let host: DevRuntimeHost | undefined
 // The terminal lane's adopted sidecar client, when the boot adoption
 // succeeded; the composition binds it through the existing `sidecar` seam.
 let sidecarClient: SidecarClient | undefined
-function composeHost(): DevRuntimeHost {
-  return createDevRuntimeHost({
+function composeHost(): { host: DevRuntimeHost; notifications: RunNotificationPublisher } {
+  let composedHost: DevRuntimeHost | undefined
+  const notifications = createHarnessRunNotificationPublisher({
+    readRuns: () => composedHost?.harness?.history.list() ?? [],
+    focusedSessionId: () => presentedRuntimeSessionId,
+    windowFocused: () => desktopWindowFocused,
+    request: (intent) => {
+      requestNativeChatNotification(Utils, intent)
+    },
+  })
+  const nextHost = createDevRuntimeHost({
     authority,
     gateway: gatewayView,
     dataDir: DATA_DIR,
@@ -303,8 +336,17 @@ function composeHost(): DevRuntimeHost {
         return []
       }
     },
-    publish: (event, payload) => gateway.publish(event, payload),
+    publish: (event, payload) => {
+      try {
+        gateway.publish(event, payload)
+      } finally {
+        notifications.onPublishedEvent(event, payload)
+      }
+    },
   })
+  composedHost = nextHost
+  notifications.seed()
+  return { host: nextHost, notifications }
 }
 
 // #185 follow-up: the supervision engine's exit/unhealthy observations ride
@@ -322,7 +364,11 @@ function attachSupervisionEventSink(target: DevRuntimeHost | undefined): void {
   })
 }
 function recomposeHost(): void {
-  host = composeHost()
+  notificationPublisher?.dispose()
+  presentedRuntimeSessionId = undefined
+  const composition = composeHost()
+  host = composition.host
+  notificationPublisher = composition.notifications
   attachSupervisionEventSink(host)
 }
 recomposeHost()
@@ -501,10 +547,17 @@ if (!server) {
   process.exit(1)
 }
 
-// Electrobun registers the window as a constructor side effect; no handle to keep.
-// oxlint-disable-next-line no-new
-new BrowserWindow({
+// Electrobun registers the window as a constructor side effect. Keep the
+// reference only to observe native focus; this signal suppresses presentation
+// notifications and never grants session input ownership.
+const nativeWindow = new BrowserWindow({
   title: 'Adea',
   url: `http://127.0.0.1:${PORT}/`,
   frame: { width: 1280, height: 840, x: 120, y: 90 },
+})
+nativeWindow.on('focus', () => {
+  desktopWindowFocused = true
+})
+nativeWindow.on('blur', () => {
+  desktopWindowFocused = false
 })
