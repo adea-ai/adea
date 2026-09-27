@@ -78,3 +78,9 @@ export function decodeScope(value: unknown, path = 'scope'): Scope {
       fail(`${path}.${key}`, 'expected lowercase UUID')
   return value as Scope
 }
+
+export function uint64String(value: unknown, path: string): string {
+  const text = stringValue(value, path, 1, 64)
+  if (!uint64Pattern.test(text)) fail(path, 'expected canonical uint64 string')
+  return text
+}

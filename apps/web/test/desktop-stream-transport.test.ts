@@ -20,6 +20,8 @@ import { BROWSER_VIDEO_REASSEMBLY_TIMEOUT_MS } from '../src/lib/browser-video-re
 import {
   createDesktopStreamTransport,
   FILE_STREAM_RELAY_EVENT,
+  fromRelayFrame,
+  type RelayFrame,
 } from '../src/lib/desktop-stream-transport'
 import type { DesktopShell } from '../src/lib/desktop-bridge'
 
@@ -666,4 +668,62 @@ describe('desktop stream relay backlog and disposal', () => {
     await Bun.sleep(0)
     expect(listenerCountBeforeHostReply).toBe(0)
   })
+})
+
+describe('desktop relay control frames', () => {
+  test('preserves authenticated heartbeat and resync frames', () => {
+    for (const frame of [
+      { type: 'heartbeat', observedAt: '2026-09-27T18:00:00.000Z', throughSequence: '0' },
+      { type: 'resync', reason: 'checkpoint_required', checkpointSequence: '7' },
+    ] as const) {
+      expect(fromRelayFrame(frame as RelayFrame)).toEqual(frame)
+    }
+  })
+
+  test('rejects malformed controls rather than renewing liveness from them', () => {
+    for (const frame of [
+      { type: 'heartbeat', observedAt: 'yesterday', throughSequence: '0' },
+      { type: 'heartbeat', observedAt: '2026-09-27T18:00:00.000Z', throughSequence: '01' },
+      {
+        type: 'heartbeat',
+        observedAt: '2026-09-27T18:00:00.000Z',
+        throughSequence: '0',
+        extra: true,
+      },
+      { type: 'resync', reason: 'bogus', checkpointSequence: '7' },
+      { type: 'resync', reason: 'sequence_gap', checkpointSequence: '-1' },
+    ]) {
+      expect(() => fromRelayFrame(frame as RelayFrame)).toThrow()
+    }
+  })
+})
+
+test('signed terminal relay delivers controls and retires malformed or closed listeners', async () => {
+  const grant = makeGrant('read', 'terminal-bytes-v1')
+  const fake = fakeShell([grant])
+  const frames: DevStreamFrame[] = []
+  const closes: unknown[] = []
+  const socket = createDesktopStreamTransport({ bridge: fake.bridge })!.connect(grant, {
+    onFrame: (frame) => frames.push(frame),
+    onClose: (code, reason) => closes.push({ code, reason }),
+  })
+  await Bun.sleep(0)
+  const heartbeat = {
+    type: 'heartbeat',
+    observedAt: '2026-09-27T18:00:00.000Z',
+    throughSequence: '0',
+  }
+  const resync = { type: 'resync', reason: 'sequence_gap', checkpointSequence: '7' }
+  fake.publishRelayFrame(grant.grantId, heartbeat)
+  fake.publishRelayFrame(grant.grantId, resync)
+  expect(frames.slice(-2)).toEqual([heartbeat, resync])
+  fake.publishRelayFrame(grant.grantId, { ...heartbeat, throughSequence: '01' })
+  expect(closes).toHaveLength(1)
+  expect(frames.at(-1)).toMatchObject({ type: 'error', error: { code: 'invalid_state' } })
+  const delivered = frames.length
+  fake.publishRelayFrame(grant.grantId, heartbeat)
+  expect(frames).toHaveLength(delivered)
+  await Bun.sleep(0)
+  expect(fake.listenerCount()).toBe(0)
+  socket.close(1000, 'test complete')
 })

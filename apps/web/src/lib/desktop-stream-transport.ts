@@ -17,6 +17,10 @@
 // Client-side bounds honored here regardless of host behaviour: one 64 MiB
 // transfer ceiling check is the pane's, but a refused relay bind surfaces as
 // a typed `DevError` (never a string), so open/save falls back cleanly.
+import {
+  decodeDevStreamControlFrame,
+  type DevStreamControlFrame,
+} from '@adea-ai/types/dev-runtime-control'
 import type { DevError, DevStreamFrame, DevStreamGrant } from '@adea-ai/types/dev-runtime'
 import {
   assertDevStreamRelayEnvelope,
@@ -52,6 +56,7 @@ export type RelayFrame =
   | { type: 'data'; sequence: string; bytes: string }
   | { type: 'input'; sequence: string; generation: number; bytes: string }
   | DevStreamVideoRelayChunk
+  | DevStreamControlFrame
   | { type: 'ack'; throughSequence: string; availableCreditBytes: number }
   | { type: 'error'; error: DevError }
   | { type: 'close'; code: string; reason?: string }
@@ -104,6 +109,9 @@ export function fromRelayFrame(payload: RelayFrame, maxFrameBytes = 64 * 1024): 
         code: payload.code as Extract<DevStreamFrame, { type: 'close' }>['code'],
         ...(payload.reason !== undefined ? { reason: payload.reason } : {}),
       }
+    case 'heartbeat':
+    case 'resync':
+      return decodeDevStreamControlFrame(payload)
     case 'video_chunk':
       throw new Error('video chunks must be reassembled before delivery')
     default:
