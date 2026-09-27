@@ -3,9 +3,7 @@ import { resolve } from 'node:path'
 
 const path = '/__desktop-chat-presentation-harness'
 
-test('mounted Chat and Dev surfaces report only the current presentation hint', async ({
-  page,
-}) => {
+test('reporter hook harness serializes Chat and Dev presentation hints', async ({ page }) => {
   const pageErrors: string[] = []
   const failedRequests: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))

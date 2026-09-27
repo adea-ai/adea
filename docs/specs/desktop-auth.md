@@ -147,7 +147,10 @@ binding and gate ordering by
 `desktop_chat_presentation` is a signed, ephemeral presentation hint. Its
 optional runtime-session ID is accepted only when it resolves in the current
 host's authenticated, non-archived projection. It never grants input or
-command authority. The shell derives notification intent only from canonical
+command authority. A host recomposition preserves this hint only when the
+authenticated scope is unchanged and the new host projection still resolves
+the same non-archived session; an unbind, scope change, or invalid session
+clears it. The shell derives notification intent only from canonical
 durable `run.status` transitions and suppresses notifications when the desktop
 window is focused with a selected runtime session. Native requests contain only the fixed title
 `Adea` and body `A conversation needs your attention.`; an API call returning

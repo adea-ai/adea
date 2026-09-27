@@ -6,6 +6,9 @@ import {
   type ChatPresentationSource,
 } from '../../src/lib/desktop-chat-presentation'
 
+// This small harness tests the reporter hook's source precedence and cleanup.
+// Production caller wiring is exercised separately by WorkspaceNavigation's
+// mounted browser regression.
 type PresentationSurfaceProps = Readonly<{
   source: ChatPresentationSource
   runtimeSessionId: () => string | undefined

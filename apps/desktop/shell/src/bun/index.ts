@@ -19,6 +19,7 @@ import {
   requestNativeChatNotification,
   type RunNotificationPublisher,
 } from '../notifications/harness-run-notifications'
+import { createPresentedRuntimeSession } from '../notifications/presented-runtime-session'
 import {
   createCloudIdentityVerifier,
   createDesktopIdentityAuthority,
@@ -135,30 +136,22 @@ const credentialStore = await createBunSecretsVaultKeyStore({
 
 let host: DevRuntimeHost | undefined
 let notificationPublisher: RunNotificationPublisher | undefined
-let presentedRuntimeSessionId: string | undefined
 // Electrobun activates a BrowserWindow by default. Focus events keep this
 // presentation signal current without polling or querying the OS.
 let desktopWindowFocused = true
 
-function setPresentedRuntimeSession(candidate: string | undefined): void {
-  presentedRuntimeSessionId = undefined
-  if (!candidate || candidate.length > 128) return
-  try {
-    const session = host?.projectSession?.getSession(candidate)
-    if (session?.id === candidate && !session.archived) presentedRuntimeSessionId = candidate
-  } catch {
-    // A stale or unbound renderer hint simply clears the presentation state.
-  }
-}
-
-const baseInvoke = createCommandSurface(DATA_DIR, {
-  onChatPresentation: setPresentedRuntimeSession,
-})
 // The authenticated scope authority: the verified (account, workspace,
 // runtime node) binding plus bounded-TTL runtime-node eligibility.
 const identity = createDesktopIdentityAuthority({
   dataDir: DATA_DIR,
   verifier: createCloudIdentityVerifier({ cloudOrigin: CLOUD_ORIGIN, shellOrigin: SHELL_ORIGIN }),
+})
+const presentedRuntimeSession = createPresentedRuntimeSession({
+  currentScope: () => identity.currentScope(),
+  resolveSession: (id) => host?.projectSession?.getSession(id),
+})
+const baseInvoke = createCommandSurface(DATA_DIR, {
+  onChatPresentation: (candidate) => presentedRuntimeSession.set(candidate),
 })
 // The M10 channel authority binds the trusted window and gates every command.
 // Scope admission runs before capability checks and provider dispatch: a
@@ -285,7 +278,7 @@ function composeHost(): { host: DevRuntimeHost; notifications: RunNotificationPu
   let composedHost: DevRuntimeHost | undefined
   const notifications = createHarnessRunNotificationPublisher({
     readRuns: () => composedHost?.harness?.history.list() ?? [],
-    focusedSessionId: () => presentedRuntimeSessionId,
+    focusedSessionId: () => presentedRuntimeSession.current(),
     windowFocused: () => desktopWindowFocused,
     request: (intent) => {
       requestNativeChatNotification(Utils, intent)
@@ -365,10 +358,10 @@ function attachSupervisionEventSink(target: DevRuntimeHost | undefined): void {
 }
 function recomposeHost(): void {
   notificationPublisher?.dispose()
-  presentedRuntimeSessionId = undefined
   const composition = composeHost()
   host = composition.host
   notificationPublisher = composition.notifications
+  presentedRuntimeSession.revalidateAfterComposition()
   attachSupervisionEventSink(host)
 }
 recomposeHost()

@@ -3278,7 +3278,10 @@ request contains only the fixed title `Adea` and body
 paths, or tool output. A missing or throwing host API is ignored after the
 durable transition; an API call returning records only a request, not proof of
 user-visible delivery. Composition changes dispose the old observer and seed
-the new one from existing history, preventing old runs from replaying.
+the new one from existing history, preventing old runs from replaying. A same-scope
+host recomposition preserves the selected-session hint only if the new host
+projection still validates that non-archived session; a scope change or invalid
+session clears it before the replacement observer can use it.
 
 ### The runtime-events-v1 stream
 
