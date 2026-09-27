@@ -128,6 +128,40 @@ test.describe('terminal pane (real xterm surface)', () => {
     expect(pageErrors).toEqual([])
   })
 
+  test('compose input uses the same backpressure queue as raw typing', async ({ page }) => {
+    const pane = await openHarness(page)
+    await page.evaluate(() => window.__adeaTerminalPaneHarness.setBufferedAmount(2 * 1024 * 1024))
+    const editor = pane.getByLabel('Compose terminal input')
+    await editor.fill('echo queued-composer')
+    await editor.press('Enter')
+    expect((await report(page)).inputsByGeneration['1'] ?? []).toEqual([])
+    await page.evaluate(() => window.__adeaTerminalPaneHarness.setBufferedAmount(0))
+    await expect
+      .poll(async () => (await report(page)).inputsByGeneration['1'])
+      .toEqual(['echo queued-composer\n'])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('a rejected compose draft remains available to edit or retry', async ({ page }) => {
+    const pane = await openHarness(page)
+    await page.evaluate(() => window.__adeaTerminalPaneHarness.setBufferedAmount(2 * 1024 * 1024))
+    const editor = pane.getByLabel('Compose terminal input')
+    const draft = 'x'.repeat(64 * 1024)
+    // Each accepted draft stays within the editor bound. Fill the transport
+    // queue before submitting the draft whose rejection must preserve it.
+    for (let index = 0; index < 15; index++) {
+      await editor.fill(draft)
+      await editor.press('Enter')
+      expect(await editor.inputValue()).toBe('')
+    }
+    await editor.fill(draft)
+    expect(await editor.inputValue()).toHaveLength(draft.length)
+    await editor.press('Enter')
+    expect((await report(page)).inputsByGeneration['1'] ?? []).toEqual([])
+    expect(await editor.inputValue()).toHaveLength(draft.length)
+    expect(pageErrors).toEqual([])
+  })
+
   test('raw typed keys reach the wire as input bytes (#595)', async ({ page }) => {
     const pane = await openHarness(page)
     // The pane focuses its surface on mount; clicking states the focus this

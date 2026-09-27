@@ -2000,6 +2000,14 @@ stream, discard queued input, report typed `delivery_ambiguous`, and never retry
 those bytes automatically. The pane presents safe copy derived from the error
 code rather than rendering host-provided error text.
 
+The real terminal pane routes both raw key input and composed drafts through
+one bounded, generation-fenced transport queue. It clears a composed draft
+only after that queue accepts it; a rejected draft remains editable. Fitted
+PTY dimensions use that same authenticated transport, which sends changes
+immediately when open and coalesces them until an authenticated reconnect.
+Automatic PTY resizing can be disabled when manage capability is absent.
+Native connections use server-only heartbeats.
+
 The renderer's terminal adapter is constructed from the exact selected
 `TerminalRecord` and never discovers a replacement by taking the first ready
 terminal. The first commands use that captured record's scope and bind its

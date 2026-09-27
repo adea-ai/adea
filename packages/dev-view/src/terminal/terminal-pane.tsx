@@ -101,9 +101,10 @@ export type TerminalPaneProps = {
    * function. This is the ONLY authority for command blocks and exit codes.
    */
   subscribeToObservations?: (handler: (observation: ShellObservation) => void) => () => void
-  /** Multiline, history-aware send path into the active terminal. */
-  write: (bytes: Uint8Array) => boolean
-  resize: (cols: number, rows: number) => void
+  /** Native streams send heartbeats from the server only. */
+  heartbeatMode?: 'bidirectional' | 'server_only'
+  /** Automatic fitting may resize the PTY only with manage capability. */
+  resizeEnabled?: boolean
   /**
    * The permissioned clipboard seam (#471 substrate). When absent the pane
    * degrades to the browser clipboard with typed denial handling.
@@ -200,6 +201,7 @@ export function TerminalPane(props: TerminalPaneProps) {
 
   const transport = createTerminalTransport({
     connect: props.connect,
+    heartbeatMode: props.heartbeatMode,
     onOutput: (_sequence, bytes) => {
       terminal.write(bytes)
     },
@@ -478,14 +480,19 @@ export function TerminalPane(props: TerminalPaneProps) {
     onCleanup(unsubscribe ?? (() => undefined))
   })
 
+  let resizeReported = false
   const observer = new ResizeObserver(() => {
     const element = surface()
     if (!element) return
     const cols = terminal.cols
     const rows = terminal.rows
     fit.fit()
-    if (terminal.cols !== cols || terminal.rows !== rows) {
-      props.resize(terminal.cols, terminal.rows)
+    if (
+      props.resizeEnabled !== false &&
+      (!resizeReported || terminal.cols !== cols || terminal.rows !== rows)
+    ) {
+      resizeReported = true
+      transport.resize(terminal.cols, terminal.rows)
     }
   })
   onCleanup(() => {
@@ -497,8 +504,7 @@ export function TerminalPane(props: TerminalPaneProps) {
   function sendDraft(): void {
     const result = editorSend(editor())
     if (!result) return
-    setEditor(result.state)
-    props.write(ENCODER.encode(`${result.payload}\n`))
+    if (transport.write(ENCODER.encode(`${result.payload}\n`))) setEditor(result.state)
   }
 
   function closeSearch(): void {

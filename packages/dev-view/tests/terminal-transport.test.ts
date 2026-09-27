@@ -773,3 +773,23 @@ describe('terminal transport', () => {
     harness.transport.dispose()
   })
 })
+
+test('a resize after attach is delivered immediately on the authenticated generation', async () => {
+  const harness = makeHarness({ heartbeatIntervalMs: 60_000 })
+  try {
+    harness.transport.start('0')
+    await Bun.sleep(5)
+    harness.transport.resize(112, 35)
+    expect(harness.server!.frames).toContainEqual({
+      type: 'resize',
+      sequence: '0',
+      generation: 1,
+      cols: 112,
+      rows: 35,
+    })
+    harness.transport.resize(112, 35)
+    expect(harness.server!.frames.filter((frame) => frame.type === 'resize')).toHaveLength(1)
+  } finally {
+    harness.transport.dispose()
+  }
+})
