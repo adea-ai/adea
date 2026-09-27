@@ -6,6 +6,10 @@ settings, and the `VirtualUnavailable` fallback rendered wherever the private
 engine view mounts. Consumes `@adea-ai/data` and `@adea-ai/state`; never
 imports engine packages directly.
 
+Private message bodies use the host's content resolver. Resolution belongs to
+the currently mounted message: switching messages or disposing the row ignores
+late responses and failures from the previous request.
+
 ## Global rail
 
 The `GlobalWorkspaceRail` stays mounted across workspace views. Ctrl/Cmd+K
