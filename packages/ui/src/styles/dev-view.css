@@ -12,6 +12,11 @@
   background: var(--background);
 }
 
+/* Runtime Chat uses the same contextual hierarchy and semantic panel tokens. */
+.dev-workspace--chat {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .dev-skip-link {
   position: fixed;
   z-index: 100;
