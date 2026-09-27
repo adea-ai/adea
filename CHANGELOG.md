@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.62.4](https://github.com/adea-ai/adea/compare/v0.62.3...v0.62.4) (2026-09-27)
+
+
+### Bug Fixes
+
+* **dev-runtime:** relay bounded browser video frames ([#773](https://github.com/adea-ai/adea/issues/773)) ([02de4aa](https://github.com/adea-ai/adea/commit/02de4aaf87dae70bc1e114a6fca43364a2830fef))
+
 ## [0.62.3](https://github.com/adea-ai/adea/compare/v0.62.2...v0.62.3) (2026-09-27)
 
 
