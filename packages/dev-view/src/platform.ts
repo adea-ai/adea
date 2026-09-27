@@ -67,6 +67,8 @@ export type DevWorkspaceProjection = Readonly<{
 /** One attached, single-use stream socket over the authenticated channel
  *  (`dev.runtime.stream.attach.v1`). */
 export type DevStreamTransportSocket = {
+  /** Measured locally queued and in-flight relay bytes, when the provider supports it. */
+  readonly bufferedAmount?: number
   readonly open: boolean
   send(frame: DevStreamFrame): void
   close(code: number, reason: string): void

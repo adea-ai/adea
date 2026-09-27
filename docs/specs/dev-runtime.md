@@ -1838,6 +1838,20 @@ pauses when credit is zero; client input never exceeds the grant and subsystem
 queue caps. Reconnect obtains a new grant and starts from the last acknowledged
 sequence/checkpoint; it never reuses attach proof or guesses continuity.
 
+The desktop relay exposes measured `bufferedAmount` for its locally retained
+JSON-safe frames, including frames waiting for attach and in-flight invokes.
+This value does not claim to measure the kernel socket or host input queue.
+Each input snapshots the submitted bytes and obeys the grant frame bound;
+terminal input retained by one relay is capped at 1 MiB, including a stricter
+1 MiB encoded backlog and 4,096-frame bound covering ACKs and empty inputs.
+Local subscriptions are removed immediately, before waiting for host cleanup.
+Overflow returns
+non-retryable `backpressure` and closes the relay. A terminal consumer whose
+provider lacks this measurement must not substitute zero. Closing while proof,
+event subscription, or host open is pending fences the eventual result,
+releases listeners and queued input, and retires a late host bind. Invokes that
+already began may have reached the host; subsequent queued invokes are dropped.
+
 The desktop renderer's signed `desktop_file_stream` event bridge is a JSON
 relay, so browser video crossing that leg is split into strict `video_chunk`
 envelopes rather than sending a whole image through a command or event. Each
