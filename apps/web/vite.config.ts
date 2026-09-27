@@ -44,28 +44,37 @@ function protectClientGraph(): Plugin {
     apply: 'build',
     configResolved() {
       rmSync(new URL('./dist/.checks/client-modules.json', import.meta.url), { force: true })
+      rmSync(new URL('./dist/.checks/client-rendered-modules.json', import.meta.url), {
+        force: true,
+      })
     },
     generateBundle(_options, bundle) {
       if (this.environment.name !== 'client') return
       const modules = new Set<string>()
+      const renderedModules = new Set<string>()
       for (const output of Object.values(bundle)) {
         if (output.type !== 'chunk') continue
-        for (const id of Object.keys(output.modules)) {
+        for (const [id, module] of Object.entries(output.modules)) {
           if (forbiddenClientModule(id))
             this.error(`Server-only or framework-server module in client: ${id}`)
           // Keep portable evidence, not absolute build-machine paths.
-          modules.add(
-            id
-              .replaceAll('\\', '/')
-              .replace(repositoryRoot, '<repository>/')
-              .replace(/^.*\/node_modules\//, '<dependencies>/')
-          )
+          const portableId = id
+            .replaceAll('\\', '/')
+            .replace(repositoryRoot, '<repository>/')
+            .replace(/^.*\/node_modules\//, '<dependencies>/')
+          modules.add(portableId)
+          // Rolldown also records wholly tree-shaken modules with zero bytes.
+          if (module.renderedLength > 0) renderedModules.add(portableId)
         }
       }
       mkdirSync(new URL('./dist/.checks/', import.meta.url), { recursive: true })
       writeFileSync(
         new URL('./dist/.checks/client-modules.json', import.meta.url),
         JSON.stringify([...modules].toSorted())
+      )
+      writeFileSync(
+        new URL('./dist/.checks/client-rendered-modules.json', import.meta.url),
+        JSON.stringify([...renderedModules].toSorted())
       )
     },
   }
@@ -124,6 +133,7 @@ export default defineConfig(({ command }) => ({
       ])
     ),
     __ADEA_DESKTOP_CLOUD_ORIGIN__: JSON.stringify(''),
+    __ADEA_DESKTOP_COMPONENTS__: JSON.stringify(command === 'serve'),
   },
   css: { postcss: { plugins: [tailwindcss()] } },
   build: { assetsDir: 'start-assets', sourcemap: false },

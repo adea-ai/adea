@@ -13,6 +13,30 @@ if (!modules.every((id) => typeof id === 'string'))
   throw new Error('Invalid client module evidence')
 const forbidden = modules.filter(forbiddenClientModule)
 if (forbidden.length) throw new Error(`Server dependencies in client: ${forbidden.join(', ')}`)
+// Production web output cannot use the native-only workspace bootstrap. Local
+// development supports both lanes; the separate desktop build retains it.
+const renderedModules = JSON.parse(
+  await readFile(new URL('../dist/.checks/client-rendered-modules.json', import.meta.url), 'utf8')
+)
+if (
+  !Array.isArray(renderedModules) ||
+  renderedModules.length === 0 ||
+  !renderedModules.every((id) => typeof id === 'string' && modules.includes(id))
+)
+  throw new Error('Missing or invalid rendered client module evidence')
+const fixtureModules = renderedModules.filter((id) =>
+  id.endsWith('/packages/dev-view/src/terminal/fixture-terminal-pane.tsx')
+)
+if (fixtureModules.length)
+  throw new Error(`Test terminal fixture in production output: ${fixtureModules.join(', ')}`)
+const desktopOnlyWorkspaceModules = renderedModules.filter(
+  (id) =>
+    id.endsWith('/apps/web/src/components/desktop-workspace-entry.tsx') ||
+    id.endsWith('/apps/web/src/components/desktop-first-run-chat.tsx')
+)
+if (desktopOnlyWorkspaceModules.length)
+  throw new Error(`Desktop-only workspace in web output: ${desktopOnlyWorkspaceModules.join(', ')}`)
+
 // The trimZodLocales Vite plugin narrows zod's locales barrel to English; a
 // dependency update that routes around it must be caught here, not in a
 // bundle-diff review.

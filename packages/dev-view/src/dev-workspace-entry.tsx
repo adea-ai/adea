@@ -73,7 +73,6 @@ import type { DevRuntimeService, DevWorkspaceProjection } from './platform'
 import type { TerminalStreamSocket } from './terminal/transport'
 import type { ShellObservation } from './terminal/blocks'
 import { resolveDevSelection, type DevSelection, type DevSelectionReason } from './selection'
-import { FixtureTerminalPane } from './terminal/fixture-terminal-pane'
 import {
   archiveShelfError,
   archiveShelfReady,
@@ -97,6 +96,15 @@ import {
   reorderProjects,
   reorderProjectsRelativeTo,
 } from './sidebar/reorder'
+
+// Test transport and fake output are development-only, never production code.
+const FixtureTerminalPane = import.meta.env.DEV
+  ? lazy(() =>
+      import('./terminal/fixture-terminal-pane').then((module) => ({
+        default: module.FixtureTerminalPane,
+      }))
+    )
+  : undefined
 
 export type DevProjectFixture = Readonly<{
   id: string
@@ -423,7 +431,9 @@ const setCompactSidebarOpen = (open: boolean) =>
 
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
-  const fixtureTerminalObservations = createFixtureTerminalObservations()
+  const fixtureTerminalObservations = import.meta.env.DEV
+    ? createFixtureTerminalObservations()
+    : undefined
   let storageController: ReturnType<typeof createLayoutStorageController> | undefined
   // #399: the file the central editor leaf shows. Open files are session-local
   // leaves in the split model — selecting a file focuses (or creates) the
@@ -1328,14 +1338,16 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             state={layout()}
             unavailable={runtimeState().status === 'unavailable'}
             renderTerminalLeaf={() =>
-              fixtureMode() ? (
-                <FixtureTerminalPane
-                  connect={createFixtureTerminalConnect()}
-                  fromSequence="0"
-                  subscribeToObservations={fixtureTerminalObservations}
-                  write={() => true}
-                  worktreeLabel="Example project"
-                />
+              import.meta.env.DEV && FixtureTerminalPane && fixtureMode() ? (
+                <Suspense fallback={<p class="dev-pane-state__line">Loading test terminal…</p>}>
+                  <FixtureTerminalPane
+                    connect={createFixtureTerminalConnect()}
+                    fromSequence="0"
+                    subscribeToObservations={fixtureTerminalObservations}
+                    write={() => true}
+                    worktreeLabel="Example project"
+                  />
+                </Suspense>
               ) : undefined
             }
             renderEditorLeaf={() => {

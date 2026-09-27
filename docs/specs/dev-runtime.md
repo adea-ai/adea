@@ -4274,6 +4274,12 @@ scripts and skip loudly when the bundle has not been built; the packaged
 lane is the enforcement point. Run packaged test files one at a time in
 fresh worktrees.
 
+The fixture terminal renderer and its synthetic connect/observation callbacks
+are development-only (`import.meta.env.DEV`). Both production client builds omit
+that renderer. Local Vite journeys may load it lazily to test reconnect, keyboard
+search and stable pane identity; those tests do not attach a native PTY. The web
+production module gate rejects emitted fixture-terminal code.
+
 No issue closes on fixture-only production integration. Unsupported platform
 states remain deterministic fixtures, but the local packaged macOS path must
 pass before M12 release. M12 also requires authorized fake

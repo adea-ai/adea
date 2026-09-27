@@ -17,28 +17,37 @@ function protectClientGraph(): Plugin {
       rmSync(new URL('./dist-desktop/.checks/client-modules.json', import.meta.url), {
         force: true,
       })
+      rmSync(new URL('./dist-desktop/.checks/client-rendered-modules.json', import.meta.url), {
+        force: true,
+      })
     },
     generateBundle(_options, bundle) {
       if (this.environment.name !== 'client') return
       const modules = new Set<string>()
+      const renderedModules = new Set<string>()
       for (const output of Object.values(bundle)) {
         if (output.type !== 'chunk') continue
-        for (const id of Object.keys(output.modules)) {
+        for (const [id, module] of Object.entries(output.modules)) {
           if (forbiddenClientModule(id))
             this.error(`Server-only or framework-server module in client: ${id}`)
           // Keep portable evidence, not absolute build-machine paths.
-          modules.add(
-            id
-              .replaceAll('\\', '/')
-              .replace(repositoryRoot, '<repository>/')
-              .replace(/^.*\/node_modules\//, '<dependencies>/')
-          )
+          const portableId = id
+            .replaceAll('\\', '/')
+            .replace(repositoryRoot, '<repository>/')
+            .replace(/^.*\/node_modules\//, '<dependencies>/')
+          modules.add(portableId)
+          // Rolldown also records wholly tree-shaken modules with zero bytes.
+          if (module.renderedLength > 0) renderedModules.add(portableId)
         }
       }
       mkdirSync(new URL('./dist-desktop/.checks/', import.meta.url), { recursive: true })
       writeFileSync(
         new URL('./dist-desktop/.checks/client-modules.json', import.meta.url),
         JSON.stringify([...modules].toSorted())
+      )
+      writeFileSync(
+        new URL('./dist-desktop/.checks/client-rendered-modules.json', import.meta.url),
+        JSON.stringify([...renderedModules].toSorted())
       )
     },
   }
@@ -48,8 +57,8 @@ function protectClientGraph(): Plugin {
  * Desktop build of the single UI. The shell serves this static TanStack Start
  * SPA output from loopback (`http://127.0.0.1:4789`), which is the trusted
  * desktop origin. It is the same source, styles, and router as the deployed web
- * app; the only build-time difference is the cloud origin constant the desktop
- * runtime uses for its API base and session broker.
+ * app. The desktop build retains native workspace components and supplies the
+ * cloud origin constant used for its API base and session broker.
  *
  * `ADEA_DESKTOP_CLOUD_ORIGIN` is required: `apps/desktop/scripts/client.mjs`
  * validates it from the canonical `cloud-config.mjs` before invoking this
@@ -88,6 +97,7 @@ export default defineConfig(({ mode }) => {
         ])
       ),
       __ADEA_DESKTOP_CLOUD_ORIGIN__: JSON.stringify(cloudOrigin),
+      __ADEA_DESKTOP_COMPONENTS__: true,
     },
     css: { postcss: { plugins: [tailwindcss()] } },
     build: {

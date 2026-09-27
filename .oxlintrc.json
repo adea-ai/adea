@@ -65,6 +65,7 @@
       {
         "allow": [
           "__ADEA_DESKTOP_CLOUD_ORIGIN__",
+          "__ADEA_DESKTOP_COMPONENTS__",
           "__ADEA_DEV_SCOPE__",
           "__ADEA_INITIAL_HASH__",
           "__ADEA_NAVIGATION_START__",
