@@ -337,6 +337,63 @@ const thrownCode = (call: () => unknown): string => {
 }
 
 describe('device providers with a live engine', () => {
+  test('responsive inventory supports the bound list-to-start path without host tooling', async () => {
+    const { providers } = providersHarness(undefined)
+    const page = providers['dev.device.list']!(deviceCommand('dev.device.list', {})) as {
+      items: { id: string; kind: string; generation: number; state: string }[]
+    }
+    const responsive = page.items.find((item) => item.kind === 'responsive')
+    expect(responsive).toMatchObject({ id: 'responsive', generation: 1, state: 'available' })
+    const session = await providers['dev.device.start']!(
+      deviceCommand('dev.device.start', {
+        inventoryId: responsive!.id,
+        expectedGeneration: responsive!.generation,
+        runtimeSessionId: sessionId,
+      })
+    )
+    expect(session).toMatchObject({ inventoryId: 'responsive', state: 'attached', scope })
+    const limited = providers['dev.device.list']!(
+      deviceCommand('dev.device.list', { limit: 1 })
+    ) as { items: { kind: string }[] }
+    expect(limited.items.map((item) => item.kind)).toEqual(['responsive'])
+    const filtered = providers['dev.device.list']!(
+      deviceCommand('dev.device.list', { kind: 'ios_simulator' })
+    ) as { items: { kind: string }[] }
+    expect(filtered.items.every((item) => item.kind === 'ios_simulator')).toBe(true)
+  })
+
+  test('responsive start rejects a stale inventory generation', async () => {
+    const { providers } = providersHarness(undefined)
+    await expect(
+      providers['dev.device.start']!(
+        deviceCommand('dev.device.start', {
+          inventoryId: 'responsive',
+          expectedGeneration: 2,
+          runtimeSessionId: sessionId,
+        })
+      )
+    ).rejects.toMatchObject({ code: 'stale_generation' })
+  })
+
+  test('session listing stays inside the command account, workspace and runtime node', () => {
+    const { sessions, providers } = providersHarness(undefined)
+    const own = sessions.startResponsive(scope, sessionId)
+    for (const field of ['accountId', 'workspaceId', 'runtimeNodeId'] as const)
+      sessions.startResponsive(
+        { ...scope, [field]: '00000000-0000-4000-8000-000000000099' },
+        sessionId
+      )
+    const ownOther = sessions.startResponsive(scope, '00000000-0000-4000-8000-0000000000b2')
+    const filtered = providers['dev.device.sessions']!(
+      deviceCommand('dev.device.sessions', { runtimeSessionId: sessionId })
+    ) as { items: { id: string }[] }
+    expect(filtered.items.map((item) => item.id)).toEqual([own.id])
+    const all = providers['dev.device.sessions']!(deviceCommand('dev.device.sessions', {})) as {
+      items: { id: string }[]
+    }
+    expect(all.items.map((item) => item.id)).toEqual([own.id, ownOther.id])
+  })
+
   test('start executes the launch record and binds the process identity', async () => {
     const { sessions, providers } = providersHarness(fakeDeviceEngine)
     const session = (await providers['dev.device.start']!(

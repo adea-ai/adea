@@ -126,6 +126,69 @@ function browserCommand(
 }
 
 describe('production registrar composition', () => {
+  test('responsive list, start, scoped sessions and stop pass through the signed channel', async () => {
+    const { authority, runtime } = productionRuntime()
+    const channel = handshakeChannel(authority)
+    const issue = (
+      operation: Extract<DevOperation, `dev.device.${string}`>,
+      body: Record<string, unknown>,
+      resource?: DevCommand['resource']
+    ): DevCommand => ({
+      schemaVersion: 1,
+      operation,
+      requestId: crypto.randomUUID(),
+      nonce: Buffer.from(crypto.randomUUID()).toString('base64url'),
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      scope,
+      capabilities: devOperationDefinitions[operation].capabilities,
+      ...(resource ? { resource } : {}),
+      body,
+    })
+    const listed = await executeCommand(authority, channel, issue('dev.device.list', {}))
+    expect(listed.ok).toBe(true)
+    const inventory = (listed.value as { items: { id: string; generation: number }[] }).items
+    const responsive = inventory.find((item) => item.id === 'responsive')!
+    expect(responsive.generation).toBe(1)
+    const runtimeSessionId = '00000000-0000-4000-8000-000000000020'
+    const started = await executeCommand(
+      authority,
+      channel,
+      issue(
+        'dev.device.start',
+        { inventoryId: responsive.id, expectedGeneration: responsive.generation, runtimeSessionId },
+        { kind: 'device_inventory', id: responsive.id, generation: responsive.generation }
+      )
+    )
+    expect(started.ok).toBe(true)
+    const session = started.value as { id: string; generation: number; state: string }
+    expect(session.state).toBe('attached')
+    runtime.deviceSessions.startResponsive(
+      { ...scope, workspaceId: '00000000-0000-4000-8000-000000000099' },
+      runtimeSessionId
+    )
+    const sessions = await executeCommand(
+      authority,
+      channel,
+      issue('dev.device.sessions', { runtimeSessionId })
+    )
+    expect(sessions.ok).toBe(true)
+    expect((sessions.value as { items: { id: string }[] }).items.map((item) => item.id)).toEqual([
+      session.id,
+    ])
+    const stopped = await executeCommand(
+      authority,
+      channel,
+      issue(
+        'dev.device.stop',
+        { deviceSessionId: session.id, expectedGeneration: session.generation },
+        { kind: 'device_session', id: session.id, generation: session.generation }
+      )
+    )
+    expect(stopped.ok).toBe(true)
+    expect(stopped.value).toMatchObject({ state: 'stopped' })
+  })
+
   test('the shell instantiates the runtime with no test-only dependencies', async () => {
     const { runtime } = productionRuntime()
     // Every contract operation for browser/device dispatches through the M10
