@@ -60,7 +60,12 @@ export function finiteNumber(value: unknown, path: string, min = -Infinity, max 
 
 export function timestamp(value: unknown, path: string) {
   const text = stringValue(value, path)
-  if (!timestampPattern.test(text) || Number.isNaN(Date.parse(text)))
+  const parsed = Date.parse(text)
+  if (
+    !timestampPattern.test(text) ||
+    Number.isNaN(parsed) ||
+    new Date(parsed).toISOString().slice(0, 19) !== text.slice(0, 19)
+  )
     fail(path, 'expected UTC timestamp')
   return text
 }
@@ -77,4 +82,11 @@ export function decodeScope(value: unknown, path = 'scope'): Scope {
     if (!uuidPattern.test(stringValue(item[key], `${path}.${key}`)))
       fail(`${path}.${key}`, 'expected lowercase UUID')
   return value as Scope
+}
+
+export function uint64String(value: unknown, path: string): string {
+  const text = stringValue(value, path, 1, 64)
+  if (!uint64Pattern.test(text) || BigInt(text) > 18446744073709551615n)
+    fail(path, 'expected canonical uint64 string')
+  return text
 }
