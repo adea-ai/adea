@@ -45,6 +45,11 @@
       "types": "./dist/dev-runtime-control.d.ts",
       "development": "./src/dev-runtime-control.ts",
       "import": "./dist/dev-runtime-control.js"
+    },
+    "./dev-runtime-errors": {
+      "types": "./dist/dev-runtime-errors.d.ts",
+      "development": "./src/dev-runtime-errors.ts",
+      "import": "./dist/dev-runtime-errors.js"
     }
   },
   "scripts": {

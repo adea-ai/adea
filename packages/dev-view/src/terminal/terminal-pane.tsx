@@ -26,7 +26,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 // instead of relying on the consumer to bring them out of band (#595).
 import '@xterm/xterm/css/xterm.css'
 
-import type { DevStreamFrame, ShellProfile } from '@adea-ai/types/dev-runtime'
+import type { DevErrorCode, ShellProfile } from '@adea-ai/types/dev-runtime'
 import {
   applyObservation,
   blockExportText,
@@ -78,15 +78,21 @@ import {
   shellSelectionPresentation,
 } from './shell-fallback'
 import { parseOsc133Marker, parseOsc7Cwd } from './shell-events'
-import { createTerminalTransport, type TerminalStreamSocket } from './transport'
+import {
+  createTerminalTransport,
+  type TerminalAttachContext,
+  type TerminalStreamHandlers,
+  type TerminalStreamSocket,
+} from './transport'
+import { terminalConnectionErrorMessage } from './connection-errors'
 import './terminal-pane.css'
 
 export type TerminalPaneProps = {
   /** Opens one authenticated terminal-bytes-v1 stream (new grant per call). */
-  connect: (handlers: {
-    onFrame: (frame: DevStreamFrame) => void
-    onClose: () => void
-  }) => TerminalStreamSocket
+  connect: (
+    handlers: TerminalStreamHandlers,
+    context: TerminalAttachContext
+  ) => TerminalStreamSocket
   /** The grant's starting sequence for this attach; replay restores scrollback. */
   fromSequence: string
   /**
@@ -151,6 +157,10 @@ export function TerminalPane(props: TerminalPaneProps) {
   const [blocks, setBlocks] = createSignal(createBlocksState())
   const [editor, setEditor] = createSignal(createEditorState(props.commandHistory ?? []))
   const [connection, setConnection] = createSignal('connecting')
+  const [connectionError, setConnectionError] = createSignal<{
+    code: DevErrorCode
+    message: string
+  } | null>(null)
   const [clipboard, setClipboard] = createSignal(createClipboardState())
   const [search, setSearch] = createSignal(createSearchState())
   const [integration, setIntegration] = createSignal(
@@ -193,7 +203,12 @@ export function TerminalPane(props: TerminalPaneProps) {
     onOutput: (_sequence, bytes) => {
       terminal.write(bytes)
     },
-    onConnectionState: setConnection,
+    onConnectionState: (state) => {
+      setConnection(state)
+      if (state === 'open') setConnectionError(null)
+    },
+    onConnectionError: ({ code }) =>
+      setConnectionError({ code, message: terminalConnectionErrorMessage(code) }),
     onSequenceGap: () => transport.resyncFrom('0'),
     onResyncRequired: (checkpointSequence) => transport.resyncFrom(checkpointSequence),
     onInputOverflow: () => {
@@ -525,8 +540,12 @@ export function TerminalPane(props: TerminalPaneProps) {
       onKeyDown={onSectionKeyDown}
     >
       <header class="dev-terminal-pane-header">
-        <span class="dev-terminal-pane-status" data-state={connection()}>
-          {connection()}
+        <span
+          class="dev-terminal-pane-status"
+          data-state={connection()}
+          data-error={connectionError()?.code}
+        >
+          {connectionError()?.message ?? connection()}
         </span>
         <Show when={props.worktreeLabel}>
           <span class="dev-terminal-pane-worktree">{props.worktreeLabel}</span>
@@ -761,7 +780,7 @@ export function TerminalPane(props: TerminalPaneProps) {
         </div>
       </Show>
       <span class="dev-terminal-sr" aria-live="polite">
-        {announcement() || linkStatus()}
+        {connectionError()?.message || announcement() || linkStatus()}
       </span>
     </section>
   )

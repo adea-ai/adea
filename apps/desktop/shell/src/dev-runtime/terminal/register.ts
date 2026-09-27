@@ -21,6 +21,7 @@ import type { ChannelAuthority, ChannelIdentity } from '../channel/authority'
 import type { ChannelGateway, StreamProvider } from '../channel/server'
 import type { SidecarClient } from './sidecar/client'
 import type { ByteFrameMeta } from './sidecar/protocol'
+import { TERMINAL_LIMITS } from './limits'
 import { installWrapper, parseShellKind, type ShellKind } from './shell-integration'
 import { createInputAuthority, fencedWrite, type InputFence } from './input-authority'
 
@@ -78,6 +79,8 @@ export type RegisterTerminalRuntimeInput = {
    */
   resolveWorktreeRoot: (worktreeId: string) => string | null
   now?: () => number
+  /** Test seam for the normative 15s read-stream heartbeat scheduler. */
+  scheduleHeartbeat?: (tick: () => void, intervalMs: number) => () => void
 }
 
 export type TerminalRuntimeRegistration = {
@@ -175,21 +178,32 @@ type SidecarSnapshot = {
   subscriberCount: number
 }
 
+const canonicalTerminalSequence = /^(0|[1-9][0-9]*)$/
+const TERMINAL_SEQUENCE_MAX = (1n << 64n) - 1n
+
 export function registerTerminalRuntime(
   input: RegisterTerminalRuntimeInput
 ): TerminalRuntimeRegistration {
   const now = input.now ?? Date.now
+  const scheduleHeartbeat =
+    input.scheduleHeartbeat ??
+    ((tick: () => void, intervalMs: number) => {
+      const timer = setInterval(tick, intervalMs)
+      return () => clearInterval(timer)
+    })
   const registry = new Map<string, TerminalRegistryEntry>()
   const inputAuthorities = new Map<string, ReturnType<typeof createInputAuthority>>()
-  const readSessions = new Map<
-    string,
-    {
-      terminalId: string
-      subscriberId: string
-      session: Parameters<StreamProvider>[0]
-      outstandingBytes: number
-    }
-  >()
+  type ReadSession = {
+    terminalId: string
+    subscriberId: string
+    session: Parameters<StreamProvider>[0]
+    generation: number
+    throughSequence: string
+    outstandingBytes: number
+    heartbeatProbeInFlight: boolean
+    stopHeartbeat?: () => void
+  }
+  const readSessions = new Map<string, ReadSession>()
   const writeSessions = new Map<
     string,
     {
@@ -205,6 +219,147 @@ export function registerTerminalRuntime(
   const exitObservers = new Set<
     (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
   >()
+
+  function stopReadSession(
+    state: ReadSession,
+    options: {
+      close?: { code: Parameters<ReadSession['session']['close']>[0]; reason: string }
+      detach?: boolean
+      error?: DevError
+    } = {}
+  ): void {
+    if (readSessions.get(state.subscriberId) !== state) return
+    readSessions.delete(state.subscriberId)
+    state.stopHeartbeat?.()
+    state.stopHeartbeat = undefined
+    if (options.error) {
+      try {
+        state.session.send({ type: 'error', error: options.error })
+      } catch {
+        /* the stream may already be gone */
+      }
+    }
+    if (options.close) {
+      try {
+        state.session.close(options.close.code, options.close.reason)
+      } catch {
+        /* the stream may already be gone */
+      }
+    }
+    if (options.detach !== false && !input.sidecar.isClosed()) {
+      void input.sidecar.detach(state.terminalId, state.subscriberId).catch(() => undefined)
+    }
+  }
+
+  function lastThroughSequence(nextSequence: string): string | null {
+    if (!canonicalTerminalSequence.test(nextSequence)) return null
+    const next = BigInt(nextSequence)
+    if (next > TERMINAL_SEQUENCE_MAX) return null
+    // The initial empty stream has cursor zero. The terminal protocol keeps
+    // that anchor (rather than inventing a signed -1 uint64 sentinel).
+    return (next === 0n ? 0n : next - 1n).toString()
+  }
+
+  function startReadHeartbeat(state: ReadSession): boolean {
+    try {
+      state.stopHeartbeat = scheduleHeartbeat(() => {
+        if (readSessions.get(state.subscriberId) !== state) return
+        if (input.sidecar.isClosed()) {
+          stopReadSession(state, {
+            close: { code: 'normal', reason: 'terminal sidecar disconnected' },
+            error: devError('unavailable', 'terminal sidecar disconnected'),
+            detach: false,
+          })
+          return
+        }
+        const entry = registry.get(state.terminalId)
+        if (!entry || entry.generation !== state.generation) {
+          stopReadSession(state, {
+            close: { code: 'stale_generation', reason: 'terminal generation changed' },
+            error: devError('stale_generation', 'terminal generation changed'),
+          })
+          return
+        }
+        if (state.heartbeatProbeInFlight) return
+        state.heartbeatProbeInFlight = true
+        void input.sidecar
+          .list()
+          .then((listed) => {
+            state.heartbeatProbeInFlight = false
+            if (readSessions.get(state.subscriberId) !== state) return
+            if (!listed.ok) {
+              const error = sidecarFailure(listed.code, listed.message)
+              stopReadSession(state, {
+                close: { code: 'normal', reason: 'terminal heartbeat probe failed' },
+                error,
+              })
+              return
+            }
+            if (!Array.isArray(listed.value.terminals)) {
+              stopReadSession(state, {
+                close: { code: 'incompatible', reason: 'terminal list response is invalid' },
+                error: devError('invalid_state', 'terminal list response is invalid'),
+              })
+              return
+            }
+            const matches = listed.value.terminals.filter(
+              (snapshot): snapshot is SidecarSnapshot =>
+                typeof snapshot === 'object' &&
+                snapshot !== null &&
+                'terminalId' in snapshot &&
+                snapshot.terminalId === state.terminalId
+            )
+            if (matches.length !== 1 || matches[0]!.generation !== state.generation) {
+              stopReadSession(state, {
+                close: { code: 'stale_generation', reason: 'terminal snapshot changed' },
+                error: devError('stale_generation', 'terminal snapshot changed'),
+              })
+              return
+            }
+            if (typeof matches[0]!.nextSeq !== 'string') {
+              stopReadSession(state, {
+                close: { code: 'incompatible', reason: 'terminal snapshot cursor is invalid' },
+                error: devError('sequence_gap', 'terminal snapshot cursor is invalid'),
+              })
+              return
+            }
+            const throughSequence = lastThroughSequence(matches[0]!.nextSeq)
+            if (throughSequence === null) {
+              stopReadSession(state, {
+                close: { code: 'incompatible', reason: 'terminal snapshot cursor is invalid' },
+                error: devError('sequence_gap', 'terminal snapshot cursor is invalid'),
+              })
+              return
+            }
+            if (BigInt(throughSequence) > BigInt(state.throughSequence)) {
+              state.throughSequence = throughSequence
+            }
+            try {
+              state.session.send({
+                type: 'heartbeat',
+                observedAt: new Date(now()).toISOString(),
+                throughSequence: state.throughSequence,
+              })
+            } catch {
+              stopReadSession(state, {
+                close: { code: 'normal', reason: 'terminal read stream is no longer writable' },
+              })
+            }
+          })
+          .catch(() => {
+            state.heartbeatProbeInFlight = false
+            if (readSessions.get(state.subscriberId) !== state) return
+            stopReadSession(state, {
+              close: { code: 'normal', reason: 'terminal heartbeat probe failed' },
+              error: devError('timeout', 'terminal heartbeat probe failed', true),
+            })
+          })
+      }, TERMINAL_LIMITS.heartbeatIntervalMs)
+      return true
+    } catch {
+      return false
+    }
+  }
 
   async function snapshotFor(terminalId: string): Promise<SidecarSnapshot | null> {
     const listed = await input.sidecar.list()
@@ -567,49 +722,117 @@ export function registerTerminalRuntime(
       if (grant.direction === 'read') {
         const terminalId = grant.resource.id
         const subscriberId = grant.grantId
-        const state = { terminalId, subscriberId, session, outstandingBytes: 0 }
+        const entry = registry.get(terminalId)
+        if (!entry || entry.generation !== grant.resource.generation) {
+          const error = entry
+            ? devError('stale_generation', 'read grant generation is stale')
+            : devError('not_found', 'terminal is not registered on this runtime node')
+          session.send({ type: 'error', error })
+          session.close(entry ? 'stale_generation' : 'incompatible', error.message)
+          return
+        }
+        const state: ReadSession = {
+          terminalId,
+          subscriberId,
+          session,
+          generation: grant.resource.generation,
+          throughSequence: '0',
+          outstandingBytes: 0,
+          heartbeatProbeInFlight: false,
+        }
         readSessions.set(subscriberId, state)
+        session.onClose = () => {
+          if (readSessions.get(subscriberId) !== state) return
+          readSessions.delete(subscriberId)
+          state.stopHeartbeat?.()
+          state.stopHeartbeat = undefined
+          if (!input.sidecar.isClosed()) {
+            void input.sidecar.detach(terminalId, subscriberId).catch(() => undefined)
+          }
+        }
         void input.sidecar
           .attach({ terminalId, subscriberId, sinceSeq: grant.fromSequence })
           .then((attached) => {
             if (readSessions.get(subscriberId) !== state) return
             if (!attached.ok) {
-              session.send({
-                type: 'error',
+              stopReadSession(state, {
                 error: sidecarFailure(attached.code, attached.message),
+                close: { code: 'incompatible', reason: attached.message },
               })
-              session.close('incompatible', attached.message)
-              readSessions.delete(subscriberId)
               return
             }
             if (attached.value.resyncRequired) {
-              session.send({
-                type: 'resync',
-                reason: 'checkpoint_required',
-                checkpointSequence: attached.value.checkpointSequence,
+              try {
+                session.send({
+                  type: 'resync',
+                  reason: 'checkpoint_required',
+                  checkpointSequence: attached.value.checkpointSequence,
+                })
+              } catch {
+                /* the stream may already be gone */
+              }
+              stopReadSession(state, {
+                close: { code: 'backpressure', reason: 'coverage begins at the checkpoint anchor' },
               })
-              session.close('backpressure', 'coverage begins at the checkpoint anchor')
-              readSessions.delete(subscriberId)
+              return
+            }
+            const current = registry.get(terminalId)
+            if (!current || current.generation !== state.generation) {
+              stopReadSession(state, {
+                error: devError('stale_generation', 'terminal generation changed during attach'),
+                close: {
+                  code: 'stale_generation',
+                  reason: 'terminal generation changed during attach',
+                },
+              })
+              return
+            }
+            const attachedThroughSequence = lastThroughSequence(attached.value.nextSeq)
+            if (attachedThroughSequence === null) {
+              stopReadSession(state, {
+                error: devError('sequence_gap', 'terminal attach returned an invalid cursor'),
+                close: {
+                  code: 'incompatible',
+                  reason: 'terminal attach returned an invalid cursor',
+                },
+              })
+              return
+            }
+            if (BigInt(attachedThroughSequence) > BigInt(state.throughSequence)) {
+              state.throughSequence = attachedThroughSequence
+            }
+            if (!startReadHeartbeat(state)) {
+              stopReadSession(state, {
+                error: devError('timeout', 'terminal heartbeat could not be scheduled', true),
+                close: { code: 'normal', reason: 'terminal heartbeat could not be scheduled' },
+              })
             }
           })
           .catch(() => {
-            readSessions.delete(subscriberId)
-            session.close('normal', 'attach failed')
+            stopReadSession(state, {
+              error: devError('timeout', 'terminal attach failed', true),
+              close: { code: 'normal', reason: 'attach failed' },
+            })
           })
         session.onFrame = (frame) => {
           if (frame.type !== 'ack') {
-            session.close('incompatible', 'read streams accept only ack frames')
+            stopReadSession(state, {
+              close: { code: 'incompatible', reason: 'read streams accept only ack frames' },
+              error: devError('unsupported_version', 'read streams accept only ack frames'),
+            })
             return
           }
           void input.sidecar
             .acknowledge(terminalId, subscriberId, frame.availableCreditBytes)
-            .catch(() => readSessions.delete(subscriberId))
+            .catch(() => {
+              if (readSessions.get(subscriberId) === state) {
+                stopReadSession(state, {
+                  error: devError('timeout', 'terminal acknowledgement failed', true),
+                  close: { code: 'normal', reason: 'terminal acknowledgement failed' },
+                })
+              }
+            })
           state.outstandingBytes = Math.max(0, state.outstandingBytes - frame.availableCreditBytes)
-        }
-        session.onClose = () => {
-          if (readSessions.get(subscriberId) === state) readSessions.delete(subscriberId)
-          // Detach is fire-and-forget: the PTY lives on.
-          void input.sidecar.detach(terminalId, subscriberId).catch(() => undefined)
         }
         return
       }
@@ -697,12 +920,34 @@ export function registerTerminalRuntime(
         if (meta.kind !== 'terminal.data' || !meta.subscriberId) return
         const state = readSessions.get(meta.subscriberId)
         if (!state) return
+        const entry = registry.get(state.terminalId)
+        if (
+          meta.terminalId !== state.terminalId ||
+          meta.generation !== state.generation ||
+          !entry ||
+          entry.generation !== state.generation
+        ) {
+          stopReadSession(state, {
+            error: devError('stale_generation', 'terminal output identity changed'),
+            close: { code: 'stale_generation', reason: 'terminal output identity changed' },
+          })
+          return
+        }
+        if (!canonicalTerminalSequence.test(meta.seq) || BigInt(meta.seq) > TERMINAL_SEQUENCE_MAX) {
+          stopReadSession(state, {
+            error: devError('sequence_gap', 'terminal output sequence is invalid'),
+            close: { code: 'incompatible', reason: 'terminal output sequence is invalid' },
+          })
+          return
+        }
+        if (BigInt(meta.seq) > BigInt(state.throughSequence)) {
+          state.throughSequence = meta.seq
+        }
         state.outstandingBytes += meta.byteLength
         try {
           state.session.send({ type: 'data', sequence: meta.seq, bytes })
         } catch {
-          readSessions.delete(meta.subscriberId)
-          void input.sidecar.detach(state.terminalId, state.subscriberId).catch(() => undefined)
+          stopReadSession(state, { detach: true })
         }
       },
       onResync: (notice) => {
@@ -714,21 +959,17 @@ export function registerTerminalRuntime(
             reason: 'checkpoint_required',
             checkpointSequence: notice.checkpointSequence,
           })
-          state.session.close('backpressure', 'subscriber fell behind the high-water mark')
         } catch {
           /* socket already gone */
         }
-        readSessions.delete(notice.subscriberId)
+        stopReadSession(state, {
+          close: { code: 'backpressure', reason: 'subscriber fell behind the high-water mark' },
+        })
       },
       onExited: (notice) => {
-        for (const [subscriberId, state] of readSessions) {
+        for (const state of readSessions.values()) {
           if (state.terminalId !== notice.terminalId) continue
-          try {
-            state.session.close('normal', 'terminal exited')
-          } catch {
-            /* socket already gone */
-          }
-          readSessions.delete(subscriberId)
+          stopReadSession(state, { close: { code: 'normal', reason: 'terminal exited' } })
         }
         // #400: the sidecar OBSERVED this termination — fan it out so bound
         // consumers (harness-in-PTY runs) derive status from an observed
@@ -738,6 +979,34 @@ export function registerTerminalRuntime(
             observer(notice)
           } catch {
             /* an observer's failure never breaks the terminal runtime */
+          }
+        }
+      },
+      onClose: () => {
+        for (const state of readSessions.values()) {
+          stopReadSession(state, {
+            close: { code: 'normal', reason: 'terminal sidecar disconnected' },
+            error: devError('unavailable', 'terminal sidecar disconnected'),
+            detach: false,
+          })
+        }
+        for (const [grantId, state] of writeSessions) {
+          try {
+            state.session.send({
+              type: 'error',
+              error: devError('unavailable', 'terminal sidecar disconnected'),
+            })
+          } catch {
+            /* the stream may already be gone */
+          }
+          try {
+            state.session.close('normal', 'terminal sidecar disconnected')
+          } catch {
+            /* the stream may already be gone */
+          }
+          writeSessions.delete(grantId)
+          if (state.fence) {
+            inputAuthorities.get(state.terminalId)?.releaseFence(state.fence)
           }
         }
       },
@@ -960,16 +1229,22 @@ export function registerTerminalRuntime(
     onTerminalExited,
     census,
     dispose() {
-      for (const [, state] of readSessions) {
+      for (const state of readSessions.values()) {
+        stopReadSession(state, {
+          close: { code: 'normal', reason: 'terminal runtime detached' },
+        })
+      }
+      for (const [grantId, state] of writeSessions) {
         try {
           state.session.close('normal', 'terminal runtime detached')
         } catch {
           /* socket already gone */
         }
-        void input.sidecar.detach(state.terminalId, state.subscriberId).catch(() => undefined)
+        writeSessions.delete(grantId)
+        if (state.fence) {
+          inputAuthorities.get(state.terminalId)?.releaseFence(state.fence)
+        }
       }
-      readSessions.clear()
-      writeSessions.clear()
     },
   }
 }

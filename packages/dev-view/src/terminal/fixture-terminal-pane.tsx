@@ -1,8 +1,11 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 
-import type { DevStreamFrame } from '@adea-ai/types/dev-runtime'
-
-import { createTerminalTransport, type TerminalStreamSocket } from './transport'
+import {
+  createTerminalTransport,
+  type TerminalAttachContext,
+  type TerminalStreamHandlers,
+  type TerminalStreamSocket,
+} from './transport'
 import type { ShellObservation } from './blocks'
 
 /**
@@ -15,10 +18,10 @@ import type { ShellObservation } from './blocks'
  * would waste the 1.6 MB client budget before a real terminal is opened.
  */
 export type FixtureTerminalPaneProps = Readonly<{
-  connect: (handlers: {
-    onFrame: (frame: DevStreamFrame) => void
-    onClose: () => void
-  }) => TerminalStreamSocket
+  connect: (
+    handlers: TerminalStreamHandlers,
+    context: TerminalAttachContext
+  ) => TerminalStreamSocket
   fromSequence: string
   subscribeToObservations?: (handler: (observation: ShellObservation) => void) => () => void
   worktreeLabel?: string
