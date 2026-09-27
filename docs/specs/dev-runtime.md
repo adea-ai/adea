@@ -3756,6 +3756,9 @@ collapsed after an external or BFCache return. The left cluster controls the
 contextual sidebar; Dev's existing utility controls mount in the right cluster.
 The outer rail remains visible in every view, including focus mode. Virtual
 has its own contextual room navigation, independent of engine entitlement.
+Collapsed contextual navigation is excluded from keyboard focus and the
+accessibility tree at desktop and narrow widths; collapsing its grid column
+alone is insufficient.
 
 [Owner correction #757](../research/shell-app-library-owner-corrections.md)
 separates **App Library** from the external **Plugins** marketplace. Library is

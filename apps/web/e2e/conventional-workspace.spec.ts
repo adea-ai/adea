@@ -1223,6 +1223,35 @@ test('integrated chrome keeps the global rail while Virtual navigation collapses
   expect(bounds).toEqual({ sameWidth: true, below: true })
 })
 
+test('collapsed Chat navigation is absent from keyboard and accessibility navigation', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 840 })
+    const toolbar = page.getByLabel('Workspace toolbar')
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+    await expect(sidebar).toBeVisible()
+    await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+    await expect(sidebar).toBeHidden()
+    await expect(sidebar).toHaveCount(0)
+    // A zero-width grid column alone clips pixels but leaves its controls in
+    // the focus order and native accessibility tree.
+    expect(
+      await page
+        .locator('.conventional-sidebar button')
+        .first()
+        .evaluate((button) => {
+          button.focus()
+          return button === document.activeElement
+        })
+    ).toBe(false)
+    await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+    await expect(sidebar).toBeVisible()
+  }
+})
+
 test('App Library enables views separately from Plugins and remains reachable with all apps disabled', async ({
   page,
 }) => {

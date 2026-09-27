@@ -22,8 +22,16 @@ canonicalizes all-disabled recovery links before enablement.
 
 Focused headless browser checks cover these routes, back/forward branching,
 reload recovery, and canonical Chat reading restoration. This is local production
-composition with mocked transport, not packaged macOS acceptance. Actual Settings-driven dark/light desktop and narrow-layout screenshots pass.
-Native traffic lights, dragging and fullscreen remain outstanding. The actual
+composition with mocked transport. Actual Settings-driven dark/light desktop and narrow-layout screenshots pass.
+A packaged macOS build with an explicit loopback UI transport fixture verifies
+the native traffic lights, zoom and fullscreen/return, integrated toolbar
+sidebar/history actions, separate Library and Virtual contextual navigation.
+Its normal production-origin counterpart builds but cannot mount the workspace
+while the guest service is unavailable. Window dragging and production backend
+acceptance are not attested by this fixture. A native accessibility inspection
+found clipped Chat navigation still focusable when collapsed; the regression
+fails before the visibility fix and passes afterward at desktop and narrow
+widths. The actual
 published-package production build succeeds but the total client JavaScript guard
 fails; the cap remains unchanged, and this
 checkpoint does not authorize marking the migration ready or complete.
@@ -41,3 +49,10 @@ contextual sidebar. Three focused browser cases mount the actual desktop Chat
 entry with a typed runtime transport: draft retention across Dev remount,
 late-selection fencing, and refused-attach retry. These are local composition
 checks, not packaged daily-driver certification or input-authority acceptance.
+
+The returning-Chat standard production build measures 1,721,429 bytes against
+the unchanged 1,623,000-byte cap. Full affected unit suites pass 570 tests
+(1,741 assertions), and affected type checking passes 16 tasks. Independent
+review found no remaining blocker in the returning-Chat slice. Three returning
+Chat browser cases now use production styles without a fixture height override
+and verify full-height layout and contextual sidebar paint.

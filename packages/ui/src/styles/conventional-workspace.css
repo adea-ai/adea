@@ -2865,6 +2865,9 @@
 .conventional-workspace:has(> .conventional-sidebar:not(.conventional-sidebar--open)) {
   grid-template-columns: 0 minmax(0, 1fr);
 }
+.conventional-sidebar:not(.conventional-sidebar--open) {
+  visibility: hidden;
+}
 
 /* The common header is above every view and its collapsed outer rail. */
 .workspace-topbar {
