@@ -3283,6 +3283,13 @@ host recomposition preserves the selected-session hint only if the new host
 projection still validates that non-archived session; a scope change or invalid
 session clears it before the replacement observer can use it.
 
+The shared derivation is exported from the narrow
+`@adea-ai/dev-view/chat/notifications` subpath and depends only on Dev Runtime
+DTO types. The desktop shell may import this pure host contract, but must not
+pull the Dev View UI barrel into its main-process graph. The desktop boundary
+test bundles the production notification entry and rejects UI, styling, and
+browser modules.
+
 ### The runtime-events-v1 stream
 
 `dev.session.events` mints a read-direction `runtime-events-v1` stream grant

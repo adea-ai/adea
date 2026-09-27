@@ -157,6 +157,12 @@ window is focused with a selected runtime session. Native requests contain only 
 is not a delivery receipt. Missing or throwing notification APIs do not alter
 the durable run transition.
 
+The shell imports the pure `@adea-ai/dev-view/chat/notifications` contract for
+this host-only derivation. This is a runtime contract dependency, not a second
+desktop client graph: the client remains the web workspace build. Keep the
+notification subpath free of UI, styling, and browser modules; the desktop
+boundary test bundles the real shell notification entry to check that graph.
+
 ## Pinned by
 
 - `packages/auth/tests/unit`: origin allowlist, callback replay and credential
