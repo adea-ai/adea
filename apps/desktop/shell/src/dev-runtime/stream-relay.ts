@@ -54,6 +54,8 @@ export type RelayFrame =
   | { type: 'input'; sequence: string; generation: number; bytes: string }
   | DevStreamVideoRelayChunk
   | { type: 'ack'; throughSequence: string; availableCreditBytes: number }
+  | { type: 'heartbeat'; observedAt: string; throughSequence: string }
+  | { type: 'resync'; reason: 'sequence_gap' | 'checkpoint_required'; checkpointSequence: string }
   | { type: 'error'; error: DevError }
   | { type: 'close'; code: StreamCloseCode; reason?: string }
 
@@ -94,6 +96,18 @@ export function toRelayFrame(frame: DevStreamFrame): RelayFrame {
         type: 'ack',
         throughSequence: frame.throughSequence,
         availableCreditBytes: frame.availableCreditBytes,
+      }
+    case 'heartbeat':
+      return {
+        type: 'heartbeat',
+        observedAt: frame.observedAt,
+        throughSequence: frame.throughSequence,
+      }
+    case 'resync':
+      return {
+        type: 'resync',
+        reason: frame.reason,
+        checkpointSequence: frame.checkpointSequence,
       }
     case 'input':
       return {
