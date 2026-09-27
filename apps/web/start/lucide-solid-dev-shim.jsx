@@ -21,6 +21,8 @@
  * and tree-shakes the barrel as before.
  */
 export { default as AlertTriangle } from 'lucide-solid/icons/triangle-alert'
+export { default as AlertCircle } from 'lucide-solid/icons/circle-alert'
+export { default as TriangleAlert } from 'lucide-solid/icons/triangle-alert'
 export { default as Archive } from 'lucide-solid/icons/archive'
 export { default as ArrowDown } from 'lucide-solid/icons/arrow-down'
 export { default as ArrowLeft } from 'lucide-solid/icons/arrow-left'
