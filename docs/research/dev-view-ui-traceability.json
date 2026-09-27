@@ -10550,111 +10550,29 @@
       "reviewFollowUp": "Independent MAX review found account/version dialog triggers lost aria-expanded highlight after adopting published Button. Sanctioned state hook and actual toggle regression remain required."
     },
     "latestVerifiedCheckpoint": {
-      "checkedApplicationHead": "bfa19a48ac531c66febb593e368646f319046598",
-      "uiVersion": "0.71.4",
-      "themesVersion": "0.6.1",
-      "uiReleaseCommit": "2aa5d585e337e8a201a029e6476bd55b72da40ab",
-      "uiPublishRun": "https://github.com/adea-ai/ui/actions/runs/36328803921",
-      "uiRegistryIntegrity": "sha512-Y4DDzzCA4N2QVW6MWr7rJCTN3Il7wXuDcC9t9z0V4/IzQJ1d2fkKQfslgHGvNm8HSsTeL9VSdbp/njYjk7K2Wg==",
+      "checkedApplicationHead": "cb7f3247257dafb7ed82c48c6a1bd7f04944209a",
+      "uiVersion": "0.72.0",
+      "themesVersion": "0.6.2",
+      "sharedUiPublishedVersion": "0.72.1",
+      "sharedUiPublishedIntegrity": "sha512-nsM9wQKfXXt7jcbcKA8SF0JN5hFNZUjoBfdPKlsvDoFyPSs4EfsPg/u4o/QDRVBbJx6cDUWEzm8XycKvDVCKiQ==",
+      "sharedUiFormsMerge": {
+        "pr": "https://github.com/adea-ai/ui/pull/97",
+        "commit": "b9440f1b51b71757ae7c1ad4ce144ac8729425fb",
+        "release": "0.72.2 pending"
+      },
       "applicationEvidence": {
-        "publishedDependencies": "All four Adea UI consumers pin the actual npm UI0.71.4 archive; Themes resolves once at0.6.1. No local source alias qualification.",
-        "appearanceRegression": "Published ModalDialog preserves mounted editor, unsaved preview and focus on Close/Escape; final corner-control containment is checked after entrance animations. Last copied Dialog and unused direct Kobalte dependency removed.",
-        "focusedValidation": "At bfa19a48 canonical web build, Dev types, scoped lint/format, docs4/4 and full Dev browser18/18 pass. Desktop artifact smoke and prior broader package/layout/appearance suites are historical evidence retained below, not rerun for this slice.",
+        "publishedDependencies": "Adea candidate currently consumes UI0.72.0 and Themes0.6.2. UI0.72.1 is separately verified published; it is not yet an Adea consumer claim.",
         "productionBudget": {
-          "clientJavaScriptBytes": 1539018,
-          "clientJavaScriptBudget": 1623000,
-          "clientJavaScriptFiles": 69,
-          "clientJavaScriptFileBudget": 72,
-          "devEntryBytes": 79903,
-          "devRendererBytes": 34209,
-          "combinedDevBytes": 114112,
-          "devChunkBudget": 86016,
-          "status": "Client aggregate guard passes; unchanged combined Dev allowance fails. Independent MAX review rejected applying the cap separately after immediate-load splitting. PR760 remains draft."
-        },
-        "nativeArtifactSmoke": "Previous ce533d48 canonical desktop artifact smoke passed with a synthetic bridge; not rerun at bfa19a48 and not real PTY/cloud authority acceptance.",
-        "freshSessionLayout": "One initial terminal leaf; selecting a file creates/reuses the editor. Explicit splits and restored documents unchanged. Independent MAX review clean at bfa19a48."
-      },
-      "residualSourceCheck": {
-        "715": "Notification derive/publish helpers still lack a production caller or shell sink.",
-        "terminal": "Production DevWorkspaceEntry still renders only the development fixture or placeholder. Exact terminal identity, separate read/write grants, generation/cursor reconnect fences, measured outbound queue and live TerminalPane caller remain required.",
-        "browser": "Binary browser relay PR773 is merged and released in Adea0.62.4. BrowserPane pixel projection and native host redaction/renderer qualification remain incomplete; transport does not prove pixel acceptance.",
-        "719": "Recursive issue/PR semantics, donor fidelity and real-runtime acceptance remain in progress."
-      },
-      "limits": "Package publication, synthetic browser tests and clean review do not establish complete guide acceptance, native PTY/pixels, manual accessibility or Cortana migration.",
-      "runtimeBuildSourceHead": "bfa19a48ac531c66febb593e368646f319046598",
-      "currentIndependentReview": "MAX review of bfa19a48 found no actionable issue: one-leaf fallback preserves explicit splits, editor creation/reuse and ready saved-layout restoration. Combined Dev budget remains failing; no allowance change.",
-      "separateReleaseProgress": {
-        "uiPublisher": "UI87 merged; real UI0.71.5 publish run36333613463 passed trusted publishing and consumer-archive confirmation. Adea remains pinned to qualified0.71.4 until a coherent new consumer adoption.",
-        "themes": "Themes0.6.2 published; UI destructive-role consumer and Cortana migration still require qualification.",
-        "dialog": "UI89 squashmerged eaf149f451c039542144bd01e46fd3a10076e2c1 with source/registry aligned; Release Please92 merged a0ed7ee139c90ddf8722ad54ed73d7a62b666198. UI0.71.6 real trusted publish36336628666 and consumer archive confirmation passed. Adea remains on actual UI0.71.4 pending coherent consumer qualification.",
-        "dialogPublication": {
-          "version": "0.71.6",
-          "run": "https://github.com/adea-ai/ui/actions/runs/36336628666",
-          "integrity": "sha512-doh5hrporsdr9LRpw0t+xCXs+kwpNEzPTHp63SP7/6VjrwV15eQUA6F3b94e4oQtX1j12Ore9fQ/8rl7vUO01A==",
-          "registryMetadataVerified": true,
-          "limits": "Actual installed npm0.71.6 archive passed corner-control geometry under compiled and Solid conditions in Chromium and WebKit (4/4), Apache LICENSE and donor NOTICE checks. Adea consumer pin remains0.71.4 pending coherent adoption."
-        },
-        "storybook": "UI91 squashmerged6cf5c5d324fb7fdee2d88876b785bcb2e13e9198; Pages run36337510253 deployed exact-main artifact10937174938 from successful Design System run36337198198. Live headless bare-root200, Adea UI — Storybook branding, Overview/Conventions navigation,31 variants/16 families/6 named accents and registry/button200; zero browser/request errors. Browser/server stopped.",
-        "destructiveAction": {
-          "pr": "https://github.com/adea-ai/ui/pull/93",
-          "head": "7c23fa74d95acc3d0f56b26eace67055c4cb88e5",
-          "validation": "Independent MAX review clean after preview/gallery corrections. Actualpacked108/108 acrosscompiled/Solid×Chromium/WebKit;49focusedtheme/tokentests4657assertions;package/Storybooktypes/lint,librarybuild,registry80,fmtdiffpass.",
-          "status": "UI93 squashmerged3205dbbc6621da4eafaa1aa9554042667b448e9d afterallrequiredexactheadchecks. Release94 squashmergedaff5dc600145728f02157f2ee5ca89e72670bec1 for0.72.0; actualnpmpublicationpending run36340176449.",
-          "limits": "ApplicationadoptionandCortanamigrationstillpending."
-        }
-      },
-      "currentBrowserEvidence": {
-        "runtimeSourceHead": "bfa19a48ac531c66febb593e368646f319046598",
-        "fullDev": "18/18 passed in37.8s after one-terminal default change, including explicit split/resize/move/undo and persisted55% ratio after reload.",
-        "focused": "Prior ce533d48 responsive/focus4/4 and exact history3/3 repeat evidence retained in history; full suite rerun at bfa19a48 includes those cases.",
-        "limits": "Earlier Product collapse assertion failed once; no reproducible reset or permanent state fix. Not a packaged native/real PTY qualification."
-      },
-      "pendingMetadataIntegration": {
-        "sourceCommit": "5244735c",
-        "status": "Generated pure per-operation entry removes eager aggregate retention. Library/production build evidence proves16,007B entry reduction versus79,903B; combined Dev gate still fails.",
-        "validation": "Types build, generator--check,69 focused tests (913 assertions), formatting and canonical web build pass. No new real-runtime or packaged acceptance claim.",
-        "productionBudget": {
-          "clientJavaScriptFiles": 70,
-          "clientJavaScriptBytes": 1554360,
           "devEntryBytes": 63896,
           "devRendererBytes": 34209,
           "combinedDevBytes": 98105,
           "devChunkBudget": 86016,
-          "status": "FAIL12,089B over; original gate unchanged."
+          "status": "Incomplete: combined Dev entry and immediate renderer exceed the unchanged cap. Shared SplitLayout optimization is in progress; no replacement publication or consumer budget pass is claimed."
         },
-        "attempts": "Same-module first integration48391e6a produced129,227B combined; superseded by generated separate modules. Original failed integration evidence remains in history/commits."
-      },
-      "relayPrerequisite": {
-        "sourceCommit": "e496de0a",
-        "status": "Adea775 squashmerged ae8fe32e408cfc38dedec7a6150aeeffc0c0c2a8 afterrequiredchecks; release776 main422ec5cc0.62.5 actualsignedmacOSassets run36339639124 passed. Rootupdatedto currentmain7625d38a. NoactualTerminalPaneproductionmountclaim.",
-        "validation": "Five initial regression tests plus two review regressions pass (14/14,54 assertions); complete web143/143,463 assertions; web types pass after rebuilding dependent dev-view dist; lint,format,docs4/4 pass.",
-        "behavior": "Snapshots queued input;1MiB encoded terminal queue+4096frame bound covers ACK/emptyinput; immediate local listener cleanup; lateproof/subscription/open fenced; already-invokedinput may have delivered, laterqueuedinvokesdiscarded.",
-        "pr": "https://github.com/adea-ai/adea/pull/775"
-      },
-      "streamControlRelay": {
-        "rootCommit": "c64f0443",
-        "pr": "https://github.com/adea-ai/adea/pull/777",
-        "isolatedHead": "1e55c714bba27ad3bc710b61e173adef6c7eea6e",
-        "status": "Draftpendingindependentre-review; nativecodecandrendererbothpreserveheartbeat/resync, serveronly; sharedvalidatorrejectsrolloverdatesanduint64overflow.",
-        "validation": "Actualnativeencoder→JSON→rendererroundtrip includedin23focusedtests118assertions; scopedtypes/lint/fmtpass. Isolatedcanonicalwebbuildpass. Broaderprior255types/webtests1205assertionsbeforenative-onlyaddition.",
-        "limits": "Noheartbeatprovider/grantadapter/actualPTYqualificationclaim."
-      },
-      "notificationProductionIntegration": {
-        "sourceCommit": "bc112d340fa01dea351aad1ee80763854d2bbadd",
-        "rootCommit": "cb89e02f",
-        "returningQualificationCommit": "031debc7",
-        "status": "IntegratedactualreturningChatpresentationeffect; reviewpending. Hostobservesdurablewrappedrun.status;baselineadvancesbeforesuppression;fixedgenericOSrequestpayload.",
-        "validation": "Root37focusedtests126assertions, shell/webtypes/lint/fmt/frozenlockpass. ActualreturningChatcomponent4headlessbrowsertestspass9.2swithsyntheticbridge:selection,pendingclear,lateattachfence,unmount/remount. Server6151/PID54600stoppedandabsenceverified.",
-        "limits": "Syntheticbridgevalidatespresentationhint, notsignednativeIPC/OSdelivery/permission. NativeAPIisrequest-only."
-      },
-      "latestIntegratedBuild": {
-        "rootHead": "031debc7",
-        "canonicalWebBuild": "pass",
-        "clientJavaScriptFiles": 70,
-        "clientJavaScriptBytes": 1554936,
-        "combinedDevBytes": 98105,
-        "devChunkBudget": 86016,
-        "status": "FAIL unchangedcombinedgate12,089Bover; nodependencycapraise."
+        "uiFormsEvidence": "Merged UI97: six Chromium/WebKit behavior checks,70 affected built Storybook accessibility checks across seven themes,221 UI unit tests,types/lint/registry/package/packed compiled and Solid checks passed. Release publication is pending.",
+        "nativeTerminal": "Adea780 at ff9f26733d034ebc10d360f8811860352fc5883b adds selected-record authenticated grants and bounded, retired reconnect scans.21 adapter tests,26 transport tests,38 host/docs checks pass; one optional packaged flood fixture skipped. It is ready for CI, not merged. Production terminal leaf still needs the real mount.",
+        "notifications": "Adea779 at 87142bbf5121c53f7fb047db73a3294df01c0554 fixes host recomposition presentation hints and mounts production WorkspaceNavigation in synthetic bridge evidence. Native OS delivery is unverified; required CI is rerunning.",
+        "cortana": "Candidate now pins verified UI0.72.1 and Themes0.6.2. Provider-model6 tests pass. App.desktop109 suite currently81pass28fail; event and public-control fixture corrections are in progress. Local forwarding aliases and remaining primitive/CSS duplication still require removal and real consumer qualification."
       }
     },
     "verifiedCheckpointHistory": [
@@ -10753,6 +10671,114 @@
           "fullDev": "18/18 passed in26s after all temporary diagnostics removed; test-results/.last-run.json statuspassed with no failedTests.",
           "focused": "4/4 responsive/focus cases passed; exact history case passed3/3 repeats.",
           "limits": "Earlier Product collapse assertion failed once; no reproducible reset or permanent state fix. Not a packaged native/real PTY qualification."
+        }
+      },
+      {
+        "checkedApplicationHead": "bfa19a48ac531c66febb593e368646f319046598",
+        "uiVersion": "0.71.4",
+        "themesVersion": "0.6.1",
+        "uiReleaseCommit": "2aa5d585e337e8a201a029e6476bd55b72da40ab",
+        "uiPublishRun": "https://github.com/adea-ai/ui/actions/runs/36328803921",
+        "uiRegistryIntegrity": "sha512-Y4DDzzCA4N2QVW6MWr7rJCTN3Il7wXuDcC9t9z0V4/IzQJ1d2fkKQfslgHGvNm8HSsTeL9VSdbp/njYjk7K2Wg==",
+        "applicationEvidence": {
+          "publishedDependencies": "All four Adea UI consumers pin the actual npm UI0.71.4 archive; Themes resolves once at0.6.1. No local source alias qualification.",
+          "appearanceRegression": "Published ModalDialog preserves mounted editor, unsaved preview and focus on Close/Escape; final corner-control containment is checked after entrance animations. Last copied Dialog and unused direct Kobalte dependency removed.",
+          "focusedValidation": "At bfa19a48 canonical web build, Dev types, scoped lint/format, docs4/4 and full Dev browser18/18 pass. Desktop artifact smoke and prior broader package/layout/appearance suites are historical evidence retained below, not rerun for this slice.",
+          "productionBudget": {
+            "clientJavaScriptBytes": 1539018,
+            "clientJavaScriptBudget": 1623000,
+            "clientJavaScriptFiles": 69,
+            "clientJavaScriptFileBudget": 72,
+            "devEntryBytes": 79903,
+            "devRendererBytes": 34209,
+            "combinedDevBytes": 114112,
+            "devChunkBudget": 86016,
+            "status": "Client aggregate guard passes; unchanged combined Dev allowance fails. Independent MAX review rejected applying the cap separately after immediate-load splitting. PR760 remains draft."
+          },
+          "nativeArtifactSmoke": "Previous ce533d48 canonical desktop artifact smoke passed with a synthetic bridge; not rerun at bfa19a48 and not real PTY/cloud authority acceptance.",
+          "freshSessionLayout": "One initial terminal leaf; selecting a file creates/reuses the editor. Explicit splits and restored documents unchanged. Independent MAX review clean at bfa19a48."
+        },
+        "residualSourceCheck": {
+          "715": "Notification derive/publish helpers still lack a production caller or shell sink.",
+          "terminal": "Production DevWorkspaceEntry still renders only the development fixture or placeholder. Exact terminal identity, separate read/write grants, generation/cursor reconnect fences, measured outbound queue and live TerminalPane caller remain required.",
+          "browser": "Binary browser relay PR773 is merged and released in Adea0.62.4. BrowserPane pixel projection and native host redaction/renderer qualification remain incomplete; transport does not prove pixel acceptance.",
+          "719": "Recursive issue/PR semantics, donor fidelity and real-runtime acceptance remain in progress."
+        },
+        "limits": "Package publication, synthetic browser tests and clean review do not establish complete guide acceptance, native PTY/pixels, manual accessibility or Cortana migration.",
+        "runtimeBuildSourceHead": "bfa19a48ac531c66febb593e368646f319046598",
+        "currentIndependentReview": "MAX review of bfa19a48 found no actionable issue: one-leaf fallback preserves explicit splits, editor creation/reuse and ready saved-layout restoration. Combined Dev budget remains failing; no allowance change.",
+        "separateReleaseProgress": {
+          "uiPublisher": "UI87 merged; real UI0.71.5 publish run36333613463 passed trusted publishing and consumer-archive confirmation. Adea remains pinned to qualified0.71.4 until a coherent new consumer adoption.",
+          "themes": "Themes0.6.2 published; UI destructive-role consumer and Cortana migration still require qualification.",
+          "dialog": "UI89 squashmerged eaf149f451c039542144bd01e46fd3a10076e2c1 with source/registry aligned; Release Please92 merged a0ed7ee139c90ddf8722ad54ed73d7a62b666198. UI0.71.6 real trusted publish36336628666 and consumer archive confirmation passed. Adea remains on actual UI0.71.4 pending coherent consumer qualification.",
+          "dialogPublication": {
+            "version": "0.71.6",
+            "run": "https://github.com/adea-ai/ui/actions/runs/36336628666",
+            "integrity": "sha512-doh5hrporsdr9LRpw0t+xCXs+kwpNEzPTHp63SP7/6VjrwV15eQUA6F3b94e4oQtX1j12Ore9fQ/8rl7vUO01A==",
+            "registryMetadataVerified": true,
+            "limits": "Actual installed npm0.71.6 archive passed corner-control geometry under compiled and Solid conditions in Chromium and WebKit (4/4), Apache LICENSE and donor NOTICE checks. Adea consumer pin remains0.71.4 pending coherent adoption."
+          },
+          "storybook": "UI91 squashmerged6cf5c5d324fb7fdee2d88876b785bcb2e13e9198; Pages run36337510253 deployed exact-main artifact10937174938 from successful Design System run36337198198. Live headless bare-root200, Adea UI — Storybook branding, Overview/Conventions navigation,31 variants/16 families/6 named accents and registry/button200; zero browser/request errors. Browser/server stopped.",
+          "destructiveAction": {
+            "pr": "https://github.com/adea-ai/ui/pull/93",
+            "head": "7c23fa74d95acc3d0f56b26eace67055c4cb88e5",
+            "validation": "Independent MAX review clean after preview/gallery corrections. Actualpacked108/108 acrosscompiled/Solid×Chromium/WebKit;49focusedtheme/tokentests4657assertions;package/Storybooktypes/lint,librarybuild,registry80,fmtdiffpass.",
+            "status": "UI93 squashmerged3205dbbc6621da4eafaa1aa9554042667b448e9d afterallrequiredexactheadchecks. Release94 squashmergedaff5dc600145728f02157f2ee5ca89e72670bec1 for0.72.0; actualnpmpublicationpending run36340176449.",
+            "limits": "ApplicationadoptionandCortanamigrationstillpending."
+          }
+        },
+        "currentBrowserEvidence": {
+          "runtimeSourceHead": "bfa19a48ac531c66febb593e368646f319046598",
+          "fullDev": "18/18 passed in37.8s after one-terminal default change, including explicit split/resize/move/undo and persisted55% ratio after reload.",
+          "focused": "Prior ce533d48 responsive/focus4/4 and exact history3/3 repeat evidence retained in history; full suite rerun at bfa19a48 includes those cases.",
+          "limits": "Earlier Product collapse assertion failed once; no reproducible reset or permanent state fix. Not a packaged native/real PTY qualification."
+        },
+        "pendingMetadataIntegration": {
+          "sourceCommit": "5244735c",
+          "status": "Generated pure per-operation entry removes eager aggregate retention. Library/production build evidence proves16,007B entry reduction versus79,903B; combined Dev gate still fails.",
+          "validation": "Types build, generator--check,69 focused tests (913 assertions), formatting and canonical web build pass. No new real-runtime or packaged acceptance claim.",
+          "productionBudget": {
+            "clientJavaScriptFiles": 70,
+            "clientJavaScriptBytes": 1554360,
+            "devEntryBytes": 63896,
+            "devRendererBytes": 34209,
+            "combinedDevBytes": 98105,
+            "devChunkBudget": 86016,
+            "status": "FAIL12,089B over; original gate unchanged."
+          },
+          "attempts": "Same-module first integration48391e6a produced129,227B combined; superseded by generated separate modules. Original failed integration evidence remains in history/commits."
+        },
+        "relayPrerequisite": {
+          "sourceCommit": "e496de0a",
+          "status": "Adea775 squashmerged ae8fe32e408cfc38dedec7a6150aeeffc0c0c2a8 afterrequiredchecks; release776 main422ec5cc0.62.5 actualsignedmacOSassets run36339639124 passed. Rootupdatedto currentmain7625d38a. NoactualTerminalPaneproductionmountclaim.",
+          "validation": "Five initial regression tests plus two review regressions pass (14/14,54 assertions); complete web143/143,463 assertions; web types pass after rebuilding dependent dev-view dist; lint,format,docs4/4 pass.",
+          "behavior": "Snapshots queued input;1MiB encoded terminal queue+4096frame bound covers ACK/emptyinput; immediate local listener cleanup; lateproof/subscription/open fenced; already-invokedinput may have delivered, laterqueuedinvokesdiscarded.",
+          "pr": "https://github.com/adea-ai/adea/pull/775"
+        },
+        "streamControlRelay": {
+          "rootCommit": "c64f0443",
+          "pr": "https://github.com/adea-ai/adea/pull/777",
+          "isolatedHead": "1e55c714bba27ad3bc710b61e173adef6c7eea6e",
+          "status": "Draftpendingindependentre-review; nativecodecandrendererbothpreserveheartbeat/resync, serveronly; sharedvalidatorrejectsrolloverdatesanduint64overflow.",
+          "validation": "Actualnativeencoder→JSON→rendererroundtrip includedin23focusedtests118assertions; scopedtypes/lint/fmtpass. Isolatedcanonicalwebbuildpass. Broaderprior255types/webtests1205assertionsbeforenative-onlyaddition.",
+          "limits": "Noheartbeatprovider/grantadapter/actualPTYqualificationclaim."
+        },
+        "notificationProductionIntegration": {
+          "sourceCommit": "bc112d340fa01dea351aad1ee80763854d2bbadd",
+          "rootCommit": "cb89e02f",
+          "returningQualificationCommit": "031debc7",
+          "status": "IntegratedactualreturningChatpresentationeffect; reviewpending. Hostobservesdurablewrappedrun.status;baselineadvancesbeforesuppression;fixedgenericOSrequestpayload.",
+          "validation": "Root37focusedtests126assertions, shell/webtypes/lint/fmt/frozenlockpass. ActualreturningChatcomponent4headlessbrowsertestspass9.2swithsyntheticbridge:selection,pendingclear,lateattachfence,unmount/remount. Server6151/PID54600stoppedandabsenceverified.",
+          "limits": "Syntheticbridgevalidatespresentationhint, notsignednativeIPC/OSdelivery/permission. NativeAPIisrequest-only."
+        },
+        "latestIntegratedBuild": {
+          "rootHead": "031debc7",
+          "canonicalWebBuild": "pass",
+          "clientJavaScriptFiles": 70,
+          "clientJavaScriptBytes": 1554936,
+          "combinedDevBytes": 98105,
+          "devChunkBudget": 86016,
+          "status": "FAIL unchangedcombinedgate12,089Bover; nodependencycapraise."
         }
       }
     ]
