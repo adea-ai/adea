@@ -1,4 +1,34 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+
+async function exerciseContextualSidebarToggle(page: Page) {
+  const expandSidebar = page.getByRole('button', { name: 'Expand contextual sidebar', exact: true })
+  const collapseSidebar = page.getByRole('button', {
+    name: 'Collapse contextual sidebar',
+    exact: true,
+  })
+  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+
+  if (await expandSidebar.isVisible()) {
+    await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
+    await expect(projectsSidebar).toBeHidden()
+    await expandSidebar.click()
+    await expect(collapseSidebar).toHaveAttribute('aria-expanded', 'true')
+    await expect(collapseSidebar).toBeFocused()
+  } else {
+    await expect(collapseSidebar).toHaveAttribute('aria-expanded', 'true')
+    await expect(projectsSidebar).toBeVisible()
+  }
+
+  await expect(projectsSidebar).toBeVisible()
+  await collapseSidebar.click()
+  await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
+  await expect(expandSidebar).toBeFocused()
+  await expect(projectsSidebar).toBeHidden()
+  await expandSidebar.click()
+  await expect(collapseSidebar).toHaveAttribute('aria-expanded', 'true')
+  await expect(collapseSidebar).toBeFocused()
+  await expect(projectsSidebar).toBeVisible()
+}
 
 for (const width of [320, 768, 1280, 1920]) {
   test(`Dev View shell remains usable at ${width}px`, async ({ page }) => {
@@ -14,9 +44,7 @@ for (const width of [320, 768, 1280, 1920]) {
     await expect(page).toHaveURL(/devE2e=preserved/)
 
     if (width <= 768) {
-      const sidebarToggle = page.getByRole('button', { name: 'Toggle projects sidebar' })
-      await sidebarToggle.click()
-      await expect(page.getByRole('complementary', { name: 'Projects and sessions' })).toBeVisible()
+      await exerciseContextualSidebarToggle(page)
       const utilitiesToggle = page.getByRole('button', { name: 'Agents / History' })
       await utilitiesToggle.click()
       await expect(
@@ -27,6 +55,36 @@ for (const width of [320, 768, 1280, 1920]) {
     }
   })
 }
+
+test('Dev shell stays usable while its central layout loads', async ({ page }) => {
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(/\/layout\/layout-view\.tsx(?:\?|$)/, async (route) => {
+    await pending
+    await route.continue()
+  })
+  try {
+    await page.goto('/?view=dev&devE2e=preserved')
+    await expect(page.getByText('Loading workspace panes…', { exact: true })).toBeVisible()
+    const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+    const originalSidebar = await sidebar.elementHandle()
+    const session = page.getByRole('button', { name: 'Other project session' })
+    await session.click()
+    await expect(session).toHaveAttribute('aria-current', 'page')
+    release()
+    await expect(page.getByRole('region', { name: 'terminal pane' })).toBeVisible()
+    await expect(page.getByText('Loading workspace panes…', { exact: true })).toBeHidden()
+    await expect(session).toHaveAttribute('aria-current', 'page')
+    expect(
+      await sidebar.evaluate((element, original) => element === original, originalSidebar)
+    ).toBe(true)
+    await originalSidebar?.dispose()
+  } finally {
+    release()
+  }
+})
 
 test('production unavailable state does not fabricate projects or sessions', async ({ page }) => {
   await page.goto('/?view=dev')
@@ -63,14 +121,29 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await page.getByRole('button', { name: 'Undo close' }).click()
   await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
 
+  const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
+  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
+  await expect(globalNavigation).toBeVisible()
+  await expect(projectsSidebar).toBeVisible()
+  await expect(leftUtilities).toBeVisible()
+
   await page.getByRole('button', { name: 'Enter focus mode' }).click()
-  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeHidden()
-  await expect(page.getByRole('button', { name: 'Exit focus mode' })).toBeFocused()
-  await page.getByRole('button', { name: 'Exit focus mode' }).click()
+  const exitFocusMode = page.getByRole('button', { name: 'Exit focus mode' })
+  await expect(exitFocusMode).toHaveAttribute('aria-pressed', 'true')
+  await expect(exitFocusMode).toBeFocused()
+  await expect(globalNavigation).toBeVisible()
+  await expect(projectsSidebar).toBeHidden()
+  await expect(leftUtilities).toBeHidden()
+  await exitFocusMode.click()
+  const enterFocusMode = page.getByRole('button', { name: 'Enter focus mode' })
+  await expect(enterFocusMode).toHaveAttribute('aria-pressed', 'false')
+  await expect(enterFocusMode).toBeFocused()
+  await expect(globalNavigation).toBeVisible()
+  await expect(projectsSidebar).toBeVisible()
+  await expect(leftUtilities).toBeVisible()
 
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
-  const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
-  await expect(leftUtilities).toBeVisible()
   await page.getByRole('button', { name: 'Agents / History' }).click()
   await expect(rightUtilities.getByRole('heading', { name: 'Agents' })).toBeVisible()
   await rightUtilities.getByRole('tab', { name: 'Agents' }).focus()
@@ -338,8 +411,7 @@ test('the Dev shell stays keyboard-operable at 200% zoom with reduced motion', a
     'true',
     { timeout: 30_000 }
   )
-  await page.getByRole('button', { name: 'Toggle projects sidebar' }).click()
-  await expect(page.getByRole('complementary', { name: 'Projects and sessions' })).toBeVisible()
+  await exerciseContextualSidebarToggle(page)
 
   // Keyboard-only path: the skip link is focusable and utility tab arrows land.
   await page.getByRole('link', { name: 'Skip to workspace' }).focus()

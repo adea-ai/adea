@@ -1217,6 +1217,13 @@ snapping. Shared UI owns constrained separators, internal pane drag payloads,
 owner cleanup, and close focus return. Splitting, moving, or resizing surviving
 leaves must preserve their terminal/editor DOM owners and local interaction
 state; none of these visual transitions grants runtime authority.
+The central renderer loads through its own boundary while the sidebar,
+selection, and layout preference model remain mounted in the shell. Delayed
+loading must leave session selection usable and preserve that selection when
+the panes appear; the loading boundary must not reset surviving pane owners.
+The web client groups only seven shared navigation glyph modules to avoid
+tiny individual requests. Feature components and heavy dependencies retain
+their automatic lazy boundaries, and existing client/Dev byte limits apply.
 Utility slots are independent:
 left and right may each show one pane or be collapsed, and a change on one side
 cannot hide the other side. Utility order, side, visibility, size, collapse,

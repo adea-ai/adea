@@ -53,7 +53,6 @@ import { Portal } from 'solid-js/web'
 
 import { buildDevCommand } from './browser/command'
 import { createDevKeyboardController } from './keyboard'
-import { DevLayoutView } from './layout/layout-view'
 import {
   closePane,
   countLeaves,
@@ -96,6 +95,12 @@ import {
   reorderProjects,
   reorderProjectsRelativeTo,
 } from './sidebar/reorder'
+
+// Keep the sidebar and runtime controls independent of the central split
+// renderer. Its resize dependency is loaded when the panes actually mount.
+const DevLayoutView = lazy(() =>
+  import('./layout/layout-view').then((module) => ({ default: module.DevLayoutView }))
+)
 
 // Test transport and fake output are development-only, never production code.
 const FixtureTerminalPane = import.meta.env.DEV
@@ -1334,66 +1339,68 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           aria-label="Developer workspace panes"
           tabIndex={-1}
         >
-          <DevLayoutView
-            state={layout()}
-            unavailable={runtimeState().status === 'unavailable'}
-            renderTerminalLeaf={() =>
-              import.meta.env.DEV && FixtureTerminalPane && fixtureMode() ? (
-                <Suspense fallback={<p class="dev-pane-state__line">Loading test terminal…</p>}>
-                  <FixtureTerminalPane
-                    connect={createFixtureTerminalConnect()}
-                    fromSequence="0"
-                    subscribeToObservations={fixtureTerminalObservations}
-                    write={() => true}
-                    worktreeLabel="Example project"
-                  />
-                </Suspense>
-              ) : undefined
-            }
-            renderEditorLeaf={() => {
-              const file = activeEditorFile()
-              if (!file) return undefined
-              const scope = props.runtime.preferenceScope?.()
-              if (!scope) return undefined
-              return (
-                <Suspense fallback={<p class="dev-pane-state__line">Loading editor…</p>}>
-                  <CodeEditor
-                    runtime={props.runtime}
-                    worktree={{
-                      worktreeId: file.worktreeId,
-                      generation: file.generation,
-                      rootIdentity: file.rootIdentity,
-                    }}
-                    relativePath={file.relativePath}
-                    identity={file.identity}
-                    onClose={() => setActiveEditorFile(undefined)}
-                  />
-                </Suspense>
-              )
-            }}
-            onClose={(leafId) => {
-              let nextFocusId = layout().focusedLeafId
-              updateLayout((state) => {
-                const next = closePane(state, leafId, () => `dev-placeholder-${++nextPaneId}`)
-                nextFocusId = next.focusedLeafId
-                return next
-              })
-              focusPaneElement(nextFocusId)
-              return nextFocusId
-            }}
-            onFocus={(leafId) => updateLayout((state) => focusPane(state, leafId))}
-            onResize={(splitId, ratio) =>
-              updateLayout((state) => resizeSplit(state, splitId, Math.round(ratio * 20) / 20))
-            }
-            onMoveTo={(leafId, targetLeafId, placement, direction) => {
-              const suffix = ++nextPaneId
-              updateLayout((state) =>
-                movePane(state, leafId, targetLeafId, placement, direction, `dev-move-${suffix}`)
-              )
-              focusPaneElement(leafId)
-              setAnnouncement('Pane moved')
-            }}
-          />
+          <Suspense fallback={<p class="dev-pane-state__line">Loading workspace panes…</p>}>
+            <DevLayoutView
+              state={layout()}
+              unavailable={runtimeState().status === 'unavailable'}
+              renderTerminalLeaf={() =>
+                import.meta.env.DEV && FixtureTerminalPane && fixtureMode() ? (
+                  <Suspense fallback={<p class="dev-pane-state__line">Loading test terminal…</p>}>
+                    <FixtureTerminalPane
+                      connect={createFixtureTerminalConnect()}
+                      fromSequence="0"
+                      subscribeToObservations={fixtureTerminalObservations}
+                      write={() => true}
+                      worktreeLabel="Example project"
+                    />
+                  </Suspense>
+                ) : undefined
+              }
+              renderEditorLeaf={() => {
+                const file = activeEditorFile()
+                if (!file) return undefined
+                const scope = props.runtime.preferenceScope?.()
+                if (!scope) return undefined
+                return (
+                  <Suspense fallback={<p class="dev-pane-state__line">Loading editor…</p>}>
+                    <CodeEditor
+                      runtime={props.runtime}
+                      worktree={{
+                        worktreeId: file.worktreeId,
+                        generation: file.generation,
+                        rootIdentity: file.rootIdentity,
+                      }}
+                      relativePath={file.relativePath}
+                      identity={file.identity}
+                      onClose={() => setActiveEditorFile(undefined)}
+                    />
+                  </Suspense>
+                )
+              }}
+              onClose={(leafId) => {
+                let nextFocusId = layout().focusedLeafId
+                updateLayout((state) => {
+                  const next = closePane(state, leafId, () => `dev-placeholder-${++nextPaneId}`)
+                  nextFocusId = next.focusedLeafId
+                  return next
+                })
+                focusPaneElement(nextFocusId)
+                return nextFocusId
+              }}
+              onFocus={(leafId) => updateLayout((state) => focusPane(state, leafId))}
+              onResize={(splitId, ratio) =>
+                updateLayout((state) => resizeSplit(state, splitId, Math.round(ratio * 20) / 20))
+              }
+              onMoveTo={(leafId, targetLeafId, placement, direction) => {
+                const suffix = ++nextPaneId
+                updateLayout((state) =>
+                  movePane(state, leafId, targetLeafId, placement, direction, `dev-move-${suffix}`)
+                )
+                focusPaneElement(leafId)
+                setAnnouncement('Pane moved')
+              }}
+            />
+          </Suspense>
         </section>
 
         <Show when={visiblePaneOf('right') && !rightFullWidth()}>

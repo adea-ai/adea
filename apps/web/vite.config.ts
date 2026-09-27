@@ -100,6 +100,28 @@ export default defineConfig(({ command }) => ({
   root,
   // No automatic environment-variable prefixes: public values are enumerated below.
   envPrefix: [],
+  environments: {
+    client: {
+      build: {
+        rolldownOptions: {
+          output: {
+            codeSplitting: {
+              // These small shared navigation glyphs otherwise each cost a
+              // request. Leave feature components and their dependencies to
+              // automatic splitting instead of grouping a whole icon catalogue.
+              groups: [
+                {
+                  name: 'workspace-navigation-icons',
+                  test: /lucide-solid\/dist\/source\/icons\/(check|chevron-down|chevron-right|chevron-up|square|arrow-left|arrow-right)\.jsx$/,
+                  minShareCount: 2,
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+  },
   publicDir: 'public',
   server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 3000), strictPort: false },
   resolve: {
