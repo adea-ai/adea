@@ -75,6 +75,7 @@ type ActiveConnection = {
   closed: boolean
   pendingAcks: Extract<DevStreamFrame, { type: 'ack' }>[]
   resizePending: boolean
+  inputFlushInProgress: boolean
 }
 
 const terminalProtocol = 'terminal-bytes-v1'
@@ -319,32 +320,42 @@ export function createTerminalTransport(options: TerminalTransportOptions) {
       !connection.opened ||
       connection.generation === undefined ||
       active == null ||
-      !active.open
+      !active.open ||
+      connection.inputFlushInProgress
     )
       return
-    while (
-      isCurrent(connection) &&
-      pendingInputs.length > 0 &&
-      active.bufferedAmount <= limits.socketHighWaterBytes
-    ) {
-      const pending = pendingInputs[0]!
-      try {
-        active.send({
-          type: 'input',
-          sequence: '0',
-          generation: connection.generation,
-          bytes: pending.payload,
-        })
-      } catch {
-        stopForError(connection, {
-          code: 'delivery_ambiguous',
-          retryable: false,
-          message: 'terminal input delivery is ambiguous; queued input was discarded',
-        })
-        return
+    connection.inputFlushInProgress = true
+    try {
+      while (
+        isCurrent(connection) &&
+        pendingInputs.length > 0 &&
+        active.bufferedAmount <= limits.socketHighWaterBytes
+      ) {
+        const pending = pendingInputs.shift()
+        if (!pending) return
+        // Once handed to send(), delivery may be ambiguous even if it throws
+        // or synchronously reports an error. Remove this chunk before the call
+        // so a re-entrant stop cannot clear the queue and then underflow its
+        // byte accounting on return.
+        pendingInputBytes -= pending.bytes
+        try {
+          active.send({
+            type: 'input',
+            sequence: '0',
+            generation: connection.generation,
+            bytes: pending.payload,
+          })
+        } catch {
+          stopForError(connection, {
+            code: 'delivery_ambiguous',
+            retryable: false,
+            message: 'terminal input delivery is ambiguous; queued input was discarded',
+          })
+          return
+        }
       }
-      pendingInputs.shift()
-      pendingInputBytes -= pending.bytes
+    } finally {
+      connection.inputFlushInProgress = false
     }
   }
 
@@ -525,6 +536,7 @@ export function createTerminalTransport(options: TerminalTransportOptions) {
       closed: false,
       pendingAcks: [],
       resizePending: false,
+      inputFlushInProgress: false,
     }
     activeConnection = connection
     let socket: TerminalStreamSocket
@@ -581,6 +593,9 @@ export function createTerminalTransport(options: TerminalTransportOptions) {
         options.onInputOverflow?.(limits.inputQueueMaxBytes)
         return false
       }
+      // The caller may reuse its buffer as soon as write() returns, including
+      // while this transport is holding the bytes behind socket backpressure.
+      const payload = bytes.slice()
       const connection = activeConnection
       const socket = connection?.socket
       if (
@@ -595,7 +610,7 @@ export function createTerminalTransport(options: TerminalTransportOptions) {
             type: 'input',
             sequence: '0',
             generation: connection.generation,
-            bytes,
+            bytes: payload,
           })
           return true
         } catch {
@@ -609,12 +624,12 @@ export function createTerminalTransport(options: TerminalTransportOptions) {
           return false
         }
       }
-      if (pendingInputBytes + bytes.byteLength > limits.inputQueueMaxBytes) {
+      if (pendingInputBytes + payload.byteLength > limits.inputQueueMaxBytes) {
         options.onInputOverflow?.(limits.inputQueueMaxBytes)
         return false
       }
-      pendingInputs.push({ bytes: bytes.byteLength, payload: bytes })
-      pendingInputBytes += bytes.byteLength
+      pendingInputs.push({ bytes: payload.byteLength, payload })
+      pendingInputBytes += payload.byteLength
       scheduleDrain()
       return true
     },

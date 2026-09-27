@@ -27,6 +27,11 @@ type HarnessOptions = {
   sequences?: string[]
   bufferedAmounts?: number[]
   synchronousFrames?: DevStreamFrame[][]
+  synchronousSendFrames?: Array<{
+    attempt: number
+    type: DevStreamFrame['type']
+    frame: DevStreamFrame
+  }>
   connectFailures?: unknown[]
   sendFailures?: Array<{
     attempt: number
@@ -83,6 +88,10 @@ function makeHarness(
         return true
       },
       send: (frame) => {
+        const synchronousFrame = harnessOptions.synchronousSendFrames?.find(
+          (candidate) => candidate.attempt === attempt && candidate.type === frame.type
+        )
+        if (synchronousFrame) handlers.onFrame(synchronousFrame.frame)
         const sendFailure = harnessOptions.sendFailures?.find(
           (candidate) => candidate.attempt === attempt && candidate.type === frame.type
         )
@@ -536,6 +545,65 @@ describe('terminal transport', () => {
     harness.server!.bufferedAmount = 0
     await Bun.sleep(10)
     expect(harness.server!.frames.filter((frame) => frame.type === 'input').length).toBe(2)
+    harness.transport.dispose()
+  })
+
+  test('queued input is snapshotted before the caller can mutate its byte buffer', async () => {
+    const full = 2 * 1024 * 1024
+    const harness = makeHarness({ heartbeatUnhealthyAfterMs: 60_000 }, { bufferedAmounts: [full] })
+    harness.transport.start('0')
+    await Bun.sleep(5)
+    const bytes = new TextEncoder().encode('original input')
+    expect(harness.transport.write(bytes)).toBe(true)
+    bytes.fill(0x78)
+
+    harness.server!.bufferedAmount = 0
+    harness.server!.deliver(data('0', 'wake the queued input'))
+    await Bun.sleep(5)
+
+    expect(harness.server!.frames.filter((frame) => frame.type === 'input')).toContainEqual({
+      type: 'input',
+      sequence: '0',
+      generation: 1,
+      bytes: new TextEncoder().encode('original input'),
+    })
+    harness.transport.dispose()
+  })
+
+  test('synchronous terminal error during send does not underflow discarded input accounting', async () => {
+    const full = 2 * 1024 * 1024
+    const harness = makeHarness(
+      { heartbeatUnhealthyAfterMs: 60_000 },
+      {
+        bufferedAmounts: [full],
+        synchronousSendFrames: [
+          {
+            attempt: 0,
+            type: 'input',
+            frame: {
+              type: 'error',
+              error: {
+                code: 'stale_generation',
+                retryable: false,
+                message: 'terminal generation changed',
+              },
+            },
+          },
+        ],
+      }
+    )
+    harness.transport.start('0')
+    await Bun.sleep(5)
+    expect(harness.transport.write(new TextEncoder().encode('first'))).toBe(true)
+    expect(harness.transport.write(new TextEncoder().encode('second'))).toBe(true)
+
+    harness.server!.bufferedAmount = 0
+    harness.server!.deliver(data('0', 'flush queued input'))
+    await Bun.sleep(5)
+
+    expect(harness.errors).toContainEqual(expect.objectContaining({ code: 'stale_generation' }))
+    expect(harness.server!.frames.filter((frame) => frame.type === 'input')).toHaveLength(1)
+    expect(harness.transport.snapshot()).toMatchObject({ state: 'closed', pendingInputBytes: 0 })
     harness.transport.dispose()
   })
 
