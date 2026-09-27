@@ -37,6 +37,11 @@ import {
 } from '../shell/src/dev-runtime/channel/identity'
 import { createChannelGateway } from '../shell/src/dev-runtime/channel/server'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../shell/src/dev-runtime'
+import {
+  createHarnessRunNotificationPublisher,
+  requestNativeChatNotification,
+  type NativeNotificationRequest,
+} from '../shell/src/notifications/harness-run-notifications'
 import { createManagedPiDriver } from '../shell/src/dev-runtime/harness/managed-pi-driver'
 import type { AcpLaneDriver } from '../shell/src/dev-runtime/harness/acp-lane'
 import type { WorktreeService } from '../shell/src/dev-runtime/worktrees/service'
@@ -178,6 +183,7 @@ async function boot(
     archiveResolver?: (version: string) => Promise<Uint8Array | null>
     probeHost?: () => Promise<{ supported: boolean; reason?: string }>
     seedAcpInstallation?: Parameters<typeof seedInventoryConnection>[2]
+    publish?: (event: string, payload: unknown) => void
   } = {}
 ): Promise<Boot> {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-harness-launch-'))
@@ -228,6 +234,7 @@ async function boot(
       ...(options.probeHost ? { probeHost: options.probeHost } : {}),
     }),
     acpDriver: noopAcpDriver,
+    ...(options.publish ? { publish: options.publish } : {}),
   })
   mkdirSync(join(dataDir, 'dev-runtime', 'runtime'), { recursive: true })
   return {
@@ -831,6 +838,73 @@ describe('observed run status through the gate (#400)', () => {
       { resource: sessionResource(session), ...overrides }
     )
   }
+
+  test('connects durable run.status observations to value-free native requests', async () => {
+    let shell: Boot | undefined
+    let windowFocused = false
+    let focusedSessionId: string | undefined
+    const published: Array<{ event: string; payload: unknown }> = []
+    const requests: NativeNotificationRequest[] = []
+    const publisher = createHarnessRunNotificationPublisher({
+      readRuns: () => shell?.host().harness?.history.list() ?? [],
+      focusedSessionId: () => focusedSessionId,
+      windowFocused: () => windowFocused,
+      request: (intent) => {
+        requestNativeChatNotification(
+          { showNotification: (request) => requests.push(request) },
+          intent
+        )
+      },
+    })
+
+    shell = await boot({
+      archiveResolver: DEFAULT_ARCHIVE,
+      publish: (event, payload) => {
+        published.push({ event, payload })
+        publisher.onPublishedEvent(event, payload)
+      },
+    })
+    publisher.seed()
+    try {
+      const channel = await shell.openChannel()
+      const { session, run } = await launchFirst(shell, channel)
+      const runId = String(run.id)
+
+      // A mounted selected conversation suppresses this durable transition.
+      focusedSessionId = session.id
+      windowFocused = true
+      okValue(await channel.execute(statusCommand(session, runId, 'working')))
+      okValue(await channel.execute(statusCommand(session, runId, 'awaiting_input')))
+      expect(requests).toEqual([])
+
+      // Once unfocused, only a later canonical transition requests a generic
+      // notification. The snapshot contains no run/session display content.
+      focusedSessionId = undefined
+      windowFocused = false
+      okValue(await channel.execute(statusCommand(session, runId, 'working')))
+      okValue(await channel.execute(statusCommand(session, runId, 'awaiting_input')))
+      expect(
+        published.some(
+          ({ event, payload }) =>
+            event === 'dev.harness.updated' &&
+            typeof payload === 'object' &&
+            payload !== null &&
+            'kind' in payload &&
+            payload.kind === 'run.status'
+        )
+      ).toBe(true)
+      expect(
+        shell
+          .host()
+          .harness?.history.list()
+          .map((item) => item.state)
+      ).toEqual(['awaiting_input'])
+      expect(requests).toEqual([{ title: 'Adea', body: 'A conversation needs your attention.' }])
+    } finally {
+      publisher.dispose()
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
 
   test('legal transitions apply, stamp completion, and feed the canonical event stream', async () => {
     const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE })

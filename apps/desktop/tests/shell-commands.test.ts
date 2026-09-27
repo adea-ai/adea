@@ -12,6 +12,32 @@ import { createCommandSurface } from '../shell/src/commands'
 import { downloadUpdateArchive, extractUpdateArchive } from '../shell/src/updater'
 
 describe('desktop shell command surface', () => {
+  test('accepts only the ephemeral Chat presentation hint through the guarded command surface', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
+    const updates: Array<string | undefined> = []
+    try {
+      const invoke = createCommandSurface(dataDir, {
+        onChatPresentation: (focusedSessionId) => updates.push(focusedSessionId),
+      })
+
+      expect(
+        invoke('desktop_chat_presentation', { focusedSessionId: 'runtime-session-id' })
+      ).toEqual({ ok: true, value: null })
+      expect(invoke('desktop_chat_presentation', {})).toEqual({ ok: true, value: null })
+      expect(invoke('desktop_chat_presentation', { focusedSessionId: ['not-a-session'] })).toEqual({
+        ok: true,
+        value: null,
+      })
+      expect(invoke('desktop_chat_presentation', { focusedSessionId: 'a'.repeat(129) })).toEqual({
+        ok: true,
+        value: null,
+      })
+      expect(updates).toEqual(['runtime-session-id', undefined, undefined, undefined])
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
   test('round-trips the local content and preferences families', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
     try {

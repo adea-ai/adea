@@ -1373,6 +1373,36 @@ question answers on scope reset and retains response-authority checks. Current
 opaque runtime payloads provide no validated call phase, interaction eligibility,
 synthesis or final-answer boundary; rows therefore stay visible and unfolded.
 Payload hints and run completion cannot authorize grouping or hide an action.
+
+### Desktop Chat presentation notifications
+
+The desktop shell derives notification intents from the canonical bounded
+`RunHistoryStore.list()` snapshot. It seeds a baseline after host composition
+and compares snapshots only after the harness has durably recorded a
+`run.status` transition, published as `dev.harness.updated` with
+`kind: 'run.status'`. The store's existing 200-run retention bound applies;
+the notification path owns no second run index or event watcher. It advances
+the baseline even when focus suppresses a request or the native request fails,
+so a transition is never replayed later as a new alert.
+
+Only the mounted desktop Chat host may report its canonical conversation
+session, and the Dev surface may report its currently selected canonical
+session. Conventional workspace/team Chat does not imply a RuntimeSession. The
+shell validates either presentation hint against the current scoped,
+non-archived session projection. Window focus comes from the native window's
+focus/blur events. These signals suppress presentation only: selection and
+focus never grant command or input authority, and the notification path leaves
+`authoritySessionId` unset until a separately typed input-owner projection
+exists.
+
+The native boundary receives only the fixed title `Adea` and body
+`A conversation needs your attention.` Run IDs, session IDs, display names,
+prompts, tool output, and paths never reach the OS notification request. A
+successful `Utils.showNotification` call returns no delivery receipt, so the
+shell records only that the API call returned. An absent or throwing API is a
+silent typed unavailable outcome. This lane does not probe notification
+permission or claim OS delivery.
+
 Chat attaches an existing session by walking the legal paged
 `dev.session.list` body and its opaque cursors; the list body has no
 `runtimeSessionId` filter. Since the host may start a bounded replay at the
@@ -5220,7 +5250,14 @@ files in the same commit:
   auto-launched), typed refusals for unlaunchable explicit defaults, the
   launchDefault resolution order with the install remediation gap, and the
   observed `dev.harness.runStatus` machine (legal edges, illegal edges,
-  terminal refusals, generation/scope fencing, canonical event emission);
+  terminal refusals, generation/scope fencing, canonical event emission), plus
+  the durable run-status notification observer on the composed host publish
+  path;
+- `apps/desktop/tests/harness-notifications.test.ts` pins wrapped
+  `dev.harness.updated` observation, focus suppression, baseline advancement,
+  disposal, and value-free native request handling; Chat/Dev source precedence,
+  serialization, and transport failure handling are pinned by
+  `apps/web/test/desktop-chat-presentation.test.ts`;
 - `apps/desktop/tests/dev-runtime-harness-status.test.ts` pins the pure
   transition table edge-by-edge, idempotent same-state replays, typed
   refusal codes, event-kind mapping, and the bounded run-history store

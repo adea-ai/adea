@@ -144,6 +144,12 @@ itself pinned by `apps/desktop/tests/shell-channel.test.ts` and the identity
 binding and gate ordering by
 `apps/desktop/tests/dev-runtime-composition.test.ts`.
 
+`desktop_chat_presentation` is an ephemeral presentation hint on the same
+signed `/__adea/invoke` handler surface. The shell resolves the reported
+session against its current scoped projection; the hint is never command or
+input authority and is cleared when the mounted surface is disposed. It
+contains no notification text and cannot request an arbitrary native action.
+
 ## Pinned by
 
 - `packages/auth/tests/unit`: origin allowlist, callback replay and credential

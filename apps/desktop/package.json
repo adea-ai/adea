@@ -11,5 +11,8 @@
     "lint": "oxlint",
     "test": "bun test tests",
     "typecheck": "tsc -p shell/tsconfig.json"
+  },
+  "dependencies": {
+    "@adea-ai/dev-view": "workspace:*"
   }
 }

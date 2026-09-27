@@ -14,5 +14,9 @@ declare module 'electrobun/main' {
   export class BrowserWindow {
     constructor(options: BrowserWindowOptions)
     close(): void
+    on(event: 'focus' | 'blur', listener: () => void): void
+  }
+  export const Utils: {
+    showNotification(request: { title: string; body: string }): void
   }
 }
