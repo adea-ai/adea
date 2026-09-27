@@ -1707,6 +1707,15 @@ spec and reject unknown keys.
 machine checked against the catalog. No prose wrapper, alternate nesting, or
 implicit extra field is allowed.
 
+Browser-safe command-construction metadata is generated from this same registry
+in `packages/types/src/dev-runtime-metadata.ts`. It exposes one operation-bound
+metadata entry per operation, the compatibility aggregate used by dynamic lazy
+panes, and the sorted unique capability list for unavailable-provider
+snapshots. Eager callers bind their exact operation entry; the shared builder
+uses the operation carried by that entry together with its capability and
+resource requirements. These generated forms carry the same registry facts and
+do not create a second authorization source.
+
 No body accepts `unknown`, an open record, a shell command string, an absolute
 path where a `WorkspacePath` is required, or identity/capability/channel
 authority. `resource` is absent only where the operation registry says `null`; otherwise

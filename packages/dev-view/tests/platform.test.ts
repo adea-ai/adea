@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { devOperationCapabilities } from '@adea-ai/types/dev-runtime-metadata'
 
 import { createUnavailableDevRuntimeService } from '../src/platform'
 
@@ -16,6 +17,7 @@ test('unavailable provider reports every capability unavailable without fabricat
 
   const snapshot = await service.capabilitySnapshot(scope)
   expect(snapshot.granted).toEqual([])
+  expect(snapshot.unavailable.map((entry) => entry.capability)).toEqual(devOperationCapabilities)
   expect(snapshot.unavailable.length).toBeGreaterThan(20)
   expect(new Set(snapshot.unavailable.map((entry) => entry.reason))).toEqual(
     new Set(['channel_unauthenticated'])

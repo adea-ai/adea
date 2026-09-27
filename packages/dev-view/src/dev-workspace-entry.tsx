@@ -20,6 +20,13 @@ import type {
   DevStreamFrame,
   PaneLeaf,
 } from '@adea-ai/types/dev-runtime'
+import {
+  devOperationMetadataFor_dev_group_reorder,
+  devOperationMetadataFor_dev_project_reorder,
+  devOperationMetadataFor_dev_session_get,
+  devOperationMetadataFor_dev_session_list,
+  devOperationMetadataFor_dev_session_unarchive,
+} from '@adea-ai/types/dev-runtime-metadata'
 import '@adea-ai/app-ui/dev-view.css'
 // #424: the resources sheet rides the resources pane's scoped hooks.
 import './resources/resources-pane.css'
@@ -51,8 +58,8 @@ import {
 } from 'solid-js'
 import { Portal } from 'solid-js/web'
 
-import { buildDevCommand } from './browser/command'
 import { createDevKeyboardController } from './keyboard'
+import { buildDevCommandFromMetadata } from './browser/command-core'
 import {
   closePane,
   countLeaves,
@@ -110,6 +117,11 @@ const FixtureTerminalPane = import.meta.env.DEV
       }))
     )
   : undefined
+
+const devWorkspaceReorderMetadata = {
+  'dev.group.reorder': devOperationMetadataFor_dev_group_reorder,
+  'dev.project.reorder': devOperationMetadataFor_dev_project_reorder,
+} as const
 
 export type DevProjectFixture = Readonly<{
   id: string
@@ -774,7 +786,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   ): Promise<boolean> => {
     const scope = activeScope()
     if (!scope) return false
-    const reply: DevReply = await props.runtime.execute(buildDevCommand({ operation, scope, body }))
+    const reply: DevReply = await props.runtime.execute(
+      buildDevCommandFromMetadata(devWorkspaceReorderMetadata[operation], { scope, body })
+    )
     if (!reply.ok) {
       setAnnouncement(`Reorder was refused: ${reply.error.message}`)
       await loadProjection()
@@ -902,7 +916,10 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     }
     setArchiveShelf((current) => (current.status === 'ready' ? current : beginArchiveShelfLoad()))
     const reply = await props.runtime.execute(
-      buildDevCommand({ operation: 'dev.session.list', scope, body: { archived: true } })
+      buildDevCommandFromMetadata(devOperationMetadataFor_dev_session_list, {
+        scope,
+        body: { archived: true },
+      })
     )
     if (!reply.ok) {
       setArchiveShelf((current) =>
@@ -947,8 +964,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       return
     }
     const reply = await props.runtime.execute(
-      buildDevCommand({
-        operation: 'dev.session.get',
+      buildDevCommandFromMetadata(devOperationMetadataFor_dev_session_get, {
         scope,
         body: { runtimeSessionId },
         resource: {
@@ -964,8 +980,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     }
     const record = reply.value as { generation?: number }
     const unarchive = await props.runtime.execute(
-      buildDevCommand({
-        operation: 'dev.session.unarchive',
+      buildDevCommandFromMetadata(devOperationMetadataFor_dev_session_unarchive, {
         scope,
         body: { runtimeSessionId, expectedGeneration: record.generation ?? 1 },
         resource: {

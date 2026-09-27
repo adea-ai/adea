@@ -7,7 +7,7 @@ import type {
   DevStreamGrant,
   Scope,
 } from '@adea-ai/types/dev-runtime'
-import { devOperationMetadata } from '@adea-ai/types/dev-runtime-metadata'
+import { devOperationCapabilities } from '@adea-ai/types/dev-runtime-metadata'
 
 export type DevRuntimeAvailability =
   | Readonly<{ status: 'ready' }>
@@ -149,10 +149,7 @@ export function createUnavailableDevRuntimeService(options?: {
 }): DevRuntimeService {
   const reason = options?.reason ?? 'unavailable'
   const now = options?.now ?? (() => new Date().toISOString())
-  const capabilities = Array.from(
-    new Set(Object.values(devOperationMetadata).flatMap((definition) => definition.capabilities))
-  )
-  capabilities.sort((left, right) => left.localeCompare(right))
+  const capabilities = devOperationCapabilities
 
   return {
     state: () => ({ status: 'unavailable', reason }),

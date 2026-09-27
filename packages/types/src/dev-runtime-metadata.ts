@@ -2,530 +2,1689 @@
 // docs/specs/dev-runtime-operations.json. Do not edit by hand.
 // Browser-safe operation metadata; request DSL and reply schema names stay in the server registry.
 
+export const devOperationMetadataFor_dev_browser_annotate = {
+  operation: 'dev.browser.annotate',
+  capabilities: ['dev.browser.control'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_attach = {
+  operation: 'dev.browser.attach',
+  capabilities: ['dev.browser.read'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_cookieImportCommit = {
+  operation: 'dev.browser.cookieImportCommit',
+  capabilities: ['dev.browser.cookies'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_cookieImportPlan = {
+  operation: 'dev.browser.cookieImportPlan',
+  capabilities: ['dev.browser.cookies'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_cookieSources = {
+  operation: 'dev.browser.cookieSources',
+  capabilities: ['dev.browser.cookies'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_browser_diagnostics = {
+  operation: 'dev.browser.diagnostics',
+  capabilities: ['dev.browser.read'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_input = {
+  operation: 'dev.browser.input',
+  capabilities: ['dev.browser.control'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_inspect = {
+  operation: 'dev.browser.inspect',
+  capabilities: ['dev.browser.read'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_laneClose = {
+  operation: 'dev.browser.laneClose',
+  capabilities: ['dev.browser.control'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_laneCreate = {
+  operation: 'dev.browser.laneCreate',
+  capabilities: ['dev.browser.control'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_browser_lanes = {
+  operation: 'dev.browser.lanes',
+  capabilities: ['dev.browser.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_browser_navigate = {
+  operation: 'dev.browser.navigate',
+  capabilities: ['dev.browser.control'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_profilePolicies = {
+  operation: 'dev.browser.profilePolicies',
+  capabilities: ['dev.browser.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_browser_profileReset = {
+  operation: 'dev.browser.profileReset',
+  capabilities: ['dev.browser.cookies'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_release = {
+  operation: 'dev.browser.release',
+  capabilities: ['dev.browser.control'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_screenshot = {
+  operation: 'dev.browser.screenshot',
+  capabilities: ['dev.browser.read'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_takeover = {
+  operation: 'dev.browser.takeover',
+  capabilities: ['dev.browser.control'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_targets = {
+  operation: 'dev.browser.targets',
+  capabilities: ['dev.browser.read'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_browser_viewport = {
+  operation: 'dev.browser.viewport',
+  capabilities: ['dev.browser.control'],
+  resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_capability_snapshot = {
+  operation: 'dev.capability.snapshot',
+  capabilities: [],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_cleanupPolicy_approve = {
+  operation: 'dev.cleanupPolicy.approve',
+  capabilities: ['dev.cleanup.approve'],
+  resource: { kind: 'cleanup_policy', idField: 'cleanupPolicyId' },
+} as const
+
+export const devOperationMetadataFor_dev_cleanupPolicy_createDraft = {
+  operation: 'dev.cleanupPolicy.createDraft',
+  capabilities: ['dev.cleanup.approve'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_cleanupPolicy_disable = {
+  operation: 'dev.cleanupPolicy.disable',
+  capabilities: ['dev.cleanup.approve'],
+  resource: { kind: 'cleanup_policy', idField: 'cleanupPolicyId' },
+} as const
+
+export const devOperationMetadataFor_dev_cleanupPolicy_evaluate = {
+  operation: 'dev.cleanupPolicy.evaluate',
+  capabilities: ['dev.cleanup.approve'],
+  resource: { kind: 'cleanup_policy', idField: 'cleanupPolicyId' },
+} as const
+
+export const devOperationMetadataFor_dev_cleanupPolicy_list = {
+  operation: 'dev.cleanupPolicy.list',
+  capabilities: ['dev.resources.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_computeruse_attach = {
+  operation: 'dev.computeruse.attach',
+  capabilities: ['dev.computeruse.read'],
+  resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_computeruse_capabilities = {
+  operation: 'dev.computeruse.capabilities',
+  capabilities: ['dev.computeruse.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_computeruse_consent = {
+  operation: 'dev.computeruse.consent',
+  capabilities: ['dev.computeruse.control'],
+  resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_computeruse_input = {
+  operation: 'dev.computeruse.input',
+  capabilities: ['dev.computeruse.control'],
+  resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_computeruse_laneClose = {
+  operation: 'dev.computeruse.laneClose',
+  capabilities: ['dev.computeruse.control'],
+  resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_computeruse_laneCreate = {
+  operation: 'dev.computeruse.laneCreate',
+  capabilities: ['dev.computeruse.control'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_computeruse_lanes = {
+  operation: 'dev.computeruse.lanes',
+  capabilities: ['dev.computeruse.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_computeruse_release = {
+  operation: 'dev.computeruse.release',
+  capabilities: ['dev.computeruse.control'],
+  resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_computeruse_takeover = {
+  operation: 'dev.computeruse.takeover',
+  capabilities: ['dev.computeruse.control'],
+  resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+} as const
+
+export const devOperationMetadataFor_dev_device_attach = {
+  operation: 'dev.device.attach',
+  capabilities: ['dev.device.read'],
+  resource: { kind: 'device_session', idField: 'deviceSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_device_input = {
+  operation: 'dev.device.input',
+  capabilities: ['dev.device.control'],
+  resource: { kind: 'device_session', idField: 'deviceSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_device_list = {
+  operation: 'dev.device.list',
+  capabilities: ['dev.device.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_device_screenshot = {
+  operation: 'dev.device.screenshot',
+  capabilities: ['dev.device.read'],
+  resource: { kind: 'device_session', idField: 'deviceSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_device_sessions = {
+  operation: 'dev.device.sessions',
+  capabilities: ['dev.device.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_device_start = {
+  operation: 'dev.device.start',
+  capabilities: ['dev.device.control'],
+  resource: { kind: 'device_inventory', idField: 'inventoryId' },
+} as const
+
+export const devOperationMetadataFor_dev_device_stop = {
+  operation: 'dev.device.stop',
+  capabilities: ['dev.device.control'],
+  resource: { kind: 'device_session', idField: 'deviceSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_copy = {
+  operation: 'dev.files.copy',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_copyTreeCommit = {
+  operation: 'dev.files.copyTreeCommit',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_copyTreePlan = {
+  operation: 'dev.files.copyTreePlan',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_create = {
+  operation: 'dev.files.create',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_delete = {
+  operation: 'dev.files.delete',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_deleteTreeCommit = {
+  operation: 'dev.files.deleteTreeCommit',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_deleteTreePlan = {
+  operation: 'dev.files.deleteTreePlan',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_list = {
+  operation: 'dev.files.list',
+  capabilities: ['dev.files.read'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_openExternal = {
+  operation: 'dev.files.openExternal',
+  capabilities: ['dev.files.read'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_read = {
+  operation: 'dev.files.read',
+  capabilities: ['dev.files.read'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_readStream = {
+  operation: 'dev.files.readStream',
+  capabilities: ['dev.files.read'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_rename = {
+  operation: 'dev.files.rename',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_renameOverwriteCommit = {
+  operation: 'dev.files.renameOverwriteCommit',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_renameOverwritePlan = {
+  operation: 'dev.files.renameOverwritePlan',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_search = {
+  operation: 'dev.files.search',
+  capabilities: ['dev.files.read'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_stat = {
+  operation: 'dev.files.stat',
+  capabilities: ['dev.files.read'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_write = {
+  operation: 'dev.files.write',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_files_writeStream = {
+  operation: 'dev.files.writeStream',
+  capabilities: ['dev.files.write'],
+  resource: { kind: 'workspace_root', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_checkpoint = {
+  operation: 'dev.git.checkpoint',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_checkpointPrune = {
+  operation: 'dev.git.checkpointPrune',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_commit = {
+  operation: 'dev.git.commit',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_diff = {
+  operation: 'dev.git.diff',
+  capabilities: ['dev.git.read'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_discardCommit = {
+  operation: 'dev.git.discardCommit',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_discardPlan = {
+  operation: 'dev.git.discardPlan',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_fetch = {
+  operation: 'dev.git.fetch',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_history = {
+  operation: 'dev.git.history',
+  capabilities: ['dev.git.read'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_hunkStagingCommit = {
+  operation: 'dev.git.hunkStagingCommit',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_hunkStagingPlan = {
+  operation: 'dev.git.hunkStagingPlan',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_restoreCommit = {
+  operation: 'dev.git.restoreCommit',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_restorePlan = {
+  operation: 'dev.git.restorePlan',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_stage = {
+  operation: 'dev.git.stage',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_status = {
+  operation: 'dev.git.status',
+  capabilities: ['dev.git.read'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_git_unstage = {
+  operation: 'dev.git.unstage',
+  capabilities: ['dev.git.write'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_account = {
+  operation: 'dev.github.account',
+  capabilities: ['dev.github.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_github_checks = {
+  operation: 'dev.github.checks',
+  capabilities: ['dev.github.read'],
+  resource: { kind: 'pull_request', idField: 'pullRequestId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_createPullRequest = {
+  operation: 'dev.github.createPullRequest',
+  capabilities: ['dev.github.write'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_issues = {
+  operation: 'dev.github.issues',
+  capabilities: ['dev.github.read'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_mergeCommit = {
+  operation: 'dev.github.mergeCommit',
+  capabilities: ['dev.github.write'],
+  resource: { kind: 'pull_request', idField: 'pullRequestId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_mergePlan = {
+  operation: 'dev.github.mergePlan',
+  capabilities: ['dev.github.write'],
+  resource: { kind: 'pull_request', idField: 'pullRequestId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_milestones = {
+  operation: 'dev.github.milestones',
+  capabilities: ['dev.github.read'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_pullRequest = {
+  operation: 'dev.github.pullRequest',
+  capabilities: ['dev.github.read'],
+  resource: { kind: 'pull_request', idField: 'pullRequestId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_pullRequests = {
+  operation: 'dev.github.pullRequests',
+  capabilities: ['dev.github.read'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_pushCommit = {
+  operation: 'dev.github.pushCommit',
+  capabilities: ['dev.github.write'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_pushPlan = {
+  operation: 'dev.github.pushPlan',
+  capabilities: ['dev.github.write'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_repository = {
+  operation: 'dev.github.repository',
+  capabilities: ['dev.github.read'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_updateBranchCommit = {
+  operation: 'dev.github.updateBranchCommit',
+  capabilities: ['dev.github.write'],
+  resource: { kind: 'pull_request', idField: 'pullRequestId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_updateBranchPlan = {
+  operation: 'dev.github.updateBranchPlan',
+  capabilities: ['dev.github.write'],
+  resource: { kind: 'pull_request', idField: 'pullRequestId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_updateCommit = {
+  operation: 'dev.github.updateCommit',
+  capabilities: ['dev.github.write'],
+  resource: { kind: 'pull_request', idField: 'pullRequestId' },
+} as const
+
+export const devOperationMetadataFor_dev_github_updatePlan = {
+  operation: 'dev.github.updatePlan',
+  capabilities: ['dev.github.write'],
+  resource: { kind: 'pull_request', idField: 'pullRequestId' },
+} as const
+
+export const devOperationMetadataFor_dev_group_create = {
+  operation: 'dev.group.create',
+  capabilities: ['dev.project.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_group_delete = {
+  operation: 'dev.group.delete',
+  capabilities: ['dev.project.manage'],
+  resource: { kind: 'group', idField: 'groupId' },
+} as const
+
+export const devOperationMetadataFor_dev_group_list = {
+  operation: 'dev.group.list',
+  capabilities: ['dev.project.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_group_reorder = {
+  operation: 'dev.group.reorder',
+  capabilities: ['dev.project.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_group_update = {
+  operation: 'dev.group.update',
+  capabilities: ['dev.project.manage'],
+  resource: { kind: 'group', idField: 'groupId' },
+} as const
+
+export const devOperationMetadataFor_dev_harness_acpClose = {
+  operation: 'dev.harness.acpClose',
+  capabilities: ['dev.harness.manage'],
+  resource: { kind: 'acp_connection', idField: 'acpConnectionId' },
+} as const
+
+export const devOperationMetadataFor_dev_harness_acpConnect = {
+  operation: 'dev.harness.acpConnect',
+  capabilities: ['dev.harness.manage'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_harness_acpConnections = {
+  operation: 'dev.harness.acpConnections',
+  capabilities: ['dev.harness.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_harness_managedPiInstall = {
+  operation: 'dev.harness.managedPiInstall',
+  capabilities: ['dev.harness.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_harness_managedPiStatus = {
+  operation: 'dev.harness.managedPiStatus',
+  capabilities: ['dev.harness.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_harness_preferenceReset = {
+  operation: 'dev.harness.preferenceReset',
+  capabilities: ['dev.harness.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_harness_preferenceUpdate = {
+  operation: 'dev.harness.preferenceUpdate',
+  capabilities: ['dev.harness.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_harness_preferences = {
+  operation: 'dev.harness.preferences',
+  capabilities: ['dev.harness.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_harness_runStatus = {
+  operation: 'dev.harness.runStatus',
+  capabilities: ['dev.harness.manage'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_harness_runs = {
+  operation: 'dev.harness.runs',
+  capabilities: ['dev.harness.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_project_archive = {
+  operation: 'dev.project.archive',
+  capabilities: ['dev.project.manage'],
+  resource: { kind: 'project', idField: 'projectId' },
+} as const
+
+export const devOperationMetadataFor_dev_project_bookmarks = {
+  operation: 'dev.project.bookmarks',
+  capabilities: ['dev.project.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_project_clone = {
+  operation: 'dev.project.clone',
+  capabilities: ['dev.project.manage', 'dev.repo.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_project_create = {
+  operation: 'dev.project.create',
+  capabilities: ['dev.project.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_project_get = {
+  operation: 'dev.project.get',
+  capabilities: ['dev.project.read'],
+  resource: { kind: 'project', idField: 'projectId' },
+} as const
+
+export const devOperationMetadataFor_dev_project_import = {
+  operation: 'dev.project.import',
+  capabilities: ['dev.project.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_project_list = {
+  operation: 'dev.project.list',
+  capabilities: ['dev.project.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_project_reorder = {
+  operation: 'dev.project.reorder',
+  capabilities: ['dev.project.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_project_scan = {
+  operation: 'dev.project.scan',
+  capabilities: ['dev.files.read', 'dev.project.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_project_update = {
+  operation: 'dev.project.update',
+  capabilities: ['dev.project.manage'],
+  resource: { kind: 'project', idField: 'projectId' },
+} as const
+
+export const devOperationMetadataFor_dev_repo_adopt = {
+  operation: 'dev.repo.adopt',
+  capabilities: ['dev.repo.manage'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_repo_authorize = {
+  operation: 'dev.repo.authorize',
+  capabilities: ['dev.repo.manage'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_repo_credentialRefs = {
+  operation: 'dev.repo.credentialRefs',
+  capabilities: ['dev.repo.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_repo_inspect = {
+  operation: 'dev.repo.inspect',
+  capabilities: ['dev.repo.read'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_repo_list = {
+  operation: 'dev.repo.list',
+  capabilities: ['dev.repo.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_repo_refresh = {
+  operation: 'dev.repo.refresh',
+  capabilities: ['dev.repo.manage'],
+  resource: { kind: 'repository', idField: 'repoId' },
+} as const
+
+export const devOperationMetadataFor_dev_resources_metrics = {
+  operation: 'dev.resources.metrics',
+  capabilities: ['dev.resources.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_resources_ports = {
+  operation: 'dev.resources.ports',
+  capabilities: ['dev.resources.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_resources_processes = {
+  operation: 'dev.resources.processes',
+  capabilities: ['dev.resources.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_resources_retainedData = {
+  operation: 'dev.resources.retainedData',
+  capabilities: ['dev.resources.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_resources_snapshot = {
+  operation: 'dev.resources.snapshot',
+  capabilities: ['dev.resources.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_resources_stopCommit = {
+  operation: 'dev.resources.stopCommit',
+  capabilities: ['dev.resources.stop'],
+  resource: { kind: 'process', idField: 'processRecordId' },
+} as const
+
+export const devOperationMetadataFor_dev_resources_stopPlan = {
+  operation: 'dev.resources.stopPlan',
+  capabilities: ['dev.resources.stop'],
+  resource: { kind: 'process', idField: 'processRecordId' },
+} as const
+
+export const devOperationMetadataFor_dev_resources_usage = {
+  operation: 'dev.resources.usage',
+  capabilities: ['dev.resources.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_session_archive = {
+  operation: 'dev.session.archive',
+  capabilities: ['dev.session.manage'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_session_cancelHarness = {
+  operation: 'dev.session.cancelHarness',
+  capabilities: ['dev.session.manage'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_session_create = {
+  operation: 'dev.session.create',
+  capabilities: ['dev.session.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_session_events = {
+  operation: 'dev.session.events',
+  capabilities: ['dev.session.read'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_session_get = {
+  operation: 'dev.session.get',
+  capabilities: ['dev.session.read'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_session_launchDefault = {
+  operation: 'dev.session.launchDefault',
+  capabilities: ['dev.session.manage'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_session_launchHarness = {
+  operation: 'dev.session.launchHarness',
+  capabilities: ['dev.session.manage'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_session_list = {
+  operation: 'dev.session.list',
+  capabilities: ['dev.session.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_session_resumeHarness = {
+  operation: 'dev.session.resumeHarness',
+  capabilities: ['dev.session.manage'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_session_transferInput = {
+  operation: 'dev.session.transferInput',
+  capabilities: ['dev.session.manage'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_session_unarchive = {
+  operation: 'dev.session.unarchive',
+  capabilities: ['dev.session.manage'],
+  resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+} as const
+
+export const devOperationMetadataFor_dev_terminal_attach = {
+  operation: 'dev.terminal.attach',
+  capabilities: ['dev.terminal.attach'],
+  resource: { kind: 'terminal', idField: 'terminalId' },
+} as const
+
+export const devOperationMetadataFor_dev_terminal_checkpoint = {
+  operation: 'dev.terminal.checkpoint',
+  capabilities: ['dev.terminal.attach'],
+  resource: { kind: 'terminal', idField: 'terminalId' },
+} as const
+
+export const devOperationMetadataFor_dev_terminal_create = {
+  operation: 'dev.terminal.create',
+  capabilities: ['dev.terminal.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_terminal_detach = {
+  operation: 'dev.terminal.detach',
+  capabilities: ['dev.terminal.attach'],
+  resource: { kind: 'terminal', idField: 'terminalId' },
+} as const
+
+export const devOperationMetadataFor_dev_terminal_historyDelete = {
+  operation: 'dev.terminal.historyDelete',
+  capabilities: ['dev.terminal.manage'],
+  resource: { kind: 'terminal', idField: 'terminalId' },
+} as const
+
+export const devOperationMetadataFor_dev_terminal_input = {
+  operation: 'dev.terminal.input',
+  capabilities: ['dev.terminal.input'],
+  resource: { kind: 'terminal', idField: 'terminalId' },
+} as const
+
+export const devOperationMetadataFor_dev_terminal_list = {
+  operation: 'dev.terminal.list',
+  capabilities: ['dev.terminal.attach'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_terminal_resize = {
+  operation: 'dev.terminal.resize',
+  capabilities: ['dev.terminal.manage'],
+  resource: { kind: 'terminal', idField: 'terminalId' },
+} as const
+
+export const devOperationMetadataFor_dev_terminal_search = {
+  operation: 'dev.terminal.search',
+  capabilities: ['dev.terminal.attach'],
+  resource: { kind: 'terminal', idField: 'terminalId' },
+} as const
+
+export const devOperationMetadataFor_dev_terminal_shellProfiles = {
+  operation: 'dev.terminal.shellProfiles',
+  capabilities: ['dev.terminal.attach'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_terminal_signal = {
+  operation: 'dev.terminal.signal',
+  capabilities: ['dev.terminal.manage'],
+  resource: { kind: 'terminal', idField: 'terminalId' },
+} as const
+
+export const devOperationMetadataFor_dev_terminal_terminate = {
+  operation: 'dev.terminal.terminate',
+  capabilities: ['dev.terminal.manage'],
+  resource: { kind: 'terminal', idField: 'terminalId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_archive = {
+  operation: 'dev.worktree.archive',
+  capabilities: ['dev.worktree.manage'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_cleanupCommit = {
+  operation: 'dev.worktree.cleanupCommit',
+  capabilities: ['dev.cleanup.approve', 'dev.worktree.manage'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_cleanupJobs = {
+  operation: 'dev.worktree.cleanupJobs',
+  capabilities: ['dev.resources.read'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_cleanupPlan = {
+  operation: 'dev.worktree.cleanupPlan',
+  capabilities: ['dev.cleanup.approve', 'dev.worktree.manage'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_cleanupResume = {
+  operation: 'dev.worktree.cleanupResume',
+  capabilities: ['dev.cleanup.approve', 'dev.worktree.manage'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_create = {
+  operation: 'dev.worktree.create',
+  capabilities: ['dev.worktree.manage'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_worktree_lease = {
+  operation: 'dev.worktree.lease',
+  capabilities: ['dev.worktree.manage'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_list = {
+  operation: 'dev.worktree.list',
+  capabilities: ['dev.worktree.read'],
+  resource: null,
+} as const
+
+export const devOperationMetadataFor_dev_worktree_mergeCommit = {
+  operation: 'dev.worktree.mergeCommit',
+  capabilities: ['dev.worktree.manage'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_mergePlan = {
+  operation: 'dev.worktree.mergePlan',
+  capabilities: ['dev.worktree.manage'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_releaseLease = {
+  operation: 'dev.worktree.releaseLease',
+  capabilities: ['dev.worktree.manage'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_retryBootstrap = {
+  operation: 'dev.worktree.retryBootstrap',
+  capabilities: ['dev.worktree.manage'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
+export const devOperationMetadataFor_dev_worktree_unarchive = {
+  operation: 'dev.worktree.unarchive',
+  capabilities: ['dev.worktree.manage'],
+  resource: { kind: 'worktree', idField: 'worktreeId' },
+} as const
+
 export const devOperationMetadata = {
   'dev.browser.annotate': {
-    capabilities: ['dev.browser.control'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_annotate.capabilities,
+    resource: devOperationMetadataFor_dev_browser_annotate.resource,
   },
   'dev.browser.attach': {
-    capabilities: ['dev.browser.read'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_attach.capabilities,
+    resource: devOperationMetadataFor_dev_browser_attach.resource,
   },
   'dev.browser.cookieImportCommit': {
-    capabilities: ['dev.browser.cookies'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_cookieImportCommit.capabilities,
+    resource: devOperationMetadataFor_dev_browser_cookieImportCommit.resource,
   },
   'dev.browser.cookieImportPlan': {
-    capabilities: ['dev.browser.cookies'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_cookieImportPlan.capabilities,
+    resource: devOperationMetadataFor_dev_browser_cookieImportPlan.resource,
   },
-  'dev.browser.cookieSources': { capabilities: ['dev.browser.cookies'], resource: null },
+  'dev.browser.cookieSources': {
+    capabilities: devOperationMetadataFor_dev_browser_cookieSources.capabilities,
+    resource: devOperationMetadataFor_dev_browser_cookieSources.resource,
+  },
   'dev.browser.diagnostics': {
-    capabilities: ['dev.browser.read'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_diagnostics.capabilities,
+    resource: devOperationMetadataFor_dev_browser_diagnostics.resource,
   },
   'dev.browser.input': {
-    capabilities: ['dev.browser.control'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_input.capabilities,
+    resource: devOperationMetadataFor_dev_browser_input.resource,
   },
   'dev.browser.inspect': {
-    capabilities: ['dev.browser.read'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_inspect.capabilities,
+    resource: devOperationMetadataFor_dev_browser_inspect.resource,
   },
   'dev.browser.laneClose': {
-    capabilities: ['dev.browser.control'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_laneClose.capabilities,
+    resource: devOperationMetadataFor_dev_browser_laneClose.resource,
   },
-  'dev.browser.laneCreate': { capabilities: ['dev.browser.control'], resource: null },
-  'dev.browser.lanes': { capabilities: ['dev.browser.read'], resource: null },
+  'dev.browser.laneCreate': {
+    capabilities: devOperationMetadataFor_dev_browser_laneCreate.capabilities,
+    resource: devOperationMetadataFor_dev_browser_laneCreate.resource,
+  },
+  'dev.browser.lanes': {
+    capabilities: devOperationMetadataFor_dev_browser_lanes.capabilities,
+    resource: devOperationMetadataFor_dev_browser_lanes.resource,
+  },
   'dev.browser.navigate': {
-    capabilities: ['dev.browser.control'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_navigate.capabilities,
+    resource: devOperationMetadataFor_dev_browser_navigate.resource,
   },
-  'dev.browser.profilePolicies': { capabilities: ['dev.browser.read'], resource: null },
+  'dev.browser.profilePolicies': {
+    capabilities: devOperationMetadataFor_dev_browser_profilePolicies.capabilities,
+    resource: devOperationMetadataFor_dev_browser_profilePolicies.resource,
+  },
   'dev.browser.profileReset': {
-    capabilities: ['dev.browser.cookies'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_profileReset.capabilities,
+    resource: devOperationMetadataFor_dev_browser_profileReset.resource,
   },
   'dev.browser.release': {
-    capabilities: ['dev.browser.control'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_release.capabilities,
+    resource: devOperationMetadataFor_dev_browser_release.resource,
   },
   'dev.browser.screenshot': {
-    capabilities: ['dev.browser.read'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_screenshot.capabilities,
+    resource: devOperationMetadataFor_dev_browser_screenshot.resource,
   },
   'dev.browser.takeover': {
-    capabilities: ['dev.browser.control'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_takeover.capabilities,
+    resource: devOperationMetadataFor_dev_browser_takeover.resource,
   },
   'dev.browser.targets': {
-    capabilities: ['dev.browser.read'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_targets.capabilities,
+    resource: devOperationMetadataFor_dev_browser_targets.resource,
   },
   'dev.browser.viewport': {
-    capabilities: ['dev.browser.control'],
-    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    capabilities: devOperationMetadataFor_dev_browser_viewport.capabilities,
+    resource: devOperationMetadataFor_dev_browser_viewport.resource,
   },
-  'dev.capability.snapshot': { capabilities: [], resource: null },
+  'dev.capability.snapshot': {
+    capabilities: devOperationMetadataFor_dev_capability_snapshot.capabilities,
+    resource: devOperationMetadataFor_dev_capability_snapshot.resource,
+  },
   'dev.cleanupPolicy.approve': {
-    capabilities: ['dev.cleanup.approve'],
-    resource: { kind: 'cleanup_policy', idField: 'cleanupPolicyId' },
+    capabilities: devOperationMetadataFor_dev_cleanupPolicy_approve.capabilities,
+    resource: devOperationMetadataFor_dev_cleanupPolicy_approve.resource,
   },
-  'dev.cleanupPolicy.createDraft': { capabilities: ['dev.cleanup.approve'], resource: null },
+  'dev.cleanupPolicy.createDraft': {
+    capabilities: devOperationMetadataFor_dev_cleanupPolicy_createDraft.capabilities,
+    resource: devOperationMetadataFor_dev_cleanupPolicy_createDraft.resource,
+  },
   'dev.cleanupPolicy.disable': {
-    capabilities: ['dev.cleanup.approve'],
-    resource: { kind: 'cleanup_policy', idField: 'cleanupPolicyId' },
+    capabilities: devOperationMetadataFor_dev_cleanupPolicy_disable.capabilities,
+    resource: devOperationMetadataFor_dev_cleanupPolicy_disable.resource,
   },
   'dev.cleanupPolicy.evaluate': {
-    capabilities: ['dev.cleanup.approve'],
-    resource: { kind: 'cleanup_policy', idField: 'cleanupPolicyId' },
+    capabilities: devOperationMetadataFor_dev_cleanupPolicy_evaluate.capabilities,
+    resource: devOperationMetadataFor_dev_cleanupPolicy_evaluate.resource,
   },
-  'dev.cleanupPolicy.list': { capabilities: ['dev.resources.read'], resource: null },
+  'dev.cleanupPolicy.list': {
+    capabilities: devOperationMetadataFor_dev_cleanupPolicy_list.capabilities,
+    resource: devOperationMetadataFor_dev_cleanupPolicy_list.resource,
+  },
   'dev.computeruse.attach': {
-    capabilities: ['dev.computeruse.read'],
-    resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+    capabilities: devOperationMetadataFor_dev_computeruse_attach.capabilities,
+    resource: devOperationMetadataFor_dev_computeruse_attach.resource,
   },
-  'dev.computeruse.capabilities': { capabilities: ['dev.computeruse.read'], resource: null },
+  'dev.computeruse.capabilities': {
+    capabilities: devOperationMetadataFor_dev_computeruse_capabilities.capabilities,
+    resource: devOperationMetadataFor_dev_computeruse_capabilities.resource,
+  },
   'dev.computeruse.consent': {
-    capabilities: ['dev.computeruse.control'],
-    resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+    capabilities: devOperationMetadataFor_dev_computeruse_consent.capabilities,
+    resource: devOperationMetadataFor_dev_computeruse_consent.resource,
   },
   'dev.computeruse.input': {
-    capabilities: ['dev.computeruse.control'],
-    resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+    capabilities: devOperationMetadataFor_dev_computeruse_input.capabilities,
+    resource: devOperationMetadataFor_dev_computeruse_input.resource,
   },
   'dev.computeruse.laneClose': {
-    capabilities: ['dev.computeruse.control'],
-    resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+    capabilities: devOperationMetadataFor_dev_computeruse_laneClose.capabilities,
+    resource: devOperationMetadataFor_dev_computeruse_laneClose.resource,
   },
-  'dev.computeruse.laneCreate': { capabilities: ['dev.computeruse.control'], resource: null },
-  'dev.computeruse.lanes': { capabilities: ['dev.computeruse.read'], resource: null },
+  'dev.computeruse.laneCreate': {
+    capabilities: devOperationMetadataFor_dev_computeruse_laneCreate.capabilities,
+    resource: devOperationMetadataFor_dev_computeruse_laneCreate.resource,
+  },
+  'dev.computeruse.lanes': {
+    capabilities: devOperationMetadataFor_dev_computeruse_lanes.capabilities,
+    resource: devOperationMetadataFor_dev_computeruse_lanes.resource,
+  },
   'dev.computeruse.release': {
-    capabilities: ['dev.computeruse.control'],
-    resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+    capabilities: devOperationMetadataFor_dev_computeruse_release.capabilities,
+    resource: devOperationMetadataFor_dev_computeruse_release.resource,
   },
   'dev.computeruse.takeover': {
-    capabilities: ['dev.computeruse.control'],
-    resource: { kind: 'computeruse_lane', idField: 'computerUseLaneId' },
+    capabilities: devOperationMetadataFor_dev_computeruse_takeover.capabilities,
+    resource: devOperationMetadataFor_dev_computeruse_takeover.resource,
   },
   'dev.device.attach': {
-    capabilities: ['dev.device.read'],
-    resource: { kind: 'device_session', idField: 'deviceSessionId' },
+    capabilities: devOperationMetadataFor_dev_device_attach.capabilities,
+    resource: devOperationMetadataFor_dev_device_attach.resource,
   },
   'dev.device.input': {
-    capabilities: ['dev.device.control'],
-    resource: { kind: 'device_session', idField: 'deviceSessionId' },
+    capabilities: devOperationMetadataFor_dev_device_input.capabilities,
+    resource: devOperationMetadataFor_dev_device_input.resource,
   },
-  'dev.device.list': { capabilities: ['dev.device.read'], resource: null },
+  'dev.device.list': {
+    capabilities: devOperationMetadataFor_dev_device_list.capabilities,
+    resource: devOperationMetadataFor_dev_device_list.resource,
+  },
   'dev.device.screenshot': {
-    capabilities: ['dev.device.read'],
-    resource: { kind: 'device_session', idField: 'deviceSessionId' },
+    capabilities: devOperationMetadataFor_dev_device_screenshot.capabilities,
+    resource: devOperationMetadataFor_dev_device_screenshot.resource,
   },
-  'dev.device.sessions': { capabilities: ['dev.device.read'], resource: null },
+  'dev.device.sessions': {
+    capabilities: devOperationMetadataFor_dev_device_sessions.capabilities,
+    resource: devOperationMetadataFor_dev_device_sessions.resource,
+  },
   'dev.device.start': {
-    capabilities: ['dev.device.control'],
-    resource: { kind: 'device_inventory', idField: 'inventoryId' },
+    capabilities: devOperationMetadataFor_dev_device_start.capabilities,
+    resource: devOperationMetadataFor_dev_device_start.resource,
   },
   'dev.device.stop': {
-    capabilities: ['dev.device.control'],
-    resource: { kind: 'device_session', idField: 'deviceSessionId' },
+    capabilities: devOperationMetadataFor_dev_device_stop.capabilities,
+    resource: devOperationMetadataFor_dev_device_stop.resource,
   },
   'dev.files.copy': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_copy.capabilities,
+    resource: devOperationMetadataFor_dev_files_copy.resource,
   },
   'dev.files.copyTreeCommit': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_copyTreeCommit.capabilities,
+    resource: devOperationMetadataFor_dev_files_copyTreeCommit.resource,
   },
   'dev.files.copyTreePlan': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_copyTreePlan.capabilities,
+    resource: devOperationMetadataFor_dev_files_copyTreePlan.resource,
   },
   'dev.files.create': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_create.capabilities,
+    resource: devOperationMetadataFor_dev_files_create.resource,
   },
   'dev.files.delete': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_delete.capabilities,
+    resource: devOperationMetadataFor_dev_files_delete.resource,
   },
   'dev.files.deleteTreeCommit': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_deleteTreeCommit.capabilities,
+    resource: devOperationMetadataFor_dev_files_deleteTreeCommit.resource,
   },
   'dev.files.deleteTreePlan': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_deleteTreePlan.capabilities,
+    resource: devOperationMetadataFor_dev_files_deleteTreePlan.resource,
   },
   'dev.files.list': {
-    capabilities: ['dev.files.read'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_list.capabilities,
+    resource: devOperationMetadataFor_dev_files_list.resource,
   },
   'dev.files.openExternal': {
-    capabilities: ['dev.files.read'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_openExternal.capabilities,
+    resource: devOperationMetadataFor_dev_files_openExternal.resource,
   },
   'dev.files.read': {
-    capabilities: ['dev.files.read'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_read.capabilities,
+    resource: devOperationMetadataFor_dev_files_read.resource,
   },
   'dev.files.readStream': {
-    capabilities: ['dev.files.read'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_readStream.capabilities,
+    resource: devOperationMetadataFor_dev_files_readStream.resource,
   },
   'dev.files.rename': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_rename.capabilities,
+    resource: devOperationMetadataFor_dev_files_rename.resource,
   },
   'dev.files.renameOverwriteCommit': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_renameOverwriteCommit.capabilities,
+    resource: devOperationMetadataFor_dev_files_renameOverwriteCommit.resource,
   },
   'dev.files.renameOverwritePlan': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_renameOverwritePlan.capabilities,
+    resource: devOperationMetadataFor_dev_files_renameOverwritePlan.resource,
   },
   'dev.files.search': {
-    capabilities: ['dev.files.read'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_search.capabilities,
+    resource: devOperationMetadataFor_dev_files_search.resource,
   },
   'dev.files.stat': {
-    capabilities: ['dev.files.read'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_stat.capabilities,
+    resource: devOperationMetadataFor_dev_files_stat.resource,
   },
   'dev.files.write': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_write.capabilities,
+    resource: devOperationMetadataFor_dev_files_write.resource,
   },
   'dev.files.writeStream': {
-    capabilities: ['dev.files.write'],
-    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_files_writeStream.capabilities,
+    resource: devOperationMetadataFor_dev_files_writeStream.resource,
   },
   'dev.git.checkpoint': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_checkpoint.capabilities,
+    resource: devOperationMetadataFor_dev_git_checkpoint.resource,
   },
   'dev.git.checkpointPrune': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_checkpointPrune.capabilities,
+    resource: devOperationMetadataFor_dev_git_checkpointPrune.resource,
   },
   'dev.git.commit': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_commit.capabilities,
+    resource: devOperationMetadataFor_dev_git_commit.resource,
   },
   'dev.git.diff': {
-    capabilities: ['dev.git.read'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_diff.capabilities,
+    resource: devOperationMetadataFor_dev_git_diff.resource,
   },
   'dev.git.discardCommit': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_discardCommit.capabilities,
+    resource: devOperationMetadataFor_dev_git_discardCommit.resource,
   },
   'dev.git.discardPlan': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_discardPlan.capabilities,
+    resource: devOperationMetadataFor_dev_git_discardPlan.resource,
   },
   'dev.git.fetch': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_fetch.capabilities,
+    resource: devOperationMetadataFor_dev_git_fetch.resource,
   },
   'dev.git.history': {
-    capabilities: ['dev.git.read'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_history.capabilities,
+    resource: devOperationMetadataFor_dev_git_history.resource,
   },
   'dev.git.hunkStagingCommit': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_hunkStagingCommit.capabilities,
+    resource: devOperationMetadataFor_dev_git_hunkStagingCommit.resource,
   },
   'dev.git.hunkStagingPlan': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_hunkStagingPlan.capabilities,
+    resource: devOperationMetadataFor_dev_git_hunkStagingPlan.resource,
   },
   'dev.git.restoreCommit': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_restoreCommit.capabilities,
+    resource: devOperationMetadataFor_dev_git_restoreCommit.resource,
   },
   'dev.git.restorePlan': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_restorePlan.capabilities,
+    resource: devOperationMetadataFor_dev_git_restorePlan.resource,
   },
   'dev.git.stage': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_stage.capabilities,
+    resource: devOperationMetadataFor_dev_git_stage.resource,
   },
   'dev.git.status': {
-    capabilities: ['dev.git.read'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_status.capabilities,
+    resource: devOperationMetadataFor_dev_git_status.resource,
   },
   'dev.git.unstage': {
-    capabilities: ['dev.git.write'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_git_unstage.capabilities,
+    resource: devOperationMetadataFor_dev_git_unstage.resource,
   },
-  'dev.github.account': { capabilities: ['dev.github.read'], resource: null },
+  'dev.github.account': {
+    capabilities: devOperationMetadataFor_dev_github_account.capabilities,
+    resource: devOperationMetadataFor_dev_github_account.resource,
+  },
   'dev.github.checks': {
-    capabilities: ['dev.github.read'],
-    resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    capabilities: devOperationMetadataFor_dev_github_checks.capabilities,
+    resource: devOperationMetadataFor_dev_github_checks.resource,
   },
   'dev.github.createPullRequest': {
-    capabilities: ['dev.github.write'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_github_createPullRequest.capabilities,
+    resource: devOperationMetadataFor_dev_github_createPullRequest.resource,
   },
   'dev.github.issues': {
-    capabilities: ['dev.github.read'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_github_issues.capabilities,
+    resource: devOperationMetadataFor_dev_github_issues.resource,
   },
   'dev.github.mergeCommit': {
-    capabilities: ['dev.github.write'],
-    resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    capabilities: devOperationMetadataFor_dev_github_mergeCommit.capabilities,
+    resource: devOperationMetadataFor_dev_github_mergeCommit.resource,
   },
   'dev.github.mergePlan': {
-    capabilities: ['dev.github.write'],
-    resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    capabilities: devOperationMetadataFor_dev_github_mergePlan.capabilities,
+    resource: devOperationMetadataFor_dev_github_mergePlan.resource,
   },
   'dev.github.milestones': {
-    capabilities: ['dev.github.read'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_github_milestones.capabilities,
+    resource: devOperationMetadataFor_dev_github_milestones.resource,
   },
   'dev.github.pullRequest': {
-    capabilities: ['dev.github.read'],
-    resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    capabilities: devOperationMetadataFor_dev_github_pullRequest.capabilities,
+    resource: devOperationMetadataFor_dev_github_pullRequest.resource,
   },
   'dev.github.pullRequests': {
-    capabilities: ['dev.github.read'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_github_pullRequests.capabilities,
+    resource: devOperationMetadataFor_dev_github_pullRequests.resource,
   },
   'dev.github.pushCommit': {
-    capabilities: ['dev.github.write'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_github_pushCommit.capabilities,
+    resource: devOperationMetadataFor_dev_github_pushCommit.resource,
   },
   'dev.github.pushPlan': {
-    capabilities: ['dev.github.write'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_github_pushPlan.capabilities,
+    resource: devOperationMetadataFor_dev_github_pushPlan.resource,
   },
   'dev.github.repository': {
-    capabilities: ['dev.github.read'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_github_repository.capabilities,
+    resource: devOperationMetadataFor_dev_github_repository.resource,
   },
   'dev.github.updateBranchCommit': {
-    capabilities: ['dev.github.write'],
-    resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    capabilities: devOperationMetadataFor_dev_github_updateBranchCommit.capabilities,
+    resource: devOperationMetadataFor_dev_github_updateBranchCommit.resource,
   },
   'dev.github.updateBranchPlan': {
-    capabilities: ['dev.github.write'],
-    resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    capabilities: devOperationMetadataFor_dev_github_updateBranchPlan.capabilities,
+    resource: devOperationMetadataFor_dev_github_updateBranchPlan.resource,
   },
   'dev.github.updateCommit': {
-    capabilities: ['dev.github.write'],
-    resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    capabilities: devOperationMetadataFor_dev_github_updateCommit.capabilities,
+    resource: devOperationMetadataFor_dev_github_updateCommit.resource,
   },
   'dev.github.updatePlan': {
-    capabilities: ['dev.github.write'],
-    resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    capabilities: devOperationMetadataFor_dev_github_updatePlan.capabilities,
+    resource: devOperationMetadataFor_dev_github_updatePlan.resource,
   },
-  'dev.group.create': { capabilities: ['dev.project.manage'], resource: null },
+  'dev.group.create': {
+    capabilities: devOperationMetadataFor_dev_group_create.capabilities,
+    resource: devOperationMetadataFor_dev_group_create.resource,
+  },
   'dev.group.delete': {
-    capabilities: ['dev.project.manage'],
-    resource: { kind: 'group', idField: 'groupId' },
+    capabilities: devOperationMetadataFor_dev_group_delete.capabilities,
+    resource: devOperationMetadataFor_dev_group_delete.resource,
   },
-  'dev.group.list': { capabilities: ['dev.project.read'], resource: null },
-  'dev.group.reorder': { capabilities: ['dev.project.manage'], resource: null },
+  'dev.group.list': {
+    capabilities: devOperationMetadataFor_dev_group_list.capabilities,
+    resource: devOperationMetadataFor_dev_group_list.resource,
+  },
+  'dev.group.reorder': {
+    capabilities: devOperationMetadataFor_dev_group_reorder.capabilities,
+    resource: devOperationMetadataFor_dev_group_reorder.resource,
+  },
   'dev.group.update': {
-    capabilities: ['dev.project.manage'],
-    resource: { kind: 'group', idField: 'groupId' },
+    capabilities: devOperationMetadataFor_dev_group_update.capabilities,
+    resource: devOperationMetadataFor_dev_group_update.resource,
   },
   'dev.harness.acpClose': {
-    capabilities: ['dev.harness.manage'],
-    resource: { kind: 'acp_connection', idField: 'acpConnectionId' },
+    capabilities: devOperationMetadataFor_dev_harness_acpClose.capabilities,
+    resource: devOperationMetadataFor_dev_harness_acpClose.resource,
   },
   'dev.harness.acpConnect': {
-    capabilities: ['dev.harness.manage'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_harness_acpConnect.capabilities,
+    resource: devOperationMetadataFor_dev_harness_acpConnect.resource,
   },
-  'dev.harness.acpConnections': { capabilities: ['dev.harness.read'], resource: null },
-  'dev.harness.managedPiInstall': { capabilities: ['dev.harness.manage'], resource: null },
-  'dev.harness.managedPiStatus': { capabilities: ['dev.harness.read'], resource: null },
-  'dev.harness.preferenceReset': { capabilities: ['dev.harness.manage'], resource: null },
-  'dev.harness.preferenceUpdate': { capabilities: ['dev.harness.manage'], resource: null },
-  'dev.harness.preferences': { capabilities: ['dev.harness.read'], resource: null },
+  'dev.harness.acpConnections': {
+    capabilities: devOperationMetadataFor_dev_harness_acpConnections.capabilities,
+    resource: devOperationMetadataFor_dev_harness_acpConnections.resource,
+  },
+  'dev.harness.managedPiInstall': {
+    capabilities: devOperationMetadataFor_dev_harness_managedPiInstall.capabilities,
+    resource: devOperationMetadataFor_dev_harness_managedPiInstall.resource,
+  },
+  'dev.harness.managedPiStatus': {
+    capabilities: devOperationMetadataFor_dev_harness_managedPiStatus.capabilities,
+    resource: devOperationMetadataFor_dev_harness_managedPiStatus.resource,
+  },
+  'dev.harness.preferenceReset': {
+    capabilities: devOperationMetadataFor_dev_harness_preferenceReset.capabilities,
+    resource: devOperationMetadataFor_dev_harness_preferenceReset.resource,
+  },
+  'dev.harness.preferenceUpdate': {
+    capabilities: devOperationMetadataFor_dev_harness_preferenceUpdate.capabilities,
+    resource: devOperationMetadataFor_dev_harness_preferenceUpdate.resource,
+  },
+  'dev.harness.preferences': {
+    capabilities: devOperationMetadataFor_dev_harness_preferences.capabilities,
+    resource: devOperationMetadataFor_dev_harness_preferences.resource,
+  },
   'dev.harness.runStatus': {
-    capabilities: ['dev.harness.manage'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_harness_runStatus.capabilities,
+    resource: devOperationMetadataFor_dev_harness_runStatus.resource,
   },
-  'dev.harness.runs': { capabilities: ['dev.harness.read'], resource: null },
+  'dev.harness.runs': {
+    capabilities: devOperationMetadataFor_dev_harness_runs.capabilities,
+    resource: devOperationMetadataFor_dev_harness_runs.resource,
+  },
   'dev.project.archive': {
-    capabilities: ['dev.project.manage'],
-    resource: { kind: 'project', idField: 'projectId' },
+    capabilities: devOperationMetadataFor_dev_project_archive.capabilities,
+    resource: devOperationMetadataFor_dev_project_archive.resource,
   },
-  'dev.project.bookmarks': { capabilities: ['dev.project.read'], resource: null },
-  'dev.project.clone': { capabilities: ['dev.project.manage', 'dev.repo.manage'], resource: null },
-  'dev.project.create': { capabilities: ['dev.project.manage'], resource: null },
+  'dev.project.bookmarks': {
+    capabilities: devOperationMetadataFor_dev_project_bookmarks.capabilities,
+    resource: devOperationMetadataFor_dev_project_bookmarks.resource,
+  },
+  'dev.project.clone': {
+    capabilities: devOperationMetadataFor_dev_project_clone.capabilities,
+    resource: devOperationMetadataFor_dev_project_clone.resource,
+  },
+  'dev.project.create': {
+    capabilities: devOperationMetadataFor_dev_project_create.capabilities,
+    resource: devOperationMetadataFor_dev_project_create.resource,
+  },
   'dev.project.get': {
-    capabilities: ['dev.project.read'],
-    resource: { kind: 'project', idField: 'projectId' },
+    capabilities: devOperationMetadataFor_dev_project_get.capabilities,
+    resource: devOperationMetadataFor_dev_project_get.resource,
   },
-  'dev.project.import': { capabilities: ['dev.project.manage'], resource: null },
-  'dev.project.list': { capabilities: ['dev.project.read'], resource: null },
-  'dev.project.reorder': { capabilities: ['dev.project.manage'], resource: null },
-  'dev.project.scan': { capabilities: ['dev.files.read', 'dev.project.read'], resource: null },
+  'dev.project.import': {
+    capabilities: devOperationMetadataFor_dev_project_import.capabilities,
+    resource: devOperationMetadataFor_dev_project_import.resource,
+  },
+  'dev.project.list': {
+    capabilities: devOperationMetadataFor_dev_project_list.capabilities,
+    resource: devOperationMetadataFor_dev_project_list.resource,
+  },
+  'dev.project.reorder': {
+    capabilities: devOperationMetadataFor_dev_project_reorder.capabilities,
+    resource: devOperationMetadataFor_dev_project_reorder.resource,
+  },
+  'dev.project.scan': {
+    capabilities: devOperationMetadataFor_dev_project_scan.capabilities,
+    resource: devOperationMetadataFor_dev_project_scan.resource,
+  },
   'dev.project.update': {
-    capabilities: ['dev.project.manage'],
-    resource: { kind: 'project', idField: 'projectId' },
+    capabilities: devOperationMetadataFor_dev_project_update.capabilities,
+    resource: devOperationMetadataFor_dev_project_update.resource,
   },
   'dev.repo.adopt': {
-    capabilities: ['dev.repo.manage'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_repo_adopt.capabilities,
+    resource: devOperationMetadataFor_dev_repo_adopt.resource,
   },
   'dev.repo.authorize': {
-    capabilities: ['dev.repo.manage'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_repo_authorize.capabilities,
+    resource: devOperationMetadataFor_dev_repo_authorize.resource,
   },
-  'dev.repo.credentialRefs': { capabilities: ['dev.repo.read'], resource: null },
+  'dev.repo.credentialRefs': {
+    capabilities: devOperationMetadataFor_dev_repo_credentialRefs.capabilities,
+    resource: devOperationMetadataFor_dev_repo_credentialRefs.resource,
+  },
   'dev.repo.inspect': {
-    capabilities: ['dev.repo.read'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_repo_inspect.capabilities,
+    resource: devOperationMetadataFor_dev_repo_inspect.resource,
   },
-  'dev.repo.list': { capabilities: ['dev.repo.read'], resource: null },
+  'dev.repo.list': {
+    capabilities: devOperationMetadataFor_dev_repo_list.capabilities,
+    resource: devOperationMetadataFor_dev_repo_list.resource,
+  },
   'dev.repo.refresh': {
-    capabilities: ['dev.repo.manage'],
-    resource: { kind: 'repository', idField: 'repoId' },
+    capabilities: devOperationMetadataFor_dev_repo_refresh.capabilities,
+    resource: devOperationMetadataFor_dev_repo_refresh.resource,
   },
-  'dev.resources.metrics': { capabilities: ['dev.resources.read'], resource: null },
-  'dev.resources.ports': { capabilities: ['dev.resources.read'], resource: null },
-  'dev.resources.processes': { capabilities: ['dev.resources.read'], resource: null },
-  'dev.resources.retainedData': { capabilities: ['dev.resources.read'], resource: null },
-  'dev.resources.snapshot': { capabilities: ['dev.resources.read'], resource: null },
+  'dev.resources.metrics': {
+    capabilities: devOperationMetadataFor_dev_resources_metrics.capabilities,
+    resource: devOperationMetadataFor_dev_resources_metrics.resource,
+  },
+  'dev.resources.ports': {
+    capabilities: devOperationMetadataFor_dev_resources_ports.capabilities,
+    resource: devOperationMetadataFor_dev_resources_ports.resource,
+  },
+  'dev.resources.processes': {
+    capabilities: devOperationMetadataFor_dev_resources_processes.capabilities,
+    resource: devOperationMetadataFor_dev_resources_processes.resource,
+  },
+  'dev.resources.retainedData': {
+    capabilities: devOperationMetadataFor_dev_resources_retainedData.capabilities,
+    resource: devOperationMetadataFor_dev_resources_retainedData.resource,
+  },
+  'dev.resources.snapshot': {
+    capabilities: devOperationMetadataFor_dev_resources_snapshot.capabilities,
+    resource: devOperationMetadataFor_dev_resources_snapshot.resource,
+  },
   'dev.resources.stopCommit': {
-    capabilities: ['dev.resources.stop'],
-    resource: { kind: 'process', idField: 'processRecordId' },
+    capabilities: devOperationMetadataFor_dev_resources_stopCommit.capabilities,
+    resource: devOperationMetadataFor_dev_resources_stopCommit.resource,
   },
   'dev.resources.stopPlan': {
-    capabilities: ['dev.resources.stop'],
-    resource: { kind: 'process', idField: 'processRecordId' },
+    capabilities: devOperationMetadataFor_dev_resources_stopPlan.capabilities,
+    resource: devOperationMetadataFor_dev_resources_stopPlan.resource,
   },
-  'dev.resources.usage': { capabilities: ['dev.resources.read'], resource: null },
+  'dev.resources.usage': {
+    capabilities: devOperationMetadataFor_dev_resources_usage.capabilities,
+    resource: devOperationMetadataFor_dev_resources_usage.resource,
+  },
   'dev.session.archive': {
-    capabilities: ['dev.session.manage'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_session_archive.capabilities,
+    resource: devOperationMetadataFor_dev_session_archive.resource,
   },
   'dev.session.cancelHarness': {
-    capabilities: ['dev.session.manage'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_session_cancelHarness.capabilities,
+    resource: devOperationMetadataFor_dev_session_cancelHarness.resource,
   },
-  'dev.session.create': { capabilities: ['dev.session.manage'], resource: null },
+  'dev.session.create': {
+    capabilities: devOperationMetadataFor_dev_session_create.capabilities,
+    resource: devOperationMetadataFor_dev_session_create.resource,
+  },
   'dev.session.events': {
-    capabilities: ['dev.session.read'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_session_events.capabilities,
+    resource: devOperationMetadataFor_dev_session_events.resource,
   },
   'dev.session.get': {
-    capabilities: ['dev.session.read'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_session_get.capabilities,
+    resource: devOperationMetadataFor_dev_session_get.resource,
   },
   'dev.session.launchDefault': {
-    capabilities: ['dev.session.manage'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_session_launchDefault.capabilities,
+    resource: devOperationMetadataFor_dev_session_launchDefault.resource,
   },
   'dev.session.launchHarness': {
-    capabilities: ['dev.session.manage'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_session_launchHarness.capabilities,
+    resource: devOperationMetadataFor_dev_session_launchHarness.resource,
   },
-  'dev.session.list': { capabilities: ['dev.session.read'], resource: null },
+  'dev.session.list': {
+    capabilities: devOperationMetadataFor_dev_session_list.capabilities,
+    resource: devOperationMetadataFor_dev_session_list.resource,
+  },
   'dev.session.resumeHarness': {
-    capabilities: ['dev.session.manage'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_session_resumeHarness.capabilities,
+    resource: devOperationMetadataFor_dev_session_resumeHarness.resource,
   },
   'dev.session.transferInput': {
-    capabilities: ['dev.session.manage'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_session_transferInput.capabilities,
+    resource: devOperationMetadataFor_dev_session_transferInput.resource,
   },
   'dev.session.unarchive': {
-    capabilities: ['dev.session.manage'],
-    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    capabilities: devOperationMetadataFor_dev_session_unarchive.capabilities,
+    resource: devOperationMetadataFor_dev_session_unarchive.resource,
   },
   'dev.terminal.attach': {
-    capabilities: ['dev.terminal.attach'],
-    resource: { kind: 'terminal', idField: 'terminalId' },
+    capabilities: devOperationMetadataFor_dev_terminal_attach.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_attach.resource,
   },
   'dev.terminal.checkpoint': {
-    capabilities: ['dev.terminal.attach'],
-    resource: { kind: 'terminal', idField: 'terminalId' },
+    capabilities: devOperationMetadataFor_dev_terminal_checkpoint.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_checkpoint.resource,
   },
-  'dev.terminal.create': { capabilities: ['dev.terminal.manage'], resource: null },
+  'dev.terminal.create': {
+    capabilities: devOperationMetadataFor_dev_terminal_create.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_create.resource,
+  },
   'dev.terminal.detach': {
-    capabilities: ['dev.terminal.attach'],
-    resource: { kind: 'terminal', idField: 'terminalId' },
+    capabilities: devOperationMetadataFor_dev_terminal_detach.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_detach.resource,
   },
   'dev.terminal.historyDelete': {
-    capabilities: ['dev.terminal.manage'],
-    resource: { kind: 'terminal', idField: 'terminalId' },
+    capabilities: devOperationMetadataFor_dev_terminal_historyDelete.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_historyDelete.resource,
   },
   'dev.terminal.input': {
-    capabilities: ['dev.terminal.input'],
-    resource: { kind: 'terminal', idField: 'terminalId' },
+    capabilities: devOperationMetadataFor_dev_terminal_input.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_input.resource,
   },
-  'dev.terminal.list': { capabilities: ['dev.terminal.attach'], resource: null },
+  'dev.terminal.list': {
+    capabilities: devOperationMetadataFor_dev_terminal_list.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_list.resource,
+  },
   'dev.terminal.resize': {
-    capabilities: ['dev.terminal.manage'],
-    resource: { kind: 'terminal', idField: 'terminalId' },
+    capabilities: devOperationMetadataFor_dev_terminal_resize.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_resize.resource,
   },
   'dev.terminal.search': {
-    capabilities: ['dev.terminal.attach'],
-    resource: { kind: 'terminal', idField: 'terminalId' },
+    capabilities: devOperationMetadataFor_dev_terminal_search.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_search.resource,
   },
-  'dev.terminal.shellProfiles': { capabilities: ['dev.terminal.attach'], resource: null },
+  'dev.terminal.shellProfiles': {
+    capabilities: devOperationMetadataFor_dev_terminal_shellProfiles.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_shellProfiles.resource,
+  },
   'dev.terminal.signal': {
-    capabilities: ['dev.terminal.manage'],
-    resource: { kind: 'terminal', idField: 'terminalId' },
+    capabilities: devOperationMetadataFor_dev_terminal_signal.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_signal.resource,
   },
   'dev.terminal.terminate': {
-    capabilities: ['dev.terminal.manage'],
-    resource: { kind: 'terminal', idField: 'terminalId' },
+    capabilities: devOperationMetadataFor_dev_terminal_terminate.capabilities,
+    resource: devOperationMetadataFor_dev_terminal_terminate.resource,
   },
   'dev.worktree.archive': {
-    capabilities: ['dev.worktree.manage'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_archive.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_archive.resource,
   },
   'dev.worktree.cleanupCommit': {
-    capabilities: ['dev.cleanup.approve', 'dev.worktree.manage'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_cleanupCommit.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_cleanupCommit.resource,
   },
   'dev.worktree.cleanupJobs': {
-    capabilities: ['dev.resources.read'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_cleanupJobs.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_cleanupJobs.resource,
   },
   'dev.worktree.cleanupPlan': {
-    capabilities: ['dev.cleanup.approve', 'dev.worktree.manage'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_cleanupPlan.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_cleanupPlan.resource,
   },
   'dev.worktree.cleanupResume': {
-    capabilities: ['dev.cleanup.approve', 'dev.worktree.manage'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_cleanupResume.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_cleanupResume.resource,
   },
-  'dev.worktree.create': { capabilities: ['dev.worktree.manage'], resource: null },
+  'dev.worktree.create': {
+    capabilities: devOperationMetadataFor_dev_worktree_create.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_create.resource,
+  },
   'dev.worktree.lease': {
-    capabilities: ['dev.worktree.manage'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_lease.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_lease.resource,
   },
-  'dev.worktree.list': { capabilities: ['dev.worktree.read'], resource: null },
+  'dev.worktree.list': {
+    capabilities: devOperationMetadataFor_dev_worktree_list.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_list.resource,
+  },
   'dev.worktree.mergeCommit': {
-    capabilities: ['dev.worktree.manage'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_mergeCommit.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_mergeCommit.resource,
   },
   'dev.worktree.mergePlan': {
-    capabilities: ['dev.worktree.manage'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_mergePlan.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_mergePlan.resource,
   },
   'dev.worktree.releaseLease': {
-    capabilities: ['dev.worktree.manage'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_releaseLease.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_releaseLease.resource,
   },
   'dev.worktree.retryBootstrap': {
-    capabilities: ['dev.worktree.manage'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_retryBootstrap.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_retryBootstrap.resource,
   },
   'dev.worktree.unarchive': {
-    capabilities: ['dev.worktree.manage'],
-    resource: { kind: 'worktree', idField: 'worktreeId' },
+    capabilities: devOperationMetadataFor_dev_worktree_unarchive.capabilities,
+    resource: devOperationMetadataFor_dev_worktree_unarchive.resource,
   },
 } as const
+
+// Unique capabilities required by operations. Client-preference-only capabilities
+// remain part of the capability-snapshot decoder universe, not this provider list.
+export const devOperationCapabilities = Object.freeze([
+  'dev.browser.control',
+  'dev.browser.cookies',
+  'dev.browser.read',
+  'dev.cleanup.approve',
+  'dev.computeruse.control',
+  'dev.computeruse.read',
+  'dev.device.control',
+  'dev.device.read',
+  'dev.files.read',
+  'dev.files.write',
+  'dev.git.read',
+  'dev.git.write',
+  'dev.github.read',
+  'dev.github.write',
+  'dev.harness.manage',
+  'dev.harness.read',
+  'dev.project.manage',
+  'dev.project.read',
+  'dev.repo.manage',
+  'dev.repo.read',
+  'dev.resources.read',
+  'dev.resources.stop',
+  'dev.session.manage',
+  'dev.session.read',
+  'dev.terminal.attach',
+  'dev.terminal.input',
+  'dev.terminal.manage',
+  'dev.worktree.manage',
+  'dev.worktree.read',
+] as const)
