@@ -89,6 +89,15 @@ const runtime = {
           status: 200,
         })
       }
+      case 'dev.browser.inspect':
+        return reply(command, {
+          targetId: 'browser-pane-fixture-target',
+          nodeId: '42',
+          role: 'button',
+          name: 'Submit request',
+          bounds: { x: 12, y: 24, width: 80, height: 32 },
+          observedAt: new Date(0).toISOString(),
+        })
       default:
         return reply(command, {})
     }

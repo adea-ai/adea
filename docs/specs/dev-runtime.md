@@ -12,6 +12,7 @@ Read this page before touching any routed Dev Runtime path in `AGENTS.md`.
 - Durable workspace events: [workspace events](./workspace-events.md)
 - Donor boundary: [source audit](../research/dev-view-donor-audit.md)
 - Exact command registry: [Dev Runtime operations](./dev-runtime-operations.json)
+- Browser caller and frame-transport boundary: [browser caller gaps](../research/dev-browser-caller-gaps.md)
 - Threat model: [Dev View threat model](../security/dev-view-threat-model.md)
 - Delivery order: [M12 implementation plan](../plans/m12-dev-view.md)
 
@@ -3278,6 +3279,15 @@ checks, then navigate its explicit requested URL; it must not depend on URL-fiel
 focus or substitute a target-list refresh. The current operation contract has no
 back/forward history commands, so those controls remain disabled and must not
 present a target refresh as browser history.
+
+The browser pane's DOM inspector uses an explicit CSS selector against the
+active page target. It sends `dev.browser.inspect` with the selected target ID,
+the lane's expected generation, and a lane-resource binding; it does not claim
+to pick an element from preview pixels. A returned inspection may show the
+element role, accessible name, and bounds. Selector-based DOM inspection is
+separate from screenshot display, coordinate annotation, and live frame
+subscription; the current caller/transport gap and bounded amendment are
+recorded in the [browser caller gap note](../research/dev-browser-caller-gaps.md).
 
 Cookie import is opt-in, source/profile/origin scoped, previewed, encrypted at
 rest, and atomic: any write/cancel failure rolls back the whole import. Maximum
