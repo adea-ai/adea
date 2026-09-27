@@ -48,55 +48,38 @@ stream/image boundary below before they can be truthful visual tools.
 ## Broken frame producer-consumer path
 
 The CDP engine publishes `DevStreamFrame` values with `type: 'video'` and a
-complete encoded image, up to the existing 8 MiB frame budget. The screencast
-pacer already limits publication to 15 FPS by default, 30 maximum, 4096×4096,
-one in-flight plus the newest complete frame, and 240 input events per second.
-However, both JSON relay unions (`stream-relay.ts` in the shell and
-`desktop-stream-transport.ts` in the web client) omit `video`; the shell relay
-codec's default branch rejects it. The client has no video-to-image consumer.
-`RELAY_FRAME_BYTES_MAX` currently bounds decoded client-to-shell base64 payloads
-in `fromRelayFrame`; it does not bound host-to-web video because `toRelayFrame`
-rejects `video` before encoding. A whole image in a command reply would also
-turn the control plane into a data path, while an outbound relay frame needs an
-explicit size limit before it can safely carry video.
+complete encoded image and stamps generation, viewport sequence, dimensions,
+and capture time. The screencast pacer limits publication to 15 FPS by
+default, 30 maximum, 4096×4096, one in-flight plus the newest complete frame,
+and 240 input events per second. The authenticated shell event relay now
+encodes a frame as strict `video_chunk` envelopes: at most 64 KiB raw per
+chunk, 128 KiB serialized envelope, 8 MiB / 128 chunks per complete frame,
+and dimensions at most 4096×4096. The web transport strictly validates and
+reassembles contiguous chunks with stable metadata, monotonic sequence, and
+the grant's generation before it invokes a frame consumer. It holds at most
+one incomplete frame per attached stream and discards partial state on
+timeout, close, or generation mismatch. A reassembly timeout reports a
+retryable typed `timeout` and tears down the relay so the caller can obtain a
+fresh grant and attach again. It does not emit credit for partial chunks; the
+consumer's existing read-grant ACK remains a separate client action after
+full-frame acceptance.
 
 There is a second release blocker for pixel display: screenshot and annotation
 provenance is explicitly `redacted: false`. Until the host classifies and
 redacts captured page pixels, the UI must not project those pixels as a trusted
 preview or claim that annotation coordinates correspond to a reviewed image.
 
-## Smallest bounded amendment
+## Remaining pixel-display gate
 
-Keep the existing `browser-frames-v1` grant and its read/write capability
-separation. Extend the **stream relay frame** codec with a strict video-chunk
-representation rather than adding image bytes to DevCommand replies or
-workspace events. Apply a 128 KiB serialized-envelope cap in both relay
-directions. A 64 KiB raw chunk expands to about 88 KiB after base64, leaving
-room for the small header. Every chunk should bind to the already-authenticated
-stream generation and carry a frame sequence, chunk index/count or byte offset,
-total frame length, timestamp, viewport sequence, keyframe flag, dimensions,
-and bytes. The host must include the existing viewport sequence and dimensions
-in this relay envelope so a completed frame cannot be mistaken for the current
-emulation.
-
-The shell encoder and web decoder must enforce the same rules: raw chunk at
-most 64 KiB; total frame at most the existing 8 MiB; dimensions at most
-4096×4096; no more than 128 chunks per frame; contiguous offsets and stable
-metadata; monotonic frame sequence; exact generation match; and rejection of
-duplicates, gaps, malformed lengths, stale generations, and oversize values.
-Reassembly must hold at most one incomplete frame per stream, discard it on
-timeout/close/generation change, and preserve the existing one-in-flight plus
-one-newest publication bound. Credit/acknowledgment should advance only after
-the complete frame is accepted by the renderer; partial chunks must not be
-acknowledged as a rendered frame. Raw image bytes must stay out of logs and
-durable events.
-
-Only after an explicit host redaction/classification result authorizes display
-should the BrowserPane attach the read grant, decode a complete frame, and
-render it. Input and annotation still require their independent control grant,
-current lane generation, and existing input rate limit. Tests should cover
-strict codec parity, bounded reassembly and cleanup, stale-generation refusal,
-slow-consumer backpressure, renderer acknowledgment, and the mounted pane's
-attach/unsubscribe lifecycle. Until that transport and redaction gate exist,
-selector-based DOM inspection is the supported inspection surface; screenshots
-and visual annotations remain unavailable in the pane.
+The transport amendment does not mount the stream in BrowserPane or render
+pixels. Screenshot and annotation provenance still says `redacted: false`; the
+pane must remain closed to image projection until the host supplies an
+explicit redaction/classification result that authorizes display. A later UI
+change must attach the read grant, decode a complete current frame, render it,
+and unsubscribe on lane/generation changes. Input and annotation continue to
+require their independent control grant, current lane generation, and existing
+input rate limit. Until that host redaction gate and mounted consumer exist,
+selector-based DOM inspection remains the supported inspection surface;
+screenshots and visual annotations remain unavailable in the pane. The
+transport has unit-level authenticated-relay and web-reassembly coverage, not
+native WebView display or redaction qualification.

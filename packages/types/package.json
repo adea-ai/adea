@@ -16,6 +16,11 @@
       "development": "./src/dev-runtime.ts",
       "import": "./dist/dev-runtime.js"
     },
+    "./dev-runtime-video": {
+      "types": "./dist/dev-runtime-video.d.ts",
+      "development": "./src/dev-runtime-video.ts",
+      "import": "./dist/dev-runtime-video.js"
+    },
     "./dev-runtime-metadata": {
       "types": "./dist/dev-runtime-metadata.d.ts",
       "development": "./src/dev-runtime-metadata.ts",
