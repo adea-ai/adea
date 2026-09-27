@@ -1,11 +1,16 @@
-# Shared UI
+# Application UI
 
-Reusable shadcn-style Solid controls for the HQ shell, scene controls, room
-authoring, themes, drawers, loading states, and overlays. Primitives come from
-Kobalte (headless) and corvu (the swipeable drawer); the component layer is one
-Solid codebase. Scene branding and Three.js runtime behavior stay in their
-owning packages. The primitive selection is recorded in
+This private package owns Adea's scene controls, branding, account composition,
+and persisted appearance adapter. Reusable controls come from the published
+`@adea-ai/ui` package. Import its component subpaths directly; do not add another
+local primitive or a forwarding barrel here. Scene branding and Three.js runtime
+behavior stay in their owning packages. The Solid stack is recorded in
 [decision 0007](../../docs/decisions/0007-solid-tanstack-start.md).
+
+The unused local Toggle, ToggleGroup, RadioGroup, Tabs, Card, and Spinner copies
+and their private exports have been removed. Remaining local overlays, fields,
+and workspace controls are migration work: preserve their current focus,
+inertness, and placement contracts while replacing them with shared components.
 
 ## Theming contract: CSS custom properties are the only color surface
 
