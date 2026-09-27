@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.7](https://github.com/adea-ai/adea/compare/v0.61.6...v0.61.7) (2026-09-27)
+
+
+### Bug Fixes
+
+* navigate browser ports through browser lane ([#763](https://github.com/adea-ai/adea/issues/763)) ([4a81577](https://github.com/adea-ai/adea/commit/4a81577cb6fa0b6f7174b91e7362518d28c2467e))
+
 ## [0.61.6](https://github.com/adea-ai/adea/compare/v0.61.5...v0.61.6) (2026-09-27)
 
 
