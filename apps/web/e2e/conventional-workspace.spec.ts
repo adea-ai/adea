@@ -1433,6 +1433,29 @@ test('Kanban leaves the prior Chat surface intact and Library keeps reorder/rese
   await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(0)
 })
 
+test('Library reorders enabled neighbors across disabled apps and restores them after reload', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat&app=library')
+  const library = page.getByRole('main', { name: 'App Library' })
+  const views = page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('group', { name: 'Workspace views' })
+  await library.getByRole('button', { name: 'Disable Chat', exact: true }).click()
+  await expect(library.getByRole('button', { name: 'Move Virtual up', exact: true })).toBeDisabled()
+  await expect(library.getByRole('button', { name: 'Move Dev down', exact: true })).toBeDisabled()
+  await library.getByRole('button', { name: 'Move Dev up', exact: true }).click()
+  await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Dev view')
+  await expect(library.getByRole('button', { name: 'Move Dev up', exact: true })).toBeDisabled()
+  await page.reload()
+  await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Dev view')
+  await library.getByRole('button', { name: 'Enable Chat', exact: true }).click()
+  await expect(views.getByRole('button').nth(1)).toHaveAttribute('aria-label', 'Chat view')
+  await library.getByRole('button', { name: 'Move Dev down', exact: true }).click()
+  await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Chat view')
+})
+
 test('themed shell and Library remain usable across desktop and narrow layouts', async ({
   page,
 }, testInfo) => {

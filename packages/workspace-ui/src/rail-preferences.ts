@@ -158,19 +158,24 @@ export function resolveRailItems(
 }
 
 /**
- * Reorder one item relative to another, producing the next record. Unknown
- * ids in the existing order are preserved untouched.
+ * Move one visible item by one visible slot. Disabled and unknown entries
+ * retain their recorded slots when the host supplies its live item ids.
  */
 export function reorderRailItems(
   preferences: RailPreferencesV1,
   id: string,
-  direction: 'down' | 'up'
+  direction: 'down' | 'up',
+  visibleIds: readonly string[] = preferences.order.filter(
+    (item) => !preferences.hidden.includes(item)
+  )
 ): RailPreferencesV1 {
-  const order = [...preferences.order]
+  const visibleIndex = visibleIds.indexOf(id)
+  if (visibleIndex === -1) return preferences
+  const targetId = visibleIds[visibleIndex + (direction === 'up' ? -1 : 1)]
+  if (targetId === undefined) return preferences
+  const order = [...new Set([...preferences.order, ...visibleIds])]
   const index = order.indexOf(id)
-  if (index === -1) return preferences
-  const target = direction === 'up' ? index - 1 : index + 1
-  if (target < 0 || target >= order.length) return preferences
+  const target = order.indexOf(targetId)
   ;[order[index], order[target]] = [order[target]!, order[index]!]
   return { version: 1, order: Object.freeze(order), hidden: preferences.hidden }
 }

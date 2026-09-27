@@ -37,7 +37,8 @@ export function AppLibraryPage(props: {
   })
   const [enabledOnly, setEnabledOnly] = createSignal(false)
   const [search, setSearch] = createSignal('')
-  const enabled = () => new Set(enabledWorkspaceApps(props.preferences).map((app) => app.id))
+  const enabledOrder = () => enabledWorkspaceApps(props.preferences).map((app) => app.id)
+  const enabled = () => new Set(enabledOrder())
   const visible = () =>
     workspaceApps.filter(
       (app) =>
@@ -102,7 +103,7 @@ export function AppLibraryPage(props: {
                     size="icon-sm"
                     aria-label={`Move ${app.name} up`}
                     onClick={() => props.onReorder(app.id, 'up')}
-                    disabled={props.preferences.order.indexOf(app.id) === 0}
+                    disabled={enabledOrder().indexOf(app.id) === 0}
                   >
                     <ChevronUp aria-hidden="true" />
                   </Button>
@@ -111,9 +112,7 @@ export function AppLibraryPage(props: {
                     size="icon-sm"
                     aria-label={`Move ${app.name} down`}
                     onClick={() => props.onReorder(app.id, 'down')}
-                    disabled={
-                      props.preferences.order.indexOf(app.id) === props.preferences.order.length - 1
-                    }
+                    disabled={enabledOrder().indexOf(app.id) === enabledOrder().length - 1}
                   >
                     <ChevronDown aria-hidden="true" />
                   </Button>

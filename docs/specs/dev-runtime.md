@@ -3771,6 +3771,9 @@ icons. Virtual, Chat and Dev are bundled and enabled by default. Kanban and
 Source control are compiled optional destinations, enabled explicitly. Kanban
 mounts the existing task board through a route-scoped surface without changing
 the previous Chat surface. Library retains rail reorder and reset controls.
+Each reorder moves one enabled app by one visible rail slot, skipping disabled
+and unknown entries while preserving their stored slots; boundary controls are
+disabled relative to that same enabled order, independently of Library filters.
 Source control projects the selected runtime
 session into the existing source-control surface at full width, without
 rewriting the Dev pane preferences. Code browsing remains available in Dev.

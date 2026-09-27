@@ -609,7 +609,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
               }
               onOpen={(id) => changeApp(id)}
               onReorder={(id, direction) =>
-                persistRailPreferences(reorderRailItems(railPreferences(), id, direction))
+                persistRailPreferences(
+                  reorderRailItems(railPreferences(), id, direction, orderedViews())
+                )
               }
               onReset={() => persistRailPreferences(defaultRailPreferences)}
             />
