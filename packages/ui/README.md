@@ -40,7 +40,12 @@ exports and direct dependency have been removed.
 VersionDialog is a thin Adea adapter to the published UpdateDialog. It maps
 native update snapshots and forwards install version checks without owning the
 generic renderer or release-note formatter. The private Dialog remains while
-workspace and appearance compositions still depend on it.
+appearance compositions still depend on it.
+
+Workspace dialogs use the published ModalDialog with their existing non-modal
+Kobalte mode and product layout hooks. Shared background containment restores
+previous inert states after dismissal or asynchronous close. The copied
+workspace ModalDialog and its overlay/header appearance styles are removed.
 
 ## Theming contract: CSS custom properties are the only color surface
 

@@ -1,6 +1,7 @@
 import '../../src/start/globals.css'
 import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
+import { WorkspaceAboutDialog } from '../../../../packages/workspace-ui/src/workspace-about-dialog'
 import {
   CreateGroupDialog,
   CreateRoomDialog,
@@ -23,6 +24,7 @@ function Harness() {
       <button onClick={() => setKind('edit')}>Open edit</button>
       <button onClick={() => setKind('rename')}>Open rename</button>
       <button onClick={() => setKind('group')}>Open group</button>
+      <button onClick={() => setKind('about')}>Open about</button>
       <output aria-label="Requests">{JSON.stringify(calls())}</output>
       <Show when={kind() === 'room'}>
         <CreateRoomDialog open busy={false} template="home" onClose={close} onCreate={save} />
@@ -49,6 +51,9 @@ function Harness() {
       </Show>
       <Show when={kind() === 'group'}>
         <CreateGroupDialog open busy={false} onClose={close} onCreate={save} />
+      </Show>
+      <Show when={kind() === 'about'}>
+        <WorkspaceAboutDialog open onClose={close} platform="desktop" version="0.61.7" />
       </Show>
       <button id="allow-success" onClick={() => setFail(false)}>
         Allow success

@@ -18,7 +18,7 @@ import { createEffect, createSignal, For, lazy, onCleanup, Show, type JSX } from
 
 import { CapabilityList } from './capability-card'
 import { keyedRows } from './keyed-rows'
-import { ModalDialog } from './modal-dialog'
+import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import {
   defaultWorkspacePreferences,
   type CapabilitySnapshot,
@@ -189,7 +189,8 @@ export function WorkspaceSettingsDialog(props: {
 
   return (
     <ModalDialog
-      class="conventional-settings-dialog"
+      modal={false}
+      class="conventional-dialog conventional-settings-dialog"
       open={props.open}
       onClose={close}
       headerLeading={

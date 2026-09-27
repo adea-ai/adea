@@ -24,3 +24,10 @@ selects one, and Escape closes the menu and restores focus to its trigger.
 layout sizing. Their decorative bars stay hidden from assistive technology;
 the labelled busy container describes the loading state. Motion uses the
 shared reduced-motion contract.
+
+Workspace dialogs import `ModalDialog` directly from the published
+`@adea-ai/ui` package. Product hooks provide layout and workspace-specific
+content; the shared component owns the overlay, header, close action, and
+background containment. These controlled dialogs keep `modal={false}` for
+their existing Kobalte interaction mode while the shared modal manages inert
+background elements and restores their previous state on close or unmount.

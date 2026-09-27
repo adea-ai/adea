@@ -34,7 +34,7 @@ import {
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import { keyedRows } from './keyed-rows'
-import { ModalDialog } from './modal-dialog'
+import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { PluginLogo } from './plugin-logo'
 import type { WorkspaceAppActivation, WorkspacePlugin, WorkspacePluginsProvider } from './platform'
 import { workspaceAppActivation } from './platform'
@@ -685,7 +685,8 @@ export function PluginsDialog(props: {
 
   return (
     <ModalDialog
-      class="plugins-dialog"
+      modal={false}
+      class="conventional-dialog plugins-dialog"
       description="Browse and manage apps, providers, and skills available to your agents."
       onClose={close}
       open={props.open}

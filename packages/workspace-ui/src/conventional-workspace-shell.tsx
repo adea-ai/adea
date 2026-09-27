@@ -22,7 +22,9 @@ const CreateRoomDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateRoomDialog }))
 )
 const ModalDialog = lazy(() =>
-  import('./modal-dialog').then((module) => ({ default: module.ModalDialog }))
+  import('@adea-ai/ui/components/ui/modal-dialog').then((module) => ({
+    default: module.ModalDialog,
+  }))
 )
 const WorkspaceSearchDialog = lazy(() =>
   import('./workspace-utility-dialogs').then((module) => ({
@@ -619,6 +621,8 @@ export function ConventionalWorkspaceShell(props: {
               </Show>
               <Show when={dialog() === 'details'}>
                 <ModalDialog
+                  modal={false}
+                  class="conventional-dialog"
                   open
                   onClose={() => setDialog(null)}
                   title="Conversation details"

@@ -1726,31 +1726,9 @@
 
 .conventional-dialog {
   width: min(34rem, calc(100% - 2rem));
+  max-width: min(34rem, calc(100% - 2rem));
   max-height: calc(100svh - 2rem);
   overflow: auto;
-  padding: 0;
-  border: 1px solid var(--cw-border);
-  border-radius: 0.7rem;
-  background: var(--cw-surface);
-  color: var(--cw-text);
-  box-shadow: var(--cw-shadow-modal);
-}
-.conventional-dialog > .conventional-dialog__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.1rem;
-  border-bottom: 1px solid var(--cw-border);
-}
-.conventional-dialog__heading {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  gap: 0.75rem;
-}
-.conventional-dialog__heading > div:last-child {
-  min-width: 0;
 }
 .conventional-settings-logo {
   display: block;
@@ -1758,14 +1736,6 @@
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 0.75rem;
-}
-.conventional-dialog > .conventional-dialog__header [data-slot='dialog-description'] {
-  margin-top: 0.25rem;
-  color: var(--cw-muted);
-  font-size: 0.82rem;
-}
-.conventional-dialog > :not(.conventional-dialog__header) {
-  padding: 1.1rem;
 }
 .conventional-dialog-form {
   display: grid;
@@ -1872,7 +1842,7 @@
 .conventional-about-dialog {
   width: min(22.5rem, calc(100% - 2rem));
 }
-.conventional-about-dialog > .conventional-dialog__header {
+.conventional-about-dialog > [data-slot='dialog-header'] {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1936,10 +1906,6 @@
   max-width: 70rem;
   height: min(44rem, calc(100svh - 2rem));
   overflow: hidden;
-}
-.plugins-dialog > :not(.conventional-dialog__header) {
-  min-height: 0;
-  padding: 0;
 }
 .plugins-browser {
   display: flex;
