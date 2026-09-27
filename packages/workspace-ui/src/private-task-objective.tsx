@@ -1,5 +1,5 @@
 import type { TaskSummary } from '@adea-ai/types'
-import { createEffect, createSignal, Show } from 'solid-js'
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 
 import type { PrivateContentResolver } from './platform'
 
@@ -12,6 +12,9 @@ export function TaskObjective(props: {
 
   createEffect(() => {
     let active = true
+    onCleanup(() => {
+      active = false
+    })
     setResolved(null)
     setFailed(false)
     const contentRefId = props.task.objectiveContentRefId
@@ -24,9 +27,6 @@ export function TaskObjective(props: {
       .catch(() => {
         if (active) setFailed(true)
       })
-    return () => {
-      active = false
-    }
   })
 
   return (

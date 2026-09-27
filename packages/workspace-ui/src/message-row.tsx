@@ -8,7 +8,7 @@ import {
   RotateCcw,
   Trash2,
 } from 'lucide-solid'
-import { createEffect, createSignal, For, Show } from 'solid-js'
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import type { PrivateContentResolver } from './platform'
 import { ConversationAvatar } from './conversation-avatar'
@@ -32,6 +32,9 @@ function MessageBody(props: { message: MessageSummary; privateContent?: PrivateC
 
   createEffect(() => {
     let active = true
+    onCleanup(() => {
+      active = false
+    })
     setResolvedBody(null)
     const contentRefId = props.message.bodyContentRefId
     if (!contentRefId || props.message.bodyText || !props.privateContent) {
@@ -49,9 +52,6 @@ function MessageBody(props: { message: MessageSummary; privateContent?: PrivateC
       .catch(() => {
         if (active) setResolutionState('unavailable')
       })
-    return () => {
-      active = false
-    }
   })
 
   return (
