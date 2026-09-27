@@ -10594,7 +10594,14 @@
           "registryMetadataVerified": true,
           "limits": "Actual installed npm0.71.6 archive passed corner-control geometry under compiled and Solid conditions in Chromium and WebKit (4/4), Apache LICENSE and donor NOTICE checks. Adea consumer pin remains0.71.4 pending coherent adoption."
         },
-        "storybook": "UI91 squashmerged6cf5c5d324fb7fdee2d88876b785bcb2e13e9198; Pages run36337510253 deployed exact-main artifact10937174938 from successful Design System run36337198198. Live headless bare-root200, Adea UI — Storybook branding, Overview/Conventions navigation,31 variants/16 families/6 named accents and registry/button200; zero browser/request errors. Browser/server stopped."
+        "storybook": "UI91 squashmerged6cf5c5d324fb7fdee2d88876b785bcb2e13e9198; Pages run36337510253 deployed exact-main artifact10937174938 from successful Design System run36337198198. Live headless bare-root200, Adea UI — Storybook branding, Overview/Conventions navigation,31 variants/16 families/6 named accents and registry/button200; zero browser/request errors. Browser/server stopped.",
+        "destructiveAction": {
+          "pr": "https://github.com/adea-ai/ui/pull/93",
+          "head": "7c23fa74d95acc3d0f56b26eace67055c4cb88e5",
+          "validation": "Independent MAX review clean after preview/gallery corrections. Actualpacked108/108 acrosscompiled/Solid×Chromium/WebKit;49focusedtheme/tokentests4657assertions;package/Storybooktypes/lint,librarybuild,registry80,fmtdiffpass.",
+          "status": "Ready transition requested afterlocalgates/review. Requiredcurrent-headCI,mergeandactualnpmreleasepending.",
+          "limits": "ApplicationadoptionandCortanamigrationstillpending."
+        }
       },
       "currentBrowserEvidence": {
         "runtimeSourceHead": "bfa19a48ac531c66febb593e368646f319046598",
@@ -10619,9 +10626,10 @@
       },
       "relayPrerequisite": {
         "sourceCommit": "e496de0a",
-        "status": "Measured and bounded desktop relay backlog; no TerminalPane production mount or PTY acceptance claim.",
+        "status": "Isolatedlatest-mainpatcha8f131afreadyforrequiredCI; independentreviewclean. Fresh-mainweb138/138,types,canonicalwebbuild,docs/lintpass. Rootunionhasadditionaltests143/143. NoactualTerminalPaneproductionmountclaim.",
         "validation": "Five initial regression tests plus two review regressions pass (14/14,54 assertions); complete web143/143,463 assertions; web types pass after rebuilding dependent dev-view dist; lint,format,docs4/4 pass.",
-        "behavior": "Snapshots queued input;1MiB encoded terminal queue+4096frame bound covers ACK/emptyinput; immediate local listener cleanup; lateproof/subscription/open fenced; already-invokedinput may have delivered, laterqueuedinvokesdiscarded."
+        "behavior": "Snapshots queued input;1MiB encoded terminal queue+4096frame bound covers ACK/emptyinput; immediate local listener cleanup; lateproof/subscription/open fenced; already-invokedinput may have delivered, laterqueuedinvokesdiscarded.",
+        "pr": "https://github.com/adea-ai/adea/pull/775"
       }
     },
     "verifiedCheckpointHistory": [
