@@ -17,6 +17,16 @@ const projectId = '00000000-0000-4000-8000-000000000004'
 const firstId = '00000000-0000-4000-8000-000000000005'
 const secondId = '00000000-0000-4000-8000-000000000006'
 const calls: string[] = []
+const presentations: (string | null)[] = []
+window.__adeaDesktop = {
+  invoke: async (command, args) => {
+    if (command !== 'desktop_chat_presentation')
+      throw new Error(`Unexpected bridge command: ${command}`)
+    presentations.push(typeof args?.focusedSessionId === 'string' ? args.focusedSessionId : null)
+    return null
+  },
+  listen: async () => () => undefined,
+}
 let closes = 0
 let delayed = false
 let resolveList: (() => void) | undefined
@@ -166,6 +176,7 @@ window.desktopRuntimeChatHarness = {
     host.setDraft(scope, { runtimeSessionId: firstId, generation: 3 }, draft),
   report: () => ({
     calls: [...calls],
+    presentations: [...presentations],
     closes,
     selected: workspaceStore.getState().selectedRuntimeSessionId,
     draft: host
@@ -185,7 +196,13 @@ declare global {
       selectFirst(): void
       selectSecond(): void
       saveDraft(draft: string): unknown
-      report(): { calls: string[]; closes: number; selected: string | null; draft?: string }
+      report(): {
+        calls: string[]
+        presentations: (string | null)[]
+        closes: number
+        selected: string | null
+        draft?: string
+      }
     }
   }
 }

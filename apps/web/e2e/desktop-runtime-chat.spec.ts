@@ -79,3 +79,31 @@ test('refused returning Chat stays in canonical recovery and retries without lau
   await page.getByRole('button', { name: 'Retry conversation' }).click()
   await expect(page.getByRole('heading', { name: 'Second canonical session' })).toBeVisible()
 })
+
+test('returning Chat reports only its mounted session and clears hints on pending attach and disposal', async ({
+  page,
+}) => {
+  await mount(page)
+  const firstId = '00000000-0000-4000-8000-000000000005'
+  const secondId = '00000000-0000-4000-8000-000000000006'
+  const currentHint = () =>
+    page.evaluate(() => window.desktopRuntimeChatHarness.report().presentations.at(-1))
+  await expect.poll(currentHint).toBe(firstId)
+  await page.evaluate(() => {
+    window.desktopRuntimeChatHarness.delayNextAttach()
+    window.desktopRuntimeChatHarness.selectSecond()
+  })
+  await expect(page.getByText('Opening conversation…')).toBeVisible()
+  await expect.poll(currentHint).toBe(null)
+  await page.evaluate(() => window.desktopRuntimeChatHarness.selectFirst())
+  await expect.poll(currentHint).toBe(firstId)
+  await page.evaluate(() => window.desktopRuntimeChatHarness.resolveAttach())
+  await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
+  expect(
+    await page.evaluate(() => window.desktopRuntimeChatHarness.report().presentations)
+  ).not.toContain(secondId)
+  await page.evaluate(() => window.desktopRuntimeChatHarness.unmount())
+  await expect.poll(currentHint).toBe(null)
+  await page.evaluate(() => window.desktopRuntimeChatHarness.remount())
+  await expect.poll(currentHint).toBe(firstId)
+})
