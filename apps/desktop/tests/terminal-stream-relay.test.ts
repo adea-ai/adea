@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { DevStreamFrame } from '../../../packages/types/src/dev-runtime'
+import { fromRelayFrame as fromRendererRelayFrame } from '../../web/src/lib/desktop-stream-transport'
 import { fromRelayFrame, toRelayFrames } from '../shell/src/dev-runtime/stream-relay'
 
 describe('terminal stream relay control frames', () => {
@@ -14,6 +15,13 @@ describe('terminal stream relay control frames', () => {
       type: 'resync',
       reason: 'checkpoint_required',
       checkpointSequence: '4',
+    }
+
+    for (const frame of [heartbeat, resync]) {
+      const encoded = toRelayFrames('terminal-stream', frame)
+      expect(encoded).toHaveLength(1)
+      const jsonFrame = JSON.parse(JSON.stringify(encoded[0]))
+      expect(fromRendererRelayFrame(jsonFrame)).toEqual(frame)
     }
 
     expect(toRelayFrames('terminal-stream', heartbeat)).toEqual([

@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/types",
-  "version": "0.62.4",
+  "version": "0.62.6",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -40,6 +40,11 @@
       "types": "./dist/desktop-permissions.d.ts",
       "development": "./src/desktop-permissions.ts",
       "import": "./dist/desktop-permissions.js"
+    },
+    "./dev-runtime-control": {
+      "types": "./dist/dev-runtime-control.d.ts",
+      "development": "./src/dev-runtime-control.ts",
+      "import": "./dist/dev-runtime-control.js"
     }
   },
   "scripts": {

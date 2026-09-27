@@ -1870,6 +1870,20 @@ cannot report it; it does not assume an empty queue. While the paired grants
 open, it retains at most 1 MiB and 256 read frames; overflow is retryable
 backpressure, so the next read grant restarts from the unchanged output cursor.
 
+The desktop relay exposes measured `bufferedAmount` for its locally retained
+JSON-safe frames, including frames waiting for attach and in-flight invokes.
+This value does not claim to measure the kernel socket or host input queue.
+Each input snapshots the submitted bytes and obeys the grant frame bound;
+terminal input retained by one relay is capped at 1 MiB, including a stricter
+1 MiB encoded backlog and 4,096-frame bound covering ACKs and empty inputs.
+Local subscriptions are removed immediately, before waiting for host cleanup.
+Overflow returns
+non-retryable `backpressure` and closes the relay. A terminal consumer whose
+provider lacks this measurement must not substitute zero. Closing while proof,
+event subscription, or host open is pending fences the eventual result,
+releases listeners and queued input, and retires a late host bind. Invokes that
+already began may have reached the host; subsequent queued invokes are dropped.
+
 The desktop renderer's signed `desktop_file_stream` event bridge is a JSON
 relay, so browser video crossing that leg is split into strict `video_chunk`
 envelopes rather than sending a whole image through a command or event. Each
@@ -2807,6 +2821,14 @@ fsyncs, verifies the declared length and SHA-256 digest, re-proves the pinned
 identity, preserves reviewed permissions, and renames atomically into place;
 any mismatch, overrun, or post-mint drift discards the temp and reports
 `file_changed` — the target is never partially written.
+
+The signed desktop stream relay preserves canonical server `heartbeat` and
+`resync` frames. The renderer validates their exact keys, UTC observation time,
+canonical decimal cursor within the uint64 range, and registered resync reason
+through the same pure
+`dev-runtime-control` decoder used by `decodeDevStreamFrame`; rollover calendar timestamps and malformed controls
+fail the relay instead of refreshing terminal liveness. This decoder does not
+load the operation registry. Outgoing relay commands remain direction-bound.
 
 Client attach (desktop stream relay): the desktop renderer activates the bulk
 stream through `DevRuntimeService.streams()` without binding a second

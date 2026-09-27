@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.62.6](https://github.com/adea-ai/adea/compare/v0.62.5...v0.62.6) (2026-09-27)
+
+
+### Bug Fixes
+
+* **desktop:** preserve heartbeat and resync through stream relay ([#777](https://github.com/adea-ai/adea/issues/777)) ([6ccf188](https://github.com/adea-ai/adea/commit/6ccf188a3026076ce2b828b7fef64d68ccc54630))
+
+## [0.62.5](https://github.com/adea-ai/adea/compare/v0.62.4...v0.62.5) (2026-09-27)
+
+
+### Bug Fixes
+
+* **desktop:** bound and measure stream relay backlog ([#775](https://github.com/adea-ai/adea/issues/775)) ([ae8fe32](https://github.com/adea-ai/adea/commit/ae8fe32e408cfc38dedec7a6150aeeffc0c0c2a8))
+
 ## [0.62.4](https://github.com/adea-ai/adea/compare/v0.62.3...v0.62.4) (2026-09-27)
 
 

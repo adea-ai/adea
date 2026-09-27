@@ -20,8 +20,12 @@ import {
   stringValue,
   timestamp,
   uint64Pattern,
+  uint64String,
   uuidPattern,
 } from './dev-runtime-validation-internal'
+import { decodeDevStreamControlFrame } from './dev-runtime-control'
+export { decodeDevStreamControlFrame } from './dev-runtime-control'
+export type { DevStreamControlFrame } from './dev-runtime-control'
 import { decodeDevStreamVideoFrame } from './dev-runtime-video'
 export {
   BROWSER_VIDEO_DIMENSION_MAX,
@@ -4036,12 +4040,6 @@ function base64url(value: unknown, path: string, min: number, max: number): stri
   return text
 }
 
-function uint64String(value: unknown, path: string): string {
-  const text = stringValue(value, path, 1, 64)
-  if (!uint64Pattern.test(text)) fail(path, 'expected canonical uint64 string')
-  return text
-}
-
 function resourceBinding(value: unknown, path: string): DevStreamGrant['resource'] {
   const item = record(value, path)
   exactKeys(item, ['kind', 'id', 'generation'], [], path)
@@ -4248,18 +4246,7 @@ export function decodeDevStreamFrame(value: unknown): DevStreamFrame {
     integerValue(item.availableCreditBytes, 'stream frame.availableCreditBytes', 0)
     return value as DevStreamFrame
   }
-  if (type === 'heartbeat') {
-    exactKeys(item, ['type', 'observedAt', 'throughSequence'], [], 'stream frame')
-    timestamp(item.observedAt, 'stream frame.observedAt')
-    uint64String(item.throughSequence, 'stream frame.throughSequence')
-    return value as DevStreamFrame
-  }
-  if (type === 'resync') {
-    exactKeys(item, ['type', 'reason', 'checkpointSequence'], [], 'stream frame')
-    literal(item.reason, ['sequence_gap', 'checkpoint_required'], 'stream frame.reason')
-    uint64String(item.checkpointSequence, 'stream frame.checkpointSequence')
-    return value as DevStreamFrame
-  }
+  if (type === 'heartbeat' || type === 'resync') return decodeDevStreamControlFrame(value)
   if (type === 'error') {
     exactKeys(item, ['type', 'error'], [], 'stream frame')
     decodeError(item.error)
