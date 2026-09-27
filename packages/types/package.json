@@ -16,6 +16,21 @@
       "development": "./src/dev-runtime.ts",
       "import": "./dist/dev-runtime.js"
     },
+    "./dev-runtime-metadata": {
+      "types": "./dist/dev-runtime-metadata.d.ts",
+      "development": "./src/dev-runtime-metadata.ts",
+      "import": "./dist/dev-runtime-metadata.js"
+    },
+    "./dev-runtime-wire": {
+      "types": "./dist/dev-runtime-wire.d.ts",
+      "development": "./src/dev-runtime-wire.ts",
+      "import": "./dist/dev-runtime-wire.js"
+    },
+    "./dev-runtime-registry-dto": {
+      "types": "./dist/dev-runtime-registry-dto.d.ts",
+      "development": "./src/dev-runtime-registry-dto.ts",
+      "import": "./dist/dev-runtime-registry-dto.js"
+    },
     "./desktop-permissions": {
       "types": "./dist/desktop-permissions.d.ts",
       "development": "./src/desktop-permissions.ts",

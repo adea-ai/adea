@@ -1,9 +1,5 @@
-import {
-  decodeCbor,
-  decodeRuntimeEvent,
-  type DevStreamFrame,
-  type RuntimeEvent,
-} from '@adea-ai/types/dev-runtime'
+import { decodeCbor, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
+import type { DevStreamFrame, RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
 import type { ChatRetentionTruth } from './types'
 

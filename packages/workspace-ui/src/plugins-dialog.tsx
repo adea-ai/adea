@@ -19,7 +19,7 @@ import {
 } from '@adea-ai/app-ui/components/ui/empty'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Skeleton } from '@adea-ai/app-ui/components/ui/skeleton'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/app-ui/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import {
   ArrowLeft,
   Blocks,
@@ -695,7 +695,12 @@ export function PluginsDialog(props: {
             value={tab()}
             onChange={(value) => value && setTab(value as PluginTab)}
           >
-            <TabsList variant="line" aria-label="Plugins view" class="plugins-browser__tabs">
+            <TabsList
+              appearance="underline"
+              data-variant="line"
+              aria-label="Plugins view"
+              class="plugins-browser__tabs"
+            >
               <TabsTrigger value="marketplace">Discover</TabsTrigger>
               <TabsTrigger value="yours">Installed</TabsTrigger>
               <Show when={props.navigation}>
@@ -747,7 +752,7 @@ export function PluginsDialog(props: {
                     {visible().length} {visible().length === 1 ? 'plugin' : 'plugins'}
                   </span>
                 </div>
-                <TabsContent value={tab()} class="plugins-browser__list">
+                <TabsContent value={tab()} class="plugins-browser__list text-sm">
                   <Show
                     when={status() !== 'loading' && !catalogFailed()}
                     fallback={
