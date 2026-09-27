@@ -19,6 +19,7 @@ import type {
   DevReply,
   DevStreamFrame,
   PaneLeaf,
+  Scope,
 } from '@adea-ai/types/dev-runtime'
 import {
   devOperationMetadataFor_dev_group_reorder,
@@ -357,6 +358,11 @@ const SourceControlPane = lazy(() =>
 const CodeEditor = lazy(() =>
   import('./editor/code-editor').then((module) => ({ default: module.CodeEditor }))
 )
+const RuntimeTerminalPane = lazy(() =>
+  import('./terminal/runtime-terminal-pane').then((module) => ({
+    default: module.RuntimeTerminalPane,
+  }))
+)
 /*
  * #398 follow-up: the sidebar repository registry panel rides its own lazy
  * chunk exactly like the utility panes — the client budget the bundle check
@@ -375,6 +381,15 @@ function focusPaneElement(leafId: string) {
     )
     target?.focus()
   })
+}
+
+function sameRuntimeScope(left: Scope, right: Scope | undefined): boolean {
+  return Boolean(
+    right &&
+    left.accountId === right.accountId &&
+    left.workspaceId === right.workspaceId &&
+    left.runtimeNodeId === right.runtimeNodeId
+  )
 }
 
 /** Fixture-only stream used by headless owner-journey coverage. It models the
@@ -486,10 +501,19 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     defaultUtilityPreferences()
   )
   const [layout, setLayout] = createSignal<DevLayoutState>(initialLayout())
+  const firstUnboundTerminalLeafId = createMemo(
+    () =>
+      listLeaves(layout().center).find(
+        (leaf) => leaf.pane === 'terminal' && leaf.resourceId === undefined
+      )?.id
+  )
   const [announcement, setAnnouncement] = createSignal('')
   const [capabilities, setCapabilities] = createSignal<
     ReadonlyMap<DevCapability, { granted: boolean; reason?: string }>
   >(new Map())
+  const [capabilitySnapshotStatus, setCapabilitySnapshotStatus] = createSignal<
+    'loading' | 'ready' | 'unavailable'
+  >('loading')
   const [archiveShelf, setArchiveShelf] = createSignal<ArchiveShelfState>(beginArchiveShelfLoad())
   /**
    * A latched recovery notice: set the first time a requested selection needs
@@ -568,14 +592,38 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   createEffect(() => {
     if (props.runtime.ready && !runtimeBindingReady()) return
     const scope = activeScope()
-    if (!scope || fixtureMode()) return
-    void props.runtime.capabilitySnapshot(scope).then((snapshot) => {
-      const next = new Map<DevCapability, { granted: boolean; reason?: string }>()
-      for (const capability of snapshot.granted) next.set(capability, { granted: true })
-      for (const entry of snapshot.unavailable)
-        next.set(entry.capability, { granted: false, reason: entry.reason })
-      setCapabilities(next)
+    if (!scope || fixtureMode()) {
+      setCapabilities(new Map())
+      setCapabilitySnapshotStatus('unavailable')
+      return
+    }
+    let current = true
+    setCapabilities(new Map())
+    setCapabilitySnapshotStatus('loading')
+    onCleanup(() => {
+      current = false
     })
+    void props.runtime
+      .capabilitySnapshot(scope)
+      .then((snapshot) => {
+        if (!current || !sameRuntimeScope(scope, activeScope())) return
+        if (!sameRuntimeScope(scope, snapshot.scope)) {
+          setCapabilities(new Map())
+          setCapabilitySnapshotStatus('unavailable')
+          return
+        }
+        const next = new Map<DevCapability, { granted: boolean; reason?: string }>()
+        for (const capability of snapshot.granted) next.set(capability, { granted: true })
+        for (const entry of snapshot.unavailable)
+          next.set(entry.capability, { granted: false, reason: entry.reason })
+        setCapabilities(next)
+        setCapabilitySnapshotStatus('ready')
+      })
+      .catch(() => {
+        if (!current || !sameRuntimeScope(scope, activeScope())) return
+        setCapabilities(new Map())
+        setCapabilitySnapshotStatus('unavailable')
+      })
   })
 
   // Selection always resolves inside the active scope's projection; a stale,
@@ -620,6 +668,21 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       for (const project of group.projects)
         for (const session of project.sessions)
           if (session.id === sessionId) return session.worktreeId || undefined
+    return undefined
+  })
+  const selectedSessionRecord = createMemo(() => {
+    const sessionId = selectedSession()
+    if (!sessionId) return undefined
+    for (const group of projection()?.groups ?? [])
+      for (const project of group.projects)
+        for (const session of project.sessions) if (session.id === sessionId) return session
+    return undefined
+  })
+  const selectedProjectLabel = createMemo(() => {
+    const projectId = selectedProject()
+    if (!projectId) return undefined
+    for (const group of groups())
+      for (const project of group.projects) if (project.id === projectId) return project.name
     return undefined
   })
   const recoveryMessage = () => recoveryNotice()
@@ -1353,19 +1416,66 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             <DevLayoutView
               state={layout()}
               unavailable={runtimeState().status === 'unavailable'}
-              renderTerminalLeaf={() =>
-                import.meta.env.DEV && FixtureTerminalPane && fixtureMode() ? (
-                  <Suspense fallback={<p class="dev-pane-state__line">Loading test terminal…</p>}>
-                    <FixtureTerminalPane
-                      connect={createFixtureTerminalConnect()}
-                      fromSequence="0"
-                      subscribeToObservations={fixtureTerminalObservations}
-                      write={() => true}
-                      worktreeLabel="Example project"
+              renderTerminalLeaf={(leaf) => {
+                if (import.meta.env.DEV && FixtureTerminalPane && fixtureMode())
+                  return (
+                    <Suspense fallback={<p class="dev-pane-state__line">Loading test terminal…</p>}>
+                      <FixtureTerminalPane
+                        connect={createFixtureTerminalConnect()}
+                        fromSequence="0"
+                        subscribeToObservations={fixtureTerminalObservations}
+                        write={() => true}
+                        worktreeLabel="Example project"
+                      />
+                    </Suspense>
+                  )
+
+                const scope = activeScope()
+                const runtimeSessionId = selectedSession()
+                const worktreeId = selectedSessionWorktreeId()
+                if (!scope)
+                  return (
+                    <p class="dev-pane-state__line" role="status" data-state="unavailable">
+                      Terminal access requires an authenticated runtime scope.
+                    </p>
+                  )
+                if (!runtimeSessionId)
+                  return (
+                    <p class="dev-pane-state__line" role="status" data-state="unavailable">
+                      No live runtime session is selected.
+                    </p>
+                  )
+                if (!worktreeId)
+                  return (
+                    <p class="dev-pane-state__line" role="status" data-state="unavailable">
+                      The selected session has no worktree binding.
+                    </p>
+                  )
+
+                const terminalId =
+                  leaf.resourceId !== undefined
+                    ? leaf.resourceId
+                    : firstUnboundTerminalLeafId() === leaf.id
+                      ? selectedSessionRecord()?.terminalId
+                      : undefined
+
+                return (
+                  <Suspense fallback={<p class="dev-pane-state__line">Loading terminal…</p>}>
+                    <RuntimeTerminalPane
+                      runtime={props.runtime}
+                      scope={scope}
+                      runtimeSessionId={runtimeSessionId}
+                      worktreeId={worktreeId}
+                      terminalId={terminalId}
+                      worktreeLabel={selectedProjectLabel()}
+                      capabilityStatus={capabilitySnapshotStatus()}
+                      canAttach={capabilities().get('dev.terminal.attach')?.granted}
+                      canInput={capabilities().get('dev.terminal.input')?.granted}
+                      canManage={capabilities().get('dev.terminal.manage')?.granted}
                     />
                   </Suspense>
-                ) : undefined
-              }
+                )
+              }}
               renderEditorLeaf={() => {
                 const file = activeEditorFile()
                 if (!file) return undefined
