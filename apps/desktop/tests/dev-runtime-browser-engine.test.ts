@@ -73,7 +73,10 @@ class FakeWebView implements BrowserWebView {
     this.cdpCalls.push({ method, ...(params ? { params } : {}) })
     if (method === 'Fetch.continueRequest') this.nextUrl = String(params?.url ?? this.nextUrl)
     if (method === 'DOM.getDocument') return { root: { nodeId: 1 } } as T
-    if (method === 'DOM.querySelector') return { nodeId: 2 } as T
+    if (method === 'DOM.querySelector') {
+      if (params?.selector === '[') throw new Error('invalid CSS selector')
+      return { nodeId: 2 } as T
+    }
     if (method === 'DOM.describeNode') return { node: { attributes: ['role', 'button'] } } as T
     if (method === 'DOM.getBoxModel')
       return { model: { border: [1, 2, 21, 2, 21, 12, 1, 12] } } as T
@@ -95,8 +98,8 @@ class FakeWebView implements BrowserWebView {
       return { result: { value: { text: 'Example' } } } as T
     }
     if (method === 'Runtime.callFunctionOn') {
-      // The inspection text read and the picker's description share this
-      // method, and the picker is the one that measures.
+      // Main-target and frame-target inspection both read text through this
+      // method; frame inspection also uses it to measure the selected node.
       if (String(params?.functionDeclaration ?? '').includes('getBoundingClientRect'))
         return {
           result: {
@@ -229,18 +232,18 @@ describe('live Bun WebView/CDP browser engine', () => {
     })
   })
 
-  test('consumes iframe targets through a frame execution context for element picking', async () => {
+  test('inspects iframe targets through a frame-specific execution context', async () => {
     const views: FakeWebView[] = []
     const engine = createBunWebViewLaneEngine({ webViewFactory: fakeFactory(views) })
     const browserLane = lane()
     await engine.navigate(browserLane, 'https://example.test/', { admitHop: admission })
     const frameTarget = engine.targets(browserLane).find((target) => target.type === 'frame')
     expect(frameTarget).toBeDefined()
-    const picked = await engine.inspect(browserLane, {
+    const inspection = await engine.inspect(browserLane, {
       targetId: frameTarget?.id ?? '',
       selector: '#embedded-action',
     })
-    expect(picked).toEqual({
+    expect(inspection).toEqual({
       nodeId: '3',
       role: 'button',
       name: 'Embedded action',
@@ -248,6 +251,28 @@ describe('live Bun WebView/CDP browser engine', () => {
     })
     expect(views[0]?.cdpCalls.map((call) => call.method)).toContain('Page.createIsolatedWorld')
     expect(views[0]?.cdpCalls.map((call) => call.method)).toContain('Runtime.callFunctionOn')
+  })
+
+  test('validates page selectors and preserves CDP selector errors', async () => {
+    const views: FakeWebView[] = []
+    const engine = createBunWebViewLaneEngine({ webViewFactory: fakeFactory(views) })
+    const browserLane = lane()
+    await engine.navigate(browserLane, 'https://example.test/', { admitHop: admission })
+
+    await expect(
+      engine.inspect(browserLane, {
+        targetId: `browser-target-${browserLane.id}`,
+        selector: 'body\\',
+      })
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
+    expect(views[0]?.cdpCalls.map((call) => call.method)).not.toContain('DOM.querySelector')
+
+    await expect(
+      engine.inspect(browserLane, {
+        targetId: `browser-target-${browserLane.id}`,
+        selector: '[',
+      })
+    ).rejects.toThrow('invalid CSS selector')
   })
 
   test('refuses simultaneous reuse of one persistent profile and releases the lease on close', async () => {

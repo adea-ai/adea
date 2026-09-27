@@ -754,71 +754,66 @@ export function createBunWebViewLaneEngine(
     async inspect(lane, input) {
       requireCdpLane(lane)
       const state = await stateFor(lane)
-      const selector = input.selector ?? 'body'
+      const selector = assertSafeSelector(input.selector ?? 'body')
       const frame = [...state.frames.values()].find(
         (candidate) => frameTargetId(lane.id, candidate.id) === input.targetId
       )
       if (frame) return inspectFrame(state.view, lane.id, frame, selector)
       if (input.targetId !== state.targetId) return {}
-      try {
-        const document = await state.view.cdp<{ root: { nodeId: number } }>('DOM.getDocument', {
-          depth: 1,
-          pierce: true,
-        })
-        const found = await state.view.cdp<{ nodeId: number }>('DOM.querySelector', {
-          nodeId: document.root.nodeId,
-          selector,
-        })
-        if (!found.nodeId) return {}
-        const described = await state.view.cdp<{ node?: { attributes?: string[] } }>(
-          'DOM.describeNode',
-          {
-            nodeId: found.nodeId,
-          }
-        )
-        const box = await state.view.cdp<{ model?: { border?: number[]; content?: number[] } }>(
-          'DOM.getBoxModel',
-          {
-            nodeId: found.nodeId,
-          }
-        )
-        const attributes = described.node?.attributes ?? []
-        const roleIndex = attributes.indexOf('role')
-        const ariaIndex = attributes.indexOf('aria-label')
-        const role = roleIndex >= 0 ? attributes[roleIndex + 1] : undefined
-        const ariaLabel = ariaIndex >= 0 ? attributes[ariaIndex + 1] : undefined
-        // The selector reached the DOM as DATA (`DOM.querySelector` above), so
-        // the text read needs no code construction: resolve the node the query
-        // already found and call a constant function on it. The earlier form
-        // interpolated the selector into an expression string; the allow-list
-        // check made that safe, but a remote debugging surface deserves no
-        // second code path that builds code.
-        const resolved = await state.view.cdp<{ object?: { objectId?: string } }>(
-          'DOM.resolveNode',
-          { nodeId: found.nodeId }
-        )
-        const objectId = resolved.object?.objectId
-        const value: { result?: { value?: { text?: string } } } = objectId
-          ? await state.view.cdp<{ result?: { value?: { text?: string } } }>(
-              'Runtime.callFunctionOn',
-              {
-                objectId,
-                functionDeclaration:
-                  "function () { return { text: this.textContent?.trim()?.slice(0, 2048) ?? '' } }",
-                returnByValue: true,
-              }
-            )
-          : {}
-        return {
-          nodeId: String(found.nodeId),
-          ...(role ? { role } : {}),
-          name: ariaLabel ?? value.result?.value?.text ?? '',
-          ...(boundsFromQuad(box.model?.border ?? box.model?.content)
-            ? { bounds: boundsFromQuad(box.model?.border ?? box.model?.content) }
-            : {}),
+      const document = await state.view.cdp<{ root: { nodeId: number } }>('DOM.getDocument', {
+        depth: 1,
+        pierce: true,
+      })
+      const found = await state.view.cdp<{ nodeId: number }>('DOM.querySelector', {
+        nodeId: document.root.nodeId,
+        selector,
+      })
+      if (!found.nodeId) return {}
+      const described = await state.view.cdp<{ node?: { attributes?: string[] } }>(
+        'DOM.describeNode',
+        {
+          nodeId: found.nodeId,
         }
-      } catch {
-        return {}
+      )
+      const box = await state.view.cdp<{ model?: { border?: number[]; content?: number[] } }>(
+        'DOM.getBoxModel',
+        {
+          nodeId: found.nodeId,
+        }
+      )
+      const attributes = described.node?.attributes ?? []
+      const roleIndex = attributes.indexOf('role')
+      const ariaIndex = attributes.indexOf('aria-label')
+      const role = roleIndex >= 0 ? attributes[roleIndex + 1] : undefined
+      const ariaLabel = ariaIndex >= 0 ? attributes[ariaIndex + 1] : undefined
+      // The selector reached the DOM as DATA (`DOM.querySelector` above), so
+      // the text read needs no code construction: resolve the node the query
+      // already found and call a constant function on it. The earlier form
+      // interpolated the selector into an expression string; the allow-list
+      // check made that safe, but a remote debugging surface deserves no
+      // second code path that builds code.
+      const resolved = await state.view.cdp<{ object?: { objectId?: string } }>('DOM.resolveNode', {
+        nodeId: found.nodeId,
+      })
+      const objectId = resolved.object?.objectId
+      const value: { result?: { value?: { text?: string } } } = objectId
+        ? await state.view.cdp<{ result?: { value?: { text?: string } } }>(
+            'Runtime.callFunctionOn',
+            {
+              objectId,
+              functionDeclaration:
+                "function () { return { text: this.textContent?.trim()?.slice(0, 2048) ?? '' } }",
+              returnByValue: true,
+            }
+          )
+        : {}
+      return {
+        nodeId: String(found.nodeId),
+        ...(role ? { role } : {}),
+        name: ariaLabel ?? value.result?.value?.text ?? '',
+        ...(boundsFromQuad(box.model?.border ?? box.model?.content)
+          ? { bounds: boundsFromQuad(box.model?.border ?? box.model?.content) }
+          : {}),
       }
     },
 

@@ -3286,7 +3286,8 @@ the lane's expected generation, and a lane-resource binding; it does not claim
 to pick an element from preview pixels. A returned inspection may show the
 element role, accessible name, and bounds. Selector-based DOM inspection is
 separate from screenshot display, coordinate annotation, and live frame
-subscription; the current caller/transport gap and bounded amendment are
+subscription. Results are cleared when the lane, target, selector, or emulated
+viewport changes. The current caller/transport gap and bounded amendment are
 recorded in the [browser caller gap note](../research/dev-browser-caller-gaps.md).
 
 Cookie import is opt-in, source/profile/origin scoped, previewed, encrypted at
@@ -3345,13 +3346,15 @@ until the packaged host exposes an authorized BrowserView seam. Packaged
 macOS CEF evidence remains a required #537/#426 acceptance gate.
 
 When the CDP target contains iframes, `Page.getFrameTree` supplies child-frame
-targets and `Page.createIsolatedWorld` gives element picking a frame-specific
-execution context. The picker can therefore inspect same-origin and
-cross-origin iframe DOM through the authorized CDP target without injecting a
-page script. Screencast frames remain compositor output for the whole page;
-they include iframe pixels but carry no separate iframe byte stream. A future
-requirement for per-frame capture or frame-specific redaction needs a host
-adapter that exposes OOPIF capture identities and coordinate transforms.
+targets and `Page.createIsolatedWorld` gives selector-based inspection a
+frame-specific execution context. `dev.browser.inspect` can therefore query
+same-origin and cross-origin iframe DOM through the authorized CDP target
+without injecting a page script. This host operation does not provide
+preview-pixel click picking. Screencast frames remain compositor output for the
+whole page; they include iframe pixels but carry no separate iframe byte
+stream. A future requirement for per-frame capture or frame-specific redaction
+needs a host adapter that exposes OOPIF capture identities and coordinate
+transforms.
 
 Profile directories remain immutable and owner-only, but Bun's Chrome backend
 does not expose a process-per-`dataStore` guarantee. The engine refuses to

@@ -373,6 +373,7 @@ export function BrowserPane(props: BrowserPaneProps) {
     nextPreset: ResponsivePresetId,
     nextOrientation: ResponsiveOrientation
   ): void {
+    invalidateInspection()
     setPresetId(nextPreset)
     setOrientation(nextOrientation)
     const lane = activeLane()

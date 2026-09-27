@@ -123,4 +123,7 @@ test('BrowserPane inspects a CSS selector on the active page with a generation-b
   await expect(result).toContainText('button')
   await expect(result).toContainText('Submit request')
   await expect(result).toContainText('x 12 · y 24 · width 80 · height 32')
+
+  await pane.getByRole('button', { name: 'iPhone 15 Pro' }).click()
+  await expect(result).toHaveCount(0)
 })
