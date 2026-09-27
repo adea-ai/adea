@@ -26,7 +26,7 @@ import {
   devOperationMetadataFor_dev_session_get,
   devOperationMetadataFor_dev_session_list,
   devOperationMetadataFor_dev_session_unarchive,
-} from '@adea-ai/types/dev-runtime-metadata'
+} from '@adea-ai/types/dev-runtime-operation-metadata'
 import '@adea-ai/app-ui/dev-view.css'
 // #424: the resources sheet rides the resources pane's scoped hooks.
 import './resources/resources-pane.css'

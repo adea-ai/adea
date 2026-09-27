@@ -34,6 +34,7 @@ import {
   encodeCbor,
 } from '../src/dev-runtime'
 import * as devOperationMetadataModule from '../src/dev-runtime-metadata'
+import * as treeShakableDevOperationMetadataModule from '../src/dev-runtime-operation-metadata/index'
 import {
   decodeCbor as decodeBrowserWireCbor,
   decodeRuntimeEvent as decodeBrowserWireEvent,
@@ -119,10 +120,37 @@ describe('Dev Runtime operation registry', () => {
         'resource' in value
     )
     expect(generatedOperationBindings).toHaveLength(devOperations.length)
+    expect('devOperationMetadata' in treeShakableDevOperationMetadataModule).toBe(false)
+    const treeShakableOperationBindings = Object.values(
+      treeShakableDevOperationMetadataModule
+    ).filter(
+      (
+        value
+      ): value is Readonly<{
+        operation: string
+        capabilities: readonly string[]
+        resource: unknown
+      }> =>
+        typeof value === 'object' &&
+        value !== null &&
+        'operation' in value &&
+        'capabilities' in value &&
+        'resource' in value
+    )
+    expect(treeShakableOperationBindings).toHaveLength(devOperations.length)
+    expect(treeShakableOperationBindings.map((binding) => binding.operation).toSorted()).toEqual(
+      [...devOperations].toSorted()
+    )
     expect(generatedOperationBindings.map((binding) => binding.operation).toSorted()).toEqual(
       [...devOperations].toSorted()
     )
     for (const binding of generatedOperationBindings) {
+      expect(devOperationMetadata[binding.operation as keyof typeof devOperationMetadata]).toEqual({
+        capabilities: binding.capabilities,
+        resource: binding.resource,
+      })
+    }
+    for (const binding of treeShakableOperationBindings) {
       expect(devOperationMetadata[binding.operation as keyof typeof devOperationMetadata]).toEqual({
         capabilities: binding.capabilities,
         resource: binding.resource,

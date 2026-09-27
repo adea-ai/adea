@@ -7,7 +7,7 @@ import type {
   DevStreamGrant,
   Scope,
 } from '@adea-ai/types/dev-runtime'
-import { devOperationCapabilities } from '@adea-ai/types/dev-runtime-metadata'
+import { devOperationCapabilities } from '@adea-ai/types/dev-runtime-operation-metadata'
 
 export type DevRuntimeAvailability =
   | Readonly<{ status: 'ready' }>
