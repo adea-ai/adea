@@ -3758,6 +3758,8 @@ The outer rail remains visible in every view, including focus mode. Virtual
 has its own contextual room navigation, independent of engine entitlement.
 The room-designer entry retains that navigation and its common toolbar controls
 even when the private engine is unavailable.
+Unavailable-engine content in these contextual shells uses the host's single
+main landmark and fills its viewport, without nesting a second full-screen shell.
 Collapsed contextual navigation is excluded from keyboard focus and the
 accessibility tree at desktop and narrow widths; collapsing its grid column
 alone is insufficient.

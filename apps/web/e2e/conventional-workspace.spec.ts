@@ -978,6 +978,7 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await page.getByRole('button', { name: 'Open workspace navigation' }).click()
   const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(navigation).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-narrow-light.png', { animations: 'disabled' })
   await navigation.getByRole('button', { name: 'Close workspace navigation' }).click()
 
@@ -1207,6 +1208,7 @@ test('integrated chrome keeps the global rail while Virtual navigation collapses
   await expect(toolbar).toBeVisible()
   const navigation = page.getByRole('complementary', { name: 'Virtual navigation' })
   await expect(navigation).toBeVisible()
+  await expect(page.getByRole('main')).toHaveCount(1)
   await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
   await expect(navigation).toBeHidden()
   await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible()
@@ -1229,6 +1231,21 @@ test('Virtual room designer keeps the contextual sidebar and global rail', async
   const sidebar = page.getByRole('complementary', { name: 'Virtual navigation' })
   await expect(page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })).toBeVisible()
   await expect(sidebar).toBeVisible()
+  await expect(page.getByRole('main')).toHaveCount(1)
+  const fallback = page.getByRole('status', { name: 'Virtual view unavailable' })
+  expect(
+    await fallback.evaluate((element) => {
+      const viewport = element.closest('.workspace-scene-viewport')!
+      return {
+        fillsViewport:
+          element.getBoundingClientRect().height === viewport.getBoundingClientRect().height,
+        height: element.getBoundingClientRect().height,
+      }
+    })
+  ).toEqual({ fillsViewport: true, height: expect.any(Number) })
+  expect(
+    await fallback.evaluate((element) => element.getBoundingClientRect().height)
+  ).toBeGreaterThan(600)
   const toolbar = page.getByLabel('Workspace toolbar')
   await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
   await expect(sidebar).toBeHidden()

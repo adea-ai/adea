@@ -73,6 +73,7 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
           fallback={
             <>
               <VirtualUnavailable
+                contained
                 sceneLabel={scene().label}
                 onOpenChat={() => props.onWorkspaceViewChange?.('chat')}
               />

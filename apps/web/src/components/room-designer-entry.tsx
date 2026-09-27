@@ -14,6 +14,7 @@ export function RoomDesignerEntry(props: {
       <VirtualRoomControls client={props.client} openChat={props.onOpenChat} />
       <div class="workspace-scene-viewport">
         <VirtualUnavailable
+          contained
           sceneLabel={props.initialScene === 'work' ? 'Work room designer' : 'Home room designer'}
           onOpenChat={props.onClose}
         />
