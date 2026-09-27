@@ -54,7 +54,7 @@ function cssBlock(css: string, selector: string): Record<string, string> {
 describe('published Adea theme adapter', () => {
   test('records the generated package provenance', () => {
     expect(CANONICAL_THEME_PACKAGE).toBe('@adea-ai/themes')
-    expect(CANONICAL_THEME_VERSION).toBe('0.6.2')
+    expect(CANONICAL_THEME_VERSION).toBe('0.6.3')
   })
 
   test('generates every saved theme ID from the published catalogue', () => {

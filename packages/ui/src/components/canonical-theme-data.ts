@@ -1,6 +1,6 @@
-/** Generated from the isolated @adea-ai/themes 0.6.2 records. */
+/** Generated from the isolated @adea-ai/themes 0.6.3 records. */
 export const CANONICAL_THEME_PACKAGE = '@adea-ai/themes' as const
-export const CANONICAL_THEME_VERSION = '0.6.2' as const
+export const CANONICAL_THEME_VERSION = '0.6.3' as const
 export const CANONICAL_THEME_COLOR_VALUES = [
   '#e3e9f4',
   '#393f4f',

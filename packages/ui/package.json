@@ -67,7 +67,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@adea-ai/themes": "0.6.2",
+    "@adea-ai/themes": "0.6.3",
     "@adea-ai/ui": "0.72.2",
     "lucide-solid": "^1.45.0",
     "solid-js": "^1.9.15",
