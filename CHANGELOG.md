@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.62.3](https://github.com/adea-ai/adea/compare/v0.62.2...v0.62.3) (2026-09-27)
+
+
+### Bug Fixes
+
+* **workspace-ui:** ignore stale private content ([#771](https://github.com/adea-ai/adea/issues/771)) ([55f84ca](https://github.com/adea-ai/adea/commit/55f84ca9040916d854d87bac22e4445e4a4c726f))
+
 ## [0.62.2](https://github.com/adea-ai/adea/compare/v0.62.1...v0.62.2) (2026-09-27)
 
 
