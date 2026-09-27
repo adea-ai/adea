@@ -8,6 +8,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createLoopbackCertificate } from './loopback-tls.mjs'
+import { writeLocalWorkerConfig } from './local-worker-config.mjs'
 
 const start = fileURLToPath(new URL('.', import.meta.url))
 const web = resolve(start, '..')
@@ -159,7 +160,7 @@ const host = {
   },
 }
 const hostConfig = resolve(evidence, 'host.json')
-await writeFile(hostConfig, JSON.stringify(host, null, 2))
+await writeLocalWorkerConfig(hostConfig, host)
 try {
   databaseStarted = true
   await run(
@@ -192,7 +193,7 @@ try {
   })
   // Exercise the actual entry policy after enabling the account allowlist.
   host.vars.ADEA_ALLOWED_EMAILS = 'allowed@example.test'
-  await writeFile(hostConfig, JSON.stringify(host, null, 2))
+  await writeLocalWorkerConfig(hostConfig, host)
   await waitFor(async () => (await entryStatus()) === 401, 'Restricted entry gate')
   const restricted = await localHttps(baseURL)
   assert.equal(restricted.status, 307)
@@ -208,7 +209,7 @@ try {
   assert.equal(deepRedirect.searchParams.get('returnTo'), '/?view=chat&scene=home')
   assert.equal((await localHttps(`${baseURL}/api/workspaces/bootstrap`, 'POST')).status, 401)
   delete host.vars.ADEA_ALLOWED_EMAILS
-  await writeFile(hostConfig, JSON.stringify(host, null, 2))
+  await writeLocalWorkerConfig(hostConfig, host)
   await waitFor(async () => (await entryStatus()) === 200, 'Restored guest gate')
   const report = {
     browserSuite: 'passed',
