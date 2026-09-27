@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.63.2](https://github.com/adea-ai/adea/compare/v0.63.1...v0.63.2) (2026-09-27)
+
+
+### Bug Fixes
+
+* make updater check failures retryable ([#783](https://github.com/adea-ai/adea/issues/783)) ([907ef5e](https://github.com/adea-ai/adea/commit/907ef5e8737adc7a0b9a53664f01ab080e401404))
+
 ## [0.63.1](https://github.com/adea-ai/adea/compare/v0.63.0...v0.63.1) (2026-09-27)
 
 
