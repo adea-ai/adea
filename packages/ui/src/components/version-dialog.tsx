@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Sparkles,
 } from 'lucide-solid'
-import { createEffect, createMemo, createSignal, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from 'solid-js'
 
 import { formatReleaseDate, plainTextFromMarkdown } from '#lib/version-notes'
 import { Button, buttonVariants } from '#components/ui/button'
@@ -51,13 +51,30 @@ export type VersionDialogAdapter = Readonly<{
   isDesktopRuntime(): boolean
 }>
 
-function errorMessage(caught: unknown, fallback: string): string {
-  if (caught instanceof Error && caught.message) return caught.message
-  if (typeof caught === 'string' && caught) return caught
-  return fallback
+function messageText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const message = value.trim()
+  return message && message !== '[object Object]' ? message : undefined
 }
 
-function phaseLabel(update: SharedDesktopUpdate | null, fallbackVersion: string): string {
+function errorMessage(caught: unknown, fallback: string): string {
+  if (caught instanceof Error) return messageText(caught.message) ?? fallback
+  const plainMessage = messageText(caught)
+  if (plainMessage) return plainMessage
+  if (!caught || typeof caught !== 'object') return fallback
+
+  const record = caught as { error?: unknown; safe?: unknown }
+  const safe = record.safe as { message?: unknown } | null | undefined
+  const nestedError = record.error as { safe?: { message?: unknown } | null } | null | undefined
+  return messageText(safe?.message) ?? messageText(nestedError?.safe?.message) ?? fallback
+}
+
+function phaseLabel(
+  update: SharedDesktopUpdate | null,
+  fallbackVersion: string,
+  checkFailed: boolean
+): string {
+  if (checkFailed) return `Version ${update?.current_version || fallbackVersion} · Retry`
   if (!update) return `Adea v${fallbackVersion}`
   if (update.phase === 'checking') return 'Checking for updates…'
   if (update.phase === 'available' && update.available_version) {
@@ -95,18 +112,56 @@ export function VersionDialog(props: {
   const [update, setUpdate] = createSignal<SharedDesktopUpdate | null>(null)
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal('')
+  const [checkFailed, setCheckFailed] = createSignal(false)
+  let checkGeneration = 0
 
-  const loadCurrentStatus = async () => {
+  const failCheck = (caught: unknown, fallback: string) => {
+    const message = errorMessage(caught, fallback)
+    setCheckFailed(true)
+    setError(message)
+  }
+
+  const applyCheckResult = (next: SharedDesktopUpdate) => {
+    if (next.phase === 'failed') {
+      if (!update()) setUpdate(next)
+      failCheck(next.error, 'Could not check for updates')
+      return
+    }
+    setUpdate(next)
+    setCheckFailed(false)
+    setError('')
+  }
+
+  const loadCurrentStatus = async (generation = checkGeneration) => {
     if (!desktopRuntime()) return
     try {
-      setUpdate(await props.adapter.getStatus())
+      const current = await props.adapter.getStatus()
+      const previous = update()
+      const previousHasActionableSnapshot =
+        previous?.phase === 'available' || isUpdateBusy(previous)
+      const preservesSnapshot =
+        previous?.phase === 'available'
+          ? current.phase === 'available' || isUpdateBusy(current)
+          : isUpdateBusy(previous) && isUpdateBusy(current)
+      const wouldDiscardActionableSnapshot =
+        checkFailed() && previousHasActionableSnapshot && !preservesSnapshot
+      if (
+        generation !== checkGeneration ||
+        previous?.phase === 'checking' ||
+        wouldDiscardActionableSnapshot
+      ) {
+        return
+      }
+      setUpdate(current)
     } catch (caught) {
-      setError(errorMessage(caught, 'Version status is unavailable'))
+      if (generation === checkGeneration && !checkFailed()) {
+        setError(errorMessage(caught, 'Version status is unavailable'))
+      }
     }
   }
 
   onMount(() => {
-    if (desktopRuntime()) void loadCurrentStatus()
+    if (desktopRuntime() && !open()) void loadCurrentStatus()
   })
 
   const checkForUpdates = async () => {
@@ -114,22 +169,29 @@ export function VersionDialog(props: {
       setError('Update checks are available from the desktop app.')
       return
     }
+    const requestGeneration = ++checkGeneration
     setBusy(true)
     setError('')
+    setCheckFailed(false)
     try {
-      setUpdate(await props.adapter.check())
+      const checked = await props.adapter.check()
+      if (requestGeneration === checkGeneration) applyCheckResult(checked)
     } catch (caught) {
-      setError(errorMessage(caught, 'Could not check for updates'))
-      await loadCurrentStatus()
+      if (requestGeneration === checkGeneration) {
+        failCheck(caught, 'Could not check for updates')
+        await loadCurrentStatus(requestGeneration)
+      }
     } finally {
-      setBusy(false)
+      if (requestGeneration === checkGeneration) setBusy(false)
     }
   }
 
   createEffect(() => {
     if (!open() || !desktopRuntime()) return
     let active = true
+    const requestGeneration = ++checkGeneration
     setError('')
+    setCheckFailed(false)
     setBusy(true)
     void (async () => {
       try {
@@ -137,16 +199,19 @@ export function VersionDialog(props: {
         if (!active) return
         setUpdate(current)
         const checked = await props.adapter.check()
-        if (active) setUpdate(checked)
+        if (active && requestGeneration === checkGeneration) applyCheckResult(checked)
       } catch (caught) {
-        if (active) setError(errorMessage(caught, 'Could not check for updates'))
+        if (active && requestGeneration === checkGeneration) {
+          failCheck(caught, 'Could not check for updates')
+        }
       } finally {
-        if (active) setBusy(false)
+        if (active && requestGeneration === checkGeneration) setBusy(false)
       }
     })()
-    return () => {
+    onCleanup(() => {
       active = false
-    }
+      checkGeneration += 1
+    })
   })
 
   const install = async () => {
@@ -162,6 +227,8 @@ export function VersionDialog(props: {
       // clicking install looked like nothing happened at all.
       if (next.phase === 'failed') {
         setError(errorMessage(next.error, 'Update installation failed'))
+      } else {
+        setCheckFailed(false)
       }
     } catch (caught) {
       setError(errorMessage(caught, 'Update installation failed'))
@@ -179,6 +246,7 @@ export function VersionDialog(props: {
     return notes ? plainTextFromMarkdown(notes) : ''
   }
   const busyFromSnapshot = () => isUpdateBusy(update())
+  const isCurrent = () => update()?.phase === 'current' && !error() && !checkFailed() && !busy()
 
   return (
     <Dialog open={open()} onOpenChange={setOpen}>
@@ -192,7 +260,7 @@ export function VersionDialog(props: {
           <Show when={update()?.phase === 'available'} fallback={<FileText aria-hidden="true" />}>
             <Sparkles aria-hidden="true" />
           </Show>
-          {phaseLabel(update(), props.fallbackVersion ?? '0.1.0')}
+          {phaseLabel(update(), props.fallbackVersion ?? '0.1.0', checkFailed())}
         </DialogTrigger>
       </Show>
 
@@ -223,14 +291,18 @@ export function VersionDialog(props: {
                 </p>
                 <p class="text-sm text-muted-foreground">
                   <Show
-                    when={update()?.phase === 'current'}
+                    when={isCurrent()}
                     fallback={
                       <Show
                         when={update()?.phase === 'available' && update()?.available_version}
                         fallback={
-                          desktopRuntime()
-                            ? 'Check the release channel for the latest signed build.'
-                            : 'Open this dialog inside the desktop app to check for updates.'
+                          checkFailed()
+                            ? 'The latest version could not be confirmed. Retry the update check to verify its status.'
+                            : update()?.phase === 'checking'
+                              ? 'Checking the signed release channel…'
+                              : desktopRuntime()
+                                ? 'Check the release channel for the latest signed build.'
+                                : 'Open this dialog inside the desktop app to check for updates.'
                         }
                       >
                         {`A newer desktop release, v${update()?.available_version}, is ready.`}
@@ -254,7 +326,7 @@ export function VersionDialog(props: {
                 >
                   <LoaderCircle class="animate-spin" aria-hidden="true" />
                 </Show>
-                Check latest version
+                {checkFailed() ? 'Retry update check' : 'Check latest version'}
               </Button>
             </div>
           </section>
@@ -297,7 +369,7 @@ export function VersionDialog(props: {
             </section>
           </Show>
 
-          <Show when={update()?.phase === 'current'}>
+          <Show when={isCurrent()}>
             <p class="flex items-center gap-2 text-sm text-success" role="status">
               <Check class="size-4" aria-hidden="true" />
               Adea is up to date.
