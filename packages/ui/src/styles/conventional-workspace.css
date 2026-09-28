@@ -1727,7 +1727,12 @@
 }
 
 .conventional-dialog {
-  place-self: center;
+  position: fixed;
+  inset: 1rem;
+  margin: auto;
+  box-sizing: border-box;
+  height: fit-content;
+  min-height: 0;
   width: min(34rem, calc(100% - 2rem));
   max-width: min(34rem, calc(100% - 2rem));
   max-height: calc(100svh - 2rem);
@@ -2471,7 +2476,7 @@
 
 @media (max-width: 44rem) {
   .plugins-dialog {
-    width: calc(100% - 1rem);
+    width: calc(100% - 2rem);
     height: calc(100svh - 1rem);
   }
   .plugins-browser__bar {

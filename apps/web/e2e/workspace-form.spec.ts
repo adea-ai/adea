@@ -89,7 +89,59 @@ test('shared room modal keeps its content and close action contained in a narrow
   const bounds = await dialog.boundingBox()
   expect(bounds).not.toBeNull()
   expect(Math.abs(bounds!.x + bounds!.width / 2 - 160)).toBeLessThanOrEqual(1)
-  expect(Math.abs(bounds!.y + bounds!.height / 2 - 284)).toBeLessThanOrEqual(1)
+  const geometry = await dialog.evaluate((element) => {
+    const positionerElement = element.parentElement!
+    const dialogStyle = getComputedStyle(element)
+    const positionerStyle = getComputedStyle(positionerElement)
+    const positionerBounds = positionerElement.getBoundingClientRect()
+    const visualViewport = window.visualViewport
+    return {
+      dialog: {
+        x: element.getBoundingClientRect().x,
+        y: element.getBoundingClientRect().y,
+        width: element.getBoundingClientRect().width,
+        height: element.getBoundingClientRect().height,
+        placeSelf: dialogStyle.placeSelf,
+        transform: dialogStyle.transform,
+        transformOrigin: dialogStyle.transformOrigin,
+        maxHeight: dialogStyle.maxHeight,
+        minHeight: dialogStyle.minHeight,
+        position: dialogStyle.position,
+        inset: dialogStyle.inset,
+      },
+      positioner: {
+        x: positionerBounds.x,
+        y: positionerBounds.y,
+        width: positionerBounds.width,
+        height: positionerBounds.height,
+        position: positionerStyle.position,
+        placeItems: positionerStyle.placeItems,
+        padding: positionerStyle.padding,
+        transform: positionerStyle.transform,
+        inset: positionerStyle.inset,
+      },
+      viewport: {
+        width: innerWidth,
+        height: innerHeight,
+        documentHeight: document.documentElement.clientHeight,
+        scrollY,
+        visualWidth: visualViewport?.width,
+        visualHeight: visualViewport?.height,
+        visualOffsetTop: visualViewport?.offsetTop,
+      },
+      body: {
+        x: document.body.getBoundingClientRect().x,
+        y: document.body.getBoundingClientRect().y,
+        width: document.body.getBoundingClientRect().width,
+        height: document.body.getBoundingClientRect().height,
+        transform: getComputedStyle(document.body).transform,
+      },
+    }
+  })
+  expect(
+    Math.abs(bounds!.y + bounds!.height / 2 - 284),
+    JSON.stringify(geometry)
+  ).toBeLessThanOrEqual(1)
   expect(bounds!.x).toBeGreaterThanOrEqual(16)
   expect(bounds!.y).toBeGreaterThanOrEqual(16)
   expect(bounds!.width).toBeLessThanOrEqual(288)
