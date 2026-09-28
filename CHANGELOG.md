@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.2](https://github.com/adea-ai/adea/compare/v0.64.1...v0.64.2) (2026-09-28)
+
+
+### Bug Fixes
+
+* **deps:** consume latest shared UI release ([#788](https://github.com/adea-ai/adea/issues/788)) ([cf8c80e](https://github.com/adea-ai/adea/commit/cf8c80e4559e97239e07d4cdcd32922e58d1cab4))
+
 ## [0.64.1](https://github.com/adea-ai/adea/compare/v0.64.0...v0.64.1) (2026-09-28)
 
 
