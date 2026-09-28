@@ -83,11 +83,6 @@ export function DevLayoutView(props: DevLayoutViewProps) {
           <span>{leaf().pane === 'terminal' ? 'Terminal' : 'Editor'}</span>
         </span>
       )}
-      renderPaneActions={(leaf) => (
-        <Show when={leaf().pane === 'terminal'}>
-          <span class="dev-pane__badge">typed seam</span>
-        </Show>
-      )}
       renderLeaf={(leaf) => (
         <PaneContent
           leaf={leaf}

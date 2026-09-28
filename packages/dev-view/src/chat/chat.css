@@ -125,6 +125,7 @@
   color: var(--dev-muted, var(--muted-foreground));
   font-size: 0.72rem;
   font-weight: 650;
+  letter-spacing: 0.02em;
 }
 
 .dev-chat__row-header span:last-child {

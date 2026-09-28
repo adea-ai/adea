@@ -31,8 +31,26 @@ export {
 } from './transcript-availability'
 import { chatTranscriptActionDisabledReason } from './transcript-availability'
 
-function eventStateLabel(item: ChatTranscriptItem): string {
-  return item.state ? item.state.replace('_', ' ') : item.kind
+/**
+ * Human row titles per projected role. The raw wire kind stays diagnosable in
+ * the row's title attribute; a payload-provided tool name (already bounded and
+ * redacted by the projector) is the one label a tool row keeps. Opaque payload
+ * semantics are unchanged: every event still renders its own row.
+ */
+const ROLE_TITLES: Record<ChatTranscriptItem['role'], string> = {
+  user: 'You',
+  assistant: 'Assistant',
+  tool: 'Tool activity',
+  approval: 'Approval requested',
+  question: 'Question',
+  subagent: 'Subagent',
+  status: 'Status',
+}
+
+function rowTitle(item: ChatTranscriptItem): string {
+  if (item.role === 'tool' && item.label !== item.kind) return item.label
+  if (item.role === 'status') return item.label
+  return ROLE_TITLES[item.role]
 }
 
 function runtimeEventText(item: ChatTranscriptItem): string {
@@ -144,10 +162,12 @@ function ChatTranscriptRow(props: {
   const approvalReasonId = `dev-chat-approval-status-${props.item.id}`
   const questionReasonId = `dev-chat-question-status-${props.item.id}`
   return (
-    <article class={`dev-chat__row dev-chat__row--${props.item.role}`}>
+    <article class={`dev-chat__row dev-chat__row--${props.item.role}`} title={props.item.kind}>
       <header class="dev-chat__row-header">
-        <span>{props.item.label}</span>
-        <span>{eventStateLabel(props.item)}</span>
+        <span>{rowTitle(props.item)}</span>
+        <Show when={props.item.state}>
+          <span>{props.item.state?.replace('_', ' ')}</span>
+        </Show>
       </header>
       <p class="dev-chat__text">{runtimeEventText(props.item)}</p>
       <Show when={props.item.role === 'approval' && props.item.state === 'requested'}>

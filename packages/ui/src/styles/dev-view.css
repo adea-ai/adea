@@ -255,14 +255,6 @@
   background: color-mix(in srgb, var(--background) 96%, var(--muted));
 }
 
-.dev-pane__badge {
-  margin-inline-start: auto;
-  padding: 0.15rem 0.35rem;
-  border: 1px solid var(--dev-border);
-  border-radius: 999px;
-  font-size: 0.6rem;
-}
-
 /* Domain icon/label composition inside the shared stable pane header. */
 .dev-center-pane-label {
   display: flex;
