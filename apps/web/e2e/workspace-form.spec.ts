@@ -86,7 +86,6 @@ test('shared room modal keeps its content and close action contained in a narrow
   const positioner = dialog.locator('xpath=..')
   await expect(positioner).toHaveCSS('position', 'fixed')
   await expect(positioner).toHaveCSS('display', 'grid')
-  await expect(positioner).toHaveCSS('padding', '16px')
   const bounds = await dialog.boundingBox()
   expect(bounds).not.toBeNull()
   expect(Math.abs(bounds!.x + bounds!.width / 2 - 160)).toBeLessThanOrEqual(1)

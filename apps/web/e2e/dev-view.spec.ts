@@ -35,16 +35,55 @@ function devToolbarControl(page: Page, name: string) {
 }
 
 async function expectPointerHitsButton(page: Page, button: Locator, name: string) {
-  const bounds = await button.boundingBox()
-  expect(bounds).not.toBeNull()
-  const hitName = await page.evaluate(
+  const buttonBounds = await button.boundingBox()
+  expect(buttonBounds).not.toBeNull()
+  const hitTest = await page.evaluate(
     ({ x, y }) => {
-      const target = document.elementFromPoint(x, y)?.closest('button')
-      return target?.getAttribute('aria-label') ?? target?.textContent?.trim() ?? null
+      const describe = (element: Element | null) => {
+        if (!(element instanceof HTMLElement)) return null
+        const elementBounds = element.getBoundingClientRect()
+        const style = getComputedStyle(element)
+        return {
+          tag: element.tagName.toLowerCase(),
+          name: element.getAttribute('aria-label') ?? element.textContent?.trim() ?? null,
+          className: element.className,
+          rect: {
+            x: elementBounds.x,
+            y: elementBounds.y,
+            width: elementBounds.width,
+            height: elementBounds.height,
+          },
+          containsProbePoint:
+            x >= elementBounds.left &&
+            x <= elementBounds.right &&
+            y >= elementBounds.top &&
+            y <= elementBounds.bottom,
+          position: style.position,
+          zIndex: style.zIndex,
+          pointerEvents: style.pointerEvents,
+        }
+      }
+      const hitButton = document.elementFromPoint(x, y)?.closest('button') ?? null
+      return {
+        hitName: hitButton?.getAttribute('aria-label') ?? hitButton?.textContent?.trim() ?? null,
+        point: { x, y },
+        viewport: { width: innerWidth, height: innerHeight },
+        frame: describe(document.querySelector('.workspace-frame')),
+        topbar: describe(document.querySelector('.workspace-topbar')),
+        surface: describe(document.querySelector('.workspace-frame__surface')),
+        workspace: describe(document.querySelector('.dev-workspace')),
+        devToolbar: describe(document.querySelector('.dev-toolbar')),
+        devActions: describe(document.querySelector('.dev-toolbar__actions')),
+        browserButton: describe(document.querySelector('button[aria-label="Browser / Devices"]')),
+        hitStack: document.elementsFromPoint(x, y).slice(0, 8).map(describe),
+      }
     },
-    { x: bounds!.x + bounds!.width / 2, y: bounds!.y + bounds!.height / 2 }
+    {
+      x: buttonBounds!.x + buttonBounds!.width / 2,
+      y: buttonBounds!.y + buttonBounds!.height / 2,
+    }
   )
-  expect(hitName).toBe(name)
+  expect(hitTest.hitName, JSON.stringify(hitTest)).toBe(name)
 }
 
 async function expectDevToolbarHost(page: Page) {
