@@ -82,10 +82,11 @@ GitHub-API availability check plus a releases-page handoff.
 - The version dialog reports the running version, phase, release notes, and
   the release page, and auto-checks when it opens.
 - A failed update check is shown as a retryable failure, never as an up-to-date
-  result from an older status snapshot. The dialog displays only error messages
-  supplied as an `Error`, a string, or the structured `safe.message` or
-  `error.safe.message` fields; unknown or object-stringified errors use a
-  generic fallback.
+  result from an older status snapshot. Before returning a status across the
+  shell boundary, the updater preserves an `Error` message, a string, or the
+  structured `safe.message` or `error.safe.message` fields. Unknown values and
+  object-stringified errors become `The update failed. Please try again.`; the
+  dialog never renders `[object Object]` as the failure message.
 - `desktop_update_install` requires `approved: true` and an `expectedVersion`
   matching the pending release, so a stale confirmation cannot install a
   different release. Installation downloads and verifies the archive, swaps

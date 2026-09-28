@@ -19,6 +19,30 @@ const DESKTOP_UPDATE_PUBLIC_KEY = 'oNz1xzur8JmPA/fv4m2FI/HWEhju372i/e21aiq0cDs='
 
 const DEFAULT_FEED_URL = 'https://github.com/adea-ai/adea/releases/latest/download/latest.json'
 
+function messageText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const message = value.trim()
+  return message && message !== '[object Object]' ? message : undefined
+}
+
+/** Return only a readable error message that is safe to show in the update dialog. */
+export function updateErrorMessage(error: unknown): string | undefined {
+  try {
+    if (error instanceof Error) return messageText(error.message)
+    const directMessage = messageText(error)
+    if (directMessage) return directMessage
+    if (!error || typeof error !== 'object') return undefined
+
+    const record = error as {
+      safe?: { message?: unknown } | null
+      error?: { safe?: { message?: unknown } | null } | null
+    }
+    return messageText(record.safe?.message) ?? messageText(record.error?.safe?.message)
+  } catch {
+    return undefined
+  }
+}
+
 export type UpdateManifest = Readonly<{
   version: string
   url: string
@@ -276,10 +300,9 @@ function decompressZstd(archivePath: string, tarPath: string): void {
       stderr: 'pipe',
     })
   } catch (cause) {
+    const detail = updateErrorMessage(cause) ?? 'unknown error'
     throw new Error(
-      `the downloaded update archive could not be decompressed (zstd unavailable: ${
-        cause instanceof Error ? cause.message : String(cause)
-      })`,
+      `the downloaded update archive could not be decompressed (zstd unavailable: ${detail})`,
       { cause }
     )
   }
@@ -532,7 +555,7 @@ export function executeUpdateRollback(input: {
     return {
       ok: false,
       reason: 'rollback_failed',
-      message: `could not quarantine the failed artifact: ${error instanceof Error ? error.message : String(error)}`,
+      message: `could not quarantine the failed artifact: ${updateErrorMessage(error) ?? 'unknown error'}`,
       target,
     }
   }
@@ -547,7 +570,7 @@ export function executeUpdateRollback(input: {
     return {
       ok: false,
       reason: 'rollback_failed',
-      message: `could not restore the previous install: ${error instanceof Error ? error.message : String(error)}`,
+      message: `could not restore the previous install: ${updateErrorMessage(error) ?? 'unknown error'}`,
       target,
     }
   }

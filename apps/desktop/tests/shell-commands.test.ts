@@ -9,7 +9,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createCommandSurface } from '../shell/src/commands'
-import { downloadUpdateArchive, extractUpdateArchive } from '../shell/src/updater'
+import {
+  downloadUpdateArchive,
+  extractUpdateArchive,
+  updateErrorMessage,
+} from '../shell/src/updater'
 
 describe('desktop shell command surface', () => {
   test('accepts only the ephemeral Chat presentation hint through the guarded command surface', () => {
@@ -216,6 +220,29 @@ describe('desktop shell command surface', () => {
     }
   })
 
+  test('uses a generic failure message for unreadable update errors', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
+    const original = globalThis.fetch
+    try {
+      globalThis.fetch = (async () => {
+        throw { message: '[object Object]', token: 'must not reach the UI' }
+      }) as typeof fetch
+      const invoke = createCommandSurface(dataDir)
+      const failed = (await invoke('desktop_update_status')) as {
+        ok: true
+        value: Record<string, unknown>
+      }
+      expect(failed.value).toMatchObject({
+        error: 'The update failed. Please try again.',
+        phase: 'failed',
+      })
+      expect(JSON.stringify(failed.value)).not.toContain('must not reach the UI')
+    } finally {
+      globalThis.fetch = original
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
   test('keeps the archive path invisible until the download is complete', async () => {
     // The extractor reads this path as soon as the download returns; a writer
     // that streams straight into it can hand over a partially flushed file,
@@ -258,15 +285,17 @@ describe('desktop shell command surface', () => {
     try {
       const manifest = JSON.parse(readFileSync(join(import.meta.dir, '../package.json'), 'utf8'))
       const bumped = bumpPatch(manifest.version)
-      const garbage = new TextEncoder().encode('not a tar archive')
-      globalThis.fetch = (async (input: RequestInfo | URL) => {
-        if (String(input).includes('/archive')) return new Response(garbage)
+      let fetchCount = 0
+      const transferFailure = 'the update download was rejected safely'
+      globalThis.fetch = (async () => {
+        if (fetchCount++ > 0) throw { safe: { message: transferFailure } }
+        const archive = new TextEncoder().encode('not a tar archive')
         return Response.json({
           version: bumped,
           platform: process.platform,
           arch: process.arch,
           url: `https://github.com/adea-ai/adea/releases/download/v${bumped}/Adea-v${bumped}-macos-arm64.app.tar.zst`,
-          sha256: createHash('sha256').update(garbage).digest('hex'),
+          sha256: createHash('sha256').update(archive).digest('hex'),
           signature: 'c2ln',
           notes: null,
           publishedAt: '2026-09-14T00:00:00Z',
@@ -282,12 +311,27 @@ describe('desktop shell command surface', () => {
         restart: false,
       })) as { ok: true; value: Record<string, unknown> }
       expect(installed.value.phase).toBe('failed')
-      expect(typeof installed.value.error).toBe('string')
-      expect(String(installed.value.error).length).toBeGreaterThan(0)
+      expect(installed.value.error).toBe(transferFailure)
     } finally {
       globalThis.fetch = original
       rmSync(dataDir, { force: true, recursive: true })
     }
+  })
+
+  test('ignores update errors with an unreadable message getter', () => {
+    const error = new Error('placeholder')
+    Object.defineProperty(error, 'message', {
+      configurable: true,
+      get() {
+        throw { safe: { message: 'unreadable error details' } }
+      },
+    })
+
+    let message: string | undefined
+    expect(() => {
+      message = updateErrorMessage(error)
+    }).not.toThrow()
+    expect(message).toBeUndefined()
   })
 
   test('rejects a truncated archive unless it is the extracted bundle', async () => {
