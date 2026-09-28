@@ -230,7 +230,7 @@ export function GlobalWorkspaceRail(props: {
               const Icon = VIEW_ICONS[view] ?? Map
               return (
                 <RailAction
-                  active={props.view === view}
+                  active={!props.libraryActive && props.view === view}
                   icon={Icon}
                   label={VIEW_LABELS[view] ?? view}
                   onClick={() => props.onViewChange(view)}

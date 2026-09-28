@@ -2,13 +2,27 @@ import { expect, test } from '@playwright/test'
 import { type AddressInfo } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
-import { createServer, type ViteDevServer } from 'vite'
+import { createServer, type Plugin, type ViteDevServer } from 'vite'
 import solid from 'vite-plugin-solid'
 
 const fixtureRoot = fileURLToPath(
   new URL('../../../packages/ui/tests/fixtures/version-dialog/', import.meta.url)
 )
 const uiRoot = resolve(fixtureRoot, '../../..')
+const uiSourceAliases: Plugin = {
+  name: 'adea-ui-source-aliases',
+  enforce: 'pre',
+  resolveId(source, importer) {
+    if (!importer?.startsWith(`${uiRoot}/`)) return null
+    if (source.startsWith('#components/')) {
+      return resolve(uiRoot, 'src/components', source.slice('#components/'.length))
+    }
+    if (source.startsWith('#lib/')) {
+      return resolve(uiRoot, 'src/lib', source.slice('#lib/'.length))
+    }
+    return null
+  },
+}
 
 let fixtureServer: ViteDevServer | undefined
 let fixtureUrl = ''
@@ -19,18 +33,8 @@ test.beforeAll(async () => {
     clearScreen: false,
     logLevel: 'error',
     root: fixtureRoot,
-    plugins: [solid()],
+    plugins: [uiSourceAliases, solid()],
     resolve: {
-      alias: [
-        {
-          find: /^#components\//,
-          replacement: `${resolve(uiRoot, 'src/components')}/`,
-        },
-        {
-          find: /^#lib\//,
-          replacement: `${resolve(uiRoot, 'src/lib')}/`,
-        },
-      ],
       dedupe: ['solid-js'],
     },
     server: { host: '127.0.0.1', port: 0, strictPort: true },

@@ -1559,6 +1559,10 @@ test('App Library enables views separately from Plugins and remains reachable wi
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   const library = page.getByRole('main', { name: 'App Library' })
   await expect(library).toBeVisible()
+  const viewGroup = rail.getByRole('group', { name: 'Workspace views' })
+  const selectedRailActions = viewGroup.locator('button[aria-pressed="true"]')
+  await expect(selectedRailActions).toHaveCount(1)
+  await expect(selectedRailActions).toHaveAttribute('aria-label', 'App Library')
   for (const name of ['Virtual', 'Chat', 'Dev']) {
     await library.getByRole('button', { name: `Disable ${name}`, exact: true }).click()
   }
