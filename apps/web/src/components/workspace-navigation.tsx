@@ -642,14 +642,18 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           <Show
             when={view() !== 'dev'}
             fallback={
-              <DevWorkspace
-                fixture={
-                  import.meta.env.DEV && Reflect.get(currentSearch(), 'devE2e') === 'preserved'
-                }
-                runtime={props.services.devRuntime}
-                toolbarMount={toolbarMount()}
-                appMode={activeAppId() === 'source-control' ? 'source-control' : undefined}
-              />
+              <Show when={toolbarMount()} fallback={<WorkspaceEntryLoading />}>
+                {(mount) => (
+                  <DevWorkspace
+                    fixture={
+                      import.meta.env.DEV && Reflect.get(currentSearch(), 'devE2e') === 'preserved'
+                    }
+                    runtime={props.services.devRuntime}
+                    toolbarMount={mount()}
+                    appMode={activeAppId() === 'source-control' ? 'source-control' : undefined}
+                  />
+                )}
+              </Show>
             }
           >
             <Show

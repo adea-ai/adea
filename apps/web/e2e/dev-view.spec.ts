@@ -30,6 +30,20 @@ async function exerciseContextualSidebarToggle(page: Page) {
   await expect(projectsSidebar).toBeVisible()
 }
 
+function devToolbarControl(page: Page, name: string) {
+  return page.locator('.workspace-topbar__view-actions').getByRole('button', { name, exact: true })
+}
+
+async function expectDevToolbarHost(page: Page) {
+  const host = page.locator('.workspace-topbar__view-actions')
+  await expect(host).toBeVisible()
+  await expect(devToolbarControl(page, 'Enter focus mode')).toBeVisible()
+  const fallbackActions = page.locator('.dev-toolbar__actions')
+  for (const name of ['Files / SC', 'Browser / Devices', 'Agents / History', 'Enter focus mode']) {
+    await expect(fallbackActions.getByRole('button', { name, exact: true })).toHaveCount(0)
+  }
+}
+
 for (const width of [320, 768, 1280, 1920]) {
   test(`Dev View shell remains usable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
@@ -41,11 +55,12 @@ for (const width of [320, 768, 1280, 1920]) {
     )
     await expect(page.getByRole('main')).toBeVisible()
     await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible()
+    await expectDevToolbarHost(page)
     await expect(page).toHaveURL(/devE2e=preserved/)
 
     if (width <= 768) {
       await exerciseContextualSidebarToggle(page)
-      const utilitiesToggle = page.getByRole('button', { name: 'Agents / History' })
+      const utilitiesToggle = devToolbarControl(page, 'Agents / History')
       await utilitiesToggle.click()
       await expect(
         page.getByRole('complementary', { name: 'Developer utilities (right)' })
@@ -68,6 +83,7 @@ test('Dev shell stays usable while its central layout loads', async ({ page }) =
   try {
     await page.goto('/?view=dev&devE2e=preserved')
     await expect(page.getByText('Loading workspace panes…', { exact: true })).toBeVisible()
+    await expectDevToolbarHost(page)
     const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
     const originalSidebar = await sidebar.elementHandle()
     const session = page.getByRole('button', { name: 'Other project session' })
@@ -97,6 +113,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved&sentinel=keep')
+  await expectDevToolbarHost(page)
 
   await page.getByRole('button', { name: 'Other project session' }).click()
   await expect(page.getByRole('button', { name: 'Other project session' })).toHaveAttribute(
@@ -131,15 +148,15 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(projectsSidebar).toBeVisible()
   await expect(leftUtilities).toBeVisible()
 
-  await page.getByRole('button', { name: 'Enter focus mode' }).click()
-  const exitFocusMode = page.getByRole('button', { name: 'Exit focus mode' })
+  await devToolbarControl(page, 'Enter focus mode').click()
+  const exitFocusMode = devToolbarControl(page, 'Exit focus mode')
   await expect(exitFocusMode).toHaveAttribute('aria-pressed', 'true')
   await expect(exitFocusMode).toBeFocused()
   await expect(globalNavigation).toBeVisible()
   await expect(projectsSidebar).toBeHidden()
   await expect(leftUtilities).toBeHidden()
   await exitFocusMode.click()
-  const enterFocusMode = page.getByRole('button', { name: 'Enter focus mode' })
+  const enterFocusMode = devToolbarControl(page, 'Enter focus mode')
   await expect(enterFocusMode).toHaveAttribute('aria-pressed', 'false')
   await expect(enterFocusMode).toBeFocused()
   await expect(globalNavigation).toBeVisible()
@@ -147,7 +164,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(leftUtilities).toBeVisible()
 
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
-  await page.getByRole('button', { name: 'Agents / History' }).click()
+  await devToolbarControl(page, 'Agents / History').click()
   await expect(rightUtilities.getByRole('heading', { name: 'Agents' })).toBeVisible()
   await rightUtilities.getByRole('tab', { name: 'Agents' }).focus()
   await page.keyboard.press('ArrowRight')
@@ -156,14 +173,14 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
 
   // Both slots stay independent: collapsing the left side never hides the
   // right side and the reverse holds after reopening.
-  await page.getByRole('button', { name: 'Files / SC' }).click()
+  await devToolbarControl(page, 'Files / SC').click()
   await expect(leftUtilities).toBeHidden()
   await expect(rightUtilities).toBeVisible()
   await expect(rightUtilities.getByRole('tab', { name: 'History' })).toHaveAttribute(
     'aria-selected',
     'true'
   )
-  await page.getByRole('button', { name: 'Files / SC' }).click()
+  await devToolbarControl(page, 'Files / SC').click()
   await expect(leftUtilities).toBeVisible()
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
 
@@ -236,7 +253,7 @@ test('the Dev shell restores the session layout document after a reload', async 
   await page.keyboard.press('ArrowRight')
   await expect(separator).toHaveAttribute('aria-valuenow', '55')
 
-  await page.getByRole('button', { name: 'Agents / History' }).click()
+  await devToolbarControl(page, 'Agents / History').click()
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
   await expect(rightUtilities).toBeVisible()
 
@@ -249,6 +266,7 @@ test('the Dev shell restores the session layout document after a reload', async 
   await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
     timeout: 60_000,
   })
+  await expectDevToolbarHost(page)
   await expect(
     page
       .getByRole('separator', { name: 'Resize workspace panes' })
@@ -269,17 +287,17 @@ test('each utility toggle reveals its pane and the sidebar fills the workspace h
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
 
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
-  await page.getByRole('button', { name: 'Files / SC' }).click()
+  await devToolbarControl(page, 'Files / SC').click()
   await expect(leftUtilities).toBeHidden()
-  await page.getByRole('button', { name: 'Files / SC' }).click()
+  await devToolbarControl(page, 'Files / SC').click()
   await expect(leftUtilities.getByRole('tab', { name: 'Source control' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Browser / Devices' }).click()
+  await devToolbarControl(page, 'Browser / Devices').click()
   await expect(rightUtilities).toBeVisible()
   await expect(rightUtilities.getByRole('tab', { name: 'Browser' })).toBeVisible()
   await expect(rightUtilities.getByRole('tab', { name: 'Devices' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Agents / History' }).click()
+  await devToolbarControl(page, 'Agents / History').click()
   await expect(rightUtilities.getByRole('heading', { name: 'Agents' })).toBeVisible()
 
   // The contextual sidebar is a sibling of the center panes and owns the full
@@ -306,6 +324,7 @@ async function openDevView(page: import('@playwright/test').Page, url: string) {
   await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
     timeout: 60_000,
   })
+  await expectDevToolbarHost(page)
 }
 
 test('a deep link with a missing session recovers visibly and the URL converges', async ({
@@ -423,7 +442,7 @@ test('the Dev shell stays keyboard-operable at 200% zoom with reduced motion', a
   // Keyboard-only path: the skip link is focusable and utility tab arrows land.
   await page.getByRole('link', { name: 'Skip to workspace' }).focus()
   await expect(page.getByRole('link', { name: 'Skip to workspace' })).toBeFocused()
-  await page.getByRole('button', { name: 'Agents / History' }).click()
+  await devToolbarControl(page, 'Agents / History').click()
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
   await expect(rightUtilities.getByRole('heading', { name: 'Agents' })).toBeVisible()
   await rightUtilities.getByRole('tab', { name: 'Agents' }).focus()
@@ -451,6 +470,7 @@ test('Dev surfaces expose an aria snapshot and run under an eval-blocking CSP', 
   await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
     timeout: 60_000,
   })
+  await expectDevToolbarHost(page)
 
   const snapshot = await page.locator('main').ariaSnapshot()
   expect(snapshot).toContain('Skip to workspace')
@@ -459,7 +479,7 @@ test('Dev surfaces expose an aria snapshot and run under an eval-blocking CSP', 
 
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.getByRole('button', { name: 'Files / SC' }).click()
-  await page.getByRole('button', { name: 'Files / SC' }).click()
+  await devToolbarControl(page, 'Files / SC').click()
+  await devToolbarControl(page, 'Files / SC').click()
   expect(errors).toEqual([])
 })
