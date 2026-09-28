@@ -11,6 +11,7 @@ import {
   resolveUpdateAssetUrl,
   stageUpdateSwap,
   updateFeedUrl,
+  updateErrorMessage,
   verifySlimSignature,
   verifyUpdateSignature,
   type UpdateManifest,
@@ -97,7 +98,7 @@ export function createUpdateManager(input: {
     return snapshot({
       phase: 'failed',
       available_version: null,
-      error: error instanceof Error ? error.message : String(error),
+      error: updateErrorMessage(error) ?? 'The update failed. Please try again.',
       downloaded_bytes: 0,
       total_bytes: null,
     })

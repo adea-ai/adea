@@ -9,7 +9,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createCommandSurface } from '../shell/src/commands'
-import { downloadUpdateArchive, extractUpdateArchive } from '../shell/src/updater'
+import {
+  downloadUpdateArchive,
+  extractUpdateArchive,
+  updateErrorMessage,
+} from '../shell/src/updater'
 
 describe('desktop shell command surface', () => {
   test('accepts only the ephemeral Chat presentation hint through the guarded command surface', () => {
@@ -258,15 +262,17 @@ describe('desktop shell command surface', () => {
     try {
       const manifest = JSON.parse(readFileSync(join(import.meta.dir, '../package.json'), 'utf8'))
       const bumped = bumpPatch(manifest.version)
-      const garbage = new TextEncoder().encode('not a tar archive')
-      globalThis.fetch = (async (input: RequestInfo | URL) => {
-        if (String(input).includes('/archive')) return new Response(garbage)
+      let fetchCount = 0
+      const transferFailure = 'the update download was rejected safely'
+      globalThis.fetch = (async () => {
+        if (fetchCount++ > 0) throw { safe: { message: transferFailure } }
+        const archive = new TextEncoder().encode('not a tar archive')
         return Response.json({
           version: bumped,
           platform: process.platform,
           arch: process.arch,
           url: `https://github.com/adea-ai/adea/releases/download/v${bumped}/Adea-v${bumped}-macos-arm64.app.tar.zst`,
-          sha256: createHash('sha256').update(garbage).digest('hex'),
+          sha256: createHash('sha256').update(archive).digest('hex'),
           signature: 'c2ln',
           notes: null,
           publishedAt: '2026-09-14T00:00:00Z',
@@ -282,12 +288,27 @@ describe('desktop shell command surface', () => {
         restart: false,
       })) as { ok: true; value: Record<string, unknown> }
       expect(installed.value.phase).toBe('failed')
-      expect(typeof installed.value.error).toBe('string')
-      expect(String(installed.value.error).length).toBeGreaterThan(0)
+      expect(installed.value.error).toBe(transferFailure)
     } finally {
       globalThis.fetch = original
       rmSync(dataDir, { force: true, recursive: true })
     }
+  })
+
+  test('ignores update errors with an unreadable message getter', () => {
+    const error = new Error('placeholder')
+    Object.defineProperty(error, 'message', {
+      configurable: true,
+      get() {
+        throw { safe: { message: 'unreadable error details' } }
+      },
+    })
+
+    let message: string | undefined
+    expect(() => {
+      message = updateErrorMessage(error)
+    }).not.toThrow()
+    expect(message).toBeUndefined()
   })
 
   test('rejects a truncated archive unless it is the extracted bundle', async () => {
