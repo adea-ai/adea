@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.1](https://github.com/adea-ai/adea/compare/v0.65.0...v0.65.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **deps:** consume @adea-ai/ui 0.73.0 (cn class merger) ([#796](https://github.com/adea-ai/adea/issues/796)) ([239d4d9](https://github.com/adea-ai/adea/commit/239d4d9c7a45953db32eb016dc1fdaf74a30c6aa))
+
 ## [0.65.0](https://github.com/adea-ai/adea/compare/v0.64.3...v0.65.0) (2026-09-28)
 
 
