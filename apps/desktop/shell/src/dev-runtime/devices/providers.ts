@@ -7,6 +7,7 @@
 import type {
   DevCommand,
   DevErrorCode,
+  DeviceCapabilityReport,
   DevStreamGrant,
 } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelIdentity } from '../channel/authority'
@@ -37,6 +38,8 @@ export type DeviceProvidersInput = Readonly<{
     ios?: VerifiedInventory
     android?: VerifiedInventory
   }>
+  /** Last host-verified toolchain report, without command output or paths. */
+  platformCapabilities: () => DeviceCapabilityReport | Promise<DeviceCapabilityReport>
   /** iOS input requires a helper that simctl does not provide. */
   iosInputHint: string
   /** Executes launches, shutdowns, captures, and gestures on real devices. */
@@ -100,6 +103,7 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
   const providers: Partial<
     Record<string, (command: DevCommand, identity?: ChannelIdentity) => unknown | Promise<unknown>>
   > = {
+    'dev.device.capabilities': async () => input.platformCapabilities(),
     'dev.device.list': (command) => {
       const verified = verifiedInventory()
       const items = [

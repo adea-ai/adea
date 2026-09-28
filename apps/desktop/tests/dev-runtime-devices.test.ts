@@ -8,6 +8,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   ADB_DEVICES_ARGV,
+  buildDeviceCapabilityReport,
   adbEmuKillArgv,
   androidGestureArgv,
   emulatorBootArgv,
@@ -36,6 +37,87 @@ const scope = {
 const sessionId = '00000000-0000-4000-8000-0000000000b1'
 
 describe('inventory parsing', () => {
+  test('reports available toolchains when commands succeed with empty inventories', () => {
+    expect(
+      buildDeviceCapabilityReport(
+        {
+          ios: { status: 'ok', stdout: '{"devices":{}}' },
+          androidAdb: { status: 'ok', stdout: 'List of devices attached\n' },
+          androidEmulator: { status: 'ok', stdout: 'no avds found' },
+        },
+        '2026-09-28T12:00:00.000Z'
+      )
+    ).toEqual({
+      items: [
+        { platform: 'ios', state: 'available', observedAt: '2026-09-28T12:00:00.000Z' },
+        { platform: 'android', state: 'available', observedAt: '2026-09-28T12:00:00.000Z' },
+      ],
+      observedAt: '2026-09-28T12:00:00.000Z',
+    })
+  })
+
+  test('distinguishes missing, failed, and malformed tool probes without exposing output', () => {
+    expect(
+      buildDeviceCapabilityReport(
+        {
+          ios: { status: 'missing', stdout: '' },
+          androidAdb: { status: 'failed', stdout: 'private stderr is not included' },
+          androidEmulator: { status: 'ok', stdout: '' },
+        },
+        '2026-09-28T12:00:00.000Z'
+      )
+    ).toEqual({
+      items: [
+        {
+          platform: 'ios',
+          state: 'unavailable',
+          missingPiece: 'xcrun_simctl',
+          observedAt: '2026-09-28T12:00:00.000Z',
+        },
+        {
+          platform: 'android',
+          state: 'unavailable',
+          missingPiece: 'adb',
+          observedAt: '2026-09-28T12:00:00.000Z',
+        },
+      ],
+      observedAt: '2026-09-28T12:00:00.000Z',
+    })
+    expect(
+      buildDeviceCapabilityReport(
+        {
+          ios: { status: 'ok', stdout: 'not json' },
+          androidAdb: { status: 'ok', stdout: '' },
+          androidEmulator: { status: 'ok', stdout: '' },
+        },
+        '2026-09-28T12:00:00.000Z'
+      ).items[0]
+    ).toMatchObject({
+      state: 'unavailable',
+      missingPiece: 'xcrun_simctl',
+    })
+    expect(
+      buildDeviceCapabilityReport(
+        {
+          ios: { status: 'ok', stdout: '{"devices":{}}' },
+          androidAdb: { status: 'ok', stdout: 'List of devices attached\nERROR: daemon failed' },
+          androidEmulator: { status: 'ok', stdout: '' },
+        },
+        '2026-09-28T12:00:00.000Z'
+      ).items[1]
+    ).toMatchObject({ state: 'unavailable', missingPiece: 'adb' })
+    expect(
+      buildDeviceCapabilityReport(
+        {
+          ios: { status: 'ok', stdout: '{"devices":{}}' },
+          androidAdb: { status: 'ok', stdout: 'List of devices attached\n' },
+          androidEmulator: { status: 'ok', stdout: '/tmp/not-an-avd' },
+        },
+        '2026-09-28T12:00:00.000Z'
+      ).items[1]
+    ).toMatchObject({ state: 'unavailable', missingPiece: 'android_emulator' })
+  })
+
   test('parses simctl devices JSON with runtime promotion (orca fixture)', () => {
     const stdout = JSON.stringify({
       devices: {
@@ -62,6 +144,23 @@ describe('inventory parsing', () => {
     expect(parseSimctlDevicesJson('not json')).toEqual([])
   })
 
+  test('rejects malformed simulator rows as an unavailable iOS toolchain', () => {
+    const observedAt = '2026-09-28T12:00:00.000Z'
+    const probes = {
+      ios: { status: 'ok' as const, stdout: '{"devices":{"runtime":[{}]}}' },
+      androidAdb: { status: 'ok' as const, stdout: 'List of devices attached\n' },
+      androidEmulator: { status: 'ok' as const, stdout: 'no avds found' },
+    }
+
+    expect(parseSimctlDevicesJson(probes.ios.stdout)).toEqual([])
+    expect(buildDeviceCapabilityReport(probes, observedAt).items[0]).toEqual({
+      platform: 'ios',
+      state: 'unavailable',
+      missingPiece: 'xcrun_simctl',
+      observedAt,
+    })
+  })
+
   test('parses adb devices including the two-word no-permissions state', () => {
     const stdout = [
       'List of devices attached',
@@ -77,6 +176,7 @@ describe('inventory parsing', () => {
     expect(devices[1]).toMatchObject({ serial: 'ABC123', isEmulator: false, model: 'Pixel_8' })
     expect(devices[2]).toMatchObject({ serial: 'emulator-5556', state: 'offline' })
     expect(devices[3]).toMatchObject({ serial: 'XYZ789', state: 'no permissions' })
+    expect(parseAdbDevices('List of devices attached\nERROR: daemon unavailable')).toEqual([])
   })
 
   test('parses AVD lists and drops log-prefix lines (orca fixture)', () => {
@@ -92,6 +192,8 @@ describe('inventory parsing', () => {
         ].join('\n')
       )
     ).toEqual(['Pixel_7', 'responsive', 'Pixel_Tablet'])
+    expect(parseAvdList('no avds found')).toEqual([])
+    expect(parseAvdList('/tmp/not-an-avd')).toEqual([])
   })
 
   test('merges running devices with shutdown AVDs (orca fixture)', () => {

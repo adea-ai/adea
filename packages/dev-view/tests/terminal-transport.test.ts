@@ -155,6 +155,14 @@ function data(sequence: string, text: string): DevStreamFrame {
   return { type: 'data', sequence, bytes: new TextEncoder().encode(text) }
 }
 
+async function waitFor(condition: () => boolean, description: string): Promise<void> {
+  const deadline = Date.now() + 1_000
+  while (!condition()) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${description}`)
+    await Bun.sleep(1)
+  }
+}
+
 describe('terminal transport', () => {
   test('uses the first authenticated open generation for queued input and resize', async () => {
     const harness = makeHarness()
@@ -247,17 +255,20 @@ describe('terminal transport', () => {
   test('a new authenticated generation resets the output cursor before accepting data', async () => {
     const harness = makeHarness({}, { generations: [3, 4], sequences: ['0', '0'] })
     harness.transport.start('0')
-    await Bun.sleep(5)
+    await waitFor(() => harness.transport.snapshot().state === 'open', 'initial stream open')
     harness.sockets[0]!.deliver(data('0', 'generation three'))
-    await Bun.sleep(5)
+    await waitFor(() => harness.output.length === 1, 'first generation output')
     harness.sockets[0]!.close(1006, 'network flap')
-    await Bun.sleep(40)
+    await waitFor(
+      () => harness.contexts.length === 2 && harness.transport.snapshot().state === 'open',
+      'reconnected stream open'
+    )
 
     expect(harness.contexts[1]).toEqual({ fromSequence: '1', generation: 3 })
     expect(harness.transport.snapshot().state).toBe('open')
     expect(harness.transport.snapshot().nextOutputSeq).toBe('0')
     harness.sockets[1]!.deliver(data('0', 'generation four'))
-    await Bun.sleep(5)
+    await waitFor(() => harness.output.length === 2, 'new generation output')
     expect(harness.output.map((entry) => entry.text)).toEqual([
       'generation three',
       'generation four',
@@ -507,15 +518,14 @@ describe('terminal transport', () => {
   test('delivers replay and live output exactly once in order', async () => {
     const harness = makeHarness()
     harness.transport.start('0')
-    await Bun.sleep(5)
     harness.server!.deliver(data('0', 'one '))
     harness.server!.deliver(data('1', 'two'))
-    await Bun.sleep(10)
+    await waitFor(() => harness.output.length === 2, 'replayed output')
     expect(harness.output.map((entry) => entry.text)).toEqual(['one ', 'two'])
     // A duplicate replay is dropped, never rendered twice.
     harness.server!.deliver(data('1', 'two'))
     harness.server!.deliver(data('2', ' three'))
-    await Bun.sleep(10)
+    await waitFor(() => harness.output.length === 3, 'live output')
     expect(harness.output.map((entry) => entry.text)).toEqual(['one ', 'two', ' three'])
     // Every data chunk acknowledges credit back to the server.
     const acks = harness.server!.frames.filter((frame) => frame.type === 'ack')

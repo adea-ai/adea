@@ -7,6 +7,140 @@
 // actionable unavailable state — never a silent empty list.
 
 import type { DeviceGesture } from '../../../../../../packages/types/src/dev-runtime'
+import type {
+  DeviceCapabilityReport,
+  DevicePlatformCapability,
+} from '../../../../../../packages/types/src/dev-runtime'
+
+export type DeviceToolProbe = Readonly<{
+  status: 'ok' | 'missing' | 'failed'
+  stdout: string
+}>
+
+export type DeviceToolProbeSet = Readonly<{
+  ios: DeviceToolProbe
+  androidAdb: DeviceToolProbe
+  androidEmulator: DeviceToolProbe
+}>
+
+function validSimctlResponse(stdout: string): boolean {
+  try {
+    const value = JSON.parse(stdout) as { devices?: unknown } | null
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      value.devices !== null &&
+      typeof value.devices === 'object' &&
+      !Array.isArray(value.devices) &&
+      Object.values(value.devices).every(
+        (devices) =>
+          Array.isArray(devices) &&
+          devices.every(
+            (device) =>
+              device !== null &&
+              typeof device === 'object' &&
+              !Array.isArray(device) &&
+              typeof (device as { udid?: unknown }).udid === 'string' &&
+              (device as { udid: string }).udid.trim().length > 0
+          )
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
+function validAdbResponse(stdout: string): boolean {
+  const states = new Set([
+    'device',
+    'offline',
+    'unauthorized',
+    'bootloader',
+    'recovery',
+    'sideload',
+    'host',
+  ])
+  const lines = stdout.split(/\r?\n/)
+  const headerIndex = lines.findIndex((line) => line.trim().length > 0)
+  if (headerIndex < 0 || lines[headerIndex]?.trim() !== 'List of devices attached') return false
+  return lines.slice(headerIndex + 1).every((rawLine) => {
+    const line = rawLine.trim()
+    if (!line) return true
+    const tokens = line.split(/\s+/)
+    const serial = tokens[0]
+    if (!serial || !/^[A-Za-z0-9._:-]+$/.test(serial)) return false
+    if (tokens[1] === 'no' && tokens[2] === 'permissions')
+      return /^\S+\s+no permissions(?:\s+\([^)]*\);?)?(?:\s+[A-Za-z][A-Za-z0-9_-]*:\S+)*$/.test(
+        line
+      )
+    if (!states.has(tokens[1] ?? '')) return false
+    return tokens.slice(2).every((token) => /^[A-Za-z][A-Za-z0-9_-]*:.+$/.test(token))
+  })
+}
+
+function validAvdResponse(stdout: string): boolean {
+  const logPrefix = /^(INFO|WARNING|ERROR|DEBUG|VERBOSE|PANIC)\s+.+$/
+  return stdout.split(/\r?\n/).every((rawLine) => {
+    const line = rawLine.trim()
+    return (
+      line.length === 0 ||
+      isNoAvdsMessage(line) ||
+      logPrefix.test(line) ||
+      /^[A-Za-z0-9_.-]+$/.test(line)
+    )
+  })
+}
+
+function isNoAvdsMessage(line: string): boolean {
+  return /^No AVD(?:s)?(?: found| specified)?\.?$/i.test(line)
+}
+
+function unavailableCapability(
+  platform: DevicePlatformCapability['platform'],
+  observedAt: string,
+  missingPiece: NonNullable<DevicePlatformCapability['missingPiece']>
+): DevicePlatformCapability {
+  return { platform, state: 'unavailable', missingPiece, observedAt }
+}
+
+function commandFailure(
+  platform: DevicePlatformCapability['platform'],
+  probe: DeviceToolProbe,
+  missingPiece: NonNullable<DevicePlatformCapability['missingPiece']>,
+  observedAt: string
+): DevicePlatformCapability | undefined {
+  if (probe.status === 'ok') return undefined
+  return unavailableCapability(platform, observedAt, missingPiece)
+}
+
+/** Builds a redacted platform report; successful empty inventories mean available. */
+export function buildDeviceCapabilityReport(
+  probes: DeviceToolProbeSet,
+  observedAt: string
+): DeviceCapabilityReport {
+  const iosFailure = commandFailure('ios', probes.ios, 'xcrun_simctl', observedAt)
+  const androidAdbFailure = commandFailure('android', probes.androidAdb, 'adb', observedAt)
+  const androidEmulatorFailure = commandFailure(
+    'android',
+    probes.androidEmulator,
+    'android_emulator',
+    observedAt
+  )
+  const ios =
+    iosFailure ??
+    (validSimctlResponse(probes.ios.stdout)
+      ? { platform: 'ios' as const, state: 'available' as const, observedAt }
+      : unavailableCapability('ios', observedAt, 'xcrun_simctl'))
+  const android =
+    androidAdbFailure ??
+    androidEmulatorFailure ??
+    (!validAdbResponse(probes.androidAdb.stdout)
+      ? unavailableCapability('android', observedAt, 'adb')
+      : !validAvdResponse(probes.androidEmulator.stdout)
+        ? unavailableCapability('android', observedAt, 'android_emulator')
+        : { platform: 'android' as const, state: 'available' as const, observedAt })
+  return { items: [ios, android], observedAt }
+}
 
 export class DeviceSessionError extends Error {
   readonly code: string
@@ -90,6 +224,7 @@ export type AdbDevice = Readonly<{
  * them; only `device` counts as running. (Orca adb-devices parse.)
  */
 export function parseAdbDevices(stdout: string): readonly AdbDevice[] {
+  if (!validAdbResponse(stdout)) return []
   const devices: AdbDevice[] = []
   for (const rawLine of stdout.split(/\r?\n/)) {
     const line = rawLine.trim()
@@ -124,11 +259,12 @@ export function parseAdbDevices(stdout: string): readonly AdbDevice[] {
 
 /** Parses `emulator -list-avds`, dropping blanks and adb log-prefix lines. */
 export function parseAvdList(stdout: string): readonly string[] {
-  const logPrefix = /^(INFO|WARNING|ERROR|DEBUG|VERBOSE|PANIC)\s /
+  const logPrefix = /^(INFO|WARNING|ERROR|DEBUG|VERBOSE|PANIC)\s+/
+  if (!validAvdResponse(stdout)) return []
   return stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith('No AVD') && !logPrefix.test(line))
+    .filter((line) => line.length > 0 && !isNoAvdsMessage(line) && !logPrefix.test(line))
 }
 
 export type MergedAndroidDevice = Readonly<{

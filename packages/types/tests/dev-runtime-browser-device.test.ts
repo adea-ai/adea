@@ -291,6 +291,61 @@ describe('device session commands', () => {
       items: [{ kind: 'ios_simulator' }],
     })
   })
+
+  test('decodes device platform capability reports and rejects contradictory rows', () => {
+    const report = {
+      items: [
+        {
+          platform: 'ios',
+          state: 'unavailable',
+          missingPiece: 'xcrun_simctl',
+          observedAt: now,
+        },
+        { platform: 'android', state: 'available', observedAt: now },
+      ],
+      observedAt: now,
+    }
+    expect(
+      (decodeDevReply(reply('dev.device.capabilities', report)) as { value: unknown }).value
+    ).toEqual(report)
+
+    expect(() =>
+      decodeDevReply(
+        reply('dev.device.capabilities', {
+          ...report,
+          items: [report.items[0], { ...report.items[1], unexpected: true }],
+        })
+      )
+    ).toThrow('unexpected')
+
+    const invalidReports = [
+      {
+        ...report,
+        items: [{ ...report.items[0], missingPiece: 'adb' }, report.items[1]],
+      },
+      {
+        ...report,
+        items: [{ ...report.items[0], state: 'available' }, report.items[1]],
+      },
+      {
+        ...report,
+        items: [
+          { platform: 'ios', state: 'available', observedAt: now },
+          {
+            platform: 'android',
+            state: 'unavailable',
+            missingPiece: 'xcrun_simctl',
+            observedAt: now,
+          },
+        ],
+      },
+    ]
+    for (const invalidReport of invalidReports) {
+      expect(() => decodeDevReply(reply('dev.device.capabilities', invalidReport))).toThrow(
+        'missingPiece'
+      )
+    }
+  })
 })
 
 describe('browser lane replies', () => {

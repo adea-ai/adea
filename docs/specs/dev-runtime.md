@@ -1014,6 +1014,16 @@ type DeviceInventoryItem = {
   generation: number
   observedAt: string
 }
+type DevicePlatformCapability = {
+  platform: 'ios' | 'android'
+  state: 'available' | 'unavailable'
+  missingPiece?: 'xcrun_simctl' | 'adb' | 'android_emulator'
+  observedAt: string
+}
+type DeviceCapabilityReport = {
+  items: DevicePlatformCapability[] // exactly one row for each platform
+  observedAt: string
+}
 
 type GitHubAccount = {
   id: string
@@ -1664,6 +1674,16 @@ discovering → available → starting → attached ↔ suspended → stopping �
 A physical device additionally requires paired/authorized state. Adea may stop
 only simulator/emulator processes it launched and still owns.
 
+`dev.device.capabilities` is a read-only, host-probed report with one row each
+for iOS and Android. The iOS probe uses the fixed `xcrun simctl list devices
+-j` command. Android requires successful `adb devices -l` and `emulator
+-list-avds` probes; a successful probe with no devices or AVDs means the
+toolchain is available with an empty inventory. A missing executable, nonzero
+exit, or malformed inventory response is `unavailable` and identifies the
+fixed `missingPiece` where known. The report never includes command output,
+stderr, or host paths. Device inventory MUST only be built from successful,
+validated probes, so a missing tool cannot masquerade as an empty inventory.
+
 ### Cleanup job
 
 Every transition is journaled before its side effect:
@@ -1717,7 +1737,7 @@ type DevOperation =
   | `dev.git.${'status' | 'history' | 'diff' | 'stage' | 'unstage' | 'discardPlan' | 'discardCommit' | 'commit' | 'fetch' | 'checkpoint' | 'restorePlan' | 'restoreCommit'}`
   | `dev.browser.${'laneCreate' | 'laneClose' | 'lanes' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'input' | 'cookieImportPlan' | 'cookieImportCommit' | 'cookieSources' | 'profileReset' | 'profilePolicies'}`
   | `dev.computeruse.${'capabilities' | 'lanes' | 'laneCreate' | 'laneClose' | 'consent' | 'attach' | 'input' | 'takeover' | 'release'}`
-  | `dev.device.${'list' | 'sessions' | 'start' | 'attach' | 'input' | 'screenshot' | 'stop'}`
+  | `dev.device.${'capabilities' | 'list' | 'sessions' | 'start' | 'attach' | 'input' | 'screenshot' | 'stop'}`
   | `dev.github.${'account' | 'repository' | 'issues' | 'milestones' | 'pullRequest' | 'pullRequests' | 'checks' | 'pushPlan' | 'pushCommit' | 'createPullRequest' | 'updatePlan' | 'updateCommit' | 'mergePlan' | 'mergeCommit'}`
   | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData'}`
   | `dev.cleanupPolicy.${'list' | 'createDraft' | 'approve' | 'disable' | 'evaluate'}`
@@ -2105,7 +2125,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                                  |
 | `dev.browser`       | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `cookieSources`, `profileReset`, `profilePolicies` |
 | `dev.computeruse`   | `capabilities`, `lanes`, `laneCreate`, `laneClose`, `consent`, `attach`, `input`, `takeover`, `release`                                                                                                                                                           |
-| `dev.device`        | `list`, `sessions`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                                                              |
+| `dev.device`        | `capabilities`, `list`, `sessions`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                                              |
 | `dev.github`        | `account`, `repository`, `issues`, `milestones`, `pullRequest`, `pullRequests`, `checks`, `pushPlan`, `pushCommit`, `createPullRequest`, `updatePlan`, `updateCommit`, `mergePlan`, `mergeCommit`                                                                 |
 | `dev.resources`     | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`                                                                                                                                                                    |
 | `dev.cleanupPolicy` | `list`, `createDraft`, `approve`, `disable`, `evaluate`                                                                                                                                                                                                           |

@@ -1,6 +1,7 @@
 import { render } from 'solid-js/web'
 
 import { BrowserPane } from '../../../../packages/dev-view/src/browser/browser-pane'
+import { DevicesPane } from '../../../../packages/dev-view/src/devices/devices-pane'
 import type { DevRuntimeService } from '../../../../packages/dev-view/src/platform'
 import type {
   BrowserLane,
@@ -30,17 +31,36 @@ let lane: BrowserLane = {
   automationOwner: 'human_takeover',
   generation: 7,
 }
+const alternateLane: BrowserLane = {
+  ...lane,
+  id: 'browser-pane-fixture-lane-2',
+  profileId: 'browser-pane-fixture-profile-2',
+  generation: 9,
+}
 const previewUrl = 'http://localhost:5173/nested/page?mode=preview#details'
 let currentUrl = 'http://localhost:5173/initial'
 const commands: DevCommand[] = []
 let screenshotSequence = 0
 let nextDeferredScreenshotId: number | undefined
 let nextScreenshotError: DevError | undefined
+let deferredInventory: { command: DevCommand; resolve(reply: DevReply): void } | undefined
+let deferNextLaneList = false
+let deferredLaneList: { command: DevCommand; resolve(reply: DevReply): void } | undefined
+let nextLaneControlError: DevError | undefined
 const deferredScreenshots = new Map<
   number,
   { command: DevCommand; resolve(reply: DevReply): void }
 >()
 let nextDeferredScreenshotSequence = 0
+let nextDeferredViewportSequence = 0
+const deferredViewports = new Map<number, { command: DevCommand; resolve(reply: DevReply): void }>()
+const queuedViewportIds: number[] = []
+
+function browserLanes(): readonly BrowserLane[] {
+  return new URLSearchParams(window.location.search).get('lanes') === 'multiple'
+    ? [lane, alternateLane]
+    : [lane]
+}
 
 const port: PortRecord = {
   id: 'browser-pane-fixture-port',
@@ -118,6 +138,38 @@ const deferredControls = {
   failNextScreenshot(error: DevError): void {
     nextScreenshotError = error
   },
+  deferLaneListRefresh(): void {
+    deferNextLaneList = true
+  },
+  resolvePendingLaneList(): void {
+    if (!deferredLaneList) throw new Error('lane list refresh is not pending')
+    const { command, resolve } = deferredLaneList
+    deferredLaneList = undefined
+    resolve(reply(command, { items: browserLanes() }))
+  },
+  failNextLaneControl(error: DevError): void {
+    nextLaneControlError = error
+  },
+  deferNextViewport(): number {
+    nextDeferredViewportSequence += 1
+    queuedViewportIds.push(nextDeferredViewportSequence)
+    return nextDeferredViewportSequence
+  },
+  resolveViewport(requestId: number): void {
+    const pending = deferredViewports.get(requestId)
+    if (!pending) throw new Error(`deferred viewport ${requestId} is not pending`)
+    deferredViewports.delete(requestId)
+    pending.resolve(reply(pending.command, {}))
+  },
+  rejectViewport(requestId: number, error: DevError): void {
+    const pending = deferredViewports.get(requestId)
+    if (!pending) throw new Error(`deferred viewport ${requestId} is not pending`)
+    deferredViewports.delete(requestId)
+    pending.resolve(errorReply(pending.command, error))
+  },
+  advanceLaneGeneration(): void {
+    lane = { ...lane, generation: lane.generation + 1 }
+  },
 }
 
 const runtime = {
@@ -127,8 +179,22 @@ const runtime = {
     commands.push(command)
     switch (command.operation) {
       case 'dev.browser.lanes':
-        return reply(command, { items: [lane] })
+        if (deferNextLaneList) {
+          deferNextLaneList = false
+          return await new Promise<DevReply>((resolve) => {
+            deferredLaneList = { command, resolve }
+          })
+        }
+        return reply(command, { items: browserLanes() })
       case 'dev.browser.targets': {
+        const worker: BrowserTarget = {
+          id: 'browser-pane-fixture-worker',
+          browserLaneId: lane.id,
+          type: 'worker',
+          url: 'https://worker.example.invalid',
+          title: 'Browser pane service worker',
+          generation: lane.generation,
+        }
         const target: BrowserTarget = {
           id: 'browser-pane-fixture-target',
           browserLaneId: lane.id,
@@ -137,10 +203,55 @@ const runtime = {
           title: 'Browser pane fixture',
           generation: lane.generation,
         }
-        return reply(command, { items: [target] })
+        return reply(command, { items: [worker, target] })
       }
       case 'dev.resources.ports':
         return reply(command, { items: [port] })
+      case 'dev.device.list':
+        if (new URLSearchParams(window.location.search).get('inventory') === 'failed') {
+          return errorReply(command, {
+            code: 'unavailable',
+            message: 'fixture inventory read failed',
+            retryable: true,
+          })
+        }
+        if (new URLSearchParams(window.location.search).get('inventory') === 'pending') {
+          return await new Promise<DevReply>((resolve) => {
+            deferredInventory = { command, resolve }
+          })
+        }
+        return reply(command, {
+          items: [
+            {
+              id: 'adea:responsive',
+              kind: 'responsive',
+              name: 'Responsive viewport',
+              platform: 'responsive',
+              state: 'available',
+              generation: 1,
+              observedAt: new Date(0).toISOString(),
+            },
+          ],
+        })
+      case 'dev.device.sessions':
+        return reply(command, { items: [] })
+      case 'dev.device.capabilities': {
+        const available =
+          new URLSearchParams(window.location.search).get('capabilities') === 'available'
+        const observedAt = new Date(0).toISOString()
+        return reply(command, {
+          items: [
+            {
+              platform: 'ios',
+              state: available ? 'available' : 'unavailable',
+              ...(!available ? { missingPiece: 'xcrun_simctl' } : {}),
+              observedAt,
+            },
+            { platform: 'android', state: 'available', observedAt },
+          ],
+          observedAt,
+        })
+      }
       case 'dev.browser.diagnostics':
         return reply(command, { items: [] })
       case 'dev.browser.navigate': {
@@ -177,8 +288,22 @@ const runtime = {
         }
         return reply(command, screenshotRef())
       }
+      case 'dev.browser.viewport': {
+        const requestId = queuedViewportIds.shift()
+        if (requestId !== undefined) {
+          return await new Promise<DevReply>((resolve) => {
+            deferredViewports.set(requestId, { command, resolve })
+          })
+        }
+        return reply(command, {})
+      }
       case 'dev.browser.takeover':
       case 'dev.browser.release': {
+        if (nextLaneControlError) {
+          const error = nextLaneControlError
+          nextLaneControlError = undefined
+          return errorReply(command, error)
+        }
         lane = {
           ...lane,
           automationOwner: command.operation === 'dev.browser.release' ? 'agent' : 'human_takeover',
@@ -204,6 +329,26 @@ const harness = {
       })),
     }
   },
+  resolvePendingInventory(): void {
+    if (!deferredInventory) throw new Error('device inventory request is not pending')
+    const { command, resolve } = deferredInventory
+    deferredInventory = undefined
+    resolve(
+      reply(command, {
+        items: [
+          {
+            id: 'adea:responsive',
+            kind: 'responsive',
+            name: 'Responsive viewport',
+            platform: 'responsive',
+            state: 'available',
+            generation: 1,
+            observedAt: new Date(0).toISOString(),
+          },
+        ],
+      })
+    )
+  },
   ...deferredControls,
   unmount(): void {
     dispose?.()
@@ -221,7 +366,12 @@ const root = document.getElementById('harness-root')
 if (!root) throw new Error('browser pane harness root missing')
 
 dispose = render(
-  () => <BrowserPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />,
+  () =>
+    new URLSearchParams(window.location.search).get('pane') === 'devices' ? (
+      <DevicesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+    ) : (
+      <BrowserPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+    ),
   root
 )
 window.browserPaneHarness = harness

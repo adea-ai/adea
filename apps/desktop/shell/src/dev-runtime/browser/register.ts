@@ -17,12 +17,22 @@
 // live-target operations return typed `capability_unavailable`. The device
 // engine defaults to the real host implementation — its absence is a genuine
 // toolchain absence, not omitted wiring.
-import type { DevCommand, DevOperation } from '../../../../../../packages/types/src/dev-runtime'
+import type {
+  DevCommand,
+  DevOperation,
+  DeviceCapabilityReport,
+} from '../../../../../../packages/types/src/dev-runtime'
 import { homedir } from 'node:os'
 
 import { createDeviceSessionRegistry, type VerifiedInventory } from '../devices/device-sessions'
 import { createBunDeviceRunner, createHostDeviceEngine, type DeviceEngine } from '../devices/engine'
-import { parseAdbDevices, parseAvdList, parseSimctlDevicesJson } from '../devices/inventory'
+import {
+  buildDeviceCapabilityReport,
+  parseAdbDevices,
+  parseAvdList,
+  parseSimctlDevicesJson,
+  type DeviceToolProbe,
+} from '../devices/inventory'
 import { createDeviceProviders, deviceProviderError } from '../devices/providers'
 import type { ChannelAuthority, ChannelIdentity } from '../channel/authority'
 import type { ChannelGateway, StreamProvider } from '../channel/server'
@@ -86,14 +96,30 @@ export type BrowserDeviceRuntimeInput = Readonly<{
   keychainSecret?: (service: string) => string | null
 }>
 
-async function runDeviceProbe(argv: string[]): Promise<string> {
+async function runDeviceProbe(argv: string[]): Promise<DeviceToolProbe> {
   try {
     const process = Bun.spawn(argv, { stdout: 'pipe', stderr: 'ignore' })
-    const stdout = await new Response(process.stdout).text()
-    await process.exited
-    return stdout
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      const exitCodePromise = Promise.race([
+        process.exited,
+        new Promise<null>((resolve) => {
+          timeout = setTimeout(() => {
+            process.kill()
+            resolve(null)
+          }, 2_000)
+        }),
+      ])
+      const [stdout, exitCode] = await Promise.all([
+        new Response(process.stdout).text(),
+        exitCodePromise,
+      ])
+      return exitCode === 0 ? { status: 'ok', stdout } : { status: 'failed', stdout }
+    } finally {
+      if (timeout) clearTimeout(timeout)
+    }
   } catch {
-    return ''
+    return { status: 'missing', stdout: '' }
   }
 }
 
@@ -154,14 +180,25 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
   // verified inventory items. Each refresh where the observed membership
   // changed bumps a generation so device start binds to verified facts.
   let verifiedInventory: { ios?: VerifiedInventory; android?: VerifiedInventory } = {}
+  let deviceCapabilityReport: DeviceCapabilityReport
   let inventoryGeneration = 0
   let inventorySignature = ''
   const refreshInventory = async () => {
     const observedAt = new Date().toISOString()
-    const simctl = await runDeviceProbe(['xcrun', 'simctl', 'list', 'devices', '-j'])
-    const adb = await runDeviceProbe(['adb', 'devices', '-l'])
-    const avds = await runDeviceProbe(['emulator', '-list-avds'])
-    const iosItems = parseSimctlDevicesJson(simctl).map((device) => ({
+    const [simctl, adb, avds] = await Promise.all([
+      runDeviceProbe(['xcrun', 'simctl', 'list', 'devices', '-j']),
+      runDeviceProbe(['adb', 'devices', '-l']),
+      runDeviceProbe(['emulator', '-list-avds']),
+    ])
+    deviceCapabilityReport = buildDeviceCapabilityReport(
+      { ios: simctl, androidAdb: adb, androidEmulator: avds },
+      observedAt
+    )
+    const iosAvailable =
+      deviceCapabilityReport.items.find((row) => row.platform === 'ios')?.state === 'available'
+    const androidAvailable =
+      deviceCapabilityReport.items.find((row) => row.platform === 'android')?.state === 'available'
+    const iosItems = (iosAvailable ? parseSimctlDevicesJson(simctl.stdout) : []).map((device) => ({
       id: device.udid,
       kind: 'ios_simulator' as const,
       name: device.name,
@@ -171,7 +208,7 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
       observedAt,
     }))
     const androidItems = [
-      ...parseAdbDevices(adb).map((device) => ({
+      ...(androidAvailable ? parseAdbDevices(adb.stdout) : []).map((device) => ({
         id: device.serial,
         kind: device.isEmulator ? ('android_emulator' as const) : ('physical' as const),
         name: device.model ?? device.serial,
@@ -180,7 +217,7 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
         generation: 0,
         observedAt,
       })),
-      ...parseAvdList(avds).map((name) => ({
+      ...(androidAvailable ? parseAvdList(avds.stdout) : []).map((name) => ({
         id: name,
         kind: 'android_emulator' as const,
         name,
@@ -205,7 +242,8 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
         : {}),
     }
   }
-  void refreshInventory()
+  const initialInventoryRefresh = refreshInventory()
+  void initialInventoryRefresh
 
   // Attach/input mint stream grants through the channel authority against
   // the caller's authenticated identity: bound to the channel, scope,
@@ -334,6 +372,10 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
   const devices = createDeviceProviders({
     sessions: deviceSessions,
     verifiedInventory: () => verifiedInventory,
+    platformCapabilities: async () => {
+      await initialInventoryRefresh
+      return deviceCapabilityReport
+    },
     iosInputHint: 'simctl exposes no tap; a future automation helper may add it',
     engine: deviceEngine,
     screenshotRecorder: screenshots,
