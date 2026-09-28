@@ -1,10 +1,11 @@
 import type { WorkspaceSceneId } from '@adea-ai/types'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { Field, FieldError, FieldGroup, FieldLabel } from '@adea-ai/ui/components/ui/field'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { Label } from '@adea-ai/ui/components/ui/label'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { createSignal, For, Show } from 'solid-js'
 
-import { ModalDialog } from './modal-dialog'
+import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { RoomIcon } from './room-icon'
 
 const roomTemplates: readonly Readonly<{ functionKey: string; name: string }>[] = [
@@ -29,6 +30,8 @@ export function CreateRoomDialog(props: {
   const [error, setError] = createSignal<string | null>(null)
   return (
     <ModalDialog
+      modal={false}
+      class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
       title="Create Room"
@@ -68,13 +71,13 @@ export function CreateRoomDialog(props: {
             .catch(() => setError('Room could not be created. Check the fields and retry.'))
         }}
       >
-        <FieldGroup>
-          <Field>
-            <FieldLabel for="room-name">Room name</FieldLabel>
+        <div class="flex flex-col gap-5">
+          <div class="flex flex-col gap-2">
+            <Label for="room-name">Room name</Label>
             <Input id="room-name" name="name" required maxLength={120} />
-          </Field>
-          <Field>
-            <FieldLabel for="room-function-key">Function key</FieldLabel>
+          </div>
+          <div class="flex flex-col gap-2">
+            <Label for="room-function-key">Function key</Label>
             <Input
               id="room-function-key"
               name="functionKey"
@@ -82,9 +85,15 @@ export function CreateRoomDialog(props: {
               pattern={'[a-z0-9\\-]+'}
               maxLength={80}
             />
-          </Field>
-        </FieldGroup>
-        <Show when={error()}>{(message) => <FieldError>{message()}</FieldError>}</Show>
+          </div>
+        </div>
+        <Show when={error()}>
+          {(message) => (
+            <Alert variant="destructive">
+              <AlertDescription>{message()}</AlertDescription>
+            </Alert>
+          )}
+        </Show>
         <Button type="submit" disabled={props.busy}>
           {props.busy ? 'Creating…' : 'Create Room'}
         </Button>
@@ -114,6 +123,8 @@ export function EditRoomDialog(props: {
   const [error, setError] = createSignal<string | null>(null)
   return (
     <ModalDialog
+      modal={false}
+      class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
       title={`Edit ${props.roomName}`}
@@ -134,9 +145,9 @@ export function EditRoomDialog(props: {
             .catch(() => setError('Room could not be updated. Check the fields and retry.'))
         }}
       >
-        <FieldGroup>
-          <Field>
-            <FieldLabel for="edit-room-name">Room name</FieldLabel>
+        <div class="flex flex-col gap-5">
+          <div class="flex flex-col gap-2">
+            <Label for="edit-room-name">Room name</Label>
             <Input
               id="edit-room-name"
               name="name"
@@ -144,9 +155,9 @@ export function EditRoomDialog(props: {
               maxLength={120}
               value={props.initialName}
             />
-          </Field>
-          <Field>
-            <FieldLabel for="edit-room-function-key">Function key</FieldLabel>
+          </div>
+          <div class="flex flex-col gap-2">
+            <Label for="edit-room-function-key">Function key</Label>
             <Input
               id="edit-room-function-key"
               name="functionKey"
@@ -159,9 +170,15 @@ export function EditRoomDialog(props: {
             <datalist id="edit-room-function-keys">
               <For each={roomFunctionKeySuggestions}>{(key) => <option value={key} />}</For>
             </datalist>
-          </Field>
-        </FieldGroup>
-        <Show when={error()}>{(message) => <FieldError>{message()}</FieldError>}</Show>
+          </div>
+        </div>
+        <Show when={error()}>
+          {(message) => (
+            <Alert variant="destructive">
+              <AlertDescription>{message()}</AlertDescription>
+            </Alert>
+          )}
+        </Show>
         <Button type="submit" disabled={props.busy}>
           {props.busy ? 'Saving…' : 'Save changes'}
         </Button>
@@ -180,6 +197,8 @@ export function RenameConversationDialog(props: {
   const [error, setError] = createSignal<string | null>(null)
   return (
     <ModalDialog
+      modal={false}
+      class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
       title="Rename conversation"
@@ -197,8 +216,8 @@ export function RenameConversationDialog(props: {
             .catch(() => setError('Conversation could not be renamed.'))
         }}
       >
-        <Field>
-          <FieldLabel for="conversation-title">Conversation name</FieldLabel>
+        <div class="flex flex-col gap-2">
+          <Label for="conversation-title">Conversation name</Label>
           <Input
             id="conversation-title"
             name="title"
@@ -207,8 +226,14 @@ export function RenameConversationDialog(props: {
             autofocus
             value={props.initialTitle}
           />
-        </Field>
-        <Show when={error()}>{(message) => <FieldError>{message()}</FieldError>}</Show>
+        </div>
+        <Show when={error()}>
+          {(message) => (
+            <Alert variant="destructive">
+              <AlertDescription>{message()}</AlertDescription>
+            </Alert>
+          )}
+        </Show>
         <Button type="submit" disabled={props.busy}>
           {props.busy ? 'Saving…' : 'Save title'}
         </Button>
@@ -226,6 +251,8 @@ export function CreateGroupDialog(props: {
   const [error, setError] = createSignal<string | null>(null)
   return (
     <ModalDialog
+      modal={false}
+      class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
       title="New group conversation"
@@ -242,11 +269,17 @@ export function CreateGroupDialog(props: {
             .catch(() => setError('Group conversation could not be created.'))
         }}
       >
-        <Field>
-          <FieldLabel for="conversation-name">Conversation name</FieldLabel>
+        <div class="flex flex-col gap-2">
+          <Label for="conversation-name">Conversation name</Label>
           <Input id="conversation-name" name="title" required maxLength={120} autofocus />
-        </Field>
-        <Show when={error()}>{(message) => <FieldError>{message()}</FieldError>}</Show>
+        </div>
+        <Show when={error()}>
+          {(message) => (
+            <Alert variant="destructive">
+              <AlertDescription>{message()}</AlertDescription>
+            </Alert>
+          )}
+        </Show>
         <Button type="submit" disabled={props.busy}>
           {props.busy ? 'Creating…' : 'Create conversation'}
         </Button>

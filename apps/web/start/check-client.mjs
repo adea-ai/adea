@@ -1,7 +1,12 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { forbiddenClientModule, PRIVATE_ENV_NAMES } from './client-policy.mjs'
+import {
+  assertClientBundleBudgets,
+  inspectClientBundle,
+} from '../../../scripts/client-bundle-budgets.mjs'
 
 const clientDirectory = fileURLToPath(new URL('../dist/client/', import.meta.url))
 const modules = JSON.parse(
@@ -13,6 +18,30 @@ if (!modules.every((id) => typeof id === 'string'))
   throw new Error('Invalid client module evidence')
 const forbidden = modules.filter(forbiddenClientModule)
 if (forbidden.length) throw new Error(`Server dependencies in client: ${forbidden.join(', ')}`)
+// Production web output cannot use the native-only workspace bootstrap. Local
+// development supports both lanes; the separate desktop build retains it.
+const renderedModules = JSON.parse(
+  await readFile(new URL('../dist/.checks/client-rendered-modules.json', import.meta.url), 'utf8')
+)
+if (
+  !Array.isArray(renderedModules) ||
+  renderedModules.length === 0 ||
+  !renderedModules.every((id) => typeof id === 'string' && modules.includes(id))
+)
+  throw new Error('Missing or invalid rendered client module evidence')
+const fixtureModules = renderedModules.filter((id) =>
+  id.endsWith('/packages/dev-view/src/terminal/fixture-terminal-pane.tsx')
+)
+if (fixtureModules.length)
+  throw new Error(`Test terminal fixture in production output: ${fixtureModules.join(', ')}`)
+const desktopOnlyWorkspaceModules = renderedModules.filter(
+  (id) =>
+    id.endsWith('/apps/web/src/components/desktop-workspace-entry.tsx') ||
+    id.endsWith('/apps/web/src/components/desktop-first-run-chat.tsx')
+)
+if (desktopOnlyWorkspaceModules.length)
+  throw new Error(`Desktop-only workspace in web output: ${desktopOnlyWorkspaceModules.join(', ')}`)
+
 // The trimZodLocales Vite plugin narrows zod's locales barrel to English; a
 // dependency update that routes around it must be caught here, not in a
 // bundle-diff review.
@@ -32,8 +61,7 @@ async function filesUnder(directory) {
   }
   return files
 }
-let javascriptBytes = 0
-let count = 0
+const chunks = []
 for (const path of await filesUnder(clientDirectory)) {
   if (!path.endsWith('.js')) continue
   const content = await readFile(path, 'utf8')
@@ -41,86 +69,27 @@ for (const path of await filesUnder(clientDirectory)) {
     if (content.includes(name))
       throw new Error(`Private configuration marker in client output: ${name}`)
   }
-  javascriptBytes += Buffer.byteLength(content)
-  count++
+  chunks.push({
+    file: relative(clientDirectory, path).replaceAll('\\', '/'),
+    source: content,
+    bytes: Buffer.byteLength(content),
+    gzipBytes: gzipSync(content).byteLength,
+  })
 }
-if (!count) throw new Error('No built client JavaScript found; run start:build first')
-// Budgets ratchet down as the audit shrinks the bundle: ~7% headroom over
-// the current ~935KB / 45 files. A barrel import or a heavyweight
-// dependency trips this before it ships.
-//
-// 2026-09-18 audit (#425): 46 files / ~999KB on main left 0.5KB of runway;
-// the ratchet moves to 1,020,000 for the appearance composition port. The
-// delta is the donor-ported appearance dialog + its painters and helpers
-// (+9.4KB), all inside the lazy `appearance` chunk that only loads when the
-// dialog opens — the eager shell is unchanged, and the chunk count is flat.
-// Raised from 1_020_000 when the M12 feature surface landed intentionally
-// lazy chunks: editor-mirror (CodeMirror, ~312kB), source-control (~17kB),
-// resources (~12kB), files (~9kB), permissions (~8kB), agents/history. The
-// per-chunk dev-view budget (check-dev-view-bundle) still guards eager bloat.
-//
-// 2026-09-23 (#302, the M16 persistence boundary): 1,597,600 left 2,400 bytes
-// of runway, and the boundary — a validated read/quarantine helper plus the
-// conventional-workspace state validator — cost 3,168 bytes across the chunks
-// that use it. The raise is the deliberate decision ADR 0010's first gate asks
-// for (the M15 lane measured it; this gate caught it), not silent growth.
-//
-// 2026-09-25 (#686, browsing from the published product index): the index
-// adapter — reshaping the marketplace's deduplicated product index into the
-// catalog the existing mapper consumes, plus the digest-verified loader for it —
-// costs 1_072 bytes, and 1_612_770 against #646's 1_612_000 once both changes are
-// on the same branch, which this gate measured rather than assumed. Raised by
-// 4_000 to leave 3_230 of runway, the same size of margin the entries above
-// keep. The trade is ~1 KB of eager bundle for the marketplace reading a 716 KB
-// index instead of parsing a 26 MB catalog on every refresh, verified against
-// the digest integrity.json already states.
-// 2026-09-25 (#646, the cookie-import surface): this gate caught the last
-// 4,999 bytes — 1,605,000 left no runway once the panel and its model landed.
-// The surface gives the #610 capability the only path a person has to it
-// (sources → preview → confirm), costs 5.0KB minified, and lands inside the
-// lazy Dev View chunk: the eager shell is untouched, the chunk count is flat,
-// and check-dev-view-bundle still measures the Dev View chunk on its own.
-// 2026-09-25 (#699, the content-search surface): the third surface in two days,
-// and the same story each time — a capability that shipped host-side with no
-// caller. This one costs 7_235 bytes (1_617_235 against 1_616_000), and the
-// gate measured it rather than the branch assuming it. Raised by 6_000 to leave
-// 4_765 of runway. Worth saying plainly: the M12 feature set is simply larger
-// than the 2026-09-18 ceiling, and each raise here has named a surface a person
-// can now use rather than drift that accumulated unnoticed.
-//
-// 2026-09-26 (the worktree-binding fix): the session's worktree id is now
-// carried from `RuntimeSession` through the projection and into the Files and
-// Source Control panes, so a node with more than one ready worktree can no
-// longer display one worktree's tree while staging and committing against
-// another. The binding memo and the install-refusal copy in the plugin dialog
-// cost 118 bytes, which left 1_621_965 against this ceiling — 35 bytes of
-// runway. Thirty-five bytes is not a margin, it is a coin flip: the gate
-// measures built output, and a build is not byte-identical across machines.
-// Raised by 1,000 to restore roughly the margin the entries above keep. The
-// trade is ~118 bytes of bundle for commits landing in the worktree the user is
-// looking at, which is the cheaper error of the two.
-const CLIENT_JS_BUDGET_BYTES = 1_623_000
-// Raised from 50 when the #399 stream/hunk residues landed as further
-// intentional lazy chunks: files-pane grew the quick-open dialog (17kB
-// chunk, still lazy), stream-transport rides its own module, and the hunk
-// affordances stayed inside the existing lazy source-control chunk. The
-// byte budget above still guards total size and check-dev-view-bundle
-// still guards eager bloat; this counts only files.
-const CLIENT_JS_FILE_BUDGET = 72
-if (javascriptBytes > CLIENT_JS_BUDGET_BYTES)
-  throw new Error(
-    `Client JavaScript budget exceeded: ${javascriptBytes} > ${CLIENT_JS_BUDGET_BYTES} bytes`
-  )
-if (count > CLIENT_JS_FILE_BUDGET)
-  throw new Error(`Client chunk-count budget exceeded: ${count} > ${CLIENT_JS_FILE_BUDGET} files`)
+if (chunks.length === 0) throw new Error('No built client JavaScript found; run start:build first')
+const bundle = inspectClientBundle(chunks)
+assertClientBundleBudgets(bundle)
 // Static workspace documents would allow an unexpected route to evade the
 // per-request access check. This preview deliberately has no prerendered HTML.
 const html = (await filesUnder(clientDirectory)).filter((path) => path.endsWith('.html'))
 if (html.length) throw new Error(`Unexpected static HTML in gated preview: ${html.join(', ')}`)
 console.log(
   JSON.stringify({
-    clientJavaScriptFiles: count,
-    clientJavaScriptBytes: javascriptBytes,
+    clientJavaScriptFiles: bundle.total.fileCount,
+    clientJavaScriptBytes: bundle.total.rawBytes,
+    clientJavaScriptGzipBytes: bundle.total.gzipBytes,
+    startup: bundle.startup,
+    views: bundle.views,
     modules: modules.length,
   })
 )

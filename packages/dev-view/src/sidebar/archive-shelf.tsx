@@ -6,7 +6,7 @@
  * revision 283e136c0f902e965a535a7c9548c57c7504fed0. Modified for Solid and
  * the dependency-owned archive authority.
  */
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Archive } from 'lucide-solid'
 import { For, Show, createSignal } from 'solid-js'
 

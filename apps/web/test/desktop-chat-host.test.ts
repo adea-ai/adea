@@ -147,3 +147,50 @@ describe('desktop chat host', () => {
     expect(fence.isCurrent(third)).toBe(true)
   })
 })
+
+describe('desktop Chat reading position', () => {
+  test('bounds the cache and rejects invalid offsets', () => {
+    const host = createDesktopChatModelHost(createUnavailableDevRuntimeService())
+    host.get(SCOPE)
+    const identity = { runtimeSessionId: 'invalid', generation: 1 }
+    for (const top of [-1, Infinity, NaN])
+      host.setReadingPosition(SCOPE, identity, { top, following: false })
+    expect(host.readingPosition(SCOPE, identity)).toBeUndefined()
+    for (let index = 0; index < 101; index += 1)
+      host.setReadingPosition(
+        SCOPE,
+        { runtimeSessionId: `session-${index}`, generation: 1 },
+        {
+          top: index,
+          following: false,
+        }
+      )
+    expect(
+      host.readingPosition(SCOPE, { runtimeSessionId: 'session-0', generation: 1 })
+    ).toBeUndefined()
+    expect(host.readingPosition(SCOPE, { runtimeSessionId: 'session-100', generation: 1 })).toEqual(
+      {
+        top: 100,
+        following: false,
+      }
+    )
+  })
+
+  test('retains per-session positions only within the active authenticated scope', () => {
+    const host = createDesktopChatModelHost(createUnavailableDevRuntimeService())
+    host.get(SCOPE)
+    const first = { runtimeSessionId: 'session-first', generation: 1 }
+    const second = { runtimeSessionId: 'session-second', generation: 1 }
+    host.setReadingPosition(SCOPE, first, { top: 240, following: false })
+    host.setReadingPosition(SCOPE, second, { top: 80, following: true })
+    expect(host.readingPosition(SCOPE, first)).toEqual({ top: 240, following: false })
+    expect(host.readingPosition(SCOPE, second)).toEqual({ top: 80, following: true })
+    expect(host.readingPosition(SCOPE, { ...first, generation: 2 })).toBeUndefined()
+    host.get(OTHER_WORKSPACE_SCOPE)
+    expect(host.readingPosition(SCOPE, first)).toBeUndefined()
+    host.setReadingPosition(SCOPE, first, { top: 900, following: false })
+    expect(host.readingPosition(OTHER_WORKSPACE_SCOPE, first)).toBeUndefined()
+    host.get(SCOPE)
+    expect(host.readingPosition(SCOPE, first)).toBeUndefined()
+  })
+})

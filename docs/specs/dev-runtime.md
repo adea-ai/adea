@@ -986,6 +986,11 @@ type ScreenshotRef = {
   id: string
   scope: Scope
   ownerId: string
+  laneKind: 'human_embedded' | 'task_owned' | 'user_context' | 'device'
+  profileId?: string
+  origin: string
+  viewport: { width: number; height: number; deviceScaleFactor: number }
+  redacted: boolean
   contentType: 'image/png' | 'image/jpeg' | 'image/webp'
   byteLength: string
   width: number
@@ -1204,7 +1209,28 @@ privileged command. The center layout is a strict binary tree with a hard M12
 cap of 8 leaves and depth 8; split/duplicate refuses with `limit_exceeded`
 when either cap would be exceeded. Ratios are finite and clamp to `[0.1, 0.9]`.
 Leaf IDs are unique, utility panes do not count as center leaves, and closing the
-last leaf restores one terminal placeholder. Utility slots are independent:
+last leaf restores one terminal placeholder. The center model and stable ID-keyed
+renderer are consumed from the published `@adea-ai/ui` split-layout entries.
+A fresh session starts with one terminal leaf. Selecting a file creates an
+editor beside the focused pane when no editor exists, and later files reuse
+that editor. Explicit splitting remains available, and saved split layouts
+restore unchanged; the initial view does not reserve an empty editor pane.
+Adea injects terminal/editor leaf payloads, the final terminal placeholder,
+scoped preference decoding/storage, keyboard move commands, and 5% resize
+snapping. Shared UI owns constrained separators, internal pane drag payloads,
+owner cleanup, and close focus return. Splitting, moving, or resizing surviving
+leaves must preserve their terminal/editor DOM owners and local interaction
+state; none of these visual transitions grants runtime authority.
+The central renderer loads through its own boundary while the sidebar,
+selection, and layout preference model remain mounted in the shell. Delayed
+loading must leave session selection usable and preserve that selection when
+the panes appear; the loading boundary must not reset surviving pane owners.
+The web client groups only seven shared navigation glyph modules to avoid
+tiny individual requests. Feature components and heavy dependencies retain
+their automatic lazy boundaries. The unchanged Dev byte limit applies to the
+entry and immediately mounted central renderer together; splitting that
+implementation into multiple chunks does not expand its allowance.
+Utility slots are independent:
 left and right may each show one pane or be collapsed, and a change on one side
 cannot hide the other side. Utility order, side, visibility, size, collapse,
 and full-width state are local preferences only. A persisted focus target must
@@ -1243,6 +1269,26 @@ A session may own several terminals through splits.
 `RuntimeSession.terminalId` names only the session's primary terminal;
 `dev.terminal.list` enumerates every terminal a session or worktree owns,
 including split leaves and terminals re-created after a restart.
+
+The desktop workspace projection preserves the session's optional primary
+`terminalId` and canonical session generation. A terminal pane resolves its
+explicit primary or split-leaf terminal ID through `dev.terminal.list`, filtered
+by the selected session and worktree. It requires exactly one matching record
+with the same account/workspace/node scope, session, and worktree; it never
+selects the first unrelated terminal or creates a PTY as recovery. Session
+and terminal generations are separate identities: stream grants use the resolved
+terminal record's generation. Resolution scans at most 64 pages of 500 records,
+rejects duplicate IDs, off-scope/session/worktree rows, repeated cursors,
+oversized pages, ended/faulted terminals,
+and retires pending results when the selection's abort signal is cancelled.
+The production `DevWorkspaceEntry` mounts this resolver through the lazy
+`RuntimeTerminalPane`, after the current scope's attach and input capabilities
+are verified. Explicit split-leaf bindings take priority; only the first
+unbound terminal leaf may use the session's projected primary terminal. Stable
+identity prevents focus and ratio changes from reattaching the stream. Failed
+resolution exposes a retry that repeats lookup without creating a terminal.
+Mounted entry tests qualify that composition; packaged native stream delivery
+remains a separate acceptance lane.
 
 The renderer's terminal connection adapter captures an exact `TerminalRecord`,
 never the first item returned by a session query. Each attach mints distinct
@@ -1328,8 +1374,80 @@ may clear a draft only when its session, generation, and host draft revision
 still match; late success from an old composer is ignored, and a failed send
 leaves the draft intact. The explicit host callback and the Chat model fallback
 use the same session, generation, and revision fence.
+Send, Steer and Stop are available only when the host supplies their authorized
+operation (or the model supplies send/cancel). Missing handlers cannot clear a
+draft or report delivery; unsupported Steer remains disabled with a visible
+reason. Authority, connectivity and approval gates apply to Stop as well.
+The runtime composer mounts the published `@adea-ai/ui` ChatComposer. Adea owns
+its canonical draft changes and async delivery fence; shared UI owns the input,
+IME handling, pending presentation and action-row composition. Agent/profile,
+Auto/Customize pins, resolved location and authorized Stop/Steer/launch controls
+are host slots. This host has no queue operation, so it does not advertise one.
+Desktop Chat retains a bounded presentation-only reading-position snapshot per
+session and generation in the active authenticated model host. Scope replacement
+clears these snapshots and rejects late writes from the previous scope. A
+snapshot records the scroll offset and whether the reader was following live
+output; it does not create another transcript or session authority.
+Inline approval/question and terminal-jump controls use published shared Button
+and Input primitives; runtime event projection and authorized response callbacks
+remain application-owned.
+The mounted transcript uses the published shared ConversationSurface to restore
+that snapshot and report native scrolling and cleanup through the host callback,
+carrying the immutable mounted session identity. Shared follow intent stops on
+upward reader movement even inside the jump-control visibility threshold; new
+events preserve the parked offset until the reader explicitly resumes following.
+The jump control returns to the latest event and focuses the native transcript.
 During append-only streaming, existing transcript row DOM nodes stay mounted so
 the live region adds only the new row instead of replaying prior announcements.
+The published shared TranscriptComposition owns keyed row rendering, with the
+canonical session/generation as its explicit reset scope. The host clears local
+question answers on scope reset and retains response-authority checks. Current
+opaque runtime payloads provide no validated call phase, interaction eligibility,
+synthesis or final-answer boundary; rows therefore stay visible and unfolded.
+Payload hints and run completion cannot authorize grouping or hide an action.
+
+Adea's six persisted appearance IDs use the installed published theme package
+for generated palette data. The generator records that package's actual version.
+Solid destructive actions carry a separate generated fill/foreground pair from
+`shadcnDestructiveProjection`; theme switching and the pre-paint provider apply
+and clear those tokens with the rest of the palette. Canonical status hues,
+terminal ANSI colors, and editor roles retain their published projections.
+
+### Desktop Chat presentation notifications
+
+The canonical `test:e2e` gate includes returning-session and first-run Chat
+component journeys. Returning-session coverage observes the actual component
+through a synthetic bridge and verifies presentation clearing while attaching
+and on disposal; this is separate from native notification delivery.
+
+The desktop shell derives notification intents from the canonical
+`RunHistoryStore.list()` snapshot. It seeds a baseline after host composition
+and compares snapshots only after the harness has durably recorded a
+`run.status` transition, published as `dev.harness.updated` with
+`kind: 'run.status'`. The store targets 200 retained records by dropping old
+terminal runs; active runs are never evicted, so this is not a hard snapshot
+size ceiling. The notification path owns no second run index or event watcher. It advances
+the baseline even when focus suppresses a request or the native request fails,
+so a transition is never replayed later as a new alert.
+
+Only the mounted desktop Chat host may report its canonical conversation
+session, and the Dev surface may report its currently selected canonical
+session. Conventional workspace/team Chat does not imply a RuntimeSession. The
+shell validates either presentation hint against the current scoped,
+non-archived session projection. Window focus comes from the native window's
+focus/blur events. These signals suppress presentation only: selection and
+focus never grant command or input authority, and the notification path leaves
+`authoritySessionId` unset until a separately typed input-owner projection
+exists.
+
+The native boundary receives only the fixed title `Adea` and body
+`A conversation needs your attention.` Run IDs, session IDs, display names,
+prompts, tool output, and paths never reach the OS notification request. A
+successful `Utils.showNotification` call returns no delivery receipt, so the
+shell records only that the API call returned. An absent or throwing API is a
+silent typed unavailable outcome. This lane does not probe notification
+permission or claim OS delivery.
+
 Chat attaches an existing session by walking the legal paged
 `dev.session.list` body and its opaque cursors; the list body has no
 `runtimeSessionId` filter. Since the host may start a bounded replay at the
@@ -1370,7 +1488,16 @@ The initial UI projection and adapter are implemented in
 surface only after the authenticated runtime projection, ready worktree list,
 and workspace `AgentProfile` list resolve from their owning authorities;
 missing records leave the existing Chat surface in place and never create a
-synthetic launch context. The current desktop API has no Control Plane model-
+synthetic launch context. Returning desktop Chat instead attaches the selected live canonical session
+from the authenticated runtime projection and paged session registry. It shares
+Dev's project/session selection and the donor contextual hierarchy, including
+its common collapse state. It does not require first-run worktrees, workspace
+AgentProfiles or managed-Pi install facts to read an existing conversation.
+Selection, scope replacement and unmount fence every deferred attachment;
+failures keep a visible canonical retry state rather than silently substituting
+team chat. View switches use read/stream operations only and cannot create,
+launch or resume a session. First-run creation refreshes that same hierarchy.
+The current desktop API has no Control Plane model-
 entitlement projection, so signed-in onboarding stays at an explicit
 model-access gate and guest onboarding requires sign-in; no client-side
 entitlement is inferred from identity or profile data. Packaged first-run
@@ -1506,6 +1633,16 @@ group/project reordering is accessible through pointer drag and keyboard
 (`Alt`+`Arrow`) paths that produce the same
 `dev.group.reorder`/`dev.project.reorder` commands; a refused reorder reverts
 to the authoritative projection.
+
+The sidebar's project filter is a local presentation projection. It trims the
+query and performs a case-insensitive substring match against group names,
+project names, and session titles. A group or project name match reveals that
+entire subtree; a session-title match retains only the matching sessions and
+their group/project ancestors. While a query is active, those ancestors render
+expanded even when their stored collapse IDs are set, so collapsed navigation
+cannot hide a match. Clearing the query restores the full projection and the
+unchanged collapse state. Typing or clearing the filter MUST NOT issue runtime
+commands, change selected canonical IDs, or mutate stored collapse state.
 
 ### Browser lane
 
@@ -1644,6 +1781,17 @@ spec and reject unknown keys.
 `{ items: T[]; nextCursor?: string; observedAt: timestamp }`. The registry is
 machine checked against the catalog. No prose wrapper, alternate nesting, or
 implicit extra field is allowed.
+
+Browser-safe command-construction metadata is generated from this same registry
+in `packages/types/src/dev-runtime-operation-metadata/`. Each operation has its
+own pure module, and `@adea-ai/types/dev-runtime-operation-metadata` is the
+tree-shakeable barrel for eager callers and the unavailable-provider capability
+list. `@adea-ai/types/dev-runtime-metadata` preserves the dynamic-client
+compatibility aggregate by importing those same generated definitions. Eager
+callers bind their exact operation entry; the shared builder uses the operation
+carried by that entry together with its capability and resource requirements.
+These generated forms carry the same registry facts and do not create a second
+authorization source.
 
 No body accepts `unknown`, an open record, a shell command string, an absolute
 path where a `WorkspacePath` is required, or identity/capability/channel
@@ -1857,6 +2005,14 @@ If a client input send throws, delivery is ambiguous; the client MUST close the
 stream, discard queued input, report typed `delivery_ambiguous`, and never retry
 those bytes automatically. The pane presents safe copy derived from the error
 code rather than rendering host-provided error text.
+
+The real terminal pane routes both raw key input and composed drafts through
+one bounded, generation-fenced transport queue. It clears a composed draft
+only after that queue accepts it; a rejected draft remains editable. Fitted
+PTY dimensions use that same authenticated transport, which sends changes
+immediately when open and coalesces them until an authenticated reconnect.
+Automatic PTY resizing can be disabled when manage capability is absent.
+Native connections use server-only heartbeats.
 
 The renderer's terminal adapter is constructed from the exact selected
 `TerminalRecord` and never discovers a replacement by taking the first ready
@@ -2437,6 +2593,12 @@ The terminal ships a styled default profile using theme tokens for font,
 cursor, padding, opacity, and colors; a "system terminal" opt-out leaves the
 host terminal untouched.
 
+The mounted xterm renderer reads the canonical `--terminal-*` roles, including
+all sixteen ANSI slots, from its surface. Palette changes update the existing
+renderer and search decorations without reattaching its stream or replacing
+its output, selection, focus, or editor draft. A bounded ancestor-attribute
+observer batches updates into one animation frame and disconnects on disposal.
+
 A bottom editor supports multiline input, history search, palette sources, and
 send-to-active-terminal; pasting multiline or control-character text requires
 confirmation. Raw direct-keyboard mode remains available so full-screen TUIs
@@ -2477,6 +2639,12 @@ The add surface supports recent/indexed folders, picker/import, clone URL,
 authenticated GitHub selection, monorepo package, and known external worktree.
 It displays host, canonical identity, duplicate state, and authorization before
 mutation.
+
+The contextual sidebar's Add Project disclosure loads its form and requests
+authorized roots/groups only when first opened. After that first open, collapsing
+the disclosure preserves the mounted form's scan results, confirmations, and
+group draft; reopening does not repeat those initial requests. Closing the
+disclosure never initiates project imports or bootstrap commands.
 
 Scanner defaults:
 
@@ -3422,6 +3590,17 @@ subscription. Results are cleared when the lane, target, selector, or emulated
 viewport changes. The current caller/transport gap and bounded amendment are
 recorded in the [browser caller gap note](../research/dev-browser-caller-gaps.md).
 
+The BrowserPane screenshot action binds `dev.browser.screenshot` to the
+selected lane generation and current page target. It may display only metadata
+from the returned `ScreenshotRef`: reference ID, dimensions, content type,
+expiry, and the exact host-provided `redacted` boolean. The caller does not
+request or display screenshot bytes. Runtime instance, scope, session, lane ID
+and generation, target/navigation, or emulated-viewport changes clear the
+displayed result and make pending success and error replies inert; unmount does
+the same for pending replies. This metadata-only result is not a pixel preview
+and does not authorize rendering bytes when `redacted` is false. Annotation
+still has its separate control capability and provenance contract.
+
 Cookie import is opt-in, source/profile/origin scoped, previewed, encrypted at
 rest, and atomic: any write/cancel failure rolls back the whole import. Maximum
 10,000 cookies and 16 MiB serialized input. Preserve partition/SameSite
@@ -3831,11 +4010,30 @@ OS; pinned modes do not. Accent affects only semantic accent/interactive roles
 and must pass contrast validation. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
-The bundled `adea-light` and `adea-dark` records are sourced from the published
+The bundled `adea-light`, `adea-dark`, `slate-light`, `slate-dark`,
+`contrast-light`, and `contrast-dark` records are sourced from the published
 `@adea-ai/themes` catalogue and adapted into this manifest's CSS, terminal,
 editor, and chart roles; the preference IDs and pre-paint document authority
-remain Adea-owned. Compatibility variants without catalogue records stay
-bundled locally until their role mappings are reviewed.
+remain Adea-owned. Palette normalization, accents, contrast math, and shadcn
+projection remain catalogue-owned. Generated editor roles use the published
+quantized-hex contrast projection, while the syntax API retains its quieter
+comment role. Unknown stored theme IDs fall back to the default of the same
+appearance in both the pre-paint script and the mounted provider.
+
+The appearance surface uses the controlled `AppearanceEditor` from the published
+`@adea-ai/ui` package. Its host remains responsible for the V2 draft snapshot,
+live preview, persistence, cancellation, native transparency capability, custom
+accent validation, and the verified App Library contract. The app-local package
+is temporarily named `@adea-ai/app-ui` so the published package can be consumed
+without a second package alias; app-specific shell styles and preference/host
+adapters remain there until the broader package migration is reviewed.
+
+The declared-license theme-library view uses the published `ModalDialog`,
+including its nested-layer inertness and focus restoration. Opening it keeps
+the appearance editor mounted beneath the dialog, so live preview and the
+uncommitted draft survive Close and Escape; dismissal restores focus to
+Manage themes without closing the containing Settings dialog. No application
+copy of the dialog primitives remains.
 
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is
@@ -3851,18 +4049,57 @@ Theme imports are deferred until signed App Library support and require a known
 license/provenance or explicit `unknown/unverified`; “User supplied” does not
 prove redistribution permission.
 
-M12 App Library can activate only a bundled first-party entry ID after existing
-catalog signature/digest/install-plan checks. Trust resolves through a
-**compiled** trusted first-party entry registry — the build's own list of
-shipped entry IDs, each bound to the view it mounts and carrying a build-time
-entry digest the catalog record must echo verbatim. An arbitrary non-empty
-`bundledEntryId` from a plugin manifest is never trusted by itself. Activation
-is fail-closed and ordered: installation, registry membership
-(`untrusted-entry`), entry-digest integrity (`integrity-failure`), verified
-install-plan shape (`plan-unverified`), and catalog source revision (`stale`).
+The workspace shell has one themed top bar, built from the published `TopBar`.
+On macOS the pinned Electrobun window uses `hiddenInset`: native close,
+minimize and expand controls stay native while the client uses their row.
+Interactive controls opt out of the drag region. Back/Forward use the host
+router's guarded history and only advertise proven router positions; a push
+truncates the Forward branch. A tab-local watermark survives reloads but is
+collapsed after an external or BFCache return. The left cluster controls the
+contextual sidebar; Dev's existing utility controls mount in the right cluster.
+The outer rail remains visible in every view, including focus mode. Virtual
+has its own contextual room navigation, independent of engine entitlement.
+The room-designer entry retains that navigation and its common toolbar controls
+even when the private engine is unavailable.
+Unavailable-engine content in these contextual shells uses the host's single
+main landmark and fills its viewport, without nesting a second full-screen shell.
+Collapsed contextual navigation is excluded from keyboard focus and the
+accessibility tree at desktop and narrow widths; collapsing its grid column
+alone is insufficient.
+
+[Owner correction #757](../research/shell-app-library-owner-corrections.md)
+separates **App Library** from the external **Plugins** marketplace. Library is
+an always-reachable full-screen destination directly below the rail's app
+icons. Virtual, Chat and Dev are bundled and enabled by default. Kanban and
+Source control are compiled optional destinations, enabled explicitly. Kanban
+mounts the existing task board through a route-scoped surface without changing
+the previous Chat surface. Library retains rail reorder and reset controls.
+Chat’s central conversation surface uses the canonical theme background in
+both light and dark modes, rather than imposing a separate grayscale palette.
+Each reorder moves one enabled app by one visible rail slot, skipping disabled
+and unknown entries while preserving their stored slots; boundary controls are
+disabled relative to that same enabled order, independently of Library filters.
+Source control projects the selected runtime
+session into the existing source-control surface at full width, without
+rewriting the Dev pane preferences. Code browsing remains available in Dev.
+
+Enablement reuses the versioned rail order/hidden record, preserving unknown
+IDs and quarantined data. An optional app is enabled only when its compiled
+ID is explicitly in that record's order and is not hidden. Disabling an active
+app resolves to another enabled app; if every app is disabled, Library remains
+available to re-enable them. Enablement never installs external code, deletes
+app data, replaces a RuntimeSession, or stops its harness. External metadata
+cannot register or retarget a workspace destination.
+
+The historical plugin contribution resolver remains fail-closed for its
+external catalog records: installation, compiled entry membership,
+entry-digest integrity, verified install-plan shape and source revision are
+still required. These external-plugin checks are not prerequisites for
+bundled app enablement. Installable community modules require an actual
+verified installation lifecycle before they may appear as usable destinations.
 No downloaded JS, `eval`, remote module URL, arbitrary postinstall, or empty
-placeholder view. Optional rail items can hide/reorder, but active/core
-Chat/Dev/Virtual remain recoverable via App Library or Reset Navigation.
+placeholder view is permitted. Cortana installation/activation remains
+unshipped scope; Library does not pretend a plugin installation enables it.
 
 ## macOS permissions onboarding
 
@@ -4276,6 +4513,12 @@ The `bun test` wrappers in `apps/desktop/tests/` shell out to the same
 scripts and skip loudly when the bundle has not been built; the packaged
 lane is the enforcement point. Run packaged test files one at a time in
 fresh worktrees.
+
+The fixture terminal renderer and its synthetic connect/observation callbacks
+are development-only (`import.meta.env.DEV`). Both production client builds omit
+that renderer. Local Vite journeys may load it lazily to test reconnect, keyboard
+search and stable pane identity; those tests do not attach a native PTY. The web
+production module gate rejects emitted fixture-terminal code.
 
 No issue closes on fixture-only production integration. Unsupported platform
 states remain deterministic fixtures, but the local packaged macOS path must
@@ -5042,7 +5285,12 @@ files in the same commit:
   `packages/dev-view/tests/selection.test.ts` pins selection enforcement
   (scope, generation, revocation, freshness, archive recovery);
   `packages/dev-view/tests/sidebar-reorder.test.ts` pins the pointer and
-  keyboard reorder model; `packages/dev-view/tests/archive-shelf-model.test.ts`
+  keyboard reorder model;
+  `packages/dev-view/tests/sidebar-navigation-filter.test.ts` pins the
+  non-mutating group/project/session filter projection;
+  `apps/web/e2e/dev-sidebar-search.spec.ts` pins filtering and collapse-state
+  restoration through the returning Chat runtime harness;
+  `packages/dev-view/tests/archive-shelf-model.test.ts`
   pins the restore flow, the destructive-delete confirmation gate, and the
   explicit `dev.session.delete` handoff;
   `apps/desktop/tests/project-session-register.test.ts` pins the durable
@@ -5132,7 +5380,14 @@ files in the same commit:
   auto-launched), typed refusals for unlaunchable explicit defaults, the
   launchDefault resolution order with the install remediation gap, and the
   observed `dev.harness.runStatus` machine (legal edges, illegal edges,
-  terminal refusals, generation/scope fencing, canonical event emission);
+  terminal refusals, generation/scope fencing, canonical event emission), plus
+  the durable run-status notification observer on the composed host publish
+  path;
+- `apps/desktop/tests/harness-notifications.test.ts` pins wrapped
+  `dev.harness.updated` observation, focus suppression, baseline advancement,
+  disposal, and value-free native request handling; Chat/Dev source precedence,
+  serialization, and transport failure handling are pinned by
+  `apps/web/test/desktop-chat-presentation.test.ts`;
 - `apps/desktop/tests/dev-runtime-harness-status.test.ts` pins the pure
   transition table edge-by-edge, idempotent same-state replays, typed
   refusal codes, event-kind mapping, and the bounded run-history store

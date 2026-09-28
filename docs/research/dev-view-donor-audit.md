@@ -393,7 +393,7 @@ Before implementation merges:
    | `apps/desktop/shell/src/dev-runtime/terminal/shell-integration.ts` | Orca `src/main/terminal-history.ts`; `src/main/shell-startup-features.ts:14-94`; Buzz `desktop/src-tauri/crates/buzz-terminal/src/env_fence.rs` | Orca `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7`; Buzz `eed74bde2f4797714335ac10c56c0b0244c1def4` | Copyright (c) 2026 Lovecast Inc.; MIT; Copyright 2026 Block, Inc.; Apache-2.0 | Adaptation of per-worktree history env injection (check-before-set, inherited-variable stripping, fish session naming), the positive startup-feature allowlist, and the allow-never-deny spawn environment fence | Content-addressed owner-only wrappers; an independently designed authenticated OSC 133/7 observation frame (HMAC over terminal/generation/kind/nonce/digest, single-use nonces, 2 KiB payload bound, 1,000 frames/s rate bound); OSC 52 denied by default and stripped; no Warp material | `apps/desktop/tests/terminal-shell-integration.test.ts` in issue #396 | Orca and Buzz sections |
    | `packages/dev-view/src/terminal/blocks.ts` (bounded publication concept) | Buzz `desktop/src-tauri/src/terminal_transport.rs:64-178,257-380` | `eed74bde2f4797714335ac10c56c0b0244c1def4` | Copyright 2026 Block, Inc.; Apache-2.0 | Concept translation of the one-in-flight/at-most-one-pending bounded publication state machine and stale-subscription fencing | Credit and viewport fencing apply to Adea's chunk replay flow control on the host; credit is never treated as authentication, ownership, or replay authority; block UI is an independent implementation of external OSC 133/7 semantics | `apps/desktop/tests/terminal-manager.test.ts`; `packages/dev-view/tests/terminal-renderer-editor.test.ts` in issue #396 | Buzz section |
    | `apps/desktop/shell/src/dev-runtime/projects/scan.ts` | KiroCrew `src/kiro_crew/project_scan.py:1-31,1465-1662` (prune-first walker, workspace-manifest detection, ignore semantics, budget/cancellation behavior) with the donor's member/properties/fixture test ideas | `283e136c0f902e965a535a7c9548c57c7504fed0` | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE` | Bounded TypeScript translation of the prune-first discovery semantics; the 1,662-line Python file is deliberately not translated wholesale | Replaced Python/tree-sitter seams with `node:fs` `Dirent` walkers that never follow symlinks; declared-workspace parsing for npm/pnpm/Yarn/Bun/Cargo/uv manifests via bounded line/JSON readers (no new YAML/TOML dependencies); budget exhaustion and cancellation return partial successful pages with diagnostics; scanning never executes install/bootstrap commands | `apps/desktop/tests/project-scan.test.ts` in issue #398 | KiroCrew section |
-   | `packages/dev-view/src/sidebar/scan-preview-model.ts`; `packages/dev-view/src/sidebar/add-project-panel.tsx` (add/scan composition); `sidebar/dev-sidebar-shell.tsx` (add-project slot) | KiroCrew `website/src/pages/ChatSidebar.tsx` (sidebar add/search flow); Orca `src/renderer/src/components/sidebar/AddRepoDialog.tsx` (confirm-before-add preview rows with source/duplicate/authorization state) | KiroCrew `283e136c0f902e965a535a7c9548c57c7504fed0`; Orca `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7` | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE`; Copyright (c) 2026 Lovecast Inc.; MIT | Composition translation of the add surface: recent authorized roots, scan previews with package-manager and duplicate state, and confirm-before-import rows | Replaced React dialog seams with a Solid disclosure panel issuing only `dev.project.bookmarks`/`dev.project.scan`/`dev.group.list`/`dev.group.create`/`dev.project.import` commands; previews require confirmation and never execute install/bootstrap; the register's bookmark-binding check remains the authoritative duplicate refusal | `packages/dev-view/tests/scan-preview-model.test.ts`; `apps/desktop/tests/project-registry.test.ts` in issue #398 | KiroCrew and Orca sections |
+   | `packages/dev-view/src/sidebar/scan-preview-model.ts`; `packages/dev-view/src/sidebar/add-project-panel.tsx` (first-open disclosure); `packages/dev-view/src/sidebar/add-project-form.tsx` (add/scan composition); `sidebar/dev-sidebar-shell.tsx` (add-project slot) | KiroCrew `website/src/pages/ChatSidebar.tsx` (sidebar add/search flow); Orca `src/renderer/src/components/sidebar/AddRepoDialog.tsx` (confirm-before-add preview rows with source/duplicate/authorization state) | KiroCrew `283e136c0f902e965a535a7c9548c57c7504fed0`; Orca `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7` | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE`; Copyright (c) 2026 Lovecast Inc.; MIT | Composition translation of the add surface: recent authorized roots, scan previews with package-manager and duplicate state, and confirm-before-import rows | Replaced React dialog seams with a Solid disclosure panel issuing only `dev.project.bookmarks`/`dev.project.scan`/`dev.group.list`/`dev.group.create`/`dev.project.import` commands; form code and authorized-root/group reads load on first open, and the mounted form preserves scan/confirmation/draft state across collapse; previews require confirmation and never execute install/bootstrap; the register's bookmark-binding check remains the authoritative duplicate refusal | `packages/dev-view/tests/scan-preview-model.test.ts`; `apps/web/e2e/dev-add-project.spec.ts` (compiled first-open and retained-state regression); `apps/desktop/tests/project-registry.test.ts` in issue #398 | KiroCrew and Orca sections |
 
 The selected #532 composer IME contract is translated from KiroCrew in
 [UI PR #18](https://github.com/adea-ai/ui/pull/18). Native candidate Enter retains
@@ -767,3 +767,85 @@ The composed-input branch integrates that canonical layout while retaining
 byte-identical qualified composer source, tests and packed driver, and both
 packed gate families. Its fresh required CI and normal package publication
 remain pending; this does not establish an Adea layout mount.
+
+### Runtime Chat continuity increment
+
+Local application commits `2482cf02`, `36dcf842`, and `1b8a7643` address the
+migration prerequisites above. Unsupported send/steer/stop callbacks cannot clear
+a draft or report delivery. The authenticated desktop model host retains at most
+100 presentation-only reading snapshots keyed by session and generation; scope
+replacement clears them and rejects old-scope writes. The production Chat entry
+passes that host state to the mounted transcript through an immutable identity.
+
+A headless test reproduced enabled Steer without an authorized handler before
+the fix. The corrected path and four mounted Chat regressions pass: streaming
+row identity, deferred-send remount/generation fences, model fallback draft
+fences, and earlier scroll-offset restoration. Host/docs tests (8 tests, 41
+assertions), package build, and web/dev-view types/lint pass. The lint output
+retains the existing `visually-hidden` contract notice. These local results are
+preparation for shared Chat adoption; they do not prove published composer or
+ConversationSurface mounts, full Dev/Chat follow/focus restoration, native
+transport, or packaged acceptance.
+
+### Published runtime composer adoption
+
+Application commit `6d4936e3` mounts `ChatComposer` from the normal published
+`@adea-ai/ui@0.66.0` conversation entry. The application retains canonical
+draft revision/generation fences, runtime context, authorization and delivery
+errors; the shared component owns the form, textarea and send composition.
+The superseded local input/action styling is removed. Commits `2f7e82af` and
+`0c8f2383` extend the development icon shim to the nearest installed published
+source closure, including conversation icons; the boundary test passes.
+
+All nine served headless Chat journeys pass: sending, streaming row identity,
+typed draft remount/generation fences, model fallback, approval/question state,
+resync, repeated Dev/Chat switching, unsupported Steer and reading-offset
+restoration. These tests exercise the actual application ChatView behind its
+development fixture. Native transport, packaged acceptance, and shared
+ConversationSurface restoration/follow remain separate pending gates.
+
+### Published split-layout application verification
+
+Application commit `62e2ead1` consumes normal npm `@adea-ai/ui@0.66.1`,
+including the hidden-controller ratio guard from UI PR #39. Five served
+headless Dev journeys pass: terminal attach/search accessibility, reconnect
+with original terminal DOM/search/output surviving a split, keyboard pane move,
+session-layout reload, and the rail/utility/focus round trip. The latter
+expands a utility full-width, switches Chat/Dev, restores it, and verifies the
+saved 55-percent separator remains. These checks exercise actual application
+components with the explicit development runtime fixture; they do not certify
+a native sidecar, packaged runtime or production credentials.
+
+### Transcript composition continuation
+
+The pinned KiroCrew `ChatMessageList`, `messageRenderers`, `TurnBlock` and
+`CollapsibleToolGroup` review identified the #532 turn/tool disclosure gap.
+Shared `MessageRow` alone did not implement that composition, and generic user
+delivery presentation could not prove runtime delivery. UI PR #50 now supplies
+`TranscriptComposition`, grouping and folding at commit
+`bb3a5d9a362cb30a920c33ce834772f63183c51d`; the current Adea branch consumes
+public `@adea-ai/ui@0.70.2`. Its packed transcript lane covers compiled and Solid
+entries, Chromium/WebKit interactions and native Node SSR. Those library checks
+are distinct from packaged application acceptance.
+
+Adea `ChatTranscript` mounts the shared keyed renderer through
+`packages/dev-view/src/chat/transcript-composition.ts`. The host supplies stable
+row IDs and canonical session/generation reset scope. Rows backed by opaque runtime payloads
+stay visible and unfolded: the production native harness has no structured
+assistant/tool event producer that proves call identity, phase, synthesis or
+final-answer boundaries. See the [runtime event boundary](../evidence/donor-ui-runtime-event-boundary.md)
+for the source evidence and #717's remaining native/real-session gates. The
+source manifest retains the exact donor units and nearest tests, while the
+selected-unit inventory separates library readiness from consumer acceptance.
+
+Retain the donor's distinction between its embed and dashboard grouping. A
+user disclosure choice survives incidental idle frames; durable disclosure
+belongs to the host. Tool counts describe distinct calls, not both request and
+completion rows. Pending approvals, errors, deliverables and interactive
+payloads cannot disappear behind a tool fold. Default tool-only folds unmount
+noninteractive tool rows, while interim/collapseAll retains hidden prose; this
+is an explicit lifecycle distinction, not a blanket mounted-content guarantee.
+Runtime identities, redaction, completion evidence, response promises and
+privileged callbacks remain app-owned. Production tool folding and packaged
+native acceptance remain pending; the shared port and keyed consumer adoption
+are already implemented.

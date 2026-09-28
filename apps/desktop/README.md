@@ -38,6 +38,15 @@ back to the repo path (`apps/web/dist-desktop/client`) when run from a checkout.
 `ADEA_CLIENT_ROOT` overrides both. The window opens at
 `http://127.0.0.1:4789`.
 
+## Integrated window chrome
+
+On macOS the pinned Electrobun `hiddenInset` window retains native window
+controls and lets the shared client toolbar use the title row. The client
+reserves their leading space and excludes toolbar controls from dragging.
+Other native targets retain the default title bar until their caption layout
+has its own packaged evidence. The web client uses the same toolbar without a
+native inset or drag region. See the [workspace shell contract](../../docs/specs/dev-runtime.md#appearance-and-app-library).
+
 ## Why the shell serves the web app's build
 
 The owner contract is that the desktop is a pure shell of the single web UI, so

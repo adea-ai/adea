@@ -116,12 +116,17 @@ function ConversationChannelRow(props: {
           <DropdownMenuTrigger
             as={Button}
             variant="ghost"
-            size="icon"
+            size="icon-md"
             aria-label={`Conversation options for ${props.label}`}
           >
             <EllipsisVertical aria-hidden="true" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" side="bottom">
+          <DropdownMenuContent
+            hideArrow
+            placement="bottom-end"
+            gutter={4}
+            class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+          >
             <DropdownMenuItem onSelect={() => props.onRename(props.channel)}>
               Rename
             </DropdownMenuItem>
@@ -134,7 +139,7 @@ function ConversationChannelRow(props: {
         <Button
           type="button"
           variant="destructive"
-          size="icon"
+          size="icon-md"
           aria-label={`Delete ${props.label}`}
           onClick={() => props.onArchive(props.channel)}
         >
@@ -355,7 +360,9 @@ export function WorkspaceSidebar(props: Props) {
               Mark all read
               <kbd>⇧⌘A</kbd>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Mark all read (Mod+Shift+A)</TooltipContent>
+            <TooltipContent hideArrow placement="bottom" gutter={4} data-slot="tooltip-content">
+              Mark all read (Mod+Shift+A)
+            </TooltipContent>
           </Tooltip>
         </div>
 
@@ -448,12 +455,17 @@ export function WorkspaceSidebar(props: Props) {
                               <DropdownMenuTrigger
                                 as={Button}
                                 variant="ghost"
-                                size="icon"
+                                size="icon-md"
                                 aria-label={`Room options for ${item().room.name}`}
                               >
                                 <EllipsisVertical aria-hidden="true" />
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" side="bottom">
+                              <DropdownMenuContent
+                                hideArrow
+                                placement="bottom-end"
+                                gutter={4}
+                                class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+                              >
                                 <DropdownMenuItem
                                   onSelect={() => {
                                     setActionError(null)

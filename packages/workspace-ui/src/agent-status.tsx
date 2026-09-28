@@ -1,6 +1,7 @@
+import { createMemo } from 'solid-js'
 import type { AgentSummary } from '@adea-ai/types'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 
 function StatusChip(props: { detail: string; label: string; tone: string }) {
   return (
@@ -14,7 +15,9 @@ function StatusChip(props: { detail: string; label: string; tone: string }) {
       >
         {props.label}
       </TooltipTrigger>
-      <TooltipContent>{props.detail}</TooltipContent>
+      <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
+        {props.detail}
+      </TooltipContent>
     </Tooltip>
   )
 }
@@ -42,36 +45,36 @@ export function agentStatusModel(agent: AgentSummary) {
 }
 
 export function AgentStatusBadge(props: { agent: AgentSummary }) {
-  const status = agentStatusModel(props.agent)
+  const status = createMemo(() => agentStatusModel(props.agent))
   return (
     <StatusChip
       detail="Persisted Agent lifecycle and AgentProfile configuration"
-      label={status.configuration.label}
-      tone={status.configuration.tone}
+      label={status().configuration.label}
+      tone={status().configuration.tone}
     />
   )
 }
 
 export function AgentStatus(props: { agent: AgentSummary; compact?: boolean }) {
-  const status = agentStatusModel(props.agent)
+  const status = createMemo(() => agentStatusModel(props.agent))
   return (
     <div
       class={`conventional-agent-status${props.compact ? ' conventional-agent-status--compact' : ''}`}
     >
       <StatusChip
         detail="Persisted Agent lifecycle and AgentProfile configuration"
-        label={status.configuration.label}
-        tone={status.configuration.tone}
+        label={status().configuration.label}
+        tone={status().configuration.tone}
       />
       <StatusChip
-        detail={status.runtime.detail}
-        label={status.runtime.label}
-        tone={status.runtime.tone}
+        detail={status().runtime.detail}
+        label={status().runtime.label}
+        tone={status().runtime.tone}
       />
       <StatusChip
-        detail={status.execution.detail}
-        label={status.execution.label}
-        tone={status.execution.tone}
+        detail={status().execution.detail}
+        label={status().execution.label}
+        tone={status().execution.tone}
       />
     </div>
   )

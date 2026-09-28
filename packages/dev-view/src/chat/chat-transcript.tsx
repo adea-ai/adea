@@ -1,11 +1,18 @@
-import { Index, Show, createMemo, createSignal, type JSX } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, on, type JSX } from 'solid-js'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { ConversationSurface } from '@adea-ai/ui/components/conversation'
+import { TranscriptComposition } from '@adea-ai/ui/components/conversation/transcript-composition'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
 import { projectTranscriptEvents, type ChatTranscriptItem } from './presentation'
 import type { TranscriptAccumulator } from './model'
+import { runtimeTranscriptRows } from './transcript-composition'
 
 export type ChatTranscriptProps = Readonly<{
   events: readonly RuntimeEvent[]
+  /** Canonical session and generation scope; never inferred from display content. */
+  resetKey: string
   projection?: RuntimeSession['projection']
   transcript?: TranscriptAccumulator
   onResolveApproval?: (
@@ -14,24 +21,15 @@ export type ChatTranscriptProps = Readonly<{
   ) => void | Promise<void>
   onResolveQuestion?: (event: RuntimeEvent, answer: string) => void | Promise<void>
   onJumpToTerminal?: () => void
+  readingPosition?: Readonly<{ top: number; following: boolean }>
+  onReadingPositionChange?: (position: Readonly<{ top: number; following: boolean }>) => void
 }>
 
-export const CHAT_RESPONSE_UNAVAILABLE_REASON =
-  'Runtime response controls are unavailable because this host has no authorized response operation.'
-
-/**
- * Chat only makes an inline response actionable when the host supplies an
- * authorized, generation-bound operation. A rendered event is not proof that
- * the current host can safely resolve it, so the absence of the callback is a
- * visible disabled state instead of a silent no-op.
- */
-export function chatTranscriptActionDisabledReason(
-  kind: 'approval' | 'question',
-  handler: unknown
-): string | undefined {
-  if (typeof handler === 'function') return undefined
-  return `${kind === 'approval' ? 'Approval' : 'Question'} response unavailable: ${CHAT_RESPONSE_UNAVAILABLE_REASON}`
-}
+export {
+  CHAT_RESPONSE_UNAVAILABLE_REASON,
+  chatTranscriptActionDisabledReason,
+} from './transcript-availability'
+import { chatTranscriptActionDisabledReason } from './transcript-availability'
 
 function eventStateLabel(item: ChatTranscriptItem): string {
   return item.state ? item.state.replace('_', ' ') : item.kind
@@ -48,6 +46,12 @@ function runtimeEventText(item: ChatTranscriptItem): string {
 
 export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
   const [answers, setAnswers] = createSignal<Record<string, string>>({})
+  createEffect(
+    on(
+      () => props.resetKey,
+      () => setAnswers({})
+    )
+  )
   // Memoized, not a plain accessor: the projection walks the whole retained
   // window (up to CHAT_EVENT_RETENTION_LIMIT events) and both the empty-state
   // check below and the list read it, so an unmemoized accessor projected the
@@ -60,52 +64,69 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
   )
   const availability = () => props.transcript?.availability
   const retention = () => props.transcript?.retention
+  const rows = createMemo(() => runtimeTranscriptRows(items()))
 
   return (
-    <section class="dev-chat__stream" aria-label="Conversation transcript" aria-live="polite">
-      <Show when={availability()?.status === 'resync_required'}>
-        <div class="dev-chat__notice" role="alert">
-          <p>Transcript gap detected. Reconnect to recover the missing runtime events.</p>
-        </div>
-      </Show>
-      <Show when={availability()?.status === 'stale_generation'}>
-        <div class="dev-chat__notice" role="alert">
-          <p>This transcript belongs to an older runtime generation.</p>
-        </div>
-      </Show>
-      <Show when={retention()?.complete === false}>
-        <div class="dev-chat__notice" role="status">
-          <p>Transcript history is bounded; older events require a runtime checkpoint.</p>
-        </div>
-      </Show>
-      <Show when={props.projection === 'terminal_fallback'}>
-        <div class="dev-chat__notice" role="status">
-          <p>
-            Structured events unavailable; showing the terminal transcript projection.
-            <Show when={props.onJumpToTerminal}>
-              <button type="button" class="dev-button" onClick={() => props.onJumpToTerminal?.()}>
-                Jump to terminal
-              </button>
-            </Show>
-          </p>
-        </div>
-      </Show>
-      <Show
-        when={items().length > 0}
-        fallback={<p class="dev-chat__empty">No runtime events yet.</p>}
-      >
-        <Index each={items()}>
-          {(item) => (
-            <ChatTranscriptRow
-              item={item()}
-              answers={answers}
-              setAnswers={setAnswers}
-              props={props}
-            />
-          )}
-        </Index>
-      </Show>
-    </section>
+    <ConversationSurface
+      class="dev-chat__stream"
+      aria-label="Conversation transcript"
+      aria-live="polite"
+      initialReadingPosition={props.readingPosition}
+      onReadingPositionChange={props.onReadingPositionChange}
+    >
+      <div class="dev-chat__entries">
+        <Show when={availability()?.status === 'resync_required'}>
+          <div class="dev-chat__notice" role="alert">
+            <p>Transcript gap detected. Reconnect to recover the missing runtime events.</p>
+          </div>
+        </Show>
+        <Show when={availability()?.status === 'stale_generation'}>
+          <div class="dev-chat__notice" role="alert">
+            <p>This transcript belongs to an older runtime generation.</p>
+          </div>
+        </Show>
+        <Show when={retention()?.complete === false}>
+          <div class="dev-chat__notice" role="status">
+            <p>Transcript history is bounded; older events require a runtime checkpoint.</p>
+          </div>
+        </Show>
+        <Show when={props.projection === 'terminal_fallback'}>
+          <div class="dev-chat__notice" role="status">
+            <p>
+              Structured events unavailable; showing the terminal transcript projection.
+              <Show when={props.onJumpToTerminal}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => props.onJumpToTerminal?.()}
+                >
+                  Jump to terminal
+                </Button>
+              </Show>
+            </p>
+          </div>
+        </Show>
+        <Show
+          when={items().length > 0}
+          fallback={<p class="dev-chat__empty">No runtime events yet.</p>}
+        >
+          <TranscriptComposition
+            class="dev-chat__composition"
+            rows={rows()}
+            resetKey={props.resetKey}
+            renderRow={(rowProps) => (
+              <ChatTranscriptRow
+                item={rowProps.row.value}
+                answers={answers}
+                setAnswers={setAnswers}
+                props={props}
+              />
+            )}
+          />
+        </Show>
+      </div>
+    </ConversationSurface>
   )
 }
 
@@ -136,9 +157,10 @@ function ChatTranscriptRow(props: {
               {approvalDisabledReason()}
             </p>
           </Show>
-          <button
+          <Button
             type="button"
-            class="dev-button"
+            variant="outline"
+            size="sm"
             disabled={approvalDisabledReason() !== undefined}
             aria-describedby={approvalDisabledReason() ? approvalReasonId : undefined}
             onClick={() => {
@@ -146,10 +168,11 @@ function ChatTranscriptRow(props: {
             }}
           >
             Approve
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            class="dev-button"
+            variant="outline"
+            size="sm"
             disabled={approvalDisabledReason() !== undefined}
             aria-describedby={approvalDisabledReason() ? approvalReasonId : undefined}
             onClick={() => {
@@ -157,22 +180,23 @@ function ChatTranscriptRow(props: {
             }}
           >
             Deny
-          </button>
+          </Button>
         </div>
       </Show>
       <Show when={props.item.role === 'question' && props.item.state === 'requested'}>
         <div class="dev-chat__question">
           <label for={`dev-chat-question-${props.item.id}`}>Answer question</label>
-          <input
+          <Input
             id={`dev-chat-question-${props.item.id}`}
             value={answer()}
             onInput={(event) =>
               props.setAnswers({ ...props.answers(), [props.item.id]: event.currentTarget.value })
             }
           />
-          <button
+          <Button
             type="button"
-            class="dev-button"
+            variant="outline"
+            size="sm"
             disabled={answer().trim().length === 0 || questionDisabledReason() !== undefined}
             aria-describedby={questionDisabledReason() ? questionReasonId : undefined}
             onClick={() => {
@@ -181,7 +205,7 @@ function ChatTranscriptRow(props: {
             }}
           >
             Submit answer
-          </button>
+          </Button>
           <Show when={questionDisabledReason()}>
             <p id={questionReasonId} class="dev-chat__action-status" role="status">
               {questionDisabledReason()}

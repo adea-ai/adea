@@ -20,10 +20,14 @@ visual picker.
   write-direction stream requiring `dev.browser.control`; attaching for read
   does not grant input authority.
 - `dev.browser.screenshot` returns a `ScreenshotRef`, not image bytes. The host
-  store retains bounded bytes, but the BrowserPane currently discards the
-  reference. `dev.browser.annotate` requires `dev.browser.control`, captures a
-  screenshot, and returns an annotation reference; capture provenance currently
-  says `redacted: false` because no redaction pass runs.
+  store retains bounded bytes, and the BrowserPane now shows only the returned
+  reference ID, dimensions, content type, expiry, and exact `redacted` boolean.
+  It never requests or renders bytes, and discards results after capture-context
+  changes or unmount. The current host screenshot provenance is `redacted: false`;
+  this metadata result is not permission to display pixels. `dev.browser.annotate`
+  requires `dev.browser.control`, captures a screenshot, and returns an annotation
+  reference; its capture provenance currently says `redacted: false` because no
+  redaction pass runs.
 
 ## Caller status
 
@@ -36,10 +40,10 @@ This is a DOM query; it does not infer a target from pixels or claim
 click-to-pick support.
 
 The BrowserPane does not yet consume `dev.browser.attach` or render a live
-frame. Its floating preview remains a placeholder. The Screenshot button
-captures metadata but does not display bytes; the annotation affordance does
-not yet submit a coordinate annotation. These controls need the stream/image
-boundary below before they can be truthful visual tools.
+frame. Its floating preview remains a placeholder. The Screenshot action now
+returns a metadata-only result, not a visual preview. The annotation affordance
+does not yet submit a coordinate annotation. These controls need the
+stream/image boundary below before they can be truthful visual tools.
 
 ## Broken frame producer-consumer path
 

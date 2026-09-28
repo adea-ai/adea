@@ -26,6 +26,11 @@
       "development": "./src/dev-runtime-metadata.ts",
       "import": "./dist/dev-runtime-metadata.js"
     },
+    "./dev-runtime-operation-metadata": {
+      "types": "./dist/dev-runtime-operation-metadata/index.d.ts",
+      "development": "./src/dev-runtime-operation-metadata/index.ts",
+      "import": "./dist/dev-runtime-operation-metadata/index.js"
+    },
     "./dev-runtime-wire": {
       "types": "./dist/dev-runtime-wire.d.ts",
       "development": "./src/dev-runtime-wire.ts",

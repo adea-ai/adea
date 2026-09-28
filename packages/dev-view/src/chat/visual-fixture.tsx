@@ -241,6 +241,8 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const [draftRevision, setDraftRevision] = createSignal(0)
   const [generation, setGeneration] = createSignal(3)
   const [mountKey, setMountKey] = createSignal(0)
+  const [readingPosition, setReadingPosition] =
+    createSignal<Readonly<{ top: number; following: boolean }>>()
   const deferred = new URLSearchParams(window.location.search).has('chatDraftTest')
   const fallbackDraftModel = new URLSearchParams(window.location.search).has('chatDraftFallback')
   const pending: Set<PendingSend> = new Set()
@@ -318,6 +320,8 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                 autoAttach={state === 'reconnect' || state === 'streaming'}
                 draftRevision={fallbackDraftModel ? undefined : draftRevision()}
                 onDraftChange={onDraftChange}
+                readingPosition={readingPosition()}
+                onReadingPositionChange={(_, position) => setReadingPosition(position)}
                 onResolveApproval={() => undefined}
                 onResolveQuestion={() => undefined}
               />

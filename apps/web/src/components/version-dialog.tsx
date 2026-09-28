@@ -1,7 +1,8 @@
+import type { Accessor } from 'solid-js'
 import {
   VersionDialog as SharedVersionDialog,
   type VersionDialogAdapter,
-} from '@adea-ai/ui/components/version-dialog'
+} from '@adea-ai/app-ui/components/version-dialog'
 
 import {
   checkDesktopUpdate,
@@ -20,13 +21,18 @@ const desktopUpdateAdapter: VersionDialogAdapter = {
   isDesktopRuntime,
 }
 
-export function VersionDialog(props: { onOpenChange?: (open: boolean) => void; open?: boolean }) {
+export function VersionDialog(props: {
+  onOpenChange?: (open: boolean) => void
+  open?: boolean
+  restoreFocusRef?: Accessor<HTMLElement | undefined>
+}) {
   return (
     <SharedVersionDialog
       adapter={desktopUpdateAdapter}
       fallbackVersion={packageVersion}
       onOpenChange={props.onOpenChange}
       open={props.open}
+      restoreFocusRef={props.restoreFocusRef}
     />
   )
 }

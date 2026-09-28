@@ -1,9 +1,9 @@
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { WorkspaceLogo } from '@adea-ai/ui/components/workspace-logo'
+import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ExternalLink } from 'lucide-solid'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
 
-import { ModalDialog } from './modal-dialog'
+import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 
 export function WorkspaceAboutDialog(props: {
   appName?: string
@@ -38,7 +38,8 @@ export function WorkspaceAboutDialog(props: {
 
   return (
     <ModalDialog
-      class="conventional-about-dialog"
+      modal={false}
+      class="conventional-dialog conventional-about-dialog"
       open={props.open}
       onClose={props.onClose}
       title="About Adea"

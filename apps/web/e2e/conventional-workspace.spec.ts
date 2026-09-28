@@ -510,8 +510,11 @@ async function mockConnectedWorkspace(page: Page) {
   const mutableChannels = channels.map((channel) => ({ ...channel }))
 
   await page.addInitScript(() => {
-    localStorage.clear()
-    localStorage.setItem('theme', 'light')
+    if (!sessionStorage.getItem('adea:e2e-initialized')) {
+      localStorage.clear()
+      localStorage.setItem('theme', 'light')
+      sessionStorage.setItem('adea:e2e-initialized', 'true')
+    }
   })
   await page.route('**/api/workspaces/bootstrap', (route) =>
     route.fulfill({
@@ -612,6 +615,207 @@ async function mockConnectedWorkspace(page: Page) {
     return route.fulfill({ contentType: 'application/json', json: {} })
   })
 }
+
+async function captureMessageSubmissions(
+  page: Page,
+  failAttempts: readonly number[] = []
+): Promise<Record<string, unknown>[]> {
+  const submissions: Record<string, unknown>[] = []
+  let attempt = 0
+  await page.route('**/api/v1/workspaces/workspace-e2e/channels/*/messages', async (route) => {
+    const request = route.request()
+    if (request.method() !== 'POST') return route.fallback()
+
+    attempt += 1
+    const body = request.postDataJSON() as Record<string, unknown>
+    const channelId = decodeURIComponent(new URL(request.url()).pathname.split('/').at(-2) ?? '')
+    submissions.push({
+      ...body,
+      channelId,
+      idempotencyKey: request.headers()['idempotency-key'],
+    })
+    if (failAttempts.includes(attempt)) {
+      return route.fulfill({
+        contentType: 'application/json',
+        json: { error: 'temporary failure' },
+        status: 503,
+      })
+    }
+
+    const message = {
+      ...messages[0],
+      ...body,
+      channelId,
+      id: `message-composer-${attempt}`,
+      sender: user,
+      sequence: 20 + attempt,
+    }
+    return route.fulfill({
+      contentType: 'application/json',
+      json: { message },
+      status: 201,
+    })
+  })
+  return submissions
+}
+
+test('keeps a composition Enter from submitting a workspace message', async ({ page }) => {
+  await mockWorkspace(page)
+  const submissions = await captureMessageSubmissions(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+
+  const composer = page.getByRole('textbox', { name: 'Message' }).first()
+  await composer.fill('候補')
+  await composer.evaluate((element) => {
+    if (!(element instanceof HTMLTextAreaElement)) throw new Error('Composer is not a textarea')
+    element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '候補' }))
+    element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '候補' }))
+    element.dispatchEvent(
+      new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', keyCode: 229 })
+    )
+  })
+
+  await expect.poll(() => submissions.length, { timeout: 1_000 }).toBe(0)
+  await expect(composer).toHaveValue('候補')
+})
+
+test('submits channel messages with mentions, artifacts, and Shift+Enter newlines', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  const submissions = await captureMessageSubmissions(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+
+  const composer = page.getByRole('textbox', { name: 'Message' }).first()
+  const composerForm = page.locator('form[data-slot="message-composer"]').first()
+  await expect(composer).toHaveAttribute('aria-describedby', 'composer-help-channel-product')
+  await expect(composer).toHaveAttribute('id', 'composer-channel-product')
+  await expect(page.getByRole('button', { name: 'Start dictation' })).toBeDisabled()
+  await composerForm.evaluate((form) => {
+    form.dataset.submitEventCount = '0'
+    form.addEventListener(
+      'submit',
+      () => {
+        form.dataset.submitEventCount = String(Number(form.dataset.submitEventCount) + 1)
+      },
+      { capture: true }
+    )
+  })
+  await composer.fill('Ask @Research')
+  const mentionOption = page
+    .locator('.conventional-mention-menu')
+    .getByRole('button', { name: 'Research Agent', exact: true })
+  const mentionButtonSemantics = await mentionOption.evaluate((element) => {
+    const button = element as HTMLButtonElement
+    return {
+      type: button.type,
+      formAssociated: Boolean(button.form),
+      insideComposerForm: button.closest('form[data-slot="message-composer"]') !== null,
+    }
+  })
+  expect(mentionButtonSemantics).toEqual({
+    type: 'button',
+    formAssociated: true,
+    insideComposerForm: true,
+  })
+  await mentionOption.click()
+  expect(await composerForm.getAttribute('data-submit-event-count')).toBe('0')
+  expect(submissions).toHaveLength(0)
+  await expect(composer).toBeFocused()
+  await composer.evaluate((element) => element.blur())
+  await page.keyboard.press('Control+Shift+m')
+  await expect(composer).toBeFocused()
+  await composer.press('Shift+Enter')
+  await composer.type('with attached notes')
+  await page.getByRole('button', { name: 'Attach an Artifact' }).click()
+  await page.locator('.conventional-attachment-menu').getByRole('checkbox').check()
+  await expect(
+    page.getByRole('button', { name: '1 Artifact attached, add an Artifact' })
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Remove launch-brief.md' }).click()
+  await expect(page.getByRole('button', { name: 'Attach an Artifact' })).toBeVisible()
+  await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
+  await page.locator('.conventional-attachment-menu').getByRole('checkbox').check()
+  await expect(
+    page.getByRole('button', { name: '1 Artifact attached, add an Artifact' })
+  ).toBeVisible()
+  await composer.press('Enter')
+
+  await expect.poll(() => submissions.length).toBe(1)
+  expect(submissions[0]).toMatchObject({
+    artifactIds: ['artifact-brief'],
+    bodyText: 'Ask @Research Agent \nwith attached notes',
+    channelId: 'channel-product',
+    mentions: [{ agentId: 'agent-research', kind: 'agent' }],
+  })
+  expect(submissions[0]?.idempotencyKey).toEqual(expect.any(String))
+  await expect(composer).toHaveValue('')
+  await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Attach an Artifact' })).toBeVisible()
+})
+
+test('keeps the room draft and attachments after a failed send, then clears on retry', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  const submissions = await captureMessageSubmissions(page, [1])
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+
+  const composer = page.getByRole('textbox', { name: 'Message' }).first()
+  const draft = 'Keep this draft when the connection fails.'
+  await composer.fill(draft)
+  await page.getByRole('button', { name: 'Attach an Artifact' }).click()
+  await page.locator('.conventional-attachment-menu').getByRole('checkbox').check()
+  await page.getByRole('button', { name: 'Send message' }).first().click()
+
+  await expect(
+    page.getByText(
+      'Message not sent. Your draft is still here; retry when the connection recovers.'
+    )
+  ).toBeVisible()
+  await expect(composer).toHaveValue(draft)
+  await expect(page.getByLabel('Selected attachments')).toContainText('launch-brief.md')
+  await composer.press('Enter')
+
+  await expect.poll(() => submissions.length).toBe(2)
+  expect(submissions[0]).toMatchObject({ artifactIds: ['artifact-brief'], bodyText: draft })
+  expect(submissions[1]).toMatchObject({ artifactIds: ['artifact-brief'], bodyText: draft })
+  expect(submissions[1]?.idempotencyKey).not.toBe(submissions[0]?.idempotencyKey)
+  await expect(composer).toHaveValue('')
+  await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
+})
+
+test('keeps thread reply metadata separate from the room draft', async ({ page }) => {
+  await mockWorkspace(page)
+  const submissions = await captureMessageSubmissions(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+
+  const roomComposer = page.getByRole('textbox', { name: 'Message' }).first()
+  await roomComposer.fill('Room draft remains here.')
+  await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
+  const threadComposer = page.getByRole('textbox', { name: 'Message' }).nth(1)
+  await expect(threadComposer).toHaveAttribute(
+    'aria-describedby',
+    'composer-help-thread-message-root'
+  )
+  await expect(page.getByText(/^Replying in thread ·/)).toBeVisible()
+  await threadComposer.fill('Reply with the root identity preserved.')
+  await threadComposer.press('Enter')
+
+  await expect.poll(() => submissions.length).toBe(1)
+  expect(submissions[0]).toMatchObject({
+    bodyText: 'Reply with the root identity preserved.',
+    channelId: 'channel-product',
+    replyToMessageId: 'message-root',
+    threadRootMessageId: 'message-root',
+  })
+  await expect(roomComposer).toHaveValue('Room draft remains here.')
+  await expect(threadComposer).toHaveValue('')
+})
 
 test('renders empty and populated Room-first workspace states', async ({ page }) => {
   await mockWorkspace(page, true)
@@ -797,7 +1001,7 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   )
 })
 
-test('keeps the App Library unavailable until workspace bootstrap completes', async ({ page }) => {
+test('keeps Plugins unavailable until workspace bootstrap completes', async ({ page }) => {
   let releaseBootstrap!: () => void
   const bootstrapBlocked = new Promise<void>((resolve) => {
     releaseBootstrap = resolve
@@ -815,7 +1019,7 @@ test('keeps the App Library unavailable until workspace bootstrap completes', as
   })
   await page.goto('/?view=chat')
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
-  const pluginsButton = globalNavigation.getByRole('button', { name: 'App Library' })
+  const pluginsButton = globalNavigation.getByRole('button', { name: 'Plugins' })
   await expect(pluginsButton).toBeVisible()
   await expect(pluginsButton).toBeDisabled()
 
@@ -865,8 +1069,8 @@ test('browses the verified registry marketplace and submits an exact install req
   })
   await page.goto('/?view=chat')
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
-  await globalNavigation.getByRole('button', { name: 'App Library' }).click()
-  const plugins = page.getByRole('dialog', { name: 'App Library' })
+  await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
+  const plugins = page.getByRole('dialog', { name: 'Plugins' })
   await expect(plugins).toBeVisible()
   await expect(plugins.locator('.plugins-browser__count')).toHaveText(/^\d+ plugins$/)
 
@@ -933,7 +1137,7 @@ test('browses the verified registry marketplace and submits an exact install req
   await expect(plugins.getByText('No plugins added yet')).toBeVisible()
 })
 
-test('navigates direct, group, thread, and Task detail surfaces', async ({ page }) => {
+test('navigates direct, group, and thread surfaces', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')
   await page.getByRole('button', { name: 'Research Agent', exact: true }).click()
@@ -960,21 +1164,67 @@ test('navigates direct, group, thread, and Task detail surfaces', async ({ page 
     .toEqual({ documentScroll: 0, workspaceScroll: 0 })
   await expect(page).toHaveScreenshot('workspace-thread.png', { animations: 'disabled' })
   await page.getByRole('button', { name: 'Close thread' }).click()
+})
 
+test('opens responsive Task detail and restores focus on dismissal', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.goto('/')
   await page.getByRole('button', { name: 'Tasks', exact: true }).click()
-  await page.getByRole('button', { name: /Launch planning/ }).click()
+  const taskTrigger = page.getByRole('button', { name: /Launch planning/ })
+  await taskTrigger.click()
   await expect(page.getByRole('heading', { name: 'Launch planning' })).toBeVisible()
+  const detail = page.getByRole('dialog', { name: 'Launch planning', exact: true })
+  await expect(detail).toHaveAttribute('data-side', 'right')
+  await expect(page.locator('[class*="bg-scrim/50"]')).toHaveCount(1)
+  await expect(detail.locator('.conventional-detail-panel')).toHaveCSS('overflow-y', 'auto')
+  const rootFontSize = await page
+    .locator('html')
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))
+  expect(
+    await detail.evaluate((element) => Number.parseFloat(getComputedStyle(element).width))
+  ).toBeCloseTo(29 * rootFontSize, 1)
   await expect(page).toHaveScreenshot('workspace-task-detail.png', { animations: 'disabled' })
+
+  await page.setViewportSize({ width: 390, height: 480 })
+  expect(
+    await detail.evaluate((element) => Number.parseFloat(getComputedStyle(element).width))
+  ).toBeCloseTo(366.6, 0)
+  const detailBody = detail.locator('.conventional-detail-panel')
+  await expect
+    .poll(() => detailBody.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true)
+  await detailBody.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+  await expect.poll(() => detailBody.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+
+  await page.keyboard.press('Escape')
+  await expect(detail).toHaveCount(0)
+  await expect(taskTrigger).toBeFocused()
+
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await taskTrigger.click()
+  const reopenedDetail = page.getByRole('dialog', { name: 'Launch planning', exact: true })
+  await reopenedDetail.getByRole('button', { name: 'Close Task detail' }).click()
+  await expect(reopenedDetail).toHaveCount(0)
+  await expect(taskTrigger).toBeFocused()
 })
 
 test('supports narrow navigation, keyboard search, and dark mode', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mockWorkspace(page)
   await page.goto('/')
-  await expect(page.getByRole('button', { name: 'Open workspace navigation' })).toBeVisible()
-  await page.getByRole('button', { name: 'Open workspace navigation' }).click()
+  await expect(page.getByRole('button', { name: 'Expand contextual sidebar' })).toBeVisible()
+  await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
   const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(navigation).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Collapse contextual sidebar' })).toHaveAttribute(
+    'aria-expanded',
+    'true'
+  )
+  await expect(navigation.getByRole('heading', { level: 1 })).toBeVisible()
+  await expect(navigation.getByRole('region', { name: 'Rooms' })).toBeVisible()
+  await expect(navigation.getByRole('region', { name: 'Conversations' })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-narrow-light.png', { animations: 'disabled' })
   await navigation.getByRole('button', { name: 'Close workspace navigation' }).click()
 
@@ -1023,6 +1273,29 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
   expect((await unreadRequest).postDataJSON()).toEqual({ action: 'unread' })
 })
 
+test('global rail opens workspace search from Virtual and Dev', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.goto('/?view=virtual')
+  await expect(page.getByRole('button', { name: 'Switch workspace' })).toBeVisible({
+    timeout: 20_000,
+  })
+
+  const searchDialog = page.getByRole('dialog', { name: 'Search workspace' })
+  await page.keyboard.press('Control+k')
+  await expect(searchDialog).toBeVisible({ timeout: 20_000 })
+  await expect(page).toHaveURL(/view=chat/)
+  await page.keyboard.press('Escape')
+  await expect(searchDialog).toBeHidden()
+
+  await page.goto('/?view=dev&devE2e=preserved')
+  await expect(page.getByRole('button', { name: 'Dev view', exact: true })).toBeVisible({
+    timeout: 20_000,
+  })
+  await page.keyboard.press('Control+k')
+  await expect(searchDialog).toBeVisible({ timeout: 20_000 })
+  await expect(page).toHaveURL(/view=chat/)
+})
+
 test('retains drafts across navigation and reloads at supported breakpoints', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')
@@ -1057,7 +1330,29 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
 
   await settings.getByRole('tab', { name: 'Input & notifications' }).click()
   await expect(settings.getByRole('button', { name: 'Check microphone' })).toBeDisabled()
-  await settings.getByRole('switch', { name: 'Mention notifications' }).uncheck()
+  const mentionSwitch = settings.getByRole('switch', { name: 'Mention notifications' })
+  const mentionSwitchControl = mentionSwitch.locator('xpath=following-sibling::*[1]')
+  await mentionSwitchControl.click()
+  await expect(mentionSwitch).not.toBeChecked()
+  await mentionSwitch.press('Space')
+  await expect(mentionSwitch).toBeChecked()
+  await mentionSwitch.press('Space')
+  await expect(mentionSwitch).not.toBeChecked()
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = localStorage.getItem('adea:workspace-preferences:v1')
+        return raw ? JSON.parse(raw).notifyMentions : undefined
+      })
+    )
+    .toBe(false)
+  await page.reload()
+  const reloadedSettings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(reloadedSettings).toBeVisible()
+  await expect(
+    reloadedSettings.getByRole('switch', { name: 'Mention notifications' })
+  ).not.toBeChecked()
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   await expect(page).toHaveScreenshot('workspace-settings-light.png', { animations: 'disabled' })
   await page.evaluate(() => {
     localStorage.setItem('theme', 'dark')
@@ -1171,4 +1466,388 @@ test('the appearance section keeps the ported Zeron composition', async ({ page 
   // The three live mode cards: System renders the split light/dark miniature.
   await expect(panel.locator('[data-theme-miniature]')).toHaveCount(4)
   await expect(panel).toHaveScreenshot('appearance-panel-light.png', { animations: 'disabled' })
+})
+
+test('integrated chrome keeps the global rail while Virtual navigation collapses', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=virtual')
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await expect(toolbar).toBeVisible()
+  const navigation = page.getByRole('complementary', { name: 'Virtual navigation' })
+  await expect(navigation).toBeVisible()
+  await expect(page.getByRole('main')).toHaveCount(1)
+  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+  await expect(navigation).toBeHidden()
+  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+  await expect(navigation).toBeVisible()
+  const bounds = await page.locator('.workspace-frame').evaluate((frame) => {
+    const bar = frame.querySelector('[data-slot="top-bar"]')!.getBoundingClientRect()
+    const rail = frame.querySelector('.global-rail')!.getBoundingClientRect()
+    return {
+      sameWidth: bar.width === frame.getBoundingClientRect().width,
+      below: rail.top >= bar.bottom,
+    }
+  })
+  expect(bounds).toEqual({ sameWidth: true, below: true })
+})
+
+test('Virtual room designer keeps the contextual sidebar and global rail', async ({ page }) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=virtual&roomDesigner=1')
+  const sidebar = page.getByRole('complementary', { name: 'Virtual navigation' })
+  await expect(page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })).toBeVisible()
+  await expect(sidebar).toBeVisible()
+  await expect(page.getByRole('main')).toHaveCount(1)
+  const fallback = page.getByRole('status', { name: 'Virtual view unavailable' })
+  expect(
+    await fallback.evaluate((element) => {
+      const viewport = element.closest('.workspace-scene-viewport')!
+      return {
+        fillsViewport:
+          element.getBoundingClientRect().height === viewport.getBoundingClientRect().height,
+        height: element.getBoundingClientRect().height,
+      }
+    })
+  ).toEqual({ fillsViewport: true, height: expect.any(Number) })
+  expect(
+    await fallback.evaluate((element) => element.getBoundingClientRect().height)
+  ).toBeGreaterThan(600)
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+  await expect(sidebar).toBeHidden()
+  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+  await sidebar.getByRole('button', { name: 'Open conversations' }).click()
+  await expect(page.getByRole('button', { name: 'Chat view', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  )
+})
+
+test('collapsed Chat navigation is absent from keyboard and accessibility navigation', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 840 })
+    const toolbar = page.getByLabel('Workspace toolbar')
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+    await expect(sidebar).toBeVisible()
+    await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+    await expect(sidebar).toBeHidden()
+    await expect(sidebar).toHaveCount(0)
+    // A zero-width grid column alone clips pixels but leaves its controls in
+    // the focus order and native accessibility tree.
+    expect(
+      await page
+        .locator('.conventional-sidebar button')
+        .first()
+        .evaluate((button) => {
+          button.focus()
+          return button === document.activeElement
+        })
+    ).toBe(false)
+    await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+    await expect(sidebar).toBeVisible()
+  }
+})
+
+test('App Library enables views separately from Plugins and remains reachable with all apps disabled', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  await expect(library).toBeVisible()
+  const viewGroup = rail.getByRole('group', { name: 'Workspace views' })
+  const selectedRailActions = viewGroup.locator('button[aria-pressed="true"]')
+  await expect(selectedRailActions).toHaveCount(1)
+  await expect(selectedRailActions).toHaveAttribute('aria-label', 'App Library')
+  for (const name of ['Virtual', 'Chat', 'Dev']) {
+    await library.getByRole('button', { name: `Disable ${name}`, exact: true }).click()
+  }
+  await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toHaveCount(0)
+  await expect(rail.getByRole('button', { name: 'Dev view', exact: true })).toHaveCount(0)
+  await expect(rail.getByRole('button', { name: 'Virtual view', exact: true })).toHaveCount(0)
+  await page.reload()
+  await expect(library).toBeVisible()
+  await page
+    .getByLabel('Workspace toolbar')
+    .getByRole('button', { name: 'Search workspace', exact: true })
+    .click()
+  await expect(library.getByRole('searchbox', { name: 'Search apps', exact: true })).toBeFocused()
+  await library.getByRole('button', { name: 'Enable Chat', exact: true }).click()
+  await library.getByRole('button', { name: 'Open Chat', exact: true }).click()
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+  await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toBeVisible()
+  await rail.getByRole('button', { name: 'Plugins', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Plugins', exact: true })).toBeVisible()
+  await expect(page.getByRole('main', { name: 'App Library' })).toHaveCount(0)
+})
+
+test('top bar history traverses app destinations and truncates a forward branch', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  await expect(page.getByRole('main', { name: 'App Library' })).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+  await expect(toolbar.getByRole('button', { name: 'Forward', exact: true })).toBeEnabled()
+  await toolbar.getByRole('button', { name: 'Forward', exact: true }).click()
+  await expect(page.getByRole('main', { name: 'App Library' })).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Back', exact: true }).click()
+  await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
+  await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeVisible()
+  await expect(toolbar.getByRole('button', { name: 'Forward', exact: true })).toBeDisabled()
+})
+
+test('optional apps open actual task and source control views without hiding the global rail', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
+  await library.getByRole('button', { name: 'Open Kanban', exact: true }).click()
+  await expect(page).toHaveURL(/app=kanban/)
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  )
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  await library.getByRole('button', { name: 'Enable Source control', exact: true }).click()
+  await library.getByRole('button', { name: 'Open Source control', exact: true }).click()
+  await expect(page).toHaveURL(/app=source-control/)
+  await expect(page.locator('.dev-workspace--source-control-app')).toBeVisible()
+  await expect(page.locator('.dev-sidebar')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Source Control', exact: true })).toBeVisible()
+  await expect(rail).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Restore utility pane', exact: true })).toHaveCount(
+    0
+  )
+  await page
+    .getByLabel('Workspace toolbar')
+    .getByRole('button', { name: 'Collapse contextual sidebar' })
+    .click()
+  await expect(page.locator('.dev-sidebar')).toBeHidden()
+  await expect(rail).toBeVisible()
+})
+
+test('all-off stale links remain in Library while enabling the first app', async ({ page }) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  for (const name of ['Virtual', 'Chat', 'Dev'])
+    await library.getByRole('button', { name: `Disable ${name}`, exact: true }).click()
+  await page.goto('/?view=dev')
+  await expect(page).toHaveURL(/app=library/)
+  await library.getByRole('button', { name: 'Enable Chat', exact: true }).click()
+  await expect(library).toBeVisible()
+  await expect(library.getByRole('button', { name: 'Open Chat', exact: true })).toBeVisible()
+  await library.getByRole('button', { name: 'Open Chat', exact: true }).click()
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+})
+
+test('Kanban leaves the prior Chat surface intact and Library keeps reorder/reset controls', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  await page.getByRole('button', { name: 'Agents', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible()
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  await library.getByRole('button', { name: 'Move Chat up', exact: true }).click()
+  expect(
+    await rail
+      .getByRole('group', { name: 'Workspace views' })
+      .getByRole('button')
+      .first()
+      .getAttribute('aria-label')
+  ).toBe('Chat view')
+  await page.reload()
+  expect(
+    await rail
+      .getByRole('group', { name: 'Workspace views' })
+      .getByRole('button')
+      .first()
+      .getAttribute('aria-label')
+  ).toBe('Chat view')
+  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
+  await library.getByRole('button', { name: 'Open Kanban', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible()
+  await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible()
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  await library.getByRole('button', { name: 'Reset Navigation', exact: true }).click()
+  expect(
+    await rail
+      .getByRole('group', { name: 'Workspace views' })
+      .getByRole('button')
+      .first()
+      .getAttribute('aria-label')
+  ).toBe('Virtual view')
+  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(0)
+})
+
+test('Library reorders enabled neighbors across disabled apps and restores them after reload', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat&app=library')
+  const library = page.getByRole('main', { name: 'App Library' })
+  const views = page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('group', { name: 'Workspace views' })
+  await library.getByRole('button', { name: 'Disable Chat', exact: true }).click()
+  await expect(library.getByRole('button', { name: 'Move Virtual up', exact: true })).toBeDisabled()
+  await expect(library.getByRole('button', { name: 'Move Dev down', exact: true })).toBeDisabled()
+  await library.getByRole('button', { name: 'Move Dev up', exact: true }).click()
+  await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Dev view')
+  await expect(library.getByRole('button', { name: 'Move Dev up', exact: true })).toBeDisabled()
+  await page.reload()
+  await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Dev view')
+  await library.getByRole('button', { name: 'Enable Chat', exact: true }).click()
+  await expect(views.getByRole('button').nth(1)).toHaveAttribute('aria-label', 'Chat view')
+  await library.getByRole('button', { name: 'Move Dev down', exact: true }).click()
+  await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Chat view')
+})
+
+test('themed shell and Library remain usable across desktop and narrow layouts', async ({
+  page,
+}, testInfo) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat&app=library')
+  const library = page.getByRole('main', { name: 'App Library' })
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await expect(library).toBeVisible()
+  const light = await toolbar.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await page.screenshot({ path: testInfo.outputPath('library-light-desktop.png') })
+  await page.getByRole('button', { name: 'User settings', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+  await settings.getByRole('tab', { name: 'Appearance', exact: true }).click()
+  const appearance = settings.getByRole('region', { name: 'Appearance', exact: true })
+  await appearance
+    .getByRole('radiogroup', { name: 'Appearance mode', exact: true })
+    .getByText('Dark', { exact: true })
+    .click()
+  await appearance.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await expect(settings).toBeHidden()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  const dark = await toolbar.evaluate((element) => getComputedStyle(element).backgroundColor)
+  expect(dark).not.toBe(light)
+  await page.screenshot({ path: testInfo.outputPath('library-dark-desktop.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(library.getByRole('searchbox', { name: 'Search apps', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('library-dark-mobile.png') })
+  await page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('button', { name: 'Virtual view', exact: true })
+    .click()
+  await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar', exact: true }).click()
+  await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeHidden()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true
+  )
+  await page.screenshot({ path: testInfo.outputPath('virtual-dark-mobile.png') })
+})
+
+test('Chat conversation surface follows the shared light and dark theme background', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const surface = page.locator('#workspace-main')
+  await expect(surface).toBeVisible()
+  for (const mode of ['Light', 'Dark']) {
+    await page.getByRole('button', { name: 'User settings', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+    await settings.getByRole('tab', { name: 'Appearance', exact: true }).click()
+    const appearance = settings.getByRole('region', { name: 'Appearance', exact: true })
+    await appearance
+      .getByRole('radiogroup', { name: 'Appearance mode', exact: true })
+      .getByText(mode, { exact: true })
+      .click()
+    await appearance.getByRole('button', { name: 'Save', exact: true }).click()
+    await page.keyboard.press('Escape')
+    await expect(settings).toBeHidden()
+    await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', mode.toLowerCase())
+    const colors = await surface.evaluate((element) => ({
+      conversation: getComputedStyle(element).backgroundColor,
+      workspace: getComputedStyle(element.closest('.conventional-workspace')!).backgroundColor,
+    }))
+    expect(colors.conversation).toBe(colors.workspace)
+  }
+})
+
+test('repeated Chat and Library transitions release workspace event listeners', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const tracked = new Set(['hashchange', 'online', 'offline', 'keydown'])
+    const listeners = new Map<string, Set<EventListenerOrEventListenerObject>>()
+    const originalAdd = window.addEventListener.bind(window)
+    const originalRemove = window.removeEventListener.bind(window)
+    window.addEventListener = (type, listener, options) => {
+      if (listener && tracked.has(type)) {
+        const id = type + ':' + Boolean(typeof options === 'boolean' ? options : options?.capture)
+        const entries = listeners.get(id) ?? new Set<EventListenerOrEventListenerObject>()
+        entries.add(listener)
+        listeners.set(id, entries)
+        if (typeof options === 'object' && options.signal) {
+          options.signal.addEventListener('abort', () => entries.delete(listener), { once: true })
+        }
+      }
+      originalAdd(type, listener, options)
+    }
+    window.removeEventListener = (type, listener, options) => {
+      const id = type + ':' + Boolean(typeof options === 'boolean' ? options : options?.capture)
+      if (listener) listeners.get(id)?.delete(listener)
+      originalRemove(type, listener, options)
+    }
+    Object.defineProperty(window, 'workspaceListenerCounts', {
+      value: () => Object.fromEntries([...listeners].map(([id, entries]) => [id, entries.size])),
+    })
+  })
+  await mockWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  const cycle = async () => {
+    await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'App Library', exact: true })).toBeVisible()
+    await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
+    await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
+  }
+  // Warm lazy destinations once before comparing retained listeners.
+  await cycle()
+  const counts = () =>
+    page.evaluate(() => {
+      const read = Reflect.get(window, 'workspaceListenerCounts')
+      if (typeof read !== 'function') throw new Error('Listener instrumentation is missing')
+      return read()
+    })
+  const baseline = await counts()
+  await cycle()
+  await cycle()
+  await expect.poll(counts).toEqual(baseline)
 })

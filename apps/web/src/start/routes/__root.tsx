@@ -1,7 +1,7 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/solid-router'
 import { HydrationScript } from 'solid-js/web'
 import type { JSX } from 'solid-js'
-import { ThemeScript } from '@adea-ai/ui/components/theme-provider'
+import { ThemeScript } from '@adea-ai/app-ui/components/theme-provider'
 import '../globals.css'
 
 /**
@@ -10,6 +10,7 @@ import '../globals.css'
  * deep links survive a view or scene switch.
  */
 export type WorkspaceSearch = {
+  app?: 'kanban' | 'source-control' | 'library'
   channel?: string
   /** Development-only ChatView visual fixture selector (#536 evidence lane). */
   chatE2e?: string

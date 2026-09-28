@@ -15,7 +15,7 @@
 // Existing named gates are invoked rather than duplicated, so budget numbers
 // live in exactly one place:
 //   - `bun run --cwd apps/web start:check-bundle` (client JS bytes + file count)
-//   - `bun scripts/check-dev-view-bundle.mjs` (the lazy Dev View chunk)
+//   - `node scripts/check-dev-view-bundle.mjs` (the lazy Dev View chunk)
 //
 // Exit codes: 0 = measured and every gate passed; 1 = lane failure; 2 = a
 // budget gate failed.
@@ -369,7 +369,7 @@ async function main() {
     exitCode: bundleGate.status ?? 1,
     report: (bundleGate.stdout ?? '').trim().split('\n').slice(-1)[0],
   }
-  const devViewGate = run('bun', ['scripts/check-dev-view-bundle.mjs'], root)
+  const devViewGate = run('node', ['scripts/check-dev-view-bundle.mjs'], root)
   results.gates.devViewChunk = {
     exitCode: devViewGate.status ?? 1,
     report: (devViewGate.stdout ?? '').trim().split('\n').slice(-1)[0],

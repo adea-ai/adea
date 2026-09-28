@@ -6,6 +6,8 @@
 declare module 'electrobun/main' {
   export type BrowserWindowOptions = {
     title?: string
+    /** Verified against the pinned 2.0.1 BrowserWindow API. */
+    titleBarStyle?: 'default' | 'hiddenInset'
     url?: string
     frame?: { width?: number; height?: number; x?: number; y?: number }
   }

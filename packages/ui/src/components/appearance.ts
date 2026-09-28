@@ -2,23 +2,34 @@
  * Copyright (c) 2026 Wing
  * Licensed under the MIT License.
  *
- * Appearance domain model substantially translated from Zeron
- * crates/theme/src/lib.rs and crates/ui/src/appearance.rs, revision
- * 30a9a9537c5ec96226c87f4bf349b6f77c5dfb59: color math with WCAG contrast,
- * accent role derivation, independent light/dark theme selection, the
- * system/light/dark mode resolver, surface preference resolution, the theme
- * registry with deterministic built-in fallback, and its validation rules.
- * Modified for TypeScript, Adea's token layer, custom accent validation,
- * the translucent surface capability, and the user reduced-transparency
- * policy Zeron lacks. See NOTICE and docs/research/dev-view-donor-audit.md.
+ * Adea's host appearance adapter keeps the versioned preference schema,
+ * migration/recovery, system-mode resolution, native surface capability, and
+ * reduced-transparency policy. @adea-ai/themes owns palette records, accents,
+ * color parsing, and contrast math; this module projects those records into
+ * Adea's established CSS/provider shape. See NOTICE and
+ * docs/research/dev-view-donor-audit.md for source and behavior provenance.
  *
- * This module is the declared token layer for the built-in theme palette
- * data: the color string literals below are the theme itself, exactly like
- * the declarations in `styles/theme.css` (see
- * `scripts/check-theme-colors.mjs`).
+ * The original `adea-light` and `adea-dark` CSS declarations remain the
+ * first-paint defaults. `scripts/check-theme-colors.mjs` verifies them against
+ * the generated projection from the published catalogue.
  */
 
-import { canonicalAdeaThemeRegistry } from './canonical-theme-adapter'
+import {
+  ACCENTS,
+  accentForeground,
+  accentValue as canonicalAccentValue,
+  getAccent,
+  type AccentPreset as CanonicalAccentPreset,
+} from '@adea-ai/themes'
+import {
+  contrastRatio as canonicalContrastRatio,
+  oklchToHex as canonicalOklchToHex,
+  parseColor as parseCanonicalColor,
+  repairContrast,
+  type Oklch,
+} from '@adea-ai/themes/oklch'
+
+import { canonicalThemeRegistry } from './canonical-theme-adapter'
 
 /**
  * The versioned client appearance preference (Dev Runtime spec,
@@ -85,10 +96,7 @@ export function resolveAppearanceMode(
   return mode
 }
 
-/*
- * Color math — Zeron `Color`, translated. Values are `#rgb`, `#rgba`,
- * `#rrggbb`, or `#rrggbbaa` strings.
- */
+/* Hex is the host preference format; the shared Themes package owns color math. */
 
 export type RgbColor = Readonly<{ r: number; g: number; b: number; a: number }>
 
@@ -189,23 +197,8 @@ function blendOver(foreground: RgbColor, background: RgbColor): RgbColor {
   }
 }
 
-function mixColors(left: RgbColor, right: RgbColor, amount: number): RgbColor {
-  const clamped = Math.min(1, Math.max(0, amount))
-  const mix = (a: number, b: number) => Math.round(a + (b - a) * clamped)
-  return { r: mix(left.r, right.r), g: mix(left.g, right.g), b: mix(left.b, right.b), a: 255 }
-}
-
-function linearChannel(channel: number): number {
-  const value = channel / 255
-  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-}
-
-function relativeLuminance(color: RgbColor): number {
-  return (
-    0.2126 * linearChannel(color.r) +
-    0.7152 * linearChannel(color.g) +
-    0.0722 * linearChannel(color.b)
-  )
+function toCanonicalColor(color: RgbColor): Oklch | undefined {
+  return parseCanonicalColor(colorToHex({ ...color, a: 255 }))
 }
 
 /** WCAG contrast ratio between two colors. Alpha composites over the background first. */
@@ -217,52 +210,38 @@ export function contrastRatio(
   const back = typeof background === 'string' ? parseColor(background) : background
   if (!front || !back) return 0
   const opaqueFront = front.a === 255 ? front : blendOver(front, back)
-  const a = relativeLuminance(opaqueFront)
-  const b = relativeLuminance(back)
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
-}
-
-function bestOnColor(color: RgbColor): RgbColor {
-  return contrastRatio(WHITE, color) >= contrastRatio(BLACK, color) ? WHITE : BLACK
+  const foregroundColor = toCanonicalColor(opaqueFront)
+  const backgroundColor = toCanonicalColor(back)
+  if (!foregroundColor || !backgroundColor) return 0
+  return canonicalContrastRatio(foregroundColor, backgroundColor)
 }
 
 const WHITE: RgbColor = { r: 255, g: 255, b: 255, a: 255 }
 const BLACK: RgbColor = { r: 0, g: 0, b: 0, a: 255 }
 
-/** Move toward black or white until the requested contrast is met. (Zeron `ensure_contrast`.) */
+/** Preserve the host hex shape while delegating contrast repair to the catalogue. */
 function ensureContrast(color: RgbColor, background: RgbColor, minimum: number): RgbColor {
   if (contrastRatio(color, background) >= minimum) return color
-  const target =
-    contrastRatio(BLACK, background) >= contrastRatio(WHITE, background) ? BLACK : WHITE
-  for (let step = 1; step <= 20; step++) {
-    const candidate = mixColors(color, target, step / 20)
-    if (contrastRatio(candidate, background) >= minimum) return candidate
+
+  const renderedColor = color.a === 255 ? color : blendOver(color, background)
+  const source = toCanonicalColor(renderedColor)
+  const canvas = toCanonicalColor(background)
+  if (!source || !canvas) return color
+
+  for (let margin = 0; margin <= 0.05; margin = Number((margin + 0.001).toFixed(3))) {
+    const repaired = repairContrast(source, canvas, minimum + margin)
+    if (!repaired.satisfied) continue
+    const candidate = parseColor(canonicalOklchToHex(repaired.color))
+    if (candidate && contrastRatio(candidate, background) >= minimum) return candidate
   }
-  return target
+
+  return contrastRatio(WHITE, background) >= minimum ? WHITE : BLACK
 }
 
-/*
- * Accent — Zeron `AccentPreset`/`AccentSelection`/`AccentRoles` with Adea's
- * custom-color validation. Presets carry per-appearance values; a custom
- * color is normalized to the 3:1 interaction minimum instead of rejected
- * outright, and unparseable values fall back to the theme default.
- */
+/* The catalogue owns preset metadata; this adapter retains Adea's hex preference shape. */
+export type AccentPreset = CanonicalAccentPreset
 
-export type AccentPreset = Readonly<{
-  id: string
-  label: string
-  dark: string
-  light: string
-}>
-
-export const accentPresets: readonly AccentPreset[] = Object.freeze([
-  { id: 'violet', label: 'Violet', dark: '#a78bfa', light: '#6d28d9' },
-  { id: 'blue', label: 'Blue', dark: '#60a5fa', light: '#2563eb' },
-  { id: 'green', label: 'Green', dark: '#4ade80', light: '#15803d' },
-  { id: 'amber', label: 'Amber', dark: '#fbbf24', light: '#b45309' },
-  { id: 'cyan', label: 'Cyan', dark: '#22d3ee', light: '#0e7490' },
-  { id: 'pink', label: 'Pink', dark: '#f472b6', light: '#be185d' },
-])
+export const accentPresets: readonly AccentPreset[] = ACCENTS
 
 /**
  * Normalize a custom accent color against a variant background: unparseable
@@ -277,7 +256,7 @@ export function normalizeAccentValue(value: string, background: string): string 
 }
 
 export function accentPresetById(id: string): AccentPreset | undefined {
-  return accentPresets.find((preset) => preset.id === id)
+  return getAccent(id)
 }
 
 export type AccentRoles = Readonly<{
@@ -295,8 +274,8 @@ export type AccentRoles = Readonly<{
 
 /**
  * Derive the accent roles for a selection against a variant. `'theme'` keeps
- * the variant's own accent; presets and custom colors are normalized to the
- * 3:1 interaction minimum (Zeron `AccentRoles::derive`, thresholds preserved).
+ * the variant's own accent; published presets and custom colors are normalized
+ * through the shared colour engine to the host's 3:1 interaction minimum.
  */
 export function deriveAccentRoles(selection: string, variant: ThemeVariant): AccentRoles {
   const background = variant.colors.background
@@ -305,7 +284,7 @@ export function deriveAccentRoles(selection: string, variant: ThemeVariant): Acc
   if (selection !== 'theme') {
     const preset = accentPresetById(selection)
     const requested = preset
-      ? parseColor(variant.appearance === 'dark' ? preset.dark : preset.light)
+      ? parseColor(canonicalAccentValue(preset, variant.appearance))
       : parseColor(selection)
     if (requested) {
       primary = colorToHex(ensureContrast(requested, parseColor(background)!, 3))
@@ -313,7 +292,9 @@ export function deriveAccentRoles(selection: string, variant: ThemeVariant): Acc
     }
   }
   const primaryRgb = parseColor(primary)!
-  const onPrimary = colorToHex(bestOnColor(primaryRgb))
+  const primaryForText = colorToHex({ ...primaryRgb, a: 255 })
+  const onPrimaryColor = parseCanonicalColor(accentForeground(primaryForText))
+  const onPrimary = onPrimaryColor ? canonicalOklchToHex(onPrimaryColor) : colorToHex(WHITE)
   let strong = primary
   if (contrastRatio(onPrimary, strong) < 4.5) {
     strong = colorToHex(ensureContrast(primaryRgb, parseColor(onPrimary)!, 4.5))
@@ -404,6 +385,8 @@ export type ThemeColors = Readonly<{
   accent: string
   accentForeground: string
   destructive: string
+  destructiveAction: string
+  destructiveActionForeground: string
   success: string
   border: string
   input: string
@@ -519,230 +502,8 @@ export function resolveThemeVariant(
   return registry[0]!
 }
 
-/*
- * Built-in registry — the published package owns the canonical Adea pair.
- * Slate and contrast remain local compatibility variants until they have
- * equivalent published records. Their terminal/editor/chart roles use the
- * established appearance fallback templates so existing preference IDs remain
- * valid and host-native surface authority stays unchanged.
- */
-
-const lightTerminal: ThemeTerminalPalette = Object.freeze({
-  background: '#ffffff',
-  foreground: '#1b1f24',
-  cursor: '#24292f',
-  selection: '#b6c7ff',
-  ansi: Object.freeze([
-    '#1b1f24',
-    '#b91c1c',
-    '#116a2e',
-    '#8a5a1b',
-    '#0b57d0',
-    '#a0186f',
-    '#0e7490',
-    '#57606a',
-    '#57606a',
-    '#c94d4d',
-    '#1f9d4f',
-    '#a9752c',
-    '#3b82f6',
-    '#c04a92',
-    '#0891b2',
-    '#24292f',
-  ]),
-})
-
-const darkTerminal: ThemeTerminalPalette = Object.freeze({
-  background: '#0d1117',
-  foreground: '#e6edf3',
-  cursor: '#e6edf3',
-  selection: '#264f78',
-  ansi: Object.freeze([
-    '#2f3742',
-    '#ff8183',
-    '#56d364',
-    '#e3b341',
-    '#6ca4f8',
-    '#db61a2',
-    '#39c5cf',
-    '#d5dde5',
-    '#57606a',
-    '#ff9494',
-    '#79dd8a',
-    '#f0c264',
-    '#8db9ff',
-    '#e87cb4',
-    '#66d3dc',
-    '#eef2f6',
-  ]),
-})
-
-const lightEditor: ThemeEditorRoles = Object.freeze({
-  keyword: '#0b57d0',
-  string: '#116a2e',
-  number: '#8a5a1b',
-  comment: '#57606a',
-  function: '#a0186f',
-  variable: '#1b1f24',
-  type: '#0e7490',
-  tag: '#b91c1c',
-  attribute: '#8a5a1b',
-  operator: '#1b1f24',
-  heading: '#1b1f24',
-  link: '#0b57d0',
-  diffAdd: '#116a2e',
-  diffDelete: '#b91c1c',
-  diffHunk: '#57606a',
-  searchMatch: '#8a5a1b',
-})
-
-const darkEditor: ThemeEditorRoles = Object.freeze({
-  keyword: '#6ca4f8',
-  string: '#56d364',
-  number: '#e3b341',
-  comment: '#8b949e',
-  function: '#db61a2',
-  variable: '#e6edf3',
-  type: '#39c5cf',
-  tag: '#ff8183',
-  attribute: '#e3b341',
-  operator: '#e6edf3',
-  heading: '#e6edf3',
-  link: '#6ca4f8',
-  diffAdd: '#56d364',
-  diffDelete: '#ff8183',
-  diffHunk: '#8b949e',
-  searchMatch: '#e3b341',
-})
-
-const lightCharts: ThemeChartRoles = Object.freeze({
-  chart1: '#0b57d0',
-  chart2: '#116a2e',
-  chart3: '#8a5a1b',
-  chart4: '#a0186f',
-  chart5: '#0e7490',
-  chart6: '#57606a',
-})
-
-const darkCharts: ThemeChartRoles = Object.freeze({
-  chart1: '#6ca4f8',
-  chart2: '#56d364',
-  chart3: '#e3b341',
-  chart4: '#db61a2',
-  chart5: '#39c5cf',
-  chart6: '#8b949e',
-})
-
-function defineVariant(
-  id: string,
-  familyId: string,
-  familyName: string,
-  name: string,
-  appearance: ResolvedAppearance,
-  colors: ThemeColors
-): ThemeVariant {
-  const light = appearance === 'light'
-  return {
-    id,
-    familyId,
-    familyName,
-    name,
-    appearance,
-    colors,
-    terminal: light ? lightTerminal : darkTerminal,
-    editor: light ? lightEditor : darkEditor,
-    charts: light ? lightCharts : darkCharts,
-  }
-}
-
-/** The `adea-light`/`adea-dark` entries mirror `styles/theme.css`. */
-export const builtinThemeRegistry: readonly ThemeVariant[] = Object.freeze([
-  ...canonicalAdeaThemeRegistry,
-  defineVariant('slate-light', 'slate', 'Slate', 'Slate Light', 'light', {
-    background: '#f8fafc',
-    foreground: '#0f172a',
-    card: '#ffffff',
-    cardForeground: '#0f172a',
-    popover: '#ffffff',
-    popoverForeground: '#0f172a',
-    primary: '#0f172a',
-    primaryForeground: '#f8fafc',
-    secondary: '#e2e8f0',
-    secondaryForeground: '#0f172a',
-    muted: '#e2e8f0',
-    mutedForeground: '#475569',
-    accent: '#e2e8f0',
-    accentForeground: '#0f172a',
-    destructive: '#b91c1c',
-    success: '#15803d',
-    border: '#cbd5e1',
-    input: '#cbd5e1',
-    ring: '#64748b',
-  }),
-  defineVariant('slate-dark', 'slate', 'Slate', 'Slate Dark', 'dark', {
-    background: '#0f172a',
-    foreground: '#f1f5f9',
-    card: '#1e293b',
-    cardForeground: '#f1f5f9',
-    popover: '#1e293b',
-    popoverForeground: '#f1f5f9',
-    primary: '#e2e8f0',
-    primaryForeground: '#0f172a',
-    secondary: '#334155',
-    secondaryForeground: '#f1f5f9',
-    muted: '#334155',
-    mutedForeground: '#94a3b8',
-    accent: '#334155',
-    accentForeground: '#f1f5f9',
-    destructive: '#f87171',
-    success: '#4ade80',
-    border: 'rgba(148, 163, 184, 0.2)',
-    input: 'rgba(148, 163, 184, 0.25)',
-    ring: '#64748b',
-  }),
-  defineVariant('contrast-light', 'contrast', 'High Contrast', 'High Contrast Light', 'light', {
-    background: '#ffffff',
-    foreground: '#000000',
-    card: '#ffffff',
-    cardForeground: '#000000',
-    popover: '#ffffff',
-    popoverForeground: '#000000',
-    primary: '#143d8f',
-    primaryForeground: '#ffffff',
-    secondary: '#f0f0f0',
-    secondaryForeground: '#000000',
-    muted: '#f0f0f0',
-    mutedForeground: '#333333',
-    accent: '#f0f0f0',
-    accentForeground: '#000000',
-    destructive: '#b91c1c',
-    success: '#14532d',
-    border: '#767676',
-    input: '#767676',
-    ring: '#000000',
-  }),
-  defineVariant('contrast-dark', 'contrast', 'High Contrast', 'High Contrast Dark', 'dark', {
-    background: '#000000',
-    foreground: '#ffffff',
-    card: '#0a0a0a',
-    cardForeground: '#ffffff',
-    popover: '#0a0a0a',
-    popoverForeground: '#ffffff',
-    primary: '#8ab4ff',
-    primaryForeground: '#000000',
-    secondary: '#1a1a1a',
-    secondaryForeground: '#ffffff',
-    muted: '#1a1a1a',
-    mutedForeground: '#e5e5e5',
-    accent: '#1a1a1a',
-    accentForeground: '#ffffff',
-    destructive: '#ff6b6b',
-    success: '#4ade80',
-    border: '#8f8f8f',
-    input: '#8f8f8f',
-    ring: '#ffffff',
-  }),
-])
+/* The published catalogue owns every theme palette and visual role. */
+export const builtinThemeRegistry: readonly ThemeVariant[] = canonicalThemeRegistry
 
 /*
  * Preference storage: normalization, legacy migration, corrupt retention.
@@ -1069,8 +830,8 @@ var dark=mode==='dark'||(mode==='system'&&window.matchMedia('${DARK_QUERY}').mat
 var registry=${registry};
 var wanted=dark?(prefs&&prefs.darkThemeId)||'${defaultAppearancePreferences.darkThemeId}':(prefs&&prefs.lightThemeId)||'${defaultAppearancePreferences.lightThemeId}';
 var variant=null;
-for(var i=0;i<registry.length;i++){if(registry[i].id===wanted)variant=registry[i]}
-if(!variant){for(var j=0;j<registry.length;j++){if(registry[j].dark===dark)variant=registry[j]}}
+for(var i=0;i<registry.length;i++){if(registry[i].id===wanted){variant=registry[i];break}}
+if(!variant){for(var j=0;j<registry.length;j++){if(registry[j].dark===dark){variant=registry[j];break}}}
 if(!variant)variant=registry[0];
 var reduce=window.matchMedia('${REDUCED_TRANSPARENCY_QUERY}').matches||!!(prefs&&prefs.reduceTransparency);
 /* Pre-hydration the host translucency capability is unknown, so the script

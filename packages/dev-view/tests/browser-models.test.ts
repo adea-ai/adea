@@ -4,6 +4,7 @@
 // AnnotationKeyboard.test.ts and PickedElementPayload.test.ts. Adea cases:
 // previewability gating, command builder invariants, and responsive presets.
 import { describe, expect, test } from 'bun:test'
+import { devOperationMetadataFor_dev_browser_navigate } from '@adea-ai/types/dev-runtime-metadata'
 
 import {
   clampPreviewMiniPlayerPosition,
@@ -21,6 +22,7 @@ import {
   resolveAnnotationSubmission,
 } from '../src/browser/annotation-model'
 import { buildDevCommand } from '../src/browser/command'
+import { buildDevCommandFromMetadata } from '../src/browser/command-core'
 import {
   RESPONSIVE_PRESETS,
   buildMobileUserAgentOverride,
@@ -450,5 +452,36 @@ describe('responsive presets and command builder', () => {
         resource: { kind: 'browser_lane', id: 'x', generation: 1 },
       })
     ).toThrow(/does not bind a resource/)
+  })
+
+  test('metadata-bound commands derive their operation from the selected registry entry', () => {
+    const scope = {
+      accountId: '00000000-0000-4000-8000-000000000001',
+      workspaceId: '00000000-0000-4000-8000-000000000002',
+      runtimeNodeId: '00000000-0000-4000-8000-000000000003',
+    }
+    const command = buildDevCommandFromMetadata(
+      devOperationMetadataFor_dev_browser_navigate,
+      {
+        scope,
+        body: { browserLaneId: 'lane-1', expectedGeneration: 2, url: 'https://example.test/' },
+        resource: { kind: 'browser_lane', id: 'lane-1', generation: 2 },
+      },
+      {
+        now: () => new Date('2026-09-18T12:00:00.000Z'),
+        randomId: () => '00000000-0000-4000-8000-000000000004',
+        nonce: () => 'dGhpcy1ub25jZS1oYXMtYXQtbGVhc3QtMTI4LWJpdHM',
+      }
+    )
+
+    expect(command.operation).toBe('dev.browser.navigate')
+    expect(command.capabilities).toEqual(['dev.browser.control'])
+    expect(command.resource).toEqual({ kind: 'browser_lane', id: 'lane-1', generation: 2 })
+    expect(() =>
+      buildDevCommandFromMetadata(devOperationMetadataFor_dev_browser_navigate, {
+        scope,
+        body: {},
+      })
+    ).toThrow(/requires a resource/)
   })
 })

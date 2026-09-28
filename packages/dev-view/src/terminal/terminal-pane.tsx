@@ -18,7 +18,6 @@ import {
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
-import { SerializeAddon } from '@xterm/addon-serialize'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 // xterm's own structural stylesheet: the pane depends on the `.xterm`,
@@ -85,6 +84,7 @@ import {
   type TerminalStreamSocket,
 } from './transport'
 import { terminalConnectionErrorMessage } from './connection-errors'
+import { observeTerminalTheme } from './theme-binding'
 import './terminal-pane.css'
 
 export type TerminalPaneProps = {
@@ -101,9 +101,10 @@ export type TerminalPaneProps = {
    * function. This is the ONLY authority for command blocks and exit codes.
    */
   subscribeToObservations?: (handler: (observation: ShellObservation) => void) => () => void
-  /** Multiline, history-aware send path into the active terminal. */
-  write: (bytes: Uint8Array) => boolean
-  resize: (cols: number, rows: number) => void
+  /** Native streams send heartbeats from the server only. */
+  heartbeatMode?: 'bidirectional' | 'server_only'
+  /** Automatic fitting may resize the PTY only with manage capability. */
+  resizeEnabled?: boolean
   /**
    * The permissioned clipboard seam (#471 substrate). When absent the pane
    * degrades to the browser clipboard with typed denial handling.
@@ -134,21 +135,8 @@ export type TerminalPaneProps = {
   onClose?: () => void
 }
 
-const THEME = {
-  cursor: '#e6e6e6',
-  cursorAccent: '#111111',
-  selectionBackground: '#3b4252',
-} as const
-
 /** One encoder for every input path: typing runs per keystroke. */
 const ENCODER = new TextEncoder()
-
-const SEARCH_DECORATIONS = {
-  matchBackground: '#3b4252',
-  matchOverviewRuler: '#88c0d0',
-  activeMatchBackground: '#4c566a',
-  activeMatchColorOverviewRuler: '#ebcb8b',
-} as const
 
 export function TerminalPane(props: TerminalPaneProps) {
   const [surface, setSurface] = createSignal<HTMLDivElement | null>(null)
@@ -181,7 +169,6 @@ export function TerminalPane(props: TerminalPaneProps) {
   )
 
   const terminal = new Terminal({
-    theme: THEME,
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
     allowProposedApi: true,
     // OSC 8 hyperlinks open only through the consented seam below.
@@ -193,13 +180,26 @@ export function TerminalPane(props: TerminalPaneProps) {
   })
   const fit = new FitAddon()
   const searchAddon = new SearchAddon()
-  const serialize = new SerializeAddon()
+  const searchDecorations = () => {
+    const theme = terminal.options.theme
+    if (!theme?.cursor || !theme.selectionBackground) return undefined
+    const selection = /^#[\da-f]{6}$/i.test(theme.selectionBackground)
+      ? theme.selectionBackground
+      : undefined
+    return {
+      matchBackground: selection,
+      matchOverviewRuler: theme.cursor,
+      activeMatchBackground: selection,
+      activeMatchBorder: theme.cursor,
+      activeMatchColorOverviewRuler: theme.cursor,
+    }
+  }
   terminal.loadAddon(fit)
   terminal.loadAddon(searchAddon)
-  terminal.loadAddon(serialize)
 
   const transport = createTerminalTransport({
     connect: props.connect,
+    heartbeatMode: props.heartbeatMode,
     onOutput: (_sequence, bytes) => {
       terminal.write(bytes)
     },
@@ -311,7 +311,7 @@ export function TerminalPane(props: TerminalPaneProps) {
   ): void {
     const options = {
       caseSensitive: state.caseSensitive,
-      decorations: SEARCH_DECORATIONS,
+      decorations: searchDecorations(),
       noScroll: false,
     }
     if (direction === 'next') void searchAddon.findNext(state.query, options)
@@ -396,6 +396,30 @@ export function TerminalPane(props: TerminalPaneProps) {
     const element = surface()
     if (!element) return
     terminal.open(element)
+    onCleanup(
+      observeTerminalTheme(element, (theme) => {
+        terminal.options.theme = theme
+        const currentSearch = search()
+        if (currentSearch.open && currentSearch.query) {
+          const selection = terminal.getSelectionPosition()
+          const viewportLine = terminal.buffer.active.viewportY
+          searchAddon.findNext(currentSearch.query, {
+            caseSensitive: currentSearch.caseSensitive,
+            decorations: searchDecorations(),
+            incremental: true,
+          })
+          if (selection)
+            terminal.select(
+              selection.start.x,
+              selection.start.y,
+              (selection.end.y - selection.start.y) * terminal.cols +
+                selection.end.x -
+                selection.start.x
+            )
+          terminal.scrollToLine(viewportLine)
+        }
+      })
+    )
     terminal.focus()
     // The resize observer must actually observe the surface: without this the
     // fit/refit ladder never runs and props.resize can never fire (found by
@@ -478,14 +502,19 @@ export function TerminalPane(props: TerminalPaneProps) {
     onCleanup(unsubscribe ?? (() => undefined))
   })
 
+  let resizeReported = false
   const observer = new ResizeObserver(() => {
     const element = surface()
     if (!element) return
     const cols = terminal.cols
     const rows = terminal.rows
     fit.fit()
-    if (terminal.cols !== cols || terminal.rows !== rows) {
-      props.resize(terminal.cols, terminal.rows)
+    if (
+      props.resizeEnabled !== false &&
+      (!resizeReported || terminal.cols !== cols || terminal.rows !== rows)
+    ) {
+      resizeReported = true
+      transport.resize(terminal.cols, terminal.rows)
     }
   })
   onCleanup(() => {
@@ -497,8 +526,7 @@ export function TerminalPane(props: TerminalPaneProps) {
   function sendDraft(): void {
     const result = editorSend(editor())
     if (!result) return
-    setEditor(result.state)
-    props.write(ENCODER.encode(`${result.payload}\n`))
+    if (transport.write(ENCODER.encode(`${result.payload}\n`))) setEditor(result.state)
   }
 
   function closeSearch(): void {

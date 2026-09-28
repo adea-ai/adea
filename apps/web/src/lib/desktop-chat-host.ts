@@ -8,7 +8,21 @@ export type DesktopChatDraftIdentity = Readonly<{
   generation: number
 }>
 
+export type DesktopChatReadingPosition = Readonly<{
+  top: number
+  following: boolean
+}>
+
 export type DesktopChatModelHost = Readonly<{
+  readingPosition(
+    scope: Scope,
+    identity: DesktopChatDraftIdentity
+  ): DesktopChatReadingPosition | undefined
+  setReadingPosition(
+    scope: Scope,
+    identity: DesktopChatDraftIdentity,
+    position: DesktopChatReadingPosition
+  ): void
   get(scope: Scope): ChatConversationModel
   draftRevision(scope: Scope, runtimeSessionId: string): number
   setDraft(
@@ -93,6 +107,10 @@ function scopeKey(scope: Scope): string {
   return `${scope.accountId}\u0000${scope.workspaceId}\u0000${scope.runtimeNodeId}`
 }
 
+function readingKey(identity: DesktopChatDraftIdentity): string {
+  return `${identity.runtimeSessionId}\u0000${identity.generation}`
+}
+
 /**
  * Owns the runtime Chat model at the desktop workspace boundary. The cache is
  * instance-scoped, holds only the current authenticated runtime scope, and is
@@ -101,16 +119,34 @@ function scopeKey(scope: Scope): string {
 export function createDesktopChatModelHost(runtime: DevRuntimeService): DesktopChatModelHost {
   let activeKey: string | undefined
   let model: ChatConversationModel | undefined
+  const readingPositions = new Map<string, DesktopChatReadingPosition>()
 
   const activate = (scope: Scope): ChatConversationModel => {
     const key = scopeKey(scope)
     if (model && activeKey === key) return model
+    readingPositions.clear()
     activeKey = key
     model = createChatConversationModel(runtime, scope)
     return model
   }
 
   return {
+    readingPosition(scope, identity) {
+      if (activeKey !== scopeKey(scope)) return undefined
+      return readingPositions.get(readingKey(identity))
+    },
+    setReadingPosition(scope, identity, position) {
+      if (activeKey !== scopeKey(scope) || !Number.isFinite(position.top) || position.top < 0)
+        return
+      const key = readingKey(identity)
+      readingPositions.delete(key)
+      readingPositions.set(key, { top: position.top, following: position.following })
+      // Presentation snapshots cannot become an unbounded secondary session store.
+      if (readingPositions.size > 100) {
+        const oldest = readingPositions.keys().next().value
+        if (oldest !== undefined) readingPositions.delete(oldest)
+      }
+    },
     get(scope) {
       return activate(scope)
     },

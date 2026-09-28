@@ -63,22 +63,22 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
   })
 
   return (
-    <main class="workspace-shell">
+    <main class="workspace-shell workspace-shell--contextual">
+      <VirtualRoomControls
+        client={apiClient()}
+        openChat={() => props.onWorkspaceViewChange?.('chat')}
+      />
       <div class="workspace-scene-viewport">
         <VirtualView
           fallback={
             <>
               <VirtualUnavailable
+                contained
                 sceneLabel={scene().label}
                 onOpenChat={() => props.onWorkspaceViewChange?.('chat')}
               />
 
               <div class="workspace-ui" aria-label="Adea workspace controls">
-                <VirtualRoomControls
-                  client={apiClient()}
-                  openChat={() => props.onWorkspaceViewChange?.('chat')}
-                />
-
                 <p class="workspace-scene-caption">
                   <span class="workspace-scene-caption__dot" aria-hidden="true" />
                   {scene().label} scene · Virtual view lives in Agent Sim

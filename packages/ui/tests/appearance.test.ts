@@ -387,6 +387,10 @@ describe('document application', () => {
     // The custom variant really did write tokens inline.
     expect(dataset.theme).toBe('slate-dark')
     expect(style['--background']).toBeDefined()
+    expect(style['--destructive-action']).toBe(custom.variant.colors.destructiveAction)
+    expect(style['--destructive-action-foreground']).toBe(
+      custom.variant.colors.destructiveActionForeground
+    )
     const writtenWhileCustom = Object.keys(style).length
     expect(writtenWhileCustom).toBeGreaterThan(0)
 
@@ -413,6 +417,11 @@ describe('document application', () => {
     applyAppearanceToDocument(document as unknown as Document, state)
     expect(dataset.theme).toBe('slate-dark')
     expect(style['--background']).toBe('#0f172a')
+    const variant = state.variant
+    expect(style['--destructive-action']).toBe(variant.colors.destructiveAction)
+    expect(style['--destructive-action-foreground']).toBe(
+      variant.colors.destructiveActionForeground
+    )
     // Terminal ANSI and editor roles come from the same manifest.
     expect(style['--terminal-background']).toBe(state.variant.terminal.background)
     expect(style['--terminal-ansi-red']).toBe(state.variant.terminal.ansi[1])
@@ -532,6 +541,28 @@ describe('the no-flash preload script', () => {
     expect(light.classes.has('dark')).toBe(false)
     const dark = runScript({}, true)
     expect(dark.classes.has('dark')).toBe(true)
+  })
+
+  test('unknown stored theme ids pre-paint the same default as the mounted provider', () => {
+    for (const appearance of ['light', 'dark'] as const) {
+      const themeId = appearance === 'dark' ? 'adea-dark' : 'adea-light'
+      const expected = resolveThemeVariant(
+        builtinThemeRegistry,
+        { lightThemeId: 'removed-light-theme', darkThemeId: 'removed-dark-theme' },
+        appearance
+      )
+      const { dataset } = runScript({
+        [APPEARANCE_STORAGE_KEY]: JSON.stringify({
+          version: 2,
+          mode: appearance,
+          lightThemeId: 'removed-light-theme',
+          darkThemeId: 'removed-dark-theme',
+        }),
+      })
+
+      expect(expected.id).toBe(themeId)
+      expect(dataset.theme).toBe(expected.id)
+    }
   })
 
   test('reduced transparency pre-paints the opaque surface', () => {

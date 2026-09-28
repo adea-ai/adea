@@ -83,6 +83,24 @@ describe('rail preferences', () => {
     expect(reorderRailItems(preferences, 'missing', 'up')).toBe(preferences)
   })
 
+  test('reorder crosses disabled and unknown entries while preserving their slots', () => {
+    const preferences = {
+      version: 1 as const,
+      order: ['virtual', 'chat', 'app:future', 'dev'],
+      hidden: ['chat'],
+    }
+    const enabledIds = ['virtual', 'dev']
+    const moved = reorderRailItems(preferences, 'dev', 'up', enabledIds)
+    expect(moved.order).toEqual(['dev', 'chat', 'app:future', 'virtual'])
+    expect(moved.hidden).toBe(preferences.hidden)
+    expect(reorderRailItems(moved, 'dev', 'up', ['dev', 'virtual'])).toBe(moved)
+    expect(reorderRailItems(moved, 'virtual', 'down', ['dev', 'virtual'])).toBe(moved)
+    expect(reorderRailItems(preferences, 'chat', 'up', enabledIds)).toBe(preferences)
+    expect(reorderRailItems(moved, 'dev', 'down', ['dev', 'virtual']).order).toEqual(
+      preferences.order
+    )
+  })
+
   test('hide toggles are idempotent and reversible', () => {
     const hidden = setRailItemHidden(defaultRailPreferences, 'dev', true)
     expect(setRailItemHidden(hidden, 'dev', true).hidden).toEqual(['dev'])

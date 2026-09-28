@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import {
   settledData,
@@ -9,7 +9,7 @@ import {
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { useWorkspacePersistence } from './use-workspace-persistence'
-import { SidebarToggleButton } from './sidebar-toggle-button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { projectWorkspaceNavigation } from './workspace-model'
 
 export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat: () => void }) {
@@ -18,6 +18,7 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
   const persistenceReady = useWorkspacePersistence()
   const bootstrap = useWorkspaceBootstrapQuery(client())
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
+  const sidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
   const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
   const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
@@ -54,5 +55,52 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
     workspaceStore.getState().setSelectedChannelId(firstRoom.selectionChannelId ?? null)
   })
 
-  return <SidebarToggleButton expanded={false} onToggle={() => props.openChat()} />
+  return (
+    <aside class="virtual-context-sidebar" aria-label="Virtual navigation" hidden={!sidebarOpen()}>
+      <h1>{activeWorkspace()?.name ?? 'Virtual'}</h1>
+      <h2>Rooms</h2>
+      <Show
+        when={!rooms.isError}
+        fallback={
+          <p role="alert">
+            Rooms could not be loaded.{' '}
+            <button type="button" onClick={() => void rooms.refetch()}>
+              Retry
+            </button>
+          </p>
+        }
+      >
+        <Show
+          when={navigation().rooms.length > 0}
+          fallback={<p>{rooms.isPending ? 'Loading rooms…' : 'No rooms yet.'}</p>}
+        >
+          <For each={navigation().rooms}>
+            {(item) => (
+              <Button
+                variant="ghost"
+                class="virtual-context-sidebar__room"
+                disabled={!item.selectionChannelId}
+                onClick={() => {
+                  workspaceStore.getState().setSelectedRoomId(item.room.id)
+                  workspaceStore.getState().setSelectedChannelId(item.selectionChannelId ?? null)
+                  workspaceStore.getState().setActiveSurface('conversation')
+                  props.openChat()
+                }}
+              >
+                {item.room.name}
+              </Button>
+            )}
+          </For>
+        </Show>
+      </Show>
+      <h2>Workspace</h2>
+      <Button
+        variant="ghost"
+        class="virtual-context-sidebar__room"
+        onClick={() => props.openChat()}
+      >
+        Open conversations
+      </Button>
+    </aside>
+  )
 }

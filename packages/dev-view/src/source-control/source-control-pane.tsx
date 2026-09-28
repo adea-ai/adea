@@ -14,7 +14,7 @@ import type {
   GitHubRepository,
   Scope,
 } from '@adea-ai/types/dev-runtime'
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Download, GitCommitHorizontal, RefreshCw } from 'lucide-solid'
 import { For, Show, createResource, createSignal, onCleanup, type JSX } from 'solid-js'
 

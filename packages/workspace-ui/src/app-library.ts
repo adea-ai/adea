@@ -2,8 +2,8 @@ import type { WorkspaceView } from './workspace-view-toggle'
 import type { WorkspacePlugin } from './platform'
 
 /**
- * Compiled trusted first-party entry registry (Dev Runtime spec,
- * "Appearance and App Library": M12 App Library can activate only a bundled
+ * Historical external-plugin contribution registry (Dev Runtime spec,
+ * "Appearance and App Library": external records can activate only a bundled
  * first-party entry ID after existing catalog signature/digest/install-plan
  * checks).
  *

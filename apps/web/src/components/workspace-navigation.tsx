@@ -17,16 +17,20 @@ import type { RegistryPluginsProviderOptions } from '@adea-ai/workspace-ui/plugi
 import type { RailPreferencesV1 } from '@adea-ai/workspace-ui/rail-preferences'
 import {
   defaultRailPreferences,
-  railItemsForViews,
   readRailPreferences,
   reorderRailItems,
-  resolveRailItems,
-  setRailItemHidden,
   writeRailPreferences,
 } from '@adea-ai/workspace-ui/rail-preferences'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
 import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
+import {
+  enabledWorkspaceApps,
+  resolveWorkspaceApp,
+  setWorkspaceAppEnabled,
+  type WorkspaceAppId,
+} from '@adea-ai/workspace-ui/workspace-apps'
+import { WorkspaceTopBar } from './workspace-top-bar'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
@@ -35,6 +39,11 @@ import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
 
+const AppLibraryPage = lazyComponent(
+  () => import('@adea-ai/workspace-ui/app-library-page').then((module) => module.AppLibraryPage),
+  { loading: () => <WorkspaceEntryLoading /> }
+)
+
 const DevWorkspace = lazyComponent(
   () =>
     import('@adea-ai/dev-view').then(
@@ -42,6 +51,8 @@ const DevWorkspace = lazyComponent(
         return (entryProps: {
           fixture: boolean
           runtime?: WorkspacePlatformServices['devRuntime']
+          toolbarMount?: HTMLElement
+          appMode?: 'source-control'
         }) => {
           const unavailable =
             entryProps.runtime ??
@@ -61,6 +72,8 @@ const DevWorkspace = lazyComponent(
               groups={entryProps.fixture ? devViewFixtureGroups : undefined}
               storage={typeof window === 'undefined' ? undefined : window.localStorage}
               runtime={runtime}
+              toolbarMount={entryProps.toolbarMount}
+              appMode={entryProps.appMode}
             />
           )
         }
@@ -219,7 +232,7 @@ export type WorkspaceNavigationAccount = Readonly<{
   authenticated: boolean
   busy: boolean
   label: string
-  onOpenUpdates?(): void
+  onOpenUpdates?(opener: HTMLButtonElement | undefined): void
   onSignIn(): void
   onSignOut(): void | Promise<void>
 }>
@@ -243,10 +256,10 @@ export type WorkspaceNavigationProps = Readonly<{
 // Rail customization applies the versioned order/hidden preference, keeping
 // the active view visible even when it is hidden. Unknown ids preserved by
 // the preference (contributions from other builds) never reach the rail.
-const isWorkspaceView = (id: string): id is WorkspaceView =>
-  id === 'chat' || id === 'dev' || id === 'virtual'
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
+  const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
+  const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
@@ -257,19 +270,25 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // Rail customization is a device-local versioned preference with unknown-
   // contribution preservation; a corrupt record falls back without deleting
   // the unread value.
+  const [librarySearchRequest, setLibrarySearchRequest] = createSignal(0)
+  const [librarySearchRequestHandled, setLibrarySearchRequestHandled] = createSignal(0)
   const [railPreferences, setRailPreferences] = createSignal<RailPreferencesV1>(
     defaultRailPreferences,
     { equals: false }
   )
-  const railItems = railItemsForViews()
   createEffect(() => {
     setRailPreferences(
       readRailPreferences(typeof window === 'undefined' ? undefined : window.localStorage)
     )
   })
   const persistRailPreferences = (next: RailPreferencesV1) => {
+    const requested = requestedAppId()
+    const wasLibrary = libraryOpen()
     setRailPreferences(next)
     writeRailPreferences(window.localStorage, next)
+    const destination = resolveWorkspaceApp(next, requested)
+    if (!destination) openAppLibrary(true)
+    else if (!wasLibrary && destination.id !== requested) changeApp(destination.id, true)
   }
   // The stream lives above view switching: chat/virtual/dev share the query
   // cache, so one subscription keeps every lane's lists fresh instead of
@@ -285,17 +304,16 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const search = useSearch({ strict: false })
   const navigate = useNavigate()
 
-  const view = (): WorkspaceView => {
-    const value = currentSearch().view
-    if (value === 'chat' || value === 'dev' || value === 'virtual') return value
-    return props.virtual ? 'virtual' : 'chat'
-  }
-  // Rail customization applies the versioned order/hidden preference, keeping
-  // the active view visible even when it is hidden.
-  const orderedViews = () =>
-    resolveRailItems(railPreferences(), railItems, view())
-      .map((item) => item.id)
-      .filter(isWorkspaceView)
+  const requestedAppId = () =>
+    currentSearch().app ?? currentSearch().view ?? (props.virtual ? 'virtual' : 'chat')
+  const activeApp = () => resolveWorkspaceApp(railPreferences(), requestedAppId())
+  const activeAppId = (): WorkspaceAppId => activeApp()?.id ?? 'chat'
+  const libraryOpen = () => currentSearch().app === 'library' || !activeApp()
+  const view = (): WorkspaceView => activeApp()?.view ?? 'chat'
+  const orderedViews = () => enabledWorkspaceApps(railPreferences()).map((app) => app.id)
+  // The selected Dev session is a presentation hint only. Chat reports its
+  // visible canonical conversation from DesktopFirstRunChat; the conventional
+  // team Chat surface does not imply a RuntimeSession selection.
   const scene = () => {
     const value = currentSearch().scene
     return props.activeWorkspace?.scene ?? (value === 'work' ? 'work' : 'home')
@@ -484,9 +502,32 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     return () => window.removeEventListener('hashchange', openDeepLinkedSettings)
   })
 
-  const changeView = (nextView: WorkspaceView) => {
-    void setViewParam(nextView)
+  const changeApp = (id: WorkspaceAppId, replace = false) => {
+    const destination = resolveWorkspaceApp(railPreferences(), id)
+    if (!destination || destination.id !== id) return
+    setLibrarySearchRequestHandled(librarySearchRequest())
+    workspaceStore.getState().setGlobalPanel(null)
+    if (requestedAppId() === id && currentSearch().app !== 'library') return
+    void navigate({
+      search: {
+        ...currentSearch(),
+        view: destination.view,
+        app: id === 'kanban' || id === 'source-control' ? id : undefined,
+      } as never,
+      hash: '',
+      replace,
+    })
   }
+  const changeView = (nextView: WorkspaceView) => {
+    if (resolveWorkspaceApp(railPreferences(), nextView)?.id !== nextView) openAppLibrary()
+    else changeApp(nextView)
+  }
+  const openAppLibrary = (replace = false) => {
+    workspaceStore.getState().setGlobalPanel(null)
+    if (currentSearch().app === 'library') return
+    void navigate({ search: { ...currentSearch(), app: 'library' } as never, hash: '', replace })
+  }
+
   const setRoomDesignerRoute = (enabled: boolean) => {
     setRoomDesignerEnabled(enabled)
     const nextUrl = new URL(window.location.href)
@@ -512,11 +553,30 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     workspaceStore.getState().setGlobalPanel('settings')
   }
   const openSearch = () => {
+    if (resolveWorkspaceApp(railPreferences(), 'chat')?.id !== 'chat') {
+      setLibrarySearchRequest((request) => request + 1)
+      openAppLibrary()
+      return
+    }
+    if (libraryOpen() || view() !== 'chat') changeView('chat')
     workspaceStore.getState().setGlobalPanel('search')
-    if (view() !== 'chat') changeView('chat')
   }
+  createEffect(() => {
+    // Recovery is a real destination. Enabling the first app must not dismiss
+    // Library before the user chooses Open, including stale disabled links.
+    if (currentSearch().app === 'library') return
+    const destination = activeApp()
+    if (!destination) openAppLibrary(true)
+    else if (destination.id !== requestedAppId()) changeApp(destination.id, true)
+  })
   return (
     <div class={`workspace-frame workspace-frame--${view()}`}>
+      <WorkspaceTopBar
+        platform={props.platform}
+        title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
+        onSearch={openSearch}
+        actionsMount={setToolbarMount}
+      />
       <GlobalWorkspaceRail
         account={{
           authenticated: props.account.authenticated,
@@ -524,20 +584,29 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           label: props.account.label,
           onSignIn: props.account.onSignIn,
           onSignOut: () => void props.account.onSignOut(),
-          ...(props.account.onOpenUpdates ? { onOpenUpdates: props.account.onOpenUpdates } : {}),
+          ...(props.account.onOpenUpdates
+            ? {
+                onOpenUpdates: (opener: HTMLButtonElement | undefined) => {
+                  setUpdatesOpener(opener)
+                  props.account.onOpenUpdates?.(opener)
+                },
+              }
+            : {}),
           platform: props.platform,
         }}
         onOpenNotifications={() => openSettings('input-notifications')}
         onOpenAbout={() => workspaceStore.getState().setGlobalPanel('about')}
         onOpenPlugins={() => workspaceStore.getState().setGlobalPanel('plugins')}
+        onOpenAppLibrary={() => openAppLibrary()}
+        libraryActive={libraryOpen()}
         onOpenSearch={openSearch}
         onOpenSettings={() => openSettings('account')}
         activeWorkspace={props.activeWorkspace}
         onWorkspaceChange={(workspace) => void switchToWorkspace(workspace)}
-        onViewChange={changeView}
+        onViewChange={(id) => changeApp(id)}
         onViewIntent={preloadView}
         onPanelIntent={preloadPanel}
-        view={view()}
+        view={activeAppId()}
         views={orderedViews()}
         workspaces={props.workspaces}
       />
@@ -548,27 +617,67 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           </p>
         </Show>
         <Show
-          when={view() !== 'dev'}
+          when={!libraryOpen()}
           fallback={
-            <DevWorkspace
-              fixture={
-                import.meta.env.DEV && Reflect.get(currentSearch(), 'devE2e') === 'preserved'
+            <AppLibraryPage
+              focusSearchRequest={librarySearchRequest()}
+              focusSearchRequestHandled={librarySearchRequestHandled()}
+              onFocusSearchRequestHandled={(request) =>
+                setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
               }
-              runtime={props.services.devRuntime}
+              preferences={railPreferences()}
+              onSetEnabled={(id, enabled) =>
+                persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
+              }
+              onOpen={(id) => changeApp(id)}
+              onReorder={(id, direction) =>
+                persistRailPreferences(
+                  reorderRailItems(railPreferences(), id, direction, orderedViews())
+                )
+              }
+              onReset={() => persistRailPreferences(defaultRailPreferences)}
             />
           }
         >
           <Show
-            when={view() === 'virtual'}
+            when={view() !== 'dev'}
             fallback={
-              <Show
-                when={
-                  import.meta.env.DEV && currentSearch().chatE2e === 'visual' && !props.chatEntry
-                }
-                fallback={
-                  props.chatEntry ? (
-                    props.chatEntry(
+              <Show when={toolbarMount()} fallback={<WorkspaceEntryLoading />}>
+                {(mount) => (
+                  <DevWorkspace
+                    fixture={
+                      import.meta.env.DEV && Reflect.get(currentSearch(), 'devE2e') === 'preserved'
+                    }
+                    runtime={props.services.devRuntime}
+                    toolbarMount={mount()}
+                    appMode={activeAppId() === 'source-control' ? 'source-control' : undefined}
+                  />
+                )}
+              </Show>
+            }
+          >
+            <Show
+              when={view() === 'virtual'}
+              fallback={
+                <Show
+                  when={
+                    import.meta.env.DEV && currentSearch().chatE2e === 'visual' && !props.chatEntry
+                  }
+                  fallback={
+                    props.chatEntry && activeAppId() !== 'kanban' ? (
+                      props.chatEntry(
+                        <ConventionalWorkspace
+                          client={props.client}
+                          deepLink={deepLink}
+                          manageSettings={false}
+                          onConsumeDeepLink={consumeDeepLink}
+                          onViewChange={changeView}
+                          services={props.services}
+                        />
+                      )
+                    ) : (
                       <ConventionalWorkspace
+                        taskBoardOnly={activeAppId() === 'kanban'}
                         client={props.client}
                         deepLink={deepLink}
                         manageSettings={false}
@@ -577,41 +686,34 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                         services={props.services}
                       />
                     )
-                  ) : (
-                    <ConventionalWorkspace
-                      client={props.client}
-                      deepLink={deepLink}
-                      manageSettings={false}
-                      onConsumeDeepLink={consumeDeepLink}
-                      onViewChange={changeView}
-                      services={props.services}
-                    />
-                  )
-                }
-              >
-                <ChatVisualFixture state={chatVisualState()} />
-              </Show>
-            }
-          >
-            <Show
-              when={roomDesignerEnabled()}
-              fallback={
-                <SpatialWorkspace
-                  {...props.virtualProps}
-                  apiClient={props.client}
-                  initialScene={scene()}
-                  onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
-                  onWorkspaceViewChange={changeView}
-                  services={props.services}
-                  workspaceView={view()}
-                />
+                  }
+                >
+                  <ChatVisualFixture state={chatVisualState()} />
+                </Show>
               }
             >
-              <RoomDesignerWorkspace
-                initialCharacter={props.virtualProps.initialCharacter}
-                initialScene={scene()}
-                onClose={() => setRoomDesignerRoute(false)}
-              />
+              <Show
+                when={roomDesignerEnabled()}
+                fallback={
+                  <SpatialWorkspace
+                    {...props.virtualProps}
+                    apiClient={props.client}
+                    initialScene={scene()}
+                    onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
+                    onWorkspaceViewChange={changeView}
+                    services={props.services}
+                    workspaceView={view()}
+                  />
+                }
+              >
+                <RoomDesignerWorkspace
+                  client={props.client}
+                  onOpenChat={() => changeView('chat')}
+                  initialCharacter={props.virtualProps.initialCharacter}
+                  initialScene={scene()}
+                  onClose={() => setRoomDesignerRoute(false)}
+                />
+              </Show>
             </Show>
           </Show>
         </Show>
@@ -646,18 +748,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           open
           onClose={() => workspaceStore.getState().setGlobalPanel(null)}
           provider={props.services.plugins}
-          navigation={{
-            activeItemId: view(),
-            items: railItems,
-            get preferences() {
-              return railPreferences()
-            },
-            onReorder: (id, direction) =>
-              persistRailPreferences(reorderRailItems(railPreferences(), id, direction)),
-            onSetHidden: (id, hidden) =>
-              persistRailPreferences(setRailItemHidden(railPreferences(), id, hidden)),
-            onReset: () => persistRailPreferences(defaultRailPreferences),
-          }}
         />
       </Show>
       <Show when={globalPanel() === 'about'}>
@@ -670,7 +760,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         />
       </Show>
       <Show when={props.updates}>
-        {(updates) => <VersionDialog open={updates().open} onOpenChange={updates().onOpenChange} />}
+        {(updates) => (
+          <VersionDialog
+            open={updates().open}
+            onOpenChange={updates().onOpenChange}
+            restoreFocusRef={updatesOpener}
+          />
+        )}
       </Show>
     </div>
   )

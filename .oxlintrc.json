@@ -3,9 +3,9 @@
   "jsPlugins": ["@shadcn/lint"],
   "settings": {
     "shadcn": {
-      "ui": ["@adea-ai/ui/components", "@adea-ai/workspace-ui"],
+      "ui": ["@adea-ai/app-ui/components", "@adea-ai/ui/components", "@adea-ai/workspace-ui"],
       "componentImports": ["^#components/"],
-      "note": "Design-system rules: use variants and theme tokens from packages/ui. See packages/ui/src/styles/theme.css for colors."
+      "note": "Design-system rules cover both @adea-ai/app-ui (Adea legacy adapters) and @adea-ai/ui (published shared components). See packages/ui/src/styles/theme.css for colors."
     }
   },
   "categories": {
@@ -24,7 +24,6 @@
           "plugin-*",
           "plugins-*",
           "virtual-*",
-          "visually-hidden",
           "workspace-*"
         ]
       }
@@ -56,7 +55,7 @@
               "next-themes",
               "lucide-react"
             ],
-            "message": "This is a Solid codebase \u2014 React libraries will not run. Use @adea-ai/ui components (@kobalte/core and @corvu primitives) and lucide-solid."
+            "message": "This is a Solid codebase \u2014 React libraries will not run. Use @adea-ai/app-ui components (@kobalte/core and @corvu primitives) and lucide-solid."
           }
         ]
       }
@@ -66,6 +65,7 @@
       {
         "allow": [
           "__ADEA_DESKTOP_CLOUD_ORIGIN__",
+          "__ADEA_DESKTOP_COMPONENTS__",
           "__ADEA_DEV_SCOPE__",
           "__ADEA_INITIAL_HASH__",
           "__ADEA_NAVIGATION_START__",
@@ -74,7 +74,8 @@
           "__adeaAgentSim",
           "__adeaDesktop",
           "__adeaTerminalPaneHarness",
-          "__agentHqSound"
+          "__agentHqSound",
+          "__TSR_index"
         ]
       }
     ],

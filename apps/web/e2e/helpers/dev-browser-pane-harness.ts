@@ -30,10 +30,20 @@ export type BrowserPaneHarnessReport = {
   }>[]
 }
 
+export type BrowserPaneHarnessControls = {
+  report(): BrowserPaneHarnessReport
+  deferNextScreenshot(): number
+  resolveScreenshot(
+    requestId: number,
+    reference: import('@adea-ai/types/dev-runtime').ScreenshotRef
+  ): void
+  rejectScreenshot(requestId: number, error: import('@adea-ai/types/dev-runtime').DevError): void
+  failNextScreenshot(error: import('@adea-ai/types/dev-runtime').DevError): void
+  unmount(): void
+}
+
 declare global {
   interface Window {
-    browserPaneHarness: {
-      report(): BrowserPaneHarnessReport
-    }
+    browserPaneHarness: BrowserPaneHarnessControls
   }
 }

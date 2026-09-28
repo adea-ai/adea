@@ -104,10 +104,10 @@ test('renders the canonical conversation surface: transcript rows, live status, 
     'Input is sent with the current runtime generation.'
   )
   await composer.fill('Watch the staging rollout while I review.')
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect(composer).toHaveValue('')
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Steer', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Steer', exact: true })).toBeDisabled()
 
   expect(errors).toEqual([])
 })
@@ -150,7 +150,7 @@ test('persists typed drafts through remount and generation changes while fencing
 
   const composer = page.getByRole('textbox', { name: 'Message runtime' })
   await composer.fill('first draft')
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
 
   // Unmount the sending composer, type a newer draft in its replacement, then
   // complete the old request. The late success must not clear the new draft.
@@ -166,7 +166,7 @@ test('persists typed drafts through remount and generation changes while fencing
 
   // A generation replacement also fences an old success even when no newer
   // input event races it: the new composer still owns the canonical draft.
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:next-generation')))
   await expect(page.locator('[data-chat-visual-state]')).toHaveAttribute(
     'data-chat-generation',
@@ -181,7 +181,7 @@ test('persists typed drafts through remount and generation changes while fencing
 
   // A failed deferred send preserves the canonical draft and reports the
   // failure without an unhandled page error.
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:reject-send')))
   await expect(page.getByRole('alert')).toContainText('visual send failed')
   await expect(composer).toHaveValue('newer draft survives')
@@ -200,7 +200,7 @@ test('fences late sends when ChatView writes through the model fallback', async 
 
   const composer = page.getByRole('textbox', { name: 'Message runtime' })
   await composer.fill('old generation draft')
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
 
   // Replace the conversation generation while the old send is pending. The
   // fallback model must reject the old identity even before revision checking.
@@ -213,7 +213,7 @@ test('fences late sends when ChatView writes through the model fallback', async 
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:resolve-send')))
   await expect(composer).toHaveValue('new generation draft')
 
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:reject-send')))
   await expect(page.getByRole('alert')).toContainText('visual send failed')
   await expect(composer).toHaveValue('new generation draft')
@@ -349,5 +349,63 @@ test('repeated Dev↔Chat switches preserve the session state in the real window
     )
   }
 
+  expect(errors).toEqual([])
+})
+
+test('does not offer a steer action without an authorized host operation', async ({ page }) => {
+  await openChatFixture(page, 'conversation')
+  await expect(page.getByRole('button', { name: 'Steer', exact: true })).toBeDisabled()
+  await expect(page.getByText('Steer is unavailable on this host.', { exact: true })).toBeVisible()
+})
+
+test('restores an earlier reading position when the canonical Chat surface remounts', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 420 })
+  await openDraftChatFixture(page)
+  const transcript = page.getByLabel('Conversation transcript')
+  await expect
+    .poll(() => transcript.evaluate((node) => node.scrollHeight - node.clientHeight))
+    .toBeGreaterThan(100)
+  await transcript.evaluate((node) => {
+    node.scrollTop = 90
+    node.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(90)
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:remount')))
+  await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(90)
+})
+
+test('follows appended runtime rows only while the reader keeps follow intent', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await page.setViewportSize({ width: 900, height: 420 })
+  await openChatFixture(page, 'streaming')
+  const transcript = page.getByLabel('Conversation transcript')
+  const distance = () =>
+    transcript.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop)
+  await expect
+    .poll(() => transcript.evaluate((node) => node.scrollHeight - node.clientHeight))
+    .toBeGreaterThan(100)
+  await expect.poll(distance).toBeLessThanOrEqual(2)
+
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:append')))
+  await expect(page.locator('article.dev-chat__row')).toHaveCount(6)
+  await expect.poll(distance).toBeLessThanOrEqual(2)
+
+  // A small upward movement inside the visibility threshold still revokes
+  // follow intent. The next runtime event must preserve that native offset.
+  const parked = await transcript.evaluate((node) => {
+    node.scrollTop -= 30
+    node.dispatchEvent(new Event('scroll'))
+    return node.scrollTop
+  })
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:append')))
+  await expect(page.locator('article.dev-chat__row')).toHaveCount(7)
+  await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(parked)
+  await page.getByRole('button', { name: 'Jump to latest', exact: true }).click()
+  await expect.poll(distance).toBeLessThanOrEqual(2)
+  await expect(transcript).toBeFocused()
   expect(errors).toEqual([])
 })

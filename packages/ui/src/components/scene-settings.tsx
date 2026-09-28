@@ -3,7 +3,7 @@ import { createEffect, createSignal, Show, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 
 import { AccountDrawer } from './account-drawer'
-import { Button } from '#components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type SceneSettingsProps = {
   cameraViewMode: 'perspective' | 'orthographic'

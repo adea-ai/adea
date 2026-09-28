@@ -33,12 +33,15 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(page.getByRole('button', { name: 'Open character designer' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Open user menu for Sign in' })).toHaveCount(0)
   await expect(page.locator('.workspace-statusbar')).toHaveCount(0)
-  await expect(page.locator('.workspace-topbar')).toHaveCount(0)
+  await expect(page.getByLabel('Workspace toolbar')).toBeVisible()
 
   const workspaceTrigger = page.getByRole('button', { name: /Switch workspace/ })
   await workspaceTrigger.click()
-  const workspaceMenu = page.getByRole('menu')
+  const workspaceMenu = page.getByRole('menu', { name: /Switch workspace/ })
   await expect(workspaceMenu).toBeVisible({ timeout: 20_000 })
+  await workspaceMenu.evaluate((menu) =>
+    Promise.allSettled(menu.getAnimations({ subtree: true }).map((animation) => animation.finished))
+  )
   const workspaceMenuPosition = await workspaceMenu.evaluate((menu) => {
     const menuBox = menu.getBoundingClientRect()
     const triggerBox = document
@@ -47,15 +50,20 @@ test('a guest can use a workspace before opening the optional persistence flow',
     return {
       menuLeft: menuBox.left,
       menuTop: menuBox.top,
-      triggerLeft: triggerBox.left,
-      triggerBottom: triggerBox.bottom,
+      triggerRight: triggerBox.right,
+      triggerTop: triggerBox.top,
     }
   })
-  // Pixel positions vary by renderer (headless CI vs GPU browsers); allow a
-  // small tolerance so the assertions check alignment, not sub-pixel output.
-  expect(workspaceMenuPosition.menuLeft).toBeCloseTo(workspaceMenuPosition.triggerLeft, -1)
-  expect(workspaceMenuPosition.menuTop).toBeCloseTo(workspaceMenuPosition.triggerBottom, -1)
-  await page.keyboard.press('Escape')
+  // The picker opens right-start with a 4px gutter. Allow sub-pixel differences
+  // between renderers while checking the intended placement.
+  expect(
+    Math.abs(workspaceMenuPosition.menuLeft - workspaceMenuPosition.triggerRight - 4)
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(workspaceMenuPosition.menuTop - workspaceMenuPosition.triggerTop)
+  ).toBeLessThanOrEqual(1)
+  await workspaceTrigger.click()
+  await expect(workspaceMenu).toBeHidden()
 
   for (const viewport of [
     { width: 1280, height: 800 },
@@ -76,7 +84,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   }
 
   await userMenu.click()
-  const accountMenu = page.getByRole('menu')
+  const accountMenu = page.getByRole('menu', { name: 'User settings' })
   // The menu enters with a zoom/fade animation that transforms its box; wait
   // for it to settle before measuring the final position.
   await accountMenu.evaluate((menu) =>
@@ -114,10 +122,10 @@ test('a guest can use a workspace before opening the optional persistence flow',
   // version, never the "Version unavailable" fallback).
   await expect(about.getByText(/^Version \d+\.\d+\.\d+$/)).toBeVisible()
   await expect(about.getByRole('button', { name: 'Copy version info' })).toBeVisible()
-  await expect(about.getByRole('button', { name: 'Close dialog' })).toBeVisible()
+  await expect(about.getByRole('button', { name: 'Close', exact: true })).toBeVisible()
   await expect(about.locator('.conventional-about-dialog__brand svg')).toBeVisible()
   await expect(about.locator('.conventional-about-dialog__brand span')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Close dialog' }).click()
+  await about.getByRole('button', { name: 'Close', exact: true }).click()
   // Let the dialog (and its inert overlay) fully detach before opening the
   // next one; without the scene's render load this races close animations.
   await expect(about).toBeHidden({ timeout: 20_000 })
@@ -131,7 +139,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   const shortcutSettings = page.getByRole('dialog', { name: 'Settings' })
   await expect(shortcutSettings).toBeVisible()
   await expect(page).toHaveURL(/view=virtual/)
-  await page.getByRole('button', { name: 'Close dialog' }).click()
+  await shortcutSettings.getByRole('button', { name: 'Close', exact: true }).click()
 
   await userMenu.click()
   await accountMenu.getByRole('menuitem', { name: 'Settings' }).click()
@@ -139,7 +147,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(settings).toBeVisible()
   await expect(page).toHaveURL(/view=virtual/)
   await expect(
-    settings.locator('.conventional-dialog__heading .conventional-settings-logo')
+    settings.locator('[data-slot="dialog-header"] .conventional-settings-logo')
   ).toBeVisible()
   const signInButton = settings.getByRole('button', { name: 'Sign in', exact: true })
   await expect(signInButton).toBeVisible()
@@ -182,6 +190,57 @@ test('settings opens over chat without changing the current view', async ({ page
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible({ timeout: 20_000 })
   await expect(page).toHaveURL(/view=chat/)
+})
+
+test('workspace search shortcut repeatedly focuses the disabled-chat App Library search', async ({
+  page,
+}) => {
+  await page.route('**/api/workspaces/bootstrap', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        activeWorkspace: workspace,
+        principal: { temporary: true },
+        workspaces: [workspace],
+      },
+    })
+  })
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'adea:rail-preferences:v1',
+      JSON.stringify({
+        version: 1,
+        order: ['virtual', 'chat', 'dev'],
+        hidden: ['virtual', 'chat', 'dev'],
+      })
+    )
+  })
+
+  await page.goto('/?app=library')
+  await expect(page.getByRole('heading', { name: 'App Library' })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('button', { name: 'Enable Chat' })).toBeVisible()
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('searchbox', { name: 'Search apps' })).toBeFocused()
+  await expect(page).toHaveURL(/app=library/)
+
+  const search = page.getByRole('searchbox', { name: 'Search apps' })
+  await page.getByRole('button', { name: 'Enable Chat' }).focus()
+  await expect(page.getByRole('button', { name: 'Enable Chat' })).toBeFocused()
+  await page.keyboard.press('Control+k')
+  await expect(search).toBeFocused()
+
+  const library = page.getByRole('main', { name: 'App Library' })
+  await library.getByRole('button', { name: 'Enable Virtual' }).click()
+  await library.getByRole('button', { name: 'Open Virtual' }).click()
+  await expect(page.getByRole('status', { name: 'Virtual view unavailable' })).toBeVisible({
+    timeout: 20_000,
+  })
+  await page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('button', { name: 'App Library', exact: true })
+    .click()
+  await expect(library).toBeVisible()
+  await expect(search).not.toBeFocused()
 })
 
 test('desktop authentication ends on a clear browser success page', async ({ page }) => {

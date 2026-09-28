@@ -17,7 +17,7 @@ test('terminal attach renders authenticated shell state and remains keyboard acc
   page,
 }) => {
   const terminal = await openFixtureTerminal(page)
-  const pane = terminal.locator('..')
+  const pane = page.getByRole('region', { name: 'terminal pane' }).first()
 
   await expect(terminal.locator('.dev-terminal-pane-status')).toHaveAttribute('data-state', 'open')
   await expect(terminal.locator('.dev-terminal-pane-integration')).toHaveAttribute(
@@ -56,9 +56,30 @@ test('terminal reconnects after a bounded transport flap and survives a split', 
   await expect(terminal.locator('.dev-terminal-pane-status')).toHaveAttribute('data-state', 'open')
   await expect(terminal).toContainText('reconnected', { timeout: 10_000 })
 
+  // A new split must not remount the existing transport or lose its local
+  // search state. Counting two visible panes alone cannot prove continuity.
+  await terminal.click()
+  await page.keyboard.press('ControlOrMeta+f')
+  const search = terminal.getByRole('search', { name: 'Search terminal' })
+  const query = search.getByRole('searchbox', { name: 'Search terminal' })
+  await query.fill('reconnected')
+  const originalTerminal = await terminal.elementHandle()
+  expect(originalTerminal).not.toBeNull()
+  const originalOutput = await terminal.getByLabel('Terminal output').textContent()
+
   await page.getByRole('button', { name: 'Split pane' }).click()
   const terminals = page.getByRole('region', { name: /Integrated terminal/ })
   await expect(terminals).toHaveCount(2)
+  const retainedTerminal = page
+    .locator('[data-pane-id="dev-terminal"]')
+    .getByRole('region', { name: /Integrated terminal/ })
+  expect(
+    await retainedTerminal.evaluate((element, previous) => element === previous, originalTerminal)
+  ).toBe(true)
+  await expect(retainedTerminal.getByRole('searchbox', { name: 'Search terminal' })).toHaveValue(
+    'reconnected'
+  )
+  expect(await retainedTerminal.getByLabel('Terminal output').textContent()).toBe(originalOutput)
   await expect(terminals.nth(1).locator('.dev-terminal-pane-status')).toHaveAttribute(
     'data-state',
     'open'

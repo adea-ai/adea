@@ -17,9 +17,11 @@ import type {
   DevError,
   PortRecord,
   ProfilePolicy,
+  Scope,
+  ScreenshotRef,
 } from '@adea-ai/types/dev-runtime'
-import '@adea-ai/ui/dev-view.css'
-import { cn } from '@adea-ai/ui/lib/utils'
+import '@adea-ai/app-ui/dev-view.css'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
   ArrowLeft,
   ArrowRight,
@@ -31,7 +33,7 @@ import {
   RotateCw,
   X,
 } from 'lucide-solid'
-import { For, Show, createResource, createSignal } from 'solid-js'
+import { For, Show, createEffect, createResource, createSignal, onCleanup } from 'solid-js'
 
 import './browser-pane.css'
 import type { DevRuntimeService } from '../platform'
@@ -70,6 +72,56 @@ type PortsPage = { items: readonly PortRecord[] }
 type DiagnosticsPage = {
   items: readonly { id: string; level: string; category: string; message: string }[]
 }
+type ScreenshotContext = {
+  runtime: DevRuntimeService
+  runtimeStatus: string
+  scopeKey?: string
+  requestedSessionId?: string
+  laneId?: string
+  laneScopeKey?: string
+  laneSessionId?: string
+  laneGeneration?: number
+  targetId?: string
+  targetUrl?: string
+  targetTitle?: string
+  targetType?: BrowserTarget['type']
+  viewportKey: string
+  canCapture: boolean
+}
+type ScreenshotPaneResult = {
+  reference: ScreenshotRef
+  contextKey: string
+  runtime: DevRuntimeService
+}
+
+function browserScopeKey(value: Scope | undefined): string | undefined {
+  return value
+    ? JSON.stringify([value.accountId, value.workspaceId, value.runtimeNodeId])
+    : undefined
+}
+
+function screenshotContextKey(context: ScreenshotContext): string {
+  return JSON.stringify([
+    context.runtimeStatus,
+    context.scopeKey,
+    context.requestedSessionId,
+    context.laneId,
+    context.laneScopeKey,
+    context.laneSessionId,
+    context.laneGeneration,
+    context.targetId,
+    context.targetUrl,
+    context.targetTitle,
+    context.targetType,
+    context.viewportKey,
+  ])
+}
+
+function sameScreenshotContext(left: ScreenshotContext, right: ScreenshotContext): boolean {
+  return (
+    left.runtime === right.runtime && screenshotContextKey(left) === screenshotContextKey(right)
+  )
+}
 
 function commandError(error: unknown): DevError {
   return (
@@ -103,6 +155,11 @@ export function BrowserPane(props: BrowserPaneProps) {
   }>()
   const [inspectionBusy, setInspectionBusy] = createSignal(false)
   let latestInspectionRequest = 0
+  const [screenshotResult, setScreenshotResult] = createSignal<ScreenshotPaneResult>()
+  const [screenshotError, setScreenshotError] = createSignal<DevError>()
+  const [screenshotBusy, setScreenshotBusy] = createSignal(false)
+  let latestScreenshotRequest = 0
+  let screenshotMounted = true
 
   async function execute<T>(
     operation: Parameters<typeof buildDevCommand>[0]['operation'],
@@ -210,6 +267,7 @@ export function BrowserPane(props: BrowserPaneProps) {
 
   function dispatchNavigation(request: BrowserNavigationRequest): void {
     invalidateInspection()
+    clearScreenshotContext()
     execute<{
       browserLaneId: string
       targetId: string
@@ -290,6 +348,7 @@ export function BrowserPane(props: BrowserPaneProps) {
   }
 
   async function createLane(kind: BrowserLane['kind']): Promise<void> {
+    clearScreenshotContext()
     const session = props.runtimeSessionId
     if (!session) {
       setError({ code: 'invalid_state', retryable: false, message: 'no active runtime session' })
@@ -329,6 +388,7 @@ export function BrowserPane(props: BrowserPaneProps) {
     const lane = activeLane()
     if (!lane) return
     invalidateInspection()
+    clearScreenshotContext()
     const operation =
       lane.automationOwner === 'human_takeover' ? 'dev.browser.release' : 'dev.browser.takeover'
     execute<BrowserLane>(
@@ -347,21 +407,50 @@ export function BrowserPane(props: BrowserPaneProps) {
   }
 
   function screenshot(): void {
+    const context = screenshotContext()
     const lane = activeLane()
-    if (!lane) return
-    execute<unknown>(
+    const target = activePageTarget()
+    const currentScope = scope()
+    if (!context.canCapture || !lane || !target || !currentScope || !screenshotMounted) return
+
+    const requestId = ++latestScreenshotRequest
+    setScreenshotBusy(true)
+    setScreenshotError(undefined)
+    const requestContextKey = screenshotContextKey(context)
+    const stillCurrent = (): boolean => {
+      return (
+        screenshotMounted &&
+        requestId === latestScreenshotRequest &&
+        sameScreenshotContext(context, screenshotContext())
+      )
+    }
+
+    execute<ScreenshotRef>(
       'dev.browser.screenshot',
       {
         browserLaneId: lane.id,
         expectedGeneration: lane.generation,
+        targetId: target.id,
         format: 'png',
       },
       { kind: 'browser_lane', id: lane.id, generation: lane.generation }
     )
-      .then(() => {
+      .then((reference) => {
+        if (!stillCurrent()) return
+        if (
+          typeof reference.redacted !== 'boolean' ||
+          browserScopeKey(reference.scope) !== browserScopeKey(currentScope)
+        )
+          throw new Error('screenshot reply is missing valid scope or redaction provenance')
+        setScreenshotResult({ reference, contextKey: requestContextKey, runtime: context.runtime })
         setError(undefined)
       })
-      .catch((reply) => setError(commandError(reply)))
+      .catch((reply) => {
+        if (stillCurrent()) setScreenshotError(commandError(reply))
+      })
+      .finally(() => {
+        if (stillCurrent()) setScreenshotBusy(false)
+      })
   }
 
   /**
@@ -374,6 +463,7 @@ export function BrowserPane(props: BrowserPaneProps) {
     nextOrientation: ResponsiveOrientation
   ): void {
     invalidateInspection()
+    clearScreenshotContext()
     setPresetId(nextPreset)
     setOrientation(nextOrientation)
     const lane = activeLane()
@@ -394,6 +484,72 @@ export function BrowserPane(props: BrowserPaneProps) {
       .then(() => setError(undefined))
       .catch((reply) => setError(commandError(reply)))
   }
+
+  function screenshotContext(): ScreenshotContext {
+    const currentRuntime = runtime()
+    const currentScope = currentRuntime.preferenceScope?.()
+    const lane = activeLane()
+    const target = activePageTarget()
+    const viewport = resolvePresetViewport(presetById(presetId()), orientation())
+    const currentScopeKey = browserScopeKey(currentScope)
+    const laneScopeKey = browserScopeKey(lane?.scope)
+    const scopeMatches = currentScopeKey !== undefined && laneScopeKey === currentScopeKey
+    const sessionMatches =
+      !props.runtimeSessionId || lane?.runtimeSessionId === props.runtimeSessionId
+
+    return {
+      runtime: currentRuntime,
+      runtimeStatus: currentRuntime.state().status,
+      scopeKey: currentScopeKey,
+      requestedSessionId: props.runtimeSessionId,
+      laneId: lane?.id,
+      laneScopeKey,
+      laneSessionId: lane?.runtimeSessionId,
+      laneGeneration: lane?.generation,
+      targetId: target?.id,
+      targetUrl: target?.url,
+      targetTitle: target?.title,
+      targetType: target?.type,
+      viewportKey: JSON.stringify([
+        presetId(),
+        orientation(),
+        viewport.width,
+        viewport.height,
+        viewport.deviceScaleFactor,
+        viewport.mobile,
+        zoomScale(),
+      ]),
+      canCapture:
+        currentRuntime.state().status === 'ready' &&
+        Boolean(lane && scopeMatches && sessionMatches && target && !targets.loading),
+    }
+  }
+
+  function clearScreenshotContext(): void {
+    latestScreenshotRequest += 1
+    setScreenshotBusy(false)
+    setScreenshotResult(undefined)
+    setScreenshotError(undefined)
+  }
+
+  let previousScreenshotContext: ScreenshotContext | undefined
+  createEffect(() => {
+    const next = screenshotContext()
+    if (previousScreenshotContext && !sameScreenshotContext(previousScreenshotContext, next)) {
+      const runtimeContextChanged =
+        previousScreenshotContext.runtime !== next.runtime ||
+        previousScreenshotContext.scopeKey !== next.scopeKey ||
+        previousScreenshotContext.requestedSessionId !== next.requestedSessionId
+      clearScreenshotContext()
+      if (runtimeContextChanged) void refetchLanes()
+    }
+    previousScreenshotContext = next
+  })
+
+  onCleanup(() => {
+    screenshotMounted = false
+    latestScreenshotRequest += 1
+  })
 
   function handleUrlKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
@@ -499,7 +655,8 @@ export function BrowserPane(props: BrowserPaneProps) {
           type="button"
           class="dev-icon-button"
           aria-label="Screenshot"
-          disabled={!activeLane()}
+          aria-busy={screenshotBusy()}
+          disabled={!screenshotContext().canCapture || screenshotBusy()}
           onClick={screenshot}
         >
           <Camera aria-hidden="true" />
@@ -570,6 +727,50 @@ export function BrowserPane(props: BrowserPaneProps) {
               </p>
             )}
           </Show>
+          <Show when={screenshotError()}>
+            {(shown) => (
+              <p class="dev-terminal-muted" role="alert" aria-label="Screenshot error">
+                {shown().code}: {shown().message}
+              </p>
+            )}
+          </Show>
+          <Show when={screenshotBusy() && !screenshotResult()}>
+            <p role="status" aria-label="Screenshot capture">
+              Capturing screenshot…
+            </p>
+          </Show>
+          <Show
+            when={(() => {
+              const result = screenshotResult()
+              const context = screenshotContext()
+              return result &&
+                result.runtime === context.runtime &&
+                result.contextKey === screenshotContextKey(context)
+                ? result
+                : undefined
+            })()}
+          >
+            {(state) => (
+              <div
+                class="dev-browser__inspection-result"
+                role="status"
+                aria-label="Screenshot result"
+                aria-busy={screenshotBusy()}
+              >
+                <strong>Screenshot reference</strong>
+                <span>Reference: {state().reference.id}</span>
+                <span>
+                  Dimensions: {state().reference.width} × {state().reference.height}
+                </span>
+                <span>Content type: {state().reference.contentType}</span>
+                <span>Expires: {state().reference.expiresAt}</span>
+                <span>Redacted: {String(state().reference.redacted)}</span>
+                <Show when={screenshotBusy()}>
+                  <span>Capturing a newer screenshot…</span>
+                </Show>
+              </div>
+            )}
+          </Show>
 
           <p class="dev-browser__section-title">Lanes</p>
           <div role="tablist" aria-label="Browser lanes">
@@ -584,6 +785,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                   })}
                   onClick={() => {
                     invalidateInspection()
+                    clearScreenshotContext()
                     setActiveLaneId(lane.id)
                     void refetchTargets()
                     void refetchDiagnostics()

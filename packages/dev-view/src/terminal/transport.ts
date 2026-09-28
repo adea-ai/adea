@@ -641,8 +641,11 @@ export function createTerminalTransport(options: TerminalTransportOptions) {
     resize(cols: number, rows: number): void {
       if (lastSentResize?.cols === cols && lastSentResize.rows === rows) return
       lastSentResize = { cols, rows }
-      // Resizes ride the control path in production; transport replays the
-      // last dimensions only after a reconnect's generation is authenticated.
+      const active = activeConnection
+      if (active !== null && isCurrent(active)) {
+        active.resizePending = true
+        flushResize(active)
+      }
     },
 
     suspend(): void {

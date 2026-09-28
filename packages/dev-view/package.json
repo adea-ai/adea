@@ -135,9 +135,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@adea-ai/app-ui": "workspace:*",
     "@adea-ai/state": "workspace:*",
+    "@adea-ai/themes": "0.6.3",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "workspace:*",
+    "@adea-ai/ui": "0.72.4",
     "@codemirror/commands": "^6.8.1",
     "@codemirror/language": "^6.11.0",
     "@codemirror/search": "^6.5.11",

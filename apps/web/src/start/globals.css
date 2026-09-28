@@ -1,13 +1,29 @@
 @import 'tailwindcss';
+/* Published controls use the shared state variants and control tokens from
+   this structural contract. Keep it before the app adapter so the app's
+   palette values remain the final semantic token authority. */
 @import '@adea-ai/ui/base.css';
 @import '@adea-ai/ui/theme.css';
-@import '@adea-ai/ui/auth-shell.css';
-@import '@adea-ai/ui/workspace-shell.css';
-@import '@adea-ai/ui/conventional-workspace.css';
+@import '@adea-ai/app-ui/base.css';
+@import '@adea-ai/app-ui/theme.css';
+@import '@adea-ai/app-ui/auth-shell.css';
+@import '@adea-ai/app-ui/workspace-shell.css';
+@import '@adea-ai/app-ui/conventional-workspace.css';
 
 /* Shared workspace components live outside Vite's automatic scan root. Must
    stay after all @imports — CSS drops imports that follow other rules. */
 @source '../../../../packages/workspace-ui/src';
+/* The published AppearanceEditor is source-mapped so Tailwind emits its
+   nested primitives; app-specific CSS remains owned by @adea-ai/app-ui. */
+@source '../../../../packages/workspace-ui/node_modules/@adea-ai/ui/src/components';
+@source '../../../../packages/workspace-ui/node_modules/@adea-ai/ui/src/lib';
+
+/* Adea's shell spacing is authored in rem against the historical 16px root.
+   The published UI structural base intentionally defaults the document to
+   its 14px text-sm scale, so keep the app shell's existing geometry stable. */
+html {
+  font-size: 16px;
+}
 
 :root {
   --browser-auth-error: #b42318;
@@ -196,24 +212,7 @@
   pointer-events: auto;
 }
 
-.workspace-topbar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  display: grid;
-  grid-template-columns: minmax(10rem, 1fr) auto minmax(10rem, 1fr);
-  align-items: center;
-  min-height: var(--workspace-topbar-offset);
-  padding: calc(0.75rem + env(safe-area-inset-top)) 1rem 0.75rem;
-  gap: 1rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--hq-shell-border) 70%, transparent);
-  background: color-mix(in srgb, var(--hq-shell-surface) 88%, transparent);
-  backdrop-filter: blur(18px);
-}
-
 .workspace-brand,
-.workspace-topbar__actions,
 .workspace-scene-tab,
 .workspace-view-switcher,
 .workspace-scene-caption {
@@ -254,10 +253,6 @@
   background: color-mix(in srgb, var(--hq-shell-surface) 82%, transparent);
 }
 
-.workspace-topbar__actions {
-  justify-self: end;
-}
-
 .workspace-scene-nav {
   flex: 0 0 auto;
 }
@@ -292,12 +287,6 @@
 .workspace-scene-tools button:focus-visible {
   outline: 2px solid var(--hq-shell-focus);
   outline-offset: 2px;
-}
-
-.workspace-topbar__actions {
-  justify-content: flex-end;
-  gap: 0.7rem;
-  min-width: 0;
 }
 
 .workspace-tool-slot {
@@ -404,11 +393,6 @@
 }
 
 @media (max-width: 640px) {
-  .workspace-topbar {
-    padding: calc(0.7rem + env(safe-area-inset-top)) 0.8rem 0.7rem;
-    grid-template-columns: minmax(2.1rem, 1fr) auto minmax(4.5rem, 1fr);
-  }
-
   .workspace-brand > div:last-child {
     display: none;
   }
@@ -437,5 +421,48 @@
     bottom: 1.15rem;
     left: 0.8rem;
     max-width: calc(100% - 7rem);
+  }
+}
+
+/* The virtual scene and its navigation share the same inner frame. */
+.workspace-shell--contextual {
+  display: flex;
+  height: 100%;
+}
+.workspace-shell--contextual > .workspace-scene-viewport {
+  flex: 1;
+  min-width: 0;
+}
+.virtual-context-sidebar {
+  flex: none;
+  width: 17rem;
+  padding: 1rem;
+  overflow: auto;
+  border-inline-end: 1px solid var(--border);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+.virtual-context-sidebar[hidden] {
+  display: none;
+}
+.virtual-context-sidebar h1 {
+  margin: 0 0 1.5rem;
+  font-size: 0.875rem;
+}
+.virtual-context-sidebar h2 {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.virtual-context-sidebar__room {
+  width: 100%;
+  justify-content: flex-start;
+}
+@media (max-width: 48rem) {
+  .virtual-context-sidebar {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: var(--z-drawer);
+    width: min(17rem, 84%);
   }
 }

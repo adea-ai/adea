@@ -14,11 +14,6 @@ import { extname, join, normalize } from 'node:path'
 import { agentSimResponse } from '../agent-sim-assets'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface, type BridgeResult } from '../commands'
-import {
-  createHarnessRunNotificationPublisher,
-  requestNativeChatNotification,
-  type RunNotificationPublisher,
-} from '../notifications/harness-run-notifications'
 import { createPresentedRuntimeSession } from '../notifications/presented-runtime-session'
 import {
   createCloudIdentityVerifier,
@@ -33,6 +28,11 @@ import {
   type SocketData,
 } from '../dev-runtime/channel/server'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../dev-runtime'
+import {
+  createHarnessRunNotificationPublisher,
+  requestNativeChatNotification,
+  type RunNotificationPublisher,
+} from '../notifications/harness-run-notifications'
 import { createFileStreamRelay } from '../dev-runtime/stream-relay'
 import { createOwnerApprovalVerifier } from '../dev-runtime/authority'
 import {
@@ -545,6 +545,8 @@ if (!server) {
 // notifications and never grants session input ownership.
 const nativeWindow = new BrowserWindow({
   title: 'Adea',
+  // The client draws themed chrome; native macOS controls remain native.
+  titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
   url: `http://127.0.0.1:${PORT}/`,
   frame: { width: 1280, height: 840, x: 120, y: 90 },
 })

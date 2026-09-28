@@ -8,14 +8,16 @@
  * tree controls, typed fixtures, Adea authority boundaries, and accessible
  * group/project reordering (pointer drag plus Alt+Arrow keyboard moves).
  */
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
+import { Input } from '@adea-ai/ui/components/ui/input'
 import { ChevronDown, ChevronRight, Search } from 'lucide-solid'
-import { For, Show, type JSX } from 'solid-js'
+import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
 
 import type { DevGroupFixture } from '../dev-workspace-entry'
 import type { ArchiveShelfState } from './archive-shelf-model'
 import { sessionBadges } from './badges'
 import { ArchiveShelf } from './archive-shelf'
+import { filterDevNavigationGroups } from './navigation-filter'
 
 export type SidebarReorderHandlers = {
   /** Keyboard move (Alt+Arrow) of a group. */
@@ -53,30 +55,30 @@ function reorderKeyDown(
   })
 }
 
-export function DevSidebarShell(props: {
+type DevSidebarNavigationProps = {
   groups: readonly DevGroupFixture[]
   selectedProject: string
   selectedSession: string
   collapsedGroups: ReadonlySet<string>
   collapsedProjects: ReadonlySet<string>
   compactOpen: boolean
+  navigationLabel?: string
   reorder?: SidebarReorderHandlers
-  /** Provider-backed archive shelf state (see archive-shelf-model). */
-  archiveShelf: ArchiveShelfState
-  archiveHandoffMessage?: string
   /** Registry add/scan surface slot (#398); absent in E2E fixture mode. */
   addProject?: JSX.Element
   /** Repository registry surface slot (#398 follow-up); absent in fixture mode. */
   repoRegistry?: JSX.Element
-  onArchiveRestore(runtimeSessionId: string): void
-  onArchiveRequestDelete(runtimeSessionId: string): void
-  onArchiveCancelDelete(): void
-  onArchiveConfirmDelete(): void
   onProjectSelect(id: string): void
   onSessionSelect(projectId: string, sessionId: string): void
   onToggleGroup(id: string): void
   onToggleProject(id: string): void
-}) {
+  children?: JSX.Element
+}
+
+export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
+  const [query, setQuery] = createSignal('')
+  const isFiltering = () => query().trim().length > 0
+  const visibleGroups = createMemo(() => filterDevNavigationGroups(props.groups, query()))
   let dragged: { kind: 'group' | 'project'; groupId: string; id: string } | undefined
 
   return (
@@ -87,18 +89,29 @@ export function DevSidebarShell(props: {
       <label class="dev-search">
         <Search aria-hidden="true" />
         <span class="sr-only">Filter projects and sessions</span>
-        <input type="search" placeholder="Filter projects" />
+        <Input
+          type="search"
+          value={query()}
+          placeholder="Filter projects"
+          onInput={(event) => setQuery(event.currentTarget.value)}
+        />
       </label>
       <Show when={props.addProject}>{props.addProject}</Show>
       <Show when={props.repoRegistry}>{props.repoRegistry}</Show>
-      <nav aria-label="Dev projects">
+      <nav aria-label={props.navigationLabel ?? 'Dev projects'}>
         <Show
-          when={props.groups.length > 0}
-          fallback={<p class="dev-tree-empty">No runtime projects available.</p>}
+          when={visibleGroups().length > 0}
+          fallback={
+            <p class="dev-tree-empty">
+              {isFiltering()
+                ? 'No matching projects or sessions.'
+                : 'No runtime projects available.'}
+            </p>
+          }
         >
-          <For each={props.groups}>
+          <For each={visibleGroups()}>
             {(group) => {
-              const groupCollapsed = () => props.collapsedGroups.has(group.id)
+              const groupCollapsed = () => !isFiltering() && props.collapsedGroups.has(group.id)
               return (
                 <section
                   class="dev-tree-group"
@@ -122,7 +135,9 @@ export function DevSidebarShell(props: {
                     aria-expanded={!groupCollapsed()}
                     aria-description={props.reorder ? SIDEBAR_REORDER_HINT : undefined}
                     draggable={Boolean(props.reorder)}
-                    onClick={() => props.onToggleGroup(group.id)}
+                    onClick={() => {
+                      if (!isFiltering()) props.onToggleGroup(group.id)
+                    }}
                     onKeyDown={(event) =>
                       props.reorder &&
                       reorderKeyDown(
@@ -148,7 +163,8 @@ export function DevSidebarShell(props: {
                   <Show when={!groupCollapsed()}>
                     <For each={group.projects}>
                       {(project) => {
-                        const projectCollapsed = () => props.collapsedProjects.has(project.id)
+                        const projectCollapsed = () =>
+                          !isFiltering() && props.collapsedProjects.has(project.id)
                         return (
                           <div
                             class="dev-tree-project"
@@ -177,7 +193,7 @@ export function DevSidebarShell(props: {
                               draggable={Boolean(props.reorder)}
                               onClick={() => {
                                 props.onProjectSelect(project.id)
-                                props.onToggleProject(project.id)
+                                if (!isFiltering()) props.onToggleProject(project.id)
                               }}
                               onKeyDown={(event) =>
                                 props.reorder &&
@@ -265,6 +281,24 @@ export function DevSidebarShell(props: {
           </For>
         </Show>
       </nav>
+      {props.children}
+    </aside>
+  )
+}
+
+/** Dev adds its provider-backed archive actions to the common hierarchy. */
+export function DevSidebarShell(
+  props: DevSidebarNavigationProps & {
+    archiveShelf: ArchiveShelfState
+    archiveHandoffMessage?: string
+    onArchiveRestore(runtimeSessionId: string): void
+    onArchiveRequestDelete(runtimeSessionId: string): void
+    onArchiveCancelDelete(): void
+    onArchiveConfirmDelete(): void
+  }
+) {
+  return (
+    <DevSidebarNavigation {...props}>
       <ArchiveShelf
         state={props.archiveShelf}
         handoffMessage={props.archiveHandoffMessage}
@@ -273,6 +307,6 @@ export function DevSidebarShell(props: {
         onCancelDelete={props.onArchiveCancelDelete}
         onConfirmDelete={props.onArchiveConfirmDelete}
       />
-    </aside>
+    </DevSidebarNavigation>
   )
 }

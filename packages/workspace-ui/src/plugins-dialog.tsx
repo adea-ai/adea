@@ -34,7 +34,7 @@ import {
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import { keyedRows } from './keyed-rows'
-import { ModalDialog } from './modal-dialog'
+import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { PluginLogo } from './plugin-logo'
 import type { WorkspaceAppActivation, WorkspacePlugin, WorkspacePluginsProvider } from './platform'
 import { workspaceAppActivation } from './platform'
@@ -92,7 +92,12 @@ function PluginFilterMenu(props: {
           <span class="plugins-filter__dot" aria-hidden="true" />
         </Show>
       </DropdownMenuTrigger>
-      <DropdownMenuContent class="plugins-filter" align="start">
+      <DropdownMenuContent
+        hideArrow
+        placement="bottom-start"
+        gutter={4}
+        class="plugins-filter max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+      >
         <DropdownMenuGroup>
           <DropdownMenuLabel>Type</DropdownMenuLabel>
           <DropdownMenuRadioGroup
@@ -262,7 +267,7 @@ function PluginListState(props: {
     <Show
       when={props.status === 'loading'}
       fallback={
-        <Empty role="alert">
+        <Empty class="min-h-0 min-w-0 flex-1" role="alert">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <Blocks aria-hidden="true" />
@@ -281,7 +286,7 @@ function PluginListState(props: {
         </Empty>
       }
     >
-      <div class="plugins-browser__skeleton" aria-label="Loading plugins" aria-busy="true">
+      <div class="plugins-browser__skeleton" aria-busy="true">
         <For each={previewSkeletons}>
           {() => (
             <div>
@@ -300,7 +305,7 @@ function PluginListState(props: {
 
 function PluginsEmpty(props: { query: string; tab: PluginTab }) {
   return (
-    <Empty>
+    <Empty class="min-h-0 min-w-0 flex-1">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Blocks aria-hidden="true" />
@@ -498,7 +503,7 @@ function PluginDetail(props: {
 
 function NavigationMissing() {
   return (
-    <Empty>
+    <Empty class="min-h-0 min-w-0 flex-1">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Blocks aria-hidden="true" />
@@ -680,11 +685,12 @@ export function PluginsDialog(props: {
 
   return (
     <ModalDialog
-      class="plugins-dialog"
+      modal={false}
+      class="conventional-dialog plugins-dialog"
       description="Browse and manage apps, providers, and skills available to your agents."
       onClose={close}
       open={props.open}
-      title="App Library"
+      title="Plugins"
     >
       <Show
         when={selected()}
@@ -695,7 +701,12 @@ export function PluginsDialog(props: {
             value={tab()}
             onChange={(value) => value && setTab(value as PluginTab)}
           >
-            <TabsList variant="line" aria-label="App Library view" class="plugins-browser__tabs">
+            <TabsList
+              appearance="underline"
+              data-variant="line"
+              aria-label="Plugins view"
+              class="plugins-browser__tabs"
+            >
               <TabsTrigger value="marketplace">Discover</TabsTrigger>
               <TabsTrigger value="yours">Installed</TabsTrigger>
               <Show when={props.navigation}>
@@ -743,8 +754,10 @@ export function PluginsDialog(props: {
                       onInput={(event) => setQuery(event.currentTarget.value)}
                     />
                   </label>
-                  <span class="plugins-browser__count" aria-live="polite">
-                    {visible().length} {visible().length === 1 ? 'plugin' : 'plugins'}
+                  <span class="plugins-browser__count" role="status">
+                    {status() === 'loading'
+                      ? 'Loading plugins'
+                      : `${visible().length} ${visible().length === 1 ? 'plugin' : 'plugins'}`}
                   </span>
                 </div>
                 <TabsContent value={tab()} class="plugins-browser__list">

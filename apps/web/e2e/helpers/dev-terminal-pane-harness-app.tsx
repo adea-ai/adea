@@ -12,6 +12,8 @@
 // restart: the pane's transport reconnects with a fresh grant and a bumped
 // generation, exactly as it would against a restarted sidecar.
 import { render } from 'solid-js/web'
+// Production provides canonical terminal roles through this theme stylesheet.
+import '@adea-ai/app-ui/theme.css'
 
 import { TerminalPane, type TerminalPaneProps } from '@adea-ai/dev-view/terminal'
 import type { DevStreamFrame, ShellProfile } from '@adea-ai/types/dev-runtime'
@@ -62,6 +64,10 @@ function scriptedConnect(handlers: ConnectHandlers): StreamSocket {
       return state.bufferedAmount
     },
     send: (frame: DevStreamFrame) => {
+      if (frame.type === 'resize') {
+        state.resizes.push({ cols: frame.cols, rows: frame.rows, generation: frame.generation })
+        return
+      }
       if (frame.type !== 'input') return
       recordInput(generation, frame.bytes)
       if (state.failNextInputSend) {
@@ -69,8 +75,7 @@ function scriptedConnect(handlers: ConnectHandlers): StreamSocket {
         throw new Error('scripted ambiguous input send')
       }
       // A real PTY echoes what it receives; the scripted sidecar mirrors that
-      // so the round trip is observable for every input seam — the compose
-      // editor's `write` prop and the surface's transport queue alike.
+      // so compose and raw typing share the observable transport round trip.
       if (state.echo) writeOutput(decoder.decode(frame.bytes))
     },
     close: () => {
@@ -172,14 +177,6 @@ function mount() {
         connect={scriptedConnect}
         fromSequence="0"
         subscribeToObservations={subscribeToObservations}
-        write={(bytes) => {
-          recordInput(state.generation, bytes)
-          if (state.echo) writeOutput(decoder.decode(bytes))
-          return true
-        }}
-        resize={(cols, rows) => {
-          state.resizes.push({ cols, rows, generation: state.generation })
-        }}
         copyText={async (text) => {
           state.copies.push(text)
           return 'granted'

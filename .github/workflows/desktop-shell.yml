@@ -26,9 +26,12 @@ on:
       - 'apps/web/src/components/desktop-*.tsx'
       - 'apps/web/src/components/workspace-navigation*.tsx'
       - 'apps/web/src/components/version-dialog.tsx'
+      - 'packages/dev-view/src/dev-workspace-entry.tsx'
+      - 'packages/dev-view/src/terminal/fixture-terminal-pane.tsx'
       - 'scripts/desktop-*.test.ts'
       - 'scripts/desktop-shell-changes.mjs'
       - 'scripts/check-desktop-origins.mjs'
+      - 'scripts/check-desktop-client-browser.mjs'
       - 'scripts/test-suite-boundary.test.ts'
       - 'bun.lock'
       - '.github/workflows/desktop-shell.yml'
@@ -93,6 +96,14 @@ jobs:
         if: steps.changes.outputs.desktop == 'true'
         working-directory: apps/desktop
         run: bun run shell:client:build
+
+      - name: Install browser for packaged client check
+        if: steps.changes.outputs.desktop == 'true'
+        run: bunx playwright install --with-deps chromium
+
+      - name: Check packaged client entry and recovery
+        if: steps.changes.outputs.desktop == 'true'
+        run: node scripts/check-desktop-client-browser.mjs
 
       # The shell's own workspace ships the Electrobun types the shell
       # typecheck resolves.

@@ -22,7 +22,12 @@ import {
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from '@adea-ai/ui/components/ui/drawer'
+import {
+  Drawer,
+  DrawerCloseButton,
+  DrawerContent,
+  DrawerTitle,
+} from '@adea-ai/ui/components/ui/drawer'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -216,21 +221,24 @@ export function TaskDetail(props: Props) {
   return (
     <Drawer
       open
-      swipeDirection="right"
+      side="right"
       onOpenChange={(open) => {
         if (!open) void handleClose()
       }}
     >
-      <DrawerContent style={{ '--drawer-content-width': 'min(29rem, 94vw)' }}>
+      <DrawerContent class="conventional-task-detail-drawer__content">
         <div class="conventional-detail-panel">
           <header>
             <div>
               <span>Task detail</span>
               <DrawerTitle class="sr-only">{props.task.title}</DrawerTitle>
             </div>
-            <DrawerClose class="conventional-detail-panel__close" aria-label="Close Task detail">
+            <DrawerCloseButton
+              class="conventional-detail-panel__close"
+              aria-label="Close Task detail"
+            >
               <X aria-hidden="true" />
-            </DrawerClose>
+            </DrawerCloseButton>
           </header>
           <label>
             Title
@@ -273,7 +281,12 @@ export function TaskDetail(props: Props) {
                   <span>{kind() === 'bug' ? 'Bug' : kind() === 'chore' ? 'Chore' : 'Feature'}</span>
                   <ChevronDown aria-hidden="true" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="bottom">
+                <DropdownMenuContent
+                  hideArrow
+                  placement="bottom-start"
+                  gutter={4}
+                  class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+                >
                   <For each={kindOptions}>
                     {(option) => (
                       <DropdownMenuItem onSelect={() => setKind(option.value)}>
@@ -311,7 +324,12 @@ export function TaskDetail(props: Props) {
                   </span>
                   <ChevronDown aria-hidden="true" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="bottom">
+                <DropdownMenuContent
+                  hideArrow
+                  placement="bottom-start"
+                  gutter={4}
+                  class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+                >
                   <For each={priorityOptions}>
                     {(option) => (
                       <DropdownMenuItem onSelect={() => setPriority(option.value)}>
@@ -340,7 +358,12 @@ export function TaskDetail(props: Props) {
                   <span>{selectedRoom()?.name ?? 'No Room'}</span>
                   <ChevronDown aria-hidden="true" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="bottom">
+                <DropdownMenuContent
+                  hideArrow
+                  placement="bottom-start"
+                  gutter={4}
+                  class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+                >
                   <DropdownMenuItem onSelect={() => setRoomId(null)}>No Room</DropdownMenuItem>
                   <For each={roomRows()}>
                     {(entry) => (
@@ -371,7 +394,12 @@ export function TaskDetail(props: Props) {
                   </span>
                   <ChevronDown aria-hidden="true" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="bottom">
+                <DropdownMenuContent
+                  hideArrow
+                  placement="bottom-start"
+                  gutter={4}
+                  class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+                >
                   <DropdownMenuItem onSelect={() => setAgentId(null)}>Unassigned</DropdownMenuItem>
                   <For each={agentRows()}>
                     {(entry) => (

@@ -8,10 +8,14 @@ import { useWorkspaceState } from '@adea-ai/state'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import { createBrowserSettingsProvider } from '@adea-ai/workspace-ui/preferences'
 import { isDesktopRuntime } from '../lib/desktop-bridge'
-import { DesktopWorkspaceEntry } from './desktop-workspace-entry'
+import { lazy } from 'solid-js'
 import { createDeferredPluginsProvider, WorkspaceNavigation } from './workspace-navigation'
 import type { WorkspaceShellProps } from './workspace-shell'
 import packageJson from '../../package.json'
+
+// Both lanes remain available in local development. The production web build
+// excludes the native bootstrap; the packaged desktop build retains it.
+declare const __ADEA_DESKTOP_COMPONENTS__: boolean
 
 const appVersion = packageJson.version
 
@@ -25,7 +29,12 @@ export function WorkspaceNavigationEntry(props: {
   virtualProps: WorkspaceShellProps
   roomDesigner?: boolean
 }) {
-  if (isDesktopRuntime()) {
+  if (__ADEA_DESKTOP_COMPONENTS__ && isDesktopRuntime()) {
+    const DesktopWorkspaceEntry = lazy(() =>
+      import('./desktop-workspace-entry').then((module) => ({
+        default: module.DesktopWorkspaceEntry,
+      }))
+    )
     return (
       <DesktopWorkspaceEntry
         roomDesigner={props.roomDesigner ?? false}

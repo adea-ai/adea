@@ -363,7 +363,9 @@ export function ConversationSurface(props: {
                   >
                     <Search aria-hidden="true" />
                   </TooltipTrigger>
-                  <TooltipContent>Search this conversation (Mod+F)</TooltipContent>
+                  <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
+                    Search this conversation (Mod+F)
+                  </TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
@@ -372,7 +374,9 @@ export function ConversationSurface(props: {
                   >
                     <MailOpen aria-hidden="true" />
                   </TooltipTrigger>
-                  <TooltipContent>Mark conversation unread (Mod+Shift+U)</TooltipContent>
+                  <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
+                    Mark conversation unread (Mod+Shift+U)
+                  </TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
@@ -381,7 +385,9 @@ export function ConversationSurface(props: {
                   >
                     <Info aria-hidden="true" />
                   </TooltipTrigger>
-                  <TooltipContent>Open conversation details</TooltipContent>
+                  <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
+                    Open conversation details
+                  </TooltipContent>
                 </Tooltip>
               </div>
             </div>

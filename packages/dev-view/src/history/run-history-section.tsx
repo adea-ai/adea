@@ -4,7 +4,7 @@
  * the pure RunHistoryPane rows — newest-first, redacted by construction.
  */
 import type { HarnessRun } from '@adea-ai/types/dev-runtime'
-import '@adea-ai/ui/dev-view.css'
+import '@adea-ai/app-ui/dev-view.css'
 import { Show, createResource } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'

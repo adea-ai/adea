@@ -6,7 +6,7 @@
  * the responsive lane is always available (Dev Runtime spec).
  */
 import type { DeviceInventoryItem, DeviceSession } from '@adea-ai/types/dev-runtime'
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { MonitorSmartphone, Smartphone, Tablet } from 'lucide-solid'
 import { For, Show, createResource, createSignal } from 'solid-js'
 

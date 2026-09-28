@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { getWorkspaceDependencyFilters } from './workspace-dependency-filters.mjs'
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 const webRoot = resolve(repositoryRoot, 'apps/web')
@@ -24,12 +25,10 @@ function run(args, cwd, env = process.env) {
 run(['install', '--frozen-lockfile'], repositoryRoot)
 
 const webManifest = JSON.parse(readFileSync(resolve(webRoot, 'package.json'), 'utf8'))
-const workspaceDepFilters = Object.keys({
-  ...webManifest.dependencies,
-  ...webManifest.devDependencies,
-})
-  .filter((name) => name.startsWith('@adea-ai/'))
-  .map((name) => `--filter=${name}`)
+const workspaceDepFilters = getWorkspaceDependencyFilters(
+  webManifest.dependencies,
+  webManifest.devDependencies
+)
 run(['x', 'turbo', 'run', 'build', ...workspaceDepFilters], repositoryRoot)
 
 // Stamp the deployment commit SHA into the bundle so scene telemetry keeps

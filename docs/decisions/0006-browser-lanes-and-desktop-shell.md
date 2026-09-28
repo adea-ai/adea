@@ -115,7 +115,14 @@ candidate and is unaffected by this selection.
 own TanStack Start SPA build from loopback (`apps/web/vite.desktop.config.ts` →
 `apps/web/dist-desktop/client`) and injects the bridge into that document;
 desktop-only surfaces are `isDesktopRuntime()` flags in `apps/web`, not a second
-client. Variant rationale and rejected alternatives: `apps/desktop/README.md`.
+client. Production web builds compile out the native workspace bootstrap with
+`__ADEA_DESKTOP_COMPONENTS__ = false`; desktop builds retain it and still require
+`isDesktopRuntime()` before mounting. Local Vite development retains the components
+for isolated transport fixtures; full desktop bootstrap requires the canonical
+desktop build and cloud origin. `bun run test:browser:desktop-client` checks its
+entry/retry against that artifact with a synthetic bridge, not native authority. The production web module gate rejects native
+workspace entry/onboarding modules. Variant rationale and rejected alternatives:
+`apps/desktop/README.md`.
 That single client is Solid as of M6 ([0007](./0007-solid-tanstack-start.md));
 the pipeline, origins, and the no-second-client rule are unchanged. The shell
 also fronts the client's cloud traffic: `/api/*` is proxied same-origin to the
