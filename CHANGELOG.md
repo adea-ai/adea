@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.0](https://github.com/adea-ai/adea/compare/v0.63.2...v0.64.0) (2026-09-28)
+
+
+### Features
+
+* **workspace:** adopt shared shell and separate app library ([#760](https://github.com/adea-ai/adea/issues/760)) ([5162c7d](https://github.com/adea-ai/adea/commit/5162c7db5178e8801dfa8a609d23511878b3f8fe))
+
 ## [0.63.2](https://github.com/adea-ai/adea/compare/v0.63.1...v0.63.2) (2026-09-27)
 
 
