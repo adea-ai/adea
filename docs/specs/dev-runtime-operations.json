@@ -276,6 +276,12 @@
         "direction": "write"
       }
     },
+    "dev.device.capabilities": {
+      "capabilities": ["dev.device.read"],
+      "resource": null,
+      "body": "{}",
+      "reply": "DeviceCapabilityReport"
+    },
     "dev.device.list": {
       "capabilities": ["dev.device.read"],
       "resource": null,

@@ -9,6 +9,7 @@ import { createHmac, randomBytes, randomUUID } from 'node:crypto'
 import type {
   DevCommand,
   DevOperation,
+  DeviceCapabilityReport,
   DeviceInventoryItem,
 } from '../../../packages/types/src/dev-runtime'
 import {
@@ -286,7 +287,14 @@ function providersHarness(
   inventoryItems: Readonly<{
     ios?: readonly DeviceInventoryItem[]
     android?: readonly DeviceInventoryItem[]
-  }> = {}
+  }> = {},
+  platformCapabilities: DeviceCapabilityReport = {
+    items: [
+      { platform: 'ios', state: 'available', observedAt: '2026-09-27T00:00:00.000Z' },
+      { platform: 'android', state: 'available', observedAt: '2026-09-27T00:00:00.000Z' },
+    ],
+    observedAt: '2026-09-27T00:00:00.000Z',
+  }
 ) {
   const sessions = createDeviceSessionRegistry({
     // The registrar wires the same probe: stop re-checks the launch identity
@@ -323,6 +331,7 @@ function providersHarness(
   const { providers } = createDeviceProviders({
     sessions,
     verifiedInventory: () => ({ ios: iosInventory, android: androidInventory }),
+    platformCapabilities: () => platformCapabilities,
     iosInputHint: 'simctl exposes no tap',
     ...(engine ? { engine } : {}),
     screenshotRecorder: store,
@@ -363,6 +372,26 @@ const thrownCode = (call: () => unknown): string => {
 }
 
 describe('device providers with a live engine', () => {
+  test('returns the host capability report through the read-only operation', async () => {
+    const report: DeviceCapabilityReport = {
+      items: [
+        {
+          platform: 'ios',
+          state: 'unavailable',
+          missingPiece: 'xcrun_simctl',
+          observedAt: '2026-09-27T00:00:00.000Z',
+        },
+        { platform: 'android', state: 'available', observedAt: '2026-09-27T00:00:00.000Z' },
+      ],
+      observedAt: '2026-09-27T00:00:00.000Z',
+    }
+    const { providers } = providersHarness(undefined, {}, report)
+
+    expect(
+      await providers['dev.device.capabilities']!(deviceCommand('dev.device.capabilities', {}))
+    ).toEqual(report)
+  })
+
   test('responsive inventory supports the bound list-to-start path without host tooling', async () => {
     const { providers } = providersHarness(undefined)
     const page = providers['dev.device.list']!(deviceCommand('dev.device.list', {})) as {

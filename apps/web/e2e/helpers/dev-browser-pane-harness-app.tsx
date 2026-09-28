@@ -1,6 +1,7 @@
 import { render } from 'solid-js/web'
 
 import { BrowserPane } from '../../../../packages/dev-view/src/browser/browser-pane'
+import { DevicesPane } from '../../../../packages/dev-view/src/devices/devices-pane'
 import type { DevRuntimeService } from '../../../../packages/dev-view/src/platform'
 import type {
   BrowserLane,
@@ -36,6 +37,7 @@ const commands: DevCommand[] = []
 let screenshotSequence = 0
 let nextDeferredScreenshotId: number | undefined
 let nextScreenshotError: DevError | undefined
+let deferredInventory: { command: DevCommand; resolve(reply: DevReply): void } | undefined
 const deferredScreenshots = new Map<
   number,
   { command: DevCommand; resolve(reply: DevReply): void }
@@ -129,6 +131,14 @@ const runtime = {
       case 'dev.browser.lanes':
         return reply(command, { items: [lane] })
       case 'dev.browser.targets': {
+        const worker: BrowserTarget = {
+          id: 'browser-pane-fixture-worker',
+          browserLaneId: lane.id,
+          type: 'worker',
+          url: 'https://worker.example.invalid',
+          title: 'Browser pane service worker',
+          generation: lane.generation,
+        }
         const target: BrowserTarget = {
           id: 'browser-pane-fixture-target',
           browserLaneId: lane.id,
@@ -137,10 +147,55 @@ const runtime = {
           title: 'Browser pane fixture',
           generation: lane.generation,
         }
-        return reply(command, { items: [target] })
+        return reply(command, { items: [worker, target] })
       }
       case 'dev.resources.ports':
         return reply(command, { items: [port] })
+      case 'dev.device.list':
+        if (new URLSearchParams(window.location.search).get('inventory') === 'failed') {
+          return errorReply(command, {
+            code: 'unavailable',
+            message: 'fixture inventory read failed',
+            retryable: true,
+          })
+        }
+        if (new URLSearchParams(window.location.search).get('inventory') === 'pending') {
+          return await new Promise<DevReply>((resolve) => {
+            deferredInventory = { command, resolve }
+          })
+        }
+        return reply(command, {
+          items: [
+            {
+              id: 'adea:responsive',
+              kind: 'responsive',
+              name: 'Responsive viewport',
+              platform: 'responsive',
+              state: 'available',
+              generation: 1,
+              observedAt: new Date(0).toISOString(),
+            },
+          ],
+        })
+      case 'dev.device.sessions':
+        return reply(command, { items: [] })
+      case 'dev.device.capabilities': {
+        const available =
+          new URLSearchParams(window.location.search).get('capabilities') === 'available'
+        const observedAt = new Date(0).toISOString()
+        return reply(command, {
+          items: [
+            {
+              platform: 'ios',
+              state: available ? 'available' : 'unavailable',
+              ...(!available ? { missingPiece: 'xcrun simctl' } : {}),
+              observedAt,
+            },
+            { platform: 'android', state: 'available', observedAt },
+          ],
+          observedAt,
+        })
+      }
       case 'dev.browser.diagnostics':
         return reply(command, { items: [] })
       case 'dev.browser.navigate': {
@@ -204,6 +259,26 @@ const harness = {
       })),
     }
   },
+  resolvePendingInventory(): void {
+    if (!deferredInventory) throw new Error('device inventory request is not pending')
+    const { command, resolve } = deferredInventory
+    deferredInventory = undefined
+    resolve(
+      reply(command, {
+        items: [
+          {
+            id: 'adea:responsive',
+            kind: 'responsive',
+            name: 'Responsive viewport',
+            platform: 'responsive',
+            state: 'available',
+            generation: 1,
+            observedAt: new Date(0).toISOString(),
+          },
+        ],
+      })
+    )
+  },
   ...deferredControls,
   unmount(): void {
     dispose?.()
@@ -221,7 +296,12 @@ const root = document.getElementById('harness-root')
 if (!root) throw new Error('browser pane harness root missing')
 
 dispose = render(
-  () => <BrowserPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />,
+  () =>
+    new URLSearchParams(window.location.search).get('pane') === 'devices' ? (
+      <DevicesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+    ) : (
+      <BrowserPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+    ),
   root
 )
 window.browserPaneHarness = harness

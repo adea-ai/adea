@@ -288,6 +288,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'device_session', idField: 'deviceSessionId' },
     stream: { protocol: 'device-frames-v1', direction: 'write' },
   },
+  'dev.device.capabilities': {
+    body: '{}',
+    capabilities: ['dev.device.read'],
+    reply: 'DeviceCapabilityReport',
+    resource: null,
+    stream: null,
+  },
   'dev.device.list': {
     body: "{ kind?: DeviceSession['kind']; cursor?: string; limit?: integer(1..500) }",
     capabilities: ['dev.device.read'],

@@ -156,6 +156,10 @@ export const devOperationMetadata = {
     capabilities: operationMetadata.devOperationMetadataFor_dev_device_input.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_device_input.resource,
   },
+  'dev.device.capabilities': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_device_capabilities.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_device_capabilities.resource,
+  },
   'dev.device.list': {
     capabilities: operationMetadata.devOperationMetadataFor_dev_device_list.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_device_list.resource,

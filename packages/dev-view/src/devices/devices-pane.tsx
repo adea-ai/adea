@@ -5,20 +5,16 @@
  * revision 403b62a8d8fa6e896a93acc4c15405be0f0b7dc7) translated to Solid;
  * the responsive lane is always available (Dev Runtime spec).
  */
-import type { DeviceInventoryItem, DeviceSession } from '@adea-ai/types/dev-runtime'
-import { cn } from '@adea-ai/app-ui/lib/utils'
+import type {
+  DeviceCapabilityReport,
+  DeviceInventoryItem,
+  DeviceSession,
+} from '@adea-ai/types/dev-runtime'
 import { MonitorSmartphone, Smartphone, Tablet } from 'lucide-solid'
 import { For, Show, createResource, createSignal } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
 import { buildDevCommand } from '../browser/command'
-import {
-  presetById,
-  resolvePresetViewport,
-  RESPONSIVE_PRESETS,
-  type ResponsiveOrientation,
-  type ResponsivePresetId,
-} from '../browser/responsive-presets'
 import { findResponsiveInventoryItem, groupDeviceInventory } from './device-model'
 import '../browser/browser-pane.css'
 
@@ -27,8 +23,6 @@ export type DeviceSessionsPage = { items: readonly DeviceSession[] }
 
 export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionId?: string }) {
   const [error, setError] = createSignal<string | undefined>(undefined)
-  const [presetId, setPresetId] = createSignal<ResponsivePresetId>('iphone_15_pro')
-  const [orientation, setOrientation] = createSignal<ResponsiveOrientation>('portrait')
   const scope = () => props.runtime.preferenceScope?.()
 
   async function execute<T>(
@@ -52,6 +46,24 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
   const [sessions, { refetch: refetchSessions }] = createResource(serviceReady, async (ready) =>
     ready ? execute<DeviceSessionsPage>('dev.device.sessions', {}) : { items: [] }
   )
+  const [capabilities] = createResource(serviceReady, async (ready) =>
+    ready ? execute<DeviceCapabilityReport>('dev.device.capabilities', {}) : undefined
+  )
+
+  const platformAvailability = () => {
+    if (capabilities.state !== 'ready' && capabilities.state !== 'refreshing') return undefined
+    const rows = capabilities()?.items
+    const ios = rows?.find((item) => item.platform === 'ios')
+    const android = rows?.find((item) => item.platform === 'android')
+    return ios && android
+      ? { ios: ios.state === 'available', android: android.state === 'available' }
+      : undefined
+  }
+
+  const inventoryItems = () =>
+    inventory.state === 'ready' || inventory.state === 'refreshing'
+      ? (inventory()?.items ?? [])
+      : []
 
   function startDevice(item: DeviceInventoryItem): void {
     const runtimeSessionId = props.runtimeSessionId
@@ -171,107 +183,107 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
               )}
             </Show>
           </div>
-          <p class="dev-browser__section-title">Device presets</p>
-          <div class="dev-browser__actions">
-            <For each={RESPONSIVE_PRESETS}>
-              {(preset) => (
-                <button
-                  type="button"
-                  class={cn('dev-button', {
-                    'dev-utility-tab--selected': preset.id === presetId(),
-                  })}
-                  aria-pressed={preset.id === presetId()}
-                  onClick={() => {
-                    setPresetId(preset.id)
-                    setOrientation(preset.defaultOrientation)
-                  }}
+          <p class="dev-terminal-muted">
+            Configure responsive viewport size and orientation in the Browser pane.
+          </p>
+          <Show
+            when={platformAvailability()}
+            fallback={
+              <p class="dev-terminal-muted" role="status">
+                {capabilities.state === 'errored'
+                  ? 'Simulator toolchain availability could not be checked.'
+                  : 'Checking simulator toolchains…'}
+              </p>
+            }
+          >
+            {(availability) => (
+              <Show
+                when={inventory.state === 'ready' || inventory.state === 'refreshing'}
+                fallback={
+                  <p
+                    class="dev-terminal-muted"
+                    role={inventory.state === 'errored' ? 'alert' : 'status'}
+                  >
+                    {inventory.state === 'errored'
+                      ? 'Device inventory could not be loaded.'
+                      : 'Loading device inventory…'}
+                  </p>
+                }
+              >
+                <For
+                  each={groupDeviceInventory(inventoryItems(), availability()).filter(
+                    (group) => group.platform !== 'responsive'
+                  )}
                 >
-                  {preset.label}
-                </button>
-              )}
-            </For>
-            <button
-              type="button"
-              class="dev-button"
-              onClick={() =>
-                setOrientation((value) => (value === 'portrait' ? 'landscape' : 'portrait'))
-              }
-            >
-              Rotate
-            </button>
-            <span class="dev-browser__row-meta">
-              {resolvePresetViewport(presetById(presetId()), orientation()).width}×
-              {resolvePresetViewport(presetById(presetId()), orientation()).height} · scale{' '}
-              {presetById(presetId()).deviceScaleFactor}
-            </span>
-          </div>
-
-          <For each={groupDeviceInventory(inventory()?.items ?? [], { ios: true, android: true })}>
-            {(group) => (
-              <>
-                <p class="dev-browser__section-title">{group.label}</p>
-                <Show when={group.guidance}>
-                  {(guidance) => <p class="dev-terminal-muted">{guidance()}</p>}
-                </Show>
-                <Show when={group.items.length > 0}>
-                  <For each={group.items}>
-                    {(item) => {
-                      const attached = () =>
-                        (sessions()?.items ?? []).some(
-                          (session) =>
-                            session.inventoryId === item.id && session.state === 'attached'
-                        )
-                      return (
-                        <div class="dev-browser__row">
-                          <span class="dev-browser__row-main">
-                            <span>
+                  {(group) => (
+                    <>
+                      <p class="dev-browser__section-title">{group.label}</p>
+                      <Show when={group.guidance}>
+                        {(guidance) => <p class="dev-terminal-muted">{guidance()}</p>}
+                      </Show>
+                      <Show when={!group.guidance && group.items.length === 0}>
+                        <p class="dev-terminal-muted">No devices found.</p>
+                      </Show>
+                      <For each={group.items}>
+                        {(item) => {
+                          const attached = () =>
+                            (sessions()?.items ?? []).some(
+                              (session) =>
+                                session.inventoryId === item.id && session.state === 'attached'
+                            )
+                          return (
+                            <div class="dev-browser__row">
+                              <span class="dev-browser__row-main">
+                                <span>
+                                  <Show
+                                    when={item.kind === 'ios_simulator'}
+                                    fallback={<Smartphone aria-hidden="true" />}
+                                  >
+                                    <Tablet aria-hidden="true" />
+                                  </Show>{' '}
+                                  {item.name}
+                                </span>
+                                <span class="dev-browser__row-meta">
+                                  {item.platform} · {item.state}
+                                </span>
+                              </span>
                               <Show
-                                when={item.kind === 'ios_simulator'}
-                                fallback={<Smartphone aria-hidden="true" />}
+                                when={attached()}
+                                fallback={
+                                  <button
+                                    type="button"
+                                    class="dev-button"
+                                    disabled={item.state === 'unauthorized'}
+                                    onClick={() => startDevice(item)}
+                                  >
+                                    Start
+                                  </button>
+                                }
                               >
-                                <Tablet aria-hidden="true" />
-                              </Show>{' '}
-                              {item.name}
-                            </span>
-                            <span class="dev-browser__row-meta">
-                              {item.platform} · {item.state}
-                            </span>
-                          </span>
-                          <Show
-                            when={attached()}
-                            fallback={
-                              <button
-                                type="button"
-                                class="dev-button"
-                                disabled={item.state === 'unauthorized'}
-                                onClick={() => startDevice(item)}
-                              >
-                                Start
-                              </button>
-                            }
-                          >
-                            <button
-                              type="button"
-                              class="dev-button"
-                              onClick={() => {
-                                const session = (sessions()?.items ?? []).find(
-                                  (entry) =>
-                                    entry.inventoryId === item.id && entry.state === 'attached'
-                                )
-                                if (session) stopDevice(session)
-                              }}
-                            >
-                              Stop
-                            </button>
-                          </Show>
-                        </div>
-                      )
-                    }}
-                  </For>
-                </Show>
-              </>
+                                <button
+                                  type="button"
+                                  class="dev-button"
+                                  onClick={() => {
+                                    const session = (sessions()?.items ?? []).find(
+                                      (entry) =>
+                                        entry.inventoryId === item.id && entry.state === 'attached'
+                                    )
+                                    if (session) stopDevice(session)
+                                  }}
+                                >
+                                  Stop
+                                </button>
+                              </Show>
+                            </div>
+                          )
+                        }}
+                      </For>
+                    </>
+                  )}
+                </For>
+              </Show>
             )}
-          </For>
+          </Show>
         </div>
       </Show>
     </section>

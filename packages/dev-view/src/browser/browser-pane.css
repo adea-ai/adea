@@ -190,11 +190,6 @@
   color: var(--muted-foreground);
 }
 
-.dev-browser__annotation-active {
-  outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
-  outline-offset: -2px;
-}
-
 /* Movable mini preview within the app bounds. */
 .dev-browser-mini {
   position: absolute;

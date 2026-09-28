@@ -11,7 +11,7 @@ test.use({ headless: true })
 
 async function mountBrowserPane(page: import('@playwright/test').Page) {
   await page.setViewportSize({ width: 1280, height: 900 })
-  await page.route('**' + BROWSER_PANE_HARNESS_PATH, (route) =>
+  await page.route('**' + BROWSER_PANE_HARNESS_PATH + '**', (route) =>
     route.fulfill({ contentType: 'text/html', body: browserPaneHarnessHtml() })
   )
   await page.goto(BROWSER_PANE_HARNESS_PATH)
@@ -19,6 +19,18 @@ async function mountBrowserPane(page: import('@playwright/test').Page) {
   const pane = page.getByRole('region', { name: 'Browser' })
   await expect(pane).toBeVisible()
   await expect(pane.getByRole('button', { name: 'Screenshot' })).toBeEnabled()
+  return pane
+}
+
+async function mountDevicesPane(page: import('@playwright/test').Page, query = '') {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('**' + BROWSER_PANE_HARNESS_PATH + '**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: browserPaneHarnessHtml() })
+  )
+  await page.goto(`${BROWSER_PANE_HARNESS_PATH}?pane=devices${query}`)
+  await page.addScriptTag({ type: 'module', content: browserPaneHarnessModuleSource() })
+  const pane = page.getByRole('region', { name: 'Devices' })
+  await expect(pane).toBeVisible()
   return pane
 }
 
@@ -60,12 +72,10 @@ test('BrowserPane port click navigates directly and binds the lane; history stay
   const urlInput = pane.getByRole('textbox', { name: 'URL' })
   await expect(urlInput).toHaveValue('http://localhost:5173/initial')
   await expect(urlInput).not.toBeFocused()
-  await expect(
-    pane.getByRole('button', { name: /Back .*browser history is not supported/ })
-  ).toBeDisabled()
-  await expect(
-    pane.getByRole('button', { name: /Forward .*browser history is not supported/ })
-  ).toBeDisabled()
+  await expect(pane.getByRole('button', { name: /^Back/ })).toHaveCount(0)
+  await expect(pane.getByRole('button', { name: /^Forward/ })).toHaveCount(0)
+  await expect(pane.getByRole('button', { name: 'Open in system browser' })).toHaveCount(0)
+  await expect(pane.getByRole('button', { name: /Annotate preview/ })).toHaveCount(0)
 
   const portRow = pane.getByRole('button', { name: /localhost:5173/ })
   await expect(portRow).toBeEnabled()
@@ -110,6 +120,73 @@ test('BrowserPane port click navigates directly and binds the lane; history stay
       generation: 7,
     },
   })
+})
+
+test('BrowserPane applies the viewport size it reports when zoom changes', async ({ page }) => {
+  const pane = await mountBrowserPane(page)
+  const viewportCommands = () =>
+    page.evaluate(() =>
+      window.browserPaneHarness
+        .report()
+        .commands.filter((command) => command.operation === 'dev.browser.viewport')
+    )
+
+  await pane.getByRole('button', { name: 'iPhone 15 Pro' }).click()
+  await expect.poll(async () => (await viewportCommands()).length).toBe(1)
+  expect((await viewportCommands())[0].body).toMatchObject({ width: 393, height: 852 })
+  await expect(pane).toContainText('CSS viewport 393 × 852')
+
+  await pane.getByRole('button', { name: 'Zoom in' }).click()
+  await expect.poll(async () => (await viewportCommands()).length).toBe(2)
+  expect((await viewportCommands())[1].body).toMatchObject({ width: 432, height: 937 })
+  await expect(pane).toContainText('CSS viewport 432 × 937')
+})
+
+test('DevicesPane shows host-reported capability guidance and omits unapplied preset controls', async ({
+  page,
+}) => {
+  const pane = await mountDevicesPane(page)
+
+  await expect(pane).toContainText('Xcode Simulator tools are unavailable.')
+  await expect(pane).not.toContainText('Android SDK not found.')
+  await expect(pane.getByRole('button', { name: 'iPhone 15 Pro' })).toHaveCount(0)
+  await expect(pane.getByRole('button', { name: 'Rotate' })).toHaveCount(0)
+  await expect(pane).toContainText(
+    'Configure responsive viewport size and orientation in the Browser pane.'
+  )
+
+  const capabilities = await page.evaluate(() =>
+    window.browserPaneHarness
+      .report()
+      .commands.filter((command) => command.operation === 'dev.device.capabilities')
+  )
+  expect(capabilities).toHaveLength(1)
+})
+
+test('DevicesPane distinguishes installed toolchains with no devices from missing toolchains', async ({
+  page,
+}) => {
+  const pane = await mountDevicesPane(page, '&capabilities=available')
+
+  await expect(pane).not.toContainText('Xcode Simulator tools are unavailable.')
+  await expect(pane).not.toContainText('Android SDK not found.')
+  await expect(pane.getByText('No devices found.')).toHaveCount(2)
+})
+
+test('DevicesPane does not show an empty state before inventory loads', async ({ page }) => {
+  const pendingPane = await mountDevicesPane(page, '&capabilities=available&inventory=pending')
+  await expect(pendingPane).toContainText('Loading device inventory…')
+  await expect(pendingPane.getByText('No devices found.')).toHaveCount(0)
+  await page.evaluate(() => window.browserPaneHarness.resolvePendingInventory())
+  await expect(pendingPane.getByText('No devices found.')).toHaveCount(2)
+})
+
+test('DevicesPane reports inventory errors without showing a false empty state', async ({
+  page,
+}) => {
+  const failedPane = await mountDevicesPane(page, '&capabilities=available&inventory=failed')
+  await expect(failedPane).toContainText('Device inventory could not be loaded.')
+  await expect(failedPane.getByText('No devices found.')).toHaveCount(0)
 })
 
 test('BrowserPane inspects a CSS selector on the active page with a generation-bound command', async ({

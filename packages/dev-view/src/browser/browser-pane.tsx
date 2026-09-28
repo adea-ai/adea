@@ -1,8 +1,8 @@
 /*
  * Browser pane: the right-side Browser/Devices utility's browser half.
  *
- * Composition (toolbar order, URL bar draft semantics, annotate/screenshot/
- * mini-preview toggles, zoom and profile menu) is substantially translated
+ * Composition (toolbar order, URL bar draft semantics, screenshot/mini-preview
+ * toggles, responsive viewport and profile menu) is substantially translated
  * from t3code's PreviewChromeRow/PreviewMoreMenu/ThreadPreviewMiniPlayer
  * (MIT, revision 77bca8b2d76a1f42552e5eee7d277fcb1160347a) to Solid; the
  * lane identity strip implements the Dev Runtime spec's lane display rules.
@@ -22,22 +22,12 @@ import type {
 } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/app-ui/dev-view.css'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import {
-  ArrowLeft,
-  ArrowRight,
-  Camera,
-  Cookie,
-  ExternalLink,
-  MousePointerClick,
-  PictureInPicture2,
-  RotateCw,
-  X,
-} from 'lucide-solid'
+import { Camera, Cookie, PictureInPicture2, RotateCw, X } from 'lucide-solid'
 import { For, Show, createEffect, createResource, createSignal, onCleanup } from 'solid-js'
 
 import './browser-pane.css'
 import type { DevRuntimeService } from '../platform'
-import { resolveAnnotationSubmission, resolveAnnotationShortcut } from './annotation-model'
+import { resolveAnnotationSubmission } from './annotation-model'
 import { buildDevCommand } from './command'
 import { CookieImportPanel } from './cookie-import-panel'
 import {
@@ -93,6 +83,17 @@ type ScreenshotPaneResult = {
   contextKey: string
   runtime: DevRuntimeService
 }
+type AppliedResponsiveViewport = Readonly<{
+  laneId: string
+  generation: number
+  presetId: ResponsivePresetId
+  orientation: ResponsiveOrientation
+  zoomScale: number
+  width: number
+  height: number
+  deviceScaleFactor: number
+  mobile: boolean
+}>
 
 function browserScopeKey(value: Scope | undefined): string | undefined {
   return value
@@ -140,12 +141,9 @@ export function BrowserPane(props: BrowserPaneProps) {
   const [error, setError] = createSignal<DevError | undefined>(undefined)
   const [urlDraft, setUrlDraft] = createSignal('')
   const [urlFocused, setUrlFocused] = createSignal(false)
-  const [annotating, setAnnotating] = createSignal(false)
   const [miniPreviewOpen, setMiniPreviewOpen] = createSignal(false)
   const [cookiesOpen, setCookiesOpen] = createSignal(false)
-  const [presetId, setPresetId] = createSignal<ResponsivePresetId>('responsive')
-  const [orientation, setOrientation] = createSignal<ResponsiveOrientation>('portrait')
-  const [zoomScale, setZoomScale] = createSignal(1)
+  const [appliedViewport, setAppliedViewport] = createSignal<AppliedResponsiveViewport>()
   const [inspectionSelector, setInspectionSelector] = createSignal('')
   const [inspectionResult, setInspectionResult] = createSignal<{
     laneId: string
@@ -159,6 +157,7 @@ export function BrowserPane(props: BrowserPaneProps) {
   const [screenshotError, setScreenshotError] = createSignal<DevError>()
   const [screenshotBusy, setScreenshotBusy] = createSignal(false)
   let latestScreenshotRequest = 0
+  let latestViewportRequest = 0
   let screenshotMounted = true
 
   async function execute<T>(
@@ -199,6 +198,14 @@ export function BrowserPane(props: BrowserPaneProps) {
         target.browserLaneId === lane.id &&
         target.generation === lane.generation
     )
+  }
+
+  const viewportForActiveLane = () => {
+    const lane = activeLane()
+    const viewport = appliedViewport()
+    return lane && viewport?.laneId === lane.id && viewport.generation === lane.generation
+      ? viewport
+      : undefined
   }
 
   function invalidateInspection(): void {
@@ -261,8 +268,7 @@ export function BrowserPane(props: BrowserPaneProps) {
     buildPortNavigationRequest(row, lanes()?.items ?? [], activeLane())
 
   function currentUrl(): string {
-    const target = targets()?.items[0]
-    return target?.url ?? ''
+    return activePageTarget()?.url ?? ''
   }
 
   function dispatchNavigation(request: BrowserNavigationRequest): void {
@@ -460,29 +466,47 @@ export function BrowserPane(props: BrowserPaneProps) {
    */
   function applyResponsivePreset(
     nextPreset: ResponsivePresetId,
-    nextOrientation: ResponsiveOrientation
+    nextOrientation: ResponsiveOrientation,
+    nextZoomScale = 1
   ): void {
     invalidateInspection()
     clearScreenshotContext()
-    setPresetId(nextPreset)
-    setOrientation(nextOrientation)
     const lane = activeLane()
     if (!lane) return
     const viewport = resolvePresetViewport(presetById(nextPreset), nextOrientation)
+    const width = Math.round(viewport.width * nextZoomScale)
+    const height = Math.round(viewport.height * nextZoomScale)
+    const requestId = ++latestViewportRequest
     execute<BrowserLane>(
       'dev.browser.viewport',
       {
         browserLaneId: lane.id,
         expectedGeneration: lane.generation,
-        width: viewport.width,
-        height: viewport.height,
+        width,
+        height,
         deviceScaleFactor: viewport.deviceScaleFactor,
         mobile: viewport.mobile,
       },
       { kind: 'browser_lane', id: lane.id, generation: lane.generation }
     )
-      .then(() => setError(undefined))
-      .catch((reply) => setError(commandError(reply)))
+      .then(() => {
+        if (requestId !== latestViewportRequest) return
+        setAppliedViewport({
+          laneId: lane.id,
+          generation: lane.generation,
+          presetId: nextPreset,
+          orientation: nextOrientation,
+          zoomScale: nextZoomScale,
+          width,
+          height,
+          deviceScaleFactor: viewport.deviceScaleFactor,
+          mobile: viewport.mobile,
+        })
+        setError(undefined)
+      })
+      .catch((reply) => {
+        if (requestId === latestViewportRequest) setError(commandError(reply))
+      })
   }
 
   function screenshotContext(): ScreenshotContext {
@@ -490,7 +514,7 @@ export function BrowserPane(props: BrowserPaneProps) {
     const currentScope = currentRuntime.preferenceScope?.()
     const lane = activeLane()
     const target = activePageTarget()
-    const viewport = resolvePresetViewport(presetById(presetId()), orientation())
+    const viewport = viewportForActiveLane()
     const currentScopeKey = browserScopeKey(currentScope)
     const laneScopeKey = browserScopeKey(lane?.scope)
     const scopeMatches = currentScopeKey !== undefined && laneScopeKey === currentScopeKey
@@ -510,15 +534,7 @@ export function BrowserPane(props: BrowserPaneProps) {
       targetUrl: target?.url,
       targetTitle: target?.title,
       targetType: target?.type,
-      viewportKey: JSON.stringify([
-        presetId(),
-        orientation(),
-        viewport.width,
-        viewport.height,
-        viewport.deviceScaleFactor,
-        viewport.mobile,
-        zoomScale(),
-      ]),
+      viewportKey: JSON.stringify(viewport ?? null),
       canCapture:
         currentRuntime.state().status === 'ready' &&
         Boolean(lane && scopeMatches && sessionMatches && target && !targets.loading),
@@ -565,12 +581,6 @@ export function BrowserPane(props: BrowserPaneProps) {
     }
   }
 
-  function handleAnnotationShortcuts(event: KeyboardEvent): void {
-    if (!annotating()) return
-    const shortcut = resolveAnnotationShortcut(event)
-    if (shortcut?.kind === 'cancel') setAnnotating(false)
-  }
-
   const availability = () => runtime().state()
   const unavailabilityReason = () => {
     const state = runtime().state()
@@ -578,31 +588,9 @@ export function BrowserPane(props: BrowserPaneProps) {
   }
 
   return (
-    <section
-      class={cn('dev-browser', { 'dev-browser__annotation-active': annotating() })}
-      aria-label="Browser"
-      onKeyDown={handleAnnotationShortcuts}
-    >
+    <section class="dev-browser" aria-label="Browser">
       <div class="dev-browser__chrome" role="toolbar" aria-label="Browser navigation">
         <div class="dev-browser__nav-group" role="group" aria-label="Navigation">
-          <button
-            type="button"
-            class="dev-icon-button"
-            aria-label="Back (unavailable: browser history is not supported)"
-            title="Browser history is not supported by this runtime"
-            disabled
-          >
-            <ArrowLeft aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            class="dev-icon-button"
-            aria-label="Forward (unavailable: browser history is not supported)"
-            title="Browser history is not supported by this runtime"
-            disabled
-          >
-            <ArrowRight aria-hidden="true" />
-          </button>
           <button
             type="button"
             class="dev-icon-button"
@@ -634,23 +622,6 @@ export function BrowserPane(props: BrowserPaneProps) {
             onKeyDown={handleUrlKeyDown}
           />
         </form>
-        <button
-          type="button"
-          class="dev-icon-button"
-          aria-label="Open in system browser"
-          disabled={!currentUrl()}
-        >
-          <ExternalLink aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          class="dev-icon-button"
-          aria-label={annotating() ? 'Cancel annotation' : 'Annotate preview'}
-          aria-pressed={annotating()}
-          onClick={() => setAnnotating((value) => !value)}
-        >
-          <MousePointerClick aria-hidden="true" />
-        </button>
         <button
           type="button"
           class="dev-icon-button"
@@ -952,9 +923,10 @@ export function BrowserPane(props: BrowserPaneProps) {
                 <button
                   type="button"
                   class={cn('dev-button', {
-                    'dev-utility-tab--selected': preset.id === presetId(),
+                    'dev-utility-tab--selected': preset.id === viewportForActiveLane()?.presetId,
                   })}
-                  aria-pressed={preset.id === presetId()}
+                  aria-pressed={preset.id === viewportForActiveLane()?.presetId}
+                  disabled={!activeLane()}
                   onClick={() => applyResponsivePreset(preset.id, preset.defaultOrientation)}
                 >
                   {preset.label}
@@ -964,11 +936,12 @@ export function BrowserPane(props: BrowserPaneProps) {
             <button
               type="button"
               class="dev-button"
+              disabled={!activeLane()}
               onClick={() => {
+                const current = viewportForActiveLane()
                 const next: ResponsiveOrientation =
-                  orientation() === 'portrait' ? 'landscape' : 'portrait'
-                setOrientation(next)
-                applyResponsivePreset(presetId(), next)
+                  current?.orientation === 'portrait' || !current ? 'landscape' : 'portrait'
+                applyResponsivePreset(current?.presetId ?? 'responsive', next, current?.zoomScale)
               }}
             >
               Rotate
@@ -977,33 +950,52 @@ export function BrowserPane(props: BrowserPaneProps) {
               type="button"
               class="dev-icon-button"
               aria-label="Zoom out"
-              onClick={() =>
-                setZoomScale((value) => Math.max(0.5, Math.round((value - 0.1) * 10) / 10))
-              }
+              disabled={!activeLane()}
+              onClick={() => {
+                const current = viewportForActiveLane()
+                const scale = Math.max(0.5, Math.round(((current?.zoomScale ?? 1) - 0.1) * 10) / 10)
+                applyResponsivePreset(
+                  current?.presetId ?? 'responsive',
+                  current?.orientation ?? 'portrait',
+                  scale
+                )
+              }}
             >
               −
             </button>
-            <span class="dev-browser__row-meta">{Math.round(zoomScale() * 100)}%</span>
+            <span class="dev-browser__row-meta">
+              {Math.round((viewportForActiveLane()?.zoomScale ?? 1) * 100)}%
+            </span>
             <button
               type="button"
               class="dev-icon-button"
               aria-label="Zoom in"
-              onClick={() =>
-                setZoomScale((value) => Math.min(2, Math.round((value + 0.1) * 10) / 10))
-              }
+              disabled={!activeLane()}
+              onClick={() => {
+                const current = viewportForActiveLane()
+                const scale = Math.min(2, Math.round(((current?.zoomScale ?? 1) + 0.1) * 10) / 10)
+                applyResponsivePreset(
+                  current?.presetId ?? 'responsive',
+                  current?.orientation ?? 'portrait',
+                  scale
+                )
+              }}
             >
               +
             </button>
-            <span class="dev-browser__row-meta">
-              {Math.round(
-                resolvePresetViewport(presetById(presetId()), orientation()).width * zoomScale()
+            <Show
+              when={viewportForActiveLane()}
+              fallback={
+                <span class="dev-browser__row-meta">Select a preset to set the viewport.</span>
+              }
+            >
+              {(viewport) => (
+                <span class="dev-browser__row-meta">
+                  CSS viewport {viewport().width} × {viewport().height} · DPR{' '}
+                  {viewport().deviceScaleFactor} · UA {viewport().mobile ? 'mobile' : 'desktop'}
+                </span>
               )}
-              ×
-              {Math.round(
-                resolvePresetViewport(presetById(presetId()), orientation()).height * zoomScale()
-              )}{' '}
-              · UA {presetById(presetId()).mobile ? 'mobile emulation' : 'desktop'}
-            </span>
+            </Show>
           </div>
 
           <p class="dev-browser__section-title">Diagnostics</p>

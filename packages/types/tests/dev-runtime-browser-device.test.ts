@@ -291,6 +291,33 @@ describe('device session commands', () => {
       items: [{ kind: 'ios_simulator' }],
     })
   })
+
+  test('decodes device platform capability reports and rejects contradictory rows', () => {
+    const report = {
+      items: [
+        {
+          platform: 'ios',
+          state: 'unavailable',
+          missingPiece: 'xcrun_simctl',
+          observedAt: now,
+        },
+        { platform: 'android', state: 'available', observedAt: now },
+      ],
+      observedAt: now,
+    }
+    expect(
+      (decodeDevReply(reply('dev.device.capabilities', report)) as { value: unknown }).value
+    ).toEqual(report)
+
+    expect(() =>
+      decodeDevReply(
+        reply('dev.device.capabilities', {
+          ...report,
+          items: [report.items[0], { ...report.items[1], unexpected: true }],
+        })
+      )
+    ).toThrow('unexpected')
+  })
 })
 
 describe('browser lane replies', () => {

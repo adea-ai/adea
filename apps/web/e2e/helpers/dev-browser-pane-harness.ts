@@ -32,6 +32,7 @@ export type BrowserPaneHarnessReport = {
 
 export type BrowserPaneHarnessControls = {
   report(): BrowserPaneHarnessReport
+  resolvePendingInventory(): void
   deferNextScreenshot(): number
   resolveScreenshot(
     requestId: number,

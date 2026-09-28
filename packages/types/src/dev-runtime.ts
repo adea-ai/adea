@@ -1043,6 +1043,18 @@ export type DeviceInventoryItem = Readonly<{
   observedAt: string
 }>
 
+export type DevicePlatformCapability = Readonly<{
+  platform: 'ios' | 'android'
+  state: 'available' | 'unavailable'
+  missingPiece?: 'xcrun_simctl' | 'adb' | 'android_emulator'
+  observedAt: string
+}>
+
+export type DeviceCapabilityReport = Readonly<{
+  items: readonly DevicePlatformCapability[]
+  observedAt: string
+}>
+
 // ─── #472 computer-use lanes ────────────────────────────────────────────────
 // A computer-use lane is a session-scoped grant over the execution host's
 // real desktop. The wire shape mirrors BrowserLane: immutable identity,
@@ -1810,6 +1822,37 @@ function namedType(name: string, value: unknown, path: string): unknown {
     stringValue(item.platform, `${path}.platform`, 1, 64)
     literal(item.state, ['available', 'busy', 'offline', 'unauthorized'], `${path}.state`)
     integerValue(item.generation, `${path}.generation`, 0)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'DevicePlatformCapability') {
+    const item = record(value, path)
+    exactKeys(item, ['platform', 'state', 'observedAt'], ['missingPiece'], path)
+    literal(item.platform, ['ios', 'android'], `${path}.platform`)
+    literal(item.state, ['available', 'unavailable'], `${path}.state`)
+    if (item.missingPiece !== undefined) {
+      literal(
+        item.missingPiece,
+        ['xcrun_simctl', 'adb', 'android_emulator'],
+        `${path}.missingPiece`
+      )
+    }
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'DeviceCapabilityReport') {
+    const item = record(value, path)
+    exactKeys(item, ['items', 'observedAt'], [], path)
+    if (!Array.isArray(item.items)) fail(`${path}.items`, 'expected array')
+    if (item.items.length !== 2) fail(`${path}.items`, 'expected both device platforms')
+    const platforms = new Set<string>()
+    item.items.forEach((entry, index) => {
+      const row = namedType('DevicePlatformCapability', entry, `${path}.items[${index}]`) as {
+        platform: string
+      }
+      if (platforms.has(row.platform)) fail(`${path}.items`, 'duplicate platform')
+      platforms.add(row.platform)
+    })
     timestamp(item.observedAt, `${path}.observedAt`)
     return value
   }
@@ -3556,6 +3599,7 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.computeruse.release': (value) => namedType('ComputerUseLane', value, 'reply.value'),
   'dev.computeruse.takeover': (value) => namedType('ComputerUseLane', value, 'reply.value'),
   'dev.device.attach': (value) => decodeDevStreamGrant(value),
+  'dev.device.capabilities': (value) => namedType('DeviceCapabilityReport', value, 'reply.value'),
   'dev.device.input': (value) => decodeDevStreamGrant(value),
   'dev.device.list': (value) =>
     decodeDevRuntimePage(
