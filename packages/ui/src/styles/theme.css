@@ -243,8 +243,8 @@
     border-color: var(--border);
   }
 
-  /* Product expectation (see cursor-check.spec.ts): every enabled button
-     shows the pointer cursor regardless of Tailwind preflight defaults. */
+  /* Product expectation (see cursor-check.spec.ts): enabled buttons show the
+     pointer cursor regardless of preflight defaults. */
   button:not(:disabled),
   [role='button']:not([aria-disabled='true']) {
     cursor: pointer;
@@ -260,5 +260,13 @@
     margin: 0;
     background: var(--background);
     color: var(--foreground);
+  }
+}
+
+@layer utilities {
+  /* Shared menu-row classes include `cursor-default`; enabled menu roles keep
+     the interactive cursor in the same layer so it wins that utility. */
+  [role^='menuitem']:not([aria-disabled='true']) {
+    cursor: pointer;
   }
 }
