@@ -2711,6 +2711,8 @@
 .workspace-topbar {
   grid-column: 1 / -1;
   grid-row: 1;
+  position: relative;
+  z-index: var(--z-sticky);
   height: var(--workspace-topbar-height);
   background: var(--card);
   color: var(--card-foreground);
