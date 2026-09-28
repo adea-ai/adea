@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 async function exerciseContextualSidebarToggle(page: Page) {
   const expandSidebar = page.getByRole('button', { name: 'Expand contextual sidebar', exact: true })
@@ -32,6 +32,19 @@ async function exerciseContextualSidebarToggle(page: Page) {
 
 function devToolbarControl(page: Page, name: string) {
   return page.locator('.workspace-topbar__view-actions').getByRole('button', { name, exact: true })
+}
+
+async function expectPointerHitsButton(page: Page, button: Locator, name: string) {
+  const bounds = await button.boundingBox()
+  expect(bounds).not.toBeNull()
+  const hitName = await page.evaluate(
+    ({ x, y }) => {
+      const target = document.elementFromPoint(x, y)?.closest('button')
+      return target?.getAttribute('aria-label') ?? target?.textContent?.trim() ?? null
+    },
+    { x: bounds!.x + bounds!.width / 2, y: bounds!.y + bounds!.height / 2 }
+  )
+  expect(hitName).toBe(name)
 }
 
 async function expectDevToolbarHost(page: Page) {
@@ -127,7 +140,9 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
 
   await expect(page.locator('[data-pane-id]')).toHaveCount(1)
   await expect(page.getByRole('region', { name: 'editor pane' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Split pane' }).click()
+  const splitPane = page.getByRole('button', { name: 'Split pane', exact: true })
+  await expectPointerHitsButton(page, splitPane, 'Split pane')
+  await splitPane.click()
   const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
   await separator.focus()
   await page.keyboard.press('ArrowRight')
@@ -226,7 +241,9 @@ test('center panes move by keyboard while keeping one primary session', async ({
 
   const panes = page.locator('[data-pane-id]')
   await expect(panes).toHaveCount(1, { timeout: 30_000 })
-  await page.getByRole('button', { name: 'Split pane' }).click()
+  const splitPane = page.getByRole('button', { name: 'Split pane', exact: true })
+  await expectPointerHitsButton(page, splitPane, 'Split pane')
+  await splitPane.click()
   await expect(panes).toHaveCount(2)
   await expect(panes.first()).toHaveAttribute('data-pane-id', 'dev-terminal')
 
@@ -247,7 +264,9 @@ test('the Dev shell restores the session layout document after a reload', async 
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
   await expect(page.locator('[data-pane-id]')).toHaveCount(1)
-  await page.getByRole('button', { name: 'Split pane' }).click()
+  const splitPane = page.getByRole('button', { name: 'Split pane', exact: true })
+  await expectPointerHitsButton(page, splitPane, 'Split pane')
+  await splitPane.click()
   const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
   await separator.focus()
   await page.keyboard.press('ArrowRight')
