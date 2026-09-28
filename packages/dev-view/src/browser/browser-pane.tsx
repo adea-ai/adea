@@ -138,12 +138,19 @@ export function BrowserPane(props: BrowserPaneProps) {
   const runtime = () => props.runtime
   const scope = () => runtime().preferenceScope?.()
   const [activeLaneId, setActiveLaneId] = createSignal<string | undefined>(undefined)
-  const [error, setError] = createSignal<DevError | undefined>(undefined)
+  const [error, writeError] = createSignal<DevError | undefined>(undefined)
+  let errorRevision = 0
+  function setError(value: DevError | undefined): void {
+    errorRevision += 1
+    writeError(value)
+  }
   const [urlDraft, setUrlDraft] = createSignal('')
   const [urlFocused, setUrlFocused] = createSignal(false)
   const [miniPreviewOpen, setMiniPreviewOpen] = createSignal(false)
   const [cookiesOpen, setCookiesOpen] = createSignal(false)
-  const [appliedViewport, setAppliedViewport] = createSignal<AppliedResponsiveViewport>()
+  const [appliedViewports, setAppliedViewports] = createSignal<
+    ReadonlyMap<string, AppliedResponsiveViewport>
+  >(new Map())
   const [inspectionSelector, setInspectionSelector] = createSignal('')
   const [inspectionResult, setInspectionResult] = createSignal<{
     laneId: string
@@ -157,7 +164,7 @@ export function BrowserPane(props: BrowserPaneProps) {
   const [screenshotError, setScreenshotError] = createSignal<DevError>()
   const [screenshotBusy, setScreenshotBusy] = createSignal(false)
   let latestScreenshotRequest = 0
-  let latestViewportRequest = 0
+  const latestViewportRequests = new Map<string, number>()
   let screenshotMounted = true
 
   async function execute<T>(
@@ -202,7 +209,7 @@ export function BrowserPane(props: BrowserPaneProps) {
 
   const viewportForActiveLane = () => {
     const lane = activeLane()
-    const viewport = appliedViewport()
+    const viewport = lane ? appliedViewports().get(lane.id) : undefined
     return lane && viewport?.laneId === lane.id && viewport.generation === lane.generation
       ? viewport
       : undefined
@@ -476,7 +483,8 @@ export function BrowserPane(props: BrowserPaneProps) {
     const viewport = resolvePresetViewport(presetById(nextPreset), nextOrientation)
     const width = Math.round(viewport.width * nextZoomScale)
     const height = Math.round(viewport.height * nextZoomScale)
-    const requestId = ++latestViewportRequest
+    const requestId = (latestViewportRequests.get(lane.id) ?? 0) + 1
+    latestViewportRequests.set(lane.id, requestId)
     execute<BrowserLane>(
       'dev.browser.viewport',
       {
@@ -490,22 +498,42 @@ export function BrowserPane(props: BrowserPaneProps) {
       { kind: 'browser_lane', id: lane.id, generation: lane.generation }
     )
       .then(() => {
-        if (requestId !== latestViewportRequest) return
-        setAppliedViewport({
-          laneId: lane.id,
-          generation: lane.generation,
-          presetId: nextPreset,
-          orientation: nextOrientation,
-          zoomScale: nextZoomScale,
-          width,
-          height,
-          deviceScaleFactor: viewport.deviceScaleFactor,
-          mobile: viewport.mobile,
-        })
-        setError(undefined)
+        if (requestId !== latestViewportRequests.get(lane.id)) return
+        const currentLane = lanes()?.items.find((item) => item.id === lane.id)
+        if (currentLane?.generation !== lane.generation) return
+        setAppliedViewports((current) =>
+          new Map(current).set(lane.id, {
+            laneId: lane.id,
+            generation: lane.generation,
+            presetId: nextPreset,
+            orientation: nextOrientation,
+            zoomScale: nextZoomScale,
+            width,
+            height,
+            deviceScaleFactor: viewport.deviceScaleFactor,
+            mobile: viewport.mobile,
+          })
+        )
+        if (activeLane()?.id === lane.id) setError(undefined)
       })
-      .catch((reply) => {
-        if (requestId === latestViewportRequest) setError(commandError(reply))
+      .catch(async (reply) => {
+        if (requestId !== latestViewportRequests.get(lane.id)) return
+        const failure = commandError(reply)
+        const revisionBeforeRefresh = errorRevision
+        if (failure.code === 'stale_generation') {
+          try {
+            await refetchLanes()
+          } catch {
+            // Keep the original typed command error if the lane refresh fails.
+          }
+        }
+        if (requestId !== latestViewportRequests.get(lane.id)) return
+        if (errorRevision !== revisionBeforeRefresh) return
+        const currentLane = lanes()?.items.find((item) => item.id === lane.id)
+        if (activeLane()?.id !== lane.id) return
+        if (currentLane?.generation === lane.generation) {
+          setError(failure)
+        }
       })
   }
 

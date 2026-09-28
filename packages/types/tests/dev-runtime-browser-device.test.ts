@@ -317,6 +317,34 @@ describe('device session commands', () => {
         })
       )
     ).toThrow('unexpected')
+
+    const invalidReports = [
+      {
+        ...report,
+        items: [{ ...report.items[0], missingPiece: 'adb' }, report.items[1]],
+      },
+      {
+        ...report,
+        items: [{ ...report.items[0], state: 'available' }, report.items[1]],
+      },
+      {
+        ...report,
+        items: [
+          { platform: 'ios', state: 'available', observedAt: now },
+          {
+            platform: 'android',
+            state: 'unavailable',
+            missingPiece: 'xcrun_simctl',
+            observedAt: now,
+          },
+        ],
+      },
+    ]
+    for (const invalidReport of invalidReports) {
+      expect(() => decodeDevReply(reply('dev.device.capabilities', invalidReport))).toThrow(
+        'missingPiece'
+      )
+    }
   })
 })
 

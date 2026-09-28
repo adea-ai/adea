@@ -9,12 +9,12 @@ import type { ScreenshotRef } from '@adea-ai/types/dev-runtime'
 
 test.use({ headless: true })
 
-async function mountBrowserPane(page: import('@playwright/test').Page) {
+async function mountBrowserPane(page: import('@playwright/test').Page, query = '') {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.route('**' + BROWSER_PANE_HARNESS_PATH + '**', (route) =>
     route.fulfill({ contentType: 'text/html', body: browserPaneHarnessHtml() })
   )
-  await page.goto(BROWSER_PANE_HARNESS_PATH)
+  await page.goto(`${BROWSER_PANE_HARNESS_PATH}${query}`)
   await page.addScriptTag({ type: 'module', content: browserPaneHarnessModuleSource() })
   const pane = page.getByRole('region', { name: 'Browser' })
   await expect(pane).toBeVisible()
@@ -60,15 +60,7 @@ function screenshotReference(id: string, redacted = false): ScreenshotRef {
 test('BrowserPane port click navigates directly and binds the lane; history stays unavailable', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await page.route('**' + BROWSER_PANE_HARNESS_PATH, (route) =>
-    route.fulfill({ contentType: 'text/html', body: browserPaneHarnessHtml() })
-  )
-  await page.goto(BROWSER_PANE_HARNESS_PATH)
-  await page.addScriptTag({ type: 'module', content: browserPaneHarnessModuleSource() })
-
-  const pane = page.getByRole('region', { name: 'Browser' })
-  await expect(pane).toBeVisible()
+  const pane = await mountBrowserPane(page)
   const urlInput = pane.getByRole('textbox', { name: 'URL' })
   await expect(urlInput).toHaveValue('http://localhost:5173/initial')
   await expect(urlInput).not.toBeFocused()
@@ -140,6 +132,131 @@ test('BrowserPane applies the viewport size it reports when zoom changes', async
   await expect.poll(async () => (await viewportCommands()).length).toBe(2)
   expect((await viewportCommands())[1].body).toMatchObject({ width: 432, height: 937 })
   await expect(pane).toContainText('CSS viewport 432 × 937')
+})
+
+test('BrowserPane preserves independent viewport results when switching lanes', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page, '?lanes=multiple')
+  const laneTabs = pane.getByRole('tablist', { name: 'Browser lanes' }).getByRole('tab')
+  const viewportCommands = () =>
+    page.evaluate(() =>
+      window.browserPaneHarness
+        .report()
+        .commands.filter((command) => command.operation === 'dev.browser.viewport')
+    )
+
+  const firstRequest = await page.evaluate(() => window.browserPaneHarness.deferNextViewport())
+  await pane.getByRole('button', { name: 'iPhone 15 Pro' }).click()
+  await expect.poll(async () => (await viewportCommands()).length).toBe(1)
+  expect((await viewportCommands())[0].body).toMatchObject({
+    browserLaneId: 'browser-pane-fixture-lane',
+  })
+
+  await laneTabs.nth(1).click()
+  const secondRequest = await page.evaluate(() => window.browserPaneHarness.deferNextViewport())
+  await pane.getByRole('button', { name: 'Pixel 8' }).click()
+  await expect.poll(async () => (await viewportCommands()).length).toBe(2)
+  expect((await viewportCommands())[1].body).toMatchObject({
+    browserLaneId: 'browser-pane-fixture-lane-2',
+  })
+
+  await page.evaluate(
+    (requestId) => window.browserPaneHarness.resolveViewport(requestId),
+    firstRequest
+  )
+  await expect(pane).toContainText('Select a preset to set the viewport.')
+  await page.evaluate(
+    (requestId) => window.browserPaneHarness.resolveViewport(requestId),
+    secondRequest
+  )
+  await expect(pane).toContainText('CSS viewport 412 × 915')
+
+  await laneTabs.nth(0).click()
+  await expect(pane).toContainText('CSS viewport 393 × 852')
+})
+
+test('BrowserPane refreshes before surfacing a stale viewport generation error', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page)
+  const requestId = await page.evaluate(() => window.browserPaneHarness.deferNextViewport())
+  await pane.getByRole('button', { name: 'iPhone 15 Pro' }).click()
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () =>
+          window.browserPaneHarness
+            .report()
+            .commands.filter((command) => command.operation === 'dev.browser.viewport').length
+      )
+    )
+    .toBe(1)
+
+  await page.evaluate(() => window.browserPaneHarness.advanceLaneGeneration())
+  await page.evaluate(({ id, error }) => window.browserPaneHarness.rejectViewport(id, error), {
+    id: requestId,
+    error: {
+      code: 'stale_generation',
+      message: 'browser lane generation moved',
+      retryable: false,
+    },
+  })
+
+  await expect(pane).toContainText('gen 8')
+  await expect(pane.getByRole('alert')).toHaveCount(0)
+})
+
+test('BrowserPane preserves a newer command error while refreshing a stale viewport lane', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page)
+  const requestId = await page.evaluate(() => window.browserPaneHarness.deferNextViewport())
+  await pane.getByRole('button', { name: 'iPhone 15 Pro' }).click()
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () =>
+          window.browserPaneHarness
+            .report()
+            .commands.filter((command) => command.operation === 'dev.browser.viewport').length
+      )
+    )
+    .toBe(1)
+
+  await page.evaluate(() => window.browserPaneHarness.deferLaneListRefresh())
+  await page.evaluate(() => window.browserPaneHarness.advanceLaneGeneration())
+  await page.evaluate(({ id, error }) => window.browserPaneHarness.rejectViewport(id, error), {
+    id: requestId,
+    error: {
+      code: 'stale_generation',
+      message: 'browser lane generation moved',
+      retryable: false,
+    },
+  })
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () =>
+          window.browserPaneHarness
+            .report()
+            .commands.filter((command) => command.operation === 'dev.browser.lanes').length
+      )
+    )
+    .toBe(2)
+
+  await page.evaluate(() =>
+    window.browserPaneHarness.failNextLaneControl({
+      code: 'invalid_state',
+      message: 'newer lane control failure',
+      retryable: false,
+    })
+  )
+  await pane.getByRole('button', { name: 'Release capture (Esc)' }).click()
+  await expect(pane.getByRole('alert')).toContainText('newer lane control failure')
+
+  await page.evaluate(() => window.browserPaneHarness.resolvePendingLaneList())
+  await expect(pane.getByRole('alert')).toContainText('newer lane control failure')
 })
 
 test('DevicesPane shows host-reported capability guidance and omits unapplied preset controls', async ({

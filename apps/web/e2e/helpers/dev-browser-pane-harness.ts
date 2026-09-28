@@ -40,6 +40,13 @@ export type BrowserPaneHarnessControls = {
   ): void
   rejectScreenshot(requestId: number, error: import('@adea-ai/types/dev-runtime').DevError): void
   failNextScreenshot(error: import('@adea-ai/types/dev-runtime').DevError): void
+  deferLaneListRefresh(): void
+  resolvePendingLaneList(): void
+  failNextLaneControl(error: import('@adea-ai/types/dev-runtime').DevError): void
+  deferNextViewport(): number
+  resolveViewport(requestId: number): void
+  rejectViewport(requestId: number, error: import('@adea-ai/types/dev-runtime').DevError): void
+  advanceLaneGeneration(): void
   unmount(): void
 }
 

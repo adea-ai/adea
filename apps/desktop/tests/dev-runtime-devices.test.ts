@@ -144,6 +144,23 @@ describe('inventory parsing', () => {
     expect(parseSimctlDevicesJson('not json')).toEqual([])
   })
 
+  test('rejects malformed simulator rows as an unavailable iOS toolchain', () => {
+    const observedAt = '2026-09-28T12:00:00.000Z'
+    const probes = {
+      ios: { status: 'ok' as const, stdout: '{"devices":{"runtime":[{}]}}' },
+      androidAdb: { status: 'ok' as const, stdout: 'List of devices attached\n' },
+      androidEmulator: { status: 'ok' as const, stdout: 'no avds found' },
+    }
+
+    expect(parseSimctlDevicesJson(probes.ios.stdout)).toEqual([])
+    expect(buildDeviceCapabilityReport(probes, observedAt).items[0]).toEqual({
+      platform: 'ios',
+      state: 'unavailable',
+      missingPiece: 'xcrun_simctl',
+      observedAt,
+    })
+  })
+
   test('parses adb devices including the two-word no-permissions state', () => {
     const stdout = [
       'List of devices attached',

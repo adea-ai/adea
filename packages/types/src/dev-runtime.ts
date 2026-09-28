@@ -1836,6 +1836,12 @@ function namedType(name: string, value: unknown, path: string): unknown {
         ['xcrun_simctl', 'adb', 'android_emulator'],
         `${path}.missingPiece`
       )
+      if (item.state !== 'unavailable') fail(`${path}.missingPiece`, 'state is not unavailable')
+      const allowedMissingPieces =
+        item.platform === 'ios' ? ['xcrun_simctl'] : ['adb', 'android_emulator']
+      if (!allowedMissingPieces.includes(item.missingPiece as string)) {
+        fail(`${path}.missingPiece`, 'does not match platform')
+      }
     }
     timestamp(item.observedAt, `${path}.observedAt`)
     return value

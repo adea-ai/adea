@@ -31,6 +31,12 @@ let lane: BrowserLane = {
   automationOwner: 'human_takeover',
   generation: 7,
 }
+const alternateLane: BrowserLane = {
+  ...lane,
+  id: 'browser-pane-fixture-lane-2',
+  profileId: 'browser-pane-fixture-profile-2',
+  generation: 9,
+}
 const previewUrl = 'http://localhost:5173/nested/page?mode=preview#details'
 let currentUrl = 'http://localhost:5173/initial'
 const commands: DevCommand[] = []
@@ -38,11 +44,23 @@ let screenshotSequence = 0
 let nextDeferredScreenshotId: number | undefined
 let nextScreenshotError: DevError | undefined
 let deferredInventory: { command: DevCommand; resolve(reply: DevReply): void } | undefined
+let deferNextLaneList = false
+let deferredLaneList: { command: DevCommand; resolve(reply: DevReply): void } | undefined
+let nextLaneControlError: DevError | undefined
 const deferredScreenshots = new Map<
   number,
   { command: DevCommand; resolve(reply: DevReply): void }
 >()
 let nextDeferredScreenshotSequence = 0
+let nextDeferredViewportSequence = 0
+const deferredViewports = new Map<number, { command: DevCommand; resolve(reply: DevReply): void }>()
+const queuedViewportIds: number[] = []
+
+function browserLanes(): readonly BrowserLane[] {
+  return new URLSearchParams(window.location.search).get('lanes') === 'multiple'
+    ? [lane, alternateLane]
+    : [lane]
+}
 
 const port: PortRecord = {
   id: 'browser-pane-fixture-port',
@@ -120,6 +138,38 @@ const deferredControls = {
   failNextScreenshot(error: DevError): void {
     nextScreenshotError = error
   },
+  deferLaneListRefresh(): void {
+    deferNextLaneList = true
+  },
+  resolvePendingLaneList(): void {
+    if (!deferredLaneList) throw new Error('lane list refresh is not pending')
+    const { command, resolve } = deferredLaneList
+    deferredLaneList = undefined
+    resolve(reply(command, { items: browserLanes() }))
+  },
+  failNextLaneControl(error: DevError): void {
+    nextLaneControlError = error
+  },
+  deferNextViewport(): number {
+    nextDeferredViewportSequence += 1
+    queuedViewportIds.push(nextDeferredViewportSequence)
+    return nextDeferredViewportSequence
+  },
+  resolveViewport(requestId: number): void {
+    const pending = deferredViewports.get(requestId)
+    if (!pending) throw new Error(`deferred viewport ${requestId} is not pending`)
+    deferredViewports.delete(requestId)
+    pending.resolve(reply(pending.command, {}))
+  },
+  rejectViewport(requestId: number, error: DevError): void {
+    const pending = deferredViewports.get(requestId)
+    if (!pending) throw new Error(`deferred viewport ${requestId} is not pending`)
+    deferredViewports.delete(requestId)
+    pending.resolve(errorReply(pending.command, error))
+  },
+  advanceLaneGeneration(): void {
+    lane = { ...lane, generation: lane.generation + 1 }
+  },
 }
 
 const runtime = {
@@ -129,7 +179,13 @@ const runtime = {
     commands.push(command)
     switch (command.operation) {
       case 'dev.browser.lanes':
-        return reply(command, { items: [lane] })
+        if (deferNextLaneList) {
+          deferNextLaneList = false
+          return await new Promise<DevReply>((resolve) => {
+            deferredLaneList = { command, resolve }
+          })
+        }
+        return reply(command, { items: browserLanes() })
       case 'dev.browser.targets': {
         const worker: BrowserTarget = {
           id: 'browser-pane-fixture-worker',
@@ -188,7 +244,7 @@ const runtime = {
             {
               platform: 'ios',
               state: available ? 'available' : 'unavailable',
-              ...(!available ? { missingPiece: 'xcrun simctl' } : {}),
+              ...(!available ? { missingPiece: 'xcrun_simctl' } : {}),
               observedAt,
             },
             { platform: 'android', state: 'available', observedAt },
@@ -232,8 +288,22 @@ const runtime = {
         }
         return reply(command, screenshotRef())
       }
+      case 'dev.browser.viewport': {
+        const requestId = queuedViewportIds.shift()
+        if (requestId !== undefined) {
+          return await new Promise<DevReply>((resolve) => {
+            deferredViewports.set(requestId, { command, resolve })
+          })
+        }
+        return reply(command, {})
+      }
       case 'dev.browser.takeover':
       case 'dev.browser.release': {
+        if (nextLaneControlError) {
+          const error = nextLaneControlError
+          nextLaneControlError = undefined
+          return errorReply(command, error)
+        }
         lane = {
           ...lane,
           automationOwner: command.operation === 'dev.browser.release' ? 'agent' : 'human_takeover',

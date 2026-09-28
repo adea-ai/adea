@@ -32,7 +32,18 @@ function validSimctlResponse(stdout: string): boolean {
       value.devices !== null &&
       typeof value.devices === 'object' &&
       !Array.isArray(value.devices) &&
-      Object.values(value.devices).every((devices) => Array.isArray(devices))
+      Object.values(value.devices).every(
+        (devices) =>
+          Array.isArray(devices) &&
+          devices.every(
+            (device) =>
+              device !== null &&
+              typeof device === 'object' &&
+              !Array.isArray(device) &&
+              typeof (device as { udid?: unknown }).udid === 'string' &&
+              (device as { udid: string }).udid.trim().length > 0
+          )
+      )
     )
   } catch {
     return false
