@@ -525,9 +525,13 @@ describe('the no-flash preload script', () => {
       }),
     })
     expect(classes.has('dark')).toBe(true)
+    // The palette itself is stylesheet-owned: the resolved `data-theme`
+    // attribute selects the generated token block (proven in the canonical
+    // adapter tests), so the script only carries the document state.
     expect(dataset.theme).toBe('slate-dark')
     expect(dataset.surface).toBe('frosted')
-    expect(style['--background']).toBe('#0f172a')
+    expect(style['--surface-alpha']).toBe('0.92')
+    expect(Object.keys(style).filter((name) => name.startsWith('--background'))).toEqual([])
   })
 
   test('the legacy theme key migrates with no flash and is never deleted', () => {

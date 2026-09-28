@@ -32,6 +32,9 @@ const COLOR_LITERALS = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lch|lab
  */
 export const TOKEN_FILES = [
   'packages/ui/src/styles/theme.css',
+  // Generated catalogue token blocks: one [data-theme] declaration layer per
+  // published theme.
+  'packages/ui/src/styles/canonical-themes.css',
   'packages/ui/src/styles/workspace-shell.css',
   // Generated canonical theme records and CSS data: these values are the
   // published palette serialized for runtime mapping and token application.

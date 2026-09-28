@@ -1,20 +1,21 @@
 import type { ThemeVariant } from './appearance'
 import { CANONICAL_THEME_COLOR_VALUES, CANONICAL_THEME_DATA } from './canonical-theme-data'
 
-/** Published IDs retained by Adea's v2 appearance preferences. */
-export const CANONICAL_THEME_IDS = [
-  'adea-light',
-  'adea-dark',
-  'slate-light',
-  'slate-dark',
-  'contrast-light',
-  'contrast-dark',
-] as const
+type CanonicalThemeId = Extract<keyof typeof CANONICAL_THEME_DATA, string>
+
+/**
+ * Published IDs retained by Adea's v2 appearance preferences, in generated
+ * order (the Adea pair leads, then the catalogue). The catalogue's editor-floor
+ * exclusions never enter the registry, so a stored selection for one falls
+ * back to the appearance's default exactly like an unknown id.
+ */
+export const CANONICAL_THEME_IDS: readonly CanonicalThemeId[] = Object.keys(
+  CANONICAL_THEME_DATA
+) as CanonicalThemeId[]
 
 /** The original Adea pair remains the built-in CSS default. */
 export const CANONICAL_ADEA_THEME_IDS = ['adea-light', 'adea-dark'] as const
 
-type CanonicalThemeId = (typeof CANONICAL_THEME_IDS)[number]
 type CanonicalThemeRecord = readonly [
   readonly [string, string, string, string],
   string,
