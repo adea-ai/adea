@@ -1214,11 +1214,17 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await page.setViewportSize({ width: 390, height: 844 })
   await mockWorkspace(page)
   await page.goto('/')
-  await expect(page.getByRole('button', { name: 'Open workspace navigation' })).toBeVisible()
-  await page.getByRole('button', { name: 'Open workspace navigation' }).click()
+  await expect(page.getByRole('button', { name: 'Expand contextual sidebar' })).toBeVisible()
+  await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
   const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(navigation).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Collapse contextual sidebar' })).toHaveAttribute(
+    'aria-expanded',
+    'true'
+  )
+  await expect(navigation.getByRole('heading', { level: 1 })).toBeVisible()
+  await expect(navigation.getByRole('region', { name: 'Rooms' })).toBeVisible()
+  await expect(navigation.getByRole('region', { name: 'Conversations' })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-narrow-light.png', { animations: 'disabled' })
   await navigation.getByRole('button', { name: 'Close workspace navigation' }).click()
 
