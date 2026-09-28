@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.65.0](https://github.com/adea-ai/adea/compare/v0.64.3...v0.65.0) (2026-09-28)
+
+
+### Features
+
+* **appearance:** offer the published theme catalogue in the appearance editor ([#792](https://github.com/adea-ai/adea/issues/792)) ([8059142](https://github.com/adea-ai/adea/commit/80591429ee04fdad84f3757d7e240c080cd56371))
+
+
+### Bug Fixes
+
+* **dev-view:** human chat row titles and a clean terminal pane header ([#794](https://github.com/adea-ai/adea/issues/794)) ([e615ed2](https://github.com/adea-ai/adea/commit/e615ed252eecec9c037841521e7d38e9212d96f5))
+* **scripts:** keep lucide shim UI resolution stable across bun test load order ([#793](https://github.com/adea-ai/adea/issues/793)) ([251efdb](https://github.com/adea-ai/adea/commit/251efdb9c2d2fa30ea4be69129aa5a252c2ee497))
+
 ## [0.64.3](https://github.com/adea-ai/adea/compare/v0.64.2...v0.64.3) (2026-09-28)
 
 
