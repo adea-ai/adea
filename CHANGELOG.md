@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.1](https://github.com/adea-ai/adea/compare/v0.64.0...v0.64.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **desktop:** display safe updater failure messages ([#786](https://github.com/adea-ai/adea/issues/786)) ([890e639](https://github.com/adea-ai/adea/commit/890e63962dbdcf60af52f6ce6b48747c995a346b))
+
 ## [0.64.0](https://github.com/adea-ai/adea/compare/v0.63.2...v0.64.0) (2026-09-28)
 
 
