@@ -91,9 +91,16 @@ type DialogHarness = {
   requestClose: () => void
 }
 
-// Signal writes outside a transaction flush effects on a microtask; the E2E's
+// Signal writes flush effects on the microtask queue, but the exact scheduler
+// depth is an implementation detail: a single microtask hop raced Solid's
+// effect flush and failed this test nondeterministically under `bun test`.
+// Drain macrotasks until the reactive outcome lands, like the E2E's
 // expect(...).toBeVisible() retries across the same gap.
-const settle = () => new Promise<void>((resolve) => queueMicrotask(resolve))
+async function settle_until(check: () => boolean): Promise<void> {
+  for (let hop = 0; hop < 20 && !check(); hop += 1) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  }
+}
 
 describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () => {
   test('cancel reverts the draft and a re-opened dialog keeps previewing', async () => {
@@ -137,7 +144,7 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
 
       // E2E: openAppearance(page)
       setAppearanceOpen(true)
-      await settle()
+      await settle_until(() => dialog !== undefined)
       expect(dialog).toBeDefined()
       expect(dialog?.draft().mode).toBe('system')
 
@@ -148,14 +155,14 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
 
       // E2E: Cancel; the dialog closes and the page reverts.
       dialog?.requestClose()
-      await settle()
+      await settle_until(() => !appearanceOpen())
       expect(appearanceOpen()).toBe(false)
       expect(dialog).toBeUndefined()
       expect(doc.classes.has('dark')).toBe(false)
 
       // E2E: re-open; the dialog is operable again from the committed state.
       setAppearanceOpen(true)
-      await settle()
+      await settle_until(() => dialog !== undefined)
       expect(dialog).toBeDefined()
       expect(dialog?.draft().mode).toBe('system')
 
@@ -165,7 +172,7 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
 
       // E2E: final Cancel.
       dialog?.requestClose()
-      await settle()
+      await settle_until(() => !doc.classes.has('dark'))
       expect(doc.classes.has('dark')).toBe(false)
 
       dispose()
