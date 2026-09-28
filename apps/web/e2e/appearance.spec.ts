@@ -77,6 +77,36 @@ test.describe('appearance', () => {
     await expect(page.locator('html')).toHaveClass(/dark/)
   })
 
+  test('the theme rows offer the published catalogue, and a catalogue theme applies', async ({
+    page,
+  }) => {
+    const panel = await openAppearance(page)
+
+    await modeGroup(panel).getByText('Dark', { exact: true }).click()
+    await editor(panel).getByText('Adea Dark', { exact: true }).click()
+
+    // The rows are the whole included catalogue, not just the Adea families.
+    await expect(page.getByRole('menuitemradio', { name: 'Catppuccin Mocha' })).toBeVisible()
+    await expect(
+      page.getByRole('menuitemradio', { name: 'Tokyo Night', exact: true })
+    ).toBeVisible()
+    await expect(page.getByRole('menuitemradio', { name: 'Rosé Pine Moon' })).toBeVisible()
+
+    // Selecting one re-skins the live document from the generated data-theme
+    // tokens, and the editor's own preview follows it.
+    await page.getByRole('menuitemradio', { name: 'Catppuccin Mocha' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'catppuccin-mocha')
+    await expect(editor(panel).getByRole('button', { name: 'Dark theme', exact: true })).toHaveText(
+      'Catppuccin Mocha'
+    )
+
+    await panel.getByRole('button', { name: 'Save' }).click()
+    await page.reload()
+    // The pre-paint script resolves the stored catalogue id and the generated
+    // stylesheet paints it before hydration.
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'catppuccin-mocha')
+  })
+
   test('Light mode applies, saves, and survives a reload against a dark OS', async ({ page }) => {
     // Reported as "unable to enable light mode": pinned Light must beat the
     // host's dark appearance, keep doing so through a save, and survive a
@@ -347,8 +377,8 @@ test('cancel reverts the draft and the OS reduced-motion preference keeps the pa
   await reopened.getByRole('button', { name: 'Cancel' }).click()
 })
 
-// Contrast IDs remain supported persisted preferences even though the compact
-// picker shows the current Adea and Slate families only.
+// Contrast IDs remain supported persisted preferences alongside the rest of
+// the published catalogue the picker now offers.
 for (const [selectedMode, themeId] of [
   ['light', 'adea-light'],
   ['light', 'slate-light'],

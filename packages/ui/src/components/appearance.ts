@@ -807,17 +807,21 @@ function allVariantTokenNames(): ReadonlySet<string> {
 /**
  * The no-flash preload script rendered in the document head. It re-resolves
  * the stored (or legacy) preference against the OS before first paint and
- * applies the same palette state the provider would, so hydration never shows
- * the wrong palette. Accent overrides land with the provider: they decorate
- * the resolved palette and cannot produce a wrong-palette flash.
+ * applies the same document state the provider would, so hydration never shows
+ * the wrong palette. Palette values are not embedded: every non-default
+ * variant's tokens are declared in the generated `styles/canonical-themes.css`
+ * under its `data-theme` attribute, and the default pair lives in
+ * `styles/theme.css`, so a render-blocking stylesheet plus the resolved
+ * attribute paint the right palette. Accent overrides land with the provider:
+ * they decorate the resolved palette and cannot produce a wrong-palette flash.
  */
 export function appearanceThemeScript(): string {
-  const preload = builtinThemeRegistry.map((variant) => ({
-    id: variant.id,
-    dark: variant.appearance === 'dark',
-    tokens: flatVariantTokens(variant),
-  }))
-  const registry = JSON.stringify(preload)
+  const ids = JSON.stringify(
+    builtinThemeRegistry.map((variant) => ({
+      id: variant.id,
+      dark: variant.appearance === 'dark',
+    }))
+  )
   const alpha = JSON.stringify(SURFACE_BACKGROUND_ALPHA)
   return `(function(){try{
 var prefs=null;var raw=null;
@@ -827,7 +831,7 @@ var mode='system';
 if(prefs){if(prefs.mode==='light'||prefs.mode==='dark')mode=prefs.mode}
 else{try{var t=localStorage.getItem('${LEGACY_THEME_STORAGE_KEY}');if(t==='light'||t==='dark')mode=t}catch(e){}}
 var dark=mode==='dark'||(mode==='system'&&window.matchMedia('${DARK_QUERY}').matches);
-var registry=${registry};
+var registry=${ids};
 var wanted=dark?(prefs&&prefs.darkThemeId)||'${defaultAppearancePreferences.darkThemeId}':(prefs&&prefs.lightThemeId)||'${defaultAppearancePreferences.lightThemeId}';
 var variant=null;
 for(var i=0;i<registry.length;i++){if(registry[i].id===wanted){variant=registry[i];break}}
@@ -847,8 +851,6 @@ r.dataset.appearanceMode=mode;
 r.dataset.surface=surface;
 r.dataset.reduceTransparency=reduce?'true':'false';
 s.setProperty('--surface-alpha',${alpha}[surface]||'1');
-var tokens=variant.tokens||{};
-for(var name in tokens){s.setProperty(name,tokens[name])}
 }catch(e){}})();`
 }
 

@@ -54,6 +54,7 @@
     "./conventional-workspace.css": "./src/styles/conventional-workspace.css",
     "./dev-view.css": "./src/styles/dev-view.css",
     "./theme.css": "./src/styles/theme.css",
+    "./canonical-themes.css": "./src/styles/canonical-themes.css",
     "./workspace-shell.css": "./src/styles/workspace-shell.css",
     "./base.css": "./src/styles/base.css"
   },

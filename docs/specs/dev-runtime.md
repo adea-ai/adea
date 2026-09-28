@@ -1416,8 +1416,11 @@ opaque runtime payloads provide no validated call phase, interaction eligibility
 synthesis or final-answer boundary; rows therefore stay visible and unfolded.
 Payload hints and run completion cannot authorize grouping or hide an action.
 
-Adea's six persisted appearance IDs use the installed published theme package
-for generated palette data. The generator records that package's actual version.
+Adea's persisted appearance IDs are the published `@adea-ai/themes` catalogue
+minus the themes whose editor projection cannot reach the host's 4.5:1 syntax
+floor (the generated data records those exclusions explicitly, and a stored
+excluded id falls back to the appearance default). The generator records that
+package's actual version.
 Solid destructive actions carry a separate generated fill/foreground pair from
 `shadcnDestructiveProjection`; theme switching and the pre-paint provider apply
 and clear those tokens with the rest of the palette. Canonical status hues,
@@ -4030,11 +4033,14 @@ OS; pinned modes do not. Accent affects only semantic accent/interactive roles
 and must pass contrast validation. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
-The bundled `adea-light`, `adea-dark`, `slate-light`, `slate-dark`,
-`contrast-light`, and `contrast-dark` records are sourced from the published
-`@adea-ai/themes` catalogue and adapted into this manifest's CSS, terminal,
-editor, and chart roles; the preference IDs and pre-paint document authority
-remain Adea-owned. Palette normalization, accents, contrast math, and shadcn
+The built-in registry is the published `@adea-ai/themes` catalogue adapted
+into this manifest's CSS, terminal, editor, and chart roles, led by the
+`adea-light`/`adea-dark` default pair (the catalogue's editor-floor exclusions
+stay out of the registry); the preference IDs and pre-paint document authority
+remain Adea-owned. Non-default variants ship as generated `[data-theme]` token
+blocks in `packages/ui/src/styles/canonical-themes.css`, so the pre-paint
+script only resolves the attribute and a render-blocking stylesheet paints the
+stored palette; the default pair stays CSS-owned in `theme.css`. Palette normalization, accents, contrast math, and shadcn
 projection remain catalogue-owned. Generated editor roles use the published
 quantized-hex contrast projection, while the syntax API retains its quieter
 comment role. Unknown stored theme IDs fall back to the default of the same

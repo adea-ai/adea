@@ -91,11 +91,14 @@ Why it is worth a gate: with it, restyling is a token swap and dark mode is a
 second set of declarations. Without it, every hardcoded value is a small rewrite
 that nobody schedules.
 
-The built-in `adea-light`, `adea-dark`, `slate-light`, `slate-dark`,
-`contrast-light`, and `contrast-dark` palettes come from the published
-`@adea-ai/themes` catalogue. The build-time
-`scripts/generate-canonical-theme-data.ts` command converts its OKLCH schema and
-derived terminal, syntax, editor, and chart roles into generated records. Editor
+The built-in palettes are the published `@adea-ai/themes` catalogue, led by the
+`adea-light`/`adea-dark` default pair. The build-time
+`scripts/generate-canonical-theme-data.ts` command converts the catalogue's OKLCH
+schema and derived terminal, syntax, editor, and chart roles into generated
+records, and pins the themes excluded because their published editor projection
+cannot reach the host's 4.5:1 syntax floor. Non-default variants also emit a
+`src/styles/canonical-themes.css` block per theme so the pre-paint script stays
+palette-free. Editor
 roles use the catalogue's quantized-hex contrast projection; the syntax API keeps
 its intentionally quieter comment color. The runtime
 `src/components/canonical-theme-adapter.ts` consumes those records with the

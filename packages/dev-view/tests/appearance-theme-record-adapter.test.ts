@@ -15,27 +15,37 @@ import {
 } from '@adea-ai/app-ui/components/appearance'
 
 describe('published AppearanceEditor theme adapter', () => {
-  test('exposes only Adea accepted IDs and preserves published canonical records', () => {
-    expect(appearanceThemeRecords.map((theme) => theme.id)).toEqual([
+  test('exposes the whole built-in registry led by the published pair', () => {
+    expect(appearanceThemeRecords.map((theme) => theme.id)).toEqual(
+      builtinThemeRegistry.map((variant) => variant.id)
+    )
+    expect(appearanceThemeRecords.slice(0, 2).map((theme) => theme.id)).toEqual([
       'adea-light',
       'adea-dark',
-      'slate-light',
-      'slate-dark',
-      'contrast-light',
-      'contrast-dark',
     ])
     expect(appearanceThemeRecords.find((theme) => theme.id === adeaLight.id)).toEqual(adeaLight)
     expect(appearanceThemeRecords.find((theme) => theme.id === adeaDark.id)).toEqual(adeaDark)
   })
 
-  test('maps compatibility records without changing their accepted IDs', () => {
+  test('projects catalogue records with their published family and provenance', () => {
+    const mocha = appearanceThemeRecords.find((theme) => theme.id === 'catppuccin-mocha')!
+    expect(mocha.family).toBe('catppuccin')
+    expect(mocha.familyLabel).toBe('Catppuccin')
+    expect(mocha.label).toBe('Mocha')
+    expect(mocha.description.length).toBeGreaterThan(0)
+    expect(mocha.provenance.project).toBe('Catppuccin')
+    expect(mocha.provenance.license).toBe('MIT')
+    expect(mocha.tags).toContain('dark')
+  })
+
+  test('maps catalogue records without changing their accepted IDs', () => {
     const slate = builtinThemeRegistry.find((theme) => theme.id === 'slate-dark')!
     const adapted = appearanceThemeForPreview(slate, 'theme')
     expect(adapted.id).toBe('slate-dark')
     expect(adapted.appearance).toBe('dark')
     expect(adapted.colors.background).toBe(slate.colors.background)
     expect(adapted.colors.surface).toBe(slate.colors.card)
-    expect(adapted.tags).toContain('compatibility')
+    expect(adapted.tags).toContain('dark')
   })
 
   test('maps custom accent roles while preserving the compatibility theme baseline', () => {

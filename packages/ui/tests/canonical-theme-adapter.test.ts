@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import adeaDarkTheme from '@adea-ai/themes/themes/adea-dark'
 import adeaLightTheme from '@adea-ai/themes/themes/adea-light'
-import { chartSeries, editorRolesHex, getTheme, syntaxRolesHex } from '@adea-ai/themes'
+import { chartSeries, editorRolesHex, getTheme, syntaxRolesHex, themeCount } from '@adea-ai/themes'
 import { toShikiTheme } from '@adea-ai/themes/adapters/shiki'
 import { toXtermTheme } from '@adea-ai/themes/adapters/xterm'
 import {
@@ -20,6 +20,7 @@ import {
   canonicalThemeRegistry,
   canonicalThemeVariant,
 } from '../src/components/canonical-theme-adapter'
+import { CANONICAL_FLOOR_EXCLUSIONS } from '../src/components/canonical-theme-data'
 import { canonicalThemeCssTokens } from '../src/components/canonical-theme-css-data'
 import {
   CANONICAL_THEME_COLOR_VALUES,
@@ -302,6 +303,44 @@ describe('published Adea theme adapter', () => {
         expect(actual[name], `${id} ${name}`).toBe(value)
       }
     }
+  })
+
+  test('declares a data-theme token block for every non-default variant and none for the defaults', async () => {
+    const css = await Bun.file(
+      new URL('../src/styles/canonical-themes.css', import.meta.url)
+    ).text()
+
+    for (const id of CANONICAL_THEME_IDS) {
+      if ((CANONICAL_ADEA_THEME_IDS as readonly string[]).includes(id)) {
+        expect(css.includes(`[data-theme='${id}']`), `${id} stays theme.css-owned`).toBe(false)
+        continue
+      }
+      const actual = cssBlock(css, `[data-theme='${id}']`)
+      const expected = canonicalThemeCssTokens(id)
+      expect(Object.keys(actual).toSorted(), `${id} block names`).toEqual(
+        Object.keys(expected).toSorted()
+      )
+      for (const [name, value] of Object.entries(expected)) {
+        expect(actual[name], `${id} ${name}`).toBe(value)
+      }
+    }
+  })
+
+  test('excludes exactly the catalogue ids whose editor projection cannot clear the host floor', () => {
+    for (const id of CANONICAL_FLOOR_EXCLUSIONS) {
+      expect(getTheme(id), `${id} is still published`).toBeDefined()
+      expect(CANONICAL_THEME_IDS, `${id} stays out of the registry`).not.toContain(id)
+      // The no-flash fallback for a stored excluded id is the appearance's
+      // default, the same recovery an unknown id gets.
+      expect(
+        canonicalThemeRegistry.some((variant) => variant.appearance === getTheme(id)!.appearance)
+      ).toBe(true)
+    }
+    // The floor failures are a catalogue capability, not a permanent property:
+    // the tripwire in the generator fails generation when the set changes, and
+    // this pin makes a silent widening or narrowing impossible.
+    expect(CANONICAL_FLOOR_EXCLUSIONS.length).toBeGreaterThan(0)
+    expect(CANONICAL_THEME_IDS.length + CANONICAL_FLOOR_EXCLUSIONS.length).toBe(themeCount())
   })
 })
 
