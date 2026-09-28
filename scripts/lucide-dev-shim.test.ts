@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 
@@ -93,6 +93,33 @@ function nearestPackageManifest(file: string): string | undefined {
   return undefined
 }
 
+/**
+ * Locate the installed `@adea-ai/ui` package root for a consuming manifest by
+ * walking `node_modules` and keeping the real (store) path. A plain
+ * `createRequire(...).resolve` here is order-dependent under `bun test`:
+ * once another test file's import graph has resolved the same specifier from
+ * a different context, Bun's resolution cache answers from that first result
+ * and this closure scans the wrong package. The filesystem walk is immune to
+ * load order; `createRequire` remains as the fallback for exotic layouts.
+ */
+function publishedPackageRoot(manifest: string): string | undefined {
+  let directory = dirname(manifest)
+  while (true) {
+    const candidate = join(directory, 'node_modules/@adea-ai/ui/package.json')
+    if (existsSync(candidate)) {
+      return join(realpathSync(candidate), '..', 'src')
+    }
+    const parent = dirname(directory)
+    if (parent === directory) break
+    directory = parent
+  }
+  try {
+    return join(dirname(createRequire(manifest).resolve('@adea-ai/ui/package.json')), 'src')
+  } catch {
+    return undefined
+  }
+}
+
 const publishedEntries = localFiles.flatMap((file) => {
   const matches = [
     ...readFileSync(file, 'utf8').matchAll(/from\s+['"](@adea-ai\/ui(?:\/[^'"]*)?)['"]/g),
@@ -100,11 +127,8 @@ const publishedEntries = localFiles.flatMap((file) => {
   if (matches.length === 0) return []
   const manifest = nearestPackageManifest(file)
   if (!manifest) return []
-  const publishedRequire = createRequire(manifest)
-  const publishedSourceRoot = join(
-    dirname(publishedRequire.resolve('@adea-ai/ui/package.json')),
-    'src'
-  )
+  const publishedSourceRoot = publishedPackageRoot(manifest)
+  if (!publishedSourceRoot) return []
   return matches.map(([, specifier]) => ({ specifier, publishedSourceRoot }))
 })
 const publishedSourceFiles = new Set<string>()
