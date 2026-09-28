@@ -43,9 +43,12 @@ async function expectPointerHitsButton(page: Page, button: Locator, name: string
         if (!(element instanceof HTMLElement)) return null
         const elementBounds = element.getBoundingClientRect()
         const style = getComputedStyle(element)
+        const buttonName =
+          element.getAttribute('aria-label') ??
+          (element instanceof HTMLButtonElement ? element.textContent?.trim() : null)
         return {
           tag: element.tagName.toLowerCase(),
-          name: element.getAttribute('aria-label') ?? element.textContent?.trim() ?? null,
+          name: buttonName?.slice(0, 80) ?? null,
           className: element.className,
           rect: {
             x: elementBounds.x,
@@ -61,6 +64,10 @@ async function expectPointerHitsButton(page: Page, button: Locator, name: string
           position: style.position,
           zIndex: style.zIndex,
           pointerEvents: style.pointerEvents,
+          display: style.display,
+          gridTemplateColumns: style.gridTemplateColumns,
+          alignItems: style.alignItems,
+          justifyItems: style.justifyItems,
         }
       }
       const hitButton = document.elementFromPoint(x, y)?.closest('button') ?? null

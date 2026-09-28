@@ -1727,6 +1727,7 @@
 }
 
 .conventional-dialog {
+  place-self: center;
   width: min(34rem, calc(100% - 2rem));
   max-width: min(34rem, calc(100% - 2rem));
   max-height: calc(100svh - 2rem);
@@ -2713,6 +2714,10 @@
 .workspace-topbar {
   grid-column: 1 / -1;
   grid-row: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(15rem, 22vw, 30rem) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
   position: relative;
   z-index: var(--z-sticky);
   height: var(--workspace-topbar-height);
