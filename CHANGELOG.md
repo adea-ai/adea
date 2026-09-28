@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.3](https://github.com/adea-ai/adea/compare/v0.64.2...v0.64.3) (2026-09-28)
+
+
+### Bug Fixes
+
+* make browser and device controls truthful ([#790](https://github.com/adea-ai/adea/issues/790)) ([170c1e0](https://github.com/adea-ai/adea/commit/170c1e0d9d3c59cea823db83ae90542231ca92e4))
+
 ## [0.64.2](https://github.com/adea-ai/adea/compare/v0.64.1...v0.64.2) (2026-09-28)
 
 
