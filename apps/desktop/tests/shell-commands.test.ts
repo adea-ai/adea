@@ -220,6 +220,29 @@ describe('desktop shell command surface', () => {
     }
   })
 
+  test('uses a generic failure message for unreadable update errors', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
+    const original = globalThis.fetch
+    try {
+      globalThis.fetch = (async () => {
+        throw { message: '[object Object]', token: 'must not reach the UI' }
+      }) as typeof fetch
+      const invoke = createCommandSurface(dataDir)
+      const failed = (await invoke('desktop_update_status')) as {
+        ok: true
+        value: Record<string, unknown>
+      }
+      expect(failed.value).toMatchObject({
+        error: 'The update failed. Please try again.',
+        phase: 'failed',
+      })
+      expect(JSON.stringify(failed.value)).not.toContain('must not reach the UI')
+    } finally {
+      globalThis.fetch = original
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
   test('keeps the archive path invisible until the download is complete', async () => {
     // The extractor reads this path as soon as the download returns; a writer
     // that streams straight into it can hand over a partially flushed file,
