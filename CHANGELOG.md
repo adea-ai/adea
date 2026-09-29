@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.65.2](https://github.com/adea-ai/adea/compare/v0.65.1...v0.65.2) (2026-09-29)
+
+
+### Bug Fixes
+
+* **workspace:** size message artifact cards to their content ([#800](https://github.com/adea-ai/adea/issues/800)) ([3978186](https://github.com/adea-ai/adea/commit/397818696f3c706d57a4b0fd828aeed08e879a74))
+
+
+### Tests
+
+* **dev-view:** root the appearance dialog harness synchronously ([#799](https://github.com/adea-ai/adea/issues/799)) ([8eb9eeb](https://github.com/adea-ai/adea/commit/8eb9eeb8d78767acb6287e76de1ea6d9bd2c8d77))
+
 ## [0.65.1](https://github.com/adea-ai/adea/compare/v0.65.0...v0.65.1) (2026-09-28)
 
 
