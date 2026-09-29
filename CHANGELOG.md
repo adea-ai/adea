@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.67.1](https://github.com/adea-ai/adea/compare/v0.67.0...v0.67.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* **workspace:** compose the App Library from the shared list composites ([#805](https://github.com/adea-ai/adea/issues/805)) ([15de6b4](https://github.com/adea-ai/adea/commit/15de6b476077addd34e47c08b50d73b47feb7e9d))
+
 ## [0.67.0](https://github.com/adea-ai/adea/compare/v0.66.0...v0.67.0) (2026-09-29)
 
 
