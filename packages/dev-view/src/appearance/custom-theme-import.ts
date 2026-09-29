@@ -12,7 +12,6 @@
  */
 import {
   editorRolesHex,
-  getTheme,
   syntaxRolesHex,
   type AdeaTheme,
   type AdeaThemeRecord,
@@ -55,30 +54,6 @@ const CANONICAL_COLOR_KEYS = [
   'warning',
   'error',
   'info',
-] as const
-
-const HOST_COLOR_KEYS = [
-  'background',
-  'foreground',
-  'card',
-  'cardForeground',
-  'popover',
-  'popoverForeground',
-  'primary',
-  'primaryForeground',
-  'secondary',
-  'secondaryForeground',
-  'muted',
-  'mutedForeground',
-  'accent',
-  'accentForeground',
-  'destructive',
-  'destructiveAction',
-  'destructiveActionForeground',
-  'success',
-  'border',
-  'input',
-  'ring',
 ] as const
 
 const ANSI_KEYS = [
@@ -167,6 +142,11 @@ function repairToFloor(
   return colorToHex(repaired)
 }
 
+function hexOf(value: string): string {
+  const parsed = parseColor(value)
+  return parsed ? oklchToHex(parsed) : value
+}
+
 /**
  * Project a validated canonical theme into the runtime variant shape, the same
  * adapters the generated built-in registry uses.
@@ -201,10 +181,6 @@ function projectCanonical(theme: AdeaTheme): ThemeVariant {
     input: 'input',
     ring: 'ring',
   } as const
-  const hexOf = (value: string): string => {
-    const parsed = parseColor(value)
-    return parsed ? oklchToHex(parsed) : value
-  }
   const colors = Object.fromEntries(
     Object.entries(SHADCN_TO_COLOR).map(([name, property]) => [
       property,
