@@ -1,25 +1,13 @@
 import { createMemo } from 'solid-js'
 import type { AgentSummary } from '@adea-ai/types'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
-import { cn } from '@adea-ai/app-ui/lib/utils'
+import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
+import type { StatusTone } from '@adea-ai/ui/components/ui/status-chip'
 
-function StatusChip(props: { detail: string; label: string; tone: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        as="span"
-        class={cn('conventional-status-chip', {
-          'conventional-status-chip--ready': props.tone === 'ready',
-          'conventional-status-chip--warning': props.tone === 'warning',
-        })}
-      >
-        {props.label}
-      </TooltipTrigger>
-      <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
-        {props.detail}
-      </TooltipContent>
-    </Tooltip>
-  )
+const TONES: Record<string, StatusTone> = {
+  ready: 'success',
+  warning: 'warning',
+  muted: 'neutral',
+  unknown: 'unknown',
 }
 
 export function agentStatusModel(agent: AgentSummary) {
@@ -50,7 +38,7 @@ export function AgentStatusBadge(props: { agent: AgentSummary }) {
     <StatusChip
       detail="Persisted Agent lifecycle and AgentProfile configuration"
       label={status().configuration.label}
-      tone={status().configuration.tone}
+      tone={TONES[status().configuration.tone]}
     />
   )
 }
@@ -64,17 +52,17 @@ export function AgentStatus(props: { agent: AgentSummary; compact?: boolean }) {
       <StatusChip
         detail="Persisted Agent lifecycle and AgentProfile configuration"
         label={status().configuration.label}
-        tone={status().configuration.tone}
+        tone={TONES[status().configuration.tone]}
       />
       <StatusChip
         detail={status().runtime.detail}
         label={status().runtime.label}
-        tone={status().runtime.tone}
+        tone={TONES[status().runtime.tone]}
       />
       <StatusChip
         detail={status().execution.detail}
         label={status().execution.label}
-        tone={status().execution.tone}
+        tone={TONES[status().execution.tone]}
       />
     </div>
   )

@@ -2469,17 +2469,6 @@
   flex-wrap: wrap;
   gap: 0.35rem;
 }
-.conventional-status-chip {
-  display: inline-flex;
-  min-height: 1.45rem;
-  align-items: center;
-  padding: 0.15rem 0.45rem;
-  border: 1px solid var(--cw-border);
-  border-radius: 999px;
-  color: var(--cw-muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-}
 .conventional-status-chip--ready {
   border-color: var(--cw-accent);
   color: var(--cw-accent-strong);
@@ -2633,7 +2622,6 @@
   }
 }
 
-.conventional-empty,
 .conventional-error,
 .conventional-skeleton {
   display: grid;
@@ -2647,11 +2635,9 @@
   color: var(--cw-muted);
   text-align: center;
 }
-.conventional-empty h2,
 .conventional-error h2 {
   color: var(--cw-text);
 }
-.conventional-empty svg,
 .conventional-error svg {
   width: 2rem;
   height: 2rem;

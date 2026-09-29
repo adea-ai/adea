@@ -1,6 +1,13 @@
 import { AlertTriangle, Inbox, RefreshCw } from 'lucide-solid'
 import { For, Show, type JSX } from 'solid-js'
 import { ApiClientError } from '@adea-ai/api-client'
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@adea-ai/ui/components/ui/empty'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
 
 export function WorkspaceSkeleton(props: { label?: string }) {
@@ -19,12 +26,16 @@ export function WorkspaceSkeleton(props: { label?: string }) {
 
 export function WorkspaceEmpty(props: { action?: JSX.Element; detail: string; title: string }) {
   return (
-    <section class="conventional-empty" aria-labelledby="workspace-empty-title">
-      <Inbox aria-hidden="true" />
-      <h2 id="workspace-empty-title">{props.title}</h2>
-      <p>{props.detail}</p>
-      {props.action}
-    </section>
+    <Empty role="region" aria-labelledby="workspace-empty-title">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Inbox aria-hidden="true" />
+        </EmptyMedia>
+        <EmptyTitle>{props.title}</EmptyTitle>
+        <EmptyDescription>{props.detail}</EmptyDescription>
+      </EmptyHeader>
+      <Show when={props.action}>{props.action}</Show>
+    </Empty>
   )
 }
 
