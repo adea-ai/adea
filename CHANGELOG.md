@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.68.0](https://github.com/adea-ai/adea/compare/v0.67.2...v0.68.0) (2026-09-29)
+
+
+### Features
+
+* **ci:** deploy through the cf CLI ([#808](https://github.com/adea-ai/adea/issues/808)) ([a3b93b3](https://github.com/adea-ai/adea/commit/a3b93b37ce21e727a48fa76f038f83fb50eee33b))
+
 ## [0.67.2](https://github.com/adea-ai/adea/compare/v0.67.1...v0.67.2) (2026-09-29)
 
 
