@@ -37,12 +37,14 @@ afterEach(() => {
 
 const HANG = new Promise<Response>(() => {})
 
+// The manifest parser validates platform/arch against the RUNNING platform,
+// so the fixture follows the test's host (CI is linux/x64).
 const VALID_MANIFEST = () =>
   Response.json({
     version: '0.67.1',
-    platform: 'darwin',
-    arch: 'arm64',
-    url: 'https://github.com/adea-ai/adea/releases/download/v0.67.1/Adea-v0.67.1-macos-arm64.app.tar.zst',
+    platform: process.platform,
+    arch: process.arch,
+    url: `https://github.com/adea-ai/adea/releases/download/v0.67.1/Adea-v0.67.1-${process.platform}-${process.arch}.app.tar.zst`,
     sha256: 'a'.repeat(64),
     signature: 'sig',
     notes: 'the latest signed build',
@@ -119,9 +121,9 @@ describe('update manager', () => {
     fetchHandler = async () =>
       Response.json({
         version: '0.65.2',
-        platform: 'darwin',
-        arch: 'arm64',
-        url: 'https://github.com/adea-ai/adea/releases/download/v0.65.2/Adea-v0.65.2-macos-arm64.app.tar.zst',
+        platform: process.platform,
+        arch: process.arch,
+        url: `https://github.com/adea-ai/adea/releases/download/v0.65.2/Adea-v0.65.2-${process.platform}-${process.arch}.app.tar.zst`,
         sha256: 'a'.repeat(64),
         signature: 'sig',
         notes: 'the installed build',
