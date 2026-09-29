@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.0](https://github.com/adea-ai/adea/compare/v0.65.2...v0.66.0) (2026-09-29)
+
+
+### Features
+
+* **appearance:** row-level accent controls, reachable save actions, honest glass, and a real theme library ([#802](https://github.com/adea-ai/adea/issues/802)) ([92c3fb3](https://github.com/adea-ai/adea/commit/92c3fb3f5e03654d6b23f3318b98909e5aa46dc6))
+
 ## [0.65.2](https://github.com/adea-ai/adea/compare/v0.65.1...v0.65.2) (2026-09-29)
 
 
