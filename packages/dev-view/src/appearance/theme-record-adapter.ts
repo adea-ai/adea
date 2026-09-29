@@ -15,8 +15,10 @@ import adeaLight from '@adea-ai/themes/themes/adea-light'
 import { CANONICAL_THEME_META } from '@adea-ai/app-ui/components/canonical-theme-meta'
 import {
   builtinThemeRegistry,
+  customThemeVariants,
   deriveAccentRoles,
   normalizeAccentValue,
+  themeRegistry,
   type ThemeVariant,
 } from '@adea-ai/app-ui/components/appearance'
 
@@ -108,9 +110,15 @@ function catalogueRecord(variant: ThemeVariant): AdeaThemeRecord {
     family: variant.familyId,
     familyLabel: variant.familyName,
     label: meta?.label ?? variant.name,
-    description: meta?.description ?? `${variant.name} published theme.`,
+    description:
+      meta?.description ??
+      (variant.familyId === 'imported'
+        ? `${variant.name}, imported into your library.`
+        : `${variant.name} published theme.`),
     provenance: meta?.provenance ?? catalogueProvenance,
-    tags: meta?.tags ?? [variant.appearance],
+    tags:
+      meta?.tags ??
+      (variant.familyId === 'imported' ? ['imported', variant.appearance] : [variant.appearance]),
   }
 }
 
@@ -118,12 +126,22 @@ const catalogueRecords = builtinThemeRegistry
   .filter((variant) => variant.id !== adeaLight.id && variant.id !== adeaDark.id)
   .map(catalogueRecord)
 
-/** Exactly the built-in registry, led by the published default pair. */
+/** Imported themes, re-projected on every registry change. */
+export function customThemeRecords(): readonly AdeaThemeRecord[] {
+  return customThemeVariants().map(catalogueRecord)
+}
+
+/** The built-in registry led by the published pair; import lives separately. */
 export const appearanceThemeRecords: readonly AdeaThemeRecord[] = Object.freeze([
   adeaLight,
   adeaDark,
   ...catalogueRecords,
 ])
+
+/** Every selectable record: built-ins first, then imported themes. */
+export function allThemeRecords(): readonly AdeaThemeRecord[] {
+  return [...appearanceThemeRecords, ...customThemeRecords()]
+}
 
 const recordById = new Map(appearanceThemeRecords.map((record) => [record.id, record]))
 
@@ -131,7 +149,7 @@ function withAccent(theme: AdeaTheme, accent: string): AdeaTheme {
   if (accent === 'theme') return theme
   const roles = deriveAccentRoles(
     accent,
-    builtinThemeRegistry.find((variant) => variant.id === theme.id)!
+    themeRegistry().find((variant) => variant.id === theme.id)!
   )
   return {
     ...theme,
