@@ -42,6 +42,10 @@ export type UpdateStatus = {
   restart_required: boolean
 }
 
+/** Bounds every outbound availability request; a hung feed or GitHub API
+ * connection must never wedge the update state machine mid-check. */
+const CHECK_TIMEOUT_MS = 10_000
+
 export function versionLessThan(a: string, b: string): boolean {
   const pa = a
     .replace(/^v/, '')
@@ -67,8 +71,11 @@ export function createUpdateManager(input: {
   onExit?: (exitInMs: number) => void
   /** Test seam: the installed runtime hash (otherwise computed from the running bundle). */
   runtimeSha256?: string
+  /** Test seam: bounds each availability request (default 10s). */
+  checkTimeoutMs?: number
 }) {
   const { appVersion, dataDir } = input
+  const checkTimeoutMs = input.checkTimeoutMs ?? CHECK_TIMEOUT_MS
   const onExit = input.onExit ?? ((ms: number) => setTimeout(() => process.exit(0), ms))
 
   let update: UpdateStatus = {
@@ -88,6 +95,9 @@ export function createUpdateManager(input: {
   // Memoized hash of the installed runtime binaries (computed lazily, only
   // when a slim-capable update is on offer).
   let runtimeHash: string | null | undefined
+  // One check in flight at a time; tracked so a wedged 'checking' phase is
+  // recognizable as stalled (nothing actually running) and can recover.
+  let inFlight: Promise<UpdateStatus> | null = null
 
   function snapshot(next: Partial<UpdateStatus>): UpdateStatus {
     update = { ...update, ...next }
@@ -109,6 +119,7 @@ export function createUpdateManager(input: {
     try {
       const res = await fetch('https://api.github.com/repos/adea-ai/adea/releases/latest', {
         headers: { accept: 'application/vnd.github+json' },
+        signal: AbortSignal.timeout(checkTimeoutMs),
       })
       if (!res.ok) throw new Error(`github ${res.status}`)
       const release = (await res.json()) as {
@@ -137,12 +148,20 @@ export function createUpdateManager(input: {
     }
   }
 
-  async function check(): Promise<UpdateStatus> {
+  function check(): Promise<UpdateStatus> {
+    if (inFlight) return inFlight
+    inFlight = runCheck().finally(() => {
+      inFlight = null
+    })
+    return inFlight
+  }
+
+  async function runCheck(): Promise<UpdateStatus> {
     snapshot({ phase: 'checking', error: null })
     try {
       const res = await fetch(updateFeedUrl(), {
         headers: { accept: 'application/json' },
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(checkTimeoutMs),
       })
       if (!res.ok) throw new Error(`update feed ${res.status}`)
       const parsed = parseUpdateManifest(await res.json())
@@ -288,8 +307,13 @@ export function createUpdateManager(input: {
 
   return {
     check,
-    status: (): UpdateStatus | Promise<UpdateStatus> =>
-      update.phase === 'idle' ? check() : update,
+    status: (): UpdateStatus | Promise<UpdateStatus> => {
+      // A 'checking' snapshot with nothing in flight is a stall left behind by
+      // an interrupted check (crash, unbounded fetch before the timeout
+      // landed): re-run instead of serving the spinner forever.
+      if (update.phase === 'idle' || (update.phase === 'checking' && !inFlight)) return check()
+      return update
+    },
     install,
   }
 }
