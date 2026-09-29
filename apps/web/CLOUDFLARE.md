@@ -7,8 +7,8 @@ Cloudflare Workers is the deployment target.
 ## Build and deploy commands
 
 ```sh
-bun run build:cloudflare   # root: frozen install, workspace builds, vite build
-wrangler deploy            # from apps/web; uses wrangler.jsonc
+bun run build:cloudflare          # root: frozen install, workspace builds, vite build
+bun run deploy                    # from apps/web: build:cloudflare + cf-wrangler build + cf deploy --prebuilt
 ```
 
 `build:cloudflare` (`scripts/build-cloudflare.mjs`) installs from the root
@@ -16,13 +16,20 @@ lockfile, builds the workspace packages the app depends on, syncs the scene
 manifests, and runs `vite build`. The build emits the Worker entry at
 `dist/server/index.js` and the browser assets under `dist/client/`.
 
+Deploys run through the Cloudflare **cf CLI**: `cloudflare.config.ts` is the
+deploy source of truth (name, bindings, Hyperdrive, asset behavior) and
+`wrangler.config.ts` supplies the tooling-side asset directory;
+`cf-wrangler build` refreshes the Build Output under `.cloudflare/output/v0`
+and `cf deploy --prebuilt` uploads it. `cf previews deploy` publishes a
+preview version.
+
 The production `wrangler.jsonc` keeps `main` pointed at the source entry
 (`src/start/worker.ts`) because the Cloudflare Vite plugin requires that file
 to exist while bundling. The plugin then writes the deploy-time manifest to
 `dist/server/wrangler.json` — carrying the same Worker name, account, bindings,
 and asset settings, with `main` rewritten to the built `index.js` — plus a
-`.wrangler/deploy/config.json` redirect. `wrangler deploy` and `wrangler
-versions upload` run from `apps/web` therefore use the built output
+`.wrangler/deploy/config.json` redirect. The legacy `wrangler deploy` and
+`wrangler versions upload` (run from `apps/web`) still use the built output
 automatically, and no step rewrites `wrangler.jsonc`.
 
 ## One-time setup (Worker + GitHub Actions)
