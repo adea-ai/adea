@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.68.1](https://github.com/adea-ai/adea/compare/v0.68.0...v0.68.1) (2026-09-29)
+
+
+### Maintenance
+
+* enforce shared-UI usage through the design system lint plugin ([#812](https://github.com/adea-ai/adea/issues/812)) ([bfcca6b](https://github.com/adea-ai/adea/commit/bfcca6b2b55512b20ff7e0329e0fba95468fe177))
+
 ## [0.68.0](https://github.com/adea-ai/adea/compare/v0.67.2...v0.68.0) (2026-09-29)
 
 
