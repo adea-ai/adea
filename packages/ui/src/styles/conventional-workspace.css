@@ -968,7 +968,11 @@
 }
 .conventional-message__artifacts .conventional-artifact-card {
   display: grid;
-  width: 6.5rem;
+  /* Content-sized within a bounded tile: a pinned 6.5rem ellipsized every
+     realistic filename (about ten characters) and its own media-type line. */
+  width: auto;
+  min-width: 8rem;
+  max-width: 14rem;
   min-height: 5.5rem;
   align-content: space-between;
   align-items: start;
