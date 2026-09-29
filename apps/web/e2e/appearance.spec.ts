@@ -224,8 +224,10 @@ test.describe('appearance', () => {
 
       const library = page.getByRole('dialog', { name: 'Manage themes' })
       await expect(library).toBeVisible()
-      await expect(library.getByText('declare an explicit license and provenance')).toBeVisible()
-      await expect(library.getByText('signed App Library pipeline')).toBeVisible()
+      await expect(
+        library.getByText('Imported themes appear in the Light and Dark theme menus')
+      ).toBeVisible()
+      await expect(library.getByText('Import a theme file (.json)')).toBeVisible()
       expect(await editorElement!.evaluate((element) => element.isConnected)).toBe(true)
       // Entrance transforms temporarily establish a containing block. Check
       // the final layout so the corner control cannot drift to the viewport.
