@@ -88,7 +88,11 @@ export function AppLibraryPage(props: {
       <div class="workspace-app-library__body">
         <Show
           when={visible().length > 0}
-          fallback={<p class="workspace-app-library__empty" role="status">No apps match these filters.</p>}
+          fallback={
+            <p class="workspace-app-library__empty" role="status">
+              No apps match these filters.
+            </p>
+          }
         >
           <ListGroup label="In your sidebar">
             <For each={enabledApps()}>
@@ -153,7 +157,10 @@ export function AppLibraryPage(props: {
                     <ListRow
                       class="workspace-app-library__row"
                       leading={
-                        <span class="workspace-app-library__icon workspace-app-library__icon--muted" aria-hidden="true">
+                        <span
+                          class="workspace-app-library__icon workspace-app-library__icon--muted"
+                          aria-hidden="true"
+                        >
                           <Icon />
                         </span>
                       }
