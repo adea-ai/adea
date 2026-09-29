@@ -236,6 +236,22 @@
   }
 }
 
+/* Tokenized frost: while the resolved surface asks for glass, elevated
+   dialogs go translucent and blur the content behind them. The opaque
+   default and both reduced-transparency paths resolve --surface-alpha to 1
+   and never match this selector, so frost only ever applies when the user
+   chose it and the platform can honor it. Native window vibrancy (the
+   desktop's translucent surface) remains shell work; this is the tokenized
+   frost the appearance preferences promise everywhere else. */
+[data-surface='frosted'] .conventional-dialog {
+  background-color: color-mix(
+    in srgb,
+    var(--background) calc(var(--surface-alpha) * 100%),
+    transparent
+  );
+  backdrop-filter: blur(1.25rem) saturate(140%);
+}
+
 @layer base {
   *,
   *::before,

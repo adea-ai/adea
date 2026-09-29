@@ -220,7 +220,7 @@ const WHITE: RgbColor = { r: 255, g: 255, b: 255, a: 255 }
 const BLACK: RgbColor = { r: 0, g: 0, b: 0, a: 255 }
 
 /** Preserve the host hex shape while delegating contrast repair to the catalogue. */
-function ensureContrast(color: RgbColor, background: RgbColor, minimum: number): RgbColor {
+export function ensureContrast(color: RgbColor, background: RgbColor, minimum: number): RgbColor {
   if (contrastRatio(color, background) >= minimum) return color
 
   const renderedColor = color.a === 255 ? color : blendOver(color, background)
@@ -506,6 +506,150 @@ export function resolveThemeVariant(
 export const builtinThemeRegistry: readonly ThemeVariant[] = canonicalThemeRegistry
 
 /*
+ * The custom theme library: themes the user imported from a file, stored in
+ * localStorage and merged after the built-in registry at runtime. Import and
+ * projection live in the host (the lazy appearance chunk, which owns the
+ * published adapters); this module owns storage, the merged registry view,
+ * and token-cache invalidation.
+ */
+
+export type CustomThemeStored = Readonly<{
+  /** Stable id, namespaced so it can never collide with a catalogue id. */
+  id: string
+  name: string
+  appearance: ResolvedAppearance
+  importedAt: string
+  variant: ThemeVariant
+  /** The flat token map the no-flash script applies for a stored selection. */
+  flatTokens: Readonly<Record<string, string>>
+  /** Non-fatal adjustments made while normalizing the file, for the UI. */
+  notes: readonly string[]
+}>
+
+export const CUSTOM_THEME_LIBRARY_STORAGE_KEY = 'appearance.library'
+const CUSTOM_THEME_ID_PREFIX = 'custom-'
+
+/**
+ * The imported-theme set lives on the host object, not in module state: the
+ * dev graph (and any consumer graph) can legitimately load this module
+ * twice — theme-provider's relative import and the components subpath are
+ * distinct module records — and a singleton array would fork the registry.
+ * Sharing through the global keeps every instance reading one library.
+ */
+type LibraryHost = typeof globalThis & {
+  __ADEA_THEME_LIBRARY__?: { variants: readonly ThemeVariant[] }
+}
+const libraryHost = globalThis as LibraryHost
+const customThemeListeners = new Set<() => void>()
+
+function customVariants(): readonly ThemeVariant[] {
+  return libraryHost.__ADEA_THEME_LIBRARY__?.variants ?? []
+}
+
+/** The imported themes after the built-ins, in import order. */
+export function customThemeVariants(): readonly ThemeVariant[] {
+  return customVariants()
+}
+
+/** Every selectable theme: the catalogue first, then imported themes. */
+export function themeRegistry(): readonly ThemeVariant[] {
+  const variants = customVariants()
+  return variants.length > 0 ? [...builtinThemeRegistry, ...variants] : builtinThemeRegistry
+}
+
+export function subscribeCustomThemes(listener: () => void): () => void {
+  customThemeListeners.add(listener)
+  return () => customThemeListeners.delete(listener)
+}
+
+function notifyCustomThemes(): void {
+  for (const listener of customThemeListeners) listener()
+}
+
+function isCustomThemeId(id: string): boolean {
+  return id.startsWith(CUSTOM_THEME_ID_PREFIX)
+}
+
+/**
+ * Replace the imported-theme set, persist it, and invalidate derived caches.
+ * A variant whose id is not custom-namespaced is namespaced here, so a
+ * library file can never shadow a catalogue id.
+ */
+export function setCustomThemes(
+  themes: readonly CustomThemeStored[],
+  storage: AppearanceStorage | undefined
+): void {
+  const safe = themes.map((theme) =>
+    isCustomThemeId(theme.id) ? theme : { ...theme, id: `${CUSTOM_THEME_ID_PREFIX}${theme.id}` }
+  )
+  libraryHost.__ADEA_THEME_LIBRARY__ = {
+    variants: Object.freeze(safe.map((theme) => theme.variant)),
+  }
+  allVariantTokenNameCache = undefined
+  try {
+    storage?.setItem(CUSTOM_THEME_LIBRARY_STORAGE_KEY, JSON.stringify({ version: 1, themes: safe }))
+  } catch {
+    // Persistence is best-effort, like every other blocked-storage consumer.
+  }
+  notifyCustomThemes()
+}
+
+/**
+ * Read the stored library. A malformed document starts an empty library and
+ * quarantines the raw bytes, mirroring the appearance-preference recovery
+ * contract; individual invalid records are dropped, not fatal.
+ */
+export function readCustomThemeLibrary(
+  storage: AppearanceStorage | undefined
+): readonly CustomThemeStored[] {
+  if (!storage) return []
+  try {
+    const raw = storage.getItem(CUSTOM_THEME_LIBRARY_STORAGE_KEY)
+    if (!raw) return []
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      retainRecoveryEnvelope(storage, raw, 'corrupt_json')
+      return []
+    }
+    const record = parsed as { version?: unknown; themes?: unknown }
+    if (record.version !== 1 || !Array.isArray(record.themes)) {
+      retainRecoveryEnvelope(storage, raw, 'unsupported_record')
+      return []
+    }
+    const themes: CustomThemeStored[] = []
+    for (const entry of record.themes) {
+      const theme = entry as Partial<CustomThemeStored>
+      if (
+        typeof theme?.id === 'string' &&
+        typeof theme.name === 'string' &&
+        (theme.appearance === 'light' || theme.appearance === 'dark') &&
+        typeof theme.importedAt === 'string' &&
+        theme.variant &&
+        theme.flatTokens
+      ) {
+        themes.push(theme as CustomThemeStored)
+      }
+    }
+    libraryHost.__ADEA_THEME_LIBRARY__ = {
+      variants: Object.freeze(themes.map((theme) => theme.variant)),
+    }
+    allVariantTokenNameCache = undefined
+    return themes
+  } catch {
+    return []
+  }
+}
+
+export function removeCustomTheme(id: string, storage: AppearanceStorage | undefined): void {
+  setCustomThemes(
+    readCustomThemeLibrary(storage).filter((theme) => theme.id !== id),
+    storage
+  )
+}
+
+/*
  * Preference storage: normalization, legacy migration, corrupt retention.
  */
 
@@ -573,7 +717,7 @@ export function migrateLegacyThemeValue(
   return { ...defaultAppearancePreferences, mode: stored }
 }
 
-type AppearanceStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+export type AppearanceStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 /**
  * Quarantine an unread raw document into the recovery envelope. Runs at read
@@ -673,7 +817,7 @@ export function resolveAppearanceState(
     osReducedTransparency: boolean
     nativeTranslucency: boolean
   }>,
-  registry: readonly ThemeVariant[] = builtinThemeRegistry
+  registry: readonly ThemeVariant[] = themeRegistry()
 ): ResolvedAppearanceState {
   const resolvedMode = resolveAppearanceMode(preferences.mode, environment.systemAppearance)
   const variant = resolveThemeVariant(registry, preferences, resolvedMode)
@@ -799,7 +943,7 @@ const ACCENT_OWNED_TOKENS: ReadonlySet<string> = new Set([
 let allVariantTokenNameCache: ReadonlySet<string> | undefined
 function allVariantTokenNames(): ReadonlySet<string> {
   allVariantTokenNameCache ??= new Set(
-    builtinThemeRegistry.flatMap((variant) => Object.keys(flatVariantTokens(variant)))
+    themeRegistry().flatMap((variant) => Object.keys(flatVariantTokens(variant)))
   )
   return allVariantTokenNameCache
 }
@@ -833,9 +977,10 @@ else{try{var t=localStorage.getItem('${LEGACY_THEME_STORAGE_KEY}');if(t==='light
 var dark=mode==='dark'||(mode==='system'&&window.matchMedia('${DARK_QUERY}').matches);
 var registry=${ids};
 var wanted=dark?(prefs&&prefs.darkThemeId)||'${defaultAppearancePreferences.darkThemeId}':(prefs&&prefs.lightThemeId)||'${defaultAppearancePreferences.lightThemeId}';
-var variant=null;
-for(var i=0;i<registry.length;i++){if(registry[i].id===wanted){variant=registry[i];break}}
-if(!variant){for(var j=0;j<registry.length;j++){if(registry[j].dark===dark){variant=registry[j];break}}}
+var variant=null;var found=false;
+for(var i=0;i<registry.length;i++){if(registry[i].id===wanted){variant=registry[i];found=true;break}}
+if(!found){try{var lib=JSON.parse(localStorage.getItem('${CUSTOM_THEME_LIBRARY_STORAGE_KEY}')||'null');if(lib&&lib.themes){for(var k=0;k<lib.themes.length;k++){if(lib.themes[k].id===wanted){variant={id:lib.themes[k].id,tokens:lib.themes[k].flatTokens};found=true;break}}}}catch(e){}}
+if(!found){for(var j=0;j<registry.length;j++){if(registry[j].dark===dark){variant=registry[j];break}}}
 if(!variant)variant=registry[0];
 var reduce=window.matchMedia('${REDUCED_TRANSPARENCY_QUERY}').matches||!!(prefs&&prefs.reduceTransparency);
 /* Pre-hydration the host translucency capability is unknown, so the script

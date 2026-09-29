@@ -14,6 +14,7 @@ import {
   applyAppearanceToDocument,
   DARK_QUERY,
   defaultAppearancePreferences,
+  readCustomThemeLibrary,
   type AppearanceMode,
   type AppearancePreferencesV2,
   type ResolvedAppearance,
@@ -81,6 +82,9 @@ type ThemeProviderProps = ParentProps<{
  */
 export function ThemeProvider(props: ThemeProviderProps) {
   const storage = typeof window === 'undefined' ? undefined : window.localStorage
+  // Imported themes must be in the registry before the first resolution, or a
+  // stored custom selection falls back to the default on mount.
+  readCustomThemeLibrary(storage)
   const stored = readAppearancePreferences(storage)
   // A legacy or default record keeps the historical `defaultTheme` escape
   // hatch meaningful for embedders.

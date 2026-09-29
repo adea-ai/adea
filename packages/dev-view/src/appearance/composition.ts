@@ -9,8 +9,8 @@
  * See NOTICE and docs/research/dev-view-donor-audit.md.
  */
 import {
-  builtinThemeRegistry,
   resolveThemeVariant,
+  themeRegistry,
   type AppearancePreferencesV2,
   type ThemeVariant,
 } from '@adea-ai/app-ui/components/appearance'
@@ -24,8 +24,9 @@ export function draftVariants(preferences: AppearancePreferencesV2): {
   light: ThemeVariant
   dark: ThemeVariant
 } {
+  const registry = themeRegistry()
   return {
-    light: resolveThemeVariant(builtinThemeRegistry, preferences, 'light'),
-    dark: resolveThemeVariant(builtinThemeRegistry, preferences, 'dark'),
+    light: resolveThemeVariant(registry, preferences, 'light'),
+    dark: resolveThemeVariant(registry, preferences, 'dark'),
   }
 }
