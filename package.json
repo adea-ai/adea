@@ -45,6 +45,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@shadcn/lint": "^0.1.1",
+    "@adea-ai/ui": "0.78.0",
     "@tailwindcss/postcss": "^4.3.3",
     "axe-core": "^4.13.0",
     "bun-types": "^1.4.0",
