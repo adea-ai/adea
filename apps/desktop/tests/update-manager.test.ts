@@ -65,7 +65,11 @@ describe('update manager', () => {
     // Both the signed feed and the GitHub API fallback were attempted, each
     // bounded by the check timeout.
     expect(fetchCalls.filter((call) => call.url.includes('latest.json'))).toHaveLength(1)
-    expect(fetchCalls.filter((call) => call.url.includes('api.github.com'))).toHaveLength(1)
+    expect(
+      fetchCalls.filter(
+        (call) => call.url === 'https://api.github.com/repos/adea-ai/adea/releases/latest'
+      )
+    ).toHaveLength(1)
   })
 
   test('a bounded failed check is retryable and recovers to available', async () => {
