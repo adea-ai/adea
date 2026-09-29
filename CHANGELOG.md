@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.67.2](https://github.com/adea-ai/adea/compare/v0.67.1...v0.67.2) (2026-09-29)
+
+
+### Bug Fixes
+
+* **desktop:** recover a stalled update check and bound the API fallback ([#809](https://github.com/adea-ai/adea/issues/809)) ([a57f3ea](https://github.com/adea-ai/adea/commit/a57f3eaa8f006d7b1dd767797dc4900a64ed969b))
+
 ## [0.67.1](https://github.com/adea-ai/adea/compare/v0.67.0...v0.67.1) (2026-09-29)
 
 

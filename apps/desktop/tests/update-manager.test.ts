@@ -15,6 +15,7 @@ let fetchCalls: FetchCall[] = []
 let fetchHandler: (url: string) => Promise<Response> = async () => new Response('{}')
 
 function installFetchMock(): void {
+  fetchCalls = []
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = String(input)
     fetchCalls.push({ url })
@@ -36,12 +37,14 @@ afterEach(() => {
 
 const HANG = new Promise<Response>(() => {})
 
+// The manifest parser validates platform/arch against the RUNNING platform,
+// so the fixture follows the test's host (CI is linux/x64).
 const VALID_MANIFEST = () =>
   Response.json({
     version: '0.67.1',
-    platform: 'darwin',
-    arch: 'arm64',
-    url: 'https://github.com/adea-ai/adea/releases/download/v0.67.1/Adea-v0.67.1-macos-arm64.app.tar.zst',
+    platform: process.platform,
+    arch: process.arch,
+    url: `https://github.com/adea-ai/adea/releases/download/v0.67.1/Adea-v0.67.1-${process.platform}-${process.arch}.app.tar.zst`,
     sha256: 'a'.repeat(64),
     signature: 'sig',
     notes: 'the latest signed build',
@@ -62,7 +65,11 @@ describe('update manager', () => {
     // Both the signed feed and the GitHub API fallback were attempted, each
     // bounded by the check timeout.
     expect(fetchCalls.filter((call) => call.url.includes('latest.json'))).toHaveLength(1)
-    expect(fetchCalls.filter((call) => call.url.includes('api.github.com'))).toHaveLength(1)
+    expect(
+      fetchCalls.filter(
+        (call) => call.url === 'https://api.github.com/repos/adea-ai/adea/releases/latest'
+      )
+    ).toHaveLength(1)
   })
 
   test('a bounded failed check is retryable and recovers to available', async () => {
@@ -118,9 +125,9 @@ describe('update manager', () => {
     fetchHandler = async () =>
       Response.json({
         version: '0.65.2',
-        platform: 'darwin',
-        arch: 'arm64',
-        url: 'https://github.com/adea-ai/adea/releases/download/v0.65.2/Adea-v0.65.2-macos-arm64.app.tar.zst',
+        platform: process.platform,
+        arch: process.arch,
+        url: `https://github.com/adea-ai/adea/releases/download/v0.65.2/Adea-v0.65.2-${process.platform}-${process.arch}.app.tar.zst`,
         sha256: 'a'.repeat(64),
         signature: 'sig',
         notes: 'the installed build',
