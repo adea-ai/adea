@@ -182,3 +182,6 @@ mise.local.lock
 # says it is not committed to the test suite, and it stays local alongside the
 # named lanes in scripts/. Ignored so a sweep of `git add -A` cannot pick it up.
 scripts/soak-browser-devices.ts
+
+# Cloudflare cf CLI build output (Build Output Specification) and generated types
+.cloudflare/
