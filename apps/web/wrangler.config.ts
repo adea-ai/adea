@@ -6,4 +6,12 @@ import { defineWranglerConfig } from 'wrangler/experimental-config'
 export default defineWranglerConfig({
   noBundle: true,
   assetsDirectory: './dist/client',
+  rules: [
+    // The Vite build emits additional server modules under
+    // dist/server/start-assets/ that index.js imports at runtime.
+    {
+      type: 'ESModule',
+      globs: ['**/*.js', '**/*.mjs'],
+    },
+  ],
 })
