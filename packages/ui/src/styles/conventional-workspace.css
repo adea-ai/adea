@@ -2384,19 +2384,22 @@
   overflow-y: auto;
   padding: 1.25rem;
 }
-.conventional-settings-panel > header {
+.conventional-settings-panel > header,
+.conventional-settings-section-header {
   display: flex;
   align-items: flex-start;
   gap: 0.7rem;
   margin-bottom: 1rem;
 }
-.conventional-settings-panel > header > svg {
+.conventional-settings-panel > header > svg,
+.conventional-settings-section-header > svg {
   width: 1.4rem;
   height: 1.4rem;
   margin-top: 0.15rem;
   color: var(--cw-accent-strong);
 }
 .conventional-settings-panel > header p,
+.conventional-settings-section-header p,
 .conventional-settings-row p,
 .conventional-settings-note {
   color: var(--cw-muted);

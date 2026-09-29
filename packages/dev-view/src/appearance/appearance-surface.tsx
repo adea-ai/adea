@@ -218,19 +218,19 @@ export function AppearancePanel() {
 
   return (
     <>
-      {/* The header is a direct child of the settings panel so it picks up the
-          same section-header layout as every other settings view. */}
-      <header>
-        <MonitorCog aria-hidden="true" />
-        <div>
-          <h3>Appearance</h3>
-          <p>
-            Changes preview immediately. Save keeps them; leaving this section without saving
-            restores your previous appearance.
-          </p>
-        </div>
-      </header>
-      <section aria-label="Appearance">{editorView}</section>
+      <section aria-label="Appearance" class="grid gap-4">
+        <header class="conventional-settings-section-header">
+          <MonitorCog aria-hidden="true" />
+          <div>
+            <h3>Appearance</h3>
+            <p>
+              Changes preview immediately. Save keeps them; leaving this section without saving
+              restores your previous appearance.
+            </p>
+          </div>
+        </header>
+        {editorView}
+      </section>
       <ModalDialog
         modal={false}
         open={libraryOpen()}
