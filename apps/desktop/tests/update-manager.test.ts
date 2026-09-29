@@ -15,10 +15,7 @@ let fetchCalls: FetchCall[] = []
 let fetchHandler: (url: string) => Promise<Response> = async () => new Response('{}')
 
 function installFetchMock(): void {
-  globalThis.fetch = (async (
-    input: RequestInfo | URL,
-    init?: RequestInit
-  ): Promise<Response> => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = String(input)
     fetchCalls.push({ url })
     // Real fetch rejects when its abort signal fires; the mock must too, or
