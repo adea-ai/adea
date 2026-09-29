@@ -117,7 +117,7 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
     // reactive machine is rooted here and every wait happens in the test,
     // keeping the assertions inside the test rather than leaking them as
     // unhandled errors after it completes.
-    const dispose = createRoot((dispose) => {
+    const disposeRoot = createRoot((dispose) => {
       createEffect(() => {
         if (!appearanceOpen()) {
           dialog = undefined
@@ -182,7 +182,7 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
     await settle_until(() => !doc.classes.has('dark'))
     expect(doc.classes.has('dark')).toBe(false)
 
-    dispose()
+    disposeRoot()
   })
 
   test('draft reads stay accessors so the harness never snapshots mid-edit', () => {
