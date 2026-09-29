@@ -73,6 +73,26 @@ update to that page. `scripts/check-docs.mjs` (run by
 `scripts/docs-boundary.test.ts`) fails the build when a spec is orphaned, a
 routed spec is missing, or a relative link between docs stops resolving.
 
+## Shared UI enforcement (mandatory)
+
+The oxlint config loads `@adea-ai/ui/lint`, the design system's own plugin, and
+its two rules are errors:
+
+- `adea/no-raw-interactive-elements` — `button`, `input`, `textarea`, `select`,
+  `option` and `label` are composed from the shared primitives
+  (`@adea-ai/ui/components/ui/*`), never written as raw markup. A raw element has
+  no keyboard story, no focus behaviour and no token styling; the primitive
+  already did that work. When the rule fires, the fix is to use the primitive it
+  names — not to suppress the rule.
+- `adea/no-primitive-library-imports` — Kobalte and the other primitive libraries
+  are the design system's internal affair. Import the exported component.
+
+Code that predates the rules is exempted **by path** in one override block in
+`.oxlintrc.json`. That block is a ratchet: it only shrinks. Adding a file to it
+is a reviewed change with a stated reason, never a convenience; adding new code
+to an exempted file is subject to the same review. Do not widen the rule options'
+allow-lists for the same reason.
+
 ## Priorities
 
 When instructions conflict, use this order:

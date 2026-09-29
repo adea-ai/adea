@@ -43,6 +43,7 @@
     "test:browser:desktop-client": "bunx playwright install --with-deps chromium && bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
   },
   "devDependencies": {
+    "@adea-ai/ui": "0.78.0",
     "@playwright/test": "^1.63.0",
     "@shadcn/lint": "^0.1.1",
     "@tailwindcss/postcss": "^4.3.3",
@@ -56,7 +57,15 @@
     "typescript": "^6.0.3"
   },
   "overrides": {
-    "undici": "^7.29.1"
+    "@capacitor/android": "8.5.0",
+    "@capacitor/cli": "8.5.0",
+    "@capacitor/core": "8.5.0",
+    "@capacitor/ios": "8.5.0",
+    "esbuild": "^0.25.0",
+    "oxlint": "1.83.0",
+    "sharp": "0.35.4",
+    "undici": "^7.29.1",
+    "uuid": "^11.1.1"
   },
   "engines": {
     "node": "24.18.0"
