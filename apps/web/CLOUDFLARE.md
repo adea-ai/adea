@@ -43,8 +43,8 @@ automatically, and no step rewrites `wrangler.jsonc`.
    Cloudflare workflow. Configure these repository secrets:
    - `CLOUDFLARE_API_TOKEN`: scoped to deploy the `adea-web` Worker
    - `CLOUDFLARE_ACCOUNT_ID`: `aa2dc82d7e02aff12b77800a8201df3f`
-     The preview workflow uses `wrangler versions upload`; production uses
-     `wrangler deploy`. After the first successful Actions deployment, disable
+     The workflows pass `deploy-tool: cf`: production runs `cf-wrangler
+build` + `cf deploy --prebuilt`, previews run `cf previews deploy`. After the first successful Actions deployment, disable
      the old Cloudflare Workers Builds GitHub integration so there is one deploy
      owner and no duplicate builds.
      Do NOT use the app's plain `bun run build` for a workflow trigger (it does
