@@ -104,15 +104,20 @@ async function settle_until(check: () => boolean): Promise<void> {
 
 describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () => {
   test('cancel reverts the draft and a re-opened dialog keeps previewing', async () => {
-    createRoot(async (dispose) => {
-      const doc = fakeDocument()
-      const appearance = createProviderHarness(doc)
+    const doc = fakeDocument()
+    const appearance = createProviderHarness(doc)
 
-      expect(doc.classes.has('dark')).toBe(false)
+    expect(doc.classes.has('dark')).toBe(false)
 
-      const [appearanceOpen, setAppearanceOpen] = createSignal(false)
-      let dialog: DialogHarness | undefined
+    const [appearanceOpen, setAppearanceOpen] = createSignal(false)
+    let dialog: DialogHarness | undefined
 
+    // The root factory is synchronous on purpose: Solid does not flush the
+    // effect queue of a root whose factory suspended on an await, so the
+    // reactive machine is rooted here and every wait happens in the test,
+    // keeping the assertions inside the test rather than leaking them as
+    // unhandled errors after it completes.
+    const disposeRoot = createRoot((dispose) => {
       createEffect(() => {
         if (!appearanceOpen()) {
           dialog = undefined
@@ -141,42 +146,43 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
           },
         }
       })
-
-      // E2E: openAppearance(page)
-      setAppearanceOpen(true)
-      await settle_until(() => dialog !== undefined)
-      expect(dialog).toBeDefined()
-      expect(dialog?.draft().mode).toBe('system')
-
-      // E2E: draft Dark; the live preview turns the page dark.
-      dialog?.setDraft({ mode: 'dark' })
-      expect(dialog?.draft().mode).toBe('dark')
-      expect(doc.classes.has('dark')).toBe(true)
-
-      // E2E: Cancel; the dialog closes and the page reverts.
-      dialog?.requestClose()
-      await settle_until(() => !appearanceOpen())
-      expect(appearanceOpen()).toBe(false)
-      expect(dialog).toBeUndefined()
-      expect(doc.classes.has('dark')).toBe(false)
-
-      // E2E: re-open; the dialog is operable again from the committed state.
-      setAppearanceOpen(true)
-      await settle_until(() => dialog !== undefined)
-      expect(dialog).toBeDefined()
-      expect(dialog?.draft().mode).toBe('system')
-
-      // E2E: draft Dark again; the live preview still applies.
-      dialog?.setDraft({ mode: 'dark' })
-      expect(doc.classes.has('dark')).toBe(true)
-
-      // E2E: final Cancel.
-      dialog?.requestClose()
-      await settle_until(() => !doc.classes.has('dark'))
-      expect(doc.classes.has('dark')).toBe(false)
-
-      dispose()
+      return dispose
     })
+
+    // E2E: openAppearance(page)
+    setAppearanceOpen(true)
+    await settle_until(() => dialog !== undefined)
+    expect(dialog).toBeDefined()
+    expect(dialog?.draft().mode).toBe('system')
+
+    // E2E: draft Dark; the live preview turns the page dark.
+    dialog?.setDraft({ mode: 'dark' })
+    expect(dialog?.draft().mode).toBe('dark')
+    expect(doc.classes.has('dark')).toBe(true)
+
+    // E2E: Cancel; the dialog closes and the page reverts.
+    dialog?.requestClose()
+    await settle_until(() => !appearanceOpen())
+    expect(appearanceOpen()).toBe(false)
+    expect(dialog).toBeUndefined()
+    expect(doc.classes.has('dark')).toBe(false)
+
+    // E2E: re-open; the dialog is operable again from the committed state.
+    setAppearanceOpen(true)
+    await settle_until(() => dialog !== undefined)
+    expect(dialog).toBeDefined()
+    expect(dialog?.draft().mode).toBe('system')
+
+    // E2E: draft Dark again; the live preview still applies.
+    dialog?.setDraft({ mode: 'dark' })
+    expect(doc.classes.has('dark')).toBe(true)
+
+    // E2E: final Cancel.
+    dialog?.requestClose()
+    await settle_until(() => !doc.classes.has('dark'))
+    expect(doc.classes.has('dark')).toBe(false)
+
+    disposeRoot()
   })
 
   test('draft reads stay accessors so the harness never snapshots mid-edit', () => {
