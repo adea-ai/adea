@@ -1,14 +1,16 @@
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
+import { ListGroup, ListRow } from '@adea-ai/ui/components/composites/list-row'
 import {
   ChevronDown,
   ChevronUp,
-  Check,
   Code2,
   GitBranch,
   LayoutGrid,
   Map,
   MessageSquareText,
+  Search,
 } from 'lucide-solid'
 import { createEffect, createSignal, For, Show } from 'solid-js'
 import type { RailPreferencesV1 } from './rail-preferences'
@@ -51,93 +53,142 @@ export function AppLibraryPage(props: {
         (!enabledOnly() || enabled().has(app.id)) &&
         `${app.name} ${app.description}`.toLowerCase().includes(search().trim().toLowerCase())
     )
+  const enabledApps = () => visible().filter((app) => enabled().has(app.id))
+  const availableApps = () => visible().filter((app) => !enabled().has(app.id))
+
   return (
     <main class="workspace-app-library" aria-labelledby="workspace-app-library-title">
       <header class="workspace-app-library__header">
-        <div>
+        <div class="workspace-app-library__heading">
           <h1 id="workspace-app-library-title">App Library</h1>
           <p>Choose the views and tools in your workspace.</p>
         </div>
-        <label class="workspace-app-library__search">
-          <span class="visually-hidden">Search apps</span>
-          <Input
-            ref={(element) => (searchInput = element)}
-            type="search"
-            placeholder="Search apps"
-            value={search()}
-            onInput={(event) => setSearch(event.currentTarget.value)}
-          />
-        </label>
+        <div class="workspace-app-library__controls">
+          <label class="workspace-app-library__search">
+            <Search aria-hidden="true" class="workspace-app-library__search-icon" />
+            <span class="sr-only">Search apps</span>
+            <Input
+              ref={(element) => (searchInput = element)}
+              type="search"
+              placeholder="Search apps"
+              value={search()}
+              onInput={(event) => setSearch(event.currentTarget.value)}
+            />
+          </label>
+          <Button
+            variant={enabledOnly() ? 'secondary' : 'outline'}
+            size="sm"
+            aria-pressed={enabledOnly()}
+            onClick={() => setEnabledOnly(!enabledOnly())}
+          >
+            Show enabled only
+          </Button>
+        </div>
       </header>
-      <Button
-        variant="ghost"
-        size="sm"
-        class="workspace-app-library__filter"
-        aria-pressed={enabledOnly()}
-        onClick={() => setEnabledOnly(!enabledOnly())}
-      >
-        Show enabled only
-      </Button>
-      <div class="workspace-app-library__grid">
-        <For each={visible()}>
-          {(app) => {
-            const Icon = APP_ICONS[app.id]
-            return (
-              <article class="workspace-app-library__app" data-enabled={enabled().has(app.id)}>
-                <Button
-                  variant={enabled().has(app.id) ? 'secondary' : 'outline'}
-                  size="icon-lg"
-                  class="workspace-app-library__icon"
-                  aria-label={`${enabled().has(app.id) ? 'Disable' : 'Enable'} ${app.name}`}
-                  aria-pressed={enabled().has(app.id)}
-                  onClick={() => props.onSetEnabled(app.id, !enabled().has(app.id))}
-                >
-                  <Icon aria-hidden="true" />
-                </Button>
-                <Show when={enabled().has(app.id)}>
-                  <Check class="workspace-app-library__check" aria-hidden="true" />
-                </Show>
-                <h2>{app.name}</h2>
-                <p>{app.description}</p>
-                <span>{enabled().has(app.id) ? 'In sidebar' : 'Disabled'}</span>
-                <Show when={enabled().has(app.id)}>
-                  <Button variant="ghost" size="sm" onClick={() => props.onOpen(app.id)}>
-                    Open {app.name}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Move ${app.name} up`}
-                    onClick={() => props.onReorder(app.id, 'up')}
-                    disabled={enabledOrder().indexOf(app.id) === 0}
+      <div class="workspace-app-library__body">
+        <Show
+          when={visible().length > 0}
+          fallback={<p class="workspace-app-library__empty" role="status">No apps match these filters.</p>}
+        >
+          <ListGroup label="In your sidebar">
+            <For each={enabledApps()}>
+              {(app) => {
+                const Icon = APP_ICONS[app.id]
+                return (
+                  <ListRow
+                    class="workspace-app-library__row"
+                    leading={
+                      <span class="workspace-app-library__icon" aria-hidden="true">
+                        <Icon />
+                      </span>
+                    }
+                    description={app.description}
+                    trailing={
+                      <span class="workspace-app-library__actions">
+                        <Badge variant="secondary">In sidebar</Badge>
+                        <Button variant="ghost" size="sm" onClick={() => props.onOpen(app.id)}>
+                          Open {app.name}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Move ${app.name} up`}
+                          disabled={enabledOrder().indexOf(app.id) === 0}
+                          onClick={() => props.onReorder(app.id, 'up')}
+                        >
+                          <ChevronUp aria-hidden="true" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Move ${app.name} down`}
+                          disabled={enabledOrder().indexOf(app.id) === enabledOrder().length - 1}
+                          onClick={() => props.onReorder(app.id, 'down')}
+                        >
+                          <ChevronDown aria-hidden="true" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Disable ${app.name}`}
+                          onClick={() => props.onSetEnabled(app.id, false)}
+                        >
+                          Disable
+                        </Button>
+                      </span>
+                    }
                   >
-                    <ChevronUp aria-hidden="true" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Move ${app.name} down`}
-                    onClick={() => props.onReorder(app.id, 'down')}
-                    disabled={enabledOrder().indexOf(app.id) === enabledOrder().length - 1}
-                  >
-                    <ChevronDown aria-hidden="true" />
-                  </Button>
-                </Show>
-              </article>
-            )
-          }}
-        </For>
+                    {app.name}
+                  </ListRow>
+                )
+              }}
+            </For>
+          </ListGroup>
+          <Show when={availableApps().length > 0}>
+            <ListGroup label="Available">
+              <For each={availableApps()}>
+                {(app) => {
+                  const Icon = APP_ICONS[app.id]
+                  return (
+                    <ListRow
+                      class="workspace-app-library__row"
+                      leading={
+                        <span class="workspace-app-library__icon workspace-app-library__icon--muted" aria-hidden="true">
+                          <Icon />
+                        </span>
+                      }
+                      description={app.description}
+                      trailing={
+                        <span class="workspace-app-library__actions">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            aria-label={`Enable ${app.name}`}
+                            onClick={() => props.onSetEnabled(app.id, true)}
+                          >
+                            Enable
+                          </Button>
+                        </span>
+                      }
+                    >
+                      {app.name}
+                    </ListRow>
+                  )
+                }}
+              </For>
+            </ListGroup>
+          </Show>
+        </Show>
       </div>
-      <Show when={visible().length === 0}>
-        <p role="status">No apps match these filters.</p>
-      </Show>
-      <Button variant="outline" size="sm" onClick={props.onReset}>
-        Reset Navigation
-      </Button>
-      <p class="workspace-app-library__note">
-        External plugins, skills and connectors are managed in Plugins. Larger installable apps will
-        appear here when their installation is supported.
-      </p>
+      <footer class="workspace-app-library__footer">
+        <Button variant="ghost" size="sm" onClick={props.onReset}>
+          Reset Navigation
+        </Button>
+        <p>
+          External plugins, skills and connectors are managed in Plugins. Larger installable apps
+          will appear here when their installation is supported.
+        </p>
+      </footer>
     </main>
   )
 }

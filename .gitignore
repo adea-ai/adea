@@ -124,6 +124,7 @@ artifacts/
 .wrangler/
 .dev.vars
 cloudflare-env.d.ts
+apps/web/.cloudflare/
 # Engine binaries are never tracked here. The spatial engine and its binary
 # art live in the private agent-sim repo (assets in adea-ai/assets); this
 # repository ships manifests only. No 3D/audio authoring binary may ever be
