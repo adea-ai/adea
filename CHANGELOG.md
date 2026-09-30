@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.69.9](https://github.com/adea-ai/adea/compare/v0.69.8...v0.69.9) (2026-09-30)
+
+
+### Maintenance
+
+* **deps:** update dependency gradle to v9 ([#838](https://github.com/adea-ai/adea/issues/838)) ([2d90015](https://github.com/adea-ai/adea/commit/2d90015dd3efce2d8b4c69570a5b88b8b112ece5))
+
+## [0.69.8](https://github.com/adea-ai/adea/compare/v0.69.7...v0.69.8) (2026-09-30)
+
+
+### Bug Fixes
+
+* **desktop:** watchdog the update download against mid-stream stalls ([#835](https://github.com/adea-ai/adea/issues/835)) ([91b9359](https://github.com/adea-ai/adea/commit/91b9359c686d9d7c9b1ed2e5342d94a6551520f7))
+
+## [0.69.7](https://github.com/adea-ai/adea/compare/v0.69.6...v0.69.7) (2026-09-30)
+
+
+### Bug Fixes
+
+* **ci:** pick up the cf production-build and diagnostics fixes (code-foundry v1.37.2) ([#833](https://github.com/adea-ai/adea/issues/833)) ([045c938](https://github.com/adea-ai/adea/commit/045c93835f8633173f531be0081d72b66436624c))
+
 ## [0.69.6](https://github.com/adea-ai/adea/compare/v0.69.5...v0.69.6) (2026-09-30)
 
 

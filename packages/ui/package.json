@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/app-ui",
-  "version": "0.69.6",
+  "version": "0.69.9",
   "private": true,
   "description": "Adea application preferences, host adapters, and product styles over the shared UI system.",
   "keywords": [
