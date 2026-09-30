@@ -45,6 +45,8 @@ import {
   type ResponsivePresetId,
 } from './responsive-presets'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 
 const LANE_KIND_LABEL: Record<BrowserLane['kind'], string> = {
   human_embedded: 'Human · embedded',
@@ -638,7 +640,7 @@ export function BrowserPane(props: BrowserPaneProps) {
             submitUrl()
           }}
         >
-          <input
+          <Input
             type="url"
             placeholder="Search or enter URL"
             spellcheck={false}
@@ -880,10 +882,10 @@ export function BrowserPane(props: BrowserPaneProps) {
 
           <p class="dev-browser__section-title">Inspect</p>
           <form class="dev-browser__inspect" onSubmit={inspectSelector}>
-            <label class="dev-browser__inspect-label" for="dev-browser-inspection-selector">
+            <Label class="dev-browser__inspect-label" for="dev-browser-inspection-selector">
               CSS selector
-            </label>
-            <input
+            </Label>
+            <Input
               id="dev-browser-inspection-selector"
               type="text"
               aria-label="CSS selector"

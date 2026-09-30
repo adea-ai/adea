@@ -52,6 +52,7 @@ import {
 import { executeOperation, resolveWorktreeContext, type WorktreeContext } from './worktree-context'
 import './files-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
 
 export type FilesPaneProps = Readonly<{
   runtime: DevRuntimeService
@@ -771,7 +772,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
       </Show>
 
       <div class="dev-files__toolbar">
-        <input
+        <Input
           type="search"
           class="dev-files__filter"
           placeholder="Filter files"
@@ -806,7 +807,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
       </div>
       <Show when={quickOpenOpen()}>
         <div class="dev-files__quickopen" role="dialog" aria-label="Quick open">
-          <input
+          <Input
             type="search"
             class="dev-files__filter"
             placeholder="Jump to a file…"
@@ -894,7 +895,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                 </Button>
               }
             >
-              <input
+              <Input
                 class="dev-files__filter"
                 placeholder="new-file-name.txt"
                 aria-label="New file name"
@@ -1024,7 +1025,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                       {(badge) => <span class="dev-files__badge">{badge()}</span>}
                     </Show>
                     <Show when={renaming() === row.node.relativePath}>
-                      <input
+                      <Input
                         class="dev-files__filter"
                         aria-label={`Rename ${row.node.relativePath}`}
                         value={renameValue()}

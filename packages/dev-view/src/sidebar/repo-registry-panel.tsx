@@ -66,6 +66,8 @@ import {
   type RepoRegistryState,
 } from './repo-registry-model'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Label } from '@adea-ai/ui/components/ui/label'
+import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 
 export type RepoRegistryPanelProps = Readonly<{
   scope: Scope
@@ -409,22 +411,22 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                         role="group"
                         aria-label="Adopt repository"
                       >
-                        <label>
+                        <Label>
                           <span class="sr-only">Authorized bookmark for adoption</span>
-                          <select
+                          <NativeSelect
                             value={adoptBookmarkId()}
                             onChange={(event) => setAdoptBookmarkId(event.currentTarget.value)}
-                          >
-                            <For
-                              each={bookmarks().filter(
+                            options={bookmarks()
+                              .filter(
                                 (bookmark) =>
                                   bookmark.state === 'active' && bookmark.kind === 'repository'
-                              )}
-                            >
-                              {(bookmark) => <option value={bookmark.id}>{bookmark.label}</option>}
-                            </For>
-                          </select>
-                        </label>
+                              )
+                              .map((bookmark) => ({
+                                value: bookmark.id,
+                                label: bookmark.label,
+                              }))}
+                          />
+                        </Label>
                         <Button
                           type="button"
                           class="dev-archive-action"
@@ -448,23 +450,19 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                         role="group"
                         aria-label="Authorize credential"
                       >
-                        <label>
+                        <Label>
                           <span class="sr-only">Vault credential reference</span>
-                          <select
+                          <NativeSelect
                             value={authorizeCredentialId()}
                             onChange={(event) =>
                               setAuthorizeCredentialId(event.currentTarget.value)
                             }
-                          >
-                            <For each={pickerCredentials()}>
-                              {(ref) => (
-                                <option value={ref.id}>
-                                  {ref.label} ({ref.kind})
-                                </option>
-                              )}
-                            </For>
-                          </select>
-                        </label>
+                            options={pickerCredentials().map((ref) => ({
+                              value: ref.id,
+                              label: `${ref.label} (${ref.kind})`,
+                            }))}
+                          />
+                        </Label>
                         <Button
                           type="button"
                           class="dev-archive-action"
