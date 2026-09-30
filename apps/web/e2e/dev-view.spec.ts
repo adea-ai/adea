@@ -378,79 +378,17 @@ test('each utility toggle reveals its pane and the sidebar fills the workspace h
   expect(Math.abs(sidebarBox!.height - panesBox!.height)).toBeLessThanOrEqual(2)
 })
 
-test('Dev shell keeps synthetic browser preview pointer and keyboard controls operable', async ({
-  page,
-}) => {
+test('Dev shell reports when the E2E fixture has no browser read capability', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page, '/?view=dev&devE2e=preserved')
   await devToolbarControl(page, 'Browser / Devices').click()
 
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
   await rightUtilities.getByRole('tab', { name: 'Browser' }).click()
-  const browser = rightUtilities.getByRole('region', { name: 'Browser' })
-  const floatPreview = browser.getByRole('button', { name: 'Float preview' })
-  await expect(floatPreview).toBeVisible()
-  await floatPreview.hover()
-  await expect(page.getByRole('tooltip')).toHaveText('Toggle the floating browser preview.')
-  await floatPreview.click()
-
-  const preview = page.getByRole('region', { name: 'Browser preview' })
-  await expect(preview).toBeVisible()
-  await expect.poll(async () => (await preview.boundingBox())?.width ?? 0).toBeGreaterThan(100)
-
-  const beforeMove = await preview.boundingBox()
-  const move = page.getByRole('button', { name: 'Move Browser preview' })
-  await move.focus()
-  await page.keyboard.press('ArrowLeft')
-  await expect.poll(async () => (await preview.boundingBox())?.x ?? 0).toBeLessThan(beforeMove!.x)
-
-  const beforePointerMove = await preview.boundingBox()
-  const moveBounds = await move.boundingBox()
-  expect(moveBounds).not.toBeNull()
-  await page.mouse.move(
-    moveBounds!.x + moveBounds!.width / 2,
-    moveBounds!.y + moveBounds!.height / 2
+  await expect(rightUtilities).toContainText(
+    'Requires dev.browser.read, which has not been reported by this provider yet.'
   )
-  await page.mouse.down()
-  await page.mouse.move(
-    moveBounds!.x + moveBounds!.width / 2 - 20,
-    moveBounds!.y + moveBounds!.height / 2 + 15
-  )
-  await page.mouse.up()
-  await expect
-    .poll(async () => (await preview.boundingBox())?.x ?? 0)
-    .toBeLessThan(beforePointerMove!.x)
-  await expect
-    .poll(async () => (await preview.boundingBox())?.y ?? 0)
-    .toBeGreaterThan(beforePointerMove!.y)
-
-  const beforeResize = await preview.boundingBox()
-  const resize = page.getByRole('button', { name: 'Resize Browser preview east' })
-  await resize.focus()
-  await page.keyboard.press('ArrowRight')
-  await expect
-    .poll(async () => (await preview.boundingBox())?.width ?? 0)
-    .toBeGreaterThan(beforeResize!.width)
-
-  const beforePointerResize = await preview.boundingBox()
-  const resizeBounds = await resize.boundingBox()
-  expect(resizeBounds).not.toBeNull()
-  await page.mouse.move(
-    resizeBounds!.x + resizeBounds!.width / 2,
-    resizeBounds!.y + resizeBounds!.height / 2
-  )
-  await page.mouse.down()
-  await page.mouse.move(
-    resizeBounds!.x + resizeBounds!.width / 2 + 20,
-    resizeBounds!.y + resizeBounds!.height / 2
-  )
-  await page.mouse.up()
-  await expect
-    .poll(async () => (await preview.boundingBox())?.width ?? 0)
-    .toBeGreaterThan(beforePointerResize!.width)
-
-  await page.getByRole('button', { name: 'Close Browser preview' }).click()
-  await expect(preview).toHaveCount(0)
+  await expect(rightUtilities.getByRole('button', { name: 'Float preview' })).toHaveCount(0)
 })
 
 /**
