@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/workspace-ui",
-  "version": "0.69.8",
+  "version": "0.69.10",
   "private": true,
   "type": "module",
   "sideEffects": false,
@@ -142,7 +142,7 @@
     "@adea-ai/spatial-protocol": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.81.1",
+    "@adea-ai/ui": "0.89.1",
     "lucide-solid": "^1.45.0",
     "solid-js": "^1.9.15"
   },
