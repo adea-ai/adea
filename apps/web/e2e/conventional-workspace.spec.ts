@@ -1172,8 +1172,8 @@ test('opens responsive Task detail and restores focus on dismissal', async ({ pa
   await page.getByRole('button', { name: 'Tasks', exact: true }).click()
   const taskTrigger = page.getByRole('button', { name: /Launch planning/ })
   await taskTrigger.click()
-  await expect(page.getByRole('heading', { name: 'Launch planning' })).toBeVisible()
   const detail = page.getByRole('dialog', { name: 'Launch planning', exact: true })
+  await expect(detail.getByRole('heading', { name: 'Launch planning' })).toBeVisible()
   await expect(detail).toHaveAttribute('data-side', 'right')
   await expect(page.locator('[class*="bg-scrim/50"]')).toHaveCount(1)
   await expect(detail.locator('.conventional-detail-panel')).toHaveCSS('overflow-y', 'auto')
@@ -1208,6 +1208,113 @@ test('opens responsive Task detail and restores focus on dismissal', async ({ pa
   await reopenedDetail.getByRole('button', { name: 'Close Task detail' }).click()
   await expect(reopenedDetail).toHaveCount(0)
   await expect(taskTrigger).toBeFocused()
+})
+
+test('Task board preserves task data and moves cards with keyboard and drag', async ({
+  page,
+}, testInfo) => {
+  await mockWorkspace(page)
+  let boardTasks = tasks.map((task) => ({ ...task }))
+  const taskActions: string[] = []
+  const nextStateByAction = {
+    cancel: 'cancelled',
+    complete: 'completed',
+    queue: 'queued',
+    review: 'in_review',
+    start: 'in_progress',
+  } as const
+  await page.route('**/api/v1/workspaces/**/tasks**', async (route) => {
+    const url = new URL(route.request().url())
+    const method = route.request().method()
+    if (method === 'GET' && url.pathname.endsWith('/tasks'))
+      return route.fulfill({ contentType: 'application/json', json: boardTasks })
+
+    const action = url.pathname.split('/').at(-1) ?? ''
+    const taskId = url.pathname.split('/').at(-2) ?? ''
+    const nextState = nextStateByAction[action as keyof typeof nextStateByAction]
+    if (method === 'POST' && nextState) {
+      const taskIndex = boardTasks.findIndex((task) => task.id === taskId)
+      if (taskIndex < 0) return route.fulfill({ status: 404, json: { error: 'Task not found' } })
+      taskActions.push(`${taskId}/${action}`)
+      const task = {
+        ...boardTasks[taskIndex]!,
+        lifecycleState: nextState,
+        version: boardTasks[taskIndex]!.version + 1,
+      }
+      boardTasks.splice(taskIndex, 1, task)
+      return route.fulfill({ contentType: 'application/json', json: { task } })
+    }
+    return route.fallback()
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  const board = page.getByRole('region', { name: 'Task board' })
+  const planned = board.getByRole('region', { name: 'Planned' })
+  const queued = board.getByRole('region', { name: 'Queued' })
+  const inProgress = board.getByRole('region', { name: 'In-Progress' })
+  const completed = board.getByRole('region', { name: 'Completed' })
+  const taskTrigger = planned.getByRole('button', { name: 'Launch planning', exact: true })
+
+  await expect(taskTrigger).toBeVisible()
+  await expect(planned.locator('header > span')).toHaveText('1')
+  await expect(queued.locator('header > span')).toHaveText('1')
+  await expect(planned.getByLabel('Priority: high')).toBeVisible()
+  await expect(planned.getByText('Prepare the launch brief and confirm audience.')).toBeVisible()
+  await expect(planned.getByText('Research Agent')).toBeVisible()
+  await expect(planned.getByText('Product', { exact: true })).toBeVisible()
+  await expect(queued.getByRole('button', { name: 'Review launch', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('task-board.png'), animations: 'disabled' })
+
+  await taskTrigger.focus()
+  await page.keyboard.press('Control+ArrowRight')
+  await expect(queued.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
+  await expect(planned.locator('header > span')).toHaveText('0')
+  await expect(queued.locator('header > span')).toHaveText('2')
+  await expect.poll(() => taskActions).toContain('task-launch/queue')
+  const queuedCard = queued
+    .getByRole('button', { name: 'Launch planning', exact: true })
+    .locator('xpath=ancestor::article[@aria-roledescription="Draggable card"]')
+  await expect(queuedCard).toBeFocused()
+  await queuedCard.dragTo(planned)
+  await expect(planned.locator('header > span')).toHaveText('0')
+  await expect(queued.locator('header > span')).toHaveText('2')
+  await expect.poll(() => taskActions).toEqual(['task-launch/queue'])
+
+  await queuedCard.focus()
+  await page.keyboard.press('Control+ArrowRight')
+  await expect(
+    inProgress.getByRole('button', { name: 'Launch planning', exact: true })
+  ).toBeVisible()
+  await expect(queued.locator('header > span')).toHaveText('1')
+  await expect(inProgress.locator('header > span')).toHaveText('1')
+  await expect.poll(() => taskActions).toContain('task-launch/start')
+
+  const inReview = board.getByRole('region', { name: 'In-Review' })
+  const launchCard = inProgress
+    .getByRole('button', { name: 'Launch planning', exact: true })
+    .locator('xpath=ancestor::article[@aria-roledescription="Draggable card"]')
+  await inReview.scrollIntoViewIfNeeded()
+  await launchCard.dragTo(inReview)
+  await expect(inReview.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
+  await expect(inProgress.locator('header > span')).toHaveText('0')
+  await expect(inReview.locator('header > span')).toHaveText('1')
+  await expect.poll(() => taskActions).toContain('task-launch/review')
+  const inReviewCard = inReview
+    .getByRole('button', { name: 'Launch planning', exact: true })
+    .locator('xpath=ancestor::article[@aria-roledescription="Draggable card"]')
+  await expect(inReviewCard).toBeFocused()
+  await page.keyboard.press('Control+ArrowRight')
+  await expect(
+    completed.getByRole('button', { name: 'Launch planning', exact: true })
+  ).toBeVisible()
+  await expect(inReview.locator('header > span')).toHaveText('0')
+  await expect(completed.locator('header > span')).toHaveText('1')
+  await expect.poll(() => taskActions).toContain('task-launch/complete')
+  const completedCard = completed
+    .getByRole('button', { name: 'Launch planning', exact: true })
+    .locator('xpath=ancestor::article[@aria-roledescription="Draggable card"]')
+  await expect(completedCard).toBeFocused()
 })
 
 test('supports narrow navigation, keyboard search, and dark mode', async ({ page }) => {
