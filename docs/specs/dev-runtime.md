@@ -1223,8 +1223,11 @@ last leaf restores one terminal placeholder. The center model and stable ID-keye
 renderer are consumed from the published `@adea-ai/ui` split-layout entries.
 A fresh session starts with one terminal leaf. Selecting a file creates an
 editor beside the focused pane when no editor exists, and later files reuse
-that editor. Explicit splitting remains available, and saved split layouts
-restore unchanged; the initial view does not reserve an empty editor pane.
+that editor. Explicit splitting retains the focused pane's kind and an editor's
+file target. A new terminal leaf receives a new owner and does not inherit a live
+terminal resource binding; opening its process still requires the runtime's
+normal authority. Saved split layouts restore unchanged; the initial view does
+not reserve an empty editor pane.
 Adea injects terminal/editor leaf payloads, the final terminal placeholder,
 scoped preference decoding/storage, keyboard move commands, and 5% resize
 snapping. Shared UI owns constrained separators, internal pane drag payloads,
@@ -2921,6 +2924,12 @@ Multi-file metadata/history changes stage all writes and restore prior disk and
 memory state if any commit fails. No deletion error is logged-and-ignored.
 
 ## Files and search
+
+The Files tree uses the shared UI virtual-window geometry with a fixed row-height
+contract. Only the mounted range is rendered, while its scroll space represents
+the full listing. A focused row remains mounted while the reader scrolls; focus
+tracking uses the bubbling focus-in event so child controls participate. The host
+keeps range calculation, filtering, worktree identity and file-opening authority.
 
 Every operation carries scope, live worktree ID/generation, authorized root,
 canonical relative path, and expected file identity where relevant.

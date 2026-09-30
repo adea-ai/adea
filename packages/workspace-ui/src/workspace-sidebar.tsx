@@ -34,6 +34,7 @@ import {
   SidebarNavFooter,
   SidebarNavHeader,
   SidebarNavItem,
+  SidebarNavResizeHandle,
   SidebarNavSection,
   SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
@@ -69,11 +70,6 @@ function clampSidebarWidth(width: number): number {
 
 function workspaceRootFor(sidebar: HTMLElement | null | undefined): HTMLElement | null {
   return sidebar?.closest<HTMLElement>('.conventional-workspace') ?? null
-}
-
-function currentSidebarWidth(root: HTMLElement): number {
-  const columns = getComputedStyle(root).gridTemplateColumns.split(' ')
-  return Number.parseFloat(columns[0] ?? '') || SIDEBAR_DEFAULT_WIDTH
 }
 
 function applySidebarWidth(root: HTMLElement, width: number) {
@@ -263,52 +259,12 @@ export function WorkspaceSidebar(props: Props) {
     setSidebarWidth(clampSidebarWidth(stored))
   })
 
-  const startResize = (event: PointerEvent & { currentTarget: HTMLDivElement }) => {
-    const root = workspaceRootFor(sidebar())
-    const handle = event.currentTarget
-    if (!root) return
-    const startWidth = currentSidebarWidth(root)
-    const startX = event.clientX
-    let width = startWidth
-    handle.setPointerCapture(event.pointerId)
-
-    // The element is captured in a closure because the pointer target is only
-    // valid for the duration of the event.
-    const onMove = (moveEvent: PointerEvent) => {
-      width = clampSidebarWidth(startWidth + (moveEvent.clientX - startX))
-      applySidebarWidth(root, width)
-      setSidebarWidth(width)
-    }
-    const onEnd = () => {
-      handle.removeEventListener('pointermove', onMove)
-      handle.removeEventListener('pointerup', onEnd)
-      handle.removeEventListener('pointercancel', onEnd)
-      applySidebarWidth(root, width)
-      setSidebarWidth(width)
-      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
-    }
-    handle.addEventListener('pointermove', onMove)
-    handle.addEventListener('pointerup', onEnd)
-    handle.addEventListener('pointercancel', onEnd)
-  }
-
-  const resizeByKeyboard = (delta: number) => {
+  const changeSidebarWidth = (value: number) => {
     const root = workspaceRootFor(sidebar())
     if (!root) return
-    const width = clampSidebarWidth(currentSidebarWidth(root) + delta)
+    const width = clampSidebarWidth(value)
     applySidebarWidth(root, width)
     setSidebarWidth(width)
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
-  }
-
-  const onResizeKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault()
-      resizeByKeyboard(-16)
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault()
-      resizeByKeyboard(16)
-    }
   }
 
   return (
@@ -323,6 +279,7 @@ export function WorkspaceSidebar(props: Props) {
         />
       </Show>
       <SidebarNav
+        id="workspace-navigation"
         as="aside"
         ref={setSidebar}
         class={cn('conventional-sidebar', {
@@ -330,19 +287,17 @@ export function WorkspaceSidebar(props: Props) {
         })}
         aria-label="Workspace navigation"
       >
-        {/* Focusable separator widget: keyboard-resizable, so it must expose
-            its value range (axe aria-required-attr on focusable separators). */}
-        <div
+        <SidebarNavResizeHandle
           class="conventional-sidebar__resize"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize workspace navigation"
-          aria-valuemin={SIDEBAR_MIN_WIDTH}
-          aria-valuemax={SIDEBAR_MAX_WIDTH}
-          aria-valuenow={sidebarWidth()}
-          tabIndex={0}
-          onPointerDown={startResize}
-          onKeyDown={onResizeKeyDown}
+          label="Resize workspace navigation"
+          controls="workspace-navigation"
+          minimum={SIDEBAR_MIN_WIDTH}
+          maximum={SIDEBAR_MAX_WIDTH}
+          value={sidebarWidth()}
+          onChange={changeSidebarWidth}
+          onCommit={(width) =>
+            window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
+          }
         />
         <SidebarNavHeader>
           <SidebarNavTitle as="h1">{props.workspaceName}</SidebarNavTitle>

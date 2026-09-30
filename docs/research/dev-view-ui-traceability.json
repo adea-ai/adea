@@ -10946,13 +10946,13 @@
       },
       {
         "id": "shared-interaction-contracts",
-        "status": "ready_for_review",
+        "status": "merged",
         "proof": "https://github.com/adea-ai/ui/pull/135",
         "proofCommit": "e8e7e75",
         "ownership": "Reusable account/dialog focus, thread header actions, native suggestions, command semantics, board movement/focus, and semantic/touch sidebar presentation; host effects stay injected.",
         "readiness": {
           "sourceReviewed": "existing shared components inspected",
-          "libraryReady": "local gates passed; exact-head CI pending",
+          "libraryReady": "published UI 0.82.0; npm integrity sha512-voz36ixNQ1DfoSVTtVMnlp9ZYirI1iQsmFB9veQnkgMYofvPlOg8P/EDPeBWMPItpuXKjD9CveM1fykEI6lh6w==",
           "consumerMounted": "packed Adea pilot checks passed",
           "functionalEndToEnd": "synthetic component/consumer evidence only",
           "packagedEvidence": "pending"
@@ -10961,13 +10961,12 @@
           "249 unit cases and coverage passed.",
           "Format/lint/types/build/registry/Storybook/package/tree-shaking gates passed.",
           "Actual packed consumer, paste, conversation, transcript, layout model/renderer, appearance, native select checks passed.",
-          "Chromium/WebKit regressions cover command actions, account focus, thread actions, board legal drops and bounded keyboard movement, controlled focus cancellation, sidebar heading/disclosure/axe and touch creation actions."
+          "Chromium/WebKit regressions cover command actions, account focus, thread actions, board legal drops and bounded keyboard movement, controlled focus cancellation, sidebar heading/disclosure/axe and touch creation actions.",
+          "All applicable exact-head checks passed before squash merge; Release Please PR #137 merged as c0b5cc8ff351f8ab2bca55b62c4fdda53398d068.",
+          "Trusted publication run 36688734899 passed packed layout, native select, conversation and appearance checks before publishing the same verified archive."
         ],
-        "remaining": [
-          "Merge after exact-head checks",
-          "Publish through the normal release workflow",
-          "Pin the published version in Adea and Cortana before merging consumer slices"
-        ]
+        "remaining": ["Pass final production-route adoption gates in Adea and Cortana."],
+        "mergeCommit": "ebe13627c7383c84b2f8c40b830292e3034a3b13"
       },
       {
         "id": "conversation-adoption",

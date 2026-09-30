@@ -1259,16 +1259,26 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             class="dev-button dev-button--secondary"
             disabled={countLeaves(layout().center) >= 8}
             onClick={() => {
-              const pane = countLeaves(layout().center) % 2 === 0 ? 'terminal' : 'editor'
               const suffix = ++nextPaneId
-              updateLayout((state) =>
-                splitPane(state, state.focusedLeafId, {
+              updateLayout((state) => {
+                const focused = listLeaves(state.center).find(
+                  (leaf) => leaf.id === state.focusedLeafId
+                )
+                if (!focused) return state
+                return splitPane(state, state.focusedLeafId, {
                   direction: 'row',
                   placement: 'after',
-                  leaf: { kind: 'leaf', id: `dev-pane-${suffix}`, pane },
+                  leaf: {
+                    kind: 'leaf',
+                    id: `dev-pane-${suffix}`,
+                    pane: focused.pane,
+                    ...(focused.pane === 'editor' && focused.resourceId !== undefined
+                      ? { resourceId: focused.resourceId }
+                      : {}),
+                  },
                   splitId: `dev-split-${suffix}`,
                 })
-              )
+              })
             }}
           >
             <TerminalSquare aria-hidden="true" /> <span>Split pane</span>

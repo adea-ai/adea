@@ -53,6 +53,7 @@ import { executeOperation, resolveWorktreeContext, type WorktreeContext } from '
 import './files-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { VirtualWindow } from '@adea-ai/ui/components/layout/virtual-window'
 
 export type FilesPaneProps = Readonly<{
   runtime: DevRuntimeService
@@ -956,161 +957,158 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                 </For>
               }
             >
-              <div
-                class="dev-files__window-pad"
-                style={{ '--dev-files-pad': `${rowSlice().padTop}px` }}
-                aria-hidden="true"
-              />
-              <For each={windowedRows()}>
-                {(row) => (
-                  <div
-                    class={cn('dev-files__row', { 'dev-files__row--dir': row.hasChildren })}
-                    data-depth={Math.min(row.depth, 8)}
-                    // The container claims `role="tree"`, so each row has to be
-                    // a real tree item. Without these, a screen reader announced
-                    // a tree and then exposed no items, no depth, and no
-                    // expanded state — the structure was invisible to anyone
-                    // not looking at the pixels.
-                    role="treeitem"
-                    aria-level={row.depth + 1}
-                    // No aria-selected: this tree has no selection model, only
-                    // a focused row, and inventing one here would be a feature.
-                    aria-expanded={
-                      row.hasChildren ? expanded().has(row.node.relativePath) : undefined
-                    }
-                    onFocus={() => {
-                      // Index within the WINDOW, not the whole flattened list.
-                      // `rows()` is up to 100k entries on a large worktree, so
-                      // resolving a path back to its index by scanning it made
-                      // every Tab O(n) over the entire tree.
-                      const windowStart = rowSlice().start
-                      const offset = windowedRows().findIndex(
-                        (candidate) => candidate.node.relativePath === row.node.relativePath
-                      )
-                      if (offset !== -1) setFocusedRow(windowStart + offset)
-                    }}
-                  >
-                    <Show
-                      when={row.hasChildren}
-                      fallback={
-                        <>
-                          <FileIcon aria-hidden="true" class="dev-files__icon" />
-                          <Button
-                            type="button"
-                            class="dev-files__name"
-                            onClick={() => void openFile(row.node)}
-                          >
-                            {row.node.name}
-                          </Button>
-                        </>
+              <VirtualWindow
+                totalSize={rows().length * FILES_ROW_HEIGHT_PX}
+                offset={rowSlice().padTop}
+              >
+                <For each={windowedRows()}>
+                  {(row) => (
+                    <div
+                      class={cn('dev-files__row', { 'dev-files__row--dir': row.hasChildren })}
+                      data-depth={Math.min(row.depth, 8)}
+                      // The container claims `role="tree"`, so each row has to be
+                      // a real tree item. Without these, a screen reader announced
+                      // a tree and then exposed no items, no depth, and no
+                      // expanded state — the structure was invisible to anyone
+                      // not looking at the pixels.
+                      role="treeitem"
+                      aria-level={row.depth + 1}
+                      // No aria-selected: this tree has no selection model, only
+                      // a focused row, and inventing one here would be a feature.
+                      aria-expanded={
+                        row.hasChildren ? expanded().has(row.node.relativePath) : undefined
                       }
+                      onFocusIn={() => {
+                        // Index within the WINDOW, not the whole flattened list.
+                        // `rows()` is up to 100k entries on a large worktree, so
+                        // resolving a path back to its index by scanning it made
+                        // every Tab O(n) over the entire tree.
+                        const windowStart = rowSlice().start
+                        const offset = windowedRows().findIndex(
+                          (candidate) => candidate.node.relativePath === row.node.relativePath
+                        )
+                        if (offset !== -1) setFocusedRow(windowStart + offset)
+                      }}
                     >
-                      <Button
-                        type="button"
-                        class="dev-files__name"
-                        aria-expanded={expanded().has(row.node.relativePath)}
-                        onClick={() => void toggleDirectory(row.node)}
-                      >
-                        <Show
-                          when={expanded().has(row.node.relativePath)}
-                          fallback={<ChevronRight aria-hidden="true" class="dev-files__icon" />}
-                        >
-                          <ChevronDown aria-hidden="true" class="dev-files__icon" />
-                        </Show>
-                        <Folder aria-hidden="true" class="dev-files__icon" />
-                        {row.node.name}
-                      </Button>
-                    </Show>
-                    <Show when={markerBadge(markers().get(row.node.relativePath))}>
-                      {(badge) => <span class="dev-files__badge">{badge()}</span>}
-                    </Show>
-                    <Show when={renaming() === row.node.relativePath}>
-                      <Input
-                        class="dev-files__filter"
-                        aria-label={`Rename ${row.node.relativePath}`}
-                        value={renameValue()}
-                        onInput={(event) => setRenameValue(event.currentTarget.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            if (overwriteTarget()) void commitOverwriteRename()
-                            else void submitRename()
-                          }
-                          if (event.key === 'Escape') {
-                            setRenaming(undefined)
-                            setOverwriteTarget(undefined)
-                          }
-                        }}
-                      />
-                    </Show>
-                    <Show when={renaming() !== row.node.relativePath}>
-                      <Button
-                        type="button"
-                        class="dev-files__delete"
-                        aria-label={`Rename ${row.node.relativePath}`}
-                        onClick={() => beginRename(row.node)}
-                      >
-                        <Pencil aria-hidden="true" />
-                      </Button>
-                    </Show>
-                    <Show when={row.hasChildren && renaming() !== row.node.relativePath}>
-                      <Button
-                        type="button"
-                        class="dev-files__delete"
-                        aria-label={
-                          pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
-                          pendingTree()?.summary ===
-                            `${row.node.relativePath} → ${row.node.relativePath}-copy`
-                            ? `Confirm copy ${row.node.relativePath}`
-                            : `Copy ${row.node.relativePath}`
+                      <Show
+                        when={row.hasChildren}
+                        fallback={
+                          <>
+                            <FileIcon aria-hidden="true" class="dev-files__icon" />
+                            <Button
+                              type="button"
+                              class="dev-files__name"
+                              onClick={() => void openFile(row.node)}
+                            >
+                              {row.node.name}
+                            </Button>
+                          </>
                         }
-                        onClick={() => void planTreeCopy(row.node)}
                       >
-                        <Copy aria-hidden="true" />
-                      </Button>
-                    </Show>
-                    <Show
-                      when={renaming() === row.node.relativePath && overwriteTarget() !== undefined}
-                      fallback={
-                        <Show when={renaming() !== row.node.relativePath}>
-                          <Button
-                            type="button"
-                            class="dev-files__delete"
-                            aria-label={
-                              confirmDelete() === row.node.relativePath ||
-                              pendingTree()?.summary === row.node.relativePath
-                                ? `Confirm delete ${row.node.relativePath}`
-                                : `Delete ${row.node.relativePath}`
-                            }
-                            onClick={() => void deleteFile(row.node)}
+                        <Button
+                          type="button"
+                          class="dev-files__name"
+                          aria-expanded={expanded().has(row.node.relativePath)}
+                          onClick={() => void toggleDirectory(row.node)}
+                        >
+                          <Show
+                            when={expanded().has(row.node.relativePath)}
+                            fallback={<ChevronRight aria-hidden="true" class="dev-files__icon" />}
                           >
-                            {row.hasChildren
-                              ? pendingTree()?.summary === row.node.relativePath
-                                ? 'Confirm'
-                                : 'Delete'
-                              : confirmDelete() === row.node.relativePath
-                                ? 'Confirm'
-                                : 'Delete'}
-                          </Button>
-                        </Show>
-                      }
-                    >
-                      <Button
-                        type="button"
-                        class="dev-files__delete"
-                        aria-label={`Confirm overwrite ${overwriteTarget()}`}
-                        onClick={() => void commitOverwriteRename()}
+                            <ChevronDown aria-hidden="true" class="dev-files__icon" />
+                          </Show>
+                          <Folder aria-hidden="true" class="dev-files__icon" />
+                          {row.node.name}
+                        </Button>
+                      </Show>
+                      <Show when={markerBadge(markers().get(row.node.relativePath))}>
+                        {(badge) => <span class="dev-files__badge">{badge()}</span>}
+                      </Show>
+                      <Show when={renaming() === row.node.relativePath}>
+                        <Input
+                          class="dev-files__filter"
+                          aria-label={`Rename ${row.node.relativePath}`}
+                          value={renameValue()}
+                          onInput={(event) => setRenameValue(event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              if (overwriteTarget()) void commitOverwriteRename()
+                              else void submitRename()
+                            }
+                            if (event.key === 'Escape') {
+                              setRenaming(undefined)
+                              setOverwriteTarget(undefined)
+                            }
+                          }}
+                        />
+                      </Show>
+                      <Show when={renaming() !== row.node.relativePath}>
+                        <Button
+                          type="button"
+                          class="dev-files__delete"
+                          aria-label={`Rename ${row.node.relativePath}`}
+                          onClick={() => beginRename(row.node)}
+                        >
+                          <Pencil aria-hidden="true" />
+                        </Button>
+                      </Show>
+                      <Show when={row.hasChildren && renaming() !== row.node.relativePath}>
+                        <Button
+                          type="button"
+                          class="dev-files__delete"
+                          aria-label={
+                            pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
+                            pendingTree()?.summary ===
+                              `${row.node.relativePath} → ${row.node.relativePath}-copy`
+                              ? `Confirm copy ${row.node.relativePath}`
+                              : `Copy ${row.node.relativePath}`
+                          }
+                          onClick={() => void planTreeCopy(row.node)}
+                        >
+                          <Copy aria-hidden="true" />
+                        </Button>
+                      </Show>
+                      <Show
+                        when={
+                          renaming() === row.node.relativePath && overwriteTarget() !== undefined
+                        }
+                        fallback={
+                          <Show when={renaming() !== row.node.relativePath}>
+                            <Button
+                              type="button"
+                              class="dev-files__delete"
+                              aria-label={
+                                confirmDelete() === row.node.relativePath ||
+                                pendingTree()?.summary === row.node.relativePath
+                                  ? `Confirm delete ${row.node.relativePath}`
+                                  : `Delete ${row.node.relativePath}`
+                              }
+                              onClick={() => void deleteFile(row.node)}
+                            >
+                              {row.hasChildren
+                                ? pendingTree()?.summary === row.node.relativePath
+                                  ? 'Confirm'
+                                  : 'Delete'
+                                : confirmDelete() === row.node.relativePath
+                                  ? 'Confirm'
+                                  : 'Delete'}
+                            </Button>
+                          </Show>
+                        }
                       >
-                        Overwrite
-                      </Button>
-                    </Show>
-                  </div>
-                )}
-              </For>
-              <div
-                class="dev-files__window-pad"
-                style={{ '--dev-files-pad': `${rowSlice().padBottom}px` }}
-                aria-hidden="true"
-              />
+                        <Button
+                          type="button"
+                          class="dev-files__delete"
+                          aria-label={`Confirm overwrite ${overwriteTarget()}`}
+                          onClick={() => void commitOverwriteRename()}
+                        >
+                          Overwrite
+                        </Button>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </VirtualWindow>
             </Show>
           </div>
         </Show>
