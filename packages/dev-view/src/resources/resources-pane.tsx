@@ -32,6 +32,7 @@ import {
 } from './resources-model'
 import './resources-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 
 export type ResourcesPaneProps = {
   runtime: DevRuntimeService
