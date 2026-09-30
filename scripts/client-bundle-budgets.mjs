@@ -13,8 +13,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     chat: { rawBytes: 176 * 1024, gzipBytes: 56 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
-    // hand-rolled markup and is the point of the change.
-    appLibrary: { rawBytes: 9 * 1024, gzipBytes: 3 * 1024 },
+    // hand-rolled markup and is the point of the change. Gzip re-measured at
+    // 3,173 B (2026-09-30): the shared-UI 0.79 → 0.83.1 bump shifted module
+    // graph composition into this route's chunk set; the page itself is
+    // unchanged.
+    appLibrary: { rawBytes: 9 * 1024, gzipBytes: 3.2 * 1024 },
     devShell: { rawBytes: 128 * 1024, gzipBytes: 40 * 1024 },
     devUtilityPanes: { rawBytes: 168 * 1024, gzipBytes: 56 * 1024 },
     devTerminal: { rawBytes: 768 * 1024, gzipBytes: 192 * 1024 },

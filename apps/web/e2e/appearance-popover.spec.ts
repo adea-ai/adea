@@ -1,5 +1,23 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import axe from 'axe-core'
+
+/**
+ * The editor chunk is code-split behind the toolbar trigger, so the first
+ * intentional open on a cold dev server (or a cold CI runner) can outlive the
+ * default expect timeout — the settings path in appearance.spec.ts guards the
+ * same problem. The click is idempotent: the loading fallback and the shared
+ * popover carry the same accessible name, and the dialog guard skips the
+ * re-open once the editor is up.
+ */
+async function openLiveAppearance(page: Page) {
+  const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
+  await expect(async () => {
+    if (await popup.isVisible().catch(() => false)) return
+    await page.getByRole('button', { name: 'Appearance settings', exact: true }).click()
+    await expect(popup).toBeVisible()
+  }).toPass({ timeout: 60_000 })
+  return popup
+}
 
 for (const width of [1280, 390]) {
   test.describe(`live appearance at ${width}px`, () => {
@@ -19,9 +37,7 @@ for (const width of [1280, 390]) {
     }) => {
       const trigger = page.getByRole('button', { name: 'Appearance settings', exact: true })
       const before = page.url()
-      await trigger.click()
-      const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
-      await expect(popup).toBeVisible()
+      const popup = await openLiveAppearance(page)
       expect(page.url()).toBe(before)
       await expect(page.getByRole('main', { includeHidden: true })).toBeVisible()
       await popup
@@ -50,9 +66,7 @@ for (const width of [1280, 390]) {
       const trigger = page.getByRole('button', { name: 'Appearance settings', exact: true })
       const before = await page.locator('html').getAttribute('data-theme')
       for (const dismiss of ['Cancel', 'Escape', 'outside']) {
-        await trigger.click()
-        const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
-        await expect(popup).toBeVisible()
+        const popup = await openLiveAppearance(page)
         await popup
           .getByRole('radiogroup', { name: 'Appearance mode' })
           .getByText('Light', { exact: true })
@@ -70,9 +84,7 @@ for (const width of [1280, 390]) {
     })
 
     test('the nested theme library retains the preview and returns focus', async ({ page }) => {
-      await page.getByRole('button', { name: 'Appearance settings', exact: true }).click()
-      const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
-      await expect(popup).toBeVisible()
+      const popup = await openLiveAppearance(page)
       await popup
         .getByRole('radiogroup', { name: 'Appearance mode' })
         .getByText('Light', { exact: true })
@@ -96,9 +108,7 @@ for (const width of [1280, 390]) {
       await page.evaluate(() => {
         document.documentElement.style.fontSize = '200%'
       })
-      await page.getByRole('button', { name: 'Appearance settings', exact: true }).click()
-      const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
-      await expect(popup).toBeVisible()
+      const popup = await openLiveAppearance(page)
       const bounds = await popup.boundingBox()
       expect(bounds).not.toBeNull()
       expect(bounds!.x).toBeGreaterThanOrEqual(0)
