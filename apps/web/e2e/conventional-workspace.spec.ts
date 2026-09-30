@@ -1402,6 +1402,29 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await expect(page).toHaveScreenshot('workspace-narrow-dark.png', { animations: 'disabled' })
 })
 
+test('keeps contextual section actions visible on touch devices', async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  })
+
+  try {
+    const page = await context.newPage()
+    await mockWorkspace(page)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+
+    const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
+    await expect(navigation.getByRole('button', { name: 'Create Room' })).toBeVisible()
+    await expect(
+      navigation.getByRole('button', { name: 'Create group conversation' })
+    ).toBeVisible()
+  } finally {
+    await context.close()
+  }
+})
+
 test('operates unread actions and deep-linked search entirely by keyboard', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')
