@@ -1166,6 +1166,48 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
   await page.getByRole('button', { name: 'Close thread' }).click()
 })
 
+test('restores a channel reading position without rearming transcript follow', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.route('**/api/v1/workspaces/workspace-e2e/channels/*/messages**', async (route) => {
+    const requestUrl = new URL(route.request().url())
+    const channelId = requestUrl.pathname.split('/').at(-2)
+    if (route.request().method() !== 'GET' || channelId !== 'channel-product') {
+      return route.fallback()
+    }
+
+    const history = Array.from({ length: 60 }, (_, index) => ({
+      ...messages[0],
+      bodyText: `Synthetic history row ${index + 1}. ${'Readable transcript content. '.repeat(5)}`,
+      channelId,
+      createdAt: new Date(Date.UTC(2026, 8, 30, 12, index)).toISOString(),
+      id: `scroll-history-${index + 1}`,
+      sequence: index + 1,
+    }))
+    return route.fulfill({
+      contentType: 'application/json',
+      json: { messages: history, nextAfterSequence: null },
+    })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  const transcript = page.locator('.conventional-transcript > div:first-child')
+  await expect.poll(() => transcript.evaluate((node) => node.scrollHeight)).toBeGreaterThan(1000)
+  await transcript.evaluate((node) => {
+    node.scrollTop = 420
+    node.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(420)
+  await expect(page.getByRole('button', { name: 'Jump to latest' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Research Agent', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Research Agent', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+
+  await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(420)
+  await expect(page.getByRole('button', { name: 'Jump to latest' })).toBeVisible()
+})
+
 test('opens responsive Task detail and restores focus on dismissal', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')
