@@ -69,8 +69,6 @@ pnpm-debug.log*
 .zed/
 .fleet/
 .opencode/
-.zcode/
-.kiro/
 .kluster/
 .direnv/
 .envrc
@@ -82,6 +80,8 @@ mise.local.lock
 *.code-workspace
 
 # Repository-specific rules
+.zcode/
+.kiro/
 # Operating system
 .DS_Store
 Thumbs.db
@@ -168,8 +168,6 @@ pnpm-debug.log*
 .zed/
 .fleet/
 .opencode/
-.zcode/
-.kiro/
 .kluster/
 .direnv/
 .envrc
@@ -178,11 +176,9 @@ mise.local.toml
 mise.local.lock
 .mise.local.lock
 *.code-workspace
-
 # Development-only soak harness for the browser/device lanes: its own header
 # says it is not committed to the test suite, and it stays local alongside the
 # named lanes in scripts/. Ignored so a sweep of `git add -A` cannot pick it up.
 scripts/soak-browser-devices.ts
-
 # Cloudflare cf CLI build output (Build Output Specification) and generated types
 .cloudflare/
