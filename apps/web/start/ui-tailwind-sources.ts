@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
 
 import ts from 'typescript'
@@ -671,6 +671,13 @@ function uiSourcePlugin(webRoot: string): Plugin {
       uiRoot = realpathSync(dirname(modulePath(manifest)))
       const uiSourceRoot = realpathSync(resolve(uiRoot, 'src'))
       const stablePackagePath = resolve(webRoot, 'node_modules/@adea-ai/ui')
+      // A fresh hoisted install may not materialise apps/web/node_modules at
+      // all, while the generated directives and Tailwind's scan reference the
+      // package through this stable path — materialise the link instead of
+      // failing the build on the install layout.
+      if (!existsSync(dirname(stablePackagePath)))
+        mkdirSync(dirname(stablePackagePath), { recursive: true })
+      if (!existsSync(stablePackagePath)) symlinkSync(uiRoot, stablePackagePath, 'dir')
       if (realpathSync(stablePackagePath) !== uiRoot) {
         throw new Error(
           `[adea-ui-tailwind-sources] stable package link ${stablePackagePath} does not resolve to ${uiRoot}`
