@@ -6,12 +6,13 @@
  * revision 283e136c0f902e965a535a7c9548c57c7504fed0. Modified for Solid and
  * the dependency-owned archive authority.
  */
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Archive } from 'lucide-solid'
 import { For, Show, createSignal } from 'solid-js'
 
 import type { ArchiveShelfState } from './archive-shelf-model'
-import { Button } from '@adea-ai/ui/components/ui/button'
 
 /**
  * The paged archived shelf pinned to the bottom of the Dev sidebar (ADR 0009
@@ -33,18 +34,22 @@ export function ArchiveShelf(props: {
   const pending = () => props.state.pendingDeleteId
   return (
     <section class="dev-archive-shelf">
-      <Button
+      <ActionButton
         type="button"
-        class="dev-tree-row dev-tree-row--archive"
+        variant="ghost"
+        size="sm"
+        class="w-full justify-start"
         aria-expanded={expanded()}
         aria-controls="dev-archive-shelf-content"
         onClick={() => setExpanded((value) => !value)}
       >
         <Archive aria-hidden="true" /> Archived sessions
         <Show when={props.state.items.length > 0}>
-          <span class="dev-tree-row__count">{props.state.items.length}</span>
+          <Badge class="ms-auto" size="sm" variant="secondary">
+            {props.state.items.length}
+          </Badge>
         </Show>
-      </Button>
+      </ActionButton>
       <Show when={expanded()}>
         <div id="dev-archive-shelf-content" class="dev-archive-shelf__content">
           <Show
@@ -75,39 +80,47 @@ export function ArchiveShelf(props: {
                           when={pending() === item.id}
                           fallback={
                             <>
-                              <Button
+                              <ActionButton
                                 type="button"
-                                class="dev-archive-action"
+                                variant="outline"
+                                size="xs"
+                                tooltip="Restore this archived session"
                                 onClick={() => props.onRestore(item.id)}
                               >
                                 Restore
-                              </Button>
-                              <Button
+                              </ActionButton>
+                              <ActionButton
                                 type="button"
-                                class="dev-archive-action dev-archive-action--destructive"
+                                variant="destructive"
+                                size="xs"
+                                tooltip="Delete this archived session"
                                 onClick={() => props.onRequestDelete(item.id)}
                               >
                                 Delete…
-                              </Button>
+                              </ActionButton>
                             </>
                           }
                         >
                           <span class="dev-archive-shelf__confirm" role="alert">
                             Delete this archived session?
-                            <Button
+                            <ActionButton
                               type="button"
-                              class="dev-archive-action dev-archive-action--destructive"
+                              variant="destructive"
+                              size="xs"
+                              tooltip="Confirm deletion of this archived session"
                               onClick={() => props.onConfirmDelete()}
                             >
                               Delete
-                            </Button>
-                            <Button
+                            </ActionButton>
+                            <ActionButton
                               type="button"
-                              class="dev-archive-action"
+                              variant="outline"
+                              size="xs"
+                              tooltip="Cancel deletion of this archived session"
                               onClick={() => props.onCancelDelete()}
                             >
                               Keep
-                            </Button>
+                            </ActionButton>
                           </span>
                         </Show>
                       </span>

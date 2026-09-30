@@ -114,8 +114,7 @@
 .dev-button:focus-visible,
 .dev-icon-button:focus-visible,
 .dev-tree-row:focus-visible,
-.dev-utility-tabs button:focus-visible,
-.dev-search input:focus-visible {
+.dev-utility-tabs button:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
@@ -142,31 +141,6 @@
   min-width: 0;
   flex: none;
   width: clamp(13rem, 16vw, 17rem);
-  padding: 0.65rem;
-}
-
-.dev-search {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-block-end: 0.65rem;
-  padding: 0 0.55rem;
-  border: 1px solid var(--dev-border);
-  border-radius: 0.35rem;
-}
-
-.dev-search svg {
-  width: 0.9rem;
-  color: var(--dev-muted);
-}
-
-.dev-search input {
-  width: 100%;
-  min-height: 2rem;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: inherit;
 }
 
 .dev-tree-group + .dev-tree-group {
@@ -207,10 +181,6 @@
   color: var(--dev-muted);
   font-size: 0.75rem;
   line-height: 1.4;
-}
-
-.dev-tree-row--archive {
-  width: 100%;
 }
 
 .dev-status-dot {
@@ -345,14 +315,6 @@
 .dev-utility-splitter:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
-}
-
-.dev-row-badges {
-  display: inline-flex;
-  flex: none;
-  gap: 0.2rem;
-  align-items: center;
-  margin-inline-start: auto;
 }
 
 .dev-row-badge {
