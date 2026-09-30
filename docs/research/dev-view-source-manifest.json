@@ -711,7 +711,7 @@
             "website/playwright/apps.spec.ts",
             "website/src/test/appstoreCategories.test.ts"
           ],
-          "action": "Translate category rail, search, installed/discover, and detail composition to Solid over Adea verified catalog/install plans."
+          "action": "Translate category rail, search, discover/installed views, bounded category expansion, detail framing, and focus return into the published @adea-ai/ui CatalogBrowser; keep Adea's verified catalog, install plans, activation authority, and Navigation settings in the host adapter. KiroCrew's separate /apps/library core-app launchpad is excluded; Adea #757 remains a distinct flow."
         },
         {
           "donor": "zeron",

@@ -1,6 +1,14 @@
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import {
+  CatalogBrowser,
+  CatalogDetail,
+  CatalogDetailSection,
+  type CatalogBrowserEntry,
+  type CatalogBrowserGroup,
+  type CatalogBrowserTab,
+} from '@adea-ai/ui/components/composites/catalog-browser'
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -17,25 +25,10 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@adea-ai/ui/components/ui/empty'
-import { Input } from '@adea-ai/ui/components/ui/input'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
-import { Label } from '@adea-ai/ui/components/ui/label'
-import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
-import {
-  ArrowLeft,
-  Blocks,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  Filter,
-  Search,
-  ShieldCheck,
-} from 'lucide-solid'
+import { Blocks, Check, ChevronDown, ChevronUp, Filter, ShieldCheck } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
-import { keyedRows } from './keyed-rows'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { PluginLogo } from './plugin-logo'
 import type { WorkspaceAppActivation, WorkspacePlugin, WorkspacePluginsProvider } from './platform'
@@ -50,6 +43,18 @@ import {
 } from './plugins'
 
 type PluginTab = 'marketplace' | 'navigation' | 'yours'
+
+function toCatalogEntry(plugin: WorkspacePlugin): CatalogBrowserEntry<WorkspacePlugin> {
+  return {
+    id: plugin.id,
+    value: plugin,
+    name: plugin.name,
+    description: plugin.description,
+    category: plugin.category,
+    publisher: plugin.publisher,
+    installed: plugin.installed,
+  }
+}
 
 /**
  * Rail customization handed to the App Library by the shell. The dialog owns
@@ -77,8 +82,6 @@ const ownershipOptions = [
   ['public', 'Public'],
 ] as const
 
-const previewSkeletons = Array.from({ length: 7 })
-
 function PluginFilterMenu(props: {
   filter: WorkspacePluginFilter
   onChange: (filter: WorkspacePluginFilter) => void
@@ -104,9 +107,11 @@ function PluginFilterMenu(props: {
           <DropdownMenuLabel>Type</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={props.filter.type}
-            onChange={(type) =>
-              props.onChange({ ...props.filter, type: type as WorkspacePluginFilter['type'] })
-            }
+            onChange={(type: unknown) => {
+              if (type !== 'all' && type !== 'apps' && type !== 'connectors' && type !== 'skills')
+                return
+              props.onChange({ ...props.filter, type })
+            }}
           >
             <For each={typeOptions}>
               {([value, label]) => (
@@ -120,12 +125,10 @@ function PluginFilterMenu(props: {
           <DropdownMenuLabel>Ownership</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={props.filter.ownership}
-            onChange={(ownership) =>
-              props.onChange({
-                ...props.filter,
-                ownership: ownership as WorkspacePluginFilter['ownership'],
-              })
-            }
+            onChange={(ownership: unknown) => {
+              if (ownership !== 'all' && ownership !== 'team' && ownership !== 'public') return
+              props.onChange({ ...props.filter, ownership })
+            }}
           >
             <For each={ownershipOptions}>
               {([value, label]) => (
@@ -139,118 +142,6 @@ function PluginFilterMenu(props: {
   )
 }
 
-function PluginBrowserRow(props: {
-  disabled: boolean
-  onSelect: () => void
-  plugin: WorkspacePlugin
-}) {
-  return (
-    <Button
-      type="button"
-      class="plugins-browser__row"
-      disabled={props.disabled}
-      onClick={() => props.onSelect()}
-    >
-      <PluginLogo iconUrl={props.plugin.iconUrl} name={props.plugin.name} />
-      <span class="plugins-browser__row-copy">
-        <span class="plugins-browser__row-title">
-          <strong>{props.plugin.name}</strong>
-          <Show when={props.plugin.installed}>
-            <Badge variant="secondary">Installed</Badge>
-          </Show>
-        </span>
-        <small>{props.plugin.description}</small>
-        <span class="plugins-browser__row-meta">
-          {props.plugin.publisher} · {props.plugin.category}
-        </span>
-      </span>
-      <ChevronRight aria-hidden="true" />
-    </Button>
-  )
-}
-
-function usePluginPreviewCount(): () => number {
-  const [wide, setWide] = createSignal(
-    typeof window === 'undefined' || window.matchMedia('(min-width: 48rem)').matches
-  )
-  createEffect(() => {
-    const query = window.matchMedia('(min-width: 48rem)')
-    const onChange = (event: MediaQueryListEvent) => setWide(event.matches)
-    query.addEventListener('change', onChange)
-    onCleanup(() => query.removeEventListener('change', onChange))
-  })
-  // Wide viewports lay the grid out two columns; narrow ones use one. Three
-  // rows either way.
-  return () => (wide() ? 6 : 3)
-}
-
-function PluginBrowserGroup(props: {
-  disabled: boolean
-  expanded: boolean
-  name: string
-  onSelect: (pluginId: string) => void
-  onToggle: () => void
-  plugins: readonly WorkspacePlugin[]
-  previewCount: number
-}) {
-  const id = () => `plugins-category-${props.name.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-')}`
-  const preview = () =>
-    props.expanded ? props.plugins : props.plugins.slice(0, props.previewCount)
-  const hidden = () => props.plugins.slice(props.previewCount)
-  // The filtered list changes on every search keystroke; keyed rows keep each
-  // row's DOM alive so typing does not rebuild the grid each character.
-  const pluginRows = keyedRows(preview, (plugin) => plugin.id)
-  const expandLabel = () => {
-    const nextNames = hidden()
-      .slice(0, 2)
-      .map((plugin) => plugin.name)
-    return `See ${nextNames.join(', ')}${hidden().length > 2 ? ' and more' : ''}`
-  }
-
-  return (
-    <section class="plugins-browser__group" aria-labelledby={id()}>
-      <header class="plugins-browser__group-heading">
-        <h3 id={id()}>{props.name}</h3>
-        <span>{props.plugins.length}</span>
-      </header>
-      <div class="plugins-browser__grid">
-        <For each={pluginRows()}>
-          {(entry) => (
-            <PluginBrowserRow
-              disabled={props.disabled}
-              onSelect={() => props.onSelect(entry.item().id)}
-              plugin={entry.item()}
-            />
-          )}
-        </For>
-      </div>
-      <Show when={hidden().length > 0}>
-        <Button
-          class="plugins-browser__more"
-          disabled={props.disabled}
-          onClick={() => props.onToggle()}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          <Show
-            when={props.expanded}
-            fallback={
-              <>
-                {expandLabel()} <ChevronDown data-icon="inline-end" aria-hidden="true" />
-              </>
-            }
-          >
-            <>
-              Show less <ChevronUp data-icon="inline-end" aria-hidden="true" />
-            </>
-          </Show>
-        </Button>
-      </Show>
-    </section>
-  )
-}
-
 /** The install refusal, in the user's terms, without leaking provider detail. */
 function describeInstallFailure(error: unknown): string {
   const code = (error as { error?: { code?: string } } | null)?.error?.code
@@ -259,72 +150,6 @@ function describeInstallFailure(error: unknown): string {
   if (code === 'stale_catalog' || code === 'stale_version')
     return 'The catalog changed while you were looking. Reopen Plugins and try again.'
   return 'The install could not be started.'
-}
-
-function PluginListState(props: {
-  catalogState: 'stale' | 'unavailable' | 'verification-failure'
-  status: 'error' | 'loading'
-}) {
-  return (
-    <Show
-      when={props.status === 'loading'}
-      fallback={
-        <Empty class="min-h-0 min-w-0 flex-1" role="alert">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <Blocks aria-hidden="true" />
-            </EmptyMedia>
-            <EmptyTitle>
-              {props.catalogState === 'verification-failure'
-                ? 'Plugin catalog could not be verified'
-                : 'Plugin catalog unavailable'}
-            </EmptyTitle>
-            <EmptyDescription>
-              {props.catalogState === 'verification-failure'
-                ? 'The catalog was rejected because its signed metadata did not verify.'
-                : 'Close Plugins and open it again to retry.'}
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      }
-    >
-      <div class="plugins-browser__skeleton" aria-busy="true">
-        <For each={previewSkeletons}>
-          {() => (
-            <div>
-              <Skeleton class="plugins-browser__skeleton-mark" />
-              <span>
-                <Skeleton class="plugins-browser__skeleton-title" />
-                <Skeleton class="plugins-browser__skeleton-copy" />
-              </span>
-            </div>
-          )}
-        </For>
-      </div>
-    </Show>
-  )
-}
-
-function PluginsEmpty(props: { query: string; tab: PluginTab }) {
-  return (
-    <Empty class="min-h-0 min-w-0 flex-1">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Blocks aria-hidden="true" />
-        </EmptyMedia>
-        <EmptyTitle>
-          {props.tab === 'yours' ? 'No plugins added yet' : 'No matching plugins'}
-        </EmptyTitle>
-        <EmptyDescription>
-          {props.tab === 'yours'
-            ? 'Add a provider or skill from Marketplace and it will appear here.'
-            : props.query.trim()
-              ? `No plugins match “${props.query.trim()}”.`
-              : 'No plugins match the current filters.'}
-        </EmptyDescription>
-      </EmptyHeader>
-    </Empty>
-  )
 }
 
 function activationEntryId(activation: WorkspaceAppActivation): string {
@@ -363,8 +188,7 @@ function AppActivationSection(props: { activation: WorkspaceAppActivation }) {
     props.activation.reason === 'not-installed' ||
     props.activation.reason === 'catalog-only'
   return (
-    <section class="plugins-detail__section" aria-labelledby="plugin-activation-heading">
-      <h4 id="plugin-activation-heading">Activation</h4>
+    <CatalogDetailSection title="Activation">
       <Show
         when={props.activation.status === 'activatable'}
         fallback={
@@ -383,39 +207,42 @@ function AppActivationSection(props: { activation: WorkspaceAppActivation }) {
           <code>{activationEntryId(props.activation)}</code> can activate.
         </p>
       </Show>
-    </section>
+    </CatalogDetailSection>
   )
 }
 
 function PluginDetail(props: {
-  onBack: () => void
   onUpdate: () => void
   plugin: WorkspacePlugin
   saving: boolean
+  installError?: string
 }) {
   const activation = () => workspaceAppActivation(props.plugin)
+  const installationNotice = () => {
+    switch (props.plugin.installationStatus) {
+      case 'pending-authorization':
+        return 'This install request is waiting for workspace authorization.'
+      case 'rejected-by-policy':
+        return 'Workspace policy rejected this installation.'
+      case 'superseded':
+        return 'This release was superseded. Reopen Plugins to check the current catalog.'
+      case 'unavailable':
+        return 'This catalog entry is currently unavailable.'
+      default:
+        return undefined
+    }
+  }
   return (
-    <article class="plugins-detail">
-      <Button type="button" variant="ghost" size="sm" onClick={() => props.onBack()}>
-        <ArrowLeft data-icon="inline-start" aria-hidden="true" />
-        Back to plugins
-      </Button>
-      <header class="plugins-detail__hero">
-        <PluginLogo iconUrl={props.plugin.iconUrl} name={props.plugin.name} />
-        <div>
-          <div class="plugins-detail__eyebrow">
-            <Badge variant="outline">
-              {props.plugin.kind === 'connector' ? 'Connector' : 'Skill'}
-            </Badge>
-            <Badge variant="secondary">{props.plugin.sourceId ?? props.plugin.source}</Badge>
-            <span>{props.plugin.category}</span>
-          </div>
-          <h3>{props.plugin.name}</h3>
-          <p>{props.plugin.description}</p>
-          <small>Published by {props.plugin.publisher}</small>
-        </div>
-      </header>
-      <div class="plugins-detail__actions">
+    <CatalogDetail
+      title={props.plugin.name}
+      description={props.plugin.description}
+      category={props.plugin.category}
+      publisher={props.plugin.publisher}
+      publishedByLabel={(publisher) => `Published by ${publisher}`}
+      leading={<PluginLogo iconUrl={props.plugin.iconUrl} name={props.plugin.name} />}
+      eyebrow={props.plugin.kind === 'connector' ? 'Connector' : 'Skill'}
+      badges={<Badge variant="outline">{props.plugin.sourceId ?? props.plugin.source}</Badge>}
+      action={
         <Button
           type="button"
           variant={props.plugin.installed ? 'outline' : 'default'}
@@ -436,15 +263,21 @@ function PluginDetail(props: {
                       ? 'Unavailable'
                       : 'Add'}
         </Button>
-        <Show when={props.plugin.installed}>
-          <span role="status">
-            <Check aria-hidden="true" /> Installed through Control Plane
-          </span>
-        </Show>
-      </div>
-      <section class="plugins-detail__section" aria-labelledby="plugin-capabilities-heading">
-        <h4 id="plugin-capabilities-heading">Capabilities</h4>
-        <ul>
+      }
+      status={
+        <div class="grid min-w-0 gap-2">
+          <Show when={props.installError}>{(message) => <p role="alert">{message()}</p>}</Show>
+          <Show when={props.plugin.installed}>
+            <p role="status">
+              <Check aria-hidden="true" /> Installed through Control Plane
+            </p>
+          </Show>
+          <Show when={installationNotice()}>{(message) => <p role="status">{message()}</p>}</Show>
+        </div>
+      }
+    >
+      <CatalogDetailSection title="Capabilities">
+        <ul class="grid gap-2 text-sm">
           <For each={props.plugin.capabilities}>
             {(capability) => (
               <li>
@@ -453,53 +286,50 @@ function PluginDetail(props: {
             )}
           </For>
         </ul>
-      </section>
-      <section class="plugins-detail__section" aria-labelledby="plugin-connection-heading">
-        <h4 id="plugin-connection-heading">Connection</h4>
+      </CatalogDetailSection>
+      <CatalogDetailSection title="Connection">
         <p>
-          <ShieldCheck aria-hidden="true" />
+          <ShieldCheck aria-hidden="true" />{' '}
           {props.plugin.auth === 'oauth'
             ? 'OAuth provider'
             : props.plugin.auth === 'api-key'
               ? 'API credential provider'
               : 'Managed by this workspace'}
         </p>
-        <small>
+        <p class="text-muted-foreground text-sm">
           Adding enables this provider in Adea. Account authorization and runtime execution stay
           within the authoritative Control Plane connection.
-        </small>
-      </section>
-      <section class="plugins-detail__section" aria-labelledby="plugin-source-heading">
-        <h4 id="plugin-source-heading">Bundle</h4>
+        </p>
+      </CatalogDetailSection>
+      <CatalogDetailSection title="Bundle">
         <p>{props.plugin.surfaces.map((surface) => surface.toLocaleUpperCase()).join(' · ')}</p>
-        <small>
+        <p class="text-muted-foreground text-sm">
           {props.plugin.sourceUrl
             ? `Source: ${props.plugin.sourceUrl}.`
             : `Source: ${props.plugin.sourceId ?? props.plugin.source}.`}
           {props.plugin.sourceRevision ? ` Commit: ${props.plugin.sourceRevision}.` : ''}
           {props.plugin.license ? ` License: ${props.plugin.license}.` : ''}
           {props.plugin.contentResolution === 'metadata-only' ? ' Content is metadata-only.' : ''}
-        </small>
-      </section>
+        </p>
+      </CatalogDetailSection>
       <Show when={props.plugin.appSurface}>
         {(app) => (
-          <section class="plugins-detail__section" aria-labelledby="plugin-app-heading">
-            <h4 id="plugin-app-heading">App</h4>
-            <small>
+          <CatalogDetailSection title="App">
+            <p class="text-muted-foreground text-sm">
               Platforms: {app().supportedPlatforms.join(', ') || 'unspecified'}.
               {app().requestedPermissions.length > 0
                 ? ` Requests: ${app().requestedPermissions.join(', ')}.`
                 : ' Requests no additional permissions.'}
               {app().version ? ` Version ${app().version}.` : ''}
               {app().digest ? ` Digest ${app().digest}.` : ''}
-            </small>
-          </section>
+            </p>
+          </CatalogDetailSection>
         )}
       </Show>
       <Show when={props.plugin.appSurface}>
         <AppActivationSection activation={activation()} />
       </Show>
-    </article>
+    </CatalogDetail>
   )
 }
 
@@ -579,8 +409,6 @@ export function PluginsDialog(props: {
   provider?: WorkspacePluginsProvider
   navigation?: AppLibraryNavigation
 }) {
-  const previewCount = usePluginPreviewCount()
-  const [expandedGroups, setExpandedGroups] = createSignal<ReadonlySet<string>>(new Set())
   const [plugins, setPlugins] = createSignal<readonly WorkspacePlugin[]>([])
   const [filterOpen, setFilterOpen] = createSignal(false)
   const [query, setQuery] = createSignal('')
@@ -601,7 +429,6 @@ export function PluginsDialog(props: {
     yours: defaultPluginFilter,
   })
   const activeFilter = () => filters()[browserTab()] ?? defaultPluginFilter
-  const selected = createMemo(() => plugins().find(({ id }) => id === selectedId()))
   // The Navigation tab shows no browser; the list is computed as Discover so
   // the memo stays total without leaking the navigation value into the filter.
   const browserTab = (): 'marketplace' | 'yours' => {
@@ -611,20 +438,82 @@ export function PluginsDialog(props: {
   const visible = createMemo(() =>
     filterWorkspacePlugins(plugins(), browserTab(), query(), activeFilter())
   )
-  const groups = createMemo(() => {
+  const entries = createMemo(() => plugins().map(toCatalogEntry))
+  const groups = createMemo<readonly CatalogBrowserGroup<WorkspacePlugin>[]>(() => {
     const grouped = groupWorkspacePlugins(visible())
     const showPopular =
       tab() === 'marketplace' &&
       query().trim().length === 0 &&
       activeFilter().type === 'all' &&
       activeFilter().ownership === 'all'
-    return showPopular
+    const ordered = showPopular
       ? [{ category: 'Popular', plugins: getPopularWorkspacePlugins(visible()) }, ...grouped]
       : grouped
+    return ordered.map((group) => ({
+      id: group.category,
+      label: group.category,
+      entries: group.plugins.map(toCatalogEntry),
+    }))
   })
-  // Groups recompute on every search keystroke; key by category so group
-  // sections keep their DOM instead of remounting per character.
-  const groupRows = keyedRows(groups, (group) => group.category)
+  const tabs = (): readonly CatalogBrowserTab[] => [
+    { id: 'marketplace', label: 'Discover' },
+    { id: 'yours', label: 'Installed' },
+    ...(props.navigation
+      ? [
+          {
+            id: 'navigation',
+            label: `Navigation (${props.navigation.items.length})`,
+            kind: 'supplemental' as const,
+          },
+        ]
+      : []),
+  ]
+  const catalogStatus = () =>
+    catalogFailed() ? 'error' : status() === 'loading' ? 'loading' : 'ready'
+  const catalogError = () =>
+    catalogState() === 'verification-failure'
+      ? {
+          title: 'Plugin catalog could not be verified',
+          description: 'The catalog was rejected because its signed metadata did not verify.',
+          role: 'alert' as const,
+        }
+      : {
+          title: 'Plugin catalog unavailable',
+          description: 'Close Plugins and open it again to retry.',
+          role: 'alert' as const,
+        }
+  const emptyState = () =>
+    tab() === 'yours'
+      ? {
+          title: 'No plugins added yet',
+          description: 'Add a provider or skill from Marketplace and it will appear here.',
+        }
+      : {
+          title: 'No matching plugins',
+          description: query().trim()
+            ? `No plugins match “${query().trim()}”.`
+            : 'No plugins match the current filters.',
+        }
+  const notices = () => [
+    ...(catalogState() === 'stale' && status() === 'idle'
+      ? [
+          {
+            id: 'stale-catalog',
+            role: 'status' as const,
+            message: 'Showing the last-known-good catalog while the registry is unavailable.',
+          },
+        ]
+      : []),
+    ...(catalogState() === 'verification-failure' && status() === 'idle'
+      ? [
+          {
+            id: 'verification-failure',
+            role: 'alert' as const,
+            message: 'The latest catalog failed integrity verification and was not accepted.',
+          },
+        ]
+      : []),
+  ]
 
   createEffect(() => {
     const provider = props.provider
@@ -657,7 +546,6 @@ export function PluginsDialog(props: {
   })
 
   const close = () => {
-    setExpandedGroups(new Set<string>())
     setFilterOpen(false)
     setSelectedId(null)
     props.onClose()
@@ -690,146 +578,70 @@ export function PluginsDialog(props: {
       open={props.open}
       title="Plugins"
     >
-      <Show
-        when={selected()}
-        fallback={
-          <Tabs
-            class="plugins-browser"
-            data-filter-open={filterOpen()}
-            value={tab()}
-            onChange={(value) => value && setTab(value as PluginTab)}
-          >
-            <TabsList
-              appearance="underline"
-              data-variant="line"
-              aria-label="Plugins view"
-              class="plugins-browser__tabs"
-            >
-              <TabsTrigger value="marketplace">Discover</TabsTrigger>
-              <TabsTrigger value="yours">Installed</TabsTrigger>
-              <Show when={props.navigation}>
-                {(navigation) => (
-                  <TabsTrigger value="navigation">
-                    Navigation ({navigation().items.length})
-                  </TabsTrigger>
-                )}
-              </Show>
-            </TabsList>
-            <Show
-              when={tab() !== 'navigation'}
-              fallback={
-                <Show when={props.navigation} fallback={<NavigationMissing />}>
-                  {(navigation) => <NavigationPanel navigation={navigation()} />}
-                </Show>
-              }
-            >
-              <div class="plugins-browser__body">
-                <Show when={installError()}>
-                  {(message) => (
-                    <p class="plugins-browser__install-error" role="alert">
-                      {message()}
-                    </p>
-                  )}
-                </Show>
-                <div class="plugins-browser__bar">
-                  <PluginFilterMenu
-                    filter={activeFilter()}
-                    onChange={(filter) =>
-                      setFilters((current) => ({
-                        ...current,
-                        [browserTab()]: filter,
-                      }))
-                    }
-                    onOpenChange={setFilterOpen}
-                  />
-                  <Label class="plugins-browser__search">
-                    <Search aria-hidden="true" />
-                    <Input
-                      type="search"
-                      aria-label="Search plugins"
-                      placeholder="Search plugins"
-                      value={query()}
-                      onInput={(event) => setQuery(event.currentTarget.value)}
-                    />
-                  </Label>
-                  <span class="plugins-browser__count" role="status">
-                    {status() === 'loading'
-                      ? 'Loading plugins'
-                      : `${visible().length} ${visible().length === 1 ? 'plugin' : 'plugins'}`}
-                  </span>
-                </div>
-                <TabsContent value={tab()} class="plugins-browser__list">
-                  <Show
-                    when={status() !== 'loading' && !catalogFailed()}
-                    fallback={
-                      <PluginListState
-                        catalogState={
-                          catalogFailed()
-                            ? catalogState() === 'verification-failure'
-                              ? 'verification-failure'
-                              : catalogState() === 'stale'
-                                ? 'stale'
-                                : 'unavailable'
-                            : catalogState() === 'stale'
-                              ? 'stale'
-                              : 'unavailable'
-                        }
-                        status={catalogFailed() ? 'error' : 'loading'}
-                      />
-                    }
-                  >
-                    <Show
-                      when={visible().length > 0}
-                      fallback={<PluginsEmpty query={query()} tab={tab()} />}
-                    >
-                      <For each={groupRows()}>
-                        {(entry) => (
-                          <PluginBrowserGroup
-                            disabled={filterOpen()}
-                            expanded={expandedGroups().has(entry.item().category)}
-                            name={entry.item().category}
-                            onSelect={setSelectedId}
-                            previewCount={previewCount()}
-                            onToggle={() =>
-                              setExpandedGroups((current) => {
-                                const next = new Set<string>(current)
-                                if (next.has(entry.item().category))
-                                  next.delete(entry.item().category)
-                                else next.add(entry.item().category)
-                                return next
-                              })
-                            }
-                            plugins={entry.item().plugins}
-                          />
-                        )}
-                      </For>
-                    </Show>
-                  </Show>
-                </TabsContent>
-                <Show when={catalogState() === 'stale' && status() === 'idle'}>
-                  <p class="plugins-browser__notice" role="status">
-                    Showing the last-known-good catalog while the registry is unavailable.
-                  </p>
-                </Show>
-                <Show when={catalogState() === 'verification-failure' && status() === 'idle'}>
-                  <p class="plugins-browser__notice" role="alert">
-                    The latest catalog failed integrity verification and was not accepted.
-                  </p>
-                </Show>
-              </div>
+      <CatalogBrowser
+        class="plugins-browser"
+        open={props.open}
+        tabs={tabs()}
+        tab={tab()}
+        tabsLabel="Plugins view"
+        onTabChange={(value) => setTab(value as PluginTab)}
+        renderSupplementalView={(value) =>
+          value === 'navigation' ? (
+            <Show when={props.navigation} fallback={<NavigationMissing />}>
+              {(navigation) => <NavigationPanel navigation={navigation()} />}
             </Show>
-          </Tabs>
+          ) : undefined
         }
-      >
-        {(plugin) => (
+        query={query()}
+        onQueryChange={setQuery}
+        searchLabel="Search plugins"
+        searchPlaceholder="Search plugins"
+        resultsRegionLabel="Plugin results"
+        filterControl={
+          <PluginFilterMenu
+            filter={activeFilter()}
+            onChange={(filter) =>
+              setFilters((current) => ({
+                ...current,
+                [browserTab()]: filter,
+              }))
+            }
+            onOpenChange={setFilterOpen}
+          />
+        }
+        resultCount={visible().length}
+        resultLabel={(count) => `${count} ${count === 1 ? 'plugin' : 'plugins'}`}
+        loadingLabel="Loading plugins"
+        status={catalogStatus()}
+        catalogError={catalogError()}
+        installError={installError()}
+        notices={notices()}
+        emptyState={emptyState()}
+        groups={groups()}
+        entries={entries()}
+        selectedId={selectedId()}
+        onSelect={(plugin) => setSelectedId(plugin.id)}
+        onBack={() => setSelectedId(null)}
+        backLabel="Back to plugins"
+        detailRegionLabel="Plugin details"
+        installedLabel="Installed"
+        publishedByLabel={(publisher) => `Published by ${publisher}`}
+        showMoreLabel={(hidden) => {
+          const names = hidden.slice(0, 2).map((entry) => entry.name)
+          return `See ${names.join(', ')}${hidden.length > 2 ? ' and more' : ''}`
+        }}
+        showLessLabel="Show less"
+        interactionDisabled={filterOpen()}
+        renderIcon={(plugin) => <PluginLogo iconUrl={plugin.iconUrl} name={plugin.name} />}
+        renderDetail={(plugin) => (
           <PluginDetail
-            onBack={() => setSelectedId(null)}
-            onUpdate={() => void update(plugin())}
-            plugin={plugin()}
+            onUpdate={() => void update(plugin)}
+            plugin={plugin}
             saving={status() === 'saving'}
+            installError={installError()}
           />
         )}
-      </Show>
+      />
     </ModalDialog>
   )
 }

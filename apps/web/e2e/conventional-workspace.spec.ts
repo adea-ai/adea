@@ -1084,29 +1084,29 @@ test('browses the verified registry marketplace and submits an exact install req
   await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
   const plugins = page.getByRole('dialog', { name: 'Plugins' })
   await expect(plugins).toBeVisible()
-  await expect(plugins.locator('.plugins-browser__count')).toHaveText(/^\d+ plugins$/)
+  await expect(plugins.getByRole('status').first()).toHaveText(/^\d+ plugins$/)
 
-  const pluginGroups = plugins.locator('.plugins-browser__group')
+  const results = plugins.getByRole('region', { name: 'Plugin results', exact: true })
+  await expect(results).toHaveAttribute('tabindex', '0')
+  const pluginGroups = results.getByRole('region')
   const popularPlugins = pluginGroups.first()
   await expect(popularPlugins.getByRole('heading', { name: 'Popular' })).toBeVisible()
-  await expect(popularPlugins.locator('.plugins-browser__row')).toHaveCount(6)
+  await expect(popularPlugins.locator('[data-catalog-entry-id]')).toHaveCount(6)
   await expect(popularPlugins.getByRole('button', { name: /Gmail/ })).toBeVisible()
   await expect(popularPlugins.getByRole('button', { name: /GitHub/ })).toBeVisible()
   expect(
-    await pluginGroups
-      .locator('.plugins-browser__grid')
-      .evaluateAll((grids) =>
-        grids.every((grid) => grid.querySelectorAll('.plugins-browser__row').length <= 6)
-      )
+    await pluginGroups.evaluateAll((groups) =>
+      groups.every((group) => group.querySelectorAll('[data-catalog-entry-id]').length <= 6)
+    )
   ).toBe(true)
 
   const productivityPlugins = pluginGroups.filter({
     has: page.getByRole('heading', { name: 'Productivity', exact: true }),
   })
   await plugins.getByRole('button', { name: 'See Room Summaries, Todoist and more' }).click()
-  await expect(productivityPlugins.locator('.plugins-browser__row')).toHaveCount(9)
+  await expect(productivityPlugins.locator('[data-catalog-entry-id]')).toHaveCount(9)
   await productivityPlugins.getByRole('button', { name: 'Show less' }).click()
-  await expect(productivityPlugins.locator('.plugins-browser__row')).toHaveCount(6)
+  await expect(productivityPlugins.locator('[data-catalog-entry-id]')).toHaveCount(6)
 
   await plugins.getByRole('searchbox', { name: 'Search plugins' }).fill('github')
   await plugins.getByRole('button', { name: /GitHub/ }).click()
@@ -1145,6 +1145,7 @@ test('browses the verified registry marketplace and submits an exact install req
     )
   ).toEqual([])
   await plugins.getByRole('button', { name: 'Back to plugins' }).click()
+  await expect(plugins.getByRole('button', { name: /GitHub/ })).toBeFocused()
   await plugins.getByRole('tab', { name: 'Installed' }).click()
   await expect(plugins.getByText('No plugins added yet')).toBeVisible()
 })
