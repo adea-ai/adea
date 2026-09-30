@@ -29,6 +29,7 @@ import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
 import { Blocks, Check, ChevronDown, ChevronUp, Filter, ShieldCheck } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { PluginLogo } from './plugin-logo'
 import type { WorkspaceAppActivation, WorkspacePlugin, WorkspacePluginsProvider } from './platform'
@@ -367,24 +368,26 @@ function NavigationPanel(props: { navigation: AppLibraryNavigation }) {
                 </Show>
               </span>
               <span class="plugins-navigation__controls">
-                <Button
+                <ActionButton
                   type="button"
                   variant="ghost"
                   size="icon-sm"
+                  tooltip={`Move ${item.label} up`}
                   aria-label={`Move ${item.label} up`}
                   onClick={() => props.navigation.onReorder(item.id, 'up')}
                 >
                   <ChevronUp aria-hidden="true" />
-                </Button>
-                <Button
+                </ActionButton>
+                <ActionButton
                   type="button"
                   variant="ghost"
                   size="icon-sm"
+                  tooltip={`Move ${item.label} down`}
                   aria-label={`Move ${item.label} down`}
                   onClick={() => props.navigation.onReorder(item.id, 'down')}
                 >
                   <ChevronDown aria-hidden="true" />
-                </Button>
+                </ActionButton>
                 <Checkbox
                   class="plugins-navigation__visibility"
                   label="Show"
