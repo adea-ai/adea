@@ -155,7 +155,7 @@ export function AgentRoster(props: Props) {
                   </div>
                 </CardContent>
                 <CardFooter>
-                  <div class="flex flex-col items-stretch gap-2">
+                  <div class="flex w-full flex-col items-stretch gap-2">
                     <Button
                       type="button"
                       variant="outline"
