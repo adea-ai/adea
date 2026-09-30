@@ -101,6 +101,11 @@ export default defineConfig(({ command }) => ({
   // No automatic environment-variable prefixes: public values are enumerated below.
   envPrefix: [],
   environments: {
+    ssr: {
+      // Published Solid source must pass through viteSolid's SSR transform.
+      // The dependency optimizer otherwise lowers JSX with React's runtime.
+      optimizeDeps: { exclude: ['@adea-ai/ui'] },
+    },
     client: {
       build: {
         rolldownOptions: {

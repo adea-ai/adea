@@ -251,18 +251,8 @@ test('desktop authentication ends on a clear browser success page', async ({ pag
 
   await page.goto(`/auth/desktop/complete#${fragment}`, { waitUntil: 'commit' })
 
-  // Hydration races the dev server's bare-module flood; a settled retry
-  // window absorbs a cold module graph the way the app's other
-  // hydration-sensitive gates do. The page mounts only after hydration, so
-  // every visible element below shares one wait.
-  await expect(async () => {
-    await expect(page.getByRole('heading', { name: 'You’re all set' })).toBeVisible()
-    await expect(page.getByText('You can close this tab')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Open Adea' })).toBeVisible()
-  }).toPass({ timeout: 60_000 })
-  // The callback strip runs at hydration, which on the dev server lands
-  // after ~2,200 bare-module requests (the lucide-solid barrel flood);
-  // give the address-bar assertion the same headroom the rest of the
-  // suite's hydration-sensitive assertions use.
-  await expect(page).toHaveURL(/\/auth\/desktop\/complete$/, { timeout: 60_000 })
+  await expect(page.getByRole('heading', { name: 'You’re all set' })).toBeVisible()
+  await expect(page.getByText('You can close this tab')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open Adea' })).toBeVisible()
+  await expect(page).toHaveURL(/\/auth\/desktop\/complete$/)
 })
