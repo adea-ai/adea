@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.2](https://github.com/adea-ai/adea/compare/v0.69.1...v0.69.2) (2026-09-30)
+
+
+### Maintenance
+
+* consume @adea-ai/ui 0.81.0 — the wrapper rule learns composed primitives ([#823](https://github.com/adea-ai/adea/issues/823)) ([a6e64ea](https://github.com/adea-ai/adea/commit/a6e64ea6c74d0be9207c771f6db5ce96f0d9c6c6))
+
 ## [0.69.1](https://github.com/adea-ai/adea/compare/v0.69.0...v0.69.1) (2026-09-30)
 
 
