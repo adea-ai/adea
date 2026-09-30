@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.4](https://github.com/adea-ai/adea/compare/v0.69.3...v0.69.4) (2026-09-30)
+
+
+### Maintenance
+
+* **ui:** derive every palette from shared theme authority ([#827](https://github.com/adea-ai/adea/issues/827)) ([7221da1](https://github.com/adea-ai/adea/commit/7221da104ea3772df7c979bc334a0345364a8722))
+
 ## [0.69.3](https://github.com/adea-ai/adea/compare/v0.69.2...v0.69.3) (2026-09-30)
 
 

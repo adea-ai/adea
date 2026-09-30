@@ -1,7 +1,6 @@
 @import 'tailwindcss';
-/* Published controls use the shared state variants and control tokens from
-   this structural contract. Keep it before the app adapter so the app's
-   palette values remain the final semantic token authority. */
+/* Published UI owns structural and framework tokens. The generated catalogue
+   sheet below applies those same projections before hydration. */
 @import '@adea-ai/ui/base.css';
 @import '@adea-ai/ui/theme.css';
 @import '@adea-ai/app-ui/base.css';

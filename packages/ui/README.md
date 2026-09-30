@@ -56,7 +56,7 @@ workspace ModalDialog and its overlay/header appearance styles are removed.
 ## Theming contract: CSS custom properties are the only color surface
 
 Components in this package never contain a color literal. Colors come from the
-token layer (`src/styles/theme.css` for the shadcn tokens, `workspace-shell.css`
+published token layer (`@adea-ai/ui/theme.css` for structural tokens, the generated catalogue sheet for palette projections, `workspace-shell.css`
 for the HQ shell tokens, `auth-shell.css` for the auth shell), and a component
 that needs a new color adds a token instead of a value.
 
@@ -91,19 +91,19 @@ Why it is worth a gate: with it, restyling is a token swap and dark mode is a
 second set of declarations. Without it, every hardcoded value is a small rewrite
 that nobody schedules.
 
-The built-in palettes are the published `@adea-ai/themes` catalogue, led by the
-`adea-light`/`adea-dark` default pair. The build-time
-`scripts/generate-canonical-theme-data.ts` command converts the catalogue's OKLCH
-schema and derived terminal, syntax, editor, and chart roles into generated
-records, and pins the themes excluded because their published editor projection
-cannot reach the host's 4.5:1 syntax floor. Non-default variants also emit a
-`src/styles/canonical-themes.css` block per theme so the pre-paint script stays
-palette-free. Editor
-roles use the catalogue's quantized-hex contrast projection; the syntax API keeps
-its intentionally quieter comment color. The runtime
-`src/components/canonical-theme-adapter.ts` consumes those records with the
-existing CSS token names and no-flash authority while retaining V2 preference
-IDs and host-owned surface preferences. Run
-`bun run --cwd packages/ui themes:generate` after changing the published source;
-`bun run --cwd packages/ui themes:check` verifies the committed generated files
-are current.
+The built-in palettes are the complete published `@adea-ai/themes` 0.8.1
+catalogue, led by the `adea-light`/`adea-dark` pair. Every theme passes the host's
+4.5:1 editor floor; no palette is waived. Build-time generation consumes the
+published `@adea-ai/ui/lib/themes` framework projection plus the catalogue's
+terminal/editor adapters. The generated stylesheet includes default and named
+palettes, all sidebar/status/raised-surface roles, and renderer aliases. The
+app-authored theme sheet contains only host/branding hooks and surface policy;
+a regression test forbids it from redeclaring any published palette token.
+
+The pre-paint script resolves the saved theme attribute without embedding
+palette data. V2 preference persistence, custom-theme recovery, native surface
+capability, and reduced transparency remain host adapters. Unknown or removed
+catalogue IDs resolve to the default of the same appearance and the original
+stored record is preserved. Run `bun run --cwd packages/ui themes:generate`
+after changing the published source; `bun run --cwd packages/ui themes:check`
+verifies the committed generated files are current.
