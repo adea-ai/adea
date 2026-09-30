@@ -45,6 +45,54 @@ Before editing:
 
 If the worktree is dirty, preserve existing changes and avoid overlapping edits until their ownership is clear.
 
+## Module specs: read the spec before touching the subsystem
+
+The hairiest subsystems have a spec page under `docs/specs/`. If you touch the
+code in the left column, read spec Y first — most questions that come up while
+editing are already answered there.
+
+| If you touch                                                                                                                                                                            | Read spec first                                                  | It covers                                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/desktop/shell/src/**`, `apps/web/src/lib/desktop-bridge.ts`, `packages/auth/src/desktop.ts`                                                                                       | [docs/specs/desktop-auth.md](docs/specs/desktop-auth.md)         | One cloud origin, the PKCE handoff, the `adea://` callback, credential vaults, session lifecycles                                              |
+| `apps/desktop/shell/src/**`, `apps/web/src/lib/desktop-bridge.ts`                                                                                                                       | [docs/specs/local-content.md](docs/specs/local-content.md)       | Encryption and AAD, keyring keys, rotation, trusted-window and workspace authority, threat model                                               |
+| `apps/desktop/shell/src/**`, the desktop release lane                                                                                                                                   | [docs/specs/updater.md](docs/specs/updater.md)                   | Release channel, signing keys, approval and version guards, update state machine                                                               |
+| `packages/db/src/{event-contract,event-log,transactions}.ts`, `apps/web/src/server/{event-cursor,workspace-event-stream}.ts`, `packages/data/src/events.ts`                             | [docs/specs/workspace-events.md](docs/specs/workspace-events.md) | Durable event log and per-workspace sequences, payload redaction, the authenticated SSE stream (cursor, replay, resync), the realtime client   |
+| `packages/db/src/runtime-nodes.ts`, `apps/web/src/server/runtime-node-{proof,request}.ts`, the runtime node routes                                                                      | [docs/specs/runtime-nodes.md](docs/specs/runtime-nodes.md)       | Node identity and pairing, signing vs command-encryption keys, one-time challenges and exchange credentials, rotation, revocation, eligibility |
+| `packages/db/src/content-replicas.ts`, `packages/db/src/schema/content-replicas.ts`, and their API routes                                                                               | [docs/specs/content-replicas.md](docs/specs/content-replicas.md) | Cloud-safe encrypted replica storage, physical identity, idempotent replay, digest conflicts, and stale revision handling                      |
+| `packages/remote-content/**`                                                                                                                                                            | [docs/specs/remote-content.md](docs/specs/remote-content.md)     | Versioned RFC 9180 remote command/result envelope, canonical AAD, bounds, fail-closed parsing, and the native/key-lifecycle boundary           |
+| `packages/dev-view/src/**`, `packages/types/src/dev-runtime.ts`, `packages/data/src/dev-runtime.ts`, `apps/web/src/lib/desktop-dev-runtime.ts`, `apps/desktop/shell/src/dev-runtime/**` | [docs/specs/dev-runtime.md](docs/specs/dev-runtime.md)           | Dev View projects, worktrees, terminals, files/git, harness sessions, browser/device lanes, resources, usage, archive, and cleanup             |
+
+For any Dev Runtime row, also read ADR 0009, the exact
+`docs/specs/dev-runtime-operations.json`, the donor audit, the exact
+`docs/research/dev-view-source-manifest.json`, the implementation guide, and the
+M12 plan before editing; the manifest is the checkout/source/test handoff, not
+optional background.
+
+A change to the behaviour a spec describes lands **in the same commit** as the
+update to that page. `scripts/check-docs.mjs` (run by
+`scripts/docs-boundary.test.ts`) fails the build when a spec is orphaned, a
+routed spec is missing, or a relative link between docs stops resolving.
+
+## Shared UI enforcement (mandatory)
+
+The oxlint config loads `@adea-ai/ui/lint`, the design system's own plugin, and
+its two rules are errors:
+
+- `adea/no-raw-interactive-elements` — `button`, `input`, `textarea`, `select`,
+  `option` and `label` are composed from the shared primitives
+  (`@adea-ai/ui/components/ui/*`), never written as raw markup. A raw element has
+  no keyboard story, no focus behaviour and no token styling; the primitive
+  already did that work. When the rule fires, the fix is to use the primitive it
+  names — not to suppress the rule.
+- `adea/no-primitive-library-imports` — Kobalte and the other primitive libraries
+  are the design system's internal affair. Import the exported component.
+
+Code that predates the rules is exempted **by path** in one override block in
+`.oxlintrc.json`. That block is a ratchet: it only shrinks. Adding a file to it
+is a reviewed change with a stated reason, never a convenience; adding new code
+to an exempted file is subject to the same review. Do not widen the rule options'
+allow-lists for the same reason.
+
 ## Priorities
 
 When instructions conflict, use this order:
@@ -174,6 +222,55 @@ At minimum:
 - Mixed projects: validate each active ecosystem and its integration boundaries
 
 If a check cannot run, state the exact reason. A skipped check is not a passing check.
+
+## Design-system styling (enforced by `@shadcn/lint`)
+
+`@shadcn/lint` runs inside oxlint via `jsPlugins` in the root `.oxlintrc.json`;
+`bun run lint` (per-package `oxlint` through turbo) enforces it. Fix every
+shadcn finding the same way you fix a type error.
+
+- Design-system components come from `@adea-ai/app-ui/components` for Adea's
+  app-local adapters and `@adea-ai/ui/components` for the published shared
+  package, alongside `@adea-ai/workspace-ui`. On those components, `class` may set layout only
+  (margin, width, positioning). Appearance changes must come from the
+  component's own variants or `size` props — do not pass padding, color,
+  typography, or shape classes.
+- The project's named CSS hooks are the sanctioned escape hatch:
+  `conventional-*`, `dev-*`, `global-*`, `plugin-*`, `plugins-*`, `virtual-*`,
+  `workspace-*`, `visually-hidden` (defined in `packages/ui/src/styles/`).
+  Add new hooks in those stylesheets rather than restyling a component
+  inline.
+- Colors come from the tokens in `packages/ui/src/styles/theme.css`
+  (`bg-primary`, `text-muted-foreground`, `bg-scrim/*`, …). Declare a
+  `--color-*` token there before using a new color; never use raw palette
+  classes such as `bg-slate-950` or `text-emerald-700`. Even the
+  linter-accepted `white`/`black` should go through the scrim tokens
+  (`bg-scrim/*`, `text-scrim-foreground`, `border-scrim-edge/*`) — they are
+  theme-invariant on purpose, not free-form.
+- Overlays stack on the named scale `--z-drawer`/`--z-dialog`/`--z-menu`/
+  `--z-tooltip` (theme.css); use `z-(--z-*)`, never a one-off `z-[N]`.
+- This is a Solid codebase: primitives are `@kobalte/core` (+ `@corvu/drawer`).
+  `no-restricted-imports` blocks `react`, `@radix-ui/*`, Base UI, Ark, Zag,
+  react-aria, and friends — they will not run here.
+- No arbitrary values (`p-[13px]`), no inline `style` props or `<style>`
+  elements, no `space-x-*`/`space-y-*` (use `flex` + `gap-*`), use `size-*`
+  when width and height are equal.
+- `require-static-classes` is an error: every class on a design-system
+  component must be statically readable so the other rules can check it.
+  To give a Kobalte trigger button styling use its polymorphic
+  `as={Button}` + `variant`/`size` props rather than
+  `cn(buttonVariants(...), ...)`. For conditional classes use `cn`'s
+  object-key form (`cn('base', { 'hook--on': cond })`) — never `classList`
+  (invisible to the linter) or `` `base--${value}` `` templates. Genuine
+  `props.class` forwarding (e.g. `ModalDialog`) gets a scoped
+  `oxlint-disable-next-line` comment explaining why.
+- `packages/ui/src/components/**` is exempt from the restyle, arbitrary-value,
+  inline-style, and static-class rules — that is where the design system
+  defines itself.
+- Lint is zero-warning: the `suspicious` category and every shadcn rule are
+  errors. Newly injected `__DOUBLE_UNDERSCORE__` globals must be added to the
+  `no-underscore-dangle` allow list in `.oxlintrc.json` — they are external
+  contracts (vite defines, shell bridge), so name them deliberately.
 
 ## Tests and coverage
 
