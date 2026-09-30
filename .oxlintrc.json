@@ -1,19 +1,10 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "jsPlugins": [
-    "@shadcn/lint",
-    "@adea-ai/ui/lint"
-  ],
+  "jsPlugins": ["@shadcn/lint", "@adea-ai/ui/lint"],
   "settings": {
     "shadcn": {
-      "ui": [
-        "@adea-ai/app-ui/components",
-        "@adea-ai/ui/components",
-        "@adea-ai/workspace-ui"
-      ],
-      "componentImports": [
-        "^#components/"
-      ],
+      "ui": ["@adea-ai/app-ui/components", "@adea-ai/ui/components", "@adea-ai/workspace-ui"],
+      "componentImports": ["^#components/"],
       "note": "Design-system rules cover both @adea-ai/app-ui (Adea legacy adapters) and @adea-ai/ui (published shared components). See packages/ui/src/styles/theme.css for colors."
     }
   },
@@ -176,13 +167,12 @@
       ],
       "rules": {
         "adea/no-raw-interactive-elements": "off",
-        "adea/no-primitive-library-imports": "off"
+        "adea/no-primitive-library-imports": "off",
+        "adea/no-interactive-wrappers": "off"
       }
     },
     {
-      "files": [
-        "packages/ui/src/components/**"
-      ],
+      "files": ["packages/ui/src/components/**"],
       "rules": {
         "shadcn/no-restyle": "off",
         "shadcn/no-arbitrary-values": "off",
