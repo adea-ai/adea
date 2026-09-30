@@ -13,17 +13,24 @@ import {
   Wrench,
   X,
 } from 'lucide-solid'
-import { createMemo, createSignal, For, Show } from 'solid-js'
+import { createMemo, createSignal, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
+import {
+  Board,
+  BoardCardBody,
+  BoardCardTitle,
+  type BoardColumn,
+  type BoardMove,
+} from '@adea-ai/ui/components/ui/board'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import { keyedRows } from './keyed-rows'
+import { keyedRows, type KeyedRow } from './keyed-rows'
 import { TaskDetail } from './task-detail'
 import type { PrivateContentResolver } from './platform'
 import { TaskObjective } from './private-task-objective'
@@ -75,6 +82,7 @@ const columns = [
   { id: 'completed' as const, label: 'Completed' },
   { id: 'cancelled' as const, label: 'Cancelled' },
 ]
+type TaskState = TaskSummary['lifecycleState']
 
 // Mirrors the server transition map in packages/db/src/tasks.ts. Cards may only
 // be dropped on columns the Task can legally transition to.
@@ -89,16 +97,6 @@ const validTransitions: Record<
   in_progress: ['in_review', 'completed', 'cancelled', 'archived'],
   in_review: ['in_progress', 'completed', 'cancelled', 'archived'],
   queued: ['in_progress', 'completed', 'cancelled', 'archived'],
-}
-
-const stateLabels: Record<TaskSummary['lifecycleState'], string> = {
-  archived: 'Archived',
-  cancelled: 'Cancelled',
-  completed: 'Completed',
-  created: 'Planned',
-  in_progress: 'In-Progress',
-  in_review: 'In-Review',
-  queued: 'Queued',
 }
 
 const priorityIconFor = {
@@ -141,20 +139,29 @@ export function TaskBoard(props: Props) {
   const [creating, setCreating] = createSignal(false)
   const [error, setError] = createSignal<string | null>(null)
   const [boardError, setBoardError] = createSignal<string | null>(null)
-  const [dragTaskId, setDragTaskId] = createSignal<string | null>(null)
-  const [dropColumnId, setDropColumnId] = createSignal<string | null>(null)
   const selected = createMemo(() => props.tasks.find(({ id }) => id === props.selectedTaskId))
   const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
   const roomById = createMemo(() => new Map(props.rooms.map((room) => [room.id, room])))
-  const dropActions = {
+  const dropActions: Partial<Record<TaskState, (task: TaskSummary) => Promise<void>>> = {
     cancelled: props.onCancel,
     completed: props.onComplete,
     in_progress: props.onStart,
     in_review: props.onReview,
     queued: props.onQueue,
-  } as const
-  const tasksFor = (columnId: TaskSummary['lifecycleState']) =>
-    props.tasks.filter(({ lifecycleState }) => lifecycleState === columnId)
+  }
+  // Board's <For> sees stable wrappers even when the server returns fresh task
+  // objects, so detail triggers and card state survive a workspace refetch.
+  const taskRows = keyedRows(
+    () => props.tasks,
+    (task) => task.id,
+    (previous, next) => previous.version === next.version && previous.updatedAt === next.updatedAt
+  )
+  const boardColumns: BoardColumn[] = columns.map((column) => {
+    const count = createMemo(
+      () => taskRows().filter((entry) => entry.item().lifecycleState === column.id).length
+    )
+    return { ...column, meta: <span>{count()}</span> }
+  })
 
   const queueFromCard = async (task: TaskSummary) => {
     setBoardError(null)
@@ -165,22 +172,28 @@ export function TaskBoard(props: Props) {
     }
   }
 
-  const dropOnColumn = async (columnId: TaskSummary['lifecycleState']) => {
-    const task = props.tasks.find(({ id }) => id === dragTaskId())
-    setDragTaskId(null)
-    setDropColumnId(null)
+  const canMoveTask = (entry: KeyedRow<TaskSummary>, from: string, to: string) => {
+    const task = entry.item()
+    return (
+      task.lifecycleState === from &&
+      Boolean(dropActions[to as TaskState]) &&
+      validTransitions[task.lifecycleState].includes(to as TaskState)
+    )
+  }
+
+  const moveTask = async ({ itemId, from, to }: BoardMove) => {
+    const task = props.tasks.find(({ id }) => id === itemId)
     if (!task) return
-    const action = (dropActions as Partial<typeof dropActions>)[
-      columnId as keyof typeof dropActions
-    ]
-    if (!action) return
-    setBoardError(null)
-    if (!validTransitions[task.lifecycleState].includes(columnId)) {
-      setBoardError(
-        `Tasks cannot move directly from ${stateLabels[task.lifecycleState]} to ${stateLabels[columnId]}.`
-      )
+    const action = dropActions[to as TaskState]
+    // The server owns transition validity; this check prevents stale board
+    // state from sending an action that no longer matches the rendered lane.
+    if (
+      task.lifecycleState !== from ||
+      !action ||
+      !validTransitions[task.lifecycleState].includes(to as TaskState)
+    )
       return
-    }
+    setBoardError(null)
     try {
       await action(task)
     } catch {
@@ -287,129 +300,77 @@ export function TaskBoard(props: Props) {
           />
         }
       >
-        <div class="conventional-task-board" aria-label="Task board">
-          <For each={columns}>
-            {(column) => {
-              const tasks = () => tasksFor(column.id)
-              // Keyed by task id: a task refetch updates cards in place instead
-              // of remounting the column's DOM on every new object identity.
-              const taskRows = keyedRows(
-                tasks,
-                (task) => task.id,
-                (previous, next) =>
-                  previous.version === next.version && previous.updatedAt === next.updatedAt
-              )
-              return (
-                <section
-                  aria-labelledby={`task-column-${column.id}`}
-                  onDragOver={(event) => {
-                    if (dragTaskId()) event.preventDefault()
-                  }}
-                  onDragEnter={() => setDropColumnId(column.id)}
-                  onDragLeave={() =>
-                    setDropColumnId((current) => (current === column.id ? null : current))
-                  }
-                  onDrop={(event) => {
-                    event.preventDefault()
-                    void dropOnColumn(column.id)
-                  }}
-                >
-                  <header>
-                    <h2 id={`task-column-${column.id}`}>{column.label}</h2>
-                    <span>{tasks().length}</span>
-                  </header>
-                  <div
-                    class={`conventional-task-column${dropColumnId() === column.id ? ' conventional-task-column--drop-target' : ''}`}
-                  >
-                    <For each={taskRows()}>
-                      {(entry) => {
-                        const task = entry.item
-                        return (
-                          <article
-                            role="button"
-                            tabIndex={0}
-                            aria-label={task().title}
-                            class={`conventional-task-card${dragTaskId() === task().id ? ' conventional-task-card--dragging' : ''}`}
-                            draggable
-                            onClick={() => {
-                              setBoardError(null)
-                              props.onSelect(task().id)
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault()
-                                setBoardError(null)
-                                props.onSelect(task().id)
-                              }
-                            }}
-                            onDragStart={(event) => {
-                              event.dataTransfer?.setData('text/plain', task().id)
-                              if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-                              setDragTaskId(task().id)
-                            }}
-                            onDragEnd={() => {
-                              setDragTaskId(null)
-                              setDropColumnId(null)
-                            }}
-                          >
-                            <div class="conventional-task-card__header">
-                              <span class="conventional-task-card__kind">
-                                <Dynamic
-                                  component={kindIconFor[task().kind ?? 'feature']}
-                                  aria-hidden="true"
-                                />
-                              </span>
-                              <strong>{task().title}</strong>
-                              <PriorityTag priority={task().priority} />
-                            </div>
-                            <p>
-                              <TaskObjective privateContent={props.privateContent} task={task()} />
-                            </p>
-                            <footer>
-                              <span>
-                                <Bot aria-hidden="true" />
-                                {task().agentId
-                                  ? (agentById().get(task().agentId!)?.name ?? 'Unavailable Agent')
-                                  : 'Unassigned'}
-                              </span>
-                              <span>
-                                <Show
-                                  when={task().roomId ? roomById().get(task().roomId!) : undefined}
-                                >
-                                  {(room) => <RoomIcon functionKey={room().functionKey} />}
-                                </Show>
-                                {task().roomId
-                                  ? (roomById().get(task().roomId!)?.name ?? 'Unavailable Room')
-                                  : 'No Room'}
-                              </span>
-                              <Show when={task().lifecycleState === 'created'}>
-                                <Button
-                                  type="button"
-                                  variant="success"
-                                  size="xs"
-                                  class="conventional-task-card__footer-action"
-                                  disabled={props.busy}
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    void queueFromCard(task())
-                                  }}
-                                  onKeyDown={(event) => event.stopPropagation()}
-                                >
-                                  <Play aria-hidden="true" />
-                                  Start
-                                </Button>
-                              </Show>
-                            </footer>
-                          </article>
-                        )
+        <Board
+          columns={boardColumns}
+          items={taskRows()}
+          itemId={(entry) => entry.item().id}
+          itemColumn={(entry) => entry.item().lifecycleState}
+          canDrop={canMoveTask}
+          onMove={(move) => void moveTask(move)}
+          label="Task board"
+          class="conventional-task-board"
+          emptyColumn={() => 'No tasks'}
+        >
+          {(entry) => {
+            const task = entry.item
+            return (
+              <BoardCardBody>
+                <div class="conventional-task-card__header">
+                  <span class="conventional-task-card__kind">
+                    <Dynamic component={kindIconFor[task().kind ?? 'feature']} aria-hidden="true" />
+                  </span>
+                  <BoardCardTitle size="sm" class="min-w-0 flex-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      class="w-full justify-start"
+                      onClick={() => {
+                        setBoardError(null)
+                        props.onSelect(task().id)
                       }}
-                    </For>
-                  </div>
-                </section>
-              )
-            }}
-          </For>
-        </div>
+                    >
+                      {task().title}
+                    </Button>
+                  </BoardCardTitle>
+                  <PriorityTag priority={task().priority} />
+                </div>
+                <p class="conventional-task-card__objective">
+                  <TaskObjective privateContent={props.privateContent} task={task()} />
+                </p>
+                <footer class="conventional-task-card__metadata">
+                  <span>
+                    <Bot aria-hidden="true" />
+                    {task().agentId
+                      ? (agentById().get(task().agentId!)?.name ?? 'Unavailable Agent')
+                      : 'Unassigned'}
+                  </span>
+                  <span>
+                    <Show when={task().roomId ? roomById().get(task().roomId!) : undefined}>
+                      {(room) => <RoomIcon functionKey={room().functionKey} />}
+                    </Show>
+                    {task().roomId
+                      ? (roomById().get(task().roomId!)?.name ?? 'Unavailable Room')
+                      : 'No Room'}
+                  </span>
+                  <Show when={task().lifecycleState === 'created'}>
+                    <Button
+                      type="button"
+                      variant="success"
+                      size="xs"
+                      class="conventional-task-card__footer-action"
+                      disabled={props.busy}
+                      onClick={() => void queueFromCard(task())}
+                    >
+                      <Play aria-hidden="true" />
+                      Start
+                    </Button>
+                  </Show>
+                </footer>
+              </BoardCardBody>
+            )
+          }}
+        </Board>
       </Show>
       {/* Keyed: the detail panel's entire editor state — title, objective,
           kind, priority, agent, room, dependencies, and the `version` it
