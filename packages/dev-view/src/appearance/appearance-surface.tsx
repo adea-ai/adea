@@ -17,6 +17,8 @@ import {
 } from '@adea-ai/app-ui/components/appearance'
 import { useTheme } from '@adea-ai/app-ui/components/theme-provider'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { createMemo, createSignal, onCleanup, onMount, untrack } from 'solid-js'
 import { MonitorCog } from 'lucide-solid'
@@ -240,8 +242,8 @@ export function AppearancePanel() {
         class="conventional-dialog conventional-theme-library-dialog"
       >
         <div class="conventional-theme-library">
-          <label class="conventional-theme-library__import">
-            <input
+          <Label class="conventional-theme-library__import">
+            <Input
               type="file"
               accept=".json,application/json"
               class="sr-only"
@@ -252,7 +254,7 @@ export function AppearancePanel() {
               }}
             />
             Import a theme file (.json)
-          </label>
+          </Label>
           <Show when={importStatus()}>
             <p class="conventional-theme-library__status" role="status">
               {importStatus()}

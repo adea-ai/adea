@@ -730,14 +730,22 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
   await composer.press('Shift+Enter')
   await composer.type('with attached notes')
   await page.getByRole('button', { name: 'Attach an Artifact' }).click()
-  await page.locator('.conventional-attachment-menu').getByRole('checkbox').check()
+  await page
+    .locator('.conventional-attachment-menu label')
+    .filter({ hasText: 'launch-brief.md' })
+    .click()
+  await expect(page.locator('.conventional-attachment-menu').getByRole('checkbox')).toBeChecked()
   await expect(
     page.getByRole('button', { name: '1 Artifact attached, add an Artifact' })
   ).toBeVisible()
   await page.getByRole('button', { name: 'Remove launch-brief.md' }).click()
   await expect(page.getByRole('button', { name: 'Attach an Artifact' })).toBeVisible()
   await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
-  await page.locator('.conventional-attachment-menu').getByRole('checkbox').check()
+  await page
+    .locator('.conventional-attachment-menu label')
+    .filter({ hasText: 'launch-brief.md' })
+    .click()
+  await expect(page.locator('.conventional-attachment-menu').getByRole('checkbox')).toBeChecked()
   await expect(
     page.getByRole('button', { name: '1 Artifact attached, add an Artifact' })
   ).toBeVisible()
@@ -768,7 +776,11 @@ test('keeps the room draft and attachments after a failed send, then clears on r
   const draft = 'Keep this draft when the connection fails.'
   await composer.fill(draft)
   await page.getByRole('button', { name: 'Attach an Artifact' }).click()
-  await page.locator('.conventional-attachment-menu').getByRole('checkbox').check()
+  await page
+    .locator('.conventional-attachment-menu label')
+    .filter({ hasText: 'launch-brief.md' })
+    .click()
+  await expect(page.locator('.conventional-attachment-menu').getByRole('checkbox')).toBeChecked()
   await page.getByRole('button', { name: 'Send message' }).first().click()
 
   await expect(

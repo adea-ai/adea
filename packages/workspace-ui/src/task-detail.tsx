@@ -22,6 +22,9 @@ import {
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
+import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import {
   Drawer,
   DrawerCloseButton,
@@ -240,18 +243,18 @@ export function TaskDetail(props: Props) {
               <X aria-hidden="true" />
             </DrawerCloseButton>
           </header>
-          <label>
+          <Label>
             Title
-            <input
+            <Input
               value={title()}
               maxLength={200}
               disabled={fieldsDisabled()}
               onInput={(event) => setTitle(event.currentTarget.value)}
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Description
-            <textarea
+            <Textarea
               rows={4}
               maxLength={20000}
               placeholder={
@@ -263,7 +266,7 @@ export function TaskDetail(props: Props) {
               disabled={fieldsDisabled()}
               onInput={(event) => setObjective(event.currentTarget.value)}
             />
-          </label>
+          </Label>
           <Separator class="conventional-detail-panel__divider" />
           <div class="conventional-detail-panel__grid">
             <div class="conventional-detail-panel__field">
@@ -416,7 +419,7 @@ export function TaskDetail(props: Props) {
           <Separator class="conventional-detail-panel__divider" />
           <fieldset>
             <legend>Dependencies</legend>
-            <input
+            <Input
               type="search"
               placeholder="Search tasks…"
               aria-label="Search tasks to link as dependencies"

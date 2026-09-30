@@ -1,6 +1,8 @@
 import { createSignal, Show, type JSX } from 'solid-js'
 import { ChatComposer as SharedChatComposer } from '@adea-ai/ui/components/conversation'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Label } from '@adea-ai/ui/components/ui/label'
+import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 
 import type { ChatConversation } from './model'
 import { chatComposerDisabledReason } from './composer-availability'
@@ -174,73 +176,82 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
         context={
           <div>
             <div class="dev-chat__composer-controls" aria-label="Launch mode">
-              <label for="dev-chat-composer-agent">Agent</label>
+              <Label for="dev-chat-composer-agent">Agent</Label>
               <Show
                 when={props.agentProfiles && props.agentProfiles.length > 0}
                 fallback={<span>{props.agentProfile?.label ?? 'Select an agent profile'}</span>}
               >
-                <select
+                <NativeSelect
                   id="dev-chat-composer-agent"
                   value={props.agentProfile?.id ?? ''}
                   onChange={(event) => props.onAgentProfileChange?.(event.currentTarget.value)}
-                >
-                  <option value="">Select an agent profile</option>
-                  {props.agentProfiles?.map((profile) => (
-                    <option value={profile.id}>{profile.label}</option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: 'Select an agent profile' },
+                    ...(props.agentProfiles ?? []).map((profile) => ({
+                      value: profile.id,
+                      label: profile.label,
+                    })),
+                  ]}
+                />
               </Show>
-              <label for="dev-chat-composer-mode">Mode</label>
-              <select
+              <Label for="dev-chat-composer-mode">Mode</Label>
+              <NativeSelect
                 id="dev-chat-composer-mode"
                 value={mode()}
                 onChange={(event) => selectMode(event.currentTarget.value as ComposerMode)}
-              >
-                <option value="auto">Auto</option>
-                <option value="customize">Customize</option>
-              </select>
+                options={[
+                  { value: 'auto', label: 'Auto' },
+                  { value: 'customize', label: 'Customize' },
+                ]}
+              />
             </div>
             <Show when={mode() === 'customize' && props.customization}>
               {(customization) => (
                 <div class="dev-chat__composer-controls" aria-label="Customize launch pins">
-                  <label for="dev-chat-composer-harness">Harness</label>
-                  <select
+                  <Label for="dev-chat-composer-harness">Harness</Label>
+                  <NativeSelect
                     id="dev-chat-composer-harness"
                     value={customization().harnessId ?? ''}
                     onChange={(event) =>
                       customization().onHarnessChange?.(event.currentTarget.value)
                     }
-                  >
-                    <option value="">Control Plane default</option>
-                    {customization().harnessOptions.map((option) => (
-                      <option value={option.id}>{option.label}</option>
-                    ))}
-                  </select>
-                  <label for="dev-chat-composer-model">Model</label>
-                  <select
+                    options={[
+                      { value: '', label: 'Control Plane default' },
+                      ...customization().harnessOptions.map((option) => ({
+                        value: option.id,
+                        label: option.label,
+                      })),
+                    ]}
+                  />
+                  <Label for="dev-chat-composer-model">Model</Label>
+                  <NativeSelect
                     id="dev-chat-composer-model"
                     value={customization().modelId ?? ''}
                     onChange={(event) => customization().onModelChange?.(event.currentTarget.value)}
-                  >
-                    <option value="">Control Plane default</option>
-                    {customization().modelOptions.map((option) => (
-                      <option value={option.id}>{option.label}</option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: '', label: 'Control Plane default' },
+                      ...customization().modelOptions.map((option) => ({
+                        value: option.id,
+                        label: option.label,
+                      })),
+                    ]}
+                  />
                   <Show when={(customization().runtimeOptions ?? []).length > 0}>
-                    <label for="dev-chat-composer-runtime">Location</label>
-                    <select
+                    <Label for="dev-chat-composer-runtime">Location</Label>
+                    <NativeSelect
                       id="dev-chat-composer-runtime"
                       value={customization().runtimeDefinitionId ?? ''}
                       onChange={(event) =>
                         customization().onRuntimeChange?.(event.currentTarget.value)
                       }
-                    >
-                      <option value="">Control Plane default</option>
-                      {(customization().runtimeOptions ?? []).map((option) => (
-                        <option value={option.id}>{option.label}</option>
-                      ))}
-                    </select>
+                      options={[
+                        { value: '', label: 'Control Plane default' },
+                        ...(customization().runtimeOptions ?? []).map((option) => ({
+                          value: option.id,
+                          label: option.label,
+                        })),
+                      ]}
+                    />
                   </Show>
                 </div>
               )}

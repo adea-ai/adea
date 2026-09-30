@@ -8,6 +8,7 @@ import {
 } from './transport'
 import type { ShellObservation } from './blocks'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
 
 /**
  * Small fixture renderer for the authenticated terminal journey.
@@ -117,7 +118,7 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
       </ul>
       <Show when={searchOpen()}>
         <div aria-label="Search terminal" class="dev-terminal-search" role="search">
-          <input
+          <Input
             aria-label="Search terminal"
             ref={setSearchInput}
             type="search"
@@ -132,7 +133,7 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
           </Button>
         </div>
       </Show>
-      <input
+      <Input
         aria-label="Compose terminal input"
         onKeyDown={(event) => {
           if (event.key !== 'Enter') return

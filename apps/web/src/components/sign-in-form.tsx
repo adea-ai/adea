@@ -1,5 +1,7 @@
 import { createSignal, onMount, Show } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 
 type AuthMode = 'sign-in' | 'sign-up'
 
@@ -110,15 +112,15 @@ export function SignInForm(props: { returnTo: string }) {
 
       <form class="browser-auth-form" onSubmit={submit}>
         <Show when={mode() === 'sign-up'}>
-          <label for="name">
+          <Label for="name">
             Display name
-            <input id="name" name="name" autocomplete="name" required disabled={pending()} />
-          </label>
+            <Input id="name" name="name" autocomplete="name" required disabled={pending()} />
+          </Label>
         </Show>
 
-        <label for="email">
+        <Label for="email">
           Email
-          <input
+          <Input
             id="email"
             name="email"
             type="email"
@@ -127,11 +129,11 @@ export function SignInForm(props: { returnTo: string }) {
             required
             disabled={pending()}
           />
-        </label>
+        </Label>
 
-        <label for="password">
+        <Label for="password">
           Password
-          <input
+          <Input
             id="password"
             name="password"
             type="password"
@@ -140,7 +142,7 @@ export function SignInForm(props: { returnTo: string }) {
             required
             disabled={pending()}
           />
-        </label>
+        </Label>
 
         <p class="browser-auth-error" role="status" aria-live="polite">
           {error()}

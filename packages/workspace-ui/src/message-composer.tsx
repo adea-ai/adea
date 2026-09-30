@@ -7,6 +7,7 @@ import {
   MessageComposer as SharedMessageComposer,
 } from '@adea-ai/ui/components/conversation'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from './platform'
 import { keyedRows } from './keyed-rows'
@@ -220,22 +221,19 @@ export function MessageComposer(props: {
                 <strong>Attach Artifact</strong>
                 <For each={artifactRows()}>
                   {(entry) => (
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={attachmentIds().includes(entry.item().id)}
-                        disabled={entry.item().availability !== 'available'}
-                        onChange={(event) =>
-                          setAttachmentIds((ids) =>
-                            event.currentTarget.checked
-                              ? [...ids, entry.item().id]
-                              : ids.filter((id) => id !== entry.item().id)
-                          )
-                        }
-                      />
-                      <span>{entry.item().filename}</span>
-                      <small>{entry.item().availability}</small>
-                    </label>
+                    <Checkbox
+                      label={<span>{entry.item().filename}</span>}
+                      description={<small>{entry.item().availability}</small>}
+                      checked={attachmentIds().includes(entry.item().id)}
+                      disabled={entry.item().availability !== 'available'}
+                      onChange={(checked: boolean) =>
+                        setAttachmentIds((ids) =>
+                          checked
+                            ? [...ids, entry.item().id]
+                            : ids.filter((id) => id !== entry.item().id)
+                        )
+                      }
+                    />
                   )}
                 </For>
               </div>
