@@ -6,7 +6,7 @@ import {
   configurableCharacterId,
   isPlausibleCharacterId,
   readSceneStartPosition,
-} from '@adea-ai/spatial-protocol'
+} from '@adea-ai/spatial'
 import { WorkspaceEntry } from '../components/workspace-entry'
 import { parseWorkspaceSearch } from './search-codec.mjs'
 import { workspaceSelection } from './workspace-selection.mjs'

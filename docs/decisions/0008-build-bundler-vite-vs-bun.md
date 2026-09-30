@@ -165,8 +165,8 @@ server chunks: `router-*.js` 659.66 KB (gzip 123.49), `request-scope-*.js`
 
 ## TypeScript-only packages: Bun cannot replace `tsc`
 
-Eight packages (`types`, `api-client`, `app-core`, `asset-manifests`, `auth`,
-`db`, `state`, `spatial-protocol`) publish per-module ESM emitted by `tsc`, and
+Seven packages (`types`, `api-client`, `app-core`, `spatial`, `auth`,
+`db`, `state`) publish per-module ESM emitted by `tsc`, and
 they still need `tsc` for declarations. The candidate was Bun's `bundle: false`
 transpile, which is what its name suggests only in the single-file case:
 

@@ -148,7 +148,7 @@ jobs:
       - name: Pack Agent Sim engine
         # Official builds pack the private Agent Sim engine into the desktop
         # bundle, which is what entitles them to mount the virtual view (see
-        # packages/spatial-protocol/src/engine.ts). The pack is the prebuilt
+        # packages/spatial/src/engine.ts). The pack is the prebuilt
         # `agent-sim-export.tar.zst` release asset on adea-ai/agent-sim at the
         # AGENT_SIM_REF tag (its `export/` is gitignored there, so a clone can
         # never contain it); AGENT_SIM_DEPLOY_TOKEN is a fine-grained PAT with
