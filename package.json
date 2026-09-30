@@ -54,7 +54,7 @@
     "release-please": "17.11.2",
     "tailwindcss": "^4.3.3",
     "turbo": "^2.10.12",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.0"
   },
   "overrides": {
     "@capacitor/android": "8.5.0",
