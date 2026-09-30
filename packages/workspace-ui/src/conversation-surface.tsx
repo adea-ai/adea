@@ -338,11 +338,11 @@ export function ConversationSurface(props: {
           detail="Rooms keep durable work, Agents, Tasks, and conversation history together."
         />
       }
-  >
+    >
       {(channel) => (
         <section
           class={`conventional-conversation${root() ? ' conventional-conversation--thread-open' : ''}`}
-      >
+        >
           <header class="conventional-conversation__header">
             <div class="conventional-conversation__header-top">
               <div class="conventional-conversation__identity">
@@ -361,7 +361,7 @@ export function ConversationSurface(props: {
                   <TooltipTrigger
                     aria-label="Search this conversation"
                     onClick={() => props.onOpenSearch()}
-                >
+                  >
                     <Search aria-hidden="true" />
                   </TooltipTrigger>
                   <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
@@ -372,7 +372,7 @@ export function ConversationSurface(props: {
                   <TooltipTrigger
                     aria-label="Mark conversation unread"
                     onClick={() => void props.onMarkUnread()}
-                >
+                  >
                     <MailOpen aria-hidden="true" />
                   </TooltipTrigger>
                   <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
@@ -383,7 +383,7 @@ export function ConversationSurface(props: {
                   <TooltipTrigger
                     aria-label="Open conversation details"
                     onClick={() => props.onOpenDetails()}
-                >
+                  >
                     <Info aria-hidden="true" />
                   </TooltipTrigger>
                   <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
@@ -402,10 +402,10 @@ export function ConversationSurface(props: {
                       }
                       aria-label={person.label}
                       title={person.label}
-                  >
+                    >
                       <span
                         class={`conventional-conversation__person-avatar conventional-conversation__person-avatar--${person.kind}`}
-                    >
+                      >
                         <ConversationAvatar kind={person.kind} avatarRef={person.avatarRef} />
                       </span>
                       <Show when={person.active}>
@@ -424,7 +424,7 @@ export function ConversationSurface(props: {
             onScroll={(event) => {
               liveScrollTop = event.currentTarget.scrollTop
             }}
-        >
+          >
             <Show when={(messageQuery.isPending || !pageBelongsToChannel()) && !messages().length}>
               <WorkspaceSkeleton label="Loading messages" />
             </Show>
@@ -441,7 +441,7 @@ export function ConversationSurface(props: {
                 pageBelongsToChannel() &&
                 !rootMessages().length
               }
-          >
+            >
               <WorkspaceEmpty
                 title={
                   directAgent()
@@ -498,7 +498,7 @@ export function ConversationSurface(props: {
                   class="conventional-load-more"
                   disabled={messageQuery.isFetching}
                   onClick={() => setCursor(nextSequence())}
-              >
+                >
                   {messageQuery.isFetching ? 'Loading…' : 'Load newer messages'}
                 </Button>
               )}
@@ -526,7 +526,7 @@ export function ConversationSurface(props: {
                 </aside>
               </Show>
             }
-        >
+          >
             {(rootMessage) => (
               <ThreadPanel
                 agents={props.agents}

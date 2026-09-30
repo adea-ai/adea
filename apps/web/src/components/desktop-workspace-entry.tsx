@@ -378,11 +378,7 @@ function DesktopStartSurface(props: {
               Try again
             </Button>
             <Show when={props.showSignIn}>
-              <Button
-                type="button"
-            variant="outline"
-                onClick={() => props.onSignIn()}
-              >
+              <Button type="button" variant="outline" onClick={() => props.onSignIn()}>
                 Sign in
               </Button>
             </Show>

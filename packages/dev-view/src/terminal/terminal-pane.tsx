@@ -157,7 +157,7 @@ export function TerminalPane(props: TerminalPaneProps) {
   )
   const [cwd, setCwd] = createSignal<
     { cwd: string; source: 'authenticated' | 'stream' } | undefined
->(undefined)
+  >(undefined)
   const [hasSelection, setHasSelection] = createSignal(false)
   const [surfacePaste, setSurfacePaste] = createSignal<string | undefined>(undefined)
   const [announcement, setAnnouncement] = createSignal('')
@@ -567,13 +567,13 @@ export function TerminalPane(props: TerminalPaneProps) {
       data-worktree-id={props.worktreeId}
       data-attach-from={props.fromSequence}
       onKeyDown={onSectionKeyDown}
-  >
+    >
       <header class="dev-terminal-pane-header">
         <span
           class="dev-terminal-pane-status"
           data-state={connection()}
           data-error={connectionError()?.code}
-      >
+        >
           {connectionError()?.message ?? connection()}
         </span>
         <Show when={props.worktreeLabel}>
@@ -583,7 +583,7 @@ export function TerminalPane(props: TerminalPaneProps) {
           class="dev-terminal-pane-integration"
           data-status={integrationPresent().status}
           title={integrationPresent().detail}
-      >
+        >
           {integrationPresent().label}
         </span>
         <Show when={cwd()}>
@@ -592,7 +592,7 @@ export function TerminalPane(props: TerminalPaneProps) {
               class="dev-terminal-pane-cwd"
               data-cwd-source={current().source}
               title={current().cwd}
-          >
+            >
               {current().cwd}
             </span>
           )}
@@ -603,7 +603,7 @@ export function TerminalPane(props: TerminalPaneProps) {
           data-degraded={clipboardPresent().degraded ? 'true' : undefined}
           disabled={!hasSelection()}
           onClick={() => void copySelection()}
-      >
+        >
           {clipboardPresent().label}
         </Button>
         <Show when={clipboardPresent().hint}>
@@ -623,7 +623,7 @@ export function TerminalPane(props: TerminalPaneProps) {
                   ? `${block.command}, exit ${block.exitCode}, ${block.durationMs} milliseconds`
                   : `${block.command}, running`
               }
-          >
+            >
               <code>{block.command}</code>
               <Show when={block.state === 'completed'}>
                 <span class="dev-terminal-block-exit" data-exit={block.exitCode}>
@@ -640,7 +640,7 @@ export function TerminalPane(props: TerminalPaneProps) {
                         setClipboard(applyCopyOutcome(clipboard(), outcome))
                       })
                     }
-                >
+                  >
                     Copy
                   </Button>
                 )}
@@ -673,7 +673,7 @@ export function TerminalPane(props: TerminalPaneProps) {
                   setSearch(searchConsumeStep(stepped))
                 }
               }}
-          >
+            >
               ↑
             </Button>
             <Button
@@ -688,7 +688,7 @@ export function TerminalPane(props: TerminalPaneProps) {
                   setSearch(searchConsumeStep(stepped))
                 }
               }}
-          >
+            >
               ↓
             </Button>
             <Button type="button" aria-label="Close search" onClick={closeSearch}>
@@ -732,7 +732,7 @@ export function TerminalPane(props: TerminalPaneProps) {
             </Button>
           </div>
         }
-    >
+      >
         <div class="dev-terminal-editor">
           <textarea
             rows={2}
@@ -796,7 +796,7 @@ export function TerminalPane(props: TerminalPaneProps) {
                   type="button"
                   onClick={() => pickShellProfile(profile.id)}
                   aria-pressed={shellSelection().selectedProfileId === profile.id}
-              >
+                >
                   {profile.label}
                   <span class="dev-terminal-shell-path">{profile.argv.join(' ')}</span>
                 </Button>

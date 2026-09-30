@@ -21,7 +21,7 @@ export function SidebarToggleButton(props: {
       aria-label={props.expanded ? 'Close workspace navigation' : 'Open workspace navigation'}
       aria-expanded={props.expanded}
       onClick={() => props.onToggle(!props.expanded)}
-  >
+    >
       <Show when={props.expanded} fallback={<PanelLeftOpen aria-hidden="true" />}>
         <PanelLeftClose aria-hidden="true" />
       </Show>

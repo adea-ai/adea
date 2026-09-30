@@ -133,15 +133,16 @@ export function MiniPreview(props: { lane?: BrowserLane; onClose(): void }) {
           '--mini-radius': `${PREVIEW_MINI_PLAYER_CORNER_RADIUS}px`,
         }}
         aria-label="Floating browser preview"
-    >
+      >
         <div class="dev-browser-mini__status">
           <Button
             type="button"
-            variant="outline" size="icon-sm"
+            variant="outline"
+            size="icon-sm"
             aria-label="Close floating preview"
             onClick={props.onClose}
             onPointerDown={(event) => event.stopPropagation()}
-        >
+          >
             ×
           </Button>
         </div>
@@ -149,7 +150,7 @@ export function MiniPreview(props: { lane?: BrowserLane; onClose(): void }) {
           class="dev-browser-mini__viewport"
           data-empty={props.lane ? 'false' : 'true'}
           role="status"
-      >
+        >
           <Show when={props.lane} fallback={<span>No lane attached</span>}>
             {(lane) => (
               <span class="dev-terminal-muted">

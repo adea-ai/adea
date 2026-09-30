@@ -90,14 +90,14 @@ function MessageBody(props: { message: MessageSummary; privateContent?: PrivateC
     <Show
       when={!props.message.deleted}
       fallback={<p class="conventional-message__deleted">Message deleted</p>}
-  >
+    >
       <Show
         when={!(props.message.bodyContentRefId && !props.message.bodyText && !resolvedBody())}
         fallback={
           <div
             class="conventional-private-content"
             role={resolutionState() === 'unavailable' ? 'alert' : 'status'}
-        >
+          >
             <LockKeyhole aria-hidden="true" />
             <div>
               <strong>
@@ -113,18 +113,18 @@ function MessageBody(props: { message: MessageSummary; privateContent?: PrivateC
             </div>
           </div>
         }
-    >
+      >
         <div class="conventional-message__body">
           <For
             each={(props.message.bodyText ?? resolvedBody() ?? '')
               .split(/(```[\s\S]*?```)/g)
               .filter(Boolean)}
-        >
+          >
             {(block) => (
               <Show
                 when={block.startsWith('```') && block.endsWith('```')}
                 fallback={<p>{block}</p>}
-            >
+              >
                 <pre tabIndex={0} aria-label="Code block">
                   <code>{block.slice(3, -3).replace(/^\w+\n/, '')}</code>
                 </pre>
@@ -143,7 +143,7 @@ function ArtifactCard(props: { artifact?: ArtifactSummary; artifactId: string })
     <article
       class="conventional-artifact-card"
       aria-label={`Attachment ${props.artifact?.filename ?? props.artifactId}`}
-  >
+    >
       <File aria-hidden="true" />
       <div>
         <strong>{props.artifact?.filename ?? 'Unavailable Artifact'}</strong>
@@ -190,7 +190,7 @@ export function MessageRow(props: {
       data-message-id={props.message.id}
       tabIndex={props.highlighted ? -1 : undefined}
       aria-busy={props.pending || undefined}
-  >
+    >
       <div class="conventional-message__avatar" aria-hidden="true">
         <ConversationAvatar kind={props.message.sender.kind} avatarRef={senderAgent()?.avatarRef} />
       </div>
@@ -216,7 +216,7 @@ export function MessageRow(props: {
                 type="button"
                 class="conventional-task-link"
                 onClick={() => props.onOpenTask?.(task().id)}
-            >
+              >
                 Task · {task().title}
               </Button>
             )}
@@ -245,7 +245,7 @@ export function MessageRow(props: {
               onClick={() => props.onOpenThread?.(props.message.id)}
               onPointerEnter={() => props.onThreadIntent?.(props.message.id)}
               onFocus={() => props.onThreadIntent?.(props.message.id)}
-          >
+            >
               <MessageSquareReply aria-hidden="true" />
               Thread
             </Button>

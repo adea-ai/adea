@@ -48,7 +48,7 @@ export function AgentStatus(props: { agent: AgentSummary; compact?: boolean }) {
   return (
     <div
       class={`conventional-agent-status${props.compact ? ' conventional-agent-status--compact' : ''}`}
-  >
+    >
       <StatusChip
         detail="Persisted Agent lifecycle and AgentProfile configuration"
         label={status().configuration.label}

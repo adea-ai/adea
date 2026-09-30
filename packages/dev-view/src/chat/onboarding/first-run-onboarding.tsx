@@ -113,10 +113,11 @@ export function FirstRunOnboarding(props: FirstRunOnboardingProps): JSX.Element 
             {(action) => (
               <Button
                 type="button"
-                variant="outline" size="sm"
+                variant="outline"
+                size="sm"
                 disabled={pending() || (action.kind === 'start' && !prompt().trim())}
                 onClick={() => void act(action.kind)}
-            >
+              >
                 {action.label}
               </Button>
             )}

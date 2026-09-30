@@ -86,7 +86,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
   // ── Stop flow: plan → confirm → commit ────────────────────────────────
   const [pendingPlan, setPendingPlan] = createSignal<
     { plan: MutationPlan; record: ProcessRecord } | undefined
->(undefined)
+  >(undefined)
   const [stopError, setStopError] = createSignal<DevError | undefined>(undefined)
   const [stopBusy, setStopBusy] = createSignal(false)
 
@@ -148,24 +148,24 @@ export function ResourcesPane(props: ResourcesPaneProps) {
           aria-label="Refresh resources"
           disabled={!serviceReady()}
           onClick={refresh}
-      >
+        >
           <RefreshCw aria-hidden="true" />
         </Button>
       </div>
       <Show
         when={serviceReady()}
         fallback={<p class="dev-resources__unavailable">Runtime unavailable</p>}
-    >
+      >
         <Show
           when={!snapshot.loading && snapshot()}
           fallback={<p class="dev-resources__note">Loading…</p>}
-      >
+        >
           <section class="dev-resources__section" aria-label="Processes">
             <h3>Processes</h3>
             <Show
               when={rows().length > 0}
               fallback={<p class="dev-resources__note">No Adea-owned processes are running.</p>}
-          >
+            >
               <ul class="dev-resources__list">
                 <For each={rows()}>
                   {(row) => (
@@ -184,7 +184,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
                           class="dev-resources__stop"
                           disabled={stopBusy()}
                           onClick={() => void requestStop(row.record)}
-                      >
+                        >
                           Stop
                         </Button>
                       </Show>
@@ -199,7 +199,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
             <Show
               when={ports().length > 0}
               fallback={<p class="dev-resources__note">No loopback listeners observed.</p>}
-          >
+            >
               <ul class="dev-resources__list">
                 <For each={ports()}>
                   {(port) => (
@@ -237,14 +237,14 @@ export function ResourcesPane(props: ResourcesPaneProps) {
             <Show
               when={cards().length > 0}
               fallback={<p class="dev-resources__note">No usage observations yet.</p>}
-          >
+            >
               <ul class="dev-resources__list">
                 <For each={cards()}>
                   {(card) => (
                     <li
                       class="dev-resources__row"
                       classList={{ 'dev-resources__row--alert': card.failure !== undefined }}
-                  >
+                    >
                       <span class="dev-resources__row-main">
                         <span class="dev-resources__row-title">
                           {card.provider}:{' '}
@@ -274,7 +274,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
             <Show
               when={retained().length > 0}
               fallback={<p class="dev-resources__note">No retained data reported.</p>}
-          >
+            >
               <ul class="dev-resources__list">
                 <For each={retained()}>
                   {(group) => (
@@ -316,7 +316,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
               class="dev-resources__stop"
               disabled={stopBusy()}
               onClick={() => void commitStop()}
-          >
+            >
               Confirm stop
             </Button>
             <Button
@@ -324,7 +324,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
               class="dev-resources__cancel"
               disabled={stopBusy()}
               onClick={() => setPendingPlan(undefined)}
-          >
+            >
               <X aria-hidden="true" /> Cancel
             </Button>
           </div>

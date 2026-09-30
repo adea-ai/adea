@@ -45,7 +45,7 @@ export function RunHistoryPane(props: {
                 type="button"
                 onClick={() => props.onResume?.(row)}
                 aria-label={`Resume harness run generation ${row.generation}`}
-            >
+              >
                 Resume
               </Button>
             </Show>
@@ -59,7 +59,7 @@ export function RunHistoryPane(props: {
                 type="button"
                 onClick={() => props.onJumpToSession?.(row)}
                 aria-label={`Open conversation for run generation ${row.generation}`}
-            >
+              >
                 Conversation
               </Button>
             </Show>
@@ -68,7 +68,7 @@ export function RunHistoryPane(props: {
                 type="button"
                 onClick={() => props.onJumpToTerminal?.(row)}
                 aria-label={`Open terminal for run generation ${row.generation}`}
-            >
+              >
                 Terminal
               </Button>
             </Show>

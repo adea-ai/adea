@@ -482,7 +482,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         }
       }
     | undefined
->(undefined)
+  >(undefined)
   const [projectedGroups, setProjectedGroups] = createSignal<readonly DevGroupFixture[]>([])
   // Fixture mode keeps a local, reorderable copy: `props.groups` itself is
   // readonly E2E input and never mutates.
@@ -511,10 +511,10 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const [announcement, setAnnouncement] = createSignal('')
   const [capabilities, setCapabilities] = createSignal<
     ReadonlyMap<DevCapability, { granted: boolean; reason?: string }>
->(new Map())
+  >(new Map())
   const [capabilitySnapshotStatus, setCapabilitySnapshotStatus] = createSignal<
     'loading' | 'ready' | 'unavailable'
->('loading')
+  >('loading')
   const [archiveShelf, setArchiveShelf] = createSignal<ArchiveShelfState>(beginArchiveShelfLoad())
   /**
    * A latched recovery notice: set the first time a requested selection needs
@@ -1187,18 +1187,20 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         />
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label="Runtime resources"
           aria-pressed={resourcesSheetOpen()}
           onClick={() => setResourcesSheetOpen(!resourcesSheetOpen())}
-      >
+        >
           <Gauge aria-hidden="true" />
         </Button>
       </Show>
       <Show when={props.appMode !== 'source-control'}>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label={focusMode() ? 'Exit focus mode' : 'Enter focus mode'}
           aria-pressed={focusMode()}
           onClick={() => {
@@ -1207,7 +1209,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             schedulePreferences()
             setAnnouncement(next ? 'Focus mode enabled' : 'Focus mode disabled')
           }}
-      >
+        >
           <Maximize2 aria-hidden="true" />
         </Button>
       </Show>
@@ -1222,7 +1224,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         'dev-workspace--left-full': leftFullWidth(),
         'dev-workspace--right-full': rightFullWidth(),
       })}
-  >
+    >
       <a class="dev-skip-link" href="#dev-center">
         Skip to workspace
       </a>
@@ -1233,7 +1235,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           aria-label="Toggle projects sidebar"
           aria-expanded={compactSidebarOpen()}
           onClick={() => setCompactSidebarOpen(!compactSidebarOpen())}
-      >
+        >
           <Columns2 aria-hidden="true" />
         </Button>
         <div class="dev-toolbar__identity">
@@ -1268,7 +1270,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                 })
               )
             }}
-        >
+          >
             <TerminalSquare aria-hidden="true" /> <span>Split pane</span>
           </Button>
           <Button
@@ -1276,7 +1278,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             class="dev-button dev-button--secondary"
             disabled={layout().closed.length === 0}
             onClick={() => updateLayout(undoClosePane)}
-        >
+          >
             <span>Undo close</span>
           </Button>
           <Show when={props.toolbarMount} fallback={utilityControls()}>
@@ -1299,15 +1301,16 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           onKeyDown={(event: KeyboardEvent) => {
             if (event.key === 'Escape') setResourcesSheetOpen(false)
           }}
-      >
+        >
           <div class="dev-resources-sheet__bar">
             <span>Runtime resources</span>
             <Button
               type="button"
-              variant="outline" size="icon-sm"
+              variant="outline"
+              size="icon-sm"
               aria-label="Close runtime resources"
               onClick={() => setResourcesSheetOpen(false)}
-          >
+            >
               <X aria-hidden="true" />
             </Button>
           </div>
@@ -1412,7 +1415,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           id="dev-center"
           aria-label="Developer workspace panes"
           tabIndex={-1}
-      >
+        >
           <Suspense fallback={<p class="dev-pane-state__line">Loading workspace panes…</p>}>
             <DevLayoutView
               state={layout()}
@@ -1574,7 +1577,7 @@ function UtilityToolbarToggle(props: {
       title={props.label}
       aria-pressed={props.pressed}
       onClick={props.onClick}
-  >
+    >
       <props.icon aria-hidden="true" /> <span>{props.label}</span>
     </Button>
   )
@@ -1646,13 +1649,13 @@ function PaneProviderState(props: {
         <Show
           when={props.state}
           fallback={`Requires ${props.capability}, which has not been reported by this provider yet.`}
-      >
+        >
           <Show
             when={props.state!.granted}
             fallback={`${props.title} requires ${props.capability}, which is unavailable${
               props.state!.reason ? ` (${props.state!.reason})` : ''
             }.`}
-        >
+          >
             {`${props.title} is connected through ${props.capability}. This pane's interactive surface is delivered by its owning provider slice.`}
           </Show>
         </Show>
@@ -1755,7 +1758,7 @@ function UtilitySlot(props: {
               state={props.capabilityOf(pane)}
             />
           }
-      >
+        >
           <HarnessStatusSection runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
           <ActivityPane runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
         </Suspense>
@@ -1777,7 +1780,7 @@ function UtilitySlot(props: {
               state={props.capabilityOf(pane)}
             />
           }
-      >
+        >
           <RunHistorySection runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
         </Suspense>
       ) : (
@@ -1837,7 +1840,7 @@ function UtilitySlot(props: {
         'dev-utility--size-384': props.visiblePane?.size === 384,
       })}
       aria-label={`Developer utilities (${sideLabel().toLowerCase()})`}
-  >
+    >
       <div class="dev-utility-tabs" role="tablist" aria-label={`${sideLabel()} utility panes`}>
         <For each={props.panes}>
           {(item) => {
@@ -1857,7 +1860,7 @@ function UtilitySlot(props: {
                 })}
                 onClick={() => props.onShow(item.pane)}
                 onKeyDown={(event) => tabKeyDown(event, item.pane)}
-            >
+              >
                 <meta.icon aria-hidden="true" />
                 <span>{meta.label}</span>
               </Button>
@@ -1870,13 +1873,14 @@ function UtilitySlot(props: {
         role="tabpanel"
         aria-labelledby={`dev-utility-tab-${props.side}-${props.visiblePane?.pane ?? ''}`}
         class="dev-utility-panel"
-    >
+      >
         <div class="dev-utility-panel__heading">
           <h2>{visibleItem()?.title}</h2>
           <Show when={!props.fixedPane}>
             <Button
               type="button"
-              variant="outline" size="icon-sm"
+              variant="outline"
+              size="icon-sm"
               aria-label={
                 props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
               }
@@ -1884,15 +1888,16 @@ function UtilitySlot(props: {
               onClick={() =>
                 props.onToggleFullWidth(props.visiblePane!.pane, !props.visiblePane!.fullWidth)
               }
-          >
+            >
               <Maximize2 aria-hidden="true" />
             </Button>
             <Button
               type="button"
-              variant="outline" size="icon-sm"
+              variant="outline"
+              size="icon-sm"
               aria-label={`Collapse ${sideLabel().toLowerCase()} utility slot`}
               onClick={props.onCollapse}
-          >
+            >
               <X aria-hidden="true" />
             </Button>
           </Show>

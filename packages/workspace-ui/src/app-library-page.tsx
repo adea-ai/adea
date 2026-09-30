@@ -80,7 +80,7 @@ export function AppLibraryPage(props: {
             size="sm"
             aria-pressed={enabledOnly()}
             onClick={() => setEnabledOnly(!enabledOnly())}
-        >
+          >
             Show enabled only
           </Button>
         </div>
@@ -93,7 +93,7 @@ export function AppLibraryPage(props: {
               No apps match these filters.
             </p>
           }
-      >
+        >
           <ListGroup label="In your sidebar">
             <For each={enabledApps()}>
               {(app) => {
@@ -119,7 +119,7 @@ export function AppLibraryPage(props: {
                           aria-label={`Move ${app.name} up`}
                           disabled={enabledOrder().indexOf(app.id) === 0}
                           onClick={() => props.onReorder(app.id, 'up')}
-                      >
+                        >
                           <ChevronUp aria-hidden="true" />
                         </Button>
                         <Button
@@ -128,7 +128,7 @@ export function AppLibraryPage(props: {
                           aria-label={`Move ${app.name} down`}
                           disabled={enabledOrder().indexOf(app.id) === enabledOrder().length - 1}
                           onClick={() => props.onReorder(app.id, 'down')}
-                      >
+                        >
                           <ChevronDown aria-hidden="true" />
                         </Button>
                         <Button
@@ -136,12 +136,12 @@ export function AppLibraryPage(props: {
                           size="sm"
                           aria-label={`Disable ${app.name}`}
                           onClick={() => props.onSetEnabled(app.id, false)}
-                      >
+                        >
                           Disable
                         </Button>
                       </span>
                     }
-                >
+                  >
                     {app.name}
                   </ListRow>
                 )
@@ -160,7 +160,7 @@ export function AppLibraryPage(props: {
                         <span
                           class="workspace-app-library__icon workspace-app-library__icon--muted"
                           aria-hidden="true"
-                      >
+                        >
                           <Icon />
                         </span>
                       }
@@ -172,12 +172,12 @@ export function AppLibraryPage(props: {
                             size="sm"
                             aria-label={`Enable ${app.name}`}
                             onClick={() => props.onSetEnabled(app.id, true)}
-                        >
+                          >
                             Enable
                           </Button>
                         </span>
                       }
-                  >
+                    >
                       {app.name}
                     </ListRow>
                   )

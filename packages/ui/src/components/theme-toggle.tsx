@@ -26,7 +26,7 @@ export function ThemeToggle(props: { class?: string }) {
       )}
       role="radiogroup"
       aria-label="Theme"
-  >
+    >
       <For each={THEMES}>
         {(option) => (
           <Button
@@ -38,7 +38,7 @@ export function ThemeToggle(props: { class?: string }) {
             size="icon-sm"
             onClick={() => setTheme(option.value)}
             class="workspace-theme-toggle-option"
-        >
+          >
             <option.icon class="size-4" aria-hidden="true" />
           </Button>
         )}

@@ -53,11 +53,7 @@ export function DesktopAuthComplete() {
         <p class="auth-introduction" role="status">
           Please reach out on github if you&apos;d like to contribute.
         </p>
-        <a variant="outline"
-          href="https://github.com/adea-ai/adea"
-          target="_blank"
-          rel="noreferrer"
-        >
+        <a href="https://github.com/adea-ai/adea" target="_blank" rel="noreferrer">
           Adea on GitHub
           <ExternalLink aria-hidden="true" />
         </a>
@@ -83,10 +79,7 @@ export function DesktopAuthComplete() {
           Adea {status() === 'opening' ? 'is opening' : 'has been opened'}. You can close this tab
           and continue in the desktop app.
         </p>
-        <Button variant="outline"
-          type="button"
-          onClick={openDesktopApp}
-        >
+        <Button variant="outline" type="button" onClick={openDesktopApp}>
           Open Adea
           <ExternalLink aria-hidden="true" />
         </Button>

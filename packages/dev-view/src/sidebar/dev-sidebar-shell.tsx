@@ -86,7 +86,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
     <aside
       class={cn('dev-sidebar', { 'dev-sidebar--open': props.compactOpen })}
       aria-label="Projects and sessions"
-  >
+    >
       <label class="dev-search">
         <Search aria-hidden="true" />
         <span class="sr-only">Filter projects and sessions</span>
@@ -109,7 +109,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                 : 'No runtime projects available.'}
             </p>
           }
-      >
+        >
           <For each={visibleGroups()}>
             {(group) => {
               const groupCollapsed = () => !isFiltering() && props.collapsedGroups.has(group.id)
@@ -128,7 +128,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                     if (dragged.id !== group.id) props.reorder?.onDropGroup(dragged.id, group.id)
                     dragged = undefined
                   }}
-              >
+                >
                   <Button
                     type="button"
                     class="dev-tree-row dev-tree-row--group"
@@ -155,7 +155,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                     onDragEnd={() => {
                       dragged = undefined
                     }}
-                >
+                  >
                     <Show when={groupCollapsed()} fallback={<ChevronDown aria-hidden="true" />}>
                       <ChevronRight aria-hidden="true" />
                     </Show>
@@ -182,7 +182,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                                 props.reorder?.onDropProject(group.id, dragged.id, project.id)
                               dragged = undefined
                             }}
-                        >
+                          >
                             <Button
                               type="button"
                               class={cn('dev-tree-row', 'dev-tree-row--project', {
@@ -217,11 +217,11 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                               onDragEnd={() => {
                                 dragged = undefined
                               }}
-                          >
+                            >
                               <Show
                                 when={projectCollapsed()}
                                 fallback={<ChevronDown aria-hidden="true" />}
-                            >
+                              >
                                 <ChevronRight aria-hidden="true" />
                               </Show>
                               <span>{project.name}</span>
@@ -240,7 +240,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                                       props.selectedSession === session.id ? 'page' : undefined
                                     }
                                     onClick={() => props.onSessionSelect(project.id, session.id)}
-                                >
+                                  >
                                     <span
                                       role="img"
                                       class={cn('dev-status-dot', {
@@ -261,7 +261,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                                               'dev-row-badge--progress': badge.tone === 'progress',
                                             })}
                                             title={badge.label}
-                                        >
+                                          >
                                             {badge.short}
                                           </span>
                                         )}

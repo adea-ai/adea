@@ -80,7 +80,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
   const status = (): GitStatusReply | undefined => statusCache().value
   const [history, setHistory] = createSignal<
     readonly { sha: string; subject: string; authorName: string }[]
->([])
+  >([])
   const [message, setMessage] = createSignal('')
   const [notice, setNotice] = createSignal<string | undefined>()
   const [confirmDiscard, setConfirmDiscard] = createSignal<string | undefined>()
@@ -393,18 +393,20 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         </strong>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label="Refresh status"
           onClick={() => void refresh()}
-      >
+        >
           <RefreshCw aria-hidden="true" />
         </Button>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label="Fetch from origin"
           onClick={() => void fetch()}
-      >
+        >
           <Download aria-hidden="true" />
         </Button>
       </div>
@@ -428,7 +430,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         fallback={
           <p class="dev-empty-state">No ready worktree context exists on this runtime node yet.</p>
         }
-    >
+      >
         <div class="dev-sc__commit">
           <textarea
             aria-label="Commit message"
@@ -438,10 +440,11 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           />
           <Button
             type="button"
-            variant="outline" size="sm"
+            variant="outline"
+            size="sm"
             disabled={grouped().staged.length === 0}
             onClick={() => void commitStaged()}
-        >
+          >
             Commit staged
           </Button>
         </div>
@@ -518,17 +521,17 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
                               class="dev-sc__hunk-action"
                               aria-label={`Stage hunk ${hunkIndex() + 1} of ${group.path}`}
                               onClick={() => void stageHunk(hunk, 'stage')}
-                          >
+                            >
                               Stage hunk
                             </Button>
                           }
-                      >
+                        >
                           <Button
                             type="button"
                             class="dev-sc__hunk-action"
                             aria-label={`Unstage hunk ${hunkIndex() + 1} of ${group.path}`}
                             onClick={() => void stageHunk(hunk, 'unstage')}
-                        >
+                          >
                             Unstage hunk
                           </Button>
                         </Show>
@@ -539,7 +542,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
                             class={cn(
                               `dev-sc__diff-line--${line.kind === 'meta' ? 'meta' : line.kind}`
                             )}
-                        >
+                          >
                             {line.text}
                           </div>
                         )}
@@ -814,7 +817,7 @@ function RemoteSection(props: {
         <Show
           when={props.status?.headSha}
           fallback={<span class="dev-terminal-muted">no commits to push</span>}
-      >
+        >
           <Button type="button" variant="outline" size="sm" onClick={() => void push()}>
             {pushArmed() ? 'Confirm push' : 'Push'}
           </Button>
@@ -840,12 +843,17 @@ function RemoteSection(props: {
               value={prBase()}
               onInput={(event) => setPrBase(event.currentTarget.value)}
             />
-            <Button type="button" variant="outline" size="sm" onClick={() => void createDraftPullRequest()}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void createDraftPullRequest()}
+            >
               Create draft PR
             </Button>
           </div>
         }
-    >
+      >
         {(pr) => (
           <>
             <div class="dev-files__row">
@@ -920,7 +928,7 @@ function StatusRow(props: {
             props.kind === 'staged' ? 'staged' : 'worktree'
           )
         }
-    >
+      >
         {props.entry.path.relativePath}
       </Button>
       <span class="dev-files__badge">{code()}</span>

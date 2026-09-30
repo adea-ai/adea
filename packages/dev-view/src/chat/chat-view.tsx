@@ -190,10 +190,11 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           <p>{streamError() ?? 'Transcript needs a fresh runtime event window.'}</p>
           <Button
             type="button"
-            variant="outline" size="sm"
+            variant="outline"
+            size="sm"
             onClick={() => void attach()}
             disabled={!props.model}
-        >
+          >
             Reconnect transcript
           </Button>
         </div>

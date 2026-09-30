@@ -38,7 +38,7 @@ export function AddProjectPanel(props: AddProjectPanelProps) {
       onToggle={(event) => {
         if (event.currentTarget.open) setVisited(true)
       }}
-  >
+    >
       <summary class="dev-tree-row dev-tree-row--group">Add project</summary>
       <Show when={visited()}>
         <Suspense
@@ -47,7 +47,7 @@ export function AddProjectPanel(props: AddProjectPanelProps) {
               Loading project options…
             </p>
           }
-      >
+        >
           <AddProjectForm {...props} />
         </Suspense>
       </Show>

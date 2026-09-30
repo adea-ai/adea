@@ -225,7 +225,7 @@ export function TaskDetail(props: Props) {
       onOpenChange={(open) => {
         if (!open) void handleClose()
       }}
-  >
+    >
       <DrawerContent class="conventional-task-detail-drawer__content">
         <div class="conventional-detail-panel">
           <header>
@@ -236,7 +236,7 @@ export function TaskDetail(props: Props) {
             <DrawerCloseButton
               class="conventional-detail-panel__close"
               aria-label="Close Task detail"
-          >
+            >
               <X aria-hidden="true" />
             </DrawerCloseButton>
           </header>
@@ -274,7 +274,7 @@ export function TaskDetail(props: Props) {
                   variant="outline"
                   disabled={fieldsDisabled()}
                   class="conventional-room-picker"
-              >
+                >
                   <Show when={kind() === 'bug'} fallback={<KindIconFallback kind={kind()} />}>
                     <Bug aria-hidden="true" />
                   </Show>
@@ -286,7 +286,7 @@ export function TaskDetail(props: Props) {
                   placement="bottom-start"
                   gutter={4}
                   class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-              >
+                >
                   <For each={kindOptions}>
                     {(option) => (
                       <DropdownMenuItem onSelect={() => setKind(option.value)}>
@@ -302,7 +302,7 @@ export function TaskDetail(props: Props) {
               <span
                 class="conventional-detail-panel__label"
                 id={`task-detail-priority-label-${props.task.id}`}
-            >
+              >
                 Priority
               </span>
               <DropdownMenu>
@@ -311,7 +311,7 @@ export function TaskDetail(props: Props) {
                   as={Button}
                   variant="outline"
                   class="conventional-room-picker"
-              >
+                >
                   <PriorityIcon priority={priority()} />
                   <span>
                     {priority() === 'low'
@@ -329,7 +329,7 @@ export function TaskDetail(props: Props) {
                   placement="bottom-start"
                   gutter={4}
                   class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-              >
+                >
                   <For each={priorityOptions}>
                     {(option) => (
                       <DropdownMenuItem onSelect={() => setPriority(option.value)}>
@@ -351,7 +351,7 @@ export function TaskDetail(props: Props) {
                   as={Button}
                   variant="outline"
                   class="conventional-room-picker"
-              >
+                >
                   <Show when={selectedRoom()}>
                     {(room) => <RoomIcon functionKey={room().functionKey} />}
                   </Show>
@@ -363,7 +363,7 @@ export function TaskDetail(props: Props) {
                   placement="bottom-start"
                   gutter={4}
                   class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-              >
+                >
                   <DropdownMenuItem onSelect={() => setRoomId(null)}>No Room</DropdownMenuItem>
                   <For each={roomRows()}>
                     {(entry) => (
@@ -384,7 +384,7 @@ export function TaskDetail(props: Props) {
                   as={Button}
                   variant="outline"
                   class="conventional-room-picker"
-              >
+                >
                   <Bot aria-hidden="true" />
                   <span>
                     {agentId()
@@ -399,7 +399,7 @@ export function TaskDetail(props: Props) {
                   placement="bottom-start"
                   gutter={4}
                   class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-              >
+                >
                   <DropdownMenuItem onSelect={() => setAgentId(null)}>Unassigned</DropdownMenuItem>
                   <For each={agentRows()}>
                     {(entry) => (
@@ -435,7 +435,7 @@ export function TaskDetail(props: Props) {
                         aria-pressed={selectedDependency()}
                         disabled={fieldsDisabled()}
                         onClick={() => toggleDependency(entry.item().id)}
-                    >
+                      >
                         <Show when={selectedDependency()} fallback={<Plus aria-hidden="true" />}>
                           <Check aria-hidden="true" />
                         </Show>
@@ -495,7 +495,7 @@ export function TaskDetail(props: Props) {
                 window.confirm('Archive this Task?') &&
                 void runImmediate(props.task, props.onArchive)
               }
-          >
+            >
               <Archive aria-hidden="true" />
               Archive
             </Button>
@@ -529,11 +529,11 @@ function PriorityIcon(props: { priority: TaskSummary['priority'] }) {
               <ChevronsUp aria-hidden="true" />
             </Show>
           }
-      >
+        >
           <ArrowUp aria-hidden="true" />
         </Show>
       }
-  >
+    >
       <ArrowDown aria-hidden="true" />
     </Show>
   )

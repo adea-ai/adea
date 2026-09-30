@@ -29,7 +29,7 @@ export function ComputerUsePane(props: { runtime: DevRuntimeService; runtimeSess
   const knownLanes = new Map<
     string,
     { state: string; generation: number; automationOwner: string }
->()
+  >()
   const scope = () => props.runtime.preferenceScope?.()
 
   async function execute<T>(
@@ -124,7 +124,7 @@ export function ComputerUsePane(props: { runtime: DevRuntimeService; runtimeSess
       <Show
         when={props.runtime.state().status === 'ready'}
         fallback={<p class="dev-empty-state">Computer-use lanes are unavailable.</p>}
-    >
+      >
         <div class="dev-devices__list">
           <Show when={error()}>
             {(shown) => (
@@ -157,11 +157,11 @@ export function ComputerUsePane(props: { runtime: DevRuntimeService; runtimeSess
                 No active runtime session; lanes bind to a session and die with it.
               </p>
             }
-        >
+          >
             <Show
               when={(lanes()?.items ?? []).length > 0}
               fallback={<p class="dev-terminal-muted">No computer-use lanes are open.</p>}
-          >
+            >
               <For each={lanes()?.items ?? []}>
                 {(lane) => (
                   <div class="dev-browser__row">
@@ -174,10 +174,11 @@ export function ComputerUsePane(props: { runtime: DevRuntimeService; runtimeSess
                         {(action) => (
                           <Button
                             type="button"
-                            variant="outline" size="sm"
+                            variant="outline"
+                            size="sm"
                             disabled={!action.enabled}
                             onClick={() => run(lane, action.kind)}
-                        >
+                          >
                             {action.label}
                           </Button>
                         )}

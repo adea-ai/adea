@@ -305,7 +305,7 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
       data-chat-session-id={sessionId}
       data-chat-generation={generation()}
       data-chat-draft={draft()}
-  >
+    >
       <div class="dev-chat-visual-fixture__stage">
         <For each={[mountKey()]}>
           {() => {

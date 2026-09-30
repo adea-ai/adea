@@ -39,7 +39,7 @@ export function ArchiveShelf(props: {
         aria-expanded={expanded()}
         aria-controls="dev-archive-shelf-content"
         onClick={() => setExpanded((value) => !value)}
-    >
+      >
         <Archive aria-hidden="true" /> Archived sessions
         <Show when={props.state.items.length > 0}>
           <span class="dev-tree-row__count">{props.state.items.length}</span>
@@ -58,11 +58,11 @@ export function ArchiveShelf(props: {
                     : 'Loading archived sessions…'}
               </p>
             }
-        >
+          >
             <Show
               when={props.state.items.length > 0}
               fallback={<p class="dev-tree-empty">No archived sessions.</p>}
-          >
+            >
               <ul class="dev-archive-shelf__list" aria-label="Archived sessions">
                 <For each={props.state.items}>
                   {(item) => (
@@ -79,33 +79,33 @@ export function ArchiveShelf(props: {
                                 type="button"
                                 class="dev-archive-action"
                                 onClick={() => props.onRestore(item.id)}
-                            >
+                              >
                                 Restore
                               </Button>
                               <Button
                                 type="button"
                                 class="dev-archive-action dev-archive-action--destructive"
                                 onClick={() => props.onRequestDelete(item.id)}
-                            >
+                              >
                                 Delete…
                               </Button>
                             </>
                           }
-                      >
+                        >
                           <span class="dev-archive-shelf__confirm" role="alert">
                             Delete this archived session?
                             <Button
                               type="button"
                               class="dev-archive-action dev-archive-action--destructive"
                               onClick={() => props.onConfirmDelete()}
-                          >
+                            >
                               Delete
                             </Button>
                             <Button
                               type="button"
                               class="dev-archive-action"
                               onClick={() => props.onCancelDelete()}
-                          >
+                            >
                               Keep
                             </Button>
                           </span>

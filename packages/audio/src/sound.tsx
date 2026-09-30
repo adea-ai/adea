@@ -95,7 +95,7 @@ function MusicButton(props: { muted: boolean; onToggle: () => void }) {
       onClick={() => props.onToggle()}
       variant={props.muted ? 'outline' : 'default'}
       size="icon-lg"
-  >
+    >
       {props.muted ? (
         <Music class="size-5" aria-hidden="true" />
       ) : (

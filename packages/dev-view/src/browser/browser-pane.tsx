@@ -151,7 +151,7 @@ export function BrowserPane(props: BrowserPaneProps) {
   const [cookiesOpen, setCookiesOpen] = createSignal(false)
   const [appliedViewports, setAppliedViewports] = createSignal<
     ReadonlyMap<string, AppliedResponsiveViewport>
->(new Map())
+  >(new Map())
   const [inspectionSelector, setInspectionSelector] = createSignal('')
   const [inspectionResult, setInspectionResult] = createSignal<{
     laneId: string
@@ -622,11 +622,12 @@ export function BrowserPane(props: BrowserPaneProps) {
         <div class="dev-browser__nav-group" role="group" aria-label="Navigation">
           <Button
             type="button"
-            variant="outline" size="icon-sm"
+            variant="outline"
+            size="icon-sm"
             aria-label="Reload"
             disabled={!activeLane() || !currentUrl()}
             onClick={reloadCurrentPage}
-        >
+          >
             <RotateCw aria-hidden="true" />
           </Button>
         </div>
@@ -636,7 +637,7 @@ export function BrowserPane(props: BrowserPaneProps) {
             event.preventDefault()
             submitUrl()
           }}
-      >
+        >
           <input
             type="url"
             placeholder="Search or enter URL"
@@ -653,42 +654,46 @@ export function BrowserPane(props: BrowserPaneProps) {
         </form>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label="Screenshot"
           aria-busy={screenshotBusy()}
           disabled={!screenshotContext().canCapture || screenshotBusy()}
           onClick={screenshot}
-      >
+        >
           <Camera aria-hidden="true" />
         </Button>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label={miniPreviewOpen() ? 'Close floating preview' : 'Float preview'}
           aria-pressed={miniPreviewOpen()}
           onClick={() => setMiniPreviewOpen((value) => !value)}
-      >
+        >
           <PictureInPicture2 aria-hidden="true" />
         </Button>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label={cookiesOpen() ? 'Close cookie import' : 'Import cookies'}
           aria-pressed={cookiesOpen()}
           disabled={!activeLane()}
           onClick={() => setCookiesOpen((value) => !value)}
-      >
+        >
           <Cookie aria-hidden="true" />
         </Button>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label="Close browser pane"
           onClick={() => {
             setCookiesOpen(false)
             setMiniPreviewOpen(false)
           }}
-      >
+        >
           <X aria-hidden="true" />
         </Button>
       </div>
@@ -718,7 +723,7 @@ export function BrowserPane(props: BrowserPaneProps) {
         fallback={
           <p class="dev-empty-state">Browser lanes are unavailable: {unavailabilityReason()}</p>
         }
-    >
+      >
         <div class="dev-browser__menu">
           <Show when={error()}>
             {(shown) => (
@@ -749,14 +754,14 @@ export function BrowserPane(props: BrowserPaneProps) {
                 ? result
                 : undefined
             })()}
-        >
+          >
             {(state) => (
               <div
                 class="dev-browser__inspection-result"
                 role="status"
                 aria-label="Screenshot result"
                 aria-busy={screenshotBusy()}
-            >
+              >
                 <strong>Screenshot reference</strong>
                 <span>Reference: {state().reference.id}</span>
                 <span>
@@ -790,7 +795,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                     void refetchTargets()
                     void refetchDiagnostics()
                   }}
-              >
+                >
                   <span class="dev-browser__row-main">
                     <span>{LANE_KIND_LABEL[lane.kind]}</span>
                     <span class="dev-browser__row-meta">
@@ -816,10 +821,11 @@ export function BrowserPane(props: BrowserPaneProps) {
             </For>
             <Button
               type="button"
-              variant="outline" size="sm"
+              variant="outline"
+              size="sm"
               disabled={!activeLane() || activeLane()?.kind === 'human_embedded'}
               onClick={takeoverOrRelease}
-          >
+            >
               {activeLane()?.automationOwner === 'human_takeover'
                 ? 'Release capture (Esc)'
                 : 'Take over'}
@@ -840,7 +846,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                   setUrlFocused(false)
                   dispatchNavigation(request)
                 }}
-            >
+              >
                 <span class="dev-browser__row-main">
                   <span>{row.processName ?? 'Listening'}</span>
                   <span class="dev-browser__row-meta">
@@ -853,7 +859,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                     'dev-row-badge--success': isPreviewableRow(row),
                     'dev-row-badge--failure': row.health === 'stale',
                   })}
-              >
+                >
                   {row.owner === 'adea' ? 'preview' : 'external'}
                 </span>
               </Button>
@@ -895,7 +901,8 @@ export function BrowserPane(props: BrowserPaneProps) {
             </p>
             <Button
               type="submit"
-              variant="outline" size="sm"
+              variant="outline"
+              size="sm"
               disabled={
                 !activeLane() ||
                 !activePageTarget() ||
@@ -904,7 +911,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                 inspectionSelector().trim().length > 512 ||
                 inspectionBusy()
               }
-          >
+            >
               {inspectionBusy() ? 'Inspecting…' : 'Inspect selector'}
             </Button>
           </form>
@@ -920,13 +927,13 @@ export function BrowserPane(props: BrowserPaneProps) {
                 ? result
                 : undefined
             })()}
-        >
+          >
             {(state) => (
               <div
                 class="dev-browser__inspection-result"
                 role="status"
                 aria-label="Inspection result"
-            >
+              >
                 <Show when={state().value.nodeId} fallback={<span>No matching element.</span>}>
                   <span>
                     {state().value.role ?? 'Element'}
@@ -957,14 +964,15 @@ export function BrowserPane(props: BrowserPaneProps) {
                   aria-pressed={preset.id === viewportForActiveLane()?.presetId}
                   disabled={!activeLane()}
                   onClick={() => applyResponsivePreset(preset.id, preset.defaultOrientation)}
-              >
+                >
                   {preset.label}
                 </Button>
               )}
             </For>
             <Button
               type="button"
-              variant="outline" size="sm"
+              variant="outline"
+              size="sm"
               disabled={!activeLane()}
               onClick={() => {
                 const current = viewportForActiveLane()
@@ -972,12 +980,13 @@ export function BrowserPane(props: BrowserPaneProps) {
                   current?.orientation === 'portrait' || !current ? 'landscape' : 'portrait'
                 applyResponsivePreset(current?.presetId ?? 'responsive', next, current?.zoomScale)
               }}
-          >
+            >
               Rotate
             </Button>
             <Button
               type="button"
-              variant="outline" size="icon-sm"
+              variant="outline"
+              size="icon-sm"
               aria-label="Zoom out"
               disabled={!activeLane()}
               onClick={() => {
@@ -989,7 +998,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                   scale
                 )
               }}
-          >
+            >
               −
             </Button>
             <span class="dev-browser__row-meta">
@@ -997,7 +1006,8 @@ export function BrowserPane(props: BrowserPaneProps) {
             </span>
             <Button
               type="button"
-              variant="outline" size="icon-sm"
+              variant="outline"
+              size="icon-sm"
               aria-label="Zoom in"
               disabled={!activeLane()}
               onClick={() => {
@@ -1009,7 +1019,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                   scale
                 )
               }}
-          >
+            >
               +
             </Button>
             <Show
@@ -1017,7 +1027,7 @@ export function BrowserPane(props: BrowserPaneProps) {
               fallback={
                 <span class="dev-browser__row-meta">Select a preset to set the viewport.</span>
               }
-          >
+            >
               {(viewport) => (
                 <span class="dev-browser__row-meta">
                   CSS viewport {viewport().width} × {viewport().height} · DPR{' '}

@@ -27,7 +27,7 @@ export function PluginLogo(props: { iconKey?: string; iconUrl?: string; name: st
       <Show
         when={source() && !failed()}
         fallback={<span class="plugin-logo__fallback">{initials(props.name) || <Sparkles />}</span>}
-    >
+      >
         <img
           alt=""
           src={source()}

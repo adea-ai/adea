@@ -44,7 +44,7 @@ export function WorkspaceAboutDialog(props: {
       onClose={props.onClose}
       title="About Adea"
       description="A calm, connected home for your agents, rooms, and conversations."
-  >
+    >
       <div class="conventional-about-dialog__body">
         <div class="conventional-about-dialog__identity">
           <div class="conventional-about-dialog__brand" aria-label="Adea" role="img">

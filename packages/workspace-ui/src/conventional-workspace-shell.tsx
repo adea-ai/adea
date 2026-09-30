@@ -321,7 +321,7 @@ export function ConventionalWorkspaceShell(props: {
           <WorkspaceSkeleton />
         </main>
       }
-  >
+    >
       <Show
         when={!controller.bootstrap.isError}
         fallback={
@@ -332,7 +332,7 @@ export function ConventionalWorkspaceShell(props: {
             />
           </main>
         }
-    >
+      >
         <Show when={controller.activeWorkspace && controller.workspaceId}>
           <main class="conventional-workspace">
             <a class="conventional-skip-link" href="#workspace-main">
@@ -383,7 +383,7 @@ export function ConventionalWorkspaceShell(props: {
                     type="button"
                     aria-label="Dismiss session notice"
                     onClick={() => setSessionNoticeDismissed(true)}
-                >
+                  >
                     <X aria-hidden="true" />
                   </Button>
                 </section>
@@ -399,7 +399,7 @@ export function ConventionalWorkspaceShell(props: {
                     />
                   )
                 })()}
-            >
+              >
                 <Show
                   when={controller.artifacts.find(({ id }) => id === selectedArtifactId())}
                   fallback={
@@ -437,7 +437,7 @@ export function ConventionalWorkspaceShell(props: {
                               tasks={controller.tasks}
                             />
                           }
-                      >
+                        >
                           <AgentRoster
                             agents={controller.agents}
                             busy={controller.createAgentBusy || controller.agentBusy}
@@ -475,7 +475,7 @@ export function ConventionalWorkspaceShell(props: {
                           />
                         </Show>
                       }
-                  >
+                    >
                       <ConversationSurface
                         agents={controller.agents}
                         artifacts={controller.artifacts}
@@ -543,7 +543,7 @@ export function ConventionalWorkspaceShell(props: {
                       />
                     </Show>
                   }
-              >
+                >
                   {(artifact) => (
                     <ArtifactDetail
                       artifact={artifact()}
@@ -628,7 +628,7 @@ export function ConventionalWorkspaceShell(props: {
                   onClose={() => setDialog(null)}
                   title="Conversation details"
                   description="Canonical Adea identity and scope."
-              >
+                >
                   <div class="conventional-conversation-details">
                     <p>
                       <span>Kind</span>

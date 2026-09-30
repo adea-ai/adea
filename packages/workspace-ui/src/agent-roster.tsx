@@ -56,7 +56,7 @@ export function AgentRoster(props: Props) {
           <h1 id="agent-roster-title">Agents</h1>
           <p>Status reflects configuration only. Runtime availability arrives later.</p>
         </div>
-        <Button type="button"  onClick={() => setCreating(true)}>
+        <Button type="button" onClick={() => setCreating(true)}>
           <Plus aria-hidden="true" />
           New Agent
           <Bot aria-hidden="true" />
@@ -189,7 +189,7 @@ function AgentCustomizationForm(props: {
           roomId: String(form.get('roomId') ?? '').trim() || null,
         })
       }}
-  >
+    >
       <div class="conventional-inline-form__header">
         <div>
           <h2>Customize {props.agent.name}</h2>
@@ -199,7 +199,7 @@ function AgentCustomizationForm(props: {
           type="button"
           aria-label="Close Agent customization"
           onClick={() => props.onCancel()}
-      >
+        >
           <X aria-hidden="true" />
         </Button>
       </div>
@@ -263,7 +263,7 @@ function AgentCustomizationForm(props: {
       </p>
       <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
       <div class="conventional-agent-customization__actions">
-        <Button type="submit"  disabled={props.busy}>
+        <Button type="submit" disabled={props.busy}>
           {props.busy ? 'Saving…' : 'Save changes'}
         </Button>
         <Show
@@ -274,16 +274,16 @@ function AgentCustomizationForm(props: {
               class="conventional-danger-button"
               disabled={props.busy}
               onClick={() => setArchiveConfirmation(true)}
-          >
+            >
               Archive Agent
             </Button>
           }
-      >
+        >
           <div
             class="conventional-destructive-confirmation"
             role="alertdialog"
             aria-label={`Archive ${props.agent.name}`}
-        >
+          >
             <ShieldAlert aria-hidden="true" />
             <p>
               Archive this Agent? Durable conversations and history remain linked to its stable
@@ -293,7 +293,7 @@ function AgentCustomizationForm(props: {
               type="button"
               disabled={props.busy}
               onClick={() => void props.onArchive(props.agent)}
-          >
+            >
               Confirm archive
             </Button>
             <Button type="button" onClick={() => setArchiveConfirmation(false)}>
@@ -329,7 +329,7 @@ function AgentCreateForm(props: {
           roleSummary: String(form.get('roleSummary') ?? ''),
         })
       }}
-  >
+    >
       <div class="conventional-inline-form__header">
         <h2>Create Agent</h2>
         <Button type="button" aria-label="Cancel Agent creation" onClick={() => props.onCancel()}>
@@ -353,7 +353,7 @@ function AgentCreateForm(props: {
         <input name="profileVersion" required value="1" maxLength={64} />
       </label>
       <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
-      <Button type="submit"  disabled={props.busy}>
+      <Button type="submit" disabled={props.busy}>
         {props.busy ? 'Creating…' : 'Create Agent'}
       </Button>
     </form>

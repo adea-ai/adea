@@ -140,7 +140,7 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
             onDiscard={() => setPreview(undefined)}
           />
         }
-    >
+      >
         <Show when={sources.error}>
           {(error) => (
             <p class="dev-browser__row" role="alert">
@@ -163,10 +163,11 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
                 </Show>
                 <Button
                   type="button"
-                  variant="outline" size="icon-sm"
+                  variant="outline"
+                  size="icon-sm"
                   disabled={!state().selectable || busy()}
                   onClick={() => void planFor(source)}
-              >
+                >
                   Preview import
                 </Button>
               </div>
@@ -203,18 +204,20 @@ function Preview(props: {
       <div class="dev-browser__actions">
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           disabled={props.busy || !canCommit(props.preview, new Date().toISOString())}
           onClick={() => props.onCommit()}
-      >
+        >
           Import to this lane
         </Button>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           disabled={props.busy}
           onClick={props.onDiscard}
-      >
+        >
           Discard
         </Button>
       </div>

@@ -133,7 +133,7 @@ export function ThreadPanel(props: {
             type="button"
             aria-label="Mark thread unread"
             onClick={() => void props.onMarkUnread()}
-        >
+          >
             <MailOpen aria-hidden="true" />
           </Button>
           <Button type="button" aria-label="Close thread" onClick={() => props.onClose()}>

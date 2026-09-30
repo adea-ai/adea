@@ -152,7 +152,7 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
       <Show
         when={props.runtime.state().status === 'ready'}
         fallback={<p class="dev-empty-state">Device sessions are unavailable.</p>}
-    >
+      >
         <div class="dev-devices__list">
           <Show when={error()}>
             {(shown) => (
@@ -169,16 +169,22 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
               fallback={
                 <Button
                   type="button"
-                  variant="outline" size="sm"
+                  variant="outline"
+                  size="sm"
                   disabled={!props.runtimeSessionId}
                   onClick={startResponsive}
-              >
+                >
                   Start responsive session
                 </Button>
               }
-          >
+            >
               {(session) => (
-                <Button type="button" variant="outline" size="sm" onClick={() => stopDevice(session())}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => stopDevice(session())}
+                >
                   Stop responsive session ({session().state})
                 </Button>
               )}
@@ -196,7 +202,7 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                   : 'Checking simulator toolchains…'}
               </p>
             }
-        >
+          >
             {(availability) => (
               <Show
                 when={inventory.state === 'ready' || inventory.state === 'refreshing'}
@@ -204,18 +210,18 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                   <p
                     class="dev-terminal-muted"
                     role={inventory.state === 'errored' ? 'alert' : 'status'}
-                >
+                  >
                     {inventory.state === 'errored'
                       ? 'Device inventory could not be loaded.'
                       : 'Loading device inventory…'}
                   </p>
                 }
-            >
+              >
                 <For
                   each={groupDeviceInventory(inventoryItems(), availability()).filter(
                     (group) => group.platform !== 'responsive'
                   )}
-              >
+                >
                   {(group) => (
                     <>
                       <p class="dev-browser__section-title">{group.label}</p>
@@ -239,7 +245,7 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                                   <Show
                                     when={item.kind === 'ios_simulator'}
                                     fallback={<Smartphone aria-hidden="true" />}
-                                >
+                                  >
                                     <Tablet aria-hidden="true" />
                                   </Show>{' '}
                                   {item.name}
@@ -253,17 +259,19 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                                 fallback={
                                   <Button
                                     type="button"
-                                    variant="outline" size="sm"
+                                    variant="outline"
+                                    size="sm"
                                     disabled={item.state === 'unauthorized'}
                                     onClick={() => startDevice(item)}
-                                >
+                                  >
                                     Start
                                   </Button>
                                 }
-                            >
+                              >
                                 <Button
                                   type="button"
-                                  variant="outline" size="sm"
+                                  variant="outline"
+                                  size="sm"
                                   onClick={() => {
                                     const session = (sessions()?.items ?? []).find(
                                       (entry) =>
@@ -271,7 +279,7 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                                     )
                                     if (session) stopDevice(session)
                                   }}
-                              >
+                                >
                                   Stop
                                 </Button>
                               </Show>

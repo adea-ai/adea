@@ -146,7 +146,7 @@ export function PermissionsPane(props: { service?: MacPermissionsPageService }) 
           onClick={() => {
             if (!busy()) void refresh({ force: true })
           }}
-      >
+        >
           <RefreshCw aria-hidden="true" />
           {busy() ? 'Checking…' : 'Check again'}
         </Button>
@@ -163,7 +163,7 @@ export function PermissionsPane(props: { service?: MacPermissionsPageService }) 
             class="dev-permissions__group"
             role="group"
             aria-labelledby={`dev-permissions-${group.id}`}
-        >
+          >
             <h3 class="dev-permissions__group-heading" id={`dev-permissions-${group.id}`}>
               {group.heading}
             </h3>
@@ -185,7 +185,7 @@ export function PermissionsPane(props: { service?: MacPermissionsPageService }) 
                       <p
                         class="dev-permissions__consequence"
                         data-active={degraded() ? 'true' : 'false'}
-                    >
+                      >
                         {degraded() ? 'Without it: ' : 'If denied: '}
                         {row.meta.consequence}
                       </p>
@@ -206,7 +206,7 @@ export function PermissionsPane(props: { service?: MacPermissionsPageService }) 
                               if (action.kind === 'request') request(row.meta)
                               else openSettings(row.meta)
                             }}
-                        >
+                          >
                             {action.label}
                           </Button>
                         )}

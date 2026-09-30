@@ -36,7 +36,7 @@ export function CreateRoomDialog(props: {
       onClose={props.onClose}
       title="Create Room"
       description="Rooms are the primary functional contexts in Adea."
-  >
+    >
       <div class="conventional-template-options" aria-label={`${props.template} Room suggestions`}>
         <For each={roomTemplates}>
           {(room) => (
@@ -50,7 +50,7 @@ export function CreateRoomDialog(props: {
                   .then(() => props.onClose())
                   .catch(() => setError('Room could not be created.'))
               }
-          >
+            >
               <RoomIcon functionKey={room.functionKey} />
               <strong>{room.name}</strong>
             </Button>
@@ -70,7 +70,7 @@ export function CreateRoomDialog(props: {
             .then(() => props.onClose())
             .catch(() => setError('Room could not be created. Check the fields and retry.'))
         }}
-    >
+      >
         <div class="flex flex-col gap-5">
           <div class="flex flex-col gap-2">
             <Label for="room-name">Room name</Label>
@@ -129,7 +129,7 @@ export function EditRoomDialog(props: {
       onClose={props.onClose}
       title={`Edit ${props.roomName}`}
       description="Rename the Room or change its function key to update its sidebar icon."
-  >
+    >
       <form
         class="conventional-dialog-form"
         onSubmit={(event) => {
@@ -144,7 +144,7 @@ export function EditRoomDialog(props: {
             .then(() => props.onClose())
             .catch(() => setError('Room could not be updated. Check the fields and retry.'))
         }}
-    >
+      >
         <div class="flex flex-col gap-5">
           <div class="flex flex-col gap-2">
             <Label for="edit-room-name">Room name</Label>
@@ -203,7 +203,7 @@ export function RenameConversationDialog(props: {
       onClose={props.onClose}
       title="Rename conversation"
       description="Give this conversation a clear, durable title."
-  >
+    >
       <form
         class="conventional-dialog-form"
         onSubmit={(event) => {
@@ -215,7 +215,7 @@ export function RenameConversationDialog(props: {
             .then(() => props.onClose())
             .catch(() => setError('Conversation could not be renamed.'))
         }}
-    >
+      >
         <div class="flex flex-col gap-2">
           <Label for="conversation-title">Conversation name</Label>
           <Input
@@ -257,7 +257,7 @@ export function CreateGroupDialog(props: {
       onClose={props.onClose}
       title="New group conversation"
       description="A durable conversation for users and multiple Agents, without requiring a Room."
-  >
+    >
       <form
         class="conventional-dialog-form"
         onSubmit={(event) => {
@@ -268,7 +268,7 @@ export function CreateGroupDialog(props: {
             .then(() => props.onClose())
             .catch(() => setError('Group conversation could not be created.'))
         }}
-    >
+      >
         <div class="flex flex-col gap-2">
           <Label for="conversation-name">Conversation name</Label>
           <Input id="conversation-name" name="title" required maxLength={120} autofocus />

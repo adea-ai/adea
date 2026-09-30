@@ -238,7 +238,7 @@ export function AppearancePanel() {
         title="Manage themes"
         description="Import a theme file. Imported themes appear in the Light and Dark theme menus and stay on this device."
         class="conventional-dialog conventional-theme-library-dialog"
-    >
+      >
         <div class="conventional-theme-library">
           <label class="conventional-theme-library__import">
             <input
@@ -279,7 +279,7 @@ export function AppearancePanel() {
                         )
                         setImportStatus('')
                       }}
-                  >
+                    >
                       Remove
                     </Button>
                   </li>

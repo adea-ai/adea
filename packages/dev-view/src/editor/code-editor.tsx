@@ -352,27 +352,30 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
         </Show>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label="Save file"
           disabled={!dirty() || !!readOnlyReason()}
           onClick={() => void save()}
-      >
+        >
           <Save aria-hidden="true" />
         </Button>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label="Reload file"
           onClick={() => void reload()}
-      >
+        >
           <RefreshCw aria-hidden="true" />
         </Button>
         <Button
           type="button"
-          variant="outline" size="icon-sm"
+          variant="outline"
+          size="icon-sm"
           aria-label="Close editor"
           onClick={props.onClose}
-      >
+        >
           ✕
         </Button>
       </div>
@@ -404,7 +407,7 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
               {previewText()}
             </div>
           }
-      >
+        >
           <p class="dev-empty-state">
             {status() === 'loading' ? 'Loading file…' : 'The file could not be opened.'}
           </p>

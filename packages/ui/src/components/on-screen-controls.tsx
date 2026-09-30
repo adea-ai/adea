@@ -66,7 +66,7 @@ function ControlButton(props: ControlButtonProps) {
       onPointerDown={press}
       onPointerLeave={release}
       onPointerUp={release}
-  >
+    >
       {props.children}
     </Button>
   )
@@ -88,7 +88,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
     <div
       data-agent-hq-on-screen-controls
       class="pointer-events-none fixed inset-x-4 bottom-4 z-30 flex select-none items-end justify-between gap-4 pb-[env(safe-area-inset-bottom)] sm:inset-x-6 sm:bottom-6 [-webkit-touch-callout:none] [-webkit-user-select:none]"
-  >
+    >
       <Show when={showMovementControls()}>
         <div class="pointer-events-auto grid grid-cols-3 gap-1.5 rounded-3xl bg-scrim/20 p-2 backdrop-blur-[2px]">
           <span />
@@ -113,7 +113,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
             class="flex items-center gap-1.5 rounded-2xl bg-scrim/20 p-1.5 backdrop-blur-[2px]"
             role="group"
             aria-label="Camera zoom"
-        >
+          >
             <Button
               type="button"
               variant="secondary"
@@ -122,7 +122,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
               title="Zoom out"
               class="workspace-on-screen-controls-zoom-button"
               onClick={() => props.onZoomOut?.()}
-          >
+            >
               <ZoomOut aria-hidden="true" />
             </Button>
             <Button
@@ -133,7 +133,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
               title="Zoom in"
               class="workspace-on-screen-controls-zoom-button"
               onClick={() => props.onZoomIn?.()}
-          >
+            >
               <ZoomIn aria-hidden="true" />
             </Button>
           </div>

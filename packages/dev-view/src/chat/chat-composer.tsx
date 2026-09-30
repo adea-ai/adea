@@ -178,12 +178,12 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               <Show
                 when={props.agentProfiles && props.agentProfiles.length > 0}
                 fallback={<span>{props.agentProfile?.label ?? 'Select an agent profile'}</span>}
-            >
+              >
                 <select
                   id="dev-chat-composer-agent"
                   value={props.agentProfile?.id ?? ''}
                   onChange={(event) => props.onAgentProfileChange?.(event.currentTarget.value)}
-              >
+                >
                   <option value="">Select an agent profile</option>
                   {props.agentProfiles?.map((profile) => (
                     <option value={profile.id}>{profile.label}</option>
@@ -195,7 +195,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                 id="dev-chat-composer-mode"
                 value={mode()}
                 onChange={(event) => selectMode(event.currentTarget.value as ComposerMode)}
-            >
+              >
                 <option value="auto">Auto</option>
                 <option value="customize">Customize</option>
               </select>
@@ -210,7 +210,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                     onChange={(event) =>
                       customization().onHarnessChange?.(event.currentTarget.value)
                     }
-                >
+                  >
                     <option value="">Control Plane default</option>
                     {customization().harnessOptions.map((option) => (
                       <option value={option.id}>{option.label}</option>
@@ -221,7 +221,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                     id="dev-chat-composer-model"
                     value={customization().modelId ?? ''}
                     onChange={(event) => customization().onModelChange?.(event.currentTarget.value)}
-                >
+                  >
                     <option value="">Control Plane default</option>
                     {customization().modelOptions.map((option) => (
                       <option value={option.id}>{option.label}</option>
@@ -235,7 +235,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                       onChange={(event) =>
                         customization().onRuntimeChange?.(event.currentTarget.value)
                       }
-                  >
+                    >
                       <option value="">Control Plane default</option>
                       {(customization().runtimeOptions ?? []).map((option) => (
                         <option value={option.id}>{option.label}</option>
@@ -253,7 +253,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               <Show
                 when={disabledReason()}
                 fallback="Input is sent with the current runtime generation."
-            >
+              >
                 {(reason) => reason()}
               </Show>
             </p>
@@ -281,7 +281,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               size="sm"
               disabled={disabled() || resolving()}
               onClick={() => void resolve()}
-          >
+            >
               {resolving() ? 'Resolving…' : 'Resolve & launch'}
             </Button>
           </Show>
@@ -294,7 +294,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               size="sm"
               disabled={disabled() || stopUnavailable()}
               onClick={() => props.onStop?.()}
-          >
+            >
               Stop
             </Button>
             <Button
@@ -303,7 +303,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               size="sm"
               disabled={disabled() || steerUnavailable() || draft().trim().length === 0}
               onClick={() => void submit({ text: draft(), action: 'steer' })}
-          >
+            >
               Steer
             </Button>
           </Show>

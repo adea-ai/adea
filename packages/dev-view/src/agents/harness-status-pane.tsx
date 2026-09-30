@@ -83,7 +83,7 @@ export function HarnessStatusPane(props: {
             <span
               class="dev-row-badge"
               title={`Harness process runs in terminal ${terminalId()} (attachTerminal launch)`}
-          >
+            >
               in terminal
             </span>
           )}
@@ -94,7 +94,12 @@ export function HarnessStatusPane(props: {
         <p>
           Structured transport unavailable; showing the terminal transcript projection.
           <Show when={props.onJumpToTerminal}>
-            <Button type="button" variant="outline" size="sm" onClick={() => props.onJumpToTerminal?.()}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => props.onJumpToTerminal?.()}
+            >
               Jump to terminal
             </Button>
           </Show>
@@ -107,9 +112,14 @@ export function HarnessStatusPane(props: {
             status().run!.state === 'completed' ||
             status().run!.state === 'failed')
         }
-    >
+      >
         <p>
-          <Button type="button" variant="outline" size="sm" onClick={() => props.onResume?.(status().run!)}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => props.onResume?.(status().run!)}
+          >
             Resume as new generation
           </Button>
         </p>

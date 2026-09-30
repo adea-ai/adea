@@ -264,7 +264,7 @@ export function WorkspaceSearchDialog(props: {
       onClose={props.onClose}
       title={props.scopeChannelId ? 'Search this conversation' : 'Search workspace'}
       description="Search Rooms, conversations, Agents, Tasks, Artifacts, and cloud-safe message text."
-  >
+    >
       <label class="conventional-search-field">
         <Search aria-hidden="true" />
         <span class="visually-hidden">Search workspace</span>
@@ -295,7 +295,7 @@ export function WorkspaceSearchDialog(props: {
         role="listbox"
         aria-label="Search results"
         aria-live="polite"
-    >
+      >
         <For each={resultRows()}>
           {(entry, index) => {
             const result = entry.item
@@ -312,7 +312,7 @@ export function WorkspaceSearchDialog(props: {
                     if (result().kind === 'channel') props.onChannelIntent?.(result().id)
                   }}
                   onClick={() => select(result())}
-              >
+                >
                   {searchResultIcon(result().kind)}
                   <span>
                     <strong>{result().label}</strong>
@@ -345,7 +345,7 @@ export function WorkspaceSearchDialog(props: {
             </p>
           </Show>
         }
-    >
+      >
         <p class="conventional-dialog-empty" role="status">
           Offline. Quick navigation remains available; search will retry after reconnecting.
         </p>

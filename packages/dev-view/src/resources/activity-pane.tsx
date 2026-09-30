@@ -98,18 +98,18 @@ export function ActivityPane(props: ActivityPaneProps) {
       <Show
         when={serviceReady()}
         fallback={<p class="dev-resources__unavailable">Runtime unavailable</p>}
-    >
+      >
         <Show
           when={rows().length > 0}
           fallback={<p class="dev-resources__note">No harness activity for this scope.</p>}
-      >
+        >
           <ul class="dev-resources__list">
             <For each={rows()}>
               {(row) => (
                 <li
                   class="dev-activity__row"
                   classList={{ 'dev-activity__row--attention': row.attention }}
-              >
+                >
                   <span class="dev-activity__row-title">
                     <span>
                       {row.agent}
@@ -121,7 +121,7 @@ export function ActivityPane(props: ActivityPaneProps) {
                         'dev-activity__badge--attention': row.attention,
                         'dev-activity__badge--running': row.running,
                       }}
-                  >
+                    >
                       {ACTIVITY_STATE_LABELS[row.state]}
                     </span>
                   </span>
@@ -141,7 +141,7 @@ export function ActivityPane(props: ActivityPaneProps) {
                           : 'Cancel this run'
                       }
                       onClick={() => void cancelRun(row)}
-                  >
+                    >
                       <Square aria-hidden="true" /> Stop
                     </Button>
                   </Show>

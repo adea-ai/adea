@@ -86,14 +86,14 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
       onKeyDown={onKeyDown}
       role="region"
       tabIndex={0}
-  >
+    >
       <div class="dev-terminal-pane-status" data-state={connection()}>
         {connection() === 'reconnecting' ? 'reconnecting' : connection()}
       </div>
       <div
         class="dev-terminal-pane-integration"
         data-status={observations().length ? 'active' : 'pending'}
-    >
+      >
         {observations().length
           ? 'Authenticated shell integration'
           : 'Waiting for shell integration'}
@@ -109,7 +109,7 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
           {(observation) => (
             <li
               aria-label={`${observation.kind === 'precmd' ? `printf fixture, exit ${observation.exitCode}` : ''}`}
-          >
+            >
               {observation.kind === 'precmd' ? `printf fixture, exit ${observation.exitCode}` : ''}
             </li>
           )}

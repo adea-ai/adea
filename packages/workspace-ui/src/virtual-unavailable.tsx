@@ -12,7 +12,7 @@ export function VirtualUnavailable(props: {
       class="flex h-full w-full flex-col items-center justify-center gap-4 p-8 text-center"
       role="status"
       aria-label="Virtual view unavailable"
-  >
+    >
       <h1 class="text-xl font-semibold">Virtual view lives in Agent Sim</h1>
       <p class="max-w-md text-sm text-muted-foreground">
         {props.sceneLabel ? `The ${props.sceneLabel} scene is` : 'The spatial sim is'} part of the
@@ -36,7 +36,7 @@ export function VirtualUnavailable(props: {
           <div class="workspace-scene-viewport">{content()}</div>
         </main>
       }
-  >
+    >
       {content()}
     </Show>
   )
