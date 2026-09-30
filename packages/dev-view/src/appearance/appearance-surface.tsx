@@ -7,7 +7,9 @@
  */
 import {
   AppearanceEditor,
+  AppearancePopover,
   type AppearanceDraft,
+  type AppearanceEditorProps,
 } from '@adea-ai/ui/components/composites/appearance-editor'
 import {
   accentPresets,
@@ -45,7 +47,22 @@ function customAccentValue(accent: string): string {
   return accent === 'theme' || accentPresetById(accent) ? '' : accent
 }
 
+type AppearanceControlProps = {
+  open: boolean
+  onOpen(): void
+  onClose(): void
+}
+
 export function AppearancePanel() {
+  return <AppearanceHost />
+}
+
+/** Device-local preview and persistence around the shared live popover. */
+export function AppearanceControl(props: AppearanceControlProps) {
+  return <AppearanceHost popover={props} />
+}
+
+function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   const appearance = useTheme()
   const editor = createAppearanceEditor()
   const [customAccent, setCustomAccent] = createSignal('')
@@ -64,7 +81,7 @@ export function AppearancePanel() {
   )
   onMount(() => {
     setLibrary(readCustomThemeLibrary(window.localStorage))
-    return subscribeCustomThemes(() => setLibrary(readCustomThemeLibrary(window.localStorage)))
+    onCleanup(subscribeCustomThemes(() => setLibrary(readCustomThemeLibrary(window.localStorage))))
   })
   // Reading the library signal here ties the editor's theme list to imports
   // and removals: the record projection itself has no reactive dependency.
@@ -174,6 +191,7 @@ export function AppearancePanel() {
     const committed = editor.save()
     appearance.update(committed)
     appearance.preview(undefined)
+    props.popover?.onClose()
   }
 
   const reset = () => {
@@ -184,57 +202,93 @@ export function AppearancePanel() {
     preview()
   }
 
-  onMount(() => {
+  const openDraft = () => {
     const committed = untrack(() => appearance.preferences())
     editor.open(committed)
     setCustomAccent(customAccentValue(committed.accent))
     setRawCustomAccent(customAccentValue(committed.accent))
     setAccentStatus('')
     setLibraryOpen(false)
-  })
+  }
+
+  onMount(openDraft)
 
   onCleanup(revertDraft)
 
-  const editorView = (
-    <AppearanceEditor
-      draft={publishedDraft()}
-      lightTheme={appearanceThemeForPreview(miniatures().light, editor.draft().accent)}
-      darkTheme={appearanceThemeForPreview(miniatures().dark, editor.draft().accent)}
-      resolvedAppearance={appearance.resolvedMode()}
-      themes={themes()}
-      accentOptions={appearanceAccentOptions}
-      customAccentValue={customAccent() || '#2563eb'}
-      customAccentError={accentStatus()}
-      surfaceCapability={{
-        frosted: true,
-        themeDefaultDescription:
-          'Native window vibrancy where supported; tokenized frost elsewhere.',
-      }}
-      onChange={onChange}
-      onSave={save}
-      onCancel={revertDraft}
-      onReset={reset}
-      onManageThemes={() => setLibraryOpen(true)}
-    />
-  )
+  const editorProps: AppearanceEditorProps = {
+    get draft() {
+      return publishedDraft()
+    },
+    get lightTheme() {
+      return appearanceThemeForPreview(miniatures().light, editor.draft().accent)
+    },
+    get darkTheme() {
+      return appearanceThemeForPreview(miniatures().dark, editor.draft().accent)
+    },
+    get resolvedAppearance() {
+      return appearance.resolvedMode()
+    },
+    get themes() {
+      return themes()
+    },
+    accentOptions: appearanceAccentOptions,
+    get customAccentValue() {
+      return customAccent() || '#2563eb'
+    },
+    get customAccentError() {
+      return accentStatus()
+    },
+    surfaceCapability: {
+      frosted: true,
+      themeDefaultDescription: 'Native window vibrancy where supported; tokenized frost elsewhere.',
+    },
+    onChange,
+    onSave: save,
+    onCancel: () => {
+      revertDraft()
+      props.popover?.onClose()
+    },
+    onReset: reset,
+    onManageThemes: () => setLibraryOpen(true),
+  }
 
   return (
     <>
-      <section aria-label="Appearance" class="grid gap-4">
-        <header class="conventional-settings-section-header">
-          <MonitorCog aria-hidden="true" />
-          <div>
-            <h3>Appearance</h3>
-            <p>
-              Changes preview immediately. Save keeps them; leaving this section without saving
-              restores your previous appearance.
-            </p>
-          </div>
-        </header>
-        {editorView}
-      </section>
+      <Show
+        when={props.popover}
+        fallback={
+          <section aria-label="Appearance" class="grid gap-4">
+            <header class="conventional-settings-section-header">
+              <MonitorCog aria-hidden="true" />
+              <div>
+                <h3>Appearance</h3>
+                <p>
+                  Changes preview immediately. Save keeps them; leaving this section without saving
+                  restores your previous appearance.
+                </p>
+              </div>
+            </header>
+            <AppearanceEditor {...editorProps} />
+          </section>
+        }
+      >
+        {(control) => (
+          <AppearancePopover
+            {...editorProps}
+            open={control().open}
+            onOpen={() => {
+              openDraft()
+              control().onOpen()
+            }}
+            onDismiss={() => {
+              revertDraft()
+              control().onClose()
+            }}
+          />
+        )}
+      </Show>
       <ModalDialog
-        modal={false}
+        modal={props.popover !== undefined}
         open={libraryOpen()}
         onClose={() => setLibraryOpen(false)}
         title="Manage themes"
