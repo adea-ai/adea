@@ -45,6 +45,10 @@ export type UpdateStatus = {
 /** Bounds every outbound availability request; a hung feed or GitHub API
  * connection must never wedge the update state machine mid-check. */
 const CHECK_TIMEOUT_MS = 10_000
+/** A release-asset download that advances no bytes for this long is stalled. */
+const DOWNLOAD_STALL_MS = 20_000
+/** Hard cap for one download attempt, however slow-but-alive the stream is. */
+const DOWNLOAD_MAX_MS = 15 * 60_000
 
 export function versionLessThan(a: string, b: string): boolean {
   const pa = a
@@ -241,10 +245,37 @@ export function createUpdateManager(input: {
       const downloadTarget = slim
         ? resolveUpdateAssetUrl(slim.url)
         : resolveUpdateAssetUrl(manifest.url)
-      const { sha256 } = await downloadUpdateArchive(downloadTarget, archivePath, {
-        onProgress: (downloaded, total) =>
-          snapshot({ downloaded_bytes: downloaded, total_bytes: total }),
-      })
+      // A release-CDN connection can stall mid-stream; a watchdog aborts when
+      // no bytes arrive for a while, converting a forever-'downloading' wedge
+      // into a clean failed state the user can retry.
+      const downloadController = new AbortController()
+      let lastProgressAt = Date.now()
+      const watchdog = setInterval(() => {
+        if (Date.now() - lastProgressAt > DOWNLOAD_STALL_MS) {
+          downloadController.abort(new Error('update download stalled'))
+        }
+      }, 2_000)
+      const overallCap = setTimeout(() => {
+        downloadController.abort(new Error('update download exceeded the time limit'))
+      }, DOWNLOAD_MAX_MS)
+      let sha256: string
+      try {
+        const downloaded = await downloadUpdateArchive(downloadTarget, archivePath, {
+          onProgress: (bytes, total) => {
+            lastProgressAt = Date.now()
+            snapshot({ downloaded_bytes: bytes, total_bytes: total })
+          },
+          signal: downloadController.signal,
+        })
+        sha256 = downloaded.sha256
+      } catch (error) {
+        rmSync(`${archivePath}.partial`, { force: true })
+        clearInterval(watchdog)
+        clearTimeout(overallCap)
+        throw error
+      }
+      clearInterval(watchdog)
+      clearTimeout(overallCap)
       if (slim) {
         if (sha256 !== slim.sha256) {
           rmSync(archivePath, { force: true })

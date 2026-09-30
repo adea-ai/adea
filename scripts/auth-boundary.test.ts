@@ -16,6 +16,9 @@ async function sourceFiles(directory: string): Promise<string[]> {
           [
             '.turbo',
             '.wrangler',
+            // cf-wrangler copies the bundled server here; it is deployment
+            // output, just like dist, rather than another source package.
+            '.cloudflare',
             'artifacts',
             '.hutch',
             'build',
