@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.69.0",
+  "version": "0.69.1",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -43,7 +43,7 @@
     "test:browser:desktop-client": "bunx playwright install --with-deps chromium && bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
   },
   "devDependencies": {
-    "@adea-ai/ui": "0.79.0",
+    "@adea-ai/ui": "0.81.0",
     "@playwright/test": "^1.63.0",
     "@shadcn/lint": "^0.1.1",
     "@tailwindcss/postcss": "^4.3.3",
@@ -61,7 +61,7 @@
     "@capacitor/cli": "8.5.0",
     "@capacitor/core": "8.5.0",
     "@capacitor/ios": "8.5.0",
-    "brace-expansion": "5.0.11",
+    "brace-expansion": "5.0.12",
     "esbuild": "^0.25.0",
     "sharp": "0.35.4",
     "undici": "7.29.1",
