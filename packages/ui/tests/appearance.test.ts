@@ -117,7 +117,7 @@ describe('accent roles (Zeron AccentRoles derivation with Adea presets)', () => 
   })
 
   test('a custom accent that already passes contrast is kept verbatim', () => {
-    const variant = builtinThemeRegistry.find((candidate) => candidate.id === 'slate-light')!
+    const variant = builtinThemeRegistry.find((candidate) => candidate.id === 'nord-light')!
     const roles = deriveAccentRoles('#0b57d0', variant)
     expect(roles.primary).toBe('#0b57d0')
     expect(roles.overrides).toBe(true)
@@ -200,8 +200,8 @@ describe('preference normalization and migration', () => {
     const preferences: AppearancePreferencesV2 = {
       version: 2,
       mode: 'dark',
-      lightThemeId: 'slate-light',
-      darkThemeId: 'slate-dark',
+      lightThemeId: 'nord-light',
+      darkThemeId: 'nord',
       accent: 'blue',
       surface: 'frosted',
       reduceTransparency: true,
@@ -330,8 +330,8 @@ describe('storage-level read-modify-write with a recovery envelope', () => {
     const preferences: AppearancePreferencesV2 = {
       version: 2,
       mode: 'light',
-      lightThemeId: 'contrast-light',
-      darkThemeId: 'contrast-dark',
+      lightThemeId: 'adea-light-high-contrast',
+      darkThemeId: 'adea-dark-high-contrast',
       accent: '#112233',
       surface: 'translucent',
       reduceTransparency: true,
@@ -373,7 +373,7 @@ describe('document application', () => {
   // regression: the bug only appears when the SAME document is themed twice.
   test('switching a non-default variant back to the default clears its tokens', () => {
     const custom = resolveAppearanceState(
-      { ...defaultAppearancePreferences, darkThemeId: 'slate-dark' },
+      { ...defaultAppearancePreferences, darkThemeId: 'nord' },
       { systemAppearance: 'dark', osReducedTransparency: false, nativeTranslucency: false }
     )
     const back = resolveAppearanceState(defaultAppearancePreferences, {
@@ -385,7 +385,7 @@ describe('document application', () => {
     const { document, style, dataset } = fakeDocument()
     applyAppearanceToDocument(document as unknown as Document, custom)
     // The custom variant really did write tokens inline.
-    expect(dataset.theme).toBe('slate-dark')
+    expect(dataset.theme).toBe('nord')
     expect(style['--background']).toBeDefined()
     expect(style['--destructive-action']).toBe(custom.variant.colors.destructiveAction)
     expect(style['--destructive-action-foreground']).toBe(
@@ -407,7 +407,7 @@ describe('document application', () => {
   })
 
   test('a non-default variant applies its palette and role tokens', () => {
-    const preferences = { ...defaultAppearancePreferences, darkThemeId: 'slate-dark' }
+    const preferences = { ...defaultAppearancePreferences, darkThemeId: 'nord' }
     const state = resolveAppearanceState(preferences, {
       systemAppearance: 'dark',
       osReducedTransparency: false,
@@ -415,8 +415,8 @@ describe('document application', () => {
     })
     const { document, style, dataset } = fakeDocument()
     applyAppearanceToDocument(document as unknown as Document, state)
-    expect(dataset.theme).toBe('slate-dark')
-    expect(style['--background']).toBe('#0f172a')
+    expect(dataset.theme).toBe('nord')
+    expect(style['--background']).toBe(state.variant.colors.background)
     const variant = state.variant
     expect(style['--destructive-action']).toBe(variant.colors.destructiveAction)
     expect(style['--destructive-action-foreground']).toBe(
@@ -520,7 +520,7 @@ describe('the no-flash preload script', () => {
         version: 2,
         mode: 'dark',
         lightThemeId: 'adea-light',
-        darkThemeId: 'slate-dark',
+        darkThemeId: 'nord',
         surface: 'frosted',
       }),
     })
@@ -528,7 +528,7 @@ describe('the no-flash preload script', () => {
     // The palette itself is stylesheet-owned: the resolved `data-theme`
     // attribute selects the generated token block (proven in the canonical
     // adapter tests), so the script only carries the document state.
-    expect(dataset.theme).toBe('slate-dark')
+    expect(dataset.theme).toBe('nord')
     expect(dataset.surface).toBe('frosted')
     expect(style['--surface-alpha']).toBe('0.92')
     expect(Object.keys(style).filter((name) => name.startsWith('--background'))).toEqual([])
@@ -590,9 +590,11 @@ describe('flat token map', () => {
   test('default variants own no tokens and non-default variants own the full set', () => {
     expect(flatVariantTokens(builtinThemeRegistry[0]!)).toEqual({})
     const slate = flatVariantTokens(
-      builtinThemeRegistry.find((variant) => variant.id === 'slate-light')!
+      builtinThemeRegistry.find((variant) => variant.id === 'nord-light')!
     )
-    expect(slate['--background']).toBe('#f8fafc')
+    expect(slate['--background']).toBe(
+      builtinThemeRegistry.find((variant) => variant.id === 'nord-light')!.colors.background
+    )
     expect(slate['--terminal-foreground']).toBeDefined()
     expect(slate['--editor-comment']).toBeDefined()
     expect(slate['--chart-6']).toBeDefined()

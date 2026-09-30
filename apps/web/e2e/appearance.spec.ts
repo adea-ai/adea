@@ -62,18 +62,18 @@ test.describe('appearance', () => {
     await expect(page.locator('html')).toHaveClass(/dark/)
 
     await editor(panel).getByText('Adea Dark', { exact: true }).click()
-    await page.getByRole('menuitemradio', { name: 'Slate Dark', exact: true }).click()
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'slate-dark')
+    await page.getByRole('menuitemradio', { name: 'Nord', exact: true }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'nord')
     await expect(editor(panel).getByRole('button', { name: 'Dark theme', exact: true })).toHaveText(
-      'Slate Dark'
+      'Nord'
     )
 
     await panel.getByRole('button', { name: 'Save' }).click()
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'slate-dark')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'nord')
 
     // The saved preference survives a reload through the pre-paint script.
     await page.reload()
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'slate-dark')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'nord')
     await expect(page.locator('html')).toHaveClass(/dark/)
   })
 
@@ -383,11 +383,11 @@ test('cancel reverts the draft and the OS reduced-motion preference keeps the pa
 // the published catalogue the picker now offers.
 for (const [selectedMode, themeId] of [
   ['light', 'adea-light'],
-  ['light', 'slate-light'],
-  ['light', 'contrast-light'],
+  ['light', 'nord-light'],
+  ['light', 'adea-light-high-contrast'],
   ['dark', 'adea-dark'],
-  ['dark', 'slate-dark'],
-  ['dark', 'contrast-dark'],
+  ['dark', 'nord'],
+  ['dark', 'adea-dark-high-contrast'],
 ] as const) {
   test(`published destructive actions retain normal and hover contrast for persisted ${themeId}`, async ({
     page,

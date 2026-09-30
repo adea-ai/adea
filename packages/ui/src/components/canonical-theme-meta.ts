@@ -1,34 +1,108 @@
-/** Generated from the isolated @adea-ai/themes 0.6.3 records. */
+/** Generated from the isolated @adea-ai/themes 0.8.1 records. */
 export const CANONICAL_THEME_META = {
   'adea-light': {
     label: 'Light',
     description:
-      "The default light theme. Nord Light's cool canvas, with the same hues as Adea Dark.",
+      "The default light theme: GitHub's own white canvas carrying the dark theme's hues, transposed to survive on paper, with the family violet accent.",
     provenance: {
       project: 'Adea',
       url: 'https://github.com/adea-ai/themes',
       license: 'Apache-2.0',
       bootstrappedFrom: [
-        'Nord Light (iTerm2-Color-Schemes)',
+        'GitHub Light Default (iTerm2-Color-Schemes)',
         'GitHub Dark Default (iTerm2-Color-Schemes)',
       ],
     },
-    tags: ['light', 'default', 'cool'],
+    tags: ['light', 'default', 'neutral'],
   },
   'adea-dark': {
     label: 'Dark',
     description:
-      "The default dark theme. Aardvark Ink's quiet canvas, with GitHub's vivid hues on it.",
+      'The default dark theme: GitHub Dark Default with the canvas re-greyed to a violet-leaning neutral and the family violet accent, kept as a composition so the default can diverge from it one slot at a time.',
+    provenance: {
+      project: 'Adea',
+      url: 'https://github.com/adea-ai/themes',
+      license: 'Apache-2.0',
+      bootstrappedFrom: ['GitHub Dark Default (iTerm2-Color-Schemes)'],
+    },
+    tags: ['dark', 'default', 'neutral'],
+  },
+  'adea-dark-colorblind': {
+    label: 'Dark Colorblind',
+    description:
+      "The colourblind dark variant: GitHub Dark Colorblind's hues on the family's re-greyed canvas, for deuteranopia and protanopia. The violet accent survives the adjustment untouched.",
+    provenance: {
+      project: 'Adea',
+      url: 'https://github.com/adea-ai/themes',
+      license: 'Apache-2.0',
+      bootstrappedFrom: ['GitHub Dark Colorblind (iTerm2-Color-Schemes)'],
+    },
+    tags: ['dark', 'default', 'colorblind'],
+  },
+  'adea-dark-high-contrast': {
+    label: 'Dark High Contrast',
+    description:
+      "The high-contrast dark variant: GitHub Dark High Contrast's near-black canvas re-greyed to the family neutral, carrying its own high-contrast hues and violet accent.",
+    provenance: {
+      project: 'Adea',
+      url: 'https://github.com/adea-ai/themes',
+      license: 'Apache-2.0',
+      bootstrappedFrom: ['GitHub Dark High Contrast (iTerm2-Color-Schemes)'],
+    },
+    tags: ['dark', 'default', 'high-contrast'],
+  },
+  'adea-light-colorblind': {
+    label: 'Light Colorblind',
+    description:
+      "The colourblind light variant: GitHub's white colourblind canvas carrying the dark colourblind hues, transposed to survive on paper — the same red is the same red as the dark colourblind variant.",
     provenance: {
       project: 'Adea',
       url: 'https://github.com/adea-ai/themes',
       license: 'Apache-2.0',
       bootstrappedFrom: [
-        'Aardvark Ink (iTerm2-Color-Schemes)',
-        'GitHub Dark Default (iTerm2-Color-Schemes)',
+        'GitHub Light Colorblind (iTerm2-Color-Schemes)',
+        'GitHub Dark Colorblind (iTerm2-Color-Schemes)',
       ],
     },
-    tags: ['dark', 'default', 'vivid'],
+    tags: ['light', 'default', 'colorblind'],
+  },
+  'adea-light-high-contrast': {
+    label: 'Light High Contrast',
+    description:
+      "The high-contrast light variant: GitHub's white high-contrast canvas carrying the dark high-contrast hues, transposed — the paper counterpart of the dark high-contrast variant.",
+    provenance: {
+      project: 'Adea',
+      url: 'https://github.com/adea-ai/themes',
+      license: 'Apache-2.0',
+      bootstrappedFrom: [
+        'GitHub Light High Contrast (iTerm2-Color-Schemes)',
+        'GitHub Dark High Contrast (iTerm2-Color-Schemes)',
+      ],
+    },
+    tags: ['light', 'default', 'high-contrast'],
+  },
+  'aardvark-blue': {
+    label: 'Blue',
+    description: "Ink's louder sibling: a deep blue ground under bright, cool text.",
+    provenance: {
+      project: 'iTerm2-Color-Schemes',
+      url: 'https://github.com/mbadolato/iTerm2-Color-Schemes',
+      license: 'MIT',
+      bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
+    },
+    tags: ['dark', 'blue', 'vivid'],
+  },
+  'aardvark-ink': {
+    label: 'Ink',
+    description:
+      'Near-black navy with muted blue-grey text — the canvas the original Adea Dark was drawn on.',
+    provenance: {
+      project: 'iTerm2-Color-Schemes',
+      url: 'https://github.com/mbadolato/iTerm2-Color-Schemes',
+      license: 'MIT',
+      bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
+    },
+    tags: ['dark', 'ink', 'muted'],
   },
   ayu: {
     label: 'Dark',
@@ -40,6 +114,17 @@ export const CANONICAL_THEME_META = {
       bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
     },
     tags: ['dark', 'popular'],
+  },
+  'ayu-light': {
+    label: 'Light',
+    description: 'Clean white paper with an orange accent.',
+    provenance: {
+      project: 'Ayu',
+      url: 'https://github.com/ayu-theme/ayu-colors',
+      license: 'MIT',
+      bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
+    },
+    tags: ['light', 'warm'],
   },
   'ayu-mirage': {
     label: 'Mirage',
@@ -63,6 +148,17 @@ export const CANONICAL_THEME_META = {
     },
     tags: ['dark', 'muted', 'soft'],
   },
+  'catppuccin-latte': {
+    label: 'Latte',
+    description: 'The light flavour. Warm and low-contrast, built for long sessions.',
+    provenance: {
+      project: 'Catppuccin',
+      url: 'https://github.com/catppuccin/catppuccin',
+      license: 'MIT',
+      bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
+    },
+    tags: ['light', 'warm', 'muted'],
+  },
   'catppuccin-macchiato': {
     label: 'Macchiato',
     description: 'The middle dark flavour, a shade deeper than Frappé.',
@@ -84,26 +180,6 @@ export const CANONICAL_THEME_META = {
       bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
     },
     tags: ['dark', 'muted', 'popular'],
-  },
-  'contrast-dark': {
-    label: 'Dark',
-    description: 'Adea’s high-contrast palette for dark appearance.',
-    provenance: {
-      project: 'Adea',
-      url: 'https://github.com/adea-ai/adea',
-      license: 'Apache-2.0',
-    },
-    tags: ['dark', 'high-contrast'],
-  },
-  'contrast-light': {
-    label: 'Light',
-    description: 'Adea’s high-contrast palette for light appearance.',
-    provenance: {
-      project: 'Adea',
-      url: 'https://github.com/adea-ai/adea',
-      license: 'Apache-2.0',
-    },
-    tags: ['light', 'high-contrast'],
   },
   dracula: {
     label: 'Dracula',
@@ -127,6 +203,17 @@ export const CANONICAL_THEME_META = {
     },
     tags: ['dark', 'green', 'soft', 'popular'],
   },
+  'everforest-light': {
+    label: 'Light',
+    description: 'A soft light green-grey, medium contrast.',
+    provenance: {
+      project: 'Everforest',
+      url: 'https://github.com/sainnhe/everforest',
+      license: 'MIT',
+      bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
+    },
+    tags: ['light', 'green', 'soft'],
+  },
   'gruvbox-dark': {
     label: 'Dark',
     description: 'The classic: warm brown-black with high-chroma retro accents.',
@@ -137,6 +224,17 @@ export const CANONICAL_THEME_META = {
       bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
     },
     tags: ['dark', 'warm', 'retro', 'popular'],
+  },
+  'gruvbox-light': {
+    label: 'Light',
+    description: 'Retro warm cream and burnt orange.',
+    provenance: {
+      project: 'Gruvbox',
+      url: 'https://github.com/morhetz/gruvbox#license',
+      license: 'MIT',
+      bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
+    },
+    tags: ['light', 'warm', 'retro'],
   },
   kanagawa: {
     label: 'Wave',
@@ -171,6 +269,17 @@ export const CANONICAL_THEME_META = {
     },
     tags: ['dark', 'cool', 'muted', 'popular'],
   },
+  'nord-light': {
+    label: 'Light',
+    description: "Nord's snow variant: the same cool palette for a light canvas.",
+    provenance: {
+      project: 'Nord',
+      url: 'https://github.com/nordtheme/nord',
+      license: 'MIT',
+      bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
+    },
+    tags: ['light', 'cool', 'muted'],
+  },
   'one-dark': {
     label: 'One Dark',
     description: "Atom's editor palette: cool grey ground, one blue accent.",
@@ -193,6 +302,17 @@ export const CANONICAL_THEME_META = {
     },
     tags: ['dark', 'muted', 'popular'],
   },
+  'rosepine-dawn': {
+    label: 'Dawn',
+    description: 'The light variant: a warm paper ground with muted rose ink.',
+    provenance: {
+      project: 'Rosé Pine',
+      url: 'https://github.com/rose-pine/rose-pine-theme',
+      license: 'MIT',
+      bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
+    },
+    tags: ['light', 'warm'],
+  },
   'rosepine-moon': {
     label: 'Moon',
     description: 'The lifted dark variant, greyer than Main.',
@@ -204,26 +324,6 @@ export const CANONICAL_THEME_META = {
     },
     tags: ['dark', 'muted'],
   },
-  'slate-dark': {
-    label: 'Dark',
-    description: 'Adea’s slate neutral palette for dark appearance.',
-    provenance: {
-      project: 'Adea',
-      url: 'https://github.com/adea-ai/adea',
-      license: 'Apache-2.0',
-    },
-    tags: ['dark', 'slate', 'neutral'],
-  },
-  'slate-light': {
-    label: 'Light',
-    description: 'Adea’s slate neutral palette for light appearance.',
-    provenance: {
-      project: 'Adea',
-      url: 'https://github.com/adea-ai/adea',
-      license: 'Apache-2.0',
-    },
-    tags: ['light', 'slate', 'neutral'],
-  },
   'solarized-dark': {
     label: 'Dark',
     description: 'The base16 teal ground, with deliberately equalised contrast.',
@@ -234,6 +334,28 @@ export const CANONICAL_THEME_META = {
       bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
     },
     tags: ['dark', 'precision', 'popular'],
+  },
+  'solarized-light': {
+    label: 'Light',
+    description: "Ethan Schoonover's paper variant, on the same eight accents.",
+    provenance: {
+      project: 'Solarized',
+      url: 'https://github.com/altercation/solarized',
+      license: 'MIT',
+      bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
+    },
+    tags: ['light', 'warm', 'precision'],
+  },
+  'tokyonight-day': {
+    label: 'Day',
+    description: 'The daylight variant: cool paper rather than warm.',
+    provenance: {
+      project: 'Tokyo Night',
+      url: 'https://github.com/folke/tokyonight.nvim',
+      license: 'Apache-2.0',
+      bootstrappedFrom: ['https://github.com/mbadolato/iTerm2-Color-Schemes'],
+    },
+    tags: ['light', 'cool'],
   },
   'tokyonight-night': {
     label: 'Night',

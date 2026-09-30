@@ -64,7 +64,7 @@ describe('appearance editor (Zeron setter semantics with the save/revert contrac
   test('save commits the draft and clears the dirty delta', () => {
     const editor = createAppearanceEditor(committed)
     editor.open(committed)
-    editor.set({ mode: 'light', lightThemeId: 'slate-light' })
+    editor.set({ mode: 'light', lightThemeId: 'nord-light' })
     const saved = editor.save()
     expect(saved).toEqual(editor.draft())
     expect(editor.dirty()).toBe(false)

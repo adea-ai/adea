@@ -14,11 +14,11 @@ describe('appearance composition (ported Zeron appearance page layout)', () => {
   test('mode miniatures resolve both variants from the draft', () => {
     const variants = draftVariants({
       ...defaultAppearancePreferences,
-      lightThemeId: 'slate-light',
-      darkThemeId: 'slate-dark',
+      lightThemeId: 'nord-light',
+      darkThemeId: 'nord',
     })
-    expect(variants.light.id).toBe('slate-light')
-    expect(variants.dark.id).toBe('slate-dark')
+    expect(variants.light.id).toBe('nord-light')
+    expect(variants.dark.id).toBe('nord')
     expect(variants.light.appearance).toBe('light')
     expect(variants.dark.appearance).toBe('dark')
   })
