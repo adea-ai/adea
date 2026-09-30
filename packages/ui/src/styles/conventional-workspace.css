@@ -6,7 +6,7 @@
   display: grid;
   grid-template-columns: 4rem minmax(0, 1fr);
   grid-template-rows: var(--workspace-topbar-height) minmax(0, 1fr);
-  min-width: 20rem;
+  min-width: 0;
   height: 100svh;
   overflow: clip;
   background: var(--background);
@@ -2898,6 +2898,16 @@
   }
   .workspace-topbar__actions {
     grid-column: 3;
+  }
+  .workspace-topbar {
+    gap: 0.25rem;
+  }
+  .workspace-topbar__navigation,
+  .workspace-topbar__actions {
+    gap: 0.25rem;
+  }
+  .workspace-topbar__view-actions:empty {
+    display: none;
   }
   .workspace-frame .conventional-sidebar {
     top: var(--workspace-topbar-height);

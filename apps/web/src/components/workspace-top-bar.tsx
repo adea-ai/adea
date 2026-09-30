@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, PanelLeftClose, PanelLeftOpen, Search } from 'lu
 import { createSignal, onCleanup, onMount, Show } from 'solid-js'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { workspaceHistoryPosition } from '../lib/workspace-history'
+import { WorkspaceAppearanceControl } from './workspace-appearance-control'
 
 const HISTORY_KEY = 'adea:workspace-history-maximum:v1'
 
@@ -110,6 +111,7 @@ export function WorkspaceTopBar(props: {
       <TopBarTitle class="workspace-topbar__title">{props.title}</TopBarTitle>
       <TopBarSection align="end" class="workspace-topbar__actions">
         <div class="workspace-topbar__view-actions" ref={props.actionsMount} />
+        <WorkspaceAppearanceControl />
         <Button
           variant="ghost"
           size="icon-sm"
