@@ -55,7 +55,7 @@
               "next-themes",
               "lucide-react"
             ],
-            "message": "This is a Solid codebase \u2014 React libraries will not run. Use @adea-ai/app-ui components (@kobalte/core and @corvu primitives) and lucide-solid."
+            "message": "This is a Solid codebase — React libraries will not run. Use @adea-ai/app-ui components (@kobalte/core and @corvu primitives) and lucide-solid."
           }
         ]
       }
@@ -110,36 +110,13 @@
   "overrides": [
     {
       "files": [
-        "apps/web/src/components/desktop-auth-complete.tsx",
-        "apps/web/src/components/desktop-workspace-entry.tsx",
-        "packages/audio/src/sound.tsx",
-        "packages/dev-view/src/agents/harness-status-pane.tsx",
-        "packages/dev-view/src/browser/cookie-import-panel.tsx",
         "packages/dev-view/src/browser/mini-preview.tsx",
-        "packages/dev-view/src/chat/chat-view.tsx",
-        "packages/dev-view/src/computeruse/computeruse-pane.tsx",
-        "packages/dev-view/src/dev-workspace-entry.tsx",
-        "packages/dev-view/src/devices/devices-pane.tsx",
-        "packages/dev-view/src/editor/code-editor.tsx",
-        "packages/dev-view/src/history/run-history-pane.tsx",
-        "packages/dev-view/src/resources/activity-pane.tsx",
-        "packages/dev-view/src/resources/resources-pane.tsx",
-        "packages/dev-view/src/sidebar/archive-shelf.tsx",
-        "packages/ui/src/components/on-screen-controls.tsx",
-        "packages/ui/src/components/theme-toggle.tsx",
-        "packages/workspace-ui/src/artifact-detail.tsx",
-        "packages/workspace-ui/src/conventional-workspace-shell.tsx",
-        "packages/workspace-ui/src/conversation-surface.tsx",
+        "packages/dev-view/src/terminal/fixture-terminal-pane.tsx",
         "packages/workspace-ui/src/message-row.tsx",
-        "packages/workspace-ui/src/sidebar-toggle-button.tsx",
-        "packages/workspace-ui/src/thread-panel.tsx",
-        "packages/workspace-ui/src/virtual-room-controls.tsx",
-        "packages/workspace-ui/src/workspace-sidebar.tsx",
-        "packages/workspace-ui/src/workspace-states.tsx"
+        "packages/workspace-ui/src/task-board.tsx",
+        "packages/workspace-ui/src/workspace-sidebar.tsx"
       ],
       "rules": {
-        "adea/no-raw-interactive-elements": "off",
-        "adea/no-primitive-library-imports": "off",
         "adea/no-interactive-wrappers": "off"
       }
     },
@@ -147,15 +124,6 @@
       "files": ["packages/workspace-ui/src/create-workspace-dialogs.tsx"],
       "rules": {
         "adea/no-raw-interactive-elements": "off"
-      }
-    },
-    {
-      "files": [
-        "packages/dev-view/src/terminal/fixture-terminal-pane.tsx",
-        "packages/workspace-ui/src/task-board.tsx"
-      ],
-      "rules": {
-        "adea/no-interactive-wrappers": "off"
       }
     },
     {
