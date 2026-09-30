@@ -1416,11 +1416,11 @@ opaque runtime payloads provide no validated call phase, interaction eligibility
 synthesis or final-answer boundary; rows therefore stay visible and unfolded.
 Payload hints and run completion cannot authorize grouping or hide an action.
 
-Adea's persisted appearance IDs are the published `@adea-ai/themes` catalogue
-minus the themes whose editor projection cannot reach the host's 4.5:1 syntax
-floor (the generated data records those exclusions explicitly, and a stored
-excluded id falls back to the appearance default). The generator records that
-package's actual version.
+Adea's persisted appearance IDs are the complete published `@adea-ai/themes`
+0.8.1 catalogue. Every editor projection clears the host's 4.5:1 syntax floor;
+the generator refuses unexpected exclusions and records the package's actual
+version. A removed or unknown stored ID resolves to the appearance default
+without deleting the stored preference.
 Solid destructive actions carry a separate generated fill/foreground pair from
 `shadcnDestructiveProjection`; theme switching and the pre-paint provider apply
 and clear those tokens with the rest of the palette. Canonical status hues,
@@ -4035,13 +4035,15 @@ opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
 The built-in registry is the published `@adea-ai/themes` catalogue adapted
 into this manifest's CSS, terminal, editor, and chart roles, led by the
-`adea-light`/`adea-dark` default pair (the catalogue's editor-floor exclusions
-stay out of the registry); the preference IDs and pre-paint document authority
-remain Adea-owned. Non-default variants ship as generated `[data-theme]` token
-blocks in `packages/ui/src/styles/canonical-themes.css`, so the pre-paint
-script only resolves the attribute and a render-blocking stylesheet paints the
-stored palette; the default pair stays CSS-owned in `theme.css`. Palette normalization, accents, contrast math, and shadcn
-projection remain catalogue-owned. Generated editor roles use the published
+`adea-light`/`adea-dark` default pair; all published themes clear the editor
+floor. Preference IDs and pre-paint document authority remain Adea-owned.
+Every variant, including the default pair, ships in the generated
+`packages/ui/src/styles/canonical-themes.css` sheet. Its framework roles come
+from the published UI projection, including sidebar, status, and raised surfaces;
+terminal/editor aliases come from Themes adapters. The pre-paint script resolves
+the attribute and the render-blocking stylesheet paints the stored palette.
+App-authored styles cannot redeclare published palette tokens. Palette
+normalization, accents, and contrast math remain catalogue-owned. Generated editor roles use the published
 quantized-hex contrast projection, while the syntax API retains its quieter
 comment role. Unknown stored theme IDs fall back to the default of the same
 appearance in both the pre-paint script and the mounted provider.

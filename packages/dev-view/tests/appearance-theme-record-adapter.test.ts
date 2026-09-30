@@ -39,9 +39,9 @@ describe('published AppearanceEditor theme adapter', () => {
   })
 
   test('maps catalogue records without changing their accepted IDs', () => {
-    const slate = builtinThemeRegistry.find((theme) => theme.id === 'slate-dark')!
+    const slate = builtinThemeRegistry.find((theme) => theme.id === 'nord')!
     const adapted = appearanceThemeForPreview(slate, 'theme')
-    expect(adapted.id).toBe('slate-dark')
+    expect(adapted.id).toBe('nord')
     expect(adapted.appearance).toBe('dark')
     expect(adapted.colors.background).toBe(slate.colors.background)
     expect(adapted.colors.surface).toBe(slate.colors.card)
@@ -49,7 +49,7 @@ describe('published AppearanceEditor theme adapter', () => {
   })
 
   test('maps custom accent roles while preserving the compatibility theme baseline', () => {
-    const slate = builtinThemeRegistry.find((theme) => theme.id === 'slate-dark')!
+    const slate = builtinThemeRegistry.find((theme) => theme.id === 'nord')!
     const baseline = appearanceThemeForPreview(slate, 'theme')
     const accent = '#2563eb'
     const expectedAccent = deriveAccentRoles(accent, slate)
