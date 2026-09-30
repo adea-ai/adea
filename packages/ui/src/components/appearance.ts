@@ -9,9 +9,9 @@
  * Adea's established CSS/provider shape. See NOTICE and
  * docs/research/dev-view-donor-audit.md for source and behavior provenance.
  *
- * The original `adea-light` and `adea-dark` CSS declarations remain the
- * first-paint defaults. `scripts/check-theme-colors.mjs` verifies them against
- * the generated projection from the published catalogue.
+ * Every built-in palette, including the default pair, is generated from
+ * the published UI projection over the shared Themes catalogue. This adapter
+ * retains preference and native capability authority, not palette authority.
  */
 
 import {
@@ -844,7 +844,7 @@ const SURFACE_BACKGROUND_ALPHA: Record<EffectiveSurface, string> = {
  * The custom properties a non-default variant owns, as a flat map. This one
  * mapping feeds both the live provider and the pre-paint no-flash script, so
  * a restored first paint and a later live switch cannot disagree. Default
- * variants return an empty map: `styles/theme.css` declares those tokens.
+ * variants return an empty map: `styles/canonical-themes.css` declares those tokens.
  */
 export function flatVariantTokens(variant: ThemeVariant): Record<string, string> {
   if (isDefaultVariant(variant)) return {}
@@ -879,8 +879,7 @@ export function flatVariantTokens(variant: ThemeVariant): Record<string, string>
  * without remounting.
  *
  * The default `adea-light`/`adea-dark` variants skip the palette override —
- * `styles/theme.css` declares those tokens already, and leaving them CSS-owned
- * keeps first paint byte-identical to the pre-#425 app.
+ * `styles/canonical-themes.css` declares those published tokens already.
  */
 export function applyAppearanceToDocument(
   document: Document,
@@ -954,8 +953,7 @@ function allVariantTokenNames(): ReadonlySet<string> {
  * applies the same document state the provider would, so hydration never shows
  * the wrong palette. Palette values are not embedded: every non-default
  * variant's tokens are declared in the generated `styles/canonical-themes.css`
- * under its `data-theme` attribute, and the default pair lives in
- * `styles/theme.css`, so a render-blocking stylesheet plus the resolved
+ * under its `data-theme` attribute, including the default pair, so a render-blocking stylesheet plus the resolved
  * attribute paint the right palette. Accent overrides land with the provider:
  * they decorate the resolved palette and cannot produce a wrong-palette flash.
  */
