@@ -282,7 +282,6 @@ export function WorkspaceSidebar(props: Props) {
         />
       </Show>
       <SidebarNav
-        id="workspace-navigation"
         as="aside"
         ref={setSidebar}
         class={cn('conventional-sidebar', {
