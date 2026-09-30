@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/web",
-  "version": "0.69.8",
+  "version": "0.69.10",
   "private": true,
   "type": "module",
   "scripts": {
@@ -40,7 +40,7 @@
     "@adea-ai/spatial-protocol": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.88.0",
+    "@adea-ai/ui": "0.89.1",
     "@adea-ai/workspace-ui": "workspace:*",
     "@neondatabase/auth": "0.5.0-beta",
     "@tanstack/solid-router": "1.170.33",
