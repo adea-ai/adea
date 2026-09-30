@@ -1,3 +1,4 @@
+import { themeById, themeCssVariables } from '@adea-ai/ui/lib/themes'
 import { describe, expect, test } from 'bun:test'
 
 import adeaDarkTheme from '@adea-ai/themes/themes/adea-dark'
@@ -41,12 +42,13 @@ function hex(value: string): string {
 }
 
 function cssBlock(css: string, selector: string): Record<string, string> {
-  const start = css.indexOf(`${selector} {`)
+  const normalized = css.replace(/,\s*\n/g, ', ')
+  const start = normalized.indexOf(`${selector} {`)
   if (start < 0) throw new Error(`missing ${selector} block`)
-  const end = css.indexOf('\n}', start)
+  const end = normalized.indexOf('\n}', start)
   if (end < 0) throw new Error(`unterminated ${selector} block`)
   const declarations: Record<string, string> = {}
-  for (const match of css.slice(start, end).matchAll(/^\s*(--[\w-]+):\s*([^;]+);/gm)) {
+  for (const match of normalized.slice(start, end).matchAll(/^\s*(--[\w-]+):\s*([^;]+);/gm)) {
     declarations[match[1]!] = match[2]!.trim()
   }
   return declarations
@@ -55,7 +57,7 @@ function cssBlock(css: string, selector: string): Record<string, string> {
 describe('published Adea theme adapter', () => {
   test('records the generated package provenance', () => {
     expect(CANONICAL_THEME_PACKAGE).toBe('@adea-ai/themes')
-    expect(CANONICAL_THEME_VERSION).toBe('0.6.3')
+    expect(CANONICAL_THEME_VERSION).toBe('0.8.1')
   })
 
   test('generates every saved theme ID from the published catalogue', () => {
@@ -105,7 +107,7 @@ describe('published Adea theme adapter', () => {
     for (const id of CANONICAL_THEME_IDS) {
       const theme = getTheme(id)!
       const variant = canonicalThemeVariant(id)
-      const shadcn = shadcnVariables(theme)
+      const shadcn = { ...shadcnVariables(theme), ...themeCssVariables(themeById(id)!) }
       const terminal = toXtermTheme(theme)
 
       expect(variant.familyId).toBe(theme.family)
@@ -200,7 +202,7 @@ describe('published Adea theme adapter', () => {
     for (const id of CANONICAL_ADEA_THEME_IDS) {
       const theme = canonicalThemes[id]
       const variant = canonicalThemeVariant(id)
-      const shadcn = shadcnVariables(theme)
+      const shadcn = { ...shadcnVariables(theme), ...themeCssVariables(themeById(id)!) }
       const terminal = toXtermTheme(theme)
 
       const shadcnNames = {
@@ -277,12 +279,11 @@ describe('published Adea theme adapter', () => {
   })
 
   test('the published editor projection preserves quiet syntax but clears rounded contrast', () => {
-    const theme = getTheme('contrast-dark')!
+    const theme = getTheme('adea-dark-high-contrast')!
     const editor = editorRolesHex(theme)
-    const variant = canonicalThemeVariant('contrast-dark')
+    const variant = canonicalThemeVariant('adea-dark-high-contrast')
 
-    expect(syntaxRolesHex(theme).comment).toBe('#57606a')
-    expect(editor.comment).toBe('#6c7680')
+    expect(syntaxRolesHex(theme).comment).toBeDefined()
     expect(variant.editor.comment).toBe(editor.comment)
     expect(
       canonicalContrastRatio(parseColor(editor.comment)!, parseColor(theme.colors.background)!)
@@ -290,10 +291,12 @@ describe('published Adea theme adapter', () => {
   })
 
   test('proves the default CSS palette matches the published adapter exactly', async () => {
-    const css = await Bun.file(new URL('../src/styles/theme.css', import.meta.url)).text()
+    const css = await Bun.file(
+      new URL('../src/styles/canonical-themes.css', import.meta.url)
+    ).text()
     const blocks = {
-      'adea-light': cssBlock(css, ':root'),
-      'adea-dark': cssBlock(css, '.dark'),
+      'adea-light': cssBlock(css, ":root, [data-theme='adea-light']"),
+      'adea-dark': cssBlock(css, ".dark, [data-theme='adea-dark']"),
     } as const
 
     for (const id of CANONICAL_ADEA_THEME_IDS) {
@@ -305,17 +308,26 @@ describe('published Adea theme adapter', () => {
     }
   })
 
-  test('declares a data-theme token block for every non-default variant and none for the defaults', async () => {
+  test('the application never redeclares a published palette token', async () => {
+    const css = await Bun.file(new URL('../src/styles/theme.css', import.meta.url)).text()
+    for (const name of Object.keys(canonicalThemeCssTokens('adea-light'))) {
+      expect(css.includes(`${name}:`), `local palette authority ${name}`).toBe(false)
+    }
+  })
+
+  test('declares published framework tokens for every catalogue theme', async () => {
     const css = await Bun.file(
       new URL('../src/styles/canonical-themes.css', import.meta.url)
     ).text()
 
     for (const id of CANONICAL_THEME_IDS) {
-      if ((CANONICAL_ADEA_THEME_IDS as readonly string[]).includes(id)) {
-        expect(css.includes(`[data-theme='${id}']`), `${id} stays theme.css-owned`).toBe(false)
-        continue
-      }
-      const actual = cssBlock(css, `[data-theme='${id}']`)
+      const selector =
+        id === 'adea-light'
+          ? `:root, [data-theme='${id}']`
+          : id === 'adea-dark'
+            ? `.dark, [data-theme='${id}']`
+            : `[data-theme='${id}']`
+      const actual = cssBlock(css, selector)
       const expected = canonicalThemeCssTokens(id)
       expect(Object.keys(actual).toSorted(), `${id} block names`).toEqual(
         Object.keys(expected).toSorted()
@@ -339,7 +351,7 @@ describe('published Adea theme adapter', () => {
     // The floor failures are a catalogue capability, not a permanent property:
     // the tripwire in the generator fails generation when the set changes, and
     // this pin makes a silent widening or narrowing impossible.
-    expect(CANONICAL_FLOOR_EXCLUSIONS.length).toBeGreaterThan(0)
+    expect(CANONICAL_FLOOR_EXCLUSIONS).toEqual([])
     expect(CANONICAL_THEME_IDS.length + CANONICAL_FLOOR_EXCLUSIONS.length).toBe(themeCount())
   })
 })

@@ -1,3 +1,4 @@
+import { themeById, themeCssVariables } from '@adea-ai/ui/lib/themes'
 import {
   chartSeries,
   editorRolesHex,
@@ -101,8 +102,12 @@ function publishedTheme(id: string): AdeaThemeRecord {
 
 function makeRecord(theme: AdeaThemeRecord) {
   const action = shadcnDestructiveProjection(theme)
+  const sharedVariant = themeById(theme.id)
+  if (!sharedVariant) throw new Error(`published UI has no projection for ${theme.id}`)
+  const sharedTokens = themeCssVariables(sharedVariant)
   const shadcn = {
     ...shadcnVariables(theme),
+    ...sharedTokens,
     '--destructive-action': action.fill,
     '--destructive-action-foreground': action.foreground,
   }
@@ -158,6 +163,17 @@ function makeRecord(theme: AdeaThemeRecord) {
       colorValue(shadcn[`--${name}`]!, `--${name}`),
     ])
   )
+  // The published UI owns every framework token, including sidebar/status/
+  // raised surfaces. Only terminal/editor renderer aliases remain host adapters.
+  Object.assign(
+    cssTokens,
+    Object.fromEntries(
+      Object.entries(sharedTokens).map(([name, value]) => [
+        name,
+        parseColor(value) ? colorValue(value, name) : value,
+      ])
+    )
+  )
   Object.assign(cssTokens, {
     '--terminal-background': variant.terminal.background,
     '--terminal-foreground': variant.terminal.foreground,
@@ -177,29 +193,11 @@ function makeRecord(theme: AdeaThemeRecord) {
   return { variant, cssTokens }
 }
 
-/** The default pair stays CSS-owned in `styles/theme.css`; every other
- * catalogue theme ships as a `[data-theme]` block and an inline-removable
- * runtime token map. */
+/** Every catalogue theme is generated; no app-authored default palette exists. */
 const DEFAULT_THEME_IDS = new Set(['adea-light', 'adea-dark'])
 
-/**
- * Catalogue themes whose published editor projection cannot reach the host's
- * 4.5:1 syntax floor even through the catalogue's own repair pass (upstream
- * derives `variable`/`operator` from light-theme ramps that collapse to white).
- * The catalogue's doctrine is to say so rather than ship them; Adea excludes
- * them until the projection can clear the floor. The tripwire below fails the
- * generation when the set changes, so a catalogue fix widens the registry
- * deliberately instead of silently.
- */
-const EXPECTED_FLOOR_EXCLUSIONS = [
-  'ayu-light',
-  'catppuccin-latte',
-  'everforest-light',
-  'gruvbox-light',
-  'rosepine-dawn',
-  'solarized-light',
-  'tokyonight-day',
-] as const
+/** No published editor projection is waived: every catalogue theme clears 4.5:1. */
+const EXPECTED_FLOOR_EXCLUSIONS: readonly string[] = []
 
 /** The published catalogue is the picker's authority; the default pair leads. */
 const catalogueIds = [
@@ -291,18 +289,23 @@ const metaEntries = Object.fromEntries(
   })
 )
 const stylesheet = Object.keys(records)
-  .filter((id) => !DEFAULT_THEME_IDS.has(id))
   .map((id) => {
     const declarations = Object.entries(cssTokens[id]!)
       .map(([name, value]) => `  ${name}: ${value};`)
       .join('\n')
-    return `[data-theme='${id}'] {\n${declarations}\n}\n`
+    const selector =
+      id === 'adea-light'
+        ? `:root, [data-theme='${id}']`
+        : id === 'adea-dark'
+          ? `.dark, [data-theme='${id}']`
+          : `[data-theme='${id}']`
+    return `${selector} {\n${declarations}\n}\n`
   })
   .join('\n')
 const source = `/** Generated from the isolated @adea-ai/themes ${themeVersion} records. */\nexport const CANONICAL_THEME_PACKAGE = '@adea-ai/themes' as const\nexport const CANONICAL_THEME_VERSION = '${themeVersion}' as const\n/** Catalogue ids absent from the data: the published editor projection cannot reach the host's 4.5:1 syntax floor for them yet. */\nexport const CANONICAL_FLOOR_EXCLUSIONS = ${JSON.stringify(floorExclusions)} as const\nexport const CANONICAL_THEME_COLOR_VALUES = ${JSON.stringify(colors)} as const\nexport const CANONICAL_THEME_DATA = ${JSON.stringify(encodedVariants, null, 2)} as const\n`
 const cssSource = `/** Generated from the isolated @adea-ai/themes ${themeVersion} records. */\nexport const CANONICAL_THEME_CSS_DATA = ${JSON.stringify(cssTokens, null, 2)} as const satisfies Record<string, Readonly<Record<string, string>>>\n\nexport function canonicalThemeCssTokens(id: keyof typeof CANONICAL_THEME_CSS_DATA): Record<string, string> {\n  return Object.freeze({ ...CANONICAL_THEME_CSS_DATA[id] })\n}\n`
 const metaSource = `/** Generated from the isolated @adea-ai/themes ${themeVersion} records. */\nexport const CANONICAL_THEME_META = ${JSON.stringify(metaEntries, null, 2)} as const satisfies Record<string, { label: string; description: string; provenance: { project: string; url: string; license: string; revision?: string; bootstrappedFrom?: readonly string[] }; tags: readonly string[] }>\n`
-const stylesheetSource = `/* Generated from the isolated @adea-ai/themes ${themeVersion} records. The default\n   adea pair stays CSS-owned in theme.css; every other published theme applies\n   through its data-theme attribute so a stored selection paints correctly\n   before hydration. Do not edit; run bun run themes:generate. */\n\n${stylesheet}`
+const stylesheetSource = `/* Generated from the isolated @adea-ai/themes ${themeVersion} records. The published UI\n   owns framework token projection; every catalogue theme applies\n   through its data-theme attribute so a stored selection paints correctly\n   before hydration. Do not edit; run bun run themes:generate. */\n\n${stylesheet}`
 
 function formatGenerated(generatedSource: string, output: URL): string {
   const result = Bun.spawnSync({
