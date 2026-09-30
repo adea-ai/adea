@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.69.10](https://github.com/adea-ai/adea/compare/v0.69.9...v0.69.10) (2026-09-30)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adea-ai/ui to v0.89.1 ([#837](https://github.com/adea-ai/adea/issues/837)) ([df2ecaa](https://github.com/adea-ai/adea/commit/df2ecaac5ea3d9f3ada7c4d967c9a77f22a13e19))
+
+## [0.69.9](https://github.com/adea-ai/adea/compare/v0.69.8...v0.69.9) (2026-09-30)
+
+
+### Maintenance
+
+* **deps:** update dependency gradle to v9 ([#838](https://github.com/adea-ai/adea/issues/838)) ([2d90015](https://github.com/adea-ai/adea/commit/2d90015dd3efce2d8b4c69570a5b88b8b112ece5))
+
 ## [0.69.8](https://github.com/adea-ai/adea/compare/v0.69.7...v0.69.8) (2026-09-30)
 
 
