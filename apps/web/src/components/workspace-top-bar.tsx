@@ -1,5 +1,5 @@
 import { useRouter } from '@tanstack/solid-router'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { TopBar, TopBarSection, TopBarTitle } from '@adea-ai/ui/components/layout/top-bar'
 import { ArrowLeft, ArrowRight, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-solid'
 import { createSignal, onCleanup, onMount, Show } from 'solid-js'
@@ -74,29 +74,32 @@ export function WorkspaceTopBar(props: {
       aria-label="Workspace toolbar"
     >
       <TopBarSection class="workspace-topbar__navigation">
-        <Button
+        <ActionButton
           variant="ghost"
           size="icon-sm"
+          tooltip="Back"
           class="workspace-topbar__control"
           aria-label="Back"
           disabled={!position().canGoBack}
           onClick={() => router.history.back()}
         >
           <ArrowLeft aria-hidden="true" />
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           variant="ghost"
           size="icon-sm"
+          tooltip="Forward"
           class="workspace-topbar__control"
           aria-label="Forward"
           disabled={!position().canGoForward}
           onClick={() => router.history.forward()}
         >
           <ArrowRight aria-hidden="true" />
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           variant="ghost"
           size="icon-sm"
+          tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
           class="workspace-topbar__control"
           aria-label={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
           aria-expanded={sidebarOpen()}
@@ -105,20 +108,21 @@ export function WorkspaceTopBar(props: {
           <Show when={sidebarOpen()} fallback={<PanelLeftOpen aria-hidden="true" />}>
             <PanelLeftClose aria-hidden="true" />
           </Show>
-        </Button>
+        </ActionButton>
       </TopBarSection>
       <TopBarTitle class="workspace-topbar__title">{props.title}</TopBarTitle>
       <TopBarSection align="end" class="workspace-topbar__actions">
         <div class="workspace-topbar__view-actions" ref={props.actionsMount} />
-        <Button
+        <ActionButton
           variant="ghost"
           size="icon-sm"
+          tooltip="Search workspace"
           class="workspace-topbar__control"
           aria-label="Search workspace"
           onClick={props.onSearch}
         >
           <Search aria-hidden="true" />
-        </Button>
+        </ActionButton>
       </TopBarSection>
     </TopBar>
   )

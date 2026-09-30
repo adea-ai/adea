@@ -50,6 +50,7 @@ import {
 } from '../files/worktree-context'
 import '../files/files-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
@@ -393,24 +394,26 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
             {(current) => branchLabel(current())}
           </Show>
         </strong>
-        <Button
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip="Refresh status"
           aria-label="Refresh status"
           onClick={() => void refresh()}
         >
           <RefreshCw aria-hidden="true" />
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip="Fetch from origin"
           aria-label="Fetch from origin"
           onClick={() => void fetch()}
         >
           <Download aria-hidden="true" />
-        </Button>
+        </ActionButton>
       </div>
       <Show when={notice()}>
         {(shown) => (

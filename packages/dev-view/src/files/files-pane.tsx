@@ -52,6 +52,7 @@ import {
 import { executeOperation, resolveWorktreeContext, type WorktreeContext } from './worktree-context'
 import './files-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { VirtualWindow } from '@adea-ai/ui/components/layout/virtual-window'
 
@@ -786,25 +787,27 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
             void searchContents(event.currentTarget.value)
           }}
         />
-        <Button
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip="Quick open (Ctrl+P)"
           aria-label="Quick open files"
           title="Quick open (Ctrl+P)"
           onClick={() => openQuickOpen()}
         >
           <Search aria-hidden="true" />
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip="Refresh files"
           aria-label="Refresh files"
           onClick={() => void refresh()}
         >
           <RefreshCw aria-hidden="true" />
-        </Button>
+        </ActionButton>
       </div>
       <Show when={quickOpenOpen()}>
         <div class="dev-files__quickopen" role="dialog" aria-label="Quick open">

@@ -21,6 +21,7 @@ import {
 } from 'lucide-solid'
 import { createMemo, createSignal, For, lazy, onMount, Show, type JSX } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -122,9 +123,10 @@ function ConversationChannelRow(props: {
       <div class="conventional-sidebar__nav-actions">
         <DropdownMenu>
           <DropdownMenuTrigger
-            as={Button}
+            as={ActionButton}
             variant="ghost"
             size="icon-md"
+            tooltip={`Conversation options for ${props.label}`}
             aria-label={`Conversation options for ${props.label}`}
           >
             <EllipsisVertical aria-hidden="true" />
@@ -144,15 +146,16 @@ function ConversationChannelRow(props: {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button
+        <ActionButton
           type="button"
           variant="destructive"
           size="icon-md"
+          tooltip={`Delete ${props.label}`}
           aria-label={`Delete ${props.label}`}
           onClick={() => props.onArchive(props.channel)}
         >
           <X aria-hidden="true" />
-        </Button>
+        </ActionButton>
       </div>
     </div>
   )
@@ -301,16 +304,17 @@ export function WorkspaceSidebar(props: Props) {
         />
         <SidebarNavHeader>
           <SidebarNavTitle as="h1">{props.workspaceName}</SidebarNavTitle>
-          <Button
+          <ActionButton
             type="button"
             variant="ghost"
             size="icon-md"
+            tooltip="Close workspace navigation"
             aria-label="Close workspace navigation"
             class="conventional-sidebar__close"
             onClick={() => props.onToggleMobile(false)}
           >
             <PanelLeftClose aria-hidden="true" />
-          </Button>
+          </ActionButton>
         </SidebarNavHeader>
 
         <SidebarNavContent class="conventional-sidebar__content">
@@ -337,15 +341,16 @@ export function WorkspaceSidebar(props: Props) {
             role="region"
             aria-label="Rooms"
             action={
-              <Button
+              <ActionButton
                 type="button"
                 variant="ghost"
                 size="icon-md"
+                tooltip="Create Room"
                 aria-label="Create Room"
                 onClick={() => props.onCreateRoom()}
               >
                 <Plus aria-hidden="true" />
-              </Button>
+              </ActionButton>
             }
           >
             <Show
@@ -416,9 +421,10 @@ export function WorkspaceSidebar(props: Props) {
                         <div class="conventional-sidebar__nav-actions">
                           <DropdownMenu>
                             <DropdownMenuTrigger
-                              as={Button}
+                              as={ActionButton}
                               variant="ghost"
                               size="icon-md"
+                              tooltip={`Room options for ${item().room.name}`}
                               aria-label={`Room options for ${item().room.name}`}
                             >
                               <EllipsisVertical aria-hidden="true" />
@@ -441,10 +447,11 @@ export function WorkspaceSidebar(props: Props) {
                             </DropdownMenuContent>
                           </DropdownMenu>
                           <Show when={item().visibleChannels.length}>
-                            <Button
+                            <ActionButton
                               type="button"
                               variant="ghost"
                               size="icon-md"
+                              tooltip={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
                               aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
                               aria-expanded={!collapsed()}
                               onClick={() => props.onToggleRoom(item().room.id)}
@@ -455,7 +462,7 @@ export function WorkspaceSidebar(props: Props) {
                               >
                                 <ChevronDown aria-hidden="true" />
                               </Show>
-                            </Button>
+                            </ActionButton>
                           </Show>
                         </div>
                       </div>
@@ -497,15 +504,16 @@ export function WorkspaceSidebar(props: Props) {
             role="region"
             aria-label="Conversations"
             action={
-              <Button
+              <ActionButton
                 type="button"
                 variant="ghost"
                 size="icon-md"
+                tooltip="Create group conversation"
                 aria-label="Create group conversation"
                 onClick={() => props.onCreateGroup()}
               >
                 <Plus aria-hidden="true" />
-              </Button>
+              </ActionButton>
             }
           >
             <div class="conventional-sidebar__nav-nested">

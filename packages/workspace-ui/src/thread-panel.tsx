@@ -2,7 +2,7 @@ import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from 
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useCreateMessageMutation, useMessageListQuery } from '@adea-ai/data'
 import { ThreadPanel as SharedThreadPanel } from '@adea-ai/ui/components/conversation'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { MailOpen } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 
@@ -123,15 +123,16 @@ export function ThreadPanel(props: {
   }
 
   const headerActions = (
-    <Button
+    <ActionButton
       type="button"
       variant="ghost"
       size="icon-sm"
+      tooltip="Mark thread unread"
       aria-label="Mark thread unread"
       onClick={() => void props.onMarkUnread()}
     >
       <MailOpen aria-hidden="true" />
-    </Button>
+    </ActionButton>
   )
   const composer = (
     <MessageComposer
