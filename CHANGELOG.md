@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.1](https://github.com/adea-ai/adea/compare/v0.69.0...v0.69.1) (2026-09-30)
+
+
+### Maintenance
+
+* **code-foundry:** upgrade to v1.36.4 ([#820](https://github.com/adea-ai/adea/issues/820)) ([d3326cd](https://github.com/adea-ai/adea/commit/d3326cd5fb5a8434584bea6c40d10ea4955c29e2))
+
 ## [0.69.0](https://github.com/adea-ai/adea/compare/v0.68.2...v0.69.0) (2026-09-30)
 
 
