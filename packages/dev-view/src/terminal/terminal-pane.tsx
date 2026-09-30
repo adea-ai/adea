@@ -87,6 +87,9 @@ import { terminalConnectionErrorMessage } from './connection-errors'
 import { observeTerminalTheme } from './theme-binding'
 import './terminal-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
 export type TerminalPaneProps = {
   /** Opens one authenticated terminal-bytes-v1 stream (new grant per call). */
@@ -652,7 +655,7 @@ export function TerminalPane(props: TerminalPaneProps) {
         <div class="dev-terminal-surface" ref={setSurface} />
         <Show when={search().open}>
           <div class="dev-terminal-search" role="search" aria-label="Search terminal">
-            <input
+            <Input
               ref={(element) => (searchInputElement = element)}
               type="text"
               placeholder="Search terminal"
@@ -697,14 +700,12 @@ export function TerminalPane(props: TerminalPaneProps) {
             <span class="dev-terminal-search-count" aria-live="polite">
               {searchPresent().count}
             </span>
-            <label class="dev-terminal-search-case">
-              <input
-                type="checkbox"
-                checked={search().caseSensitive}
-                onChange={() => setSearch(searchToggleCaseSensitive(search()))}
-              />
-              Aa
-            </label>
+            <Checkbox
+              class="dev-terminal-search-case"
+              label="Aa"
+              checked={search().caseSensitive}
+              onChange={() => setSearch(searchToggleCaseSensitive(search()))}
+            />
           </div>
         </Show>
         <Show when={surfacePaste !== undefined}>
@@ -734,7 +735,7 @@ export function TerminalPane(props: TerminalPaneProps) {
         }
       >
         <div class="dev-terminal-editor">
-          <textarea
+          <Textarea
             rows={2}
             aria-label="Compose terminal input"
             value={editor().draft}

@@ -50,6 +50,8 @@ import {
 } from '../files/worktree-context'
 import '../files/files-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
 export type SourceControlPaneProps = Readonly<{
   runtime: DevRuntimeService
@@ -432,7 +434,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         }
       >
         <div class="dev-sc__commit">
-          <textarea
+          <Textarea
             aria-label="Commit message"
             placeholder={`Commit message (${(grouped().staged.length + grouped().unstaged.filter((entry) => entry.staged !== '.').length).toString()} staged files)`}
             value={message()}
@@ -837,7 +839,7 @@ function RemoteSection(props: {
         when={pullRequest()}
         fallback={
           <div class="dev-sc__actions">
-            <input
+            <Input
               aria-label="Base branch for the new pull request"
               placeholder="base branch"
               value={prBase()}

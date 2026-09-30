@@ -6,6 +6,10 @@ import { AgentStatus } from './agent-status'
 import { keyedRows } from './keyed-rows'
 import { WorkspaceEmpty } from './workspace-states'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
+import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
+import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
 export type AgentCustomizationInput = Readonly<{
   avatarRef: string | null
@@ -205,57 +209,61 @@ function AgentCustomizationForm(props: {
       </div>
       <AgentStatus agent={props.agent} />
       <div class="conventional-form-grid">
-        <label>
+        <Label>
           Name
-          <input name="name" required maxLength={120} value={props.agent.name} />
-        </label>
-        <label>
+          <Input name="name" required maxLength={120} value={props.agent.name} />
+        </Label>
+        <Label>
           Room
-          <select name="roomId" value={props.agent.roomId ?? ''}>
-            <option value="">Unassigned</option>
-            <For each={props.rooms}>{(room) => <option value={room.id}>{room.name}</option>}</For>
-          </select>
-        </label>
-        <label class="conventional-form-grid__wide">
+          <NativeSelect
+            name="roomId"
+            value={props.agent.roomId ?? ''}
+            options={[
+              { value: '', label: 'Unassigned' },
+              ...props.rooms.map((room) => ({ value: room.id, label: room.name })),
+            ]}
+          />
+        </Label>
+        <Label class="conventional-form-grid__wide">
           Role or persona
-          <textarea
+          <Textarea
             name="roleSummary"
             rows={3}
             maxLength={500}
             value={props.agent.roleSummary ?? ''}
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Avatar reference
-          <input
+          <Input
             name="avatarRef"
             maxLength={500}
             value={props.agent.avatarRef ?? ''}
             placeholder="Optional stable asset reference"
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Character reference
-          <input
+          <Input
             name="characterRef"
             maxLength={500}
             value={props.agent.characterRef ?? ''}
             placeholder="Optional M4 character reference"
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           AgentProfile ID
-          <input name="profileId" required maxLength={120} value={props.agent.profile.id} />
-        </label>
-        <label>
+          <Input name="profileId" required maxLength={120} value={props.agent.profile.id} />
+        </Label>
+        <Label>
           AgentProfile version
-          <input
+          <Input
             name="profileVersion"
             required
             maxLength={64}
             value={props.agent.profile.version}
           />
-        </label>
+        </Label>
       </div>
       <p class="conventional-settings-note">
         Profile changes are explicit and create auditable Adea events. Model, runtime, tool policy,
@@ -336,22 +344,22 @@ function AgentCreateForm(props: {
           <X aria-hidden="true" />
         </Button>
       </div>
-      <label>
+      <Label>
         Name
-        <input name="name" required maxLength={120} />
-      </label>
-      <label>
+        <Input name="name" required maxLength={120} />
+      </Label>
+      <Label>
         Role or persona
-        <textarea name="roleSummary" rows={2} maxLength={500} />
-      </label>
-      <label>
+        <Textarea name="roleSummary" rows={2} maxLength={500} />
+      </Label>
+      <Label>
         Profile ID
-        <input name="profileId" required value="general" maxLength={120} />
-      </label>
-      <label>
+        <Input name="profileId" required value="general" maxLength={120} />
+      </Label>
+      <Label>
         Profile version
-        <input name="profileVersion" required value="1" maxLength={64} />
-      </label>
+        <Input name="profileVersion" required value="1" maxLength={64} />
+      </Label>
       <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
       <Button type="submit" disabled={props.busy}>
         {props.busy ? 'Creating…' : 'Create Agent'}

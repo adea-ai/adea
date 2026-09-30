@@ -35,6 +35,7 @@ import {
   type SettingsSection,
 } from './settings-section'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
 
 const sectionIcons = {
   account: UserRound,
@@ -406,7 +407,7 @@ export function WorkspaceSettingsDialog(props: {
                 title="Dictation language"
                 detail="Leave blank to follow the operating-system language."
               >
-                <input
+                <Input
                   aria-label="Dictation language"
                   value={preferences().dictationLocale}
                   placeholder="System default"

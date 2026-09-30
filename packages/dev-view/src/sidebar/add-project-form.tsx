@@ -33,6 +33,10 @@ import {
   type ScanPreviewRow,
 } from './scan-preview-model'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
+import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 
 type ScanState =
   | Readonly<{ status: 'idle' }>
@@ -194,26 +198,24 @@ export function AddProjectForm(props: AddProjectPanelProps) {
           }
         >
           <p class="dev-tree-empty">
-            <label>
+            <Label>
               <span class="sr-only">Authorized root to scan</span>
-              <select
+              <NativeSelect
                 value={selectedBookmarkId()}
                 onChange={(event) => {
                   const id = event.currentTarget.value
                   setSelectedBookmarkId(id)
                   if (id !== '') void requestScan(id)
                 }}
-              >
-                <option value="">Scan an authorized root…</option>
-                <For each={bookmarks()}>
-                  {(bookmark) => (
-                    <option value={bookmark.id}>
-                      {bookmark.label} ({bookmark.kind})
-                    </option>
-                  )}
-                </For>
-              </select>
-            </label>
+                options={[
+                  { value: '', label: 'Scan an authorized root…' },
+                  ...bookmarks().map((bookmark) => ({
+                    value: bookmark.id,
+                    label: `${bookmark.label} (${bookmark.kind})`,
+                  })),
+                ]}
+              />
+            </Label>
           </p>
         </Show>
         <Show when={scan().status === 'scanning'}>
@@ -235,48 +237,47 @@ export function AddProjectForm(props: AddProjectPanelProps) {
             </Show>
             <For each={readyScan()?.rows}>
               {(row) => (
-                <label class="dev-tree-row dev-tree-row--project">
-                  <input
-                    type="checkbox"
-                    disabled={row.duplicate}
-                    checked={confirmed().has(row.entry.relativeDir)}
-                    onChange={(event) =>
-                      toggleConfirmed(row.entry.relativeDir, event.currentTarget.checked)
-                    }
-                  />
-                  <span>{row.entry.name}</span>
-                  <span class="dev-tree-row__count">{row.entry.packageManager}</span>
-                  <Show when={row.duplicate}>
-                    <span class="dev-row-badge" title="A project with this name already exists">
-                      dup
-                    </span>
-                  </Show>
-                </label>
+                <Checkbox
+                  class="dev-tree-row dev-tree-row--project"
+                  disabled={row.duplicate}
+                  checked={confirmed().has(row.entry.relativeDir)}
+                  label={
+                    <>
+                      <span>{row.entry.name}</span>
+                      <span class="dev-tree-row__count">{row.entry.packageManager}</span>
+                      <Show when={row.duplicate}>
+                        <span class="dev-row-badge" title="A project with this name already exists">
+                          dup
+                        </span>
+                      </Show>
+                    </>
+                  }
+                  onChange={(checked: boolean) => toggleConfirmed(row.entry.relativeDir, checked)}
+                />
               )}
             </For>
             <p class="dev-tree-empty">Group</p>
-            <label class="dev-tree-row dev-tree-row--project">
+            <Label class="dev-tree-row dev-tree-row--project">
               <span class="sr-only">Import into group</span>
-              <select
+              <NativeSelect
                 value={targetGroupId()}
                 onChange={(event) => setTargetGroupId(event.currentTarget.value)}
-              >
-                <option value="">New group…</option>
-                <For each={groups()}>
-                  {(group) => <option value={group.id}>{group.name}</option>}
-                </For>
-              </select>
-            </label>
+                options={[
+                  { value: '', label: 'New group…' },
+                  ...groups().map((group) => ({ value: group.id, label: group.name })),
+                ]}
+              />
+            </Label>
             <Show when={targetGroupId() === ''}>
-              <label class="dev-tree-row dev-tree-row--project">
+              <Label class="dev-tree-row dev-tree-row--project">
                 <span class="sr-only">New group name</span>
-                <input
+                <Input
                   type="text"
                   value={newGroupName()}
                   placeholder="New group name"
                   onInput={(event) => setNewGroupName(event.currentTarget.value)}
                 />
-              </label>
+              </Label>
             </Show>
             <Button
               type="button"

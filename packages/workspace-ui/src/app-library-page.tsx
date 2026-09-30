@@ -1,4 +1,5 @@
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { ListGroup, ListRow } from '@adea-ai/ui/components/composites/list-row'
@@ -64,7 +65,7 @@ export function AppLibraryPage(props: {
           <p>Choose the views and tools in your workspace.</p>
         </div>
         <div class="workspace-app-library__controls">
-          <label class="workspace-app-library__search">
+          <Label class="workspace-app-library__search">
             <Search aria-hidden="true" class="workspace-app-library__search-icon" />
             <span class="sr-only">Search apps</span>
             <Input
@@ -74,7 +75,7 @@ export function AppLibraryPage(props: {
               value={search()}
               onInput={(event) => setSearch(event.currentTarget.value)}
             />
-          </label>
+          </Label>
           <Button
             variant={enabledOnly() ? 'secondary' : 'outline'}
             size="sm"

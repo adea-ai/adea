@@ -10,6 +10,7 @@
  */
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 import { ChevronDown, ChevronRight, Search } from 'lucide-solid'
 import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
 
@@ -87,7 +88,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
       class={cn('dev-sidebar', { 'dev-sidebar--open': props.compactOpen })}
       aria-label="Projects and sessions"
     >
-      <label class="dev-search">
+      <Label class="dev-search">
         <Search aria-hidden="true" />
         <span class="sr-only">Filter projects and sessions</span>
         <Input
@@ -96,7 +97,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
           placeholder="Filter projects"
           onInput={(event) => setQuery(event.currentTarget.value)}
         />
-      </label>
+      </Label>
       <Show when={props.addProject}>{props.addProject}</Show>
       <Show when={props.repoRegistry}>{props.repoRegistry}</Show>
       <nav aria-label={props.navigationLabel ?? 'Dev projects'}>
