@@ -1886,3 +1886,131 @@ test('repeated Chat and Library transitions release workspace event listeners', 
   await cycle()
   await expect.poll(counts).toEqual(baseline)
 })
+
+test('App Library description rows retain readable content and actions in narrow and enlarged layouts', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  await page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('button', { name: 'App Library', exact: true })
+    .click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  await expect(library).toBeVisible()
+  const rows = library.locator('[class~="group/row"]')
+  await expect(rows.first()).toBeVisible()
+  for (const width of [390, 320]) {
+    for (const scale of [1, 2]) {
+      await page.setViewportSize({ width, height: 844 })
+      await page.evaluate((factor) => {
+        document.documentElement.style.fontSize = `${16 * factor}px`
+      }, scale)
+      const bounds = await rows.evaluateAll((elements) =>
+        elements.map((element) => {
+          const row = element.getBoundingClientRect()
+          const leading = element
+            .querySelector('[data-slot="list-row-leading"]')
+            ?.getBoundingClientRect()
+          const text = element
+            .querySelector('[data-slot="list-row-label"]')
+            ?.getBoundingClientRect()
+          const controls = Array.from(element.querySelectorAll('button')).map((button) =>
+            button.getBoundingClientRect()
+          )
+          return {
+            titleSeparatedFromLeading:
+              !leading || !text || leading.right <= text.left + 1 || leading.bottom <= text.top + 1,
+            controlsContained: controls.every(
+              (control) =>
+                control.left >= row.left - 1 &&
+                control.right <= row.right + 1 &&
+                control.top >= row.top - 1 &&
+                control.bottom <= row.bottom + 1
+            ),
+            noOverflow:
+              row.left >= -1 &&
+              row.right <= document.documentElement.clientWidth + 1 &&
+              (element as HTMLElement).scrollWidth <= (element as HTMLElement).clientWidth + 1,
+            textHasWidth: !!text && text.width >= 80,
+            rowWidth: row.width,
+            viewportWidth: document.documentElement.clientWidth,
+            contentWidth: (element as HTMLElement).scrollWidth,
+            clientWidth: (element as HTMLElement).clientWidth,
+          }
+        })
+      )
+      expect(bounds.length).toBeGreaterThan(0)
+      for (const row of bounds) {
+        expect(row.titleSeparatedFromLeading).toBe(true)
+        expect(row.controlsContained).toBe(true)
+        expect(row.noOverflow, JSON.stringify({ width, scale, row })).toBe(true)
+        expect(row.textHasWidth, JSON.stringify({ width, scale, row })).toBe(true)
+      }
+    }
+  }
+})
+
+test('App Library filters omit empty groups and keep search focus through changes', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat&app=library')
+  const library = page.getByRole('main', { name: 'App Library' })
+  const search = library.getByRole('searchbox', { name: 'Search apps', exact: true })
+  await search.fill('Kanban')
+  await expect(search).toBeFocused()
+  await expect(library.getByText('In your sidebar', { exact: true })).toHaveCount(0)
+  await expect(library.getByRole('group', { name: 'Available', exact: true })).toBeVisible()
+  await expect(library.getByRole('button', { name: 'Enable Kanban', exact: true })).toBeVisible()
+  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
+  await expect(library.getByText('Available', { exact: true })).toHaveCount(0)
+  await expect(library.getByRole('group', { name: 'In your sidebar', exact: true })).toBeVisible()
+  await expect(library.getByRole('button', { name: 'Open Kanban', exact: true })).toBeVisible()
+  await search.fill('no matching built in app')
+  await expect(search).toBeFocused()
+  await expect(library.getByRole('status')).toHaveText('No apps match these filters.')
+  await expect(library.locator('[data-slot="list-group"]')).toHaveCount(0)
+  await search.fill('')
+  await expect(search).toBeFocused()
+  await library.getByRole('button', { name: 'Show enabled only', exact: true }).click()
+  await expect(library.getByText('Available', { exact: true })).toHaveCount(0)
+  await library.getByRole('button', { name: 'Reset Navigation', exact: true }).click()
+  await expect(library.getByRole('button', { name: 'Open Kanban', exact: true })).toHaveCount(0)
+})
+
+test('App Library explains a disabled reorder action on keyboard focus and prevents activation', async ({
+  page,
+  browserName,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat&app=library')
+  const library = page.getByRole('main', { name: 'App Library' })
+  const search = library.getByRole('searchbox', { name: 'Search apps', exact: true })
+  const views = page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('group', { name: 'Workspace views' })
+  const order = () =>
+    views
+      .getByRole('button')
+      .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')))
+  const originalOrder = await order()
+  await search.fill('Virtual')
+  const tab = browserName === 'webkit' ? 'Alt+Tab' : 'Tab'
+  await search.press(tab)
+  const filter = library.getByRole('button', { name: 'Show enabled only', exact: true })
+  await expect(filter).toBeFocused()
+  await filter.press(tab)
+  const open = library.getByRole('button', { name: 'Open Virtual', exact: true })
+  await expect(open).toBeFocused()
+  await open.press(tab)
+  const move = library.getByRole('button', { name: 'Move Virtual up', exact: true })
+  await expect(move).toBeFocused()
+  await expect(move).toBeDisabled()
+  await expect(page.getByRole('tooltip')).toHaveText('Virtual is already first in your sidebar')
+  await expect(move).toHaveAccessibleDescription('Virtual is already first in your sidebar')
+  await move.press('Enter')
+  await expect.poll(order).toEqual(originalOrder)
+  await expect(library).toBeVisible()
+  await expect(move).toBeFocused()
+})
