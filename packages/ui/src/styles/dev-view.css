@@ -132,7 +132,6 @@
   min-width: 0;
 }
 
-.dev-sidebar,
 .dev-utility {
   min-width: 0;
   overflow: auto;
@@ -140,12 +139,10 @@
 }
 
 .dev-sidebar {
-  display: flex;
+  min-width: 0;
   flex: none;
   width: clamp(13rem, 16vw, 17rem);
-  flex-direction: column;
   padding: 0.65rem;
-  border-inline-end: 1px solid var(--dev-border);
 }
 
 .dev-search {
@@ -198,15 +195,6 @@
   font-weight: 650;
 }
 
-.dev-tree-row--session {
-  padding-inline-start: 1.8rem;
-  font-size: 0.78rem;
-}
-
-.dev-tree-row--selected {
-  background: color-mix(in srgb, var(--primary) 15%, transparent);
-}
-
 .dev-tree-row__count {
   margin-inline-start: auto;
   color: var(--dev-muted);
@@ -219,11 +207,6 @@
   color: var(--dev-muted);
   font-size: 0.75rem;
   line-height: 1.4;
-}
-
-.dev-archive-shelf {
-  margin-block-start: auto;
-  border-block-start: 1px solid var(--dev-border);
 }
 
 .dev-tree-row--archive {
@@ -566,7 +549,6 @@
     transition:
       transform 160ms ease,
       visibility 0s linear 160ms;
-    box-shadow: 0.5rem 0 2rem color-mix(in srgb, var(--scrim) 12%, transparent);
   }
 
   .dev-sidebar--open {

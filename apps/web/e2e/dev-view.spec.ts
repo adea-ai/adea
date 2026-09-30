@@ -450,15 +450,17 @@ test('projects reorder by keyboard with a live announcement and stable focus', a
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
-  const projectRows = page.locator('.dev-tree-row--project')
+  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const projectRows = projectsSidebar
+    .getByRole('button')
+    .filter({ hasText: /Runtime tools|Example project/ })
   const target = projectRows.filter({ hasText: 'Runtime tools' })
   await target.focus()
   await page.keyboard.press('Alt+ArrowUp')
 
   await expect(projectRows.first()).toHaveText(/Runtime tools/)
   // The moved row keeps keyboard focus after the tree re-renders.
-  const movedRowSelector = `[data-row-id="${'project:fixture-product:fixture-tools'}"]`
-  await expect(page.locator(movedRowSelector)).toBeFocused()
+  await expect(target).toBeFocused()
   await expect(page.locator('main > [aria-live="polite"]')).toContainText(
     'Runtime tools moved to position 1 of 2'
   )
@@ -468,7 +470,10 @@ test('projects reorder by pointer drag inside their group', async ({ page }) => 
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
-  const projectRows = page.locator('.dev-tree-row--project')
+  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const projectRows = projectsSidebar
+    .getByRole('button')
+    .filter({ hasText: /Runtime tools|Example project/ })
   await expect(projectRows.filter({ hasText: 'Example project' })).toBeVisible()
   await projectRows
     .filter({ hasText: 'Runtime tools' })
