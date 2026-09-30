@@ -1,1 +1,1 @@
-export { AppearancePanel } from './appearance-surface'
+export { AppearancePanel, AppearanceControl } from './appearance-surface'

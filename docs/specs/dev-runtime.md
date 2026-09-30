@@ -4057,8 +4057,12 @@ quantized-hex contrast projection, while the syntax API retains its quieter
 comment role. Unknown stored theme IDs fall back to the default of the same
 appearance in both the pre-paint script and the mounted provider.
 
-The appearance surface uses the controlled `AppearanceEditor` from the published
-`@adea-ai/ui` package. Its host remains responsible for the V2 draft snapshot,
+The workspace toolbar opens the published `AppearancePopover` over the current
+view without route navigation. Its editor/catalogue chunk loads on the first
+intentional open. Save commits and closes; Cancel, Escape, and outside dismissal
+restore the opening snapshot and close. Reopening takes a fresh snapshot of
+committed preferences. The Settings section continues to use the controlled
+`AppearanceEditor` from the same published `@adea-ai/ui` package. Its host remains responsible for the V2 draft snapshot,
 live preview, persistence, cancellation, native transparency capability, custom
 accent validation, and the verified App Library contract. The app-local package
 is temporarily named `@adea-ai/app-ui` so the published package can be consumed
@@ -4069,7 +4073,8 @@ The declared-license theme-library view uses the published `ModalDialog`,
 including its nested-layer inertness and focus restoration. Opening it keeps
 the appearance editor mounted beneath the dialog, so live preview and the
 uncommitted draft survive Close and Escape; dismissal restores focus to
-Manage themes without closing the containing Settings dialog. No application
+Manage themes without closing the containing Settings dialog or Appearance
+popover. No application
 copy of the dialog primitives remains.
 
 Appearance and rail preference storage uses a read-modify-write contract with

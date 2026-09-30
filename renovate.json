@@ -1,0 +1,49 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits", ":semanticPrefixFixDepsChoreOthers"],
+  "timezone": "America/New_York",
+  "labels": ["dependencies"],
+  "rebaseWhen": "behind-base-branch",
+  "pruneStaleBranches": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 10am on monday"]
+  },
+  "vulnerabilityAlerts": {
+    "labels": ["security"]
+  },
+  "packageRules": [
+    {
+      "description": "Every @adea-ai/* package rides one branch: the shared design system moves as a unit, the version pins are updated in place, and the branch automerges only when the full validation suite passes. Tests that assert the pinned shared version are part of those gates, so a green automerge is the trust.",
+      "groupName": "adea-ai design system",
+      "separateMajorMinor": true,
+      "automerge": true,
+      "automergeType": "pr",
+      "schedule": ["at any time"],
+      "labels": ["dependencies", "design-system"],
+      "matchPackageNames": ["@adea-ai/*"]
+    },
+    {
+      "description": "Non-major external dependency updates ride one branch and automerge once validation passes.",
+      "matchUpdateTypes": ["patch", "minor", "pin", "digest"],
+      "groupName": "external non-major dependencies",
+      "automerge": true,
+      "automergeType": "pr",
+      "schedule": ["after 8am and before 8pm every weekday"],
+      "matchPackageNames": ["!@adea-ai/*"]
+    },
+    {
+      "description": "Major bumps of external dependencies get a reviewed PR, one per package.",
+      "matchUpdateTypes": ["major"],
+      "labels": ["dependencies", "major"],
+      "matchPackageNames": ["!@adea-ai/*"]
+    },
+    {
+      "description": "oxlint is held at 1.83.0 by the package.json override while newer tree-wide scoping findings are triaged; Renovate must not fight that pin.",
+      "matchPackageNames": ["oxlint"],
+      "enabled": false
+    }
+  ],
+  "platformAutomerge": false,
+  "automergeStrategy": "squash"
+}

@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.69.5",
+  "version": "0.69.10",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -22,7 +22,7 @@
     "test:integration": "bun scripts/test-integration.mjs",
     "typecheck": "turbo run typecheck",
     "db:health": "node scripts/database-health.mjs",
-    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea-ai/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts apps/web/e2e/sidebar-resize.spec.ts apps/web/e2e/cursor-check.spec.ts apps/web/e2e/dev-view.spec.ts apps/web/e2e/dev-add-project.spec.ts apps/web/e2e/dev-files-window.spec.ts apps/web/e2e/appearance.spec.ts apps/web/e2e/dev-view-permissions.spec.ts apps/web/e2e/chat-transcript-composition.spec.ts apps/web/e2e/desktop-runtime-chat.spec.ts apps/web/e2e/desktop-first-run-chat.spec.ts apps/web/e2e/plugins-loading.spec.ts apps/web/e2e/workspace-form.spec.ts apps/web/e2e/dev-browser-pane.spec.ts apps/web/e2e/workspace-tooltip.spec.ts apps/web/e2e/workspace-menu.spec.ts apps/web/e2e/account-drawer.spec.ts apps/web/e2e/workspace-loading.spec.ts apps/web/e2e/private-message.spec.ts apps/web/e2e/desktop-chat-presentation.spec.ts apps/web/e2e/workspace-navigation-presentation.spec.ts apps/web/e2e/workspace-updates.spec.ts apps/web/e2e/workspace-platform-boundary.spec.ts apps/web/e2e/version-dialog.spec.ts && playwright test --config=playwright.config.ts apps/web/e2e/conventional-workspace.spec.ts --grep \"repeated Chat and Library transitions release workspace event listeners\"",
+    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea-ai/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts apps/web/e2e/sidebar-resize.spec.ts apps/web/e2e/cursor-check.spec.ts apps/web/e2e/dev-view.spec.ts apps/web/e2e/dev-add-project.spec.ts apps/web/e2e/appearance.spec.ts apps/web/e2e/dev-view-permissions.spec.ts apps/web/e2e/chat-transcript-composition.spec.ts apps/web/e2e/desktop-runtime-chat.spec.ts apps/web/e2e/desktop-first-run-chat.spec.ts apps/web/e2e/plugins-loading.spec.ts apps/web/e2e/workspace-form.spec.ts apps/web/e2e/dev-browser-pane.spec.ts apps/web/e2e/workspace-tooltip.spec.ts apps/web/e2e/workspace-menu.spec.ts apps/web/e2e/account-drawer.spec.ts apps/web/e2e/workspace-loading.spec.ts apps/web/e2e/private-message.spec.ts apps/web/e2e/desktop-chat-presentation.spec.ts apps/web/e2e/workspace-navigation-presentation.spec.ts apps/web/e2e/workspace-updates.spec.ts apps/web/e2e/workspace-platform-boundary.spec.ts apps/web/e2e/version-dialog.spec.ts && playwright test --config=playwright.config.ts apps/web/e2e/conventional-workspace.spec.ts --grep \"repeated Chat and Library transitions release workspace event listeners\"",
     "test:e2e:dev-view-terminal": "bun scripts/e2e-setup.mjs && PLAYWRIGHT_HEADLESS=1 playwright test --config=playwright.config.ts apps/web/e2e/dev-view-terminal.spec.ts apps/web/e2e/dev-view-runtime-terminal.spec.ts",
     "test:e2e:visual": "playwright test --config=playwright.config.ts apps/web/e2e/conventional-workspace.spec.ts",
     "test:e2e:visual:chat": "playwright test --config=playwright.config.ts apps/web/e2e/chat-view-visual.spec.ts",
@@ -43,7 +43,7 @@
     "test:browser:desktop-client": "bunx playwright install --with-deps chromium && bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
   },
   "devDependencies": {
-    "@adea-ai/ui": "0.84.0",
+    "@adea-ai/ui": "0.89.1",
     "@playwright/test": "^1.63.0",
     "@shadcn/lint": "^0.1.1",
     "@tailwindcss/postcss": "^4.3.3",

@@ -1502,6 +1502,29 @@ test('retains drafts across navigation and reloads at supported breakpoints', as
   }
 })
 
+test('the live appearance popover previews the visible workspace at wide and narrow widths', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  await page.goto('/?view=chat&scene=work')
+  await page.getByRole('button', { name: 'Appearance settings', exact: true }).click()
+  const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
+  await expect(popup).toBeVisible()
+  const modes = popup.getByRole('radiogroup', { name: 'Appearance mode' })
+  await modes.getByText('Light', { exact: true }).click()
+  await expect(page).toHaveScreenshot('workspace-appearance-popover-light.png', {
+    animations: 'disabled',
+  })
+  await modes.getByText('Dark', { exact: true }).click()
+  await expect(page).toHaveScreenshot('workspace-appearance-popover-dark.png', {
+    animations: 'disabled',
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page).toHaveScreenshot('workspace-appearance-popover-narrow.png', {
+    animations: 'disabled',
+  })
+})
+
 test('deep-links settings and customizes an Agent without fabricating runtime status', async ({
   page,
 }) => {
