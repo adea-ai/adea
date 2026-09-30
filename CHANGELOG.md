@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.3](https://github.com/adea-ai/adea/compare/v0.69.2...v0.69.3) (2026-09-30)
+
+
+### Maintenance
+
+* **workspace:** compose every interactive control from the shared library ([#821](https://github.com/adea-ai/adea/issues/821)) ([a5ad546](https://github.com/adea-ai/adea/commit/a5ad546f7f4263c87cb0cfbaf3def90534c579e7))
+
 ## [0.69.2](https://github.com/adea-ai/adea/compare/v0.69.1...v0.69.2) (2026-09-30)
 
 
