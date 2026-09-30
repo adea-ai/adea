@@ -3,6 +3,7 @@ import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
+import { SettingsRow as SharedSettingsRow } from '@adea-ai/ui/components/composites/settings'
 import {
   Bell,
   Bot,
@@ -51,15 +52,14 @@ const PermissionsPane = lazy(() =>
   import('@adea-ai/dev-view/permissions').then((module) => ({ default: module.PermissionsPane }))
 )
 
+// The shared settings row: same label/description/control contract the
+// published settings composite defines, so this dialog composes the library
+// instead of restyling its own rows.
 function SettingsRow(props: { children?: JSX.Element; detail: string; title: string }) {
   return (
-    <div class="conventional-settings-row">
-      <div>
-        <h4>{props.title}</h4>
-        <p>{props.detail}</p>
-      </div>
+    <SharedSettingsRow label={props.title} description={props.detail}>
       {props.children}
-    </div>
+    </SharedSettingsRow>
   )
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/dev-view",
-  "version": "0.68.1",
+  "version": "0.67.2",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -139,7 +139,7 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/themes": "0.6.3",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.78.0",
+    "@adea-ai/ui": "0.78.2",
     "@codemirror/commands": "^6.8.1",
     "@codemirror/language": "^6.11.0",
     "@codemirror/search": "^6.5.11",
