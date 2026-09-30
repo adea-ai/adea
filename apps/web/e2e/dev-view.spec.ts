@@ -488,8 +488,49 @@ test('the archive shelf restores losslessly and deletes only behind an explicit 
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
   await page.getByRole('button', { name: /Archived sessions/ }).click()
-  const item = page.locator('.dev-archive-shelf__item', { hasText: 'Archived discovery' })
+  const archiveList = page.getByRole('list', { name: 'Archived sessions', exact: true })
+  const item = archiveList.getByRole('listitem').filter({ hasText: 'Archived discovery' })
   await expect(item).toBeVisible()
+
+  // The shared row wraps its controls rather than clipping the label at the
+  // narrow viewport. Root-font enlargement is text reflow stress, not browser zoom.
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    if (width === 320) {
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = '200%'
+      })
+    }
+    const expand = page.getByRole('button', { name: 'Expand contextual sidebar', exact: true })
+    if (await expand.isVisible()) await expand.click()
+    await expect(item).toBeVisible()
+    const bounds = await item.evaluate((element) => {
+      const row = element.getBoundingClientRect()
+      const controls = [...element.querySelectorAll('button')].map((button) => {
+        const box = button.getBoundingClientRect()
+        return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }
+      })
+      const label = element.querySelector('[data-slot="list-row-label"]')!.getBoundingClientRect()
+      return {
+        left: row.left,
+        right: row.right,
+        width: window.innerWidth,
+        labelWidth: label.width,
+        controls,
+      }
+    })
+    expect(bounds.left).toBeGreaterThanOrEqual(0)
+    expect(bounds.right).toBeLessThanOrEqual(bounds.width)
+    expect(bounds.labelWidth).toBeGreaterThanOrEqual(80)
+    for (const control of bounds.controls) {
+      expect(control.left).toBeGreaterThanOrEqual(bounds.left)
+      expect(control.right).toBeLessThanOrEqual(bounds.right)
+    }
+  }
+  await page.evaluate(() => {
+    document.documentElement.style.removeProperty('font-size')
+  })
+  await page.setViewportSize({ width: 1280, height: 900 })
 
   // Delete is destructive: it stops at an explicit confirmation step.
   await item.getByRole('button', { name: 'Delete…' }).click()
@@ -500,7 +541,7 @@ test('the archive shelf restores losslessly and deletes only behind an explicit 
 
   // Restore is lossless and needs no confirmation.
   await item.getByRole('button', { name: 'Restore' }).click()
-  await expect(page.locator('.dev-archive-shelf__item')).toHaveCount(0)
+  await expect(archiveList.getByRole('listitem')).toHaveCount(0)
 
   // Re-archive by deep link, then delete: the commit reports the missing
   // dev.session.delete host contract instead of pretending to succeed.
@@ -509,12 +550,10 @@ test('the archive shelf restores losslessly and deletes only behind an explicit 
     timeout: 60_000,
   })
   await page.getByRole('button', { name: /Archived sessions/ }).click()
-  const again = page.locator('.dev-archive-shelf__item', { hasText: 'Archived discovery' })
+  const again = archiveList.getByRole('listitem').filter({ hasText: 'Archived discovery' })
   await again.getByRole('button', { name: 'Delete…' }).click()
   await again.getByRole('alert').getByRole('button', { name: 'Delete', exact: true }).click()
-  await expect(page.locator('.dev-archive-shelf__handoff')).toContainText(
-    'dev.session.delete host contract'
-  )
+  await expect(page.getByRole('note')).toContainText('dev.session.delete host contract')
 })
 
 test('the Dev shell stays keyboard-operable at 200% zoom with reduced motion', async ({ page }) => {

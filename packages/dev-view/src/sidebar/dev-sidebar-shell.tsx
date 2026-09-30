@@ -16,8 +16,10 @@ import {
   SidebarNavHeader,
   SidebarNavItem,
   SidebarNavSection,
+  SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
+import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
 import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
 import { Search } from 'lucide-solid'
@@ -104,6 +106,9 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
     <div class={cn('dev-sidebar', { 'dev-sidebar--open': props.compactOpen })}>
       <SidebarNav as="aside" class="h-full w-full" aria-label="Projects and sessions">
         <SidebarNavHeader>
+          <SidebarNavTitle as="h2">Projects and sessions</SidebarNavTitle>
+        </SidebarNavHeader>
+        <SidebarNavContent>
           <InputGroup>
             <InputGroupAddon>
               <Search aria-hidden="true" />
@@ -116,19 +121,17 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
               onInput={(event) => setQuery(event.currentTarget.value)}
             />
           </InputGroup>
-        </SidebarNavHeader>
-        <SidebarNavContent>
           <Show when={props.addProject}>{props.addProject}</Show>
           <Show when={props.repoRegistry}>{props.repoRegistry}</Show>
           <nav class="flex flex-col gap-1" aria-label={props.navigationLabel ?? 'Dev projects'}>
             <Show
               when={visibleGroups().length > 0}
               fallback={
-                <p class="dev-tree-empty">
+                <EmptyDescription>
                   {isFiltering()
                     ? 'No matching projects or sessions.'
                     : 'No runtime projects available.'}
-                </p>
+                </EmptyDescription>
               }
             >
               <For each={visibleGroups()}>
@@ -291,7 +294,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
           </nav>
         </SidebarNavContent>
         <Show when={props.children}>
-          <SidebarNavFooter>{props.children}</SidebarNavFooter>
+          <SidebarNavFooter class="max-h-1/2 overflow-y-auto">{props.children}</SidebarNavFooter>
         </Show>
       </SidebarNav>
     </div>

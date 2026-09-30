@@ -7,8 +7,11 @@
  * the dependency-owned archive authority.
  */
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { ListRowControl } from '@adea-ai/ui/components/composites/list-row/list-row-control'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
-import { cn } from '@adea-ai/app-ui/lib/utils'
+import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
+import { ScrollArea } from '@adea-ai/ui/components/ui/scroll-area'
 import { Archive } from 'lucide-solid'
 import { For, Show, createSignal } from 'solid-js'
 
@@ -33,11 +36,12 @@ export function ArchiveShelf(props: {
   const [expanded, setExpanded] = createSignal(false)
   const pending = () => props.state.pendingDeleteId
   return (
-    <section class="dev-archive-shelf">
+    <section class="w-full">
       <ActionButton
         type="button"
         variant="ghost"
         size="sm"
+        tooltip={expanded() ? 'Hide archived sessions' : 'Show archived sessions'}
         class="w-full justify-start"
         aria-expanded={expanded()}
         aria-controls="dev-archive-shelf-content"
@@ -51,34 +55,36 @@ export function ArchiveShelf(props: {
         </Show>
       </ActionButton>
       <Show when={expanded()}>
-        <div id="dev-archive-shelf-content" class="dev-archive-shelf__content">
+        <ScrollArea
+          id="dev-archive-shelf-content"
+          class="max-h-56"
+          aria-label="Archived sessions"
+          role="region"
+        >
           <Show
             when={props.state.status === 'ready' || props.state.status === 'error'}
             fallback={
-              <p class="dev-tree-empty" role="status">
+              <EmptyDescription role="status">
                 {props.state.status === 'loading'
                   ? 'Loading archived sessions…'
                   : props.state.status === 'unavailable'
                     ? `Archived sessions are unavailable (${props.state.reason ?? 'provider unavailable'}).`
                     : 'Loading archived sessions…'}
-              </p>
+              </EmptyDescription>
             }
           >
             <Show
               when={props.state.items.length > 0}
-              fallback={<p class="dev-tree-empty">No archived sessions.</p>}
+              fallback={<EmptyDescription>No archived sessions.</EmptyDescription>}
             >
-              <ul class="dev-archive-shelf__list" aria-label="Archived sessions">
+              <ul class="flex flex-col gap-1" aria-label="Archived sessions">
                 <For each={props.state.items}>
                   {(item) => (
-                    <li class="dev-archive-shelf__item">
-                      <span class="dev-tree-row__title" title={item.archivedAt}>
-                        {item.title}
-                      </span>
-                      <span class="dev-archive-shelf__actions">
-                        <Show
-                          when={pending() === item.id}
-                          fallback={
+                    <li class="flex flex-col gap-1">
+                      <ListRowControl
+                        description={item.archivedAt}
+                        trailing={
+                          <Show when={pending() !== item.id}>
                             <>
                               <ActionButton
                                 type="button"
@@ -99,43 +105,50 @@ export function ArchiveShelf(props: {
                                 Delete…
                               </ActionButton>
                             </>
-                          }
-                        >
-                          <span class="dev-archive-shelf__confirm" role="alert">
-                            Delete this archived session?
-                            <ActionButton
-                              type="button"
-                              variant="destructive"
-                              size="xs"
-                              tooltip="Confirm deletion of this archived session"
-                              onClick={() => props.onConfirmDelete()}
-                            >
-                              Delete
-                            </ActionButton>
-                            <ActionButton
-                              type="button"
-                              variant="outline"
-                              size="xs"
-                              tooltip="Cancel deletion of this archived session"
-                              onClick={() => props.onCancelDelete()}
-                            >
-                              Keep
-                            </ActionButton>
-                          </span>
-                        </Show>
-                      </span>
+                          </Show>
+                        }
+                      >
+                        {item.title}
+                      </ListRowControl>
+                      <Show when={pending() === item.id}>
+                        <Alert variant="warning">
+                          <AlertDescription>
+                            <p>Delete this archived session?</p>
+                            <div class="flex flex-wrap gap-1 mt-1">
+                              <ActionButton
+                                type="button"
+                                variant="destructive"
+                                size="xs"
+                                tooltip="Confirm deletion of this archived session"
+                                onClick={() => props.onConfirmDelete()}
+                              >
+                                Delete
+                              </ActionButton>
+                              <ActionButton
+                                type="button"
+                                variant="outline"
+                                size="xs"
+                                tooltip="Cancel deletion of this archived session"
+                                onClick={() => props.onCancelDelete()}
+                              >
+                                Keep
+                              </ActionButton>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                      </Show>
                     </li>
                   )}
                 </For>
               </ul>
             </Show>
             <Show when={props.handoffMessage}>
-              <p class={cn('dev-archive-shelf__handoff')} role="note">
-                {props.handoffMessage}
-              </p>
+              <Alert role="note">
+                <AlertDescription>{props.handoffMessage}</AlertDescription>
+              </Alert>
             </Show>
           </Show>
-        </div>
+        </ScrollArea>
       </Show>
     </section>
   )
