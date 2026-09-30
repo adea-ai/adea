@@ -1133,13 +1133,6 @@
   max-height: calc(100svh - 2rem);
   overflow: auto;
 }
-.conventional-settings-logo {
-  display: block;
-  flex: 0 0 auto;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 0.75rem;
-}
 .conventional-dialog-form {
   display: grid;
 }
@@ -1231,26 +1224,6 @@
 }
 .conventional-conversation-details span {
   color: var(--cw-muted);
-}
-
-.conventional-settings-dialog {
-  /* The settings surface packs sections rather than one form, so it opens
-     wider by default (72rem) and taller (52rem); the calc guards keep both
-     responsive on small windows. The dialog is a fixed-height grid: the
-     header row stays put, and the section body is the only scroller. */
-  width: min(72rem, calc(100% - 4rem));
-  max-width: min(72rem, calc(100% - 4rem));
-  height: min(52rem, calc(100svh - 2rem));
-  max-height: min(52rem, calc(100svh - 2rem));
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 0;
-  padding: 0;
-  overflow: hidden;
-}
-.conventional-settings-dialog > [data-slot='dialog-header'] {
-  gap: 0.35rem;
-  padding: 1rem 1.25rem 0.9rem;
-  border-bottom: 1px solid var(--cw-border);
 }
 
 .conventional-about-dialog {

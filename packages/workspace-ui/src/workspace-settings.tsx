@@ -188,11 +188,11 @@ export function WorkspaceSettingsDialog(props: {
   return (
     <ModalDialog
       modal={false}
-      class="conventional-dialog conventional-settings-dialog"
+      size="settings"
       open={props.open}
       onClose={close}
       headerLeading={
-        <WorkspaceLogo aria-hidden="true" class="conventional-settings-logo" role="presentation" />
+        <WorkspaceLogo aria-hidden="true" class="block size-10 shrink-0" role="presentation" />
       }
       title="Settings"
       description="Product preferences and boundaries for this Adea workspace."
@@ -370,7 +370,7 @@ export function WorkspaceSettingsDialog(props: {
                 children={false}
               />
             </SettingsRow>
-            <p class="conventional-settings-note">
+            <p class="mt-4 flex items-start gap-2 rounded-md bg-muted p-3 text-xs leading-5 text-muted-foreground">
               <Bell aria-hidden="true" /> Notification clicks will use canonical Room, Channel,
               Message, and Task identities when live events are wired in M3.
             </p>
@@ -402,7 +402,7 @@ export function WorkspaceSettingsDialog(props: {
                 children={false}
               />
             </SettingsRow>
-            <p class="conventional-settings-note">
+            <p class="mt-4 flex items-start gap-2 rounded-md bg-muted p-3 text-xs leading-5 text-muted-foreground">
               <EyeOff aria-hidden="true" /> Private bodies are never sent to cloud search, logs,
               telemetry, or WorkspaceEvents.
             </p>
