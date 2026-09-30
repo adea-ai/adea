@@ -34,6 +34,14 @@ listbox semantics, active-result selection, keyboard navigation, and focus
 management. Built-in command filtering stays disabled so local fuzzy ranking,
 authorized private results, and remote result ordering remain host-owned.
 
+The published shared UI `SideRail` family owns the rail's header, scrolling
+navigation, footer, active states, focus treatment, and destination tooltips.
+Adea supplies ordered/enabled destinations, shortcut dispatch, workspace
+selection, and prefetch callbacks. Host CSS supplies positioning, safe-area
+insets, and menu width; it does not redefine the component's icon or active
+styling. The account adapter maps platform-specific commands into the shared
+`AccountMenu` instead of composing a second menu.
+
 The account menu opens Updates after its menu focus cycle closes. It supplies
 the persistent rail button through the host adapter to the published dialog
 so closing Updates restores focus without retaining a removed menu item.
