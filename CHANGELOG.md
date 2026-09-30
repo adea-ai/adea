@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.10](https://github.com/adea-ai/adea/compare/v0.69.9...v0.69.10) (2026-09-30)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adea-ai/ui to v0.89.1 ([#837](https://github.com/adea-ai/adea/issues/837)) ([df2ecaa](https://github.com/adea-ai/adea/commit/df2ecaac5ea3d9f3ada7c4d967c9a77f22a13e19))
+
 ## [0.69.9](https://github.com/adea-ai/adea/compare/v0.69.8...v0.69.9) (2026-09-30)
 
 
