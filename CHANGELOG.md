@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.0](https://github.com/adea-ai/adea/compare/v0.68.2...v0.69.0) (2026-09-30)
+
+
+### Features
+
+* enforce no-interactive-wrappers — generic elements dressed as controls ([#818](https://github.com/adea-ai/adea/issues/818)) ([0fe5d99](https://github.com/adea-ai/adea/commit/0fe5d994331bcffe99fef27b0549ca633bcca4db))
+
 ## [0.68.2](https://github.com/adea-ai/adea/compare/v0.68.1...v0.68.2) (2026-09-30)
 
 
