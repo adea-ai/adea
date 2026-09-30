@@ -1,7 +1,7 @@
 name: Publish shared packages
 
-# Publishes the moat-free shared packages (@adea-ai/asset-manifests, @adea-ai/audio,
-# @adea-ai/spatial-protocol) to the public npm registry on every main push that touches
+# Publishes the moat-free shared packages (@adea-ai/audio, @adea-ai/spatial) to the
+# public npm registry on every main push that touches
 # them (plus manual dispatch). The private agent-sim repo consumes these by version, so no
 # registry auth is needed anywhere — not locally, not in CI.
 #
@@ -25,9 +25,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'packages/asset-manifests/**'
       - 'packages/audio/**'
-      - 'packages/spatial-protocol/**'
+      - 'packages/spatial/**'
       - 'scripts/publish-packages.mjs'
       - '.github/workflows/publish-packages.yml'
   workflow_dispatch:
@@ -73,7 +72,7 @@ jobs:
         # and not in the `paths` filter above, so building it here produced a
         # tarball nothing consumed on every run. The removal has to be complete
         # across all three lists; this is the third.
-        run: bunx turbo run build --filter=@adea-ai/asset-manifests --filter=@adea-ai/audio --filter=@adea-ai/spatial-protocol
+        run: bunx turbo run build --filter=@adea-ai/audio --filter=@adea-ai/spatial
 
       - name: Publish changed packages
         env:

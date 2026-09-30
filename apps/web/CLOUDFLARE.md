@@ -116,7 +116,7 @@ no-store` with `X-Robots-Tag: noindex, nofollow, noarchive`
 This repository ships manifests by default. The spatial engine (models,
 textures, audio, runtime code) lives in the private `agent-sim` repo, and the
 shell mounts it only for entitled deployments
-(`packages/spatial-protocol/src/engine.ts`):
+(`packages/spatial/src/engine.ts`):
 
 - **Official web domains** (`adea.dev`, `adea.io`, including subdomains): the
   engine is served same-origin from `/assets/agent-sim/` and the virtual view
@@ -133,7 +133,7 @@ shell mounts it only for entitled deployments
   credentials.
 
 `scripts/sync-assets.mjs` stages the tracked protocol manifests
-(`packages/spatial-protocol/data`) into the app's public assets directory, so
+(`packages/spatial/data`) into the app's public assets directory, so
 plain checkouts build and test with zero setup.
 
 - **Local dev:** nothing to fetch. `bun run dev` syncs manifests automatically
