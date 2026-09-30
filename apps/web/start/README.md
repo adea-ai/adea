@@ -32,6 +32,16 @@ Worker setup, secrets, and caching.
   settings, plugins, conventional workspace, and optional spatial entry
   points. `src/components/lazy-component.tsx` keeps those entries deferred.
 
+Tailwind source scanning for the published `@adea-ai/ui` package follows the
+web client entry's runtime imports, including nested component imports and
+literal dynamic imports. The Vite configs generate relative source directives
+under `apps/web/node_modules/.cache/adea-ui-tailwind-sources.css`; unrelated
+components added to the package barrel do not enter the consumer source list.
+Both web and desktop builds compare that list with the rendered shared UI
+modules recorded by the client build and fail if a rendered module is missing.
+Type-only imports are ignored; unresolved shared UI imports and non-literal
+runtime imports fail closed because their Tailwind sources cannot be proven.
+
 ## Entry policy
 
 Root documents run the account allowlist in the Worker before rendering
@@ -62,6 +72,9 @@ bun run --cwd apps/web start:test:local
 `start:verify` builds first because the route tree is generated and ignored in
 Git. `start:check-bundle` reads the compiled client output plus the build
 plugin's module evidence and fails rather than reporting success without them.
+Web and canonical desktop builds also run `start:check-ui-sources` (the desktop
+build passes `--desktop`) to verify selective UI source coverage against the
+rendered-module report.
 The client graph disallows database, auth-server, and Worker-entry modules;
 only four explicitly public environment variables are substituted (no blanket
 `process.env` or `VITE_*` export).
