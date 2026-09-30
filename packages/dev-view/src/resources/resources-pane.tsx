@@ -30,6 +30,7 @@ import {
   usageCards,
 } from './resources-model'
 import './resources-pane.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type ResourcesPaneProps = {
   runtime: DevRuntimeService
@@ -141,7 +142,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
     <div class="dev-resources" role="region" aria-label="Runtime resources">
       <div class="dev-resources__header">
         <span class="dev-resources__title">Runtime resources</span>
-        <button
+        <Button
           type="button"
           class="dev-resources__refresh"
           aria-label="Refresh resources"
@@ -149,7 +150,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
           onClick={refresh}
         >
           <RefreshCw aria-hidden="true" />
-        </button>
+        </Button>
       </div>
       <Show
         when={serviceReady()}
@@ -178,14 +179,14 @@ export function ResourcesPane(props: ResourcesPaneProps) {
                         </span>
                       </span>
                       <Show when={row.stoppable}>
-                        <button
+                        <Button
                           type="button"
                           class="dev-resources__stop"
                           disabled={stopBusy()}
                           onClick={() => void requestStop(row.record)}
                         >
                           Stop
-                        </button>
+                        </Button>
                       </Show>
                     </li>
                   )}
@@ -310,22 +311,22 @@ export function ResourcesPane(props: ResourcesPaneProps) {
             signalling.
           </p>
           <div class="dev-resources__confirm-actions">
-            <button
+            <Button
               type="button"
               class="dev-resources__stop"
               disabled={stopBusy()}
               onClick={() => void commitStop()}
             >
               Confirm stop
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               class="dev-resources__cancel"
               disabled={stopBusy()}
               onClick={() => setPendingPlan(undefined)}
             >
               <X aria-hidden="true" /> Cancel
-            </button>
+            </Button>
           </div>
         </div>
       </Show>

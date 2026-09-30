@@ -54,7 +54,7 @@ function ControlButton(props: ControlButtonProps) {
   }
 
   return (
-    <button
+    <Button
       type="button"
       aria-label={props.label}
       class={cn(
@@ -68,7 +68,7 @@ function ControlButton(props: ControlButtonProps) {
       onPointerUp={release}
     >
       {props.children}
-    </button>
+    </Button>
   )
 }
 

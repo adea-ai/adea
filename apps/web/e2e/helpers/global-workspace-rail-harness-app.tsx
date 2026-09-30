@@ -4,6 +4,7 @@ import { createSignal, onCleanup, onMount } from 'solid-js'
 import { render } from 'solid-js/web'
 import { GlobalWorkspaceRail } from '../../../../packages/workspace-ui/src/global-workspace-rail'
 import type { WorkspaceAppId } from '../../../../packages/workspace-ui/src/workspace-apps'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 const timestamp = '2026-09-27T00:00:00.000Z'
 const work: WorkspaceSummary = {
@@ -52,10 +53,10 @@ function Harness() {
 
   return (
     <>
-      <button onClick={() => setMode('virtual')}>Use Virtual view</button>
-      <button onClick={() => setMode('chat')}>Use Chat view</button>
-      <button onClick={() => setMode('dev')}>Use Dev view</button>
-      <button onClick={() => setMode('chat', true)}>Use App Library</button>
+      <Button onClick={() => setMode('virtual')}>Use Virtual view</Button>
+      <Button onClick={() => setMode('chat')}>Use Chat view</Button>
+      <Button onClick={() => setMode('dev')}>Use Dev view</Button>
+      <Button onClick={() => setMode('chat', true)}>Use App Library</Button>
       <GlobalWorkspaceRail
         account={{
           authenticated: false,

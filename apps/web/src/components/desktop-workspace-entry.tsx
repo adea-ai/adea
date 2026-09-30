@@ -28,6 +28,7 @@ import { createDeferredPluginsProvider, WorkspaceNavigation } from './workspace-
 import { DesktopFirstRunChat } from './desktop-first-run-chat'
 import { createDesktopChatModelHost } from '../lib/desktop-chat-host'
 import type { WorkspaceShellProps } from './workspace-shell'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 type AppStatus =
   | 'authenticated'
@@ -373,17 +374,13 @@ function DesktopStartSurface(props: {
 
         <div class="auth-actions">
           <Show when={props.status === 'offline' || props.status === 'failed'}>
-            <button type="button" class="auth-action" onClick={() => props.onRetry()}>
+            <Button type="button" onClick={() => props.onRetry()}>
               Try again
-            </button>
+            </Button>
             <Show when={props.showSignIn}>
-              <button
-                type="button"
-                class="auth-action auth-action-secondary"
-                onClick={() => props.onSignIn()}
-              >
+              <Button type="button" variant="outline" onClick={() => props.onSignIn()}>
                 Sign in
-              </button>
+              </Button>
             </Show>
           </Show>
         </div>

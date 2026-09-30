@@ -1,5 +1,6 @@
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-solid'
 import { Show } from 'solid-js'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 /**
  * The fixed sidebar expand/collapse control, shared by every view (chat
@@ -14,7 +15,7 @@ export function SidebarToggleButton(props: {
   onToggle: (open: boolean) => void
 }) {
   return (
-    <button
+    <Button
       type="button"
       class="conventional-mobile-menu"
       aria-label={props.expanded ? 'Close workspace navigation' : 'Open workspace navigation'}
@@ -24,6 +25,6 @@ export function SidebarToggleButton(props: {
       <Show when={props.expanded} fallback={<PanelLeftOpen aria-hidden="true" />}>
         <PanelLeftClose aria-hidden="true" />
       </Show>
-    </button>
+    </Button>
   )
 }

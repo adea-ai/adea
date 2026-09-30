@@ -86,6 +86,7 @@ import {
 import { terminalConnectionErrorMessage } from './connection-errors'
 import { observeTerminalTheme } from './theme-binding'
 import './terminal-pane.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type TerminalPaneProps = {
   /** Opens one authenticated terminal-bytes-v1 stream (new grant per call). */
@@ -596,7 +597,7 @@ export function TerminalPane(props: TerminalPaneProps) {
             </span>
           )}
         </Show>
-        <button
+        <Button
           type="button"
           class="dev-terminal-copy-button"
           data-degraded={clipboardPresent().degraded ? 'true' : undefined}
@@ -604,7 +605,7 @@ export function TerminalPane(props: TerminalPaneProps) {
           onClick={() => void copySelection()}
         >
           {clipboardPresent().label}
-        </button>
+        </Button>
         <Show when={clipboardPresent().hint}>
           <span class="dev-terminal-hint">{clipboardPresent().hint}</span>
         </Show>
@@ -631,7 +632,7 @@ export function TerminalPane(props: TerminalPaneProps) {
               </Show>
               <Show when={blockExportText(block)}>
                 {(text) => (
-                  <button
+                  <Button
                     type="button"
                     class="dev-terminal-copy-button"
                     onClick={() =>
@@ -641,7 +642,7 @@ export function TerminalPane(props: TerminalPaneProps) {
                     }
                   >
                     Copy
-                  </button>
+                  </Button>
                 )}
               </Show>
             </div>
@@ -660,7 +661,7 @@ export function TerminalPane(props: TerminalPaneProps) {
               onKeyDown={onSearchInputKeyDown}
               onInput={(event) => setSearch(searchSetQuery(search(), event.currentTarget.value))}
             />
-            <button
+            <Button
               type="button"
               aria-label="Previous match"
               disabled={!searchPresent().steppable}
@@ -674,8 +675,8 @@ export function TerminalPane(props: TerminalPaneProps) {
               }}
             >
               ↑
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               aria-label="Next match"
               disabled={!searchPresent().steppable}
@@ -689,10 +690,10 @@ export function TerminalPane(props: TerminalPaneProps) {
               }}
             >
               ↓
-            </button>
-            <button type="button" aria-label="Close search" onClick={closeSearch}>
+            </Button>
+            <Button type="button" aria-label="Close search" onClick={closeSearch}>
               ×
-            </button>
+            </Button>
             <span class="dev-terminal-search-count" aria-live="polite">
               {searchPresent().count}
             </span>
@@ -709,12 +710,12 @@ export function TerminalPane(props: TerminalPaneProps) {
         <Show when={surfacePaste !== undefined}>
           <div class="dev-terminal-paste-confirm" role="alertdialog" aria-label="Confirm paste">
             <span>Paste contains multiple lines or control characters. Send anyway?</span>
-            <button type="button" onClick={confirmSurfacePaste}>
+            <Button type="button" onClick={confirmSurfacePaste}>
               Paste
-            </button>
-            <button type="button" onClick={rejectSurfacePaste}>
+            </Button>
+            <Button type="button" onClick={rejectSurfacePaste}>
               Cancel
-            </button>
+            </Button>
           </div>
         </Show>
       </div>
@@ -726,9 +727,9 @@ export function TerminalPane(props: TerminalPaneProps) {
               Raw keyboard mode — every key reaches the terminal. Paste with the system shortcut;
               multiline pastes ask first.
             </p>
-            <button type="button" onClick={() => setEditor(editorToggleMode(editor()))}>
+            <Button type="button" onClick={() => setEditor(editorToggleMode(editor()))}>
               Compose mode
-            </button>
+            </Button>
           </div>
         }
       >
@@ -766,21 +767,21 @@ export function TerminalPane(props: TerminalPaneProps) {
           <Show when={editor().pendingPaste !== undefined}>
             <div class="dev-terminal-paste-confirm" role="alertdialog" aria-label="Confirm paste">
               <span>Paste contains multiple lines or control characters. Send anyway?</span>
-              <button type="button" onClick={() => setEditor(editorConfirmPaste(editor()))}>
+              <Button type="button" onClick={() => setEditor(editorConfirmPaste(editor()))}>
                 Paste
-              </button>
-              <button type="button" onClick={() => setEditor(editorRejectPaste(editor()))}>
+              </Button>
+              <Button type="button" onClick={() => setEditor(editorRejectPaste(editor()))}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </Show>
           <footer>
-            <button type="button" onClick={sendDraft}>
+            <Button type="button" onClick={sendDraft}>
               {editor().sendLabel}
-            </button>
-            <button type="button" onClick={() => setEditor(editorToggleMode(editor()))}>
+            </Button>
+            <Button type="button" onClick={() => setEditor(editorToggleMode(editor()))}>
               Raw mode
-            </button>
+            </Button>
           </footer>
         </div>
       </Show>
@@ -791,14 +792,14 @@ export function TerminalPane(props: TerminalPaneProps) {
           <ul>
             {(props.shellProfiles ?? []).map((profile) => (
               <li>
-                <button
+                <Button
                   type="button"
                   onClick={() => pickShellProfile(profile.id)}
                   aria-pressed={shellSelection().selectedProfileId === profile.id}
                 >
                   {profile.label}
                   <span class="dev-terminal-shell-path">{profile.argv.join(' ')}</span>
-                </button>
+                </Button>
                 <Show when={profileIntegrationNote(profile)}>
                   {(note) => <p class="dev-terminal-hint">{note()}</p>}
                 </Show>

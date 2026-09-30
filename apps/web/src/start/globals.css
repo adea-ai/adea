@@ -45,7 +45,7 @@ html {
 }
 
 .browser-auth-mode button,
-.browser-auth-submit {
+.browser-auth-form button[type='submit'] {
   min-height: 2.75rem;
   border: 0;
   border-radius: 0.45rem;
@@ -89,7 +89,7 @@ html {
 
 .browser-auth-form input:focus-visible,
 .browser-auth-mode button:focus-visible,
-.browser-auth-submit:focus-visible {
+.browser-auth-form button[type='submit']:focus-visible {
   outline: 3px solid var(--auth-foreground);
   outline-offset: 2px;
 }
@@ -102,7 +102,7 @@ html {
   line-height: 1.45;
 }
 
-.browser-auth-submit {
+.browser-auth-form button[type='submit'] {
   background: var(--auth-accent);
   color: var(--auth-accent-foreground);
 }
@@ -141,7 +141,7 @@ html {
 
 .browser-auth-mode button:disabled,
 .browser-auth-form input:disabled,
-.browser-auth-submit:disabled {
+.browser-auth-form button[type='submit']:disabled {
   cursor: wait;
   opacity: 0.65;
 }

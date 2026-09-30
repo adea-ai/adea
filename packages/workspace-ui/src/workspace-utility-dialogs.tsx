@@ -25,6 +25,7 @@ import { keyedRows } from './keyed-rows'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { fuzzySearchMatch, searchKeyboardSelection } from './workspace-model'
 import type { PrivateContentResolver } from './platform'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 type SearchResult = WorkspaceSearchResult
 
@@ -300,7 +301,7 @@ export function WorkspaceSearchDialog(props: {
             const result = entry.item
             return (
               <li role="presentation">
-                <button
+                <Button
                   id={`search-result-${index()}`}
                   ref={index() === selectedIndex() ? setSelected : undefined}
                   type="button"
@@ -317,7 +318,7 @@ export function WorkspaceSearchDialog(props: {
                     <strong>{result().label}</strong>
                     <small>{result().secondary}</small>
                   </span>
-                </button>
+                </Button>
               </li>
             )
           }}

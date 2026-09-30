@@ -143,7 +143,7 @@ function PluginBrowserRow(props: {
   plugin: WorkspacePlugin
 }) {
   return (
-    <button
+    <Button
       type="button"
       class="plugins-browser__row"
       disabled={props.disabled}
@@ -163,7 +163,7 @@ function PluginBrowserRow(props: {
         </span>
       </span>
       <ChevronRight aria-hidden="true" />
-    </button>
+    </Button>
   )
 }
 

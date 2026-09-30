@@ -14,6 +14,7 @@ import { For, Show, createResource, createSignal } from 'solid-js'
 import type { DevRuntimeService } from '../platform'
 import { buildDevCommand } from '../browser/command'
 import { ACTIVITY_STATE_LABELS, activityRows, formatElapsed } from './activity-model'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type ActivityPaneProps = {
   runtime: DevRuntimeService
@@ -130,7 +131,7 @@ export function ActivityPane(props: ActivityPaneProps) {
                     </Show>
                   </span>
                   <Show when={row.attention || row.running}>
-                    <button
+                    <Button
                       type="button"
                       class="dev-resources__cancel"
                       disabled={busy() || generationFor(row.runtimeSessionId) === undefined}
@@ -142,7 +143,7 @@ export function ActivityPane(props: ActivityPaneProps) {
                       onClick={() => void cancelRun(row)}
                     >
                       <Square aria-hidden="true" /> Stop
-                    </button>
+                    </Button>
                   </Show>
                 </li>
               )}

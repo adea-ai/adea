@@ -1030,26 +1030,6 @@
 .conventional-composer__attachment-control {
   position: relative;
 }
-.conventional-primary-button {
-  display: inline-flex;
-  min-height: 2.4rem;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 0 0.75rem;
-  border: 0;
-  border-radius: 0.4rem;
-  background: var(--cw-accent-strong);
-  color: var(--cw-accent-contrast) !important;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.conventional-primary-button svg {
-  width: 1rem;
-  height: 1rem;
-  flex-shrink: 0;
-}
 .conventional-composer__attachments {
   display: flex;
   flex-wrap: wrap;
@@ -1684,16 +1664,6 @@
   margin-top: 1rem;
 }
 .conventional-detail-panel__actions button,
-.conventional-secondary-button {
-  display: inline-flex;
-  min-height: 2.5rem;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0 0.65rem;
-  border: 1px solid var(--cw-border);
-  border-radius: 0.4rem;
-  background: var(--cw-surface);
-}
 .conventional-detail-panel__status {
   min-height: 1.5rem;
   margin-top: 0.5rem;

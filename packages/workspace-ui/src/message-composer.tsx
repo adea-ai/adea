@@ -189,10 +189,10 @@ export function MessageComposer(props: {
               <div class="conventional-mention-menu" aria-label="Mention an Agent">
                 <For each={mentionSuggestions()}>
                   {(agent) => (
-                    <button type="button" onClick={() => insertMention(agent)}>
+                    <Button type="button" onClick={() => insertMention(agent)}>
                       <AtSign aria-hidden="true" />
                       {agent.name}
-                    </button>
+                    </Button>
                   )}
                 </For>
               </div>

@@ -34,6 +34,7 @@ import {
   settingsSectionLabels,
   type SettingsSection,
 } from './settings-section'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 const sectionIcons = {
   account: UserRound,
@@ -219,7 +220,7 @@ export function WorkspaceSettingsDialog(props: {
                   {(item) => {
                     const Icon = sectionIcons[item]
                     return (
-                      <button
+                      <Button
                         ref={(element) => {
                           if (element) navigationRefs.set(item, element)
                           else navigationRefs.delete(item)
@@ -245,7 +246,7 @@ export function WorkspaceSettingsDialog(props: {
                       >
                         <Icon aria-hidden="true" />
                         <span>{settingsSectionLabels[item]}</span>
-                      </button>
+                      </Button>
                     )
                   }}
                 </For>
@@ -278,13 +279,13 @@ export function WorkspaceSettingsDialog(props: {
                     : 'Sign in when you want to keep this workspace across devices.'
                 }
               >
-                <button
+                <Button
                   type="button"
                   disabled={props.busy}
                   onClick={props.accountAuthenticated ? props.onSignOut : props.onSignIn}
                 >
                   {props.accountAuthenticated ? 'Sign out' : 'Sign in'}
-                </button>
+                </Button>
               </SettingsRow>
               <SettingsRow
                 title={props.services?.app?.name ?? 'Adea'}
@@ -360,16 +361,16 @@ export function WorkspaceSettingsDialog(props: {
                   />
                 )}
               </For>
-              <button
+              <Button
                 type="button"
-                class="conventional-primary-button"
+
                 onClick={() => {
                   close()
                   props.onOpenAgents()
                 }}
               >
                 Customize Agents
-              </button>
+              </Button>
             </>
           </Show>
           <Show when={section() === 'input-notifications'}>
@@ -389,7 +390,7 @@ export function WorkspaceSettingsDialog(props: {
                     : 'Install Adea Desktop to use system dictation.'
                 }
               >
-                <button
+                <Button
                   type="button"
                   disabled={!props.services?.transcription}
                   onClick={() =>
@@ -399,7 +400,7 @@ export function WorkspaceSettingsDialog(props: {
                   }
                 >
                   {permissionState() === 'idle' ? 'Check microphone' : permissionState()}
-                </button>
+                </Button>
               </SettingsRow>
               <SettingsRow
                 title="Dictation language"

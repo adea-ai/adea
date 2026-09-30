@@ -32,6 +32,7 @@ import {
   type ScanBookmarkRow,
   type ScanPreviewRow,
 } from './scan-preview-model'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 type ScanState =
   | Readonly<{ status: 'idle' }>
@@ -277,14 +278,14 @@ export function AddProjectForm(props: AddProjectPanelProps) {
                 />
               </label>
             </Show>
-            <button
+            <Button
               type="button"
               class="dev-button dev-button--secondary"
               disabled={importing()}
               onClick={() => void importConfirmed()}
             >
               Import confirmed packages
-            </button>
+            </Button>
           </div>
         </Show>
       </Show>

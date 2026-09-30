@@ -9,6 +9,7 @@ import type {
 import { createFirstRunController, projectFirstRun } from './index'
 import { ChatRuntimeError } from '../model/commands'
 import './onboarding.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type FirstRunOnboardingProps = Readonly<{
   facts: FirstRunFacts
@@ -110,14 +111,15 @@ export function FirstRunOnboarding(props: FirstRunOnboardingProps): JSX.Element 
         <div class="dev-onboarding__actions">
           <For each={state().actions}>
             {(action) => (
-              <button
+              <Button
                 type="button"
-                class="dev-button"
+                variant="outline"
+                size="sm"
                 disabled={pending() || (action.kind === 'start' && !prompt().trim())}
                 onClick={() => void act(action.kind)}
               >
                 {action.label}
-              </button>
+              </Button>
             )}
           </For>
         </div>

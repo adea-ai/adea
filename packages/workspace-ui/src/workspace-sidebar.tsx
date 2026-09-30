@@ -100,7 +100,7 @@ function ConversationChannelRow(props: {
 }) {
   return (
     <li class="conventional-channel-row">
-      <button
+      <Button
         type="button"
         aria-current={props.selected ? 'page' : undefined}
         onClick={() => props.onSelect()}
@@ -110,7 +110,7 @@ function ConversationChannelRow(props: {
         {props.icon}
         <span>{props.label}</span>
         {props.unread}
-      </button>
+      </Button>
       <span class="conventional-channel-actions">
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -303,7 +303,7 @@ export function WorkspaceSidebar(props: Props) {
     <>
       <SidebarToggleButton expanded={props.mobileOpen} onToggle={props.onToggleMobile} />
       <Show when={props.mobileOpen}>
-        <button
+        <Button
           type="button"
           class="conventional-sidebar-scrim"
           aria-label="Close workspace navigation"
@@ -329,27 +329,27 @@ export function WorkspaceSidebar(props: Props) {
           onPointerDown={startResize}
           onKeyDown={onResizeKeyDown}
         />
-        <button
+        <Button
           type="button"
           aria-label="Close workspace navigation"
           class="conventional-sidebar__close"
           onClick={() => props.onToggleMobile(false)}
         >
           <PanelLeftClose aria-hidden="true" />
-        </button>
+        </Button>
 
         <div class="conventional-sidebar__title">
           <h1>{props.workspaceName}</h1>
         </div>
         <div class="conventional-sidebar__quick-actions">
-          <button type="button" onClick={() => props.onOpenTasks()}>
+          <Button type="button" onClick={() => props.onOpenTasks()}>
             <ListTodo aria-hidden="true" />
             Tasks
-          </button>
-          <button type="button" onClick={() => props.onOpenAgents()}>
+          </Button>
+          <Button type="button" onClick={() => props.onOpenAgents()}>
             <Bot aria-hidden="true" />
             Agents
-          </button>
+          </Button>
           <Tooltip>
             <TooltipTrigger
               onClick={() => props.onMarkAllRead()}
@@ -377,9 +377,9 @@ export function WorkspaceSidebar(props: Props) {
           <section class="conventional-sidebar-section" aria-labelledby="rooms-heading">
             <div class="conventional-sidebar-section__heading">
               <h2 id="rooms-heading">Rooms</h2>
-              <button type="button" aria-label="Create Room" onClick={() => props.onCreateRoom()}>
+              <Button type="button" aria-label="Create Room" onClick={() => props.onCreateRoom()}>
                 <Plus aria-hidden="true" />
-              </button>
+              </Button>
             </div>
             <Show
               when={props.navigation.rooms.length}
@@ -420,7 +420,7 @@ export function WorkspaceSidebar(props: Props) {
                     return (
                       <li>
                         <div class="conventional-room-row">
-                          <button
+                          <Button
                             type="button"
                             class="conventional-room-select"
                             aria-current={selected() ? 'page' : undefined}
@@ -449,7 +449,7 @@ export function WorkspaceSidebar(props: Props) {
                                 </span>
                               )}
                             </Show>
-                          </button>
+                          </Button>
                           <span class="conventional-room-actions">
                             <DropdownMenu>
                               <DropdownMenuTrigger
@@ -479,7 +479,7 @@ export function WorkspaceSidebar(props: Props) {
                             </DropdownMenu>
                           </span>
                           <Show when={item().visibleChannels.length}>
-                            <button
+                            <Button
                               type="button"
                               class="conventional-room-toggle"
                               aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
@@ -492,7 +492,7 @@ export function WorkspaceSidebar(props: Props) {
                               >
                                 <ChevronDown aria-hidden="true" />
                               </Show>
-                            </button>
+                            </Button>
                           </Show>
                         </div>
                         <Show when={item().visibleChannels.length && !collapsed()}>
@@ -500,7 +500,7 @@ export function WorkspaceSidebar(props: Props) {
                             <For each={channelRows()}>
                               {(channelEntry) => (
                                 <li>
-                                  <button
+                                  <Button
                                     type="button"
                                     aria-current={
                                       channelEntry.item().id === props.selectedChannelId
@@ -518,7 +518,7 @@ export function WorkspaceSidebar(props: Props) {
                                     <Hash aria-hidden="true" />
                                     <span>{channelEntry.item().title}</span>
                                     {unreadBadge(channelEntry.item().id)}
-                                  </button>
+                                  </Button>
                                 </li>
                               )}
                             </For>
@@ -535,13 +535,13 @@ export function WorkspaceSidebar(props: Props) {
           <section class="conventional-sidebar-section" aria-labelledby="conversations-heading">
             <div class="conventional-sidebar-section__heading">
               <h2 id="conversations-heading">Conversations</h2>
-              <button
+              <Button
                 type="button"
                 aria-label="Create group conversation"
                 onClick={() => props.onCreateGroup()}
               >
                 <Plus aria-hidden="true" />
-              </button>
+              </Button>
             </div>
             <ul class="conventional-channel-list conventional-channel-list--standalone">
               <For each={directChannelRows()}>
@@ -587,14 +587,14 @@ export function WorkspaceSidebar(props: Props) {
                 !props.navigation.groupChannels.length
               }
             >
-              <button
+              <Button
                 type="button"
                 class="conventional-sidebar-empty-action"
                 onClick={() => props.onOpenAgents()}
               >
                 <MessageCircle aria-hidden="true" />
                 Start with an Agent
-              </button>
+              </Button>
             </Show>
           </section>
         </div>

@@ -24,6 +24,7 @@ import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-s
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
 import { ConversationAvatar } from './conversation-avatar'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 /**
  * Merged transcripts per channel, kept across selection changes so revisiting
@@ -492,14 +493,14 @@ export function ConversationSurface(props: {
             </Show>
             <Show when={settledData(messageQuery)?.nextAfterSequence}>
               {(nextSequence) => (
-                <button
+                <Button
                   type="button"
                   class="conventional-load-more"
                   disabled={messageQuery.isFetching}
                   onClick={() => setCursor(nextSequence())}
                 >
                   {messageQuery.isFetching ? 'Loading…' : 'Load newer messages'}
-                </button>
+                </Button>
               )}
             </Show>
           </div>
@@ -519,9 +520,9 @@ export function ConversationSurface(props: {
                 <aside class="conventional-thread conventional-thread--missing" role="status">
                   <MessagesSquare aria-hidden="true" />
                   <p>This thread is outside the loaded history window.</p>
-                  <button type="button" onClick={() => props.onThreadChange(null)}>
+                  <Button type="button" onClick={() => props.onThreadChange(null)}>
                     Close thread
-                  </button>
+                  </Button>
                 </aside>
               </Show>
             }

@@ -2,6 +2,7 @@ import { Check, ExternalLink } from 'lucide-solid'
 import { createSignal, Match, onMount, Switch } from 'solid-js'
 
 import { parseDesktopCallbackFragment } from '../lib/desktop-auth-navigation'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 type CompletionStatus = 'opening' | 'opened' | 'invalid' | 'early_access'
 
@@ -52,12 +53,7 @@ export function DesktopAuthComplete() {
         <p class="auth-introduction" role="status">
           Please reach out on github if you&apos;d like to contribute.
         </p>
-        <a
-          class="browser-auth-submit browser-auth-open-app"
-          href="https://github.com/adea-ai/adea"
-          target="_blank"
-          rel="noreferrer"
-        >
+        <a href="https://github.com/adea-ai/adea" target="_blank" rel="noreferrer">
           Adea on GitHub
           <ExternalLink aria-hidden="true" />
         </a>
@@ -83,14 +79,10 @@ export function DesktopAuthComplete() {
           Adea {status() === 'opening' ? 'is opening' : 'has been opened'}. You can close this tab
           and continue in the desktop app.
         </p>
-        <button
-          class="browser-auth-submit browser-auth-open-app"
-          type="button"
-          onClick={openDesktopApp}
-        >
+        <Button variant="outline" type="button" onClick={openDesktopApp}>
           Open Adea
           <ExternalLink aria-hidden="true" />
-        </button>
+        </Button>
       </Match>
     </Switch>
   )

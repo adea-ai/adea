@@ -192,11 +192,11 @@ export function TaskBoard(props: Props) {
           <h1 id="task-board-title">Tasks</h1>
           <p>Execution status is intentionally separate from these durable planning records.</p>
         </div>
-        <button type="button" class="conventional-primary-button" onClick={() => setCreating(true)}>
+        <Button type="button" onClick={() => setCreating(true)}>
           <Plus aria-hidden="true" />
           New Task
           <ListTodo aria-hidden="true" />
-        </button>
+        </Button>
       </header>
       <Show when={creating()}>
         <form
@@ -220,13 +220,13 @@ export function TaskBoard(props: Props) {
         >
           <div class="conventional-inline-form__header">
             <h2>Create Task</h2>
-            <button
+            <Button
               type="button"
               aria-label="Cancel Task creation"
               onClick={() => setCreating(false)}
             >
               <X aria-hidden="true" />
-            </button>
+            </Button>
           </div>
           <label>
             Title
@@ -254,9 +254,9 @@ export function TaskBoard(props: Props) {
             </select>
           </label>
           <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
-          <button type="submit" class="conventional-primary-button" disabled={props.busy}>
+          <Button type="submit" disabled={props.busy}>
             {props.busy ? 'Creating…' : 'Create Task'}
-          </button>
+          </Button>
         </form>
       </Show>
       <Show when={boardError()}>

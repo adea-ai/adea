@@ -18,6 +18,7 @@ import type { ArchiveShelfState } from './archive-shelf-model'
 import { sessionBadges } from './badges'
 import { ArchiveShelf } from './archive-shelf'
 import { filterDevNavigationGroups } from './navigation-filter'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type SidebarReorderHandlers = {
   /** Keyboard move (Alt+Arrow) of a group. */
@@ -128,7 +129,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                     dragged = undefined
                   }}
                 >
-                  <button
+                  <Button
                     type="button"
                     class="dev-tree-row dev-tree-row--group"
                     data-row-id={`group:${group.id}`}
@@ -159,7 +160,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                       <ChevronRight aria-hidden="true" />
                     </Show>
                     <span>{group.name}</span>
-                  </button>
+                  </Button>
                   <Show when={!groupCollapsed()}>
                     <For each={group.projects}>
                       {(project) => {
@@ -182,7 +183,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                               dragged = undefined
                             }}
                           >
-                            <button
+                            <Button
                               type="button"
                               class={cn('dev-tree-row', 'dev-tree-row--project', {
                                 'dev-tree-row--selected': props.selectedProject === project.id,
@@ -225,11 +226,11 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                               </Show>
                               <span>{project.name}</span>
                               <span class="dev-tree-row__count">{project.sessions.length}</span>
-                            </button>
+                            </Button>
                             <Show when={!projectCollapsed()}>
                               <For each={project.sessions}>
                                 {(session) => (
-                                  <button
+                                  <Button
                                     type="button"
                                     class={cn('dev-tree-row', 'dev-tree-row--session', {
                                       'dev-tree-row--selected':
@@ -266,7 +267,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                                         )}
                                       </For>
                                     </span>
-                                  </button>
+                                  </Button>
                                 )}
                               </For>
                             </Show>
