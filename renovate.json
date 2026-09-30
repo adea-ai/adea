@@ -1,0 +1,53 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits", ":semanticPrefixFixDepsChoreOthers"],
+  "timezone": "America/New_York",
+  "labels": ["dependencies"],
+  "rebaseWhen": "behind-base-branch",
+  "pruneStaleBranches": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 10am on monday"]
+  },
+  "vulnerabilityAlerts": {
+    "labels": ["security"]
+  },
+  "packageRules": [
+    {
+      "description": "Every @adea-ai/* package rides one branch: the shared design system moves as a unit, the version pins are updated in place, and the branch automerges only when the full validation suite passes. Tests that assert the pinned shared version are part of those gates, so a green automerge is the trust.",
+      "matchPackagePatterns": ["^@adea-ai/"],
+      "groupName": "adea-ai design system",
+      "separateMajorMinor": true,
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "schedule": ["at any time"],
+      "labels": ["dependencies", "design-system"]
+    },
+    {
+      "description": "Non-major external dependency updates ride one branch and automerge once validation passes.",
+      "matchPackagePatterns": ["*"],
+      "excludePackagePatterns": ["^@adea-ai/"],
+      "matchUpdateTypes": ["patch", "minor", "pin", "digest"],
+      "groupName": "external non-major dependencies",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "schedule": ["after 8am and before 8pm every weekday"]
+    },
+    {
+      "description": "Major bumps of external dependencies get a reviewed PR, one per package.",
+      "matchPackagePatterns": ["*"],
+      "excludePackagePatterns": ["^@adea-ai/"],
+      "matchUpdateTypes": ["major"],
+      "labels": ["dependencies", "major"]
+    }
+  ],
+  "overrides": [
+    {
+      "description": "oxlint is held by override (see package.json) while the tree-wide scoping findings from 1.86 are triaged; Renovate must not fight that pin.",
+      "matchPackageNames": ["oxlint"],
+      "enabled": false
+    }
+  ]
+}
