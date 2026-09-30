@@ -34,6 +34,7 @@ import {
   settingsSectionLabels,
   type SettingsSection,
 } from './settings-section'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 const sectionIcons = {
   account: UserRound,
@@ -93,7 +94,7 @@ export function WorkspaceSettingsDialog(props: {
   const [saveState, setSaveState] = createSignal<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [permissionState, setPermissionState] = createSignal<
     'denied' | 'granted' | 'idle' | 'prompt' | 'unavailable'
-  >('idle')
+>('idle')
   const [privateHealth, setPrivateHealth] = createSignal<'available' | 'checking' | 'unavailable'>(
     props.services?.privateContent ? 'checking' : 'unavailable'
   )
@@ -198,7 +199,7 @@ export function WorkspaceSettingsDialog(props: {
       }
       title="Settings"
       description="Product preferences and boundaries for this Adea workspace."
-    >
+  >
       <div class="conventional-settings-shell">
         {/* WAI-ARIA tabs pattern: the section nav IS the tablist. Group
             captions take role="none" so the tablist's owned content stays
@@ -208,7 +209,7 @@ export function WorkspaceSettingsDialog(props: {
           aria-orientation="vertical"
           aria-label="Settings sections"
           class="conventional-settings-nav"
-        >
+      >
           <For each={settingsSectionGroups}>
             {(group) => (
               <div class="conventional-settings-nav__group">
@@ -219,7 +220,7 @@ export function WorkspaceSettingsDialog(props: {
                   {(item) => {
                     const Icon = sectionIcons[item]
                     return (
-                      <button
+                      <Button
                         ref={(element) => {
                           if (element) navigationRefs.set(item, element)
                           else navigationRefs.delete(item)
@@ -242,10 +243,10 @@ export function WorkspaceSettingsDialog(props: {
                             true
                           )
                         }}
-                      >
+                    >
                         <Icon aria-hidden="true" />
                         <span>{settingsSectionLabels[item]}</span>
-                      </button>
+                      </Button>
                     )
                   }}
                 </For>
@@ -260,7 +261,7 @@ export function WorkspaceSettingsDialog(props: {
           class="conventional-settings-panel"
           role="tabpanel"
           aria-labelledby={`settings-tab-${section()}`}
-        >
+      >
           <Show when={section() === 'account'}>
             <>
               <header>
@@ -277,14 +278,14 @@ export function WorkspaceSettingsDialog(props: {
                     ? 'This workspace is saved to your account.'
                     : 'Sign in when you want to keep this workspace across devices.'
                 }
-              >
-                <button
+            >
+                <Button
                   type="button"
                   disabled={props.busy}
                   onClick={props.accountAuthenticated ? props.onSignOut : props.onSignIn}
-                >
+              >
                   {props.accountAuthenticated ? 'Sign out' : 'Sign in'}
-                </button>
+                </Button>
               </SettingsRow>
               <SettingsRow
                 title={props.services?.app?.name ?? 'Adea'}
@@ -293,7 +294,7 @@ export function WorkspaceSettingsDialog(props: {
               <SettingsRow
                 title="Virtual preview"
                 detail="The Three.js representation is retained for M4 and does not define conventional workspace state."
-              >
+            >
                 <a href="/?view=virtual">Open preview</a>
               </SettingsRow>
             </>
@@ -314,12 +315,12 @@ export function WorkspaceSettingsDialog(props: {
                     <SettingsRow
                       title="Color theme"
                       detail="Follow the system or explicitly choose light or dark."
-                    >
+                  >
                       <ThemeToggle />
                     </SettingsRow>
                   </>
                 }
-              >
+            >
                 {props.appearancePanel?.()}
               </Show>
             </>
@@ -360,16 +361,16 @@ export function WorkspaceSettingsDialog(props: {
                   />
                 )}
               </For>
-              <button
+              <Button
                 type="button"
-                class="conventional-primary-button"
+                
                 onClick={() => {
                   close()
                   props.onOpenAgents()
                 }}
-              >
+            >
                 Customize Agents
-              </button>
+              </Button>
             </>
           </Show>
           <Show when={section() === 'input-notifications'}>
@@ -388,8 +389,8 @@ export function WorkspaceSettingsDialog(props: {
                     ? `Uses ${props.services.transcription.label}; text stays editable and is never auto-sent.`
                     : 'Install Adea Desktop to use system dictation.'
                 }
-              >
-                <button
+            >
+                <Button
                   type="button"
                   disabled={!props.services?.transcription}
                   onClick={() =>
@@ -397,14 +398,14 @@ export function WorkspaceSettingsDialog(props: {
                       ?.requestPermission()
                       .then((state) => setPermissionState(state))
                   }
-                >
+              >
                   {permissionState() === 'idle' ? 'Check microphone' : permissionState()}
-                </button>
+                </Button>
               </SettingsRow>
               <SettingsRow
                 title="Dictation language"
                 detail="Leave blank to follow the operating-system language."
-              >
+            >
                 <input
                   aria-label="Dictation language"
                   value={preferences().dictationLocale}
@@ -422,13 +423,13 @@ export function WorkspaceSettingsDialog(props: {
               <SettingsRow
                 title="Workspace soundtrack"
                 detail="Optional local audio. It sits with input and notifications, not appearance."
-              >
+            >
                 <MusicToggle />
               </SettingsRow>
               <SettingsRow
                 title="Mention notifications"
                 detail="Save the preference now; live event delivery arrives with M3."
-              >
+            >
                 <Switch
                   checked={preferences().notifyMentions}
                   onChange={() => toggle('notifyMentions')}
@@ -439,7 +440,7 @@ export function WorkspaceSettingsDialog(props: {
               <SettingsRow
                 title="Task notifications"
                 detail="Save the preference now; live event delivery arrives with M3."
-              >
+            >
                 <Switch
                   checked={preferences().notifyTasks}
                   onChange={() => toggle('notifyTasks')}
@@ -477,7 +478,7 @@ export function WorkspaceSettingsDialog(props: {
               <SettingsRow
                 title="Private notification previews"
                 detail="Off by default. Enabling is explicit authorization to show private plaintext in desktop notification previews once M3 delivery exists."
-              >
+            >
                 <Switch
                   checked={preferences().privateNotificationPreviews}
                   onChange={() => toggle('privateNotificationPreviews')}
@@ -508,7 +509,7 @@ export function WorkspaceSettingsDialog(props: {
                     detail="Create an Agent to establish an authoritative profile reference."
                   />
                 }
-              >
+            >
                 <For each={topAgentRows()}>
                   {(entry) => (
                     <SettingsRow

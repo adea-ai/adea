@@ -11,6 +11,7 @@ import { Archive } from 'lucide-solid'
 import { For, Show, createSignal } from 'solid-js'
 
 import type { ArchiveShelfState } from './archive-shelf-model'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 /**
  * The paged archived shelf pinned to the bottom of the Dev sidebar (ADR 0009
@@ -32,18 +33,18 @@ export function ArchiveShelf(props: {
   const pending = () => props.state.pendingDeleteId
   return (
     <section class="dev-archive-shelf">
-      <button
+      <Button
         type="button"
         class="dev-tree-row dev-tree-row--archive"
         aria-expanded={expanded()}
         aria-controls="dev-archive-shelf-content"
         onClick={() => setExpanded((value) => !value)}
-      >
+    >
         <Archive aria-hidden="true" /> Archived sessions
         <Show when={props.state.items.length > 0}>
           <span class="dev-tree-row__count">{props.state.items.length}</span>
         </Show>
-      </button>
+      </Button>
       <Show when={expanded()}>
         <div id="dev-archive-shelf-content" class="dev-archive-shelf__content">
           <Show
@@ -57,11 +58,11 @@ export function ArchiveShelf(props: {
                     : 'Loading archived sessions…'}
               </p>
             }
-          >
+        >
             <Show
               when={props.state.items.length > 0}
               fallback={<p class="dev-tree-empty">No archived sessions.</p>}
-            >
+          >
               <ul class="dev-archive-shelf__list" aria-label="Archived sessions">
                 <For each={props.state.items}>
                   {(item) => (
@@ -74,39 +75,39 @@ export function ArchiveShelf(props: {
                           when={pending() === item.id}
                           fallback={
                             <>
-                              <button
+                              <Button
                                 type="button"
                                 class="dev-archive-action"
                                 onClick={() => props.onRestore(item.id)}
-                              >
+                            >
                                 Restore
-                              </button>
-                              <button
+                              </Button>
+                              <Button
                                 type="button"
                                 class="dev-archive-action dev-archive-action--destructive"
                                 onClick={() => props.onRequestDelete(item.id)}
-                              >
+                            >
                                 Delete…
-                              </button>
+                              </Button>
                             </>
                           }
-                        >
+                      >
                           <span class="dev-archive-shelf__confirm" role="alert">
                             Delete this archived session?
-                            <button
+                            <Button
                               type="button"
                               class="dev-archive-action dev-archive-action--destructive"
                               onClick={() => props.onConfirmDelete()}
-                            >
+                          >
                               Delete
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                               type="button"
                               class="dev-archive-action"
                               onClick={() => props.onCancelDelete()}
-                            >
+                          >
                               Keep
-                            </button>
+                            </Button>
                           </span>
                         </Show>
                       </span>

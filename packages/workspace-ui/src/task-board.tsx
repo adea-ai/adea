@@ -123,7 +123,7 @@ function PriorityTag(props: { priority: TaskSummary['priority'] }) {
           'conventional-priority--urgent': props.priority === 'urgent',
         })}
         aria-label={`Priority: ${props.priority}`}
-      >
+    >
         <Icon aria-hidden="true" />
       </TooltipTrigger>
       <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
@@ -192,11 +192,11 @@ export function TaskBoard(props: Props) {
           <h1 id="task-board-title">Tasks</h1>
           <p>Execution status is intentionally separate from these durable planning records.</p>
         </div>
-        <button type="button" class="conventional-primary-button" onClick={() => setCreating(true)}>
+        <Button type="button"  onClick={() => setCreating(true)}>
           <Plus aria-hidden="true" />
           New Task
           <ListTodo aria-hidden="true" />
-        </button>
+        </Button>
       </header>
       <Show when={creating()}>
         <form
@@ -217,16 +217,16 @@ export function TaskBoard(props: Props) {
               setError('Task could not be created. Check the fields and retry.')
             }
           }}
-        >
+      >
           <div class="conventional-inline-form__header">
             <h2>Create Task</h2>
-            <button
+            <Button
               type="button"
               aria-label="Cancel Task creation"
               onClick={() => setCreating(false)}
-            >
+          >
               <X aria-hidden="true" />
-            </button>
+            </Button>
           </div>
           <label>
             Title
@@ -254,9 +254,9 @@ export function TaskBoard(props: Props) {
             </select>
           </label>
           <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
-          <button type="submit" class="conventional-primary-button" disabled={props.busy}>
+          <Button type="submit"  disabled={props.busy}>
             {props.busy ? 'Creating…' : 'Create Task'}
-          </button>
+          </Button>
         </form>
       </Show>
       <Show when={boardError()}>
@@ -274,7 +274,7 @@ export function TaskBoard(props: Props) {
             detail="Create a durable Task and link its discussion to a Room thread when useful."
           />
         }
-      >
+    >
         <div class="conventional-task-board" aria-label="Task board">
           <For each={columns}>
             {(column) => {
@@ -301,14 +301,14 @@ export function TaskBoard(props: Props) {
                     event.preventDefault()
                     void dropOnColumn(column.id)
                   }}
-                >
+              >
                   <header>
                     <h2 id={`task-column-${column.id}`}>{column.label}</h2>
                     <span>{tasks().length}</span>
                   </header>
                   <div
                     class={`conventional-task-column${dropColumnId() === column.id ? ' conventional-task-column--drop-target' : ''}`}
-                  >
+                >
                     <For each={taskRows()}>
                       {(entry) => {
                         const task = entry.item
@@ -339,7 +339,7 @@ export function TaskBoard(props: Props) {
                               setDragTaskId(null)
                               setDropColumnId(null)
                             }}
-                          >
+                        >
                             <div class="conventional-task-card__header">
                               <span class="conventional-task-card__kind">
                                 <Dynamic
@@ -363,7 +363,7 @@ export function TaskBoard(props: Props) {
                               <span>
                                 <Show
                                   when={task().roomId ? roomById().get(task().roomId!) : undefined}
-                                >
+                              >
                                   {(room) => <RoomIcon functionKey={room().functionKey} />}
                                 </Show>
                                 {task().roomId
@@ -382,7 +382,7 @@ export function TaskBoard(props: Props) {
                                     void queueFromCard(task())
                                   }}
                                   onKeyDown={(event) => event.stopPropagation()}
-                                >
+                              >
                                   <Play aria-hidden="true" />
                                   Start
                                 </Button>

@@ -17,6 +17,7 @@ import {
   type InstallationDisplayState,
 } from './harness-status-model'
 import type { HarnessPreference, HarnessRun, ManagedPiStatus } from '@adea-ai/types/dev-runtime'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export function harnessStateDotClass(state: HarnessRunState | 'idle'): string {
   return cn('dev-status-dot', {
@@ -82,7 +83,7 @@ export function HarnessStatusPane(props: {
             <span
               class="dev-row-badge"
               title={`Harness process runs in terminal ${terminalId()} (attachTerminal launch)`}
-            >
+          >
               in terminal
             </span>
           )}
@@ -93,9 +94,9 @@ export function HarnessStatusPane(props: {
         <p>
           Structured transport unavailable; showing the terminal transcript projection.
           <Show when={props.onJumpToTerminal}>
-            <button type="button" class="dev-button" onClick={() => props.onJumpToTerminal?.()}>
+            <Button type="button" variant="outline" size="sm" onClick={() => props.onJumpToTerminal?.()}>
               Jump to terminal
-            </button>
+            </Button>
           </Show>
         </p>
       </Show>
@@ -106,11 +107,11 @@ export function HarnessStatusPane(props: {
             status().run!.state === 'completed' ||
             status().run!.state === 'failed')
         }
-      >
+    >
         <p>
-          <button type="button" class="dev-button" onClick={() => props.onResume?.(status().run!)}>
+          <Button type="button" variant="outline" size="sm" onClick={() => props.onResume?.(status().run!)}>
             Resume as new generation
-          </button>
+          </Button>
         </p>
       </Show>
       <Show when={props.preferences.length > 0}>

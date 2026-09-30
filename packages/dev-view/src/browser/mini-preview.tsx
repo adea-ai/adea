@@ -19,6 +19,7 @@ import {
   type BrowserViewportResizeDirection,
   type PreviewMiniPlayerFrame,
 } from './mini-preview-layout'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 const PLACEHOLDER_SOURCE = resolveDeviceMiniPlayerSourceSize('ios', null)
 
@@ -132,23 +133,23 @@ export function MiniPreview(props: { lane?: BrowserLane; onClose(): void }) {
           '--mini-radius': `${PREVIEW_MINI_PLAYER_CORNER_RADIUS}px`,
         }}
         aria-label="Floating browser preview"
-      >
+    >
         <div class="dev-browser-mini__status">
-          <button
+          <Button
             type="button"
-            class="dev-icon-button"
+            variant="outline" size="icon-sm"
             aria-label="Close floating preview"
             onClick={props.onClose}
             onPointerDown={(event) => event.stopPropagation()}
-          >
+        >
             ×
-          </button>
+          </Button>
         </div>
         <div
           class="dev-browser-mini__viewport"
           data-empty={props.lane ? 'false' : 'true'}
           role="status"
-        >
+      >
           <Show when={props.lane} fallback={<span>No lane attached</span>}>
             {(lane) => (
               <span class="dev-terminal-muted">

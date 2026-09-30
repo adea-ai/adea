@@ -24,7 +24,7 @@ export function ConversationAvatar(props: {
             <BotMessageSquare aria-hidden="true" />
           )
         }
-      >
+    >
         <img
           src={props.avatarRef}
           alt=""

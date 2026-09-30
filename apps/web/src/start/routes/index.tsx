@@ -30,8 +30,7 @@ function EarlyAccessNotice() {
         <p class="auth-introduction" role="status">
           Please reach out on github if you&apos;d like to contribute.
         </p>
-        <a
-          class="browser-auth-submit browser-auth-open-app"
+        <a variant="outline"
           href="https://github.com/adea-ai/adea"
           target="_blank"
           rel="noreferrer"

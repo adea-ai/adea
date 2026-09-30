@@ -64,16 +64,16 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
         fallback={
           <p role="alert">
             Rooms could not be loaded.{' '}
-            <button type="button" onClick={() => void rooms.refetch()}>
+            <Button type="button" onClick={() => void rooms.refetch()}>
               Retry
-            </button>
+            </Button>
           </p>
         }
-      >
+    >
         <Show
           when={navigation().rooms.length > 0}
           fallback={<p>{rooms.isPending ? 'Loading rooms…' : 'No rooms yet.'}</p>}
-        >
+      >
           <For each={navigation().rooms}>
             {(item) => (
               <Button
@@ -86,7 +86,7 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
                   workspaceStore.getState().setActiveSurface('conversation')
                   props.openChat()
                 }}
-              >
+            >
                 {item.room.name}
               </Button>
             )}
@@ -98,7 +98,7 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
         variant="ghost"
         class="virtual-context-sidebar__room"
         onClick={() => props.openChat()}
-      >
+    >
         Open conversations
       </Button>
     </aside>

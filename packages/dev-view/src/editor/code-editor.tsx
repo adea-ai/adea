@@ -21,6 +21,7 @@ import {
   type EditorDocument,
 } from './editor-document'
 import '../files/files-pane.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type CodeEditorProps = Readonly<{
   runtime: DevRuntimeService
@@ -349,42 +350,42 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
         <Show when={readOnlyReason()}>
           <span class="dev-terminal-muted">read-only — {readOnlyReason()}</span>
         </Show>
-        <button
+        <Button
           type="button"
-          class="dev-icon-button"
+          variant="outline" size="icon-sm"
           aria-label="Save file"
           disabled={!dirty() || !!readOnlyReason()}
           onClick={() => void save()}
-        >
+      >
           <Save aria-hidden="true" />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          class="dev-icon-button"
+          variant="outline" size="icon-sm"
           aria-label="Reload file"
           onClick={() => void reload()}
-        >
+      >
           <RefreshCw aria-hidden="true" />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          class="dev-icon-button"
+          variant="outline" size="icon-sm"
           aria-label="Close editor"
           onClick={props.onClose}
-        >
+      >
           ✕
-        </button>
+        </Button>
       </div>
       <Show when={conflict()}>
         {(shown) => (
           <div class="dev-editor__banner dev-editor__banner--conflict" role="alert">
             <span>{shown()} — the file changed on disk since it was loaded.</span>
-            <button type="button" class="dev-button" onClick={() => void reload()}>
+            <Button type="button" variant="outline" size="sm" onClick={() => void reload()}>
               Reload (discard local edits)
-            </button>
-            <button type="button" class="dev-button" onClick={() => void overwrite()}>
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => void overwrite()}>
               Overwrite disk copy
-            </button>
+            </Button>
           </div>
         )}
       </Show>
@@ -403,7 +404,7 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
               {previewText()}
             </div>
           }
-        >
+      >
           <p class="dev-empty-state">
             {status() === 'loading' ? 'Loading file…' : 'The file could not be opened.'}
           </p>

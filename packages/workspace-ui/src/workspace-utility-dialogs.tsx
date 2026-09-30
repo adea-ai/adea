@@ -25,6 +25,7 @@ import { keyedRows } from './keyed-rows'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { fuzzySearchMatch, searchKeyboardSelection } from './workspace-model'
 import type { PrivateContentResolver } from './platform'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 type SearchResult = WorkspaceSearchResult
 
@@ -263,7 +264,7 @@ export function WorkspaceSearchDialog(props: {
       onClose={props.onClose}
       title={props.scopeChannelId ? 'Search this conversation' : 'Search workspace'}
       description="Search Rooms, conversations, Agents, Tasks, Artifacts, and cloud-safe message text."
-    >
+  >
       <label class="conventional-search-field">
         <Search aria-hidden="true" />
         <span class="visually-hidden">Search workspace</span>
@@ -294,13 +295,13 @@ export function WorkspaceSearchDialog(props: {
         role="listbox"
         aria-label="Search results"
         aria-live="polite"
-      >
+    >
         <For each={resultRows()}>
           {(entry, index) => {
             const result = entry.item
             return (
               <li role="presentation">
-                <button
+                <Button
                   id={`search-result-${index()}`}
                   ref={index() === selectedIndex() ? setSelected : undefined}
                   type="button"
@@ -311,13 +312,13 @@ export function WorkspaceSearchDialog(props: {
                     if (result().kind === 'channel') props.onChannelIntent?.(result().id)
                   }}
                   onClick={() => select(result())}
-                >
+              >
                   {searchResultIcon(result().kind)}
                   <span>
                     <strong>{result().label}</strong>
                     <small>{result().secondary}</small>
                   </span>
-                </button>
+                </Button>
               </li>
             )
           }}
@@ -344,7 +345,7 @@ export function WorkspaceSearchDialog(props: {
             </p>
           </Show>
         }
-      >
+    >
         <p class="conventional-dialog-empty" role="status">
           Offline. Quick navigation remains available; search will retry after reconnecting.
         </p>

@@ -24,6 +24,7 @@ import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-s
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
 import { ConversationAvatar } from './conversation-avatar'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 /**
  * Merged transcripts per channel, kept across selection changes so revisiting
@@ -337,11 +338,11 @@ export function ConversationSurface(props: {
           detail="Rooms keep durable work, Agents, Tasks, and conversation history together."
         />
       }
-    >
+  >
       {(channel) => (
         <section
           class={`conventional-conversation${root() ? ' conventional-conversation--thread-open' : ''}`}
-        >
+      >
           <header class="conventional-conversation__header">
             <div class="conventional-conversation__header-top">
               <div class="conventional-conversation__identity">
@@ -360,7 +361,7 @@ export function ConversationSurface(props: {
                   <TooltipTrigger
                     aria-label="Search this conversation"
                     onClick={() => props.onOpenSearch()}
-                  >
+                >
                     <Search aria-hidden="true" />
                   </TooltipTrigger>
                   <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
@@ -371,7 +372,7 @@ export function ConversationSurface(props: {
                   <TooltipTrigger
                     aria-label="Mark conversation unread"
                     onClick={() => void props.onMarkUnread()}
-                  >
+                >
                     <MailOpen aria-hidden="true" />
                   </TooltipTrigger>
                   <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
@@ -382,7 +383,7 @@ export function ConversationSurface(props: {
                   <TooltipTrigger
                     aria-label="Open conversation details"
                     onClick={() => props.onOpenDetails()}
-                  >
+                >
                     <Info aria-hidden="true" />
                   </TooltipTrigger>
                   <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
@@ -401,10 +402,10 @@ export function ConversationSurface(props: {
                       }
                       aria-label={person.label}
                       title={person.label}
-                    >
+                  >
                       <span
                         class={`conventional-conversation__person-avatar conventional-conversation__person-avatar--${person.kind}`}
-                      >
+                    >
                         <ConversationAvatar kind={person.kind} avatarRef={person.avatarRef} />
                       </span>
                       <Show when={person.active}>
@@ -423,7 +424,7 @@ export function ConversationSurface(props: {
             onScroll={(event) => {
               liveScrollTop = event.currentTarget.scrollTop
             }}
-          >
+        >
             <Show when={(messageQuery.isPending || !pageBelongsToChannel()) && !messages().length}>
               <WorkspaceSkeleton label="Loading messages" />
             </Show>
@@ -440,7 +441,7 @@ export function ConversationSurface(props: {
                 pageBelongsToChannel() &&
                 !rootMessages().length
               }
-            >
+          >
               <WorkspaceEmpty
                 title={
                   directAgent()
@@ -492,14 +493,14 @@ export function ConversationSurface(props: {
             </Show>
             <Show when={settledData(messageQuery)?.nextAfterSequence}>
               {(nextSequence) => (
-                <button
+                <Button
                   type="button"
                   class="conventional-load-more"
                   disabled={messageQuery.isFetching}
                   onClick={() => setCursor(nextSequence())}
-                >
+              >
                   {messageQuery.isFetching ? 'Loading…' : 'Load newer messages'}
-                </button>
+                </Button>
               )}
             </Show>
           </div>
@@ -519,13 +520,13 @@ export function ConversationSurface(props: {
                 <aside class="conventional-thread conventional-thread--missing" role="status">
                   <MessagesSquare aria-hidden="true" />
                   <p>This thread is outside the loaded history window.</p>
-                  <button type="button" onClick={() => props.onThreadChange(null)}>
+                  <Button type="button" onClick={() => props.onThreadChange(null)}>
                     Close thread
-                  </button>
+                  </Button>
                 </aside>
               </Show>
             }
-          >
+        >
             {(rootMessage) => (
               <ThreadPanel
                 agents={props.agents}

@@ -9,6 +9,7 @@ import {
   EmptyTitle,
 } from '@adea-ai/ui/components/ui/empty'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export function WorkspaceSkeleton(props: { label?: string }) {
   return (
@@ -16,7 +17,7 @@ export function WorkspaceSkeleton(props: { label?: string }) {
       class="conventional-skeleton"
       aria-busy="true"
       aria-label={props.label ?? 'Loading workspace'}
-    >
+  >
       <For each={Array.from({ length: 6 })}>
         {() => <Skeleton class="conventional-skeleton__bar" />}
       </For>
@@ -62,10 +63,10 @@ export function WorkspaceError(props: { error: unknown; retry?: () => void }) {
       </div>
       <Show when={props.retry}>
         {(retry) => (
-          <button type="button" class="conventional-secondary-button" onClick={() => retry()()}>
+          <Button type="button" variant="secondary" onClick={() => retry()()}>
             <RefreshCw aria-hidden="true" />
             Retry
-          </button>
+          </Button>
         )}
       </Show>
     </section>

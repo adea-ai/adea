@@ -97,7 +97,7 @@ function PluginFilterMenu(props: {
         placement="bottom-start"
         gutter={4}
         class="plugins-filter max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-      >
+    >
         <DropdownMenuGroup>
           <DropdownMenuLabel>Type</DropdownMenuLabel>
           <DropdownMenuRadioGroup
@@ -105,7 +105,7 @@ function PluginFilterMenu(props: {
             onChange={(type) =>
               props.onChange({ ...props.filter, type: type as WorkspacePluginFilter['type'] })
             }
-          >
+        >
             <For each={typeOptions}>
               {([value, label]) => (
                 <DropdownMenuRadioItem value={value}>{label}</DropdownMenuRadioItem>
@@ -124,7 +124,7 @@ function PluginFilterMenu(props: {
                 ownership: ownership as WorkspacePluginFilter['ownership'],
               })
             }
-          >
+        >
             <For each={ownershipOptions}>
               {([value, label]) => (
                 <DropdownMenuRadioItem value={value}>{label}</DropdownMenuRadioItem>
@@ -143,12 +143,12 @@ function PluginBrowserRow(props: {
   plugin: WorkspacePlugin
 }) {
   return (
-    <button
+    <Button
       type="button"
       class="plugins-browser__row"
       disabled={props.disabled}
       onClick={() => props.onSelect()}
-    >
+  >
       <PluginLogo iconUrl={props.plugin.iconUrl} name={props.plugin.name} />
       <span class="plugins-browser__row-copy">
         <span class="plugins-browser__row-title">
@@ -163,7 +163,7 @@ function PluginBrowserRow(props: {
         </span>
       </span>
       <ChevronRight aria-hidden="true" />
-    </button>
+    </Button>
   )
 }
 
@@ -230,7 +230,7 @@ function PluginBrowserGroup(props: {
           size="sm"
           type="button"
           variant="ghost"
-        >
+      >
           <Show
             when={props.expanded}
             fallback={
@@ -238,7 +238,7 @@ function PluginBrowserGroup(props: {
                 {expandLabel()} <ChevronDown data-icon="inline-end" aria-hidden="true" />
               </>
             }
-          >
+        >
             <>
               Show less <ChevronUp data-icon="inline-end" aria-hidden="true" />
             </>
@@ -285,7 +285,7 @@ function PluginListState(props: {
           </EmptyHeader>
         </Empty>
       }
-    >
+  >
       <div class="plugins-browser__skeleton" aria-busy="true">
         <For each={previewSkeletons}>
           {() => (
@@ -334,7 +334,7 @@ const ACTIVATION_REJECTION_COPY: Record<
   Exclude<
     Extract<WorkspaceAppActivation, { status: 'activation-unavailable' }>['reason'],
     'not-installed' | 'catalog-only'
-  >,
+>,
   string
 > = {
   'untrusted-entry':
@@ -375,7 +375,7 @@ function AppActivationSection(props: { activation: WorkspaceAppActivation }) {
             </Show>
           </p>
         }
-      >
+    >
         <p>
           <Check aria-hidden="true" /> Bundled first-party app entry{' '}
           <code>{activationEntryId(props.activation)}</code> can activate.
@@ -419,7 +419,7 @@ function PluginDetail(props: {
           variant={props.plugin.installed ? 'outline' : 'default'}
           disabled={props.saving || props.plugin.installationStatus !== 'available'}
           onClick={() => props.onUpdate()}
-        >
+      >
           {props.saving
             ? 'Requesting…'
             : props.plugin.installationStatus === 'installed'
@@ -541,7 +541,7 @@ function NavigationPanel(props: { navigation: AppLibraryNavigation }) {
                   size="icon-sm"
                   aria-label={`Move ${item.label} up`}
                   onClick={() => props.navigation.onReorder(item.id, 'up')}
-                >
+              >
                   <ChevronUp aria-hidden="true" />
                 </Button>
                 <Button
@@ -550,7 +550,7 @@ function NavigationPanel(props: { navigation: AppLibraryNavigation }) {
                   size="icon-sm"
                   aria-label={`Move ${item.label} down`}
                   onClick={() => props.navigation.onReorder(item.id, 'down')}
-                >
+              >
                   <ChevronDown aria-hidden="true" />
                 </Button>
                 <label class="plugins-navigation__visibility">
@@ -594,11 +594,11 @@ export function PluginsDialog(props: {
   const [installError, setInstallError] = createSignal<string | undefined>()
   const [catalogState, setCatalogState] = createSignal<
     'idle' | 'loading' | 'ready' | 'stale' | 'verification-failure' | 'unavailable'
-  >('idle')
+>('idle')
   const [tab, setTab] = createSignal<PluginTab>('marketplace')
   const [filters, setFilters] = createSignal<
     Record<'marketplace' | 'yours', WorkspacePluginFilter>
-  >({
+>({
     marketplace: defaultPluginFilter,
     yours: defaultPluginFilter,
   })
@@ -691,7 +691,7 @@ export function PluginsDialog(props: {
       onClose={close}
       open={props.open}
       title="Plugins"
-    >
+  >
       <Show
         when={selected()}
         fallback={
@@ -700,13 +700,13 @@ export function PluginsDialog(props: {
             data-filter-open={filterOpen()}
             value={tab()}
             onChange={(value) => value && setTab(value as PluginTab)}
-          >
+        >
             <TabsList
               appearance="underline"
               data-variant="line"
               aria-label="Plugins view"
               class="plugins-browser__tabs"
-            >
+          >
               <TabsTrigger value="marketplace">Discover</TabsTrigger>
               <TabsTrigger value="yours">Installed</TabsTrigger>
               <Show when={props.navigation}>
@@ -724,7 +724,7 @@ export function PluginsDialog(props: {
                   {(navigation) => <NavigationPanel navigation={navigation()} />}
                 </Show>
               }
-            >
+          >
               <div class="plugins-browser__body">
                 <Show when={installError()}>
                   {(message) => (
@@ -779,11 +779,11 @@ export function PluginsDialog(props: {
                         status={catalogFailed() ? 'error' : 'loading'}
                       />
                     }
-                  >
+                >
                     <Show
                       when={visible().length > 0}
                       fallback={<PluginsEmpty query={query()} tab={tab()} />}
-                    >
+                  >
                       <For each={groupRows()}>
                         {(entry) => (
                           <PluginBrowserGroup
@@ -822,7 +822,7 @@ export function PluginsDialog(props: {
             </Show>
           </Tabs>
         }
-      >
+    >
         {(plugin) => (
           <PluginDetail
             onBack={() => setSelectedId(null)}

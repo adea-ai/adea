@@ -113,7 +113,7 @@
   gap: 0.75rem;
 }
 
-.auth-action {
+.auth-actions button {
   min-height: 2.75rem;
   padding: 0 1rem;
   border: 0;
@@ -125,26 +125,16 @@
   cursor: pointer;
 }
 
-.auth-action:disabled {
+.auth-actions button:disabled {
   cursor: wait;
   opacity: 0.65;
 }
 
-.auth-action:focus-visible {
+.auth-actions button:focus-visible {
   outline: 3px solid var(--auth-foreground);
   outline-offset: 2px;
 }
 
-.auth-action-secondary {
-  border: 1px solid var(--auth-border-subtle);
-  color: var(--auth-foreground);
-  background: transparent;
-}
-
-.auth-action-secondary:hover:not(:disabled) {
-  border-color: var(--auth-muted-strong);
-  background: var(--auth-surface-strong);
-}
 
 .auth-note {
   max-width: 56ch;

@@ -50,7 +50,7 @@ function PaneContent(props: {
           </div>
         )
       }
-    >
+  >
       {props.renderTerminalLeaf?.(content()) ?? (
         <div class="dev-terminal-placeholder">
           <p>$ dev runtime status</p>

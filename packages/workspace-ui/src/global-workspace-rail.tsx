@@ -73,7 +73,7 @@ function RailAction(props: RailActionProps) {
         onClick={() => props.onClick?.()}
         onFocus={() => props.onIntent?.()}
         onPointerEnter={() => props.onIntent?.()}
-      >
+    >
         <props.icon aria-hidden="true" />
       </TooltipTrigger>
       <TooltipContent hideArrow placement="right" gutter={4} data-slot="tooltip-content">
@@ -186,7 +186,7 @@ export function GlobalWorkspaceRail(props: {
                 size="icon-lg"
                 class="global-rail__workspace-trigger"
                 aria-label={`Switch workspace, current ${activeWorkspaceLabel()}`}
-              >
+            >
                 <WorkspaceMark workspace={props.activeWorkspace} />
               </DropdownMenuTrigger>
               <TooltipContent hideArrow placement="right" gutter={4} data-slot="tooltip-content">
@@ -196,14 +196,14 @@ export function GlobalWorkspaceRail(props: {
             <DropdownMenuContent
               hideArrow
               class="global-rail__workspace-menu max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-            >
+          >
               <DropdownMenuRadioGroup
                 value={props.activeWorkspace?.id ?? ''}
                 onChange={(id) => {
                   const workspace = props.workspaces.find((entry) => entry.id === id)
                   if (workspace) props.onWorkspaceChange(workspace)
                 }}
-              >
+            >
                 <For each={workspaceRows()}>
                   {(entry) => (
                     <DropdownMenuRadioItem value={entry.item().id} closeOnSelect>

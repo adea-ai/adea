@@ -27,7 +27,7 @@ export function CapabilityCard(props: { status: CapabilityStatus }) {
       <Badge
         variant={toneBadge[capability().tone]}
         aria-label={`${capability().title}: ${capability().label}`}
-      >
+    >
         {capability().label}
       </Badge>
     </div>
@@ -64,7 +64,7 @@ export function CapabilityList(props: {
               size="sm"
               type="button"
               variant="secondary"
-            >
+          >
               Refresh
             </Button>
           )}

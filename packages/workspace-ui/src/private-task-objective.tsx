@@ -78,11 +78,11 @@ export function TaskObjective(props: {
                     : 'Private objective unavailable on this device'}
                 </>
               }
-            >
+          >
               <>Private objective unavailable on this authorized device</>
             </Show>
           }
-        >
+      >
           <>{resolved()}</>
         </Show>
       </Show>

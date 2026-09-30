@@ -66,7 +66,7 @@ export function AccountMenu(props: AccountMenuProps) {
         aria-label="User settings"
         onFocus={() => props.onIntent?.()}
         onPointerEnter={() => props.onIntent?.()}
-      >
+    >
         <UserRound aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -84,7 +84,7 @@ export function AccountMenu(props: AccountMenuProps) {
         placement="top-start"
         gutter={0}
         class="global-account-menu max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-      >
+    >
         <DropdownMenuGroup>
           <For each={visibleMenuItems()}>
             {(item) => {
@@ -111,7 +111,7 @@ export function AccountMenu(props: AccountMenuProps) {
           <DropdownMenuItem
             disabled={props.busy}
             onSelect={props.authenticated ? props.onSignOut : props.onSignIn}
-          >
+        >
             <Show when={props.authenticated} fallback={<LogIn aria-hidden="true" />}>
               <LogOut aria-hidden="true" />
             </Show>

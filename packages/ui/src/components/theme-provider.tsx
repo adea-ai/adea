@@ -166,7 +166,7 @@ export function ThemeProvider(props: ThemeProviderProps) {
         resolvedTheme,
         setTheme,
       }}
-    >
+  >
       {props.children}
     </ThemeContext.Provider>
   )

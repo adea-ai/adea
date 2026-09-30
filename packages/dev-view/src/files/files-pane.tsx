@@ -51,6 +51,7 @@ import {
 } from './status-cache'
 import { executeOperation, resolveWorktreeContext, type WorktreeContext } from './worktree-context'
 import './files-pane.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type FilesPaneProps = Readonly<{
   runtime: DevRuntimeService
@@ -113,7 +114,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   // dispatch through the capability-checked gate repopulates them.
   const [markerCache, setMarkerCache] = createSignal<
     StatusCacheSnapshot<ReadonlyMap<string, ModificationMarker>>
-  >(emptyStatusCache(0))
+>(emptyStatusCache(0))
   const markers = (): ReadonlyMap<string, ModificationMarker> => markerCache().value ?? new Map()
   const [notice, setNotice] = createSignal<string | undefined>()
   const [statusTruncated, setStatusTruncated] = createSignal(false)
@@ -712,27 +713,27 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         }
         if (event.key === 'Escape' && quickOpenOpen()) closeQuickOpen()
       }}
-    >
+  >
       <Show when={contentQuery().length > 0}>
         <section class="dev-files__search" aria-label="Content search results">
           <div class="dev-files__search-head">
             <span role="status">
               {contentFailed() ?? matchSummary(contentRows(), contentTruncated())}
             </span>
-            <button
+            <Button
               type="button"
               class="dev-files__search-clear"
               onClick={() => {
                 setFilter('')
                 void searchContents('')
               }}
-            >
+          >
               Clear search
-            </button>
+            </Button>
           </div>
           <For each={contentRows()}>
             {(row) => (
-              <button
+              <Button
                 type="button"
                 class="dev-files__search-row"
                 title={matchLabel(row)}
@@ -745,7 +746,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                     worktreeId: row.path.worktreeId,
                   })
                 }
-              >
+            >
                 <span class="dev-files__search-path">{matchLabel(row)}</span>
                 <span class="dev-files__search-preview">
                   <For each={previewSegments(row)}>
@@ -756,12 +757,12 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                     )}
                   </For>
                 </span>
-              </button>
+              </Button>
             )}
           </For>
           <Show
             when={contentFailed() === undefined && contentRows().length === CONTENT_SEARCH_LIMIT}
-          >
+        >
             <p class="dev-files__search-more">
               Only the first {CONTENT_SEARCH_LIMIT} matches are shown; narrow the query to see more.
             </p>
@@ -783,23 +784,23 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
             void searchContents(event.currentTarget.value)
           }}
         />
-        <button
+        <Button
           type="button"
-          class="dev-icon-button"
+          variant="outline" size="icon-sm"
           aria-label="Quick open files"
           title="Quick open (Ctrl+P)"
           onClick={() => openQuickOpen()}
-        >
+      >
           <Search aria-hidden="true" />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          class="dev-icon-button"
+          variant="outline" size="icon-sm"
           aria-label="Refresh files"
           onClick={() => void refresh()}
-        >
+      >
           <RefreshCw aria-hidden="true" />
-        </button>
+        </Button>
       </div>
       <Show when={quickOpenOpen()}>
         <div class="dev-files__quickopen" role="dialog" aria-label="Quick open">
@@ -841,10 +842,10 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                   No loaded file matches. Expand more of the tree, then search again.
                 </p>
               }
-            >
+          >
               <For each={quickOpenResults()}>
                 {(path, index) => (
-                  <button
+                  <Button
                     type="button"
                     role="option"
                     aria-selected={index() === quickOpenIndex()}
@@ -856,10 +857,10 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                       event.preventDefault()
                       openQuickOpenResult(path)
                     }}
-                  >
+                >
                     <FileIcon aria-hidden="true" class="dev-files__icon" />
                     <span class="dev-files__name">{path}</span>
-                  </button>
+                  </Button>
                 )}
               </For>
             </Show>
@@ -873,7 +874,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
             File authority is unavailable until the Dev Runtime connects.
           </p>
         }
-      >
+    >
         <Show
           when={worktree()}
           fallback={
@@ -881,16 +882,16 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
               No ready worktree context exists on this runtime node yet.
             </p>
           }
-        >
+      >
           <div class="dev-files__actions">
             <Show
               when={creating()}
               fallback={
-                <button type="button" class="dev-button" onClick={() => setCreating(true)}>
+                <Button type="button" variant="outline" size="sm" onClick={() => setCreating(true)}>
                   New file
-                </button>
+                </Button>
               }
-            >
+          >
               <input
                 class="dev-files__filter"
                 placeholder="new-file-name.txt"
@@ -902,9 +903,9 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                   if (event.key === 'Escape') setCreating(false)
                 }}
               />
-              <button type="button" class="dev-button" onClick={() => void createFile()}>
+              <Button type="button" variant="outline" size="sm" onClick={() => void createFile()}>
                 Create
-              </button>
+              </Button>
             </Show>
           </div>
           <Show when={notice()}>
@@ -931,27 +932,27 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
             role="tree"
             aria-label="Worktree files"
             onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-          >
+        >
             <Show
               when={filter().length === 0}
               fallback={
                 <For each={fuzzyQuickOpen(loadedPaths(), filter())}>
                   {(path) => (
-                    <button
+                    <Button
                       type="button"
                       class="dev-files__row"
                       onClick={() => {
                         const node = findNode(nodes(), path)
                         if (node) void openFile(node)
                       }}
-                    >
+                  >
                       <FileIcon aria-hidden="true" class="dev-files__icon" />
                       <span class="dev-files__name">{path}</span>
-                    </button>
+                    </Button>
                   )}
                 </For>
               }
-            >
+          >
               <div
                 class="dev-files__window-pad"
                 style={{ '--dev-files-pad': `${rowSlice().padTop}px` }}
@@ -985,37 +986,37 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                       )
                       if (offset !== -1) setFocusedRow(windowStart + offset)
                     }}
-                  >
+                >
                     <Show
                       when={row.hasChildren}
                       fallback={
                         <>
                           <FileIcon aria-hidden="true" class="dev-files__icon" />
-                          <button
+                          <Button
                             type="button"
                             class="dev-files__name"
                             onClick={() => void openFile(row.node)}
-                          >
+                        >
                             {row.node.name}
-                          </button>
+                          </Button>
                         </>
                       }
-                    >
-                      <button
+                  >
+                      <Button
                         type="button"
                         class="dev-files__name"
                         aria-expanded={expanded().has(row.node.relativePath)}
                         onClick={() => void toggleDirectory(row.node)}
-                      >
+                    >
                         <Show
                           when={expanded().has(row.node.relativePath)}
                           fallback={<ChevronRight aria-hidden="true" class="dev-files__icon" />}
-                        >
+                      >
                           <ChevronDown aria-hidden="true" class="dev-files__icon" />
                         </Show>
                         <Folder aria-hidden="true" class="dev-files__icon" />
                         {row.node.name}
-                      </button>
+                      </Button>
                     </Show>
                     <Show when={markerBadge(markers().get(row.node.relativePath))}>
                       {(badge) => <span class="dev-files__badge">{badge()}</span>}
@@ -1039,17 +1040,17 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                       />
                     </Show>
                     <Show when={renaming() !== row.node.relativePath}>
-                      <button
+                      <Button
                         type="button"
                         class="dev-files__delete"
                         aria-label={`Rename ${row.node.relativePath}`}
                         onClick={() => beginRename(row.node)}
-                      >
+                    >
                         <Pencil aria-hidden="true" />
-                      </button>
+                      </Button>
                     </Show>
                     <Show when={row.hasChildren && renaming() !== row.node.relativePath}>
-                      <button
+                      <Button
                         type="button"
                         class="dev-files__delete"
                         aria-label={
@@ -1060,15 +1061,15 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                             : `Copy ${row.node.relativePath}`
                         }
                         onClick={() => void planTreeCopy(row.node)}
-                      >
+                    >
                         <Copy aria-hidden="true" />
-                      </button>
+                      </Button>
                     </Show>
                     <Show
                       when={renaming() === row.node.relativePath && overwriteTarget() !== undefined}
                       fallback={
                         <Show when={renaming() !== row.node.relativePath}>
-                          <button
+                          <Button
                             type="button"
                             class="dev-files__delete"
                             aria-label={
@@ -1078,7 +1079,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                                 : `Delete ${row.node.relativePath}`
                             }
                             onClick={() => void deleteFile(row.node)}
-                          >
+                        >
                             {row.hasChildren
                               ? pendingTree()?.summary === row.node.relativePath
                                 ? 'Confirm'
@@ -1086,18 +1087,18 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                               : confirmDelete() === row.node.relativePath
                                 ? 'Confirm'
                                 : 'Delete'}
-                          </button>
+                          </Button>
                         </Show>
                       }
-                    >
-                      <button
+                  >
+                      <Button
                         type="button"
                         class="dev-files__delete"
                         aria-label={`Confirm overwrite ${overwriteTarget()}`}
                         onClick={() => void commitOverwriteRename()}
-                      >
+                    >
                         Overwrite
-                      </button>
+                      </Button>
                     </Show>
                   </div>
                 )}

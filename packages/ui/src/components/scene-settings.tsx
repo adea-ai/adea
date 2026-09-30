@@ -69,7 +69,7 @@ export function SceneSettings(props: SceneSettingsProps) {
         title="Perspective camera"
         aria-pressed={props.cameraViewMode === 'perspective'}
         onClick={() => props.onCameraViewModeChange('perspective')}
-      >
+    >
         <Camera aria-hidden="true" />
         Perspective
       </Button>
@@ -82,7 +82,7 @@ export function SceneSettings(props: SceneSettingsProps) {
         title="Top-down camera"
         aria-pressed={props.cameraViewMode === 'orthographic'}
         onClick={() => props.onCameraViewModeChange('orthographic')}
-      >
+    >
         <Focus aria-hidden="true" />
         Top-down
       </Button>
@@ -103,7 +103,7 @@ export function SceneSettings(props: SceneSettingsProps) {
       }
       aria-pressed={props.characterDesignerEnabled}
       onClick={() => props.onCharacterDesignerChange?.(!props.characterDesignerEnabled)}
-    >
+  >
       <UserRoundPen class="size-4" aria-hidden="true" />
       <span class="workspace-character-designer-label">Character</span>
     </Button>
@@ -118,7 +118,7 @@ export function SceneSettings(props: SceneSettingsProps) {
       aria-label="Open room designer"
       title="Open room designer"
       onClick={() => props.onOpenRoomDesigner?.()}
-    >
+  >
       <Grid3X3 class="size-4" aria-hidden="true" />
       <span class="workspace-room-designer-label">Room designer</span>
     </Button>
@@ -134,7 +134,7 @@ export function SceneSettings(props: SceneSettingsProps) {
       title={props.sceneEditorEnabled ? 'Close scene editor' : 'Open scene editor'}
       aria-pressed={props.sceneEditorEnabled}
       onClick={() => props.onSceneEditorChange?.(!props.sceneEditorEnabled)}
-    >
+  >
       <Box class="size-4" aria-hidden="true" />
       <span class="workspace-scene-editor-label">Scene editor</span>
     </Button>
@@ -174,7 +174,7 @@ export function SceneSettings(props: SceneSettingsProps) {
         <Show
           when={characterDesignerTarget()}
           fallback={<div class="fixed right-4 top-16 z-40">{characterDesignerControl}</div>}
-        >
+      >
           {(target) => <Portal mount={target()}>{characterDesignerControl}</Portal>}
         </Show>
       </Show>
@@ -182,7 +182,7 @@ export function SceneSettings(props: SceneSettingsProps) {
         <Show
           when={roomDesignerTarget()}
           fallback={<div class="fixed right-4 top-16 z-40">{roomDesignerControl}</div>}
-        >
+      >
           {(target) => <Portal mount={target()}>{roomDesignerControl}</Portal>}
         </Show>
       </Show>
@@ -190,7 +190,7 @@ export function SceneSettings(props: SceneSettingsProps) {
         <Show
           when={sceneEditorTarget()}
           fallback={<div class="fixed right-4 top-16 z-40">{sceneEditorControl}</div>}
-        >
+      >
           {(target) => <Portal mount={target()}>{sceneEditorControl}</Portal>}
         </Show>
       </Show>

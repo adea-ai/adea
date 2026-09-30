@@ -65,6 +65,7 @@ import {
   type RepoRegistryRow,
   type RepoRegistryState,
 } from './repo-registry-model'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type RepoRegistryPanelProps = Readonly<{
   scope: Scope
@@ -314,13 +315,13 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
               : (state().reason ?? 'Repositories are unavailable.')}
           </p>
         }
-      >
+    >
         <Show
           when={state().rows.length > 0}
           fallback={
             <p class="dev-tree-empty">No repository bindings yet. Import a project first.</p>
           }
-        >
+      >
           <ul aria-label="Registered repositories">
             <For each={state().rows}>
               {(row) => {
@@ -340,7 +341,7 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                         badge().tone === 'failure' && 'dev-row-badge--failure',
                         badge().tone === 'progress' && 'dev-row-badge--progress'
                       )}
-                    >
+                  >
                       {badge().label}
                     </span>
                     <Show when={row.record?.remote}>
@@ -362,83 +363,83 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                             when={row.lifecycle === 'binding-only'}
                             fallback={
                               <>
-                                <button
+                                <Button
                                   type="button"
                                   class="dev-archive-action"
                                   disabled={busy() !== ''}
                                   onClick={() => void inspect(row)}
-                                >
+                              >
                                   Inspect
-                                </button>
-                                <button
+                                </Button>
+                                <Button
                                   type="button"
                                   class="dev-archive-action"
                                   disabled={busy() !== ''}
                                   onClick={() => void refresh(row)}
-                                >
+                              >
                                   Refresh
-                                </button>
+                                </Button>
                                 <Show when={host() !== undefined}>
-                                  <button
+                                  <Button
                                     type="button"
                                     class="dev-archive-action"
                                     disabled={busy() !== ''}
                                     onClick={() => openAuthorizePicker(row)}
-                                  >
+                                >
                                     Authorize…
-                                  </button>
+                                  </Button>
                                 </Show>
                               </>
                             }
-                          >
-                            <button
+                        >
+                            <Button
                               type="button"
                               class="dev-archive-action"
                               disabled={busy() !== ''}
                               onClick={() => openAdoptPicker(row)}
-                            >
+                          >
                               Adopt…
-                            </button>
+                            </Button>
                           </Show>
                         </span>
                       }
-                    >
+                  >
                       <span
                         class="dev-archive-shelf__confirm"
                         role="group"
                         aria-label="Adopt repository"
-                      >
+                    >
                         <label>
                           <span class="sr-only">Authorized bookmark for adoption</span>
                           <select
                             value={adoptBookmarkId()}
                             onChange={(event) => setAdoptBookmarkId(event.currentTarget.value)}
-                          >
+                        >
                             <For
                               each={bookmarks().filter(
                                 (bookmark) =>
                                   bookmark.state === 'active' && bookmark.kind === 'repository'
                               )}
-                            >
+                          >
                               {(bookmark) => <option value={bookmark.id}>{bookmark.label}</option>}
                             </For>
                           </select>
                         </label>
-                        <button
+                        <Button
                           type="button"
                           class="dev-archive-action"
                           disabled={busy() !== ''}
                           onClick={() => void adopt(row)}
-                        >
+                      >
                           Adopt
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
                           class="dev-archive-action"
                           onClick={() => setAdoptPickerRepo('')}
-                        >
+                      >
                           Cancel
-                        </button>
+                        </Button>
                       </span>
                     </Show>
                     <Show when={authorizePickerRepo() === row.repoId}>
@@ -446,7 +447,7 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                         class="dev-archive-shelf__confirm"
                         role="group"
                         aria-label="Authorize credential"
-                      >
+                    >
                         <label>
                           <span class="sr-only">Vault credential reference</span>
                           <select
@@ -454,7 +455,7 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                             onChange={(event) =>
                               setAuthorizeCredentialId(event.currentTarget.value)
                             }
-                          >
+                        >
                             <For each={pickerCredentials()}>
                               {(ref) => (
                                 <option value={ref.id}>
@@ -464,21 +465,21 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                             </For>
                           </select>
                         </label>
-                        <button
+                        <Button
                           type="button"
                           class="dev-archive-action"
                           disabled={busy() !== '' || authorizeCredentialId() === ''}
                           onClick={() => void authorize(row)}
-                        >
+                      >
                           Authorize
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
                           class="dev-archive-action"
                           onClick={() => setAuthorizePickerRepo('')}
-                        >
+                      >
                           Cancel
-                        </button>
+                        </Button>
                       </span>
                     </Show>
                   </li>
@@ -506,28 +507,28 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                           class="dev-archive-shelf__confirm"
                           role="alert"
                           aria-label={`Confirm archiving ${project.name}`}
-                        >
+                      >
                           Archive this project?
-                          <button
+                          <Button
                             type="button"
                             class="dev-archive-action dev-archive-action--destructive"
                             disabled={busy() !== ''}
                             onClick={() => confirmArchive(project.id)}
-                          >
+                        >
                             {archived() ? 'Unarchive' : 'Archive'}
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
                             class="dev-archive-action"
                             onClick={() => setState(cancelPendingArchive(state()))}
-                          >
+                        >
                             Keep
-                          </button>
+                          </Button>
                         </span>
                       }
-                    >
+                  >
                       <span class="dev-archive-shelf__actions">
-                        <button
+                        <Button
                           type="button"
                           class={cn(
                             'dev-archive-action',
@@ -535,9 +536,9 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                           )}
                           disabled={busy() !== ''}
                           onClick={() => setState(requestArchive(state(), project.id))}
-                        >
+                      >
                           {archived() ? 'Unarchive' : 'Archive…'}
-                        </button>
+                        </Button>
                       </span>
                     </Show>
                   </li>

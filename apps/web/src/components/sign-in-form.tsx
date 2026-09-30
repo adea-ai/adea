@@ -1,4 +1,5 @@
 import { createSignal, onMount, Show } from 'solid-js'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 type AuthMode = 'sign-in' | 'sign-up'
 
@@ -91,20 +92,20 @@ export function SignInForm(props: { returnTo: string }) {
   return (
     <>
       <div class="browser-auth-mode" aria-label="Choose authentication mode">
-        <button
+        <Button
           type="button"
           aria-pressed={mode() === 'sign-in'}
           onClick={() => changeMode('sign-in')}
         >
           Sign in
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           aria-pressed={mode() === 'sign-up'}
           onClick={() => changeMode('sign-up')}
         >
           Create account
-        </button>
+        </Button>
       </div>
 
       <form class="browser-auth-form" onSubmit={submit}>
@@ -145,7 +146,7 @@ export function SignInForm(props: { returnTo: string }) {
           {error()}
         </p>
 
-        <button class="browser-auth-submit" type="submit" disabled={pending()}>
+        <Button type="submit" disabled={pending()}>
           {pending()
             ? mode() === 'sign-up'
               ? 'Creating account…'
@@ -153,7 +154,7 @@ export function SignInForm(props: { returnTo: string }) {
             : mode() === 'sign-up'
               ? 'Create account and continue'
               : 'Sign in and continue'}
-        </button>
+        </Button>
       </form>
     </>
   )

@@ -9,6 +9,7 @@ import type { HarnessRun } from '@adea-ai/types/dev-runtime'
 import { For, Show, type JSX } from 'solid-js'
 
 import { buildRunHistoryRows, type RunHistoryRow } from './run-history-model'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export function RunHistoryPane(props: {
   runs: readonly HarnessRun[]
@@ -40,13 +41,13 @@ export function RunHistoryPane(props: {
               <span>{formatElapsed(row.elapsedMs!)}</span>
             </Show>
             <Show when={row.resumable && props.onResume}>
-              <button
+              <Button
                 type="button"
                 onClick={() => props.onResume?.(row)}
                 aria-label={`Resume harness run generation ${row.generation}`}
-              >
+            >
                 Resume
-              </button>
+              </Button>
             </Show>
             <Show when={!row.resumable}>
               <span aria-label={`Run is not resumable: ${row.resumeReason}`}>
@@ -54,22 +55,22 @@ export function RunHistoryPane(props: {
               </span>
             </Show>
             <Show when={props.onJumpToSession}>
-              <button
+              <Button
                 type="button"
                 onClick={() => props.onJumpToSession?.(row)}
                 aria-label={`Open conversation for run generation ${row.generation}`}
-              >
+            >
                 Conversation
-              </button>
+              </Button>
             </Show>
             <Show when={props.onJumpToTerminal}>
-              <button
+              <Button
                 type="button"
                 onClick={() => props.onJumpToTerminal?.(row)}
                 aria-label={`Open terminal for run generation ${row.generation}`}
-              >
+            >
                 Terminal
-              </button>
+              </Button>
             </Show>
           </li>
         )}

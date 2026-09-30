@@ -42,7 +42,7 @@ export function AccountDrawer(props: AccountDrawerProps) {
       class="workspace-account-trigger workspace-trigger-expanded"
       aria-label={`Open user menu for ${accountLabel()}`}
       aria-haspopup="dialog"
-    >
+  >
       <UserRound aria-hidden="true" />
       <span>{accountLabel()}</span>
     </DrawerTrigger>
@@ -53,7 +53,7 @@ export function AccountDrawer(props: AccountDrawerProps) {
       <Show
         when={triggerTarget()}
         fallback={<div class="fixed right-4 top-4 z-40">{renderTrigger()}</div>}
-      >
+    >
         <Portal mount={triggerTarget()!}>{renderTrigger()}</Portal>
       </Show>
       <DrawerContent class="workspace-account-drawer__content">
@@ -80,7 +80,7 @@ export function AccountDrawer(props: AccountDrawerProps) {
             <section
               class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-t pt-5"
               aria-labelledby="account-music-title"
-            >
+          >
               <div class="min-w-0">
                 <h2 id="account-music-title" class="text-sm font-semibold">
                   Music
@@ -93,7 +93,7 @@ export function AccountDrawer(props: AccountDrawerProps) {
           <section
             class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-t pt-5"
             aria-labelledby="account-session-title"
-          >
+        >
             <div class="min-w-0">
               <h2 id="account-session-title" class="text-sm font-semibold">
                 Account
@@ -111,7 +111,7 @@ export function AccountDrawer(props: AccountDrawerProps) {
               aria-label={props.authenticated ? 'Sign out' : 'Sign in'}
               disabled={props.busy}
               onClick={props.authenticated ? props.onSignOut : props.onSignIn}
-            >
+          >
               {props.authenticated ? 'Sign out' : 'Sign in'}
             </DrawerCloseButton>
           </section>

@@ -142,7 +142,7 @@ export function MessageComposer(props: {
     <section
       class="conventional-composer"
       aria-label={props.replyLabel ? `Reply to ${props.replyLabel}` : 'Message composer'}
-    >
+  >
       <SharedMessageComposer
         ref={setForm}
         class="conventional-composer__shared"
@@ -176,7 +176,7 @@ export function MessageComposer(props: {
                           onClick={() =>
                             setAttachmentIds((ids) => ids.filter((id) => id !== artifactId))
                           }
-                        >
+                      >
                           <X aria-hidden="true" />
                         </Button>
                       </span>
@@ -189,10 +189,10 @@ export function MessageComposer(props: {
               <div class="conventional-mention-menu" aria-label="Mention an Agent">
                 <For each={mentionSuggestions()}>
                   {(agent) => (
-                    <button type="button" onClick={() => insertMention(agent)}>
+                    <Button type="button" onClick={() => insertMention(agent)}>
                       <AtSign aria-hidden="true" />
                       {agent.name}
-                    </button>
+                    </Button>
                   )}
                 </For>
               </div>
@@ -256,7 +256,7 @@ export function MessageComposer(props: {
               aria-pressed={transcriptionState() === 'listening' || undefined}
               disabled={props.disabled || sending() || transcriptionState() === 'unavailable'}
               onClick={() => void dictate()}
-            >
+          >
               <Show
                 when={transcriptionState() === 'processing'}
                 fallback={
@@ -264,7 +264,7 @@ export function MessageComposer(props: {
                     <MicOff />
                   </Show>
                 }
-              >
+            >
                 <LoaderCircle class="conventional-spin" />
               </Show>
             </TooltipTrigger>

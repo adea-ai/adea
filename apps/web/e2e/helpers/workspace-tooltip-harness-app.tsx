@@ -4,6 +4,7 @@ import { createSignal } from 'solid-js'
 import { TooltipProvider } from '@adea-ai/ui/components/ui/tooltip'
 import { AgentStatus, AgentStatusBadge } from '../../../../packages/workspace-ui/src/agent-status'
 import type { AgentSummary } from '@adea-ai/types'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 const agent: AgentSummary = {
   id: 'synthetic-agent',
@@ -26,18 +27,18 @@ render(
       <section aria-label="Status details">
         <AgentStatus agent={currentAgent()} compact />
       </section>
-      <button
+      <Button
         onClick={() =>
           setCurrentAgent({ ...agent, profile: { ...agent.profile, state: 'missing' } })
         }
       >
         Invalidate profile
-      </button>
-      <button onClick={() => setCurrentAgent({ ...agent, lifecycleState: 'archived' })}>
+      </Button>
+      <Button onClick={() => setCurrentAgent({ ...agent, lifecycleState: 'archived' })}>
         Archive agent
-      </button>
-      <button onClick={() => setCurrentAgent(agent)}>Restore agent</button>
-      <button>Next action</button>
+      </Button>
+      <Button onClick={() => setCurrentAgent(agent)}>Restore agent</Button>
+      <Button>Next action</Button>
     </TooltipProvider>
   ),
   document.querySelector('#harness-root')!

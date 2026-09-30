@@ -9,6 +9,7 @@ import { MessageComposer, type ComposerSubmission } from './message-composer'
 import { MessageRow } from './message-row'
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export function ThreadPanel(props: {
   agents: readonly AgentSummary[]
@@ -128,16 +129,16 @@ export function ThreadPanel(props: {
           <h2 id="thread-title">Thread</h2>
         </div>
         <div>
-          <button
+          <Button
             type="button"
             aria-label="Mark thread unread"
             onClick={() => void props.onMarkUnread()}
-          >
+        >
             <MailOpen aria-hidden="true" />
-          </button>
-          <button type="button" aria-label="Close thread" onClick={() => props.onClose()}>
+          </Button>
+          <Button type="button" aria-label="Close thread" onClick={() => props.onClose()}>
             <X aria-hidden="true" />
-          </button>
+          </Button>
         </div>
       </header>
       <div class="conventional-thread__transcript">

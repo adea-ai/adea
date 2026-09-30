@@ -14,6 +14,7 @@ import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import type { SearchResult } from './workspace-utility-dialogs'
 import type { WorkspacePlatformServices } from './platform'
 import type { WorkspaceView } from './workspace-view-toggle'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
@@ -320,7 +321,7 @@ export function ConventionalWorkspaceShell(props: {
           <WorkspaceSkeleton />
         </main>
       }
-    >
+  >
       <Show
         when={!controller.bootstrap.isError}
         fallback={
@@ -331,7 +332,7 @@ export function ConventionalWorkspaceShell(props: {
             />
           </main>
         }
-      >
+    >
         <Show when={controller.activeWorkspace && controller.workspaceId}>
           <main class="conventional-workspace">
             <a class="conventional-skip-link" href="#workspace-main">
@@ -378,13 +379,13 @@ export function ConventionalWorkspaceShell(props: {
                       previous workspace if it&apos;s still available.
                     </p>
                   </div>
-                  <button
+                  <Button
                     type="button"
                     aria-label="Dismiss session notice"
                     onClick={() => setSessionNoticeDismissed(true)}
-                  >
+                >
                     <X aria-hidden="true" />
-                  </button>
+                  </Button>
                 </section>
               </Show>
               <Show
@@ -398,7 +399,7 @@ export function ConventionalWorkspaceShell(props: {
                     />
                   )
                 })()}
-              >
+            >
                 <Show
                   when={controller.artifacts.find(({ id }) => id === selectedArtifactId())}
                   fallback={
@@ -436,7 +437,7 @@ export function ConventionalWorkspaceShell(props: {
                               tasks={controller.tasks}
                             />
                           }
-                        >
+                      >
                           <AgentRoster
                             agents={controller.agents}
                             busy={controller.createAgentBusy || controller.agentBusy}
@@ -474,7 +475,7 @@ export function ConventionalWorkspaceShell(props: {
                           />
                         </Show>
                       }
-                    >
+                  >
                       <ConversationSurface
                         agents={controller.agents}
                         artifacts={controller.artifacts}
@@ -542,7 +543,7 @@ export function ConventionalWorkspaceShell(props: {
                       />
                     </Show>
                   }
-                >
+              >
                   {(artifact) => (
                     <ArtifactDetail
                       artifact={artifact()}
@@ -627,7 +628,7 @@ export function ConventionalWorkspaceShell(props: {
                   onClose={() => setDialog(null)}
                   title="Conversation details"
                   description="Canonical Adea identity and scope."
-                >
+              >
                   <div class="conventional-conversation-details">
                     <p>
                       <span>Kind</span>

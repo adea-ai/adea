@@ -202,13 +202,13 @@ export function RuntimeTerminalPane(props: RuntimeTerminalPaneProps) {
               size="sm"
               variant="outline"
               onClick={() => setRetrySequence((sequence) => sequence + 1)}
-            >
+          >
               Retry terminal
             </Button>
           </Show>
         </div>
       }
-    >
+  >
       {(ready) => (
         <Suspense
           fallback={
@@ -216,7 +216,7 @@ export function RuntimeTerminalPane(props: RuntimeTerminalPaneProps) {
               Loading terminal…
             </p>
           }
-        >
+      >
           <TerminalPane
             connect={ready().connect}
             fromSequence="0"

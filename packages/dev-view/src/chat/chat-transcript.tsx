@@ -91,7 +91,7 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
       aria-live="polite"
       initialReadingPosition={props.readingPosition}
       onReadingPositionChange={props.onReadingPositionChange}
-    >
+  >
       <div class="dev-chat__entries">
         <Show when={availability()?.status === 'resync_required'}>
           <div class="dev-chat__notice" role="alert">
@@ -118,7 +118,7 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
                   variant="outline"
                   size="sm"
                   onClick={() => props.onJumpToTerminal?.()}
-                >
+              >
                   Jump to terminal
                 </Button>
               </Show>
@@ -128,7 +128,7 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
         <Show
           when={items().length > 0}
           fallback={<p class="dev-chat__empty">No runtime events yet.</p>}
-        >
+      >
           <TranscriptComposition
             class="dev-chat__composition"
             rows={rows()}
@@ -186,7 +186,7 @@ function ChatTranscriptRow(props: {
             onClick={() => {
               if (props.item.event) props.props.onResolveApproval?.(props.item.event, 'approved')
             }}
-          >
+        >
             Approve
           </Button>
           <Button
@@ -198,7 +198,7 @@ function ChatTranscriptRow(props: {
             onClick={() => {
               if (props.item.event) props.props.onResolveApproval?.(props.item.event, 'denied')
             }}
-          >
+        >
             Deny
           </Button>
         </div>
@@ -223,7 +223,7 @@ function ChatTranscriptRow(props: {
               if (props.item.event)
                 props.props.onResolveQuestion?.(props.item.event, answer().trim())
             }}
-          >
+        >
             Submit answer
           </Button>
           <Show when={questionDisabledReason()}>

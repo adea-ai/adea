@@ -18,6 +18,7 @@ import {
   type CookieImportPreview,
   type CookieSource,
 } from './cookie-import-model'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type CookieImportPanelProps = Readonly<{
   laneId: string
@@ -111,12 +112,12 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
       <div class="dev-browser__row">
         <p class="dev-browser__section-title">Import cookies</p>
         <div class="dev-browser__actions">
-          <button type="button" class="dev-icon-button" onClick={() => void refetch()}>
+          <Button type="button" variant="outline" size="icon-sm" onClick={() => void refetch()}>
             Reload sources
-          </button>
-          <button type="button" class="dev-icon-button" onClick={() => props.onClose()}>
+          </Button>
+          <Button type="button" variant="outline" size="icon-sm" onClick={() => props.onClose()}>
             Close
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -139,7 +140,7 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
             onDiscard={() => setPreview(undefined)}
           />
         }
-      >
+    >
         <Show when={sources.error}>
           {(error) => (
             <p class="dev-browser__row" role="alert">
@@ -160,14 +161,14 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
                 <Show when={state().note}>
                   {(note) => <span class="dev-browser__row-meta">{note()}</span>}
                 </Show>
-                <button
+                <Button
                   type="button"
-                  class="dev-icon-button"
+                  variant="outline" size="icon-sm"
                   disabled={!state().selectable || busy()}
                   onClick={() => void planFor(source)}
-                >
+              >
                   Preview import
-                </button>
+                </Button>
               </div>
             )
           }}
@@ -200,22 +201,22 @@ function Preview(props: {
         )}
       </For>
       <div class="dev-browser__actions">
-        <button
+        <Button
           type="button"
-          class="dev-icon-button"
+          variant="outline" size="icon-sm"
           disabled={props.busy || !canCommit(props.preview, new Date().toISOString())}
           onClick={() => props.onCommit()}
-        >
+      >
           Import to this lane
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          class="dev-icon-button"
+          variant="outline" size="icon-sm"
           disabled={props.busy}
           onClick={props.onDiscard}
-        >
+      >
           Discard
-        </button>
+        </Button>
       </div>
     </div>
   )

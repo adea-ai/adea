@@ -5,6 +5,7 @@ import { render } from 'solid-js/web'
 import { MessageRow } from '../../../../packages/workspace-ui/src/message-row'
 import { TaskObjective } from '../../../../packages/workspace-ui/src/private-task-objective'
 import type { PrivateContentResolver } from '../../../../packages/workspace-ui/src/platform'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 function SwitchObservation(props: { currentId: string; oldContent: string }) {
   const [observation, setObservation] = createSignal('waiting')
@@ -63,10 +64,10 @@ function Harness() {
   })
   return (
     <>
-      <button type="button" onClick={() => setCurrent(message('second'))}>
+      <Button type="button" onClick={() => setCurrent(message('second'))}>
         Switch message
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         onClick={() =>
           pending.get('first')?.resolve({
@@ -75,14 +76,14 @@ function Harness() {
         }
       >
         Resolve old
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         onClick={() => pending.get('first')?.reject(new Error('fixture unavailable'))}
       >
         Reject old
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         onClick={() =>
           pending.get('second')?.resolve({
@@ -91,7 +92,7 @@ function Harness() {
         }
       >
         Resolve current
-      </button>
+      </Button>
       <Show
         when={objective}
         fallback={

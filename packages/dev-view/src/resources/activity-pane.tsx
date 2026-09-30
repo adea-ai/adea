@@ -14,6 +14,7 @@ import { For, Show, createResource, createSignal } from 'solid-js'
 import type { DevRuntimeService } from '../platform'
 import { buildDevCommand } from '../browser/command'
 import { ACTIVITY_STATE_LABELS, activityRows, formatElapsed } from './activity-model'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type ActivityPaneProps = {
   runtime: DevRuntimeService
@@ -97,18 +98,18 @@ export function ActivityPane(props: ActivityPaneProps) {
       <Show
         when={serviceReady()}
         fallback={<p class="dev-resources__unavailable">Runtime unavailable</p>}
-      >
+    >
         <Show
           when={rows().length > 0}
           fallback={<p class="dev-resources__note">No harness activity for this scope.</p>}
-        >
+      >
           <ul class="dev-resources__list">
             <For each={rows()}>
               {(row) => (
                 <li
                   class="dev-activity__row"
                   classList={{ 'dev-activity__row--attention': row.attention }}
-                >
+              >
                   <span class="dev-activity__row-title">
                     <span>
                       {row.agent}
@@ -120,7 +121,7 @@ export function ActivityPane(props: ActivityPaneProps) {
                         'dev-activity__badge--attention': row.attention,
                         'dev-activity__badge--running': row.running,
                       }}
-                    >
+                  >
                       {ACTIVITY_STATE_LABELS[row.state]}
                     </span>
                   </span>
@@ -130,7 +131,7 @@ export function ActivityPane(props: ActivityPaneProps) {
                     </Show>
                   </span>
                   <Show when={row.attention || row.running}>
-                    <button
+                    <Button
                       type="button"
                       class="dev-resources__cancel"
                       disabled={busy() || generationFor(row.runtimeSessionId) === undefined}
@@ -140,9 +141,9 @@ export function ActivityPane(props: ActivityPaneProps) {
                           : 'Cancel this run'
                       }
                       onClick={() => void cancelRun(row)}
-                    >
+                  >
                       <Square aria-hidden="true" /> Stop
-                    </button>
+                    </Button>
                   </Show>
                 </li>
               )}
