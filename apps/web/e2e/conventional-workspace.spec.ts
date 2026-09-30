@@ -1639,6 +1639,40 @@ test('the settings dialog survives re-selecting its active tab and keeps its dis
   expect(pageErrors).toEqual([])
 })
 
+test('settings tabs keep vertical keyboard focus and synchronize the selected section hash', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  await page.goto('/#settings/account')
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(settings).toBeVisible()
+
+  const tablist = settings.getByRole('tablist', { name: 'Settings sections' })
+  const account = tablist.getByRole('tab', { name: 'Account & app', exact: true })
+  const appearance = tablist.getByRole('tab', { name: 'Appearance', exact: true })
+  const permissions = tablist.getByRole('tab', { name: 'Permissions', exact: true })
+  await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
+
+  await account.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(appearance).toBeFocused()
+  await expect(appearance).toHaveAttribute('aria-selected', 'true')
+  await expect(page).toHaveURL(/#settings\/appearance$/)
+
+  await page.keyboard.press('Home')
+  await expect(account).toBeFocused()
+  await expect(page).toHaveURL(/#settings\/account$/)
+
+  await page.keyboard.press('End')
+  await expect(permissions).toBeFocused()
+  await expect(page).toHaveURL(/#settings\/permissions$/)
+
+  await page.keyboard.press('ArrowDown')
+  await expect(account).toBeFocused()
+  await expect(account).toHaveAttribute('aria-selected', 'true')
+  await expect(page).toHaveURL(/#settings\/account$/)
+})
+
 test('the appearance section keeps the ported Zeron composition', async ({ page }) => {
   await mockWorkspace(page)
   // The appearance editor is the settings section now (the rail entry is gone,
@@ -2034,4 +2068,53 @@ test('repeated Chat and Library transitions release workspace event listeners', 
   await cycle()
   await cycle()
   await expect.poll(counts).toEqual(baseline)
+})
+
+test('App Library description rows retain readable content and actions in narrow and enlarged layouts', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  await page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('button', { name: 'App Library', exact: true })
+    .click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  await expect(library).toBeVisible()
+  const rows = library.locator('[class~="group/row"]')
+  await expect(rows.first()).toBeVisible()
+  for (const scale of [1, 2]) {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.evaluate((factor) => {
+      document.documentElement.style.fontSize = `${16 * factor}px`
+    }, scale)
+    const bounds = await rows.evaluateAll((elements) =>
+      elements.map((element) => {
+        const row = element.getBoundingClientRect()
+        const slots = Array.from(element.children)
+        const leading = slots[0]?.firstElementChild?.getBoundingClientRect()
+        const text = slots[1]?.getBoundingClientRect()
+        const controls = Array.from(element.querySelectorAll('button')).map((button) =>
+          button.getBoundingClientRect()
+        )
+        return {
+          titleSeparatedFromLeading: !leading || !text || leading.right <= text.left + 1,
+          controlsContained: controls.every(
+            (control) =>
+              control.left >= row.left - 1 &&
+              control.right <= row.right + 1 &&
+              control.top >= row.top - 1 &&
+              control.bottom <= row.bottom + 1
+          ),
+          textHasWidth: !!text && text.width >= 80,
+        }
+      })
+    )
+    expect(bounds.length).toBeGreaterThan(0)
+    for (const row of bounds) {
+      expect(row.titleSeparatedFromLeading).toBe(true)
+      expect(row.controlsContained).toBe(true)
+      expect(row.textHasWidth).toBe(true)
+    }
+  }
 })
