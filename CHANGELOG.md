@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.5](https://github.com/adea-ai/adea/compare/v0.69.4...v0.69.5) (2026-09-30)
+
+
+### Maintenance
+
+* **ui:** consume shared form controls and hardened lint ([#826](https://github.com/adea-ai/adea/issues/826)) ([0b212d1](https://github.com/adea-ai/adea/commit/0b212d100724226cf1cfc7425a99c15f51f9fa87))
+
 ## [0.69.4](https://github.com/adea-ai/adea/compare/v0.69.3...v0.69.4) (2026-09-30)
 
 
