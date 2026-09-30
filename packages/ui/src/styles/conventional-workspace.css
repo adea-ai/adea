@@ -1,10 +1,10 @@
 .workspace-frame {
-  --workspace-rail-width: 4rem;
+  --workspace-rail-width: var(--rail-width);
   --workspace-topbar-height: 3rem;
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-columns: 4rem minmax(0, 1fr);
+  grid-template-columns: var(--workspace-rail-width) minmax(0, 1fr);
   grid-template-rows: var(--workspace-topbar-height) minmax(0, 1fr);
   min-width: 20rem;
   height: 100svh;
@@ -41,27 +41,9 @@
 
 .global-rail {
   position: relative;
-  z-index: 110;
-  display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
-  justify-items: center;
-  gap: 0.5rem;
+  z-index: var(--z-sticky);
   min-width: 0;
-  padding: max(0.75rem, env(safe-area-inset-top)) 0.45rem max(0.75rem, env(safe-area-inset-bottom));
-  border-right: 1px solid var(--border);
-  background: var(--card);
-  color: var(--card-foreground);
-}
-
-.global-rail__views,
-.global-rail__footer {
-  display: grid;
-  justify-items: center;
-  gap: 0.25rem;
-}
-
-.global-rail__workspace-trigger {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-foreground) 18%, transparent);
+  padding-block: max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-bottom));
 }
 
 .global-rail__workspace-menu {
@@ -79,8 +61,7 @@
   position: relative;
 }
 
-.global-rail__button svg,
-.global-rail__workspace-trigger svg {
+.global-rail__button svg {
   width: 1.5rem;
   height: 1.5rem;
 }
@@ -96,28 +77,13 @@
   content: '';
 }
 
-.global-rail__search {
-  display: grid;
-  justify-items: center;
-  gap: 0.35rem;
-}
-
-.global-rail__search kbd {
-  color: var(--muted-foreground);
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-  font-size: 0.55rem;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  word-spacing: 0.2rem;
-}
-
 .global-rail__separator {
   width: 2rem;
   margin: 0.15rem 0;
 }
-
-.global-rail__footer {
-  grid-row: 6;
+.global-rail__intent {
+  display: flex;
+  min-width: 0;
 }
 
 .global-account-menu {

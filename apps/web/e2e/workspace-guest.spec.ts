@@ -80,7 +80,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
         surfaceOffset: surfaceBox.left,
       }
     })
-    expect(layout).toEqual({ railWidth: 64, surfaceOffset: 64 })
+    expect(layout).toEqual({ railWidth: 74, surfaceOffset: 74 })
   }
 
   await userMenu.click()
