@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.68.2](https://github.com/adea-ai/adea/compare/v0.68.1...v0.68.2) (2026-09-30)
+
+
+### Maintenance
+
+* **workspace:** compose agent status, empty states, avatars, and settings rows from the shared library ([#813](https://github.com/adea-ai/adea/issues/813)) ([0588791](https://github.com/adea-ai/adea/commit/058879168bf3b90cdc8fecfb86c21abd8fab1ed0))
+
 ## [0.68.1](https://github.com/adea-ai/adea/compare/v0.68.0...v0.68.1) (2026-09-29)
 
 
