@@ -1509,6 +1509,18 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   await page.goto('/#settings/privacy-data')
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
+  const settingsTabs = settings.getByRole('tablist', { name: 'Settings sections', exact: true })
+  const privacyTab = settingsTabs.getByRole('tab', { name: 'Privacy & data', exact: true })
+  await expect(privacyTab).toHaveAttribute('aria-selected', 'true')
+  const privacyTabId = await privacyTab.getAttribute('id')
+  const privacyGroupId = await privacyTab.getAttribute('aria-describedby')
+  expect(privacyTabId).toBeTruthy()
+  expect(privacyGroupId).toBeTruthy()
+  await expect(settings.locator(`#${privacyGroupId}`)).toHaveText('Data & access')
+  await expect(settings.locator('#settings-panel-privacy-data')).toHaveAttribute(
+    'aria-labelledby',
+    privacyTabId!
+  )
   await expect(settings.getByRole('heading', { name: 'Privacy & data' })).toBeVisible()
   await expect(settings.getByText('Unavailable in this app or on this device.')).toBeVisible()
 
@@ -1609,11 +1621,21 @@ test('the settings dialog survives re-selecting its active tab and keeps its dis
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
 
+  const accountTab = settings.getByRole('tab', { name: 'Account & app', exact: true })
+  await accountTab.focus()
+  await page.keyboard.press('ArrowDown')
+  const appearanceTab = settings.getByRole('tab', { name: 'Appearance', exact: true })
+  await expect(appearanceTab).toBeFocused()
+  await expect(appearanceTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page).toHaveURL(/#settings\/appearance$/)
+  await page.keyboard.press('Home')
+  await expect(accountTab).toBeFocused()
+
   // Re-clicking the already-selected trigger must keep the dialog open (#601):
   // re-writing the current `#settings/…` hash re-resolved the route, whose
   // server-only entry loader then ran on the client, crashed the route, and
   // unmounted the whole workspace behind the error surface.
-  await settings.getByRole('tab', { name: 'Account & app' }).click()
+  await accountTab.click()
   await expect(settings).toBeVisible()
   await expect(settings.getByRole('tab', { name: 'Account & app' })).toHaveAttribute(
     'aria-selected',

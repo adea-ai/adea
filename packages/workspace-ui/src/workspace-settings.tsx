@@ -3,19 +3,14 @@ import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
-import { SettingsRow as SharedSettingsRow } from '@adea-ai/ui/components/composites/settings'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import {
-  Bell,
-  Bot,
-  Database,
-  EyeOff,
-  Link2,
-  Mic,
-  MonitorCog,
-  ShieldCheck,
-  UserRound,
-} from 'lucide-solid'
+  SettingsLayout,
+  SettingsRow as SharedSettingsRow,
+  SettingsSection as SharedSettingsSection,
+  type SettingsNavigationGroup,
+} from '@adea-ai/ui/components/composites/settings'
+import { TabsContent } from '@adea-ai/ui/components/ui/tabs'
+import { Bell, Bot, EyeOff, Link2, Mic, MonitorCog, ShieldCheck, UserRound } from 'lucide-solid'
 import { createEffect, createSignal, For, lazy, onCleanup, Show, type JSX } from 'solid-js'
 
 import { CapabilityList } from './capability-card'
@@ -101,7 +96,19 @@ export function WorkspaceSettingsDialog(props: {
   )
   const [capabilities, setCapabilities] = createSignal<CapabilitySnapshot | undefined>()
   const [capabilitiesBusy, setCapabilitiesBusy] = createSignal(false)
-  const navigationRefs = new Map<SettingsSection, HTMLButtonElement>()
+  const settingsNavigationGroups: readonly SettingsNavigationGroup[] = settingsSectionGroups.map(
+    (group) => ({
+      label: group.label,
+      items: group.items.map((value) => {
+        const Icon = sectionIcons[value]
+        return {
+          value,
+          label: settingsSectionLabels[value],
+          icon: <Icon aria-hidden="true" />,
+        }
+      }),
+    })
+  )
   const topAgentRows = keyedRows(
     () => props.agents.slice(0, 5),
     (agent) => agent.id
@@ -149,16 +156,6 @@ export function WorkspaceSettingsDialog(props: {
     })
   })
 
-  createEffect(() => {
-    if (!props.open) return
-    const current = section()
-    const revealSelected = () =>
-      navigationRefs.get(current)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    revealSelected()
-    window.addEventListener('resize', revealSelected)
-    onCleanup(() => window.removeEventListener('resize', revealSelected))
-  })
-
   const selectSection = (next: SettingsSection) => {
     setSection(next)
     // Re-writing an already-current hash makes the router re-resolve the route,
@@ -200,346 +197,262 @@ export function WorkspaceSettingsDialog(props: {
       title="Settings"
       description="Product preferences and boundaries for this Adea workspace."
     >
-      <Tabs
+      <SettingsLayout
         id="settings-tabs"
-        class="conventional-settings-shell"
-        orientation="vertical"
+        aria-label="Settings sections"
+        groups={settingsNavigationGroups}
         value={section()}
         onChange={(value) => selectSection(value as SettingsSection)}
+        onReselect={(value) => selectSection(value as SettingsSection)}
       >
-        <TabsList
-          class="conventional-settings-nav w-full data-[orientation=vertical]:flex-row"
-          appearance="segmented"
-          aria-label="Settings sections"
-        >
-          <For each={settingsSectionGroups}>
-            {(group) => (
-              <div role="none" class="conventional-settings-nav__group">
-                <p role="none" class="conventional-settings-nav__label">
-                  {group.label}
-                </p>
-                <For each={group.items}>
-                  {(item) => {
-                    const Icon = sectionIcons[item]
-                    return (
-                      <TabsTrigger
-                        ref={(element: HTMLButtonElement | undefined) => {
-                          if (element) navigationRefs.set(item, element)
-                          else navigationRefs.delete(item)
-                        }}
-                        id={`settings-tab-${item}`}
-                        value={item}
-                        onClick={() => {
-                          if (section() === item) selectSection(item)
-                        }}
-                      >
-                        <Icon aria-hidden="true" />
-                        <span>{settingsSectionLabels[item]}</span>
-                      </TabsTrigger>
-                    )
-                  }}
-                </For>
-              </div>
-            )}
-          </For>
-        </TabsList>
-        <TabsContent
-          value="account"
-          id="settings-panel-account"
-          class="conventional-settings-panel"
-        >
-          <header>
-            <UserRound aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels.account}</h3>
-              <p>Session and installed product information.</p>
-            </div>
-          </header>
-          <SettingsRow
-            title={props.accountAuthenticated ? props.accountLabel : 'Guest workspace'}
-            detail={
-              props.accountAuthenticated
-                ? 'This workspace is saved to your account.'
-                : 'Sign in when you want to keep this workspace across devices.'
-            }
+        <TabsContent value="account" id="settings-panel-account">
+          <SharedSettingsSection
+            title={settingsSectionLabels.account}
+            description="Session and installed product information."
           >
-            <Button
-              type="button"
-              disabled={props.busy}
-              onClick={props.accountAuthenticated ? props.onSignOut : props.onSignIn}
+            <SettingsRow
+              title={props.accountAuthenticated ? props.accountLabel : 'Guest workspace'}
+              detail={
+                props.accountAuthenticated
+                  ? 'This workspace is saved to your account.'
+                  : 'Sign in when you want to keep this workspace across devices.'
+              }
             >
-              {props.accountAuthenticated ? 'Sign out' : 'Sign in'}
-            </Button>
-          </SettingsRow>
-          <SettingsRow
-            title={props.services?.app?.name ?? 'Adea'}
-            detail={`${props.services?.app?.platform === 'desktop' ? 'Desktop application' : 'Web application'}${props.services?.app?.version ? ` · v${props.services.app.version}` : ''}`}
-          />
-          <SettingsRow
-            title="Virtual preview"
-            detail="The Three.js representation is retained for M4 and does not define conventional workspace state."
-          >
-            <a href="/?view=virtual">Open preview</a>
-          </SettingsRow>
+              <Button
+                type="button"
+                disabled={props.busy}
+                onClick={props.accountAuthenticated ? props.onSignOut : props.onSignIn}
+              >
+                {props.accountAuthenticated ? 'Sign out' : 'Sign in'}
+              </Button>
+            </SettingsRow>
+            <SettingsRow
+              title={props.services?.app?.name ?? 'Adea'}
+              detail={`${props.services?.app?.platform === 'desktop' ? 'Desktop application' : 'Web application'}${props.services?.app?.version ? ` · v${props.services.app.version}` : ''}`}
+            />
+            <SettingsRow
+              title="Virtual preview"
+              detail="The Three.js representation is retained for M4 and does not define conventional workspace state."
+            >
+              <a href="/?view=virtual">Open preview</a>
+            </SettingsRow>
+          </SharedSettingsSection>
         </TabsContent>
-        <TabsContent
-          value="appearance"
-          id="settings-panel-appearance"
-          class="conventional-settings-panel"
-        >
+        <TabsContent value="appearance" id="settings-panel-appearance">
           <Show
             when={props.appearancePanel}
             fallback={
-              <>
-                <header>
-                  <MonitorCog aria-hidden="true" />
-                  <div>
-                    <h3>{settingsSectionLabels.appearance}</h3>
-                    <p>Shared presentation preferences.</p>
-                  </div>
-                </header>
+              <SharedSettingsSection
+                title={settingsSectionLabels.appearance}
+                description="Shared presentation preferences."
+              >
                 <SettingsRow
                   title="Color theme"
                   detail="Follow the system or explicitly choose light or dark."
                 >
                   <ThemeToggle />
                 </SettingsRow>
-              </>
+              </SharedSettingsSection>
             }
           >
             {props.appearancePanel?.()}
           </Show>
         </TabsContent>
-        <TabsContent
-          value="workspace"
-          id="settings-panel-workspace"
-          class="conventional-settings-panel"
-        >
-          <header>
-            <MonitorCog aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels.workspace}</h3>
-              <p>Opinionated Room defaults for the active workspace.</p>
-            </div>
-          </header>
-          <SettingsRow
-            title={props.workspace.name}
-            detail={`${props.workspace.scene === 'work' ? 'Work' : 'Home'} scene · Rooms remain the primary navigation.`}
-          />
-          <SettingsRow
-            title="Room defaults"
-            detail="Primary Channels stay implicit; additional Channels are progressively disclosed. Arbitrary sidebar sections are intentionally unavailable in M2."
-          />
-        </TabsContent>
-        <TabsContent value="agents" id="settings-panel-agents" class="conventional-settings-panel">
-          <header>
-            <Bot aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels.agents}</h3>
-              <p>Durable identity and explicit profile references.</p>
-            </div>
-          </header>
-          <For each={topAgentRows()}>
-            {(entry) => (
-              <SettingsRow
-                title={entry.item().name}
-                detail={`${entry.item().profile.id} · v${entry.item().profile.version} · ${entry.item().lifecycleState.replace('_', ' ')}`}
-              />
-            )}
-          </For>
-          <Button
-            type="button"
-
-            onClick={() => {
-              close()
-              props.onOpenAgents()
-            }}
+        <TabsContent value="workspace" id="settings-panel-workspace">
+          <SharedSettingsSection
+            title={settingsSectionLabels.workspace}
+            description="Opinionated Room defaults for the active workspace."
           >
-            Customize Agents
-          </Button>
-        </TabsContent>
-        <TabsContent
-          value="input-notifications"
-          id="settings-panel-input-notifications"
-          class="conventional-settings-panel"
-        >
-          <header>
-            <Mic aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels['input-notifications']}</h3>
-              <p>Desktop dictation and bounded notification preferences.</p>
-            </div>
-          </header>
-          <SettingsRow
-            title="Composer dictation"
-            detail={
-              props.services?.transcription
-                ? `Uses ${props.services.transcription.label}; text stays editable and is never auto-sent.`
-                : 'Install Adea Desktop to use system dictation.'
-            }
-          >
-            <Button
-              type="button"
-              disabled={!props.services?.transcription}
-              onClick={() =>
-                void props.services?.transcription
-                  ?.requestPermission()
-                  .then((state) => setPermissionState(state))
-              }
-            >
-              {permissionState() === 'idle' ? 'Check microphone' : permissionState()}
-            </Button>
-          </SettingsRow>
-          <SettingsRow
-            title="Dictation language"
-            detail="Leave blank to follow the operating-system language."
-          >
-            <Input
-              aria-label="Dictation language"
-              value={preferences().dictationLocale}
-              placeholder="System default"
-              maxLength={35}
-              onInput={(event) =>
-                setPreferences({
-                  ...preferences(),
-                  dictationLocale: event.currentTarget.value,
-                })
-              }
-              onBlur={() => void save(preferences())}
+            <SettingsRow
+              title={props.workspace.name}
+              detail={`${props.workspace.scene === 'work' ? 'Work' : 'Home'} scene · Rooms remain the primary navigation.`}
             />
-          </SettingsRow>
-          <SettingsRow
-            title="Workspace soundtrack"
-            detail="Optional local audio. It sits with input and notifications, not appearance."
-          >
-            <MusicToggle />
-          </SettingsRow>
-          <SettingsRow
-            title="Mention notifications"
-            detail="Save the preference now; live event delivery arrives with M3."
-          >
-            <Switch
-              checked={preferences().notifyMentions}
-              onChange={() => toggle('notifyMentions')}
-              aria-label="Mention notifications"
-              children={false}
+            <SettingsRow
+              title="Room defaults"
+              detail="Primary Channels stay implicit; additional Channels are progressively disclosed. Arbitrary sidebar sections are intentionally unavailable in M2."
             />
-          </SettingsRow>
-          <SettingsRow
-            title="Task notifications"
-            detail="Save the preference now; live event delivery arrives with M3."
-          >
-            <Switch
-              checked={preferences().notifyTasks}
-              onChange={() => toggle('notifyTasks')}
-              aria-label="Task notifications"
-              children={false}
-            />
-          </SettingsRow>
-          <p class="conventional-settings-note">
-            <Bell aria-hidden="true" /> Notification clicks will use canonical Room, Channel,
-            Message, and Task identities when live events are wired in M3.
-          </p>
+          </SharedSettingsSection>
         </TabsContent>
-        <TabsContent
-          value="privacy-data"
-          id="settings-panel-privacy-data"
-          class="conventional-settings-panel"
-        >
-          <header>
-            <Database aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels['privacy-data']}</h3>
-              <p>
-                Understand what this device can access without exposing cryptographic internals.
-              </p>
-            </div>
-          </header>
-          <SettingsRow
-            title="Local/private content"
-            detail={
-              privateHealth() === 'checking'
-                ? 'Checking this device…'
-                : privateHealth() === 'available'
-                  ? 'Available on this authorized desktop device.'
-                  : 'Unavailable in this app or on this device.'
-            }
-          />
-          <SettingsRow
-            title="Private notification previews"
-            detail="Off by default. Enabling is explicit authorization to show private plaintext in desktop notification previews once M3 delivery exists."
-          >
-            <Switch
-              checked={preferences().privateNotificationPreviews}
-              onChange={() => toggle('privateNotificationPreviews')}
-              aria-label="Private notification previews"
-              children={false}
-            />
-          </SettingsRow>
-          <p class="conventional-settings-note">
-            <EyeOff aria-hidden="true" /> Private bodies are never sent to cloud search, logs,
-            telemetry, or WorkspaceEvents.
-          </p>
-        </TabsContent>
-        <TabsContent
-          value="integrations"
-          id="settings-panel-integrations"
-          class="conventional-settings-panel"
-        >
-          <header>
-            <Link2 aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels.integrations}</h3>
-              <p>Control Plane-owned descriptors, not a second plugin system.</p>
-            </div>
-          </header>
-          <Show
-            when={props.agents.length}
-            fallback={
-              <SettingsRow
-                title="No AgentProfile descriptors"
-                detail="Create an Agent to establish an authoritative profile reference."
-              />
+        <TabsContent value="agents" id="settings-panel-agents">
+          <SharedSettingsSection
+            title={settingsSectionLabels.agents}
+            description="Durable identity and explicit profile references."
+            action={
+              <Button
+                type="button"
+                onClick={() => {
+                  close()
+                  props.onOpenAgents()
+                }}
+              >
+                Customize Agents
+              </Button>
             }
           >
             <For each={topAgentRows()}>
               {(entry) => (
                 <SettingsRow
-                  title={`${entry.item().profile.id} v${entry.item().profile.version}`}
-                  detail={`AgentProfile reference for ${entry.item().name}; execution availability is not implied.`}
+                  title={entry.item().name}
+                  detail={`${entry.item().profile.id} · v${entry.item().profile.version} · ${entry.item().lifecycleState.replace('_', ' ')}`}
                 />
               )}
             </For>
-          </Show>
-          <Show when={capabilities()}>
-            {(snapshot) => (
-              <CapabilityList
-                busy={capabilitiesBusy()}
-                onRefresh={() => void refreshCapabilities(true)}
-                snapshot={snapshot()}
-              />
-            )}
-          </Show>
-          <SettingsRow
-            title="Plugin runtime connections"
-            detail="Manage enabled plugins from the global Plugins menu. Runtime credentials and execution remain unavailable until an authoritative Control Plane provider is connected."
-          />
+          </SharedSettingsSection>
         </TabsContent>
-        <TabsContent
-          value="permissions"
-          id="settings-panel-permissions"
-          class="conventional-settings-panel"
-        >
-          <header>
-            <ShieldCheck aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels.permissions}</h3>
-              <p>
-                macOS capabilities this app is granted, with the system panes that control them.
-              </p>
-            </div>
-          </header>
-          <PermissionsPane service={props.permissionsService} />
+        <TabsContent value="input-notifications" id="settings-panel-input-notifications">
+          <SharedSettingsSection
+            title={settingsSectionLabels['input-notifications']}
+            description="Desktop dictation and bounded notification preferences."
+          >
+            <SettingsRow
+              title="Composer dictation"
+              detail={
+                props.services?.transcription
+                  ? `Uses ${props.services.transcription.label}; text stays editable and is never auto-sent.`
+                  : 'Install Adea Desktop to use system dictation.'
+              }
+            >
+              <Button
+                type="button"
+                disabled={!props.services?.transcription}
+                onClick={() =>
+                  void props.services?.transcription
+                    ?.requestPermission()
+                    .then((state) => setPermissionState(state))
+                }
+              >
+                {permissionState() === 'idle' ? 'Check microphone' : permissionState()}
+              </Button>
+            </SettingsRow>
+            <SettingsRow
+              title="Dictation language"
+              detail="Leave blank to follow the operating-system language."
+            >
+              <Input
+                aria-label="Dictation language"
+                value={preferences().dictationLocale}
+                placeholder="System default"
+                maxLength={35}
+                onInput={(event) =>
+                  setPreferences({
+                    ...preferences(),
+                    dictationLocale: event.currentTarget.value,
+                  })
+                }
+                onBlur={() => void save(preferences())}
+              />
+            </SettingsRow>
+            <SettingsRow
+              title="Workspace soundtrack"
+              detail="Optional local audio. It sits with input and notifications, not appearance."
+            >
+              <MusicToggle />
+            </SettingsRow>
+            <SettingsRow
+              title="Mention notifications"
+              detail="Save the preference now; live event delivery arrives with M3."
+            >
+              <Switch
+                checked={preferences().notifyMentions}
+                onChange={() => toggle('notifyMentions')}
+                aria-label="Mention notifications"
+                children={false}
+              />
+            </SettingsRow>
+            <SettingsRow
+              title="Task notifications"
+              detail="Save the preference now; live event delivery arrives with M3."
+            >
+              <Switch
+                checked={preferences().notifyTasks}
+                onChange={() => toggle('notifyTasks')}
+                aria-label="Task notifications"
+                children={false}
+              />
+            </SettingsRow>
+            <p class="conventional-settings-note">
+              <Bell aria-hidden="true" /> Notification clicks will use canonical Room, Channel,
+              Message, and Task identities when live events are wired in M3.
+            </p>
+          </SharedSettingsSection>
+        </TabsContent>
+        <TabsContent value="privacy-data" id="settings-panel-privacy-data">
+          <SharedSettingsSection
+            title={settingsSectionLabels['privacy-data']}
+            description="Understand what this device can access without exposing cryptographic internals."
+          >
+            <SettingsRow
+              title="Local/private content"
+              detail={
+                privateHealth() === 'checking'
+                  ? 'Checking this device…'
+                  : privateHealth() === 'available'
+                    ? 'Available on this authorized desktop device.'
+                    : 'Unavailable in this app or on this device.'
+              }
+            />
+            <SettingsRow
+              title="Private notification previews"
+              detail="Off by default. Enabling is explicit authorization to show private plaintext in desktop notification previews once M3 delivery exists."
+            >
+              <Switch
+                checked={preferences().privateNotificationPreviews}
+                onChange={() => toggle('privateNotificationPreviews')}
+                aria-label="Private notification previews"
+                children={false}
+              />
+            </SettingsRow>
+            <p class="conventional-settings-note">
+              <EyeOff aria-hidden="true" /> Private bodies are never sent to cloud search, logs,
+              telemetry, or WorkspaceEvents.
+            </p>
+          </SharedSettingsSection>
+        </TabsContent>
+        <TabsContent value="integrations" id="settings-panel-integrations">
+          <SharedSettingsSection
+            title={settingsSectionLabels.integrations}
+            description="Control Plane-owned descriptors, not a second plugin system."
+          >
+            <Show
+              when={props.agents.length}
+              fallback={
+                <SettingsRow
+                  title="No AgentProfile descriptors"
+                  detail="Create an Agent to establish an authoritative profile reference."
+                />
+              }
+            >
+              <For each={topAgentRows()}>
+                {(entry) => (
+                  <SettingsRow
+                    title={`${entry.item().profile.id} v${entry.item().profile.version}`}
+                    detail={`AgentProfile reference for ${entry.item().name}; execution availability is not implied.`}
+                  />
+                )}
+              </For>
+            </Show>
+            <Show when={capabilities()}>
+              {(snapshot) => (
+                <CapabilityList
+                  busy={capabilitiesBusy()}
+                  onRefresh={() => void refreshCapabilities(true)}
+                  snapshot={snapshot()}
+                />
+              )}
+            </Show>
+            <SettingsRow
+              title="Plugin runtime connections"
+              detail="Manage enabled plugins from the global Plugins menu. Runtime credentials and execution remain unavailable until an authoritative Control Plane provider is connected."
+            />
+          </SharedSettingsSection>
+        </TabsContent>
+        <TabsContent value="permissions" id="settings-panel-permissions">
+          <SharedSettingsSection
+            title={settingsSectionLabels.permissions}
+            description="macOS capabilities this app is granted, with the system panes that control them."
+          >
+            <PermissionsPane service={props.permissionsService} />
+          </SharedSettingsSection>
         </TabsContent>
         <div class="visually-hidden" aria-live="polite">
           {saveState() === 'saving'
@@ -550,7 +463,7 @@ export function WorkspaceSettingsDialog(props: {
                 ? 'Settings could not be saved'
                 : ''}
         </div>
-      </Tabs>
+      </SettingsLayout>
     </ModalDialog>
   )
 }

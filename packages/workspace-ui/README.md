@@ -33,6 +33,15 @@ The account menu opens Updates after its menu focus cycle closes. It supplies
 the persistent rail button through the host adapter to the published dialog
 so closing Updates restores focus without retaining a removed menu item.
 
+## Settings
+
+`WorkspaceSettingsDialog` composes the published `SettingsLayout`, grouped
+`SettingsNavigation`, `SettingsSection`, and `SettingsRow`. The host keeps
+ownership of active-section state, `#settings/<section>` deep links, saved
+workspace preferences, and the section-specific content. Re-selecting the
+active tab leaves the current hash untouched. Appearance and Permissions stay
+lazy, while the shared layout owns the tab rail and scrolling panel viewport.
+
 ## Loading state
 
 `WorkspaceSkeleton` renders six published `Skeleton` controls with app-owned
