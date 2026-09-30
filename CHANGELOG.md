@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.7](https://github.com/adea-ai/adea/compare/v0.69.6...v0.69.7) (2026-09-30)
+
+
+### Bug Fixes
+
+* **ci:** pick up the cf production-build and diagnostics fixes (code-foundry v1.37.2) ([#833](https://github.com/adea-ai/adea/issues/833)) ([045c938](https://github.com/adea-ai/adea/commit/045c93835f8633173f531be0081d72b66436624c))
+
 ## [0.69.6](https://github.com/adea-ai/adea/compare/v0.69.5...v0.69.6) (2026-09-30)
 
 
