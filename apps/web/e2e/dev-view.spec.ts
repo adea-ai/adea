@@ -534,14 +534,19 @@ test('the archive shelf restores losslessly and deletes only behind an explicit 
 
   // Delete is destructive: it stops at an explicit confirmation step.
   await item.getByRole('button', { name: 'Delete…' }).click()
-  const confirm = item.getByRole('alert')
+  const confirm = page.getByRole('alertdialog', { name: 'Delete this archived session?' })
   await expect(confirm).toContainText('Delete this archived session?')
+  await expect(confirm.getByRole('button', { name: 'Keep', exact: true })).toBeFocused()
   await confirm.getByRole('button', { name: 'Keep' }).click()
   await expect(item).toBeVisible()
+  await expect(item.getByRole('button', { name: 'Delete…' })).toBeFocused()
 
   // Restore is lossless and needs no confirmation.
-  await item.getByRole('button', { name: 'Restore' }).click()
+  await page.keyboard.press('Shift+Tab')
+  await expect(item.getByRole('button', { name: 'Restore' })).toBeFocused()
+  await page.keyboard.press('Enter')
   await expect(archiveList.getByRole('listitem')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Archived sessions/ })).toBeFocused()
 
   // Re-archive by deep link, then delete: the commit reports the missing
   // dev.session.delete host contract instead of pretending to succeed.
@@ -552,7 +557,11 @@ test('the archive shelf restores losslessly and deletes only behind an explicit 
   await page.getByRole('button', { name: /Archived sessions/ }).click()
   const again = archiveList.getByRole('listitem').filter({ hasText: 'Archived discovery' })
   await again.getByRole('button', { name: 'Delete…' }).click()
-  await again.getByRole('alert').getByRole('button', { name: 'Delete', exact: true }).click()
+  await page
+    .getByRole('alertdialog', { name: 'Delete this archived session?' })
+    .getByRole('button', { name: 'Delete', exact: true })
+    .click()
+  await expect(again.getByRole('button', { name: 'Delete…' })).toBeFocused()
   await expect(page.getByRole('note')).toContainText('dev.session.delete host contract')
 })
 

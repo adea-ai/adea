@@ -9,13 +9,24 @@
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { ListRowControl } from '@adea-ai/ui/components/composites/list-row/list-row-control'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@adea-ai/ui/components/ui/alert-dialog'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { ScrollArea } from '@adea-ai/ui/components/ui/scroll-area'
 import { Archive } from 'lucide-solid'
-import { For, Show, createSignal } from 'solid-js'
+import { For, Show, createEffect, createSignal } from 'solid-js'
 
-import type { ArchiveShelfState } from './archive-shelf-model'
+import { archiveTimeLabel, type ArchiveShelfState } from './archive-shelf-model'
 
 /**
  * The paged archived shelf pinned to the bottom of the Dev sidebar (ADR 0009
@@ -35,9 +46,31 @@ export function ArchiveShelf(props: {
 }) {
   const [expanded, setExpanded] = createSignal(false)
   const pending = () => props.state.pendingDeleteId
+  let shelfToggle: HTMLButtonElement | undefined
+  let restoring: { id: string; button: HTMLButtonElement } | undefined
+
+  // A successful unarchive removes its row. Return focus to the persistent
+  // shelf control only when the user has not moved on during the request.
+  createEffect(() => {
+    const items = props.state.items
+    const target = restoring
+    if (!target || items.some((item) => item.id === target.id)) return
+    restoring = undefined
+    if (typeof document === 'undefined') return
+    const active = document.activeElement
+    if (active !== target.button && (target.button.isConnected || active !== document.body)) return
+    queueMicrotask(() => {
+      if (document.activeElement === target.button || document.activeElement === document.body) {
+        shelfToggle?.focus()
+      }
+    })
+  })
   return (
     <section class="w-full">
       <ActionButton
+        ref={(element) => {
+          shelfToggle = element
+        }}
         type="button"
         variant="ghost"
         size="sm"
@@ -73,70 +106,95 @@ export function ArchiveShelf(props: {
               </EmptyDescription>
             }
           >
+            <Show when={props.state.status === 'error'}>
+              <Alert variant="destructive" role="alert">
+                <AlertDescription>
+                  Archived sessions could not be loaded ({props.state.reason ?? 'provider error'}).
+                  {props.state.items.length > 0
+                    ? ' Previously loaded sessions remain available.'
+                    : ''}
+                </AlertDescription>
+              </Alert>
+            </Show>
             <Show
               when={props.state.items.length > 0}
-              fallback={<EmptyDescription>No archived sessions.</EmptyDescription>}
+              fallback={
+                <Show when={props.state.status === 'ready'}>
+                  <EmptyDescription>No archived sessions.</EmptyDescription>
+                </Show>
+              }
             >
               <ul class="flex flex-col gap-1" aria-label="Archived sessions">
                 <For each={props.state.items}>
                   {(item) => (
                     <li class="flex flex-col gap-1">
                       <ListRowControl
-                        description={item.archivedAt}
+                        description={archiveTimeLabel(item.archivedAt)}
                         trailing={
-                          <Show when={pending() !== item.id}>
-                            <>
-                              <ActionButton
-                                type="button"
-                                variant="outline"
-                                size="xs"
-                                tooltip="Restore this archived session"
-                                onClick={() => props.onRestore(item.id)}
-                              >
-                                Restore
-                              </ActionButton>
-                              <ActionButton
+                          <>
+                            <ActionButton
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              tooltip="Restore this archived session"
+                              onClick={(event) => {
+                                restoring = { id: item.id, button: event.currentTarget }
+                                props.onRestore(item.id)
+                              }}
+                            >
+                              Restore
+                            </ActionButton>
+                            <AlertDialog
+                              open={pending() === item.id}
+                              onOpenChange={(open) => {
+                                if (open) props.onRequestDelete(item.id)
+                              }}
+                            >
+                              <AlertDialogTrigger
+                                as={ActionButton}
                                 type="button"
                                 variant="destructive"
                                 size="xs"
                                 tooltip="Delete this archived session"
-                                onClick={() => props.onRequestDelete(item.id)}
                               >
                                 Delete…
-                              </ActionButton>
-                            </>
-                          </Show>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete this archived session?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This build cannot permanently delete sessions. Choosing Delete
+                                    explains the unavailable action and keeps “{item.title}”
+                                    archived.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel
+                                    as={ActionButton}
+                                    type="button"
+                                    variant="outline"
+                                    tooltip="Cancel deletion of this archived session"
+                                    onClick={() => props.onCancelDelete()}
+                                  >
+                                    Keep
+                                  </AlertDialogCancel>
+                                  <AlertDialogAction
+                                    as={ActionButton}
+                                    type="button"
+                                    variant="destructive"
+                                    tooltip="Confirm deletion of this archived session"
+                                    onClick={() => props.onConfirmDelete()}
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </>
                         }
                       >
                         {item.title}
                       </ListRowControl>
-                      <Show when={pending() === item.id}>
-                        <Alert variant="warning">
-                          <AlertDescription>
-                            <p>Delete this archived session?</p>
-                            <div class="flex flex-wrap gap-1 mt-1">
-                              <ActionButton
-                                type="button"
-                                variant="destructive"
-                                size="xs"
-                                tooltip="Confirm deletion of this archived session"
-                                onClick={() => props.onConfirmDelete()}
-                              >
-                                Delete
-                              </ActionButton>
-                              <ActionButton
-                                type="button"
-                                variant="outline"
-                                size="xs"
-                                tooltip="Cancel deletion of this archived session"
-                                onClick={() => props.onCancelDelete()}
-                              >
-                                Keep
-                              </ActionButton>
-                            </div>
-                          </AlertDescription>
-                        </Alert>
-                      </Show>
                     </li>
                   )}
                 </For>

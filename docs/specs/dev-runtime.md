@@ -1666,7 +1666,11 @@ header, scrolling region, footer, row styling, disclosure interaction, status
 chips, and focus treatment. Adea supplies runtime groups/projects/sessions,
 selection, persisted collapse IDs, and reorder callbacks; changing the shell
 does not change the commands or their authorization. Its archive shelf uses
-shared row, action, scrolling, empty-state, and alert components. Restore still
+shared row, action, scrolling, empty-state, alert, and focus-managed destructive
+confirmation components. Failed archive reads name their error and preserve
+previously loaded rows; absent archive timestamps are labeled unavailable rather
+than implying recency. A successful restore returns focus to the persistent shelf
+control if its removed button still held focus. Restore still
 calls the authenticated unarchive contract, and deletion still requires
 confirmation and reports the missing host contract rather than fabricating
 success. An unavailable provider can leave only the filter and archive controls
