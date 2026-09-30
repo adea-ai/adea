@@ -21,7 +21,8 @@ deploy source of truth (name, bindings, Hyperdrive, asset behavior) and
 `wrangler.config.ts` supplies the tooling-side asset directory;
 `cf-wrangler build` refreshes the Build Output under `.cloudflare/output/v0`
 and `cf deploy --prebuilt` uploads it. `cf previews deploy` publishes a
-preview version.
+preview version from the output built with `CLOUDFLARE_PREVIEW_BUILD=true`
+and `cf-wrangler build --mode preview`.
 
 The production `wrangler.jsonc` keeps `main` pointed at the source entry
 (`src/start/worker.ts`) because the Cloudflare Vite plugin requires that file
@@ -40,11 +41,18 @@ automatically, and no step rewrites `wrangler.jsonc`.
 2. **GitHub Actions deployment.** The repository-owned
    `.github/workflows/cloudflare-preview.yml` and
    `.github/workflows/cloudflare-production.yml` call the shared Code Foundry
-   Cloudflare workflow. Configure these repository secrets:
+   Cloudflare workflow at `v1.37.2`. This release packages the production Build
+   Output before the prebuilt upload; `v1.36.4` omitted that step and failed
+   with "no root config found" despite a successful Vite build. Configure these
+   repository secrets:
    - `CLOUDFLARE_API_TOKEN`: scoped to deploy the `adea-web` Worker
    - `CLOUDFLARE_ACCOUNT_ID`: `aa2dc82d7e02aff12b77800a8201df3f`
-     The workflows pass `deploy-tool: cf`: production runs `cf-wrangler
-build` + `cf deploy --prebuilt`, previews run `cf previews deploy`. After the first successful Actions deployment, disable
+     The workflows pass `deploy-tool: cf`: production runs
+     `cf-wrangler build` + `cf deploy --prebuilt`, previews run
+     `cf-wrangler build --mode preview` + `cf previews deploy --prebuilt`.
+     Verify the PR preview before merging and the production run on the resulting
+     main commit. The required validation checks do not include the post-merge
+     production deployment. After the first successful Actions deployment, disable
      the old Cloudflare Workers Builds GitHub integration so there is one deploy
      owner and no duplicate builds.
      Do NOT use the app's plain `bun run build` for a workflow trigger (it does
