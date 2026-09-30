@@ -16,6 +16,8 @@ import {
 import { createMemo, createSignal, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Board, BoardCardBody, BoardCardTitle } from '@adea-ai/ui/components/ui/board'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   Board,
@@ -27,6 +29,7 @@ import {
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
+import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import { cn } from '@adea-ai/app-ui/lib/utils'
@@ -106,33 +109,40 @@ const priorityIconFor = {
   urgent: ChevronsUp,
 } as const
 
-const kindIconFor = {
-  bug: Bug,
-  chore: Wrench,
-  feature: Sparkles,
+const priorityToneFor = {
+  high: 'warning',
+  low: 'neutral',
+  normal: 'info',
+  urgent: 'danger',
 } as const
+
+const priorityLabelFor = {
+  high: 'High',
+  low: 'Low',
+  normal: 'Normal',
+  urgent: 'Urgent',
+} as const
+
+const kindIconFor = { bug: Bug, chore: Wrench, feature: Sparkles } as const
 
 function PriorityTag(props: { priority: TaskSummary['priority'] }) {
   const Icon = priorityIconFor[props.priority]
   return (
-    <Tooltip>
-      <TooltipTrigger
-        as="span"
-        class={cn('conventional-priority', {
-          'conventional-priority--low': props.priority === 'low',
-          'conventional-priority--normal': props.priority === 'normal',
-          'conventional-priority--high': props.priority === 'high',
-          'conventional-priority--urgent': props.priority === 'urgent',
-        })}
-        aria-label={`Priority: ${props.priority}`}
-      >
-        <Icon aria-hidden="true" />
-      </TooltipTrigger>
-      <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
-        {props.priority}
-      </TooltipContent>
-    </Tooltip>
+    <StatusChip
+      tone={priorityToneFor[props.priority]}
+      label={`Priority: ${priorityLabelFor[props.priority]}`}
+      detail={`${priorityLabelFor[props.priority]} priority`}
+      compact
+      trailing={<Icon aria-hidden="true" />}
+    />
   )
+}
+
+export function canMoveTask(
+  task: Pick<TaskSummary, 'lifecycleState'>,
+  target: TaskSummary['lifecycleState']
+): boolean {
+  return validTransitions[task.lifecycleState].includes(target)
 }
 
 export function TaskBoard(props: Props) {
@@ -237,13 +247,16 @@ export function TaskBoard(props: Props) {
         >
           <div class="conventional-inline-form__header">
             <h2>Create Task</h2>
-            <Button
+            <ActionButton
               type="button"
               aria-label="Cancel Task creation"
+              tooltip="Cancel Task creation"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setCreating(false)}
             >
               <X aria-hidden="true" />
-            </Button>
+            </ActionButton>
           </div>
           <Label>
             Title
