@@ -10,6 +10,7 @@
  */
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 import { ChevronDown, ChevronRight, Search } from 'lucide-solid'
 import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
 
@@ -18,6 +19,7 @@ import type { ArchiveShelfState } from './archive-shelf-model'
 import { sessionBadges } from './badges'
 import { ArchiveShelf } from './archive-shelf'
 import { filterDevNavigationGroups } from './navigation-filter'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type SidebarReorderHandlers = {
   /** Keyboard move (Alt+Arrow) of a group. */
@@ -86,7 +88,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
       class={cn('dev-sidebar', { 'dev-sidebar--open': props.compactOpen })}
       aria-label="Projects and sessions"
     >
-      <label class="dev-search">
+      <Label class="dev-search">
         <Search aria-hidden="true" />
         <span class="sr-only">Filter projects and sessions</span>
         <Input
@@ -95,7 +97,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
           placeholder="Filter projects"
           onInput={(event) => setQuery(event.currentTarget.value)}
         />
-      </label>
+      </Label>
       <Show when={props.addProject}>{props.addProject}</Show>
       <Show when={props.repoRegistry}>{props.repoRegistry}</Show>
       <nav aria-label={props.navigationLabel ?? 'Dev projects'}>
@@ -128,7 +130,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                     dragged = undefined
                   }}
                 >
-                  <button
+                  <Button
                     type="button"
                     class="dev-tree-row dev-tree-row--group"
                     data-row-id={`group:${group.id}`}
@@ -159,7 +161,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                       <ChevronRight aria-hidden="true" />
                     </Show>
                     <span>{group.name}</span>
-                  </button>
+                  </Button>
                   <Show when={!groupCollapsed()}>
                     <For each={group.projects}>
                       {(project) => {
@@ -182,7 +184,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                               dragged = undefined
                             }}
                           >
-                            <button
+                            <Button
                               type="button"
                               class={cn('dev-tree-row', 'dev-tree-row--project', {
                                 'dev-tree-row--selected': props.selectedProject === project.id,
@@ -225,11 +227,11 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                               </Show>
                               <span>{project.name}</span>
                               <span class="dev-tree-row__count">{project.sessions.length}</span>
-                            </button>
+                            </Button>
                             <Show when={!projectCollapsed()}>
                               <For each={project.sessions}>
                                 {(session) => (
-                                  <button
+                                  <Button
                                     type="button"
                                     class={cn('dev-tree-row', 'dev-tree-row--session', {
                                       'dev-tree-row--selected':
@@ -266,7 +268,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                                         )}
                                       </For>
                                     </span>
-                                  </button>
+                                  </Button>
                                 )}
                               </For>
                             </Show>

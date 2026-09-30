@@ -1,6 +1,7 @@
 import { Show, createEffect, createMemo, createSignal, on, type JSX } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 import { ConversationSurface } from '@adea-ai/ui/components/conversation'
 import { TranscriptComposition } from '@adea-ai/ui/components/conversation/transcript-composition'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
@@ -205,7 +206,7 @@ function ChatTranscriptRow(props: {
       </Show>
       <Show when={props.item.role === 'question' && props.item.state === 'requested'}>
         <div class="dev-chat__question">
-          <label for={`dev-chat-question-${props.item.id}`}>Answer question</label>
+          <Label for={`dev-chat-question-${props.item.id}`}>Answer question</Label>
           <Input
             id={`dev-chat-question-${props.item.id}`}
             value={answer()}

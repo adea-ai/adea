@@ -9,6 +9,9 @@ import type {
 import { createFirstRunController, projectFirstRun } from './index'
 import { ChatRuntimeError } from '../model/commands'
 import './onboarding.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Label } from '@adea-ai/ui/components/ui/label'
+import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
 export type FirstRunOnboardingProps = Readonly<{
   facts: FirstRunFacts
@@ -95,10 +98,10 @@ export function FirstRunOnboarding(props: FirstRunOnboardingProps): JSX.Element 
           {state().installStatus}
         </p>
         <Show when={state().stage === 'compose'}>
-          <label class="dev-onboarding__label" for="dev-onboarding-prompt">
+          <Label class="dev-onboarding__label" for="dev-onboarding-prompt">
             Your first message
-          </label>
-          <textarea
+          </Label>
+          <Textarea
             id="dev-onboarding-prompt"
             class="dev-onboarding__prompt"
             value={prompt()}
@@ -110,14 +113,15 @@ export function FirstRunOnboarding(props: FirstRunOnboardingProps): JSX.Element 
         <div class="dev-onboarding__actions">
           <For each={state().actions}>
             {(action) => (
-              <button
+              <Button
                 type="button"
-                class="dev-button"
+                variant="outline"
+                size="sm"
                 disabled={pending() || (action.kind === 'start' && !prompt().trim())}
                 onClick={() => void act(action.kind)}
               >
                 {action.label}
-              </button>
+              </Button>
             )}
           </For>
         </div>

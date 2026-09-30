@@ -17,6 +17,7 @@ import type { DevRuntimeService } from '../platform'
 import { buildDevCommand } from '../browser/command'
 import { findResponsiveInventoryItem, groupDeviceInventory } from './device-model'
 import '../browser/browser-pane.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type DeviceInventoryPage = { items: readonly DeviceInventoryItem[] }
 export type DeviceSessionsPage = { items: readonly DeviceSession[] }
@@ -166,20 +167,26 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
             <Show
               when={responsiveSession()}
               fallback={
-                <button
+                <Button
                   type="button"
-                  class="dev-button"
+                  variant="outline"
+                  size="sm"
                   disabled={!props.runtimeSessionId}
                   onClick={startResponsive}
                 >
                   Start responsive session
-                </button>
+                </Button>
               }
             >
               {(session) => (
-                <button type="button" class="dev-button" onClick={() => stopDevice(session())}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => stopDevice(session())}
+                >
                   Stop responsive session ({session().state})
-                </button>
+                </Button>
               )}
             </Show>
           </div>
@@ -250,19 +257,21 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                               <Show
                                 when={attached()}
                                 fallback={
-                                  <button
+                                  <Button
                                     type="button"
-                                    class="dev-button"
+                                    variant="outline"
+                                    size="sm"
                                     disabled={item.state === 'unauthorized'}
                                     onClick={() => startDevice(item)}
                                   >
                                     Start
-                                  </button>
+                                  </Button>
                                 }
                               >
-                                <button
+                                <Button
                                   type="button"
-                                  class="dev-button"
+                                  variant="outline"
+                                  size="sm"
                                   onClick={() => {
                                     const session = (sessions()?.items ?? []).find(
                                       (entry) =>
@@ -272,7 +281,7 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                                   }}
                                 >
                                   Stop
-                                </button>
+                                </Button>
                               </Show>
                             </div>
                           )

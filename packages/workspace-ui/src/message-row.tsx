@@ -12,6 +12,7 @@ import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import type { PrivateContentResolver } from './platform'
 import { ConversationAvatar } from './conversation-avatar'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 // Intl.DateTimeFormat construction is surprisingly expensive; share one
 // formatter across every row instead of building it per binding evaluation.
@@ -211,13 +212,13 @@ export function MessageRow(props: {
           </Show>
           <Show when={props.task}>
             {(task) => (
-              <button
+              <Button
                 type="button"
                 class="conventional-task-link"
                 onClick={() => props.onOpenTask?.(task().id)}
               >
                 Task · {task().title}
-              </button>
+              </Button>
             )}
           </Show>
           <div class="conventional-message__meta">
@@ -239,7 +240,7 @@ export function MessageRow(props: {
         </div>
         <footer class="conventional-message__actions">
           <Show when={!props.message.threadRootMessageId && !props.message.deleted}>
-            <button
+            <Button
               type="button"
               onClick={() => props.onOpenThread?.(props.message.id)}
               onPointerEnter={() => props.onThreadIntent?.(props.message.id)}
@@ -247,25 +248,25 @@ export function MessageRow(props: {
             >
               <MessageSquareReply aria-hidden="true" />
               Thread
-            </button>
+            </Button>
           </Show>
           <Show when={props.onEdit && !props.message.deleted}>
-            <button type="button" onClick={() => props.onEdit?.()}>
+            <Button type="button" onClick={() => props.onEdit?.()}>
               <Pencil aria-hidden="true" />
               Edit
-            </button>
+            </Button>
           </Show>
           <Show when={props.onDelete && !props.message.deleted}>
-            <button type="button" onClick={() => props.onDelete?.()}>
+            <Button type="button" onClick={() => props.onDelete?.()}>
               <Trash2 aria-hidden="true" />
               Delete
-            </button>
+            </Button>
           </Show>
           <Show when={props.retry}>
-            <button type="button" onClick={() => props.retry?.()}>
+            <Button type="button" onClick={() => props.retry?.()}>
               <RotateCcw aria-hidden="true" />
               Retry
-            </button>
+            </Button>
           </Show>
         </footer>
       </div>

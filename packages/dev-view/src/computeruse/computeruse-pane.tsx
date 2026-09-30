@@ -19,6 +19,7 @@ import {
   type LaneActionKind,
 } from './computeruse-model'
 import '../browser/browser-pane.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type ComputerUseLanesPage = { items: readonly ComputerUseLane[] }
 
@@ -171,14 +172,15 @@ export function ComputerUsePane(props: { runtime: DevRuntimeService; runtimeSess
                     <span class="dev-browser__actions">
                       <For each={laneActions(lane)}>
                         {(action) => (
-                          <button
+                          <Button
                             type="button"
-                            class="dev-button"
+                            variant="outline"
+                            size="sm"
                             disabled={!action.enabled}
                             onClick={() => run(lane, action.kind)}
                           >
                             {action.label}
-                          </button>
+                          </Button>
                         )}
                       </For>
                     </span>

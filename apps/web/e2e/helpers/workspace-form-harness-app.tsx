@@ -8,6 +8,7 @@ import {
   EditRoomDialog,
   RenameConversationDialog,
 } from '../../../../packages/workspace-ui/src/create-workspace-dialogs'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 function Harness() {
   const [kind, setKind] = createSignal('')
@@ -20,11 +21,11 @@ function Harness() {
   const close = () => setKind('')
   return (
     <>
-      <button onClick={() => setKind('room')}>Open room</button>
-      <button onClick={() => setKind('edit')}>Open edit</button>
-      <button onClick={() => setKind('rename')}>Open rename</button>
-      <button onClick={() => setKind('group')}>Open group</button>
-      <button onClick={() => setKind('about')}>Open about</button>
+      <Button onClick={() => setKind('room')}>Open room</Button>
+      <Button onClick={() => setKind('edit')}>Open edit</Button>
+      <Button onClick={() => setKind('rename')}>Open rename</Button>
+      <Button onClick={() => setKind('group')}>Open group</Button>
+      <Button onClick={() => setKind('about')}>Open about</Button>
       <output aria-label="Requests">{JSON.stringify(calls())}</output>
       <Show when={kind() === 'room'}>
         <CreateRoomDialog open busy={false} template="home" onClose={close} onCreate={save} />
@@ -55,9 +56,9 @@ function Harness() {
       <Show when={kind() === 'about'}>
         <WorkspaceAboutDialog open onClose={close} platform="desktop" version="0.61.7" />
       </Show>
-      <button id="allow-success" onClick={() => setFail(false)}>
+      <Button id="allow-success" onClick={() => setFail(false)}>
         Allow success
-      </button>
+      </Button>
     </>
   )
 }

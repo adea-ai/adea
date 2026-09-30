@@ -7,6 +7,9 @@ import {
   type ConversationSearchRow,
 } from './conversation-search-model'
 import './chat-history-search.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 
 export type ChatHistorySearchProps = Readonly<{
   sessions: readonly RuntimeSession[]
@@ -38,8 +41,8 @@ export function ChatHistorySearch(props: ChatHistorySearchProps): JSX.Element {
 
   return (
     <section aria-label="Conversation history search" class="dev-history-search">
-      <label for="dev-history-search-input">Search conversations and runtime events</label>
-      <input
+      <Label for="dev-history-search-input">Search conversations and runtime events</Label>
+      <Input
         id="dev-history-search-input"
         value={query()}
         placeholder="Search prompts, tools, approvals, and statuses"
@@ -53,15 +56,15 @@ export function ChatHistorySearch(props: ChatHistorySearchProps): JSX.Element {
           <For each={page().items}>
             {(row) => (
               <li>
-                <button type="button" onClick={() => props.onJump?.(row.jump)}>
+                <Button type="button" onClick={() => props.onJump?.(row.jump)}>
                   <span>{row.title}</span>
                   <span>{row.kind}</span>
                   <span>{row.preview}</span>
-                </button>
+                </Button>
                 <Show when={row.resumable}>
-                  <button type="button" onClick={() => props.onResume?.(row)}>
+                  <Button type="button" onClick={() => props.onResume?.(row)}>
                     Resume generation {row.generation}
-                  </button>
+                  </Button>
                 </Show>
                 <Show when={!row.resumable && row.kind === 'run'}>
                   <span>Not resumable ({row.resumeReason?.replace('_', ' ')})</span>
@@ -73,9 +76,9 @@ export function ChatHistorySearch(props: ChatHistorySearchProps): JSX.Element {
       </Show>
       <Show when={page().nextCursor}>
         {(next) => (
-          <button type="button" onClick={() => setCursor(next())}>
+          <Button type="button" onClick={() => setCursor(next())}>
             Load more
-          </button>
+          </Button>
         )}
       </Show>
     </section>

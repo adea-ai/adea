@@ -25,6 +25,9 @@ import { keyedRows } from './keyed-rows'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { fuzzySearchMatch, searchKeyboardSelection } from './workspace-model'
 import type { PrivateContentResolver } from './platform'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 
 type SearchResult = WorkspaceSearchResult
 
@@ -264,10 +267,10 @@ export function WorkspaceSearchDialog(props: {
       title={props.scopeChannelId ? 'Search this conversation' : 'Search workspace'}
       description="Search Rooms, conversations, Agents, Tasks, Artifacts, and cloud-safe message text."
     >
-      <label class="conventional-search-field">
+      <Label class="conventional-search-field">
         <Search aria-hidden="true" />
         <span class="visually-hidden">Search workspace</span>
-        <input
+        <Input
           value={query()}
           onInput={(event) => setQuery(event.currentTarget.value)}
           placeholder="Find a Room, conversation, Agent, or Task"
@@ -287,7 +290,7 @@ export function WorkspaceSearchDialog(props: {
             }
           }}
         />
-      </label>
+      </Label>
       <ul
         id="workspace-search-results"
         class="conventional-search-results"
@@ -300,7 +303,7 @@ export function WorkspaceSearchDialog(props: {
             const result = entry.item
             return (
               <li role="presentation">
-                <button
+                <Button
                   id={`search-result-${index()}`}
                   ref={index() === selectedIndex() ? setSelected : undefined}
                   type="button"
@@ -317,7 +320,7 @@ export function WorkspaceSearchDialog(props: {
                     <strong>{result().label}</strong>
                     <small>{result().secondary}</small>
                   </span>
-                </button>
+                </Button>
               </li>
             )
           }}

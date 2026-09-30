@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.69.5](https://github.com/adea-ai/adea/compare/v0.69.4...v0.69.5) (2026-09-30)
+
+
+### Maintenance
+
+* **ui:** consume shared form controls and hardened lint ([#826](https://github.com/adea-ai/adea/issues/826)) ([0b212d1](https://github.com/adea-ai/adea/commit/0b212d100724226cf1cfc7425a99c15f51f9fa87))
+
+## [0.69.4](https://github.com/adea-ai/adea/compare/v0.69.3...v0.69.4) (2026-09-30)
+
+
+### Maintenance
+
+* **ui:** derive every palette from shared theme authority ([#827](https://github.com/adea-ai/adea/issues/827)) ([7221da1](https://github.com/adea-ai/adea/commit/7221da104ea3772df7c979bc334a0345364a8722))
+
+## [0.69.3](https://github.com/adea-ai/adea/compare/v0.69.2...v0.69.3) (2026-09-30)
+
+
+### Maintenance
+
+* **workspace:** compose every interactive control from the shared library ([#821](https://github.com/adea-ai/adea/issues/821)) ([a5ad546](https://github.com/adea-ai/adea/commit/a5ad546f7f4263c87cb0cfbaf3def90534c579e7))
+
+## [0.69.2](https://github.com/adea-ai/adea/compare/v0.69.1...v0.69.2) (2026-09-30)
+
+
+### Maintenance
+
+* consume @adea-ai/ui 0.81.0 — the wrapper rule learns composed primitives ([#823](https://github.com/adea-ai/adea/issues/823)) ([a6e64ea](https://github.com/adea-ai/adea/commit/a6e64ea6c74d0be9207c771f6db5ce96f0d9c6c6))
+
+## [0.69.1](https://github.com/adea-ai/adea/compare/v0.69.0...v0.69.1) (2026-09-30)
+
+
+### Maintenance
+
+* **code-foundry:** upgrade to v1.36.4 ([#820](https://github.com/adea-ai/adea/issues/820)) ([d3326cd](https://github.com/adea-ai/adea/commit/d3326cd5fb5a8434584bea6c40d10ea4955c29e2))
+
+## [0.69.0](https://github.com/adea-ai/adea/compare/v0.68.2...v0.69.0) (2026-09-30)
+
+
+### Features
+
+* enforce no-interactive-wrappers — generic elements dressed as controls ([#818](https://github.com/adea-ai/adea/issues/818)) ([0fe5d99](https://github.com/adea-ai/adea/commit/0fe5d994331bcffe99fef27b0549ca633bcca4db))
+
+## [0.68.2](https://github.com/adea-ai/adea/compare/v0.68.1...v0.68.2) (2026-09-30)
+
+
+### Maintenance
+
+* **workspace:** compose agent status, empty states, avatars, and settings rows from the shared library ([#813](https://github.com/adea-ai/adea/issues/813)) ([0588791](https://github.com/adea-ai/adea/commit/058879168bf3b90cdc8fecfb86c21abd8fab1ed0))
+
 ## [0.68.1](https://github.com/adea-ai/adea/compare/v0.68.0...v0.68.1) (2026-09-29)
 
 

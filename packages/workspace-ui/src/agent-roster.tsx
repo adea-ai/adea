@@ -5,6 +5,11 @@ import { createMemo, createSignal, For, Show } from 'solid-js'
 import { AgentStatus } from './agent-status'
 import { keyedRows } from './keyed-rows'
 import { WorkspaceEmpty } from './workspace-states'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
+import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
+import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
 export type AgentCustomizationInput = Readonly<{
   avatarRef: string | null
@@ -55,11 +60,11 @@ export function AgentRoster(props: Props) {
           <h1 id="agent-roster-title">Agents</h1>
           <p>Status reflects configuration only. Runtime availability arrives later.</p>
         </div>
-        <button type="button" class="conventional-primary-button" onClick={() => setCreating(true)}>
+        <Button type="button" onClick={() => setCreating(true)}>
           <Plus aria-hidden="true" />
           New Agent
           <Bot aria-hidden="true" />
-        </button>
+        </Button>
       </header>
       <Show when={creating()}>
         <AgentCreateForm
@@ -140,14 +145,14 @@ export function AgentRoster(props: Props) {
                   <strong>{entry.item().profile.state}</strong>
                 </p>
               </div>
-              <button type="button" onClick={() => void props.onMessage(entry.item().id)}>
+              <Button type="button" onClick={() => void props.onMessage(entry.item().id)}>
                 <MessageCircle aria-hidden="true" />
                 Open conversation
-              </button>
-              <button type="button" onClick={() => setEditingAgentId(entry.item().id)}>
+              </Button>
+              <Button type="button" onClick={() => setEditingAgentId(entry.item().id)}>
                 <Pencil aria-hidden="true" />
                 Customize
-              </button>
+              </Button>
             </article>
           )}
         </For>
@@ -194,67 +199,71 @@ function AgentCustomizationForm(props: {
           <h2>Customize {props.agent.name}</h2>
           <p>Stable identity · {props.agent.id}</p>
         </div>
-        <button
+        <Button
           type="button"
           aria-label="Close Agent customization"
           onClick={() => props.onCancel()}
         >
           <X aria-hidden="true" />
-        </button>
+        </Button>
       </div>
       <AgentStatus agent={props.agent} />
       <div class="conventional-form-grid">
-        <label>
+        <Label>
           Name
-          <input name="name" required maxLength={120} value={props.agent.name} />
-        </label>
-        <label>
+          <Input name="name" required maxLength={120} value={props.agent.name} />
+        </Label>
+        <Label>
           Room
-          <select name="roomId" value={props.agent.roomId ?? ''}>
-            <option value="">Unassigned</option>
-            <For each={props.rooms}>{(room) => <option value={room.id}>{room.name}</option>}</For>
-          </select>
-        </label>
-        <label class="conventional-form-grid__wide">
+          <NativeSelect
+            name="roomId"
+            value={props.agent.roomId ?? ''}
+            options={[
+              { value: '', label: 'Unassigned' },
+              ...props.rooms.map((room) => ({ value: room.id, label: room.name })),
+            ]}
+          />
+        </Label>
+        <Label class="conventional-form-grid__wide">
           Role or persona
-          <textarea
+          <Textarea
             name="roleSummary"
             rows={3}
             maxLength={500}
             value={props.agent.roleSummary ?? ''}
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Avatar reference
-          <input
+          <Input
             name="avatarRef"
             maxLength={500}
             value={props.agent.avatarRef ?? ''}
             placeholder="Optional stable asset reference"
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Character reference
-          <input
+          <Input
             name="characterRef"
             maxLength={500}
             value={props.agent.characterRef ?? ''}
             placeholder="Optional M4 character reference"
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           AgentProfile ID
-          <input name="profileId" required maxLength={120} value={props.agent.profile.id} />
-        </label>
-        <label>
+          <Input name="profileId" required maxLength={120} value={props.agent.profile.id} />
+        </Label>
+        <Label>
           AgentProfile version
-          <input
+          <Input
             name="profileVersion"
             required
             maxLength={64}
             value={props.agent.profile.version}
           />
-        </label>
+        </Label>
       </div>
       <p class="conventional-settings-note">
         Profile changes are explicit and create auditable Adea events. Model, runtime, tool policy,
@@ -262,20 +271,20 @@ function AgentCustomizationForm(props: {
       </p>
       <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
       <div class="conventional-agent-customization__actions">
-        <button type="submit" class="conventional-primary-button" disabled={props.busy}>
+        <Button type="submit" disabled={props.busy}>
           {props.busy ? 'Saving…' : 'Save changes'}
-        </button>
+        </Button>
         <Show
           when={archiveConfirmation()}
           fallback={
-            <button
+            <Button
               type="button"
               class="conventional-danger-button"
               disabled={props.busy}
               onClick={() => setArchiveConfirmation(true)}
             >
               Archive Agent
-            </button>
+            </Button>
           }
         >
           <div
@@ -288,16 +297,16 @@ function AgentCustomizationForm(props: {
               Archive this Agent? Durable conversations and history remain linked to its stable
               identity.
             </p>
-            <button
+            <Button
               type="button"
               disabled={props.busy}
               onClick={() => void props.onArchive(props.agent)}
             >
               Confirm archive
-            </button>
-            <button type="button" onClick={() => setArchiveConfirmation(false)}>
+            </Button>
+            <Button type="button" onClick={() => setArchiveConfirmation(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </Show>
       </div>
@@ -331,30 +340,30 @@ function AgentCreateForm(props: {
     >
       <div class="conventional-inline-form__header">
         <h2>Create Agent</h2>
-        <button type="button" aria-label="Cancel Agent creation" onClick={() => props.onCancel()}>
+        <Button type="button" aria-label="Cancel Agent creation" onClick={() => props.onCancel()}>
           <X aria-hidden="true" />
-        </button>
+        </Button>
       </div>
-      <label>
+      <Label>
         Name
-        <input name="name" required maxLength={120} />
-      </label>
-      <label>
+        <Input name="name" required maxLength={120} />
+      </Label>
+      <Label>
         Role or persona
-        <textarea name="roleSummary" rows={2} maxLength={500} />
-      </label>
-      <label>
+        <Textarea name="roleSummary" rows={2} maxLength={500} />
+      </Label>
+      <Label>
         Profile ID
-        <input name="profileId" required value="general" maxLength={120} />
-      </label>
-      <label>
+        <Input name="profileId" required value="general" maxLength={120} />
+      </Label>
+      <Label>
         Profile version
-        <input name="profileVersion" required value="1" maxLength={64} />
-      </label>
+        <Input name="profileVersion" required value="1" maxLength={64} />
+      </Label>
       <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
-      <button type="submit" class="conventional-primary-button" disabled={props.busy}>
+      <Button type="submit" disabled={props.busy}>
         {props.busy ? 'Creating…' : 'Create Agent'}
-      </button>
+      </Button>
     </form>
   )
 }

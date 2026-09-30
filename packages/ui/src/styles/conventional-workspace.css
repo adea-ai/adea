@@ -656,16 +656,6 @@
   justify-content: flex-end;
   gap: 0.45rem;
 }
-.conventional-conversation__actions .conventional-status-chip {
-  width: 0.55rem;
-  min-height: 0.55rem;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: var(--cw-accent);
-  color: transparent;
-  font-size: 0;
-}
 .conventional-conversation__people {
   min-width: 0;
   overflow: hidden;
@@ -1040,26 +1030,6 @@
 .conventional-composer__attachment-control {
   position: relative;
 }
-.conventional-primary-button {
-  display: inline-flex;
-  min-height: 2.4rem;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 0 0.75rem;
-  border: 0;
-  border-radius: 0.4rem;
-  background: var(--cw-accent-strong);
-  color: var(--cw-accent-contrast) !important;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.conventional-primary-button svg {
-  width: 1rem;
-  height: 1rem;
-  flex-shrink: 0;
-}
 .conventional-composer__attachments {
   display: flex;
   flex-wrap: wrap;
@@ -1277,9 +1247,6 @@
 .conventional-agent-card > p {
   grid-column: 1 / -1;
   margin: 0;
-}
-.conventional-agent-status--compact .conventional-status-chip {
-  white-space: nowrap;
 }
 .conventional-agent-card__metadata {
   grid-column: 1 / -1;
@@ -1697,16 +1664,6 @@
   margin-top: 1rem;
 }
 .conventional-detail-panel__actions button,
-.conventional-secondary-button {
-  display: inline-flex;
-  min-height: 2.5rem;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0 0.65rem;
-  border: 1px solid var(--cw-border);
-  border-radius: 0.4rem;
-  background: var(--cw-surface);
-}
 .conventional-detail-panel__status {
   min-height: 1.5rem;
   margin-top: 0.5rem;
@@ -2469,27 +2426,6 @@
   flex-wrap: wrap;
   gap: 0.35rem;
 }
-.conventional-status-chip {
-  display: inline-flex;
-  min-height: 1.45rem;
-  align-items: center;
-  padding: 0.15rem 0.45rem;
-  border: 1px solid var(--cw-border);
-  border-radius: 999px;
-  color: var(--cw-muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-}
-.conventional-status-chip--ready {
-  border-color: var(--cw-accent);
-  color: var(--cw-accent-strong);
-  background: var(--cw-accent-soft);
-}
-.conventional-status-chip--warning {
-  border-color: var(--cw-warning-border);
-  color: var(--cw-warning-foreground);
-  background: var(--cw-warning-surface);
-}
 .conventional-agent-customization {
   max-width: 52rem;
 }
@@ -2633,7 +2569,6 @@
   }
 }
 
-.conventional-empty,
 .conventional-error,
 .conventional-skeleton {
   display: grid;
@@ -2647,11 +2582,9 @@
   color: var(--cw-muted);
   text-align: center;
 }
-.conventional-empty h2,
 .conventional-error h2 {
   color: var(--cw-text);
 }
-.conventional-empty svg,
 .conventional-error svg {
   width: 2rem;
   height: 2rem;
@@ -2928,11 +2861,6 @@
   background: transparent;
   color: var(--muted-foreground);
 }
-.workspace-app-library__actions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
 .workspace-app-library__footer {
   display: flex;
   max-width: 52rem;
@@ -2959,10 +2887,6 @@
   }
   .workspace-app-library__search {
     flex: 1 1 12rem;
-  }
-  .workspace-app-library__actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
   }
 }
 @media (max-width: 48rem) {

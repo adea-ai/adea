@@ -20,6 +20,10 @@ state wherever the virtual view mounts.
 - Vite 8 (Rolldown) for the app and library builds, `tsc` for declarations and
   type-only packages ([decision 0008](docs/decisions/0008-build-bundler-vite-vs-bun.md))
 
+Published `@adea-ai/ui` source is excluded from the web server's dependency
+optimizer so the Solid plugin compiles it for SSR. This also applies to standalone
+authentication pages that render shared controls before hydration.
+
 ## Local development
 
 ```text

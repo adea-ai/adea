@@ -17,6 +17,10 @@ import { createMemo, createSignal, For, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
+import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
+import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { keyedRows } from './keyed-rows'
@@ -192,11 +196,11 @@ export function TaskBoard(props: Props) {
           <h1 id="task-board-title">Tasks</h1>
           <p>Execution status is intentionally separate from these durable planning records.</p>
         </div>
-        <button type="button" class="conventional-primary-button" onClick={() => setCreating(true)}>
+        <Button type="button" onClick={() => setCreating(true)}>
           <Plus aria-hidden="true" />
           New Task
           <ListTodo aria-hidden="true" />
-        </button>
+        </Button>
       </header>
       <Show when={creating()}>
         <form
@@ -220,43 +224,51 @@ export function TaskBoard(props: Props) {
         >
           <div class="conventional-inline-form__header">
             <h2>Create Task</h2>
-            <button
+            <Button
               type="button"
               aria-label="Cancel Task creation"
               onClick={() => setCreating(false)}
             >
               <X aria-hidden="true" />
-            </button>
+            </Button>
           </div>
-          <label>
+          <Label>
             Title
-            <input name="title" required maxLength={160} />
-          </label>
-          <label>
+            <Input name="title" required maxLength={160} />
+          </Label>
+          <Label>
             Objective
-            <textarea name="objective" required rows={3} maxLength={2_000} />
-          </label>
-          <label>
+            <Textarea name="objective" required rows={3} maxLength={2_000} />
+          </Label>
+          <Label>
             Priority
-            <select name="priority" value="normal">
-              <option value="low">Low</option>
-              <option value="normal">Normal</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
-          </label>
-          <label>
+            <NativeSelect
+              name="priority"
+              value="normal"
+              options={[
+                { value: 'low', label: 'Low' },
+                { value: 'normal', label: 'Normal' },
+                { value: 'high', label: 'High' },
+                { value: 'urgent', label: 'Urgent' },
+              ]}
+            />
+          </Label>
+          <Label>
             Type
-            <select name="kind" value="feature">
-              <option value="bug">Bug</option>
-              <option value="feature">Feature</option>
-              <option value="chore">Chore</option>
-            </select>
-          </label>
+            <NativeSelect
+              name="kind"
+              value="feature"
+              options={[
+                { value: 'bug', label: 'Bug' },
+                { value: 'feature', label: 'Feature' },
+                { value: 'chore', label: 'Chore' },
+              ]}
+            />
+          </Label>
           <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
-          <button type="submit" class="conventional-primary-button" disabled={props.busy}>
+          <Button type="submit" disabled={props.busy}>
             {props.busy ? 'Creating…' : 'Create Task'}
-          </button>
+          </Button>
         </form>
       </Show>
       <Show when={boardError()}>

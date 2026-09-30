@@ -6,6 +6,7 @@ import { ChatComposer, type ChatDraftChange, type ChatInputAuthority } from './c
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'
 import { statusLabel } from './presentation'
 import './chat.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type ChatViewProps = Readonly<{
   conversation: ChatConversation
@@ -187,14 +188,15 @@ export function ChatView(props: ChatViewProps): JSX.Element {
       <Show when={streamError() || needsReconnect()}>
         <div class="dev-chat__notice" role="alert">
           <p>{streamError() ?? 'Transcript needs a fresh runtime event window.'}</p>
-          <button
+          <Button
             type="button"
-            class="dev-button"
+            variant="outline"
+            size="sm"
             onClick={() => void attach()}
             disabled={!props.model}
           >
             Reconnect transcript
-          </button>
+          </Button>
         </div>
       </Show>
       <For each={[`${props.conversation.runtimeSessionId}:${props.conversation.generation}`]}>

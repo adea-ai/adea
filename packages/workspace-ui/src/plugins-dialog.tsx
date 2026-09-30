@@ -18,6 +18,8 @@ import {
   EmptyTitle,
 } from '@adea-ai/ui/components/ui/empty'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
+import { Label } from '@adea-ai/ui/components/ui/label'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import {
@@ -143,7 +145,7 @@ function PluginBrowserRow(props: {
   plugin: WorkspacePlugin
 }) {
   return (
-    <button
+    <Button
       type="button"
       class="plugins-browser__row"
       disabled={props.disabled}
@@ -163,7 +165,7 @@ function PluginBrowserRow(props: {
         </span>
       </span>
       <ChevronRight aria-hidden="true" />
-    </button>
+    </Button>
   )
 }
 
@@ -553,16 +555,12 @@ function NavigationPanel(props: { navigation: AppLibraryNavigation }) {
                 >
                   <ChevronDown aria-hidden="true" />
                 </Button>
-                <label class="plugins-navigation__visibility">
-                  <input
-                    type="checkbox"
-                    checked={!props.navigation.preferences.hidden.includes(item.id)}
-                    onChange={(event) =>
-                      props.navigation.onSetHidden(item.id, !event.currentTarget.checked)
-                    }
-                  />
-                  Show
-                </label>
+                <Checkbox
+                  class="plugins-navigation__visibility"
+                  label="Show"
+                  checked={!props.navigation.preferences.hidden.includes(item.id)}
+                  onChange={(checked: boolean) => props.navigation.onSetHidden(item.id, !checked)}
+                />
               </span>
             </li>
           )}
@@ -744,7 +742,7 @@ export function PluginsDialog(props: {
                     }
                     onOpenChange={setFilterOpen}
                   />
-                  <label class="plugins-browser__search">
+                  <Label class="plugins-browser__search">
                     <Search aria-hidden="true" />
                     <Input
                       type="search"
@@ -753,7 +751,7 @@ export function PluginsDialog(props: {
                       value={query()}
                       onInput={(event) => setQuery(event.currentTarget.value)}
                     />
-                  </label>
+                  </Label>
                   <span class="plugins-browser__count" role="status">
                     {status() === 'loading'
                       ? 'Loading plugins'

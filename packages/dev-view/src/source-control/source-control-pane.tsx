@@ -49,6 +49,9 @@ import {
   type WorktreeContext,
 } from '../files/worktree-context'
 import '../files/files-pane.css'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
 export type SourceControlPaneProps = Readonly<{
   runtime: DevRuntimeService
@@ -390,22 +393,24 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
             {(current) => branchLabel(current())}
           </Show>
         </strong>
-        <button
+        <Button
           type="button"
-          class="dev-icon-button"
+          variant="outline"
+          size="icon-sm"
           aria-label="Refresh status"
           onClick={() => void refresh()}
         >
           <RefreshCw aria-hidden="true" />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          class="dev-icon-button"
+          variant="outline"
+          size="icon-sm"
           aria-label="Fetch from origin"
           onClick={() => void fetch()}
         >
           <Download aria-hidden="true" />
-        </button>
+        </Button>
       </div>
       <Show when={notice()}>
         {(shown) => (
@@ -429,20 +434,21 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         }
       >
         <div class="dev-sc__commit">
-          <textarea
+          <Textarea
             aria-label="Commit message"
             placeholder={`Commit message (${(grouped().staged.length + grouped().unstaged.filter((entry) => entry.staged !== '.').length).toString()} staged files)`}
             value={message()}
             onInput={(event) => setMessage(event.currentTarget.value)}
           />
-          <button
+          <Button
             type="button"
-            class="dev-button"
+            variant="outline"
+            size="sm"
             disabled={grouped().staged.length === 0}
             onClick={() => void commitStaged()}
           >
             Commit staged
-          </button>
+          </Button>
         </div>
         <Show when={grouped().conflicted.length > 0}>
           <p class="dev-sc__section-title">Conflicts</p>
@@ -490,9 +496,9 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
             )}
           </For>
           <div class="dev-sc__actions">
-            <button type="button" class="dev-button" onClick={() => void loadHistory()}>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loadHistory()}>
               Load history
-            </button>
+            </Button>
           </div>
         </div>
         <Show when={diffTarget()}>
@@ -512,24 +518,24 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
                         <Show
                           when={diffMode() === 'staged'}
                           fallback={
-                            <button
+                            <Button
                               type="button"
                               class="dev-sc__hunk-action"
                               aria-label={`Stage hunk ${hunkIndex() + 1} of ${group.path}`}
                               onClick={() => void stageHunk(hunk, 'stage')}
                             >
                               Stage hunk
-                            </button>
+                            </Button>
                           }
                         >
-                          <button
+                          <Button
                             type="button"
                             class="dev-sc__hunk-action"
                             aria-label={`Unstage hunk ${hunkIndex() + 1} of ${group.path}`}
                             onClick={() => void stageHunk(hunk, 'unstage')}
                           >
                             Unstage hunk
-                          </button>
+                          </Button>
                         </Show>
                       </div>
                       <For each={renderUnifiedDiff([hunk]).slice(1)}>
@@ -807,16 +813,16 @@ function RemoteSection(props: {
         )}
       </Show>
       <div class="dev-sc__actions">
-        <button type="button" class="dev-button" onClick={() => void loadRepository()}>
+        <Button type="button" variant="outline" size="sm" onClick={() => void loadRepository()}>
           Refresh remote
-        </button>
+        </Button>
         <Show
           when={props.status?.headSha}
           fallback={<span class="dev-terminal-muted">no commits to push</span>}
         >
-          <button type="button" class="dev-button" onClick={() => void push()}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void push()}>
             {pushArmed() ? 'Confirm push' : 'Push'}
-          </button>
+          </Button>
         </Show>
       </div>
       <Show when={repository()}>
@@ -833,15 +839,20 @@ function RemoteSection(props: {
         when={pullRequest()}
         fallback={
           <div class="dev-sc__actions">
-            <input
+            <Input
               aria-label="Base branch for the new pull request"
               placeholder="base branch"
               value={prBase()}
               onInput={(event) => setPrBase(event.currentTarget.value)}
             />
-            <button type="button" class="dev-button" onClick={() => void createDraftPullRequest()}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void createDraftPullRequest()}
+            >
               Create draft PR
-            </button>
+            </Button>
           </div>
         }
       >
@@ -864,9 +875,9 @@ function RemoteSection(props: {
             </Show>
             <div class="dev-files__row">
               <span class="dev-files__badge">{checksLabel(checkSummary())}</span>
-              <button type="button" class="dev-files__delete" onClick={() => void loadChecks()}>
+              <Button type="button" class="dev-files__delete" onClick={() => void loadChecks()}>
                 Load checks
-              </button>
+              </Button>
             </div>
             <div class="dev-sc__list">
               <For each={checks()}>
@@ -881,9 +892,9 @@ function RemoteSection(props: {
               </For>
             </div>
             <div class="dev-sc__actions">
-              <button type="button" class="dev-button" onClick={() => void updateBranch()}>
+              <Button type="button" variant="outline" size="sm" onClick={() => void updateBranch()}>
                 {updateArmed() ? 'Confirm update branch' : 'Update branch (merge base)'}
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -909,7 +920,7 @@ function StatusRow(props: {
         : props.entry.unstaged
   return (
     <div class="dev-files__row">
-      <button
+      <Button
         type="button"
         class="dev-files__name"
         title={`${statusLabel(code())}: ${props.entry.path.relativePath}`}
@@ -921,22 +932,22 @@ function StatusRow(props: {
         }
       >
         {props.entry.path.relativePath}
-      </button>
+      </Button>
       <span class="dev-files__badge">{code()}</span>
       <Show when={props.onStage}>
-        <button type="button" class="dev-files__delete" onClick={() => props.onStage?.()}>
+        <Button type="button" class="dev-files__delete" onClick={() => props.onStage?.()}>
           Stage
-        </button>
+        </Button>
       </Show>
       <Show when={props.onUnstage}>
-        <button type="button" class="dev-files__delete" onClick={() => props.onUnstage?.()}>
+        <Button type="button" class="dev-files__delete" onClick={() => props.onUnstage?.()}>
           Unstage
-        </button>
+        </Button>
       </Show>
       <Show when={props.onDiscard}>
-        <button type="button" class="dev-files__delete" onClick={() => props.onDiscard?.()}>
+        <Button type="button" class="dev-files__delete" onClick={() => props.onDiscard?.()}>
           {props.discardArmed ? 'Confirm' : 'Discard'}
-        </button>
+        </Button>
       </Show>
     </div>
   )

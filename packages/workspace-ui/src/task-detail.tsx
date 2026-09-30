@@ -22,6 +22,9 @@ import {
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
+import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import {
   Drawer,
   DrawerCloseButton,
@@ -240,18 +243,18 @@ export function TaskDetail(props: Props) {
               <X aria-hidden="true" />
             </DrawerCloseButton>
           </header>
-          <label>
+          <Label>
             Title
-            <input
+            <Input
               value={title()}
               maxLength={200}
               disabled={fieldsDisabled()}
               onInput={(event) => setTitle(event.currentTarget.value)}
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Description
-            <textarea
+            <Textarea
               rows={4}
               maxLength={20000}
               placeholder={
@@ -263,7 +266,7 @@ export function TaskDetail(props: Props) {
               disabled={fieldsDisabled()}
               onInput={(event) => setObjective(event.currentTarget.value)}
             />
-          </label>
+          </Label>
           <Separator class="conventional-detail-panel__divider" />
           <div class="conventional-detail-panel__grid">
             <div class="conventional-detail-panel__field">
@@ -416,7 +419,7 @@ export function TaskDetail(props: Props) {
           <Separator class="conventional-detail-panel__divider" />
           <fieldset>
             <legend>Dependencies</legend>
-            <input
+            <Input
               type="search"
               placeholder="Search tasks…"
               aria-label="Search tasks to link as dependencies"
@@ -430,7 +433,7 @@ export function TaskDetail(props: Props) {
                   const selectedDependency = () => dependencyIds().includes(entry.item().id)
                   return (
                     <li>
-                      <button
+                      <Button
                         type="button"
                         aria-pressed={selectedDependency()}
                         disabled={fieldsDisabled()}
@@ -440,7 +443,7 @@ export function TaskDetail(props: Props) {
                           <Check aria-hidden="true" />
                         </Show>
                         <span>{entry.item().title}</span>
-                      </button>
+                      </Button>
                     </li>
                   )
                 }}
@@ -456,40 +459,40 @@ export function TaskDetail(props: Props) {
           </Show>
           <div class="conventional-detail-panel__actions">
             <Show when={props.task.lifecycleState === 'created'}>
-              <button type="button" onClick={() => void runImmediate(props.task, props.onQueue)}>
+              <Button type="button" onClick={() => void runImmediate(props.task, props.onQueue)}>
                 <Play aria-hidden="true" />
                 Start
-              </button>
+              </Button>
             </Show>
             <Show when={props.task.lifecycleState === 'queued'}>
-              <button type="button" onClick={() => void runImmediate(props.task, props.onStart)}>
+              <Button type="button" onClick={() => void runImmediate(props.task, props.onStart)}>
                 <Play aria-hidden="true" />
                 Begin work
-              </button>
+              </Button>
             </Show>
             <Show when={props.task.lifecycleState === 'in_progress'}>
-              <button type="button" onClick={() => void runImmediate(props.task, props.onReview)}>
+              <Button type="button" onClick={() => void runImmediate(props.task, props.onReview)}>
                 <Send aria-hidden="true" />
                 Submit for review
-              </button>
+              </Button>
             </Show>
             <Show when={selectableState()}>
-              <button type="button" onClick={() => void runImmediate(props.task, props.onComplete)}>
+              <Button type="button" onClick={() => void runImmediate(props.task, props.onComplete)}>
                 <CheckCircle2 aria-hidden="true" />
                 Complete
-              </button>
+              </Button>
             </Show>
             <Show when={selectableState()}>
-              <button type="button" onClick={() => void runImmediate(props.task, props.onCancel)}>
+              <Button type="button" onClick={() => void runImmediate(props.task, props.onCancel)}>
                 <Square aria-hidden="true" />
                 Cancel
-              </button>
+              </Button>
             </Show>
-            <button type="button" onClick={() => props.onOpenConversation(props.task)}>
+            <Button type="button" onClick={() => props.onOpenConversation(props.task)}>
               <MessageCircle aria-hidden="true" />
               Open conversation
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() =>
                 window.confirm('Archive this Task?') &&
@@ -498,7 +501,7 @@ export function TaskDetail(props: Props) {
             >
               <Archive aria-hidden="true" />
               Archive
-            </button>
+            </Button>
           </div>
           <div class="conventional-detail-panel__status" aria-live="polite">
             {status()}

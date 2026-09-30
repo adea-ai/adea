@@ -112,24 +112,6 @@ Security and dependency audits run through the GitHub Security workflow.
 
 Run the checks relevant to the change. For a release or security-sensitive change, run the complete set. Record the commands and results in the pull request.
 
-## Documentation stays in the same commit
-
-Docs-as-spec, not docs-as-archive:
-
-- The subsystem specs under `docs/specs/` are part of the code they describe. A
-  change to the behaviour a spec covers — the desktop auth handoff, the local
-  content authority, the desktop updater — updates that spec **in the same
-  commit**. A review should treat a stale spec as a failing check.
-- The router table in `AGENTS.md` says which spec to read before touching which
-  files. Adding a spec means adding its row.
-- `scripts/check-docs.mjs` (via `scripts/docs-boundary.test.ts`) fails the build
-  when a spec is orphaned, a routed spec is missing, or a relative link between
-  docs stops resolving. `scripts/theme-color-boundary.test.ts` does the same for
-  the color-token contract in `packages/ui/README.md`.
-
-Prose in a README may summarize a spec, but it must not be the only place a
-decision is recorded.
-
 ## Internal contribution workflow
 
 For maintainers, trusted contributors, and automation agents:
@@ -196,29 +178,14 @@ Keep pull requests focused and reviewable. Include screenshots or recordings for
 
 ## Workflow and check behavior
 
-| Event                                              | Expected automation                                                                                |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Draft pull request targeting `main`                | No runner-heavy validation; run local checks before requesting review                              |
-| Ready pull request targeting `main`                | Audit validation: CI, full tests, Security, and CodeQL, ending in `Validation / Gate`              |
-| Ready pull request that touches the desktop shell  | The row above, plus `Desktop shell`: client build, typecheck, lint, and the desktop boundary gates |
-| Exact Release Please pull request targeting `main` | Full validation: CI, full tests, Security, and CodeQL, ending in `Validation / Gate`               |
-| Scheduled or manual validation                     | Full audit tier                                                                                    |
-| Push to a working branch                           | Draft PR workflow                                                                                  |
-| Push to `main`                                     | Release workflow plus default-branch CodeQL scan; validation ran on the merged PR                  |
-
-`Validation / Gate` and `Desktop shell` are the required status checks on
-`main`. `Desktop shell` covers `apps/desktop` — the Electrobun (Bun + CEF)
-shell, its command surface, and the client it bundles — which the Code Foundry
-validation lanes do not build or typecheck on their own.
-
-A required check must report on **every** pull request, so `Desktop shell` runs
-unconditionally: it detects whether the desktop workspace changed and skips the
-build steps when it did not, concluding successfully in seconds. Requiring a
-path-filtered workflow instead would leave every pull request that touches none
-of its paths waiting for a check that never runs. The selector compares the
-immutable event commit trees with rename detection disabled, so deleting or
-renaming a matched desktop input still runs the gate. If the event refs cannot
-be validated or read, it runs the full desktop checks.
+| Event                                              | Expected automation                                                                   |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Draft pull request targeting `main`                | No runner-heavy validation; run local checks before requesting review                 |
+| Ready pull request targeting `main`                | Audit validation: CI, full tests, Security, and CodeQL, ending in `Validation / Gate` |
+| Exact Release Please pull request targeting `main` | Full validation: CI, full tests, Security, and CodeQL, ending in `Validation / Gate`  |
+| Scheduled or manual validation                     | Full audit tier                                                                       |
+| Push to a working branch                           | Draft PR workflow                                                                     |
+| Push to `main`                                     | Release workflow plus default-branch CodeQL scan; validation ran on the merged PR     |
 
 Draft pull requests do not start validation unless `draft_protection: false` is configured. The lightweight Draft Guard converts ordinary pull requests opened or reopened while ready back to draft; it never checks out pull-request code and it excludes Release Please version heads, whose release workflow owns their state. Marking a pull request ready for review starts the applicable validation tier, and each new commit on a ready pull request reruns that tier for the current head. Draft updates allocate no validation runner while protection is enabled. Converting a pull request to draft runs only the lightweight cancellation control.
 

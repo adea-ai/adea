@@ -64,9 +64,9 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
         fallback={
           <p role="alert">
             Rooms could not be loaded.{' '}
-            <button type="button" onClick={() => void rooms.refetch()}>
+            <Button type="button" onClick={() => void rooms.refetch()}>
               Retry
-            </button>
+            </Button>
           </p>
         }
       >

@@ -1,4 +1,7 @@
 import { createSignal, onMount, Show } from 'solid-js'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 
 type AuthMode = 'sign-in' | 'sign-up'
 
@@ -91,33 +94,33 @@ export function SignInForm(props: { returnTo: string }) {
   return (
     <>
       <div class="browser-auth-mode" aria-label="Choose authentication mode">
-        <button
+        <Button
           type="button"
           aria-pressed={mode() === 'sign-in'}
           onClick={() => changeMode('sign-in')}
         >
           Sign in
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           aria-pressed={mode() === 'sign-up'}
           onClick={() => changeMode('sign-up')}
         >
           Create account
-        </button>
+        </Button>
       </div>
 
       <form class="browser-auth-form" onSubmit={submit}>
         <Show when={mode() === 'sign-up'}>
-          <label for="name">
+          <Label for="name">
             Display name
-            <input id="name" name="name" autocomplete="name" required disabled={pending()} />
-          </label>
+            <Input id="name" name="name" autocomplete="name" required disabled={pending()} />
+          </Label>
         </Show>
 
-        <label for="email">
+        <Label for="email">
           Email
-          <input
+          <Input
             id="email"
             name="email"
             type="email"
@@ -126,11 +129,11 @@ export function SignInForm(props: { returnTo: string }) {
             required
             disabled={pending()}
           />
-        </label>
+        </Label>
 
-        <label for="password">
+        <Label for="password">
           Password
-          <input
+          <Input
             id="password"
             name="password"
             type="password"
@@ -139,13 +142,13 @@ export function SignInForm(props: { returnTo: string }) {
             required
             disabled={pending()}
           />
-        </label>
+        </Label>
 
         <p class="browser-auth-error" role="status" aria-live="polite">
           {error()}
         </p>
 
-        <button class="browser-auth-submit" type="submit" disabled={pending()}>
+        <Button type="submit" disabled={pending()}>
           {pending()
             ? mode() === 'sign-up'
               ? 'Creating account…'
@@ -153,7 +156,7 @@ export function SignInForm(props: { returnTo: string }) {
             : mode() === 'sign-up'
               ? 'Create account and continue'
               : 'Sign in and continue'}
-        </button>
+        </Button>
       </form>
     </>
   )

@@ -1,7 +1,15 @@
 import { AlertTriangle, Inbox, RefreshCw } from 'lucide-solid'
 import { For, Show, type JSX } from 'solid-js'
 import { ApiClientError } from '@adea-ai/api-client'
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@adea-ai/ui/components/ui/empty'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
+import { Button } from '@adea-ai/ui/components/ui/button'
 
 export function WorkspaceSkeleton(props: { label?: string }) {
   return (
@@ -19,12 +27,16 @@ export function WorkspaceSkeleton(props: { label?: string }) {
 
 export function WorkspaceEmpty(props: { action?: JSX.Element; detail: string; title: string }) {
   return (
-    <section class="conventional-empty" aria-labelledby="workspace-empty-title">
-      <Inbox aria-hidden="true" />
-      <h2 id="workspace-empty-title">{props.title}</h2>
-      <p>{props.detail}</p>
-      {props.action}
-    </section>
+    <Empty role="region" aria-labelledby="workspace-empty-title">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Inbox aria-hidden="true" />
+        </EmptyMedia>
+        <EmptyTitle>{props.title}</EmptyTitle>
+        <EmptyDescription>{props.detail}</EmptyDescription>
+      </EmptyHeader>
+      <Show when={props.action}>{props.action}</Show>
+    </Empty>
   )
 }
 
@@ -51,10 +63,10 @@ export function WorkspaceError(props: { error: unknown; retry?: () => void }) {
       </div>
       <Show when={props.retry}>
         {(retry) => (
-          <button type="button" class="conventional-secondary-button" onClick={() => retry()()}>
+          <Button type="button" variant="secondary" onClick={() => retry()()}>
             <RefreshCw aria-hidden="true" />
             Retry
-          </button>
+          </Button>
         )}
       </Show>
     </section>
