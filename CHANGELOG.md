@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.6](https://github.com/adea-ai/adea/compare/v0.69.5...v0.69.6) (2026-09-30)
+
+
+### Bug Fixes
+
+* restore Cloudflare deployment and configure checked dependency updates ([#816](https://github.com/adea-ai/adea/issues/816)) ([962323d](https://github.com/adea-ai/adea/commit/962323d3bcca43fcf0901ee4a45b4c727a5a44cc))
+
 ## [0.69.5](https://github.com/adea-ai/adea/compare/v0.69.4...v0.69.5) (2026-09-30)
 
 
