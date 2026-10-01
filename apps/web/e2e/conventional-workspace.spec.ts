@@ -2243,7 +2243,9 @@ test.describe('touch workspace sidebar actions', () => {
     }
   })
 
-  test('mobile Sheet reparenting preserves the persisted inline sidebar width', async ({ page }) => {
+  test('mobile Sheet reparenting preserves the persisted inline sidebar width', async ({
+    page,
+  }) => {
     await mockConnectedWorkspace(page)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.addInitScript(() => {
