@@ -17,6 +17,7 @@ import viteSolid from 'vite-plugin-solid'
 import {
   build as viteBuild,
   createServer as viteCreateServer,
+  type MinimalPluginContextWithoutEnvironment,
   type Plugin,
   type ResolvedConfig,
 } from 'vite'
@@ -162,7 +163,9 @@ async function resolvePluginConfig(
     command,
     createResolver: () => resolveId,
   } as unknown as ResolvedConfig
-  await handler.call(plugin, config)
+  // Rollup binds the plugin context as `this` when it runs a plugin hook. The
+  // hook never reads it, but its declared signature demands the full context.
+  await handler.call(plugin as unknown as MinimalPluginContextWithoutEnvironment, config)
 }
 
 function directives(fixture: Fixture, files: string[], stablePackagePath = fixture.linkedUiRoot) {
@@ -543,7 +546,7 @@ export { Calendar } from './components/ui/calendar'
       expect(transformed?.code).toContain('components/ui/calendar')
       const rootModule = await viteServer.moduleGraph.getModuleByUrl(uiRootUrl)
       expect(
-        [...rootModule.importedModules].some((module) => module.url.includes('/calendar/'))
+        [...(rootModule?.importedModules ?? [])].some((module) => module.url.includes('/calendar/'))
       ).toBe(true)
     } finally {
       await viteServer.close()

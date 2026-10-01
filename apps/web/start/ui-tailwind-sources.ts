@@ -409,9 +409,14 @@ async function collectDevLucideImports(
         `[adea-lucide-dev-shim] ${reason} runtime import of 'lucide-solid' in ${file}; use named icon imports so the dev shim can be checked without loading the full catalogue`
       )
     }
-    const names = imports.get(file) ?? new Set<string>()
-    for (const name of selection.names) names.add(name)
-    imports.set(file, names)
+    // Only a named import contributes icon names. An `execute` selection
+    // (a bare module import) records no names, so iterating `selection.names`
+    // here would have thrown on it at runtime.
+    if (selection.kind === 'named') {
+      const names = imports.get(file) ?? new Set<string>()
+      for (const name of selection.names) names.add(name)
+      imports.set(file, names)
+    }
   }
 
   const visit = async (path: string): Promise<void> => {
