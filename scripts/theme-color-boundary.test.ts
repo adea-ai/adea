@@ -1,22 +1,30 @@
 import { describe, expect, test } from 'bun:test'
 import { fileURLToPath } from 'node:url'
 
-import { BASELINE, TOKEN_FILES, scanSource, scanThemeColors } from './check-theme-colors.mjs'
+import {
+  BASELINE,
+  GENERATED_THEME_FILES,
+  scanSource,
+  scanThemeColors,
+} from './check-theme-colors.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
-// CSS custom properties are the only legal color surface: a component that
-// hardcodes a color cannot be rethemed, and the same color reappears with a
-// slightly different value in the next component. The scanner is exercised below
-// so the gate cannot pass by scanning nothing, and the baseline pins an exact
-// count per file so it shrinks rather than grows.
+// Palette literals belong to the generator-checked published theme projections,
+// not consumer custom properties. The scanner is exercised below so the gate
+// cannot pass by scanning nothing, and its finite baseline can only shrink.
 describe('theme color contract', () => {
   test('keeps the component surface free of color literals', async () => {
     const { offBaseline, stale } = await scanThemeColors(root)
 
     expect(
       offBaseline.map(
-        (entry) => `${entry.file}: ${entry.found} literals (baseline ${entry.allowed})`
+        (entry) =>
+          `${entry.file}: ${entry.found} literals (baseline ${entry.allowed})${
+            entry.overriddenTokens.length > 0
+              ? `; shared role overrides: ${entry.overriddenTokens.join(', ')}`
+              : ''
+          }`
       )
     ).toEqual([])
     // A baselined file that no longer has its literals must be removed from the
@@ -24,16 +32,52 @@ describe('theme color contract', () => {
     expect(stale.map((entry) => `${entry.file}: ${entry.literals}`)).toEqual([])
   })
 
-  test('flags a component literal but allows a token declaration', () => {
+  test('flags literals and rejects consumer-authored token values', () => {
     expect(
       scanSource(`export const Badge = () => <span style={{ color: '#1a7f37' }} />`, 'x.tsx')
-    ).toEqual([{ file: 'x.tsx', line: 1, literals: ['#1a7f37'] }])
+    ).toEqual([{ file: 'x.tsx', line: 1, literals: ['#1a7f37'], overriddenTokens: [] }])
     expect(scanSource(`.x { color: rgb(0 0 0 / 50%); }`, 'x.css')).toEqual([
-      { file: 'x.css', line: 1, literals: ['rgb(0 0 0 / 50%)'] },
+      { file: 'x.css', line: 1, literals: ['rgb(0 0 0 / 50%)'], overriddenTokens: [] },
     ])
-    // The declaration is where a literal becomes a token; its use is a token.
-    expect(scanSource(`  --success: #1a7f37;`, 'x.css')).toEqual([])
+    // Consumer aliases may refer to shared semantic tokens, but may not author
+    // another palette value under an arbitrary custom property.
+    expect(scanSource(`  --success: #1a7f37;`, 'x.css')).toEqual([
+      { file: 'x.css', line: 1, literals: ['#1a7f37'], overriddenTokens: ['--success'] },
+    ])
     expect(scanSource(`  color: var(--success);`, 'x.css')).toEqual([])
+    expect(scanSource(`  --private-brand: #1a7f37;`, 'x.css')[0]?.literals).toEqual(['#1a7f37'])
+  })
+
+  test('rejects canonical role overrides even when they only alias a value', () => {
+    expect(scanSource(`.workspace-shell { --background: var(--private-brand); }`, 'x.css')).toEqual(
+      [{ file: 'x.css', line: 1, literals: [], overriddenTokens: ['--background'] }]
+    )
+  })
+
+  test('scans declarations independently when several share one line', () => {
+    expect(scanSource(`--private: #123456; color: #abcdef;`, 'x.css')).toEqual([
+      { file: 'x.css', line: 1, literals: ['#123456', '#abcdef'], overriddenTokens: [] },
+    ])
+    expect(scanSource(`/* note #599 */ --background: var(--private);`, 'x.css')).toEqual([
+      { file: 'x.css', line: 1, literals: [], overriddenTokens: ['--background'] },
+    ])
+  })
+
+  test('limits generated palette allowance to generator-validated outputs', () => {
+    expect(GENERATED_THEME_FILES).toEqual([
+      'packages/ui/src/styles/canonical-themes.css',
+      'packages/ui/src/components/canonical-theme-data.ts',
+      'packages/ui/src/components/canonical-theme-css-data.ts',
+      'packages/ui/src/components/canonical-theme-meta.ts',
+    ])
+    expect(GENERATED_THEME_FILES).not.toContain('packages/ui/src/styles/theme.css')
+    expect(GENERATED_THEME_FILES).not.toContain('packages/ui/src/styles/workspace-shell.css')
+    expect(scanSource('--background: #123456; color: #abcdef;', GENERATED_THEME_FILES[0])).toEqual(
+      []
+    )
+  })
+
+  test('comments remain documentation and scanning resumes after them', () => {
     // Comments are documentation, not chrome.
     expect(scanSource(`/* was #1a7f37 */\n// see #123456`, 'x.tsx')).toEqual([])
     // A block comment's body is documentation on every line it spans, so an
@@ -44,15 +88,16 @@ describe('theme color contract', () => {
         'x.css'
       )
     ).toEqual([])
-    // The comment state must close: a literal after the comment still counts.
     expect(scanSource(`/* a\n b */\n.x { color: #123456; }`, 'x.css')).toEqual([
-      { file: 'x.css', line: 3, literals: ['#123456'] },
+      { file: 'x.css', line: 3, literals: ['#123456'], overriddenTokens: [] },
     ])
   })
 
   test('every baseline entry states why and names a real file', async () => {
-    expect(BASELINE.length).toBeGreaterThan(0)
-    expect(TOKEN_FILES).toContain('packages/ui/src/components/canonical-theme-css-data.ts')
+    expect(BASELINE.map(({ file, literals }) => [file, literals])).toEqual([
+      ['apps/web/src/start/routes/__root.tsx', 2],
+      ['packages/ui/src/styles/base.css', 26],
+    ])
     for (const entry of BASELINE) {
       expect(entry.literals).toBeGreaterThan(0)
       expect(entry.reason.length).toBeGreaterThan(20)
@@ -61,17 +106,13 @@ describe('theme color contract', () => {
     }
   })
 
-  test('the token layer and generated palettes are where literals are allowed', async () => {
-    expect(TOKEN_FILES).toContain('packages/ui/src/styles/theme.css')
-    expect(TOKEN_FILES).toContain('packages/ui/src/components/canonical-theme-data.ts')
-    expect(TOKEN_FILES).not.toContain('packages/ui/src/components/appearance.ts')
-    for (const file of TOKEN_FILES) {
+  test('only generated palette projections are exempt from literal scanning', async () => {
+    expect(GENERATED_THEME_FILES).not.toContain('packages/ui/src/styles/theme.css')
+    expect(GENERATED_THEME_FILES).toContain('packages/ui/src/components/canonical-theme-data.ts')
+    expect(GENERATED_THEME_FILES).not.toContain('packages/ui/src/components/appearance.ts')
+    for (const file of GENERATED_THEME_FILES) {
       const source = await Bun.file(`${root}${file}`).text()
-      if (file.endsWith('.css') || file.endsWith('canonical-theme-css-data.ts')) {
-        expect(source).toContain('--')
-      } else {
-        expect(source).toContain('Generated from the isolated @adea-ai/themes')
-      }
+      expect(source).toContain('Generated from the isolated @adea-ai/themes')
     }
   })
 })

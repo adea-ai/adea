@@ -109,18 +109,10 @@
      scattered through the rules below; a theme restates them here. The `-tint`
      token feeds the mixed background so it keeps the light hue in both themes,
      while the text token flips. */
-  --cw-notice: #d97706;
-  --cw-priority-high-tint: #a34f00;
-  --cw-priority-high: #a34f00;
-  --cw-warning-border: #b7791f;
-  --cw-warning-foreground: #8a4b08;
-  --cw-warning-surface: #fff4d6;
-  --cw-shadow-subtle: 0 0.15rem 0.4rem rgb(0 0 0 / 0.04);
-  --cw-shadow-raised: 0 0.35rem 1.2rem rgb(0 0 0 / 0.07);
-  --cw-shadow-floating: 0 12px 30px rgb(0 0 0 / 0.18);
-  --cw-shadow-modal: 0 24px 70px rgb(0 0 0 / 0.28);
-  --cw-shadow-drawer: 12px 0 38px rgb(0 0 0 / 0.25);
-  --cw-scrim: rgb(0 0 0 / 0.58);
+  --cw-notice: var(--info);
+  --cw-priority-high-tint: var(--warning-subtle);
+  --cw-priority-high: var(--warning);
+  --cw-scrim: color-mix(in oklab, var(--scrim) 58%, transparent);
 }
 
 .conventional-workspace {
@@ -591,7 +583,7 @@
   border: 1px solid var(--cw-border);
   border-radius: 0.5rem;
   background: var(--cw-surface);
-  box-shadow: var(--cw-shadow-floating);
+  box-shadow: var(--shadow-lg);
 }
 .conventional-attachment-menu {
   position: absolute;
@@ -605,7 +597,7 @@
   border: 1px solid var(--cw-border);
   border-radius: 0.5rem;
   background: var(--cw-surface);
-  box-shadow: var(--cw-shadow-floating);
+  box-shadow: var(--shadow-lg);
 }
 .conventional-mention-menu button {
   display: flex;
@@ -899,13 +891,7 @@
   background: color-mix(in srgb, var(--cw-priority-high-tint) 12%, transparent);
   color: var(--cw-priority-high);
 }
-/* Dark-mode status contrast stays independent of conversation depth. */
-.dark .conventional-workspace,
-.dark .conventional-dialog {
-  --cw-priority-high: #ffb86b;
-  --cw-warning-foreground: #ffd28a;
-  --cw-warning-surface: #3a2b14;
-}
+
 
 .conventional-detail-panel {
   height: 100%;
@@ -2061,7 +2047,7 @@
     height: auto;
     transform: translateX(-105%);
     transition: transform 0.18s ease;
-    box-shadow: var(--cw-shadow-drawer);
+    box-shadow: var(--shadow-xl);
   }
   .conventional-sidebar__resize {
     display: none;
