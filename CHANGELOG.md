@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.71.0](https://github.com/adea-ai/adea/compare/v0.70.14...v0.71.0) (2026-10-01)
+
+
+### Features
+
+* **dev-view:** adopt atomic chat composer ([#876](https://github.com/adea-ai/adea/issues/876)) ([5db1625](https://github.com/adea-ai/adea/commit/5db16258a785f9e89e04f083b02f278a3db24d1a))
+
+## [0.70.14](https://github.com/adea-ai/adea/compare/v0.70.13...v0.70.14) (2026-10-01)
+
+
+### Maintenance
+
+* **workspace-ui:** consume shared rail and account menu ([#855](https://github.com/adea-ai/adea/issues/855)) ([e094afd](https://github.com/adea-ai/adea/commit/e094afd2558774a1e21f898552977ede1e8373fd))
+
+## [0.70.13](https://github.com/adea-ai/adea/compare/v0.70.12...v0.70.13) (2026-10-01)
+
+
+### Bug Fixes
+
+* **workspace-ui:** wire search keys to cmdk's active-option contract ([39c0ae6](https://github.com/adea-ai/adea/commit/39c0ae6eb6f00e3b2e47cdc8bf697cc9d00d9a45))
+
+## [0.70.12](https://github.com/adea-ai/adea/compare/v0.70.11...v0.70.12) (2026-10-01)
+
+
+### Maintenance
+
+* **workspace-ui:** adopt shared catalog browser ([#856](https://github.com/adea-ai/adea/issues/856)) ([dd5fac8](https://github.com/adea-ai/adea/commit/dd5fac852cc035def887debcc28709d91863f862))
+
+## [0.70.11](https://github.com/adea-ai/adea/compare/v0.70.10...v0.70.11) (2026-10-01)
+
+
+### Bug Fixes
+
+* **theme:** enforce published palette authority ([#869](https://github.com/adea-ai/adea/issues/869)) ([60940b4](https://github.com/adea-ai/adea/commit/60940b43f410ecdfc66f04ff6a61c0b345450ea7))
+* **ui:** enforce shared class and action contracts ([#854](https://github.com/adea-ai/adea/issues/854)) ([f0f9201](https://github.com/adea-ai/adea/commit/f0f9201f5ed9ca3576935878946a56724a6c4355))
+
+## [0.70.10](https://github.com/adea-ai/adea/compare/v0.70.9...v0.70.10) (2026-10-01)
+
+
+### Bug Fixes
+
+* **web:** preflight shared UI Lucide dev exports ([#862](https://github.com/adea-ai/adea/issues/862)) ([c554b9f](https://github.com/adea-ai/adea/commit/c554b9f966e9d9b30a2b09546dbe7d76e358f65e))
+
+## [0.70.9](https://github.com/adea-ai/adea/compare/v0.70.8...v0.70.9) (2026-10-01)
+
+
+### Maintenance
+
+* consume shared App Library controls and action tooltips ([#845](https://github.com/adea-ai/adea/issues/845)) ([ad2d316](https://github.com/adea-ai/adea/commit/ad2d31633eae31902b75b0d905a6168fd16158e2))
+
 ## [0.70.8](https://github.com/adea-ai/adea/compare/v0.70.7...v0.70.8) (2026-10-01)
 
 

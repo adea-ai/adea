@@ -6,7 +6,6 @@ import {
   fuzzySearchMatch,
   parseAgentMentions,
   projectWorkspaceNavigation,
-  searchKeyboardSelection,
 } from '../../src/workspace-model'
 
 const room = (id: string, sortOrder: number): RoomSummary => ({
@@ -70,14 +69,6 @@ describe('conventional workspace projection', () => {
     ])
     expect(navigation.directAgentChannels.map(({ id }) => id)).toEqual(['agent-dm'])
     expect(navigation.groupChannels.map(({ id }) => id)).toEqual(['group-1'])
-  })
-
-  test('moves command-palette selection within bounds and opens with Enter', () => {
-    expect(searchKeyboardSelection('ArrowDown', 0, 3)).toEqual({ action: 'move', index: 1 })
-    expect(searchKeyboardSelection('ArrowDown', 2, 3)).toEqual({ action: 'move', index: 2 })
-    expect(searchKeyboardSelection('ArrowUp', 0, 3)).toEqual({ action: 'move', index: 0 })
-    expect(searchKeyboardSelection('Enter', 1, 3)).toEqual({ action: 'open', index: 1 })
-    expect(searchKeyboardSelection('Enter', 0, 0)).toEqual({ action: 'none', index: 0 })
   })
 
   test('fuzzy-matches command palette destinations without changing navigation ownership', () => {

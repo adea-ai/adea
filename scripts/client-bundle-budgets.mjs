@@ -6,7 +6,13 @@ import { gzipSync } from 'node:zlib'
 // catches total payload growth; the startup and view caps stop lazy features
 // from consuming startup headroom without being downloaded on initial load.
 export const CLIENT_BUNDLE_BUDGETS = {
-  total: { rawBytes: 2_350_000, gzipBytes: 700 * 1024, fileCount: 86 },
+  // Re-measured with the shared catalog browser (2026-10-01): 2,277,113 raw /
+  // 671,890 gzip across 88 files. The plugins dialog rewrite swaps its inline
+  // skeleton for the shared card/input-group/scroll-area chunks (net +2 files
+  // over the previous 86), and the file-count cap followed the same lesson the
+  // chat route documented: a cap pinned exactly to the last build leaves zero
+  // headroom, so every new shared chunk is a budget failure.
+  total: { rawBytes: 2_350_000, gzipBytes: 700 * 1024, fileCount: 90 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     virtual: { rawBytes: 14 * 1024, gzipBytes: 6 * 1024 },
@@ -26,8 +32,14 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // hand-rolled markup and is the point of the change. Re-measured for the
     // shared-UI 0.79 → 0.89.1 bump (2026-09-30): 10,999 raw / 4,060 gzip —
     // the shared Input chunk in this route's delta grew with the published
-    // editor row reflow; the page itself is unchanged.
-    appLibrary: { rawBytes: 11 * 1024, gzipBytes: 4 * 1024 },
+    // editor row reflow; the page itself is unchanged. Re-measured again for
+    // the shared catalog browser (2026-10-01): 11,433 raw / 4,209 gzip —
+    // the shared input-group now splits into its own chunk in this route's
+    // delta (the plugins dialog became a second importer). Ratcheted to the
+    // next whole KiB rather than the measured value; on a route this small one
+    // chunk split swings hundreds of bytes, and the old cap sat 61 bytes above
+    // main's own build.
+    appLibrary: { rawBytes: 12 * 1024, gzipBytes: 5 * 1024 },
     devShell: { rawBytes: 128 * 1024, gzipBytes: 40 * 1024 },
     devUtilityPanes: { rawBytes: 168 * 1024, gzipBytes: 56 * 1024 },
     devTerminal: { rawBytes: 768 * 1024, gzipBytes: 192 * 1024 },

@@ -1090,29 +1090,29 @@ test('browses the verified registry marketplace and submits an exact install req
   await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
   const plugins = page.getByRole('dialog', { name: 'Plugins' })
   await expect(plugins).toBeVisible()
-  await expect(plugins.locator('.plugins-browser__count')).toHaveText(/^\d+ plugins$/)
+  await expect(plugins.getByRole('status').first()).toHaveText(/^\d+ plugins$/)
 
-  const pluginGroups = plugins.locator('.plugins-browser__group')
+  const results = plugins.getByRole('region', { name: 'Plugin results', exact: true })
+  await expect(results).toHaveAttribute('tabindex', '0')
+  const pluginGroups = results.getByRole('region')
   const popularPlugins = pluginGroups.first()
   await expect(popularPlugins.getByRole('heading', { name: 'Popular' })).toBeVisible()
-  await expect(popularPlugins.locator('.plugins-browser__row')).toHaveCount(6)
+  await expect(popularPlugins.locator('[data-catalog-entry-id]')).toHaveCount(6)
   await expect(popularPlugins.getByRole('button', { name: /Gmail/ })).toBeVisible()
   await expect(popularPlugins.getByRole('button', { name: /GitHub/ })).toBeVisible()
   expect(
-    await pluginGroups
-      .locator('.plugins-browser__grid')
-      .evaluateAll((grids) =>
-        grids.every((grid) => grid.querySelectorAll('.plugins-browser__row').length <= 6)
-      )
+    await pluginGroups.evaluateAll((groups) =>
+      groups.every((group) => group.querySelectorAll('[data-catalog-entry-id]').length <= 6)
+    )
   ).toBe(true)
 
   const productivityPlugins = pluginGroups.filter({
     has: page.getByRole('heading', { name: 'Productivity', exact: true }),
   })
   await plugins.getByRole('button', { name: 'See Room Summaries, Todoist and more' }).click()
-  await expect(productivityPlugins.locator('.plugins-browser__row')).toHaveCount(9)
+  await expect(productivityPlugins.locator('[data-catalog-entry-id]')).toHaveCount(9)
   await productivityPlugins.getByRole('button', { name: 'Show less' }).click()
-  await expect(productivityPlugins.locator('.plugins-browser__row')).toHaveCount(6)
+  await expect(productivityPlugins.locator('[data-catalog-entry-id]')).toHaveCount(6)
 
   await plugins.getByRole('searchbox', { name: 'Search plugins' }).fill('github')
   await plugins.getByRole('button', { name: /GitHub/ }).click()
@@ -1151,6 +1151,7 @@ test('browses the verified registry marketplace and submits an exact install req
     )
   ).toEqual([])
   await plugins.getByRole('button', { name: 'Back to plugins' }).click()
+  await expect(plugins.getByRole('button', { name: /GitHub/ })).toBeFocused()
   await plugins.getByRole('tab', { name: 'Installed' }).click()
   await expect(plugins.getByText('No plugins added yet')).toBeVisible()
 })
@@ -1442,9 +1443,31 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
 
   await page.keyboard.press('Control+k')
   const globalSearch = page.getByRole('dialog', { name: 'Search workspace' })
-  await globalSearch.getByRole('textbox').fill('launch brief')
+  const searchInput = globalSearch.getByRole('combobox', { name: 'Search workspace' })
+  const results = globalSearch.getByRole('listbox', { name: 'Search results' })
+  const options = results.getByRole('option')
+  await expect(searchInput).toBeFocused()
+  await expect(options).toHaveCount(13)
+
+  const supportPrefetch = page.waitForRequest((request) =>
+    request.url().includes('/channels/channel-support/messages')
+  )
+  await searchInput.press('ArrowDown')
+  await searchInput.press('ArrowDown')
+  await searchInput.press('ArrowDown')
+  const supportChannel = globalSearch.getByRole('option', {
+    name: /Support Room conversation/,
+  })
+  await expect(supportChannel).toHaveAttribute('aria-selected', 'true')
+  expect(await searchInput.getAttribute('aria-controls')).toBe(await results.getAttribute('id'))
+  expect(await searchInput.getAttribute('aria-activedescendant')).toBe(
+    await supportChannel.getAttribute('id')
+  )
+  await supportPrefetch
+
+  await searchInput.fill('launch brief')
   await expect(globalSearch.getByRole('option', { name: /launch-brief\.md/ })).toBeVisible()
-  await expect(globalSearch.getByRole('textbox')).toBeFocused()
+  await expect(searchInput).toBeFocused()
   await expect(globalSearch.getByRole('option', { name: /launch-brief\.md/ })).toHaveAttribute(
     'aria-selected',
     'true'
@@ -1455,7 +1478,7 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
 
   await page.keyboard.press('Control+f')
   const conversationSearch = page.getByRole('dialog', { name: 'Search this conversation' })
-  await conversationSearch.getByRole('textbox').fill('durable')
+  await conversationSearch.getByRole('combobox', { name: 'Search workspace' }).fill('durable')
   await expect(conversationSearch.getByRole('option', { name: /durable workspace/ })).toBeVisible()
   await page.keyboard.press('Enter')
   // The shared message row signals `highlighted` with design tokens instead of
@@ -1470,6 +1493,33 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
   )
   await page.keyboard.press('Control+Shift+u')
   expect((await unreadRequest).postDataJSON()).toEqual({ action: 'unread' })
+})
+
+test('workspace search keeps duplicate destination labels tied to their domain identity', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  await page.goto('/')
+  // Control+k pressed during the first paint lands before the workspace
+  // installs its shortcut listener, so anchor on loaded chrome first.
+  await expect(page.getByLabel(/unread in Product/)).toBeVisible({ timeout: 15_000 })
+  await page.keyboard.press('Control+k')
+
+  const dialog = page.getByRole('dialog', { name: 'Search workspace' })
+  const input = dialog.getByRole('combobox', { name: 'Search workspace' })
+  const results = dialog.getByRole('listbox', { name: 'Search results' })
+  const room = results.getByRole('option', { name: 'Support Room', exact: true })
+  const channel = results.getByRole('option', { name: 'Support Room conversation', exact: true })
+  await expect(results.getByRole('option')).toHaveCount(13)
+
+  const channelPrefetch = page.waitForRequest((request) =>
+    request.url().includes('/channels/channel-support/messages')
+  )
+  await channel.hover()
+  await channelPrefetch
+  await expect(channel).toHaveAttribute('aria-selected', 'true')
+  await expect(room).toHaveAttribute('aria-selected', 'false')
+  expect(await input.getAttribute('aria-activedescendant')).toBe(await channel.getAttribute('id'))
 })
 
 test('global rail opens workspace search from Virtual and Dev', async ({ page }) => {
@@ -2144,7 +2194,13 @@ test('App Library description rows retain readable content and actions in narrow
           button.getBoundingClientRect()
         )
         return {
-          titleSeparatedFromLeading: !leading || !text || leading.right <= text.left + 1,
+          // A described row wraps its content below the leading icon when its
+          // own container query is active (row narrower than 28rem, which the
+          // 390px viewport hits at enlarged root font sizes), so the title can
+          // sit under the icon instead of beside it; the invariant is that the
+          // two never overlap.
+          titleSeparatedFromLeading:
+            !leading || !text || leading.right <= text.left + 1 || leading.bottom <= text.top + 1,
           controlsContained: controls.every(
             (control) =>
               control.left >= row.left - 1 &&

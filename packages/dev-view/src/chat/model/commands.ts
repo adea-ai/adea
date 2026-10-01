@@ -24,6 +24,7 @@ export class ChatRuntimeError extends Error {
 }
 
 export const CHAT_INPUT_SOURCE = 'chat_user' as const
+export const MAX_CHAT_PROMPT_CHARACTERS = 65_536
 
 export function makeChatUserInput(input: {
   runtimeSessionId: string
@@ -37,6 +38,12 @@ export function makeChatUserInput(input: {
       code: 'invalid_state',
       retryable: false,
       message: 'Chat input cannot be empty.',
+    })
+  if (text.length > MAX_CHAT_PROMPT_CHARACTERS)
+    throw new ChatRuntimeError({
+      code: 'invalid_state',
+      retryable: false,
+      message: `Chat prompts must be at most ${MAX_CHAT_PROMPT_CHARACTERS.toLocaleString()} characters.`,
     })
   return {
     runtimeSessionId: input.runtimeSessionId,
