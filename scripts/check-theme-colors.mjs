@@ -18,12 +18,26 @@ const SCAN_EXTENSIONS = ['.ts', '.tsx', '.css']
 const SKIP_DIRECTORIES = new Set(['node_modules', 'dist', 'target', '.turbo'])
 
 /**
- * Color literal shapes. Named colors are out of scope (`white`/`transparent`
- * are too ambiguous in class strings to be worth the false positives), and
+ * Non-keyword color literal shapes. CSS named colors are scanned separately
+ * in declaration values; TS/TSX class names and strings stay out of that scan.
  * CSS custom properties are not an exemption: values must come from the
  * published theme package or an exact finite baseline below.
  */
 const COLOR_LITERALS = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lch|lab|color)\([^)]*\)/g
+
+/** CSS Color 4 named color keywords. CSS-wide and semantic keywords are absent. */
+const CSS_NAMED_COLORS = new Set(
+  `aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen`.split(
+    ' '
+  )
+)
+
+/** Properties whose grammar accepts color values, plus every custom property. */
+const COLOR_PROPERTIES = new Set(
+  `accent-color background background-color background-image border border-bottom border-bottom-color border-color border-left border-left-color border-right border-right-color border-top border-top-color box-shadow caret-color color column-rule column-rule-color fill filter flood-color font lighting-color outline outline-color stroke text-decoration text-decoration-color text-emphasis text-emphasis-color text-fill-color text-shadow`.split(
+    ' '
+  )
+)
 
 /**
  * Exact outputs written and verified by packages/ui/scripts/generate-canonical-theme-data.ts.
@@ -160,29 +174,177 @@ export function scanSource(source, file) {
   if (GENERATED_THEME_FILES.includes(file)) return []
 
   source = stripBlockComments(source)
+  if (file.endsWith('.css')) return scanCssSource(source, file)
+
   const violations = []
   for (const [index, line] of source.split('\n').entries()) {
     const trimmed = line.trim()
     if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue
 
     const literals = [...line.matchAll(COLOR_LITERALS)].map(([literal]) => literal)
-    const overriddenTokens = []
-    if (file.endsWith('.css')) {
-      for (const [, token] of line.matchAll(/(--[a-zA-Z0-9-]+)\s*:\s*[^;{}]*/g)) {
-        if (SHARED_PALETTE_TOKENS.has(token)) overriddenTokens.push(token)
-      }
-    }
-    if (literals.length > 0 || overriddenTokens.length > 0) {
-      violations.push({ file, line: index + 1, literals, overriddenTokens })
-    }
+    if (literals.length > 0)
+      violations.push({ file, line: index + 1, literals, overriddenTokens: [] })
   }
   return violations
+}
+
+function scanCssSource(source, file) {
+  const byLine = new Map()
+  const add = (offset, literal, token) => {
+    const line = source.slice(0, offset).split('\n').length
+    const violation = byLine.get(line) ?? { file, line, literals: [], overriddenTokens: [] }
+    if (literal) violation.literals.push(literal)
+    if (token) violation.overriddenTokens.push(token)
+    byLine.set(line, violation)
+  }
+
+  for (const declaration of cssDeclarations(source)) {
+    const property = declaration.property.toLowerCase()
+    if (SHARED_PALETTE_TOKENS.has(property)) add(declaration.start, null, property)
+    const value = maskCssStringsAndUrls(declaration.value)
+    for (const match of value.matchAll(COLOR_LITERALS)) {
+      add(declaration.valueStart + match.index, match[0], null)
+    }
+    if (!property.startsWith('--') && !COLOR_PROPERTIES.has(property)) continue
+    for (const match of value.matchAll(/[a-z]+/gi)) {
+      const name = match[0].toLowerCase()
+      const before = value[match.index - 1]
+      const after = value[match.index + name.length]
+      // A color name inside a custom-property identifier (for example --red)
+      // names a token; it is not a palette value.
+      if (CSS_NAMED_COLORS.has(name) && before !== '-' && after !== '-') {
+        add(declaration.valueStart + match.index, match[0], null)
+      }
+    }
+  }
+  return [...byLine.values()].toSorted((left, right) => left.line - right.line)
+}
+
+/** Extract declarations while honoring strings, comments, and function syntax. */
+function cssDeclarations(source) {
+  const declarations = []
+  let segmentStart = 0
+  let quote = ''
+  let escaped = false
+  let parentheses = 0
+  let brackets = 0
+
+  const finish = (end) => {
+    const segment = source.slice(segmentStart, end)
+    const colon = findCssColon(segment)
+    if (colon < 0) return
+    const property = segment.slice(0, colon).trim()
+    if (!/^--[\w-]+$|^-?[a-z][\w-]*$/i.test(property)) return
+    const valueStart = segmentStart + colon + 1
+    declarations.push({
+      property,
+      start: segmentStart + segment.indexOf(property),
+      value: source.slice(valueStart, end),
+      valueStart,
+    })
+  }
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]
+    if (quote) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === '"' || character === "'") {
+      quote = character
+      continue
+    }
+    if (character === '(') parentheses += 1
+    else if (character === ')') parentheses = Math.max(0, parentheses - 1)
+    else if (character === '[') brackets += 1
+    else if (character === ']') brackets = Math.max(0, brackets - 1)
+    else if (parentheses === 0 && brackets === 0 && character === '{') {
+      segmentStart = index + 1
+    } else if (parentheses === 0 && brackets === 0 && character === ';') {
+      finish(index)
+      segmentStart = index + 1
+    } else if (parentheses === 0 && brackets === 0 && character === '}') {
+      finish(index)
+      segmentStart = index + 1
+    }
+  }
+  finish(source.length)
+  return declarations
+}
+
+function findCssColon(segment) {
+  let quote = ''
+  let escaped = false
+  let parentheses = 0
+  let brackets = 0
+  for (let index = 0; index < segment.length; index += 1) {
+    const character = segment[index]
+    if (quote) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === '"' || character === "'") quote = character
+    else if (character === '(') parentheses += 1
+    else if (character === ')') parentheses = Math.max(0, parentheses - 1)
+    else if (character === '[') brackets += 1
+    else if (character === ']') brackets = Math.max(0, brackets - 1)
+    else if (character === ':' && parentheses === 0 && brackets === 0) return index
+  }
+  return -1
+}
+
+/** Mask strings and url() payloads while preserving offsets for diagnostics. */
+function maskCssStringsAndUrls(value) {
+  const output = value.split('')
+  let quote = ''
+  let escaped = false
+  for (let index = 0; index < value.length; index += 1) {
+    if (quote) {
+      output[index] = ' '
+      if (escaped) escaped = false
+      else if (value[index] === '\\') escaped = true
+      else if (value[index] === quote) quote = ''
+      continue
+    }
+    if (value[index] === '"' || value[index] === "'") {
+      quote = value[index]
+      output[index] = ' '
+      continue
+    }
+    const url = value.slice(index).match(/^url\s*\(/i)
+    if (url) {
+      let depth = 0
+      let urlQuote = ''
+      let urlEscaped = false
+      for (let cursor = index; cursor < value.length; cursor += 1) {
+        const character = value[cursor]
+        output[cursor] = ' '
+        if (urlQuote) {
+          if (urlEscaped) urlEscaped = false
+          else if (character === '\\') urlEscaped = true
+          else if (character === urlQuote) urlQuote = ''
+        } else if (character === '"' || character === "'") urlQuote = character
+        else if (character === '(') depth += 1
+        else if (character === ')' && --depth === 0) {
+          index = cursor
+          break
+        }
+      }
+    }
+  }
+  return output.join('')
 }
 
 /** Replace block-comment characters but retain line breaks for stable locations. */
 function stripBlockComments(source) {
   let result = ''
   let inComment = false
+  let quote = ''
+  let escaped = false
   for (let index = 0; index < source.length; index += 1) {
     const current = source[index]
     const next = source[index + 1]
@@ -194,6 +356,18 @@ function stripBlockComments(source) {
       } else {
         result += current === '\n' ? '\n' : ' '
       }
+      continue
+    }
+    if (quote) {
+      result += current
+      if (escaped) escaped = false
+      else if (current === '\\') escaped = true
+      else if (current === quote) quote = ''
+      continue
+    }
+    if (current === '"' || current === "'" || current === '`') {
+      quote = current
+      result += current
       continue
     }
     if (current === '/' && next === '*') {

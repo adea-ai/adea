@@ -54,6 +54,35 @@ describe('theme color contract', () => {
     )
   })
 
+  test('flags CSS named colors in declarations and var fallbacks', () => {
+    expect(scanSource('.x { color: red; --private: white; }', 'x.css')).toEqual([
+      { file: 'x.css', line: 1, literals: ['red', 'white'], overriddenTokens: [] },
+    ])
+    expect(scanSource('.x { color: var(--semantic, rebeccapurple); }', 'x.css')).toEqual([
+      { file: 'x.css', line: 1, literals: ['rebeccapurple'], overriddenTokens: [] },
+    ])
+    expect(
+      scanSource('.x { background-image: linear-gradient(red, transparent); }', 'x.css')
+    ).toEqual([{ file: 'x.css', line: 1, literals: ['red'], overriddenTokens: [] }])
+    expect(scanSource('.x { --private: var(--semantic, white); }', 'x.css')).toEqual([
+      { file: 'x.css', line: 1, literals: ['white'], overriddenTokens: [] },
+    ])
+  })
+
+  test('ignores CSS strings, URLs, comments, and semantic token aliases', () => {
+    expect(
+      scanSource(
+        '.x { content: "red --background: blue"; background-image: url(red.png); color: var(--semantic, transparent); border-color: currentColor; outline-color: inherit; font-family: red; /* white */ }',
+        'x.css'
+      )
+    ).toEqual([])
+    expect(scanSource('.x { color: var(--semantic); }', 'x.css')).toEqual([])
+    expect(scanSource('.x { content: "/* red */"; color: blue; }', 'x.css')).toEqual([
+      { file: 'x.css', line: 1, literals: ['blue'], overriddenTokens: [] },
+    ])
+    expect(scanSource('const className = "text-red-500"', 'x.tsx')).toEqual([])
+  })
+
   test('scans declarations independently when several share one line', () => {
     expect(scanSource(`--private: #123456; color: #abcdef;`, 'x.css')).toEqual([
       { file: 'x.css', line: 1, literals: ['#123456', '#abcdef'], overriddenTokens: [] },
