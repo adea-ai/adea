@@ -208,7 +208,7 @@ export function WorkspaceSettingsDialog(props: {
         onChange={(value) => selectSection(value as SettingsSection)}
       >
         <TabsList
-          class="conventional-settings-nav w-full"
+          class="conventional-settings-nav w-full max-md:flex-wrap"
           appearance="segmented"
           aria-label="Settings sections"
         >
