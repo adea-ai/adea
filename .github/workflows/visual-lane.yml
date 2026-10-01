@@ -130,7 +130,9 @@ jobs:
             const page = await browser.newPage()
             for (let attempt = 1; attempt <= 3; attempt += 1) {
               try {
-                await page.goto('http://127.0.0.1:3000/', {
+                // Warm the heaviest spec graph (scene work + chat) so no
+                // spec's first paint races a dependency re-optimization.
+                await page.goto('http://127.0.0.1:3000/?view=chat&scene=work', {
                   waitUntil: 'domcontentloaded',
                   timeout: 60_000,
                 })
