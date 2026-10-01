@@ -356,7 +356,7 @@ export function ConventionalWorkspaceShell(props: {
                 setSelectedArtifactId(null)
                 setSurface('tasks')
               }}
-              onMarkAllRead={() => void controller.readStateActions.markAllRead()}
+              onMarkAllRead={() => controller.readStateActions.markAllRead()}
               onChannelIntent={prefetchChannelMessages}
               onSelectChannel={selectChannel}
               onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
