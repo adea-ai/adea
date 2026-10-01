@@ -2,10 +2,7 @@ import { env } from 'cloudflare:workers'
 import handler, { createServerEntry } from '@tanstack/solid-start/server-entry'
 
 import { readWorkspaceEntryAccess } from '../server/workspace-entry-access'
-import {
-  captureWorkerBindings,
-  hydrateSecretStoreBindings,
-} from '../server/worker-bindings'
+import { captureWorkerBindings, hydrateSecretStoreBindings } from '../server/worker-bindings'
 import { withRequestScope } from '../server/request-scope'
 import { runWithGateRequest } from '../server/gate-request-context'
 import {

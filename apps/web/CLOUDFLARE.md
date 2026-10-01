@@ -76,7 +76,7 @@ automatically, and no step rewrites `wrangler.jsonc`.
 4. **Hosted values** (never committed):
    Every hosted value the Worker reads from `process.env` is declared in
    `cloudflare.config.ts` — the deploy source of truth for `cf deploy
-   --prebuilt`, which replaces the whole binding set on every deploy. A value
+--prebuilt`, which replaces the whole binding set on every deploy. A value
    that exists only as a dashboard secret disappears on the next deploy (this
    is how the 2026-10-01 migration took the marketplace proxy and Neon Auth
    down until the bindings were restored), so:
@@ -90,21 +90,21 @@ automatically, and no step rewrites `wrangler.jsonc`.
      (`src/server/worker-bindings.ts`).
    - `wrangler.jsonc` carries the same set for the legacy wrangler deploy
      path; keep the two files in sync.
-   The Control Plane service credential (`adea-web-worker-v2`, Ed25519 key
-   `adea-web-2026-10`) expires 2027-10-01; rotate it in the store record
-   `AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN` and register the next
-   public key in the Control Plane's `CONTROL_PLANE_SERVICE_AUTH_TRUSTED_KEYS`
-   before then. Rotating `NEON_AUTH_COOKIE_SECRET` invalidates every Worker
-   session. To add a hosted value: create the store record, add the binding to
-   BOTH config files, and deploy.
-   Access is additionally gated by an account allowlist: set the
-   `ADEA_ALLOWED_EMAILS` variable (Worker → Settings → Variables, a
-   comma-separated list of email addresses) to restrict sign-in and workspace
-   access to those accounts and disable guest sessions. Unset or empty keeps
-   the default open behavior (any authenticated account plus guests).
-   Source values: the Cloudflare Secret Store is the source of truth for hosted
-   values (the `ADEA_*` records); `.env.local` (gitignored) keeps local
-   Development copies for day-to-day dev. Drop every `POSTGRES_*`/`PG*` duplicate of the same Neon role.
+     The Control Plane service credential (`adea-web-worker-v2`, Ed25519 key
+     `adea-web-2026-10`) expires 2027-10-01; rotate it in the store record
+     `AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN` and register the next
+     public key in the Control Plane's `CONTROL_PLANE_SERVICE_AUTH_TRUSTED_KEYS`
+     before then. Rotating `NEON_AUTH_COOKIE_SECRET` invalidates every Worker
+     session. To add a hosted value: create the store record, add the binding to
+     BOTH config files, and deploy.
+     Access is additionally gated by an account allowlist: set the
+     `ADEA_ALLOWED_EMAILS` variable (Worker → Settings → Variables, a
+     comma-separated list of email addresses) to restrict sign-in and workspace
+     access to those accounts and disable guest sessions. Unset or empty keeps
+     the default open behavior (any authenticated account plus guests).
+     Source values: the Cloudflare Secret Store is the source of truth for hosted
+     values (the `ADEA_*` records); `.env.local` (gitignored) keeps local
+     Development copies for day-to-day dev. Drop every `POSTGRES_*`/`PG*` duplicate of the same Neon role.
 5. **Local preview.** Copy `.dev.vars.example` to `.dev.vars` (gitignored),
    then `bun run preview`. Day-to-day dev is `bun run dev`, which runs the Vite
    dev server inside the Workers runtime using the same `wrangler.jsonc`

@@ -33,7 +33,11 @@ describe('Secrets Store binding hydration', () => {
   test('a failing store read leaves the variable absent instead of throwing', async () => {
     delete process.env.STORE_SECRET
     const env = {
-      STORE_SECRET: { get: async () => { throw new Error('store unavailable') } },
+      STORE_SECRET: {
+        get: async () => {
+          throw new Error('store unavailable')
+        },
+      },
     }
     await hydrateSecretStoreBindings(env)
     expect(process.env.STORE_SECRET).toBeUndefined()
