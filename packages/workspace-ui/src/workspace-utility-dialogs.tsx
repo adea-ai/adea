@@ -47,6 +47,15 @@ const searchResultIcon = (kind: SearchResult['kind']) =>
     <Hash aria-hidden="true" />
   )
 
+/**
+ * cmdk resolves `aria-activedescendant` through an `encodeURIComponent()`d
+ * `data-value` selector while items register their value raw, so the key has
+ * to survive `encodeURIComponent` unchanged or the combobox loses its active
+ * option for any result whose id contains a reserved character.
+ */
+const searchResultKey = (result: SearchResult) =>
+  encodeURIComponent(`${result.kind}:${result.id}`).replaceAll('%', '_')
+
 export function WorkspaceSearchDialog(props: {
   agents: readonly AgentSummary[]
   artifacts: readonly ArtifactSummary[]
@@ -243,7 +252,7 @@ export function WorkspaceSearchDialog(props: {
   })
   // Result sets churn per keystroke; keying rows keeps DOM (and selection
   // scroll position) stable for results that survive the merge.
-  const resultRows = keyedRows(results, (result) => `${result.kind}:${result.id}`)
+  const resultRows = keyedRows(results, searchResultKey)
 
   createEffect(() => {
     void debouncedQuery()
@@ -310,8 +319,7 @@ export function WorkspaceSearchDialog(props: {
                 >
                   {searchResultIcon(result().kind)}
                   <span>
-                    <strong>{result().label}</strong>
-                    <small>{result().secondary}</small>
+                    <strong>{result().label}</strong> <small>{result().secondary}</small>
                   </span>
                 </CommandItem>
               )

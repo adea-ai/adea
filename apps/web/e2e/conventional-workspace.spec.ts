@@ -1499,6 +1499,9 @@ test('workspace search keeps duplicate destination labels tied to their domain i
 }) => {
   await mockWorkspace(page)
   await page.goto('/')
+  // Control+k pressed during the first paint lands before the workspace
+  // installs its shortcut listener, so anchor on loaded chrome first.
+  await expect(page.getByLabel(/unread in Product/)).toBeVisible({ timeout: 15_000 })
   await page.keyboard.press('Control+k')
 
   const dialog = page.getByRole('dialog', { name: 'Search workspace' })
