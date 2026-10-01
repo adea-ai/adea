@@ -19,7 +19,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { FileTreeNode } from '../src/files/files-model'
-import { rowWindow } from '../src/files/row-window'
+import { RowGeometry, rowWindow } from '../src/files/row-window'
 import { visibleRows } from '../src/files/files-model'
 
 const WIDE = 100_000
@@ -88,19 +88,20 @@ describe('files model at scale', () => {
     // The window math is what keeps a 100k-row tree from mounting 100k rows,
     // so pin it against a total that large — the existing row-window tests use
     // totals in the hundreds.
+    const geometry = new RowGeometry()
+    const ids = Array.from({ length: WIDE + 1 }, (_, index) => `row-${index}`)
+    geometry.replaceItems(ids)
+    geometry.applyMeasurements(ids.map((id) => ({ id, blockSize: 24 })))
     const slice = rowWindow({
-      pinIndex: undefined,
-      rowHeight: 24,
+      geometry,
       scrollTop: 48_000,
-      total: WIDE + 1,
       viewportHeight: 600,
     })
     expect(slice.start).toBeGreaterThan(0)
     expect(slice.end - slice.start).toBeLessThan(200)
-    // padTop stands in for the rows above the window, so it tracks `start`,
-    // which sits OVERSCAN rows above the first visible one.
-    expect(slice.padTop).toBe(slice.start * 24)
-    expect(slice.padTop).toBeLessThan(48_000)
+    // The variable-height offset stands in for rows before the mounted window.
+    expect(slice.offset).toBe(slice.start * 24)
+    expect(slice.offset).toBeLessThan(48_000)
     expect(slice.start).toBeLessThanOrEqual(WIDE)
     expect(slice.end).toBeLessThanOrEqual(WIDE + 1)
   }, 10_000)

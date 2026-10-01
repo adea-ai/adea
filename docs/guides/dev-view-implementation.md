@@ -360,6 +360,18 @@ Port Terax component composition to Solid and CodeMirror 6:
 - `src/modules/source-control/SourceControlPanel.tsx:90-106`;
 - `src/app/App.tsx:1443-1468`.
 
+`FileExplorer.tsx` imports `EntryRow` and `PendingRow` from
+[`TreeRow.tsx:17-190`](https://github.com/crynta/terax-ai/blob/b02a7dcbfe58d22b2352d9618b8ed3199e317a00/src/modules/explorer/TreeRow.tsx#L17-L190).
+That directly used unit was missing from the original source list, so the
+manifest now records its SHA-256 and the donor's Apache-2.0 license-file hash.
+The Solid Files pane keeps its disclosure, leading file/folder affordance,
+truncated label/status, and trailing actions through shared `Tree`/`TreeRow`
+slots. Shared UI owns tree semantics and keyboard focus; the host retains the
+file projection, expansion and activation policy, `DevRuntimeService` calls,
+variable-height range math, and scroll anchoring through `VirtualWindow`.
+The component-scoped fixture covers the production `FilesPane` with a fixture
+transport; it does not prove reachability through the mounted application route.
+
 Preserve information hierarchy, file/status rows, editor/diff switching, and
 diff review interactions. Replace React effects/context with Solid owners and
 resources; replace Tauri invokes with `DevRuntimeService`.

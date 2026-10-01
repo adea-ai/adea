@@ -8,16 +8,7 @@
  */
 import type { FileEntry, Scope } from '@adea-ai/types/dev-runtime'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import {
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  File as FileIcon,
-  Folder,
-  Pencil,
-  RefreshCw,
-  Search,
-} from 'lucide-solid'
+import { Copy, File as FileIcon, Folder, Pencil, RefreshCw, Search } from 'lucide-solid'
 import { For, Show, createMemo, createResource, createSignal, onCleanup, type JSX } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
@@ -30,7 +21,7 @@ import {
   type FileTreeNode,
   type ModificationMarker,
 } from './files-model'
-import { FILES_ROW_HEIGHT_PX, rowWindow } from './row-window'
+import { RowGeometry, rowWindow } from './row-window'
 import {
   CONTENT_SEARCH_LIMIT,
   contentSearchBody,
@@ -54,6 +45,7 @@ import './files-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Tree, TreeRow, type TreeItemDescriptor } from '@adea-ai/ui/components/composites/tree'
 import { VirtualWindow } from '@adea-ai/ui/components/layout/virtual-window'
 
 export type FilesPaneProps = Readonly<{
@@ -108,7 +100,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   // so what is on screen decides what exists in the DOM.
   const [scrollTop, setScrollTop] = createSignal(0)
   const [viewportHeight, setViewportHeight] = createSignal(0)
-  const [focusedRow, setFocusedRow] = createSignal<number | undefined>(undefined)
+  const [activeRowId, setActiveRowId] = createSignal<string | null>(null)
   let treeElement: HTMLDivElement | undefined
   // Marker cache: the files pane follows the same watcher-lane honesty
   // contract as the source-control pane (#399 residue) — invalidation and
@@ -679,17 +671,47 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   // `rowSlice().total`, which nothing displays while the list is hidden, so it
   // is measured from the unfiltered tree.
   const rows = createMemo(() => visibleRows(nodes(), expanded()))
-
-  const rowSlice = createMemo(() =>
-    rowWindow({
-      pinIndex: focusedRow(),
-      rowHeight: FILES_ROW_HEIGHT_PX,
-      scrollTop: scrollTop(),
-      total: rows().length,
-      viewportHeight: viewportHeight(),
+  const rowGeometryModel = new RowGeometry()
+  const [geometryRevision, setGeometryRevision] = createSignal(0)
+  const rowGeometry = createMemo(() => {
+    rowGeometryModel.replaceItems(rows().map((row) => row.node.relativePath))
+    return rowGeometryModel
+  })
+  const treeItems = createMemo(() =>
+    rows().map((row): TreeItemDescriptor => {
+      const id = row.node.relativePath
+      const parentEnd = id.lastIndexOf('/')
+      return {
+        id,
+        parentId: parentEnd === -1 ? null : id.slice(0, parentEnd),
+        level: row.depth + 1,
+        expandable: row.hasChildren,
+        expanded: row.hasChildren && expanded().has(id),
+      }
     })
   )
+  const treeItemById = createMemo(() => new Map(treeItems().map((item) => [item.id, item])))
+  const rowSlice = createMemo(() => {
+    // Read rows directly because the geometry memo mutates its stable Fenwick
+    // tree in place as the visible projection changes.
+    rows()
+    geometryRevision()
+    const geometry = rowGeometry()
+    return rowWindow({
+      geometry,
+      pinIndex: activeRowId() === null ? undefined : geometry.indexOf(activeRowId()!),
+      scrollTop: scrollTop(),
+      viewportHeight: viewportHeight(),
+    })
+  })
   const windowedRows = createMemo(() => rows().slice(rowSlice().start, rowSlice().end))
+  const pendingMeasurements = new Map<string, number>()
+  let pendingRevealId: string | undefined
+  let measurementFrame: number | undefined
+  let measurementScheduled = false
+  let measurementsDisposed = false
+  let viewportObserver: ResizeObserver | undefined
+  let viewportFrame: number | undefined
 
   /** Measures the scroll container; a pane that has never been measured still
    *  renders its first window, and this corrects it on the first frame. */
@@ -698,6 +720,136 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     setViewportHeight(treeElement.clientHeight)
     setScrollTop(treeElement.scrollTop)
   }
+
+  function attachTree(element: HTMLDivElement): void {
+    treeElement = element
+    measureTree()
+    if (typeof ResizeObserver !== 'undefined') {
+      viewportObserver?.disconnect()
+      viewportObserver = new ResizeObserver(measureTree)
+      viewportObserver.observe(element)
+    }
+    if (typeof requestAnimationFrame === 'function') {
+      if (viewportFrame !== undefined) cancelAnimationFrame(viewportFrame)
+      viewportFrame = requestAnimationFrame(() => {
+        viewportFrame = undefined
+        measureTree()
+      })
+    }
+    if (pendingRevealId !== undefined) revealTreeItem(pendingRevealId)
+  }
+
+  function flushRowMeasurements(): void {
+    measurementScheduled = false
+    measurementFrame = undefined
+    if (measurementsDisposed || pendingMeasurements.size === 0) return
+
+    const geometry = rowGeometry()
+    const element = treeElement
+    const oldScrollTop = element?.scrollTop ?? scrollTop()
+    const oldViewportHeight = element?.clientHeight ?? viewportHeight()
+    const oldTotalSize = geometry.totalSize
+    const atBottom = geometry.isMeasured && oldScrollTop + oldViewportHeight >= oldTotalSize - 2
+    const distanceFromBottom = Math.max(0, oldTotalSize - oldScrollTop - oldViewportHeight)
+    const anchorIndex = geometry.indexAtOffset(oldScrollTop)
+    const anchorId = geometry.idAt(anchorIndex)
+    const anchorOffset = oldScrollTop - geometry.offsetAt(anchorIndex)
+    const changed = geometry.applyMeasurements(
+      [...pendingMeasurements].map(([id, blockSize]) => ({ id, blockSize }))
+    )
+    pendingMeasurements.clear()
+    if (!changed) return
+
+    // Resizing rows above the viewport must not move the user's current item;
+    // when already at the end, preserve the same distance from the end instead.
+    setGeometryRevision((revision) => revision + 1)
+    if (element) {
+      const nextIndex = anchorId === undefined ? -1 : geometry.indexOf(anchorId)
+      const desiredTop = atBottom
+        ? geometry.totalSize - oldViewportHeight - distanceFromBottom
+        : nextIndex >= 0
+          ? geometry.offsetAt(nextIndex) + anchorOffset
+          : oldScrollTop
+      const maxScrollTop = Math.max(0, geometry.totalSize - oldViewportHeight)
+      element.scrollTop = Math.max(0, Math.min(maxScrollTop, desiredTop))
+      setViewportHeight(element.clientHeight)
+      setScrollTop(element.scrollTop)
+    }
+    if (pendingRevealId !== undefined) revealTreeItem(pendingRevealId)
+  }
+
+  function queueRowMeasurement(id: string, blockSize: number): void {
+    if (measurementsDisposed || !Number.isFinite(blockSize) || blockSize <= 0) return
+    pendingMeasurements.set(id, blockSize)
+    if (measurementScheduled) return
+    measurementScheduled = true
+    if (typeof requestAnimationFrame === 'function') {
+      measurementFrame = requestAnimationFrame(flushRowMeasurements)
+    } else {
+      queueMicrotask(flushRowMeasurements)
+    }
+  }
+
+  function revealTreeItem(id: string): void {
+    if (filter().length > 0) {
+      pendingRevealId = undefined
+      return
+    }
+    const geometry = rowGeometry()
+    const index = geometry.indexOf(id)
+    if (index < 0) {
+      pendingRevealId = undefined
+      return
+    }
+    if (!treeElement || !geometry.isMeasured) {
+      pendingRevealId = id
+      return
+    }
+    pendingRevealId = undefined
+
+    const top = geometry.offsetAt(index)
+    const bottom = top + geometry.blockSizeAt(index)
+    const currentScrollTop = treeElement.scrollTop
+    const viewportBottom = currentScrollTop + treeElement.clientHeight
+    const nextScrollTop =
+      top < currentScrollTop
+        ? top
+        : bottom > viewportBottom
+          ? bottom - treeElement.clientHeight
+          : currentScrollTop
+    if (nextScrollTop === currentScrollTop) return
+    treeElement.scrollTop = Math.max(0, nextScrollTop)
+    setScrollTop(treeElement.scrollTop)
+  }
+
+  function activateTreeItem(id: string): void {
+    const node = findNode(nodes(), id)
+    if (!node) return
+    if (node.kind === 'directory') void toggleDirectory(node)
+    else void openFile(node)
+  }
+
+  function setTreeItemExpanded(id: string, shouldExpand: boolean): void {
+    const node = findNode(nodes(), id)
+    if (!node || node.kind !== 'directory') return
+    if (!shouldExpand) {
+      const next = new Set(expanded())
+      next.delete(id)
+      setExpanded(next)
+    } else if (!expanded().has(id)) {
+      void toggleDirectory(node)
+    }
+  }
+
+  onCleanup(() => {
+    measurementsDisposed = true
+    pendingMeasurements.clear()
+    viewportObserver?.disconnect()
+    if (measurementFrame !== undefined && typeof cancelAnimationFrame === 'function')
+      cancelAnimationFrame(measurementFrame)
+    if (viewportFrame !== undefined && typeof cancelAnimationFrame === 'function')
+      cancelAnimationFrame(viewportFrame)
+  })
 
   const runtimeReady = () => props.runtime.state().status === 'ready'
 
@@ -856,7 +1008,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                     type="button"
                     role="option"
                     aria-selected={index() === quickOpenIndex()}
-                    class={cn('dev-files__row', {
+                    class={cn('dev-files__quickopen-result', {
                       'dev-files__quickopen-row--active': index() === quickOpenIndex(),
                     })}
                     onMouseDown={(event) => {
@@ -928,26 +1080,15 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
               modification markers past that are not shown.
             </p>
           </Show>
-          <div
-            ref={(element) => {
-              treeElement = element
-              // The first frame has no measured viewport; this corrects it
-              // before the reader sees an unwindowed list.
-              if (typeof requestAnimationFrame === 'function') requestAnimationFrame(measureTree)
-            }}
-            class="dev-files__tree"
-            role="tree"
-            aria-label="Worktree files"
-            onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-          >
-            <Show
-              when={filter().length === 0}
-              fallback={
+          <Show
+            when={filter().length === 0}
+            fallback={
+              <div class="dev-files__tree">
                 <For each={fuzzyQuickOpen(loadedPaths(), filter())}>
                   {(path) => (
                     <Button
                       type="button"
-                      class="dev-files__row"
+                      class="dev-files__quickopen-result"
                       onClick={() => {
                         const node = findNode(nodes(), path)
                         if (node) void openFile(node)
@@ -958,28 +1099,127 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                     </Button>
                   )}
                 </For>
-              }
+              </div>
+            }
+          >
+            <Tree
+              ref={attachTree}
+              class="dev-files__tree"
+              aria-label="Worktree files"
+              visibleItems={treeItems()}
+              activeId={activeRowId()}
+              onActiveIdChange={setActiveRowId}
+              onExpand={setTreeItemExpanded}
+              onActivate={activateTreeItem}
+              onRequestReveal={revealTreeItem}
+              onRowSizeChange={queueRowMeasurement}
+              onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
             >
               <VirtualWindow
-                totalSize={rows().length * FILES_ROW_HEIGHT_PX}
-                offset={rowSlice().padTop}
+                totalSize={rowSlice().totalSize}
+                offset={rowSlice().offset}
+                contentClass="dev-files__window-content"
               >
                 <For each={windowedRows()}>
                   {(row) => (
-                    <div
-                      class={cn('dev-files__row', { 'dev-files__row--dir': row.hasChildren })}
-                      data-depth={Math.min(row.depth, 8)}
-                      // The container claims `role="tree"`, so each row has to be
-                      // a real tree item. Without these, a screen reader announced
-                      // a tree and then exposed no items, no depth, and no
-                      // expanded state — the structure was invisible to anyone
-                      // not looking at the pixels.
-                      role="treeitem"
-                      aria-level={row.depth + 1}
-                      // No aria-selected: this tree has no selection model, only
-                      // a focused row, and inventing one here would be a feature.
-                      aria-expanded={
-                        row.hasChildren ? expanded().has(row.node.relativePath) : undefined
+                    <TreeRow
+                      class="dev-files__tree-row"
+                      item={treeItemById().get(row.node.relativePath)!}
+                      leading={
+                        row.hasChildren ? (
+                          <Folder aria-hidden="true" class="dev-files__icon" />
+                        ) : (
+                          <FileIcon aria-hidden="true" class="dev-files__icon" />
+                        )
+                      }
+                      trailing={
+                        <>
+                          <Show when={markerBadge(markers().get(row.node.relativePath))}>
+                            {(badge) => <span class="dev-files__badge">{badge()}</span>}
+                          </Show>
+                          <Show when={renaming() === row.node.relativePath}>
+                            <Input
+                              class="dev-files__filter"
+                              aria-label={`Rename ${row.node.relativePath}`}
+                              value={renameValue()}
+                              onInput={(event) => setRenameValue(event.currentTarget.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  if (overwriteTarget()) void commitOverwriteRename()
+                                  else void submitRename()
+                                }
+                                if (event.key === 'Escape') {
+                                  setRenaming(undefined)
+                                  setOverwriteTarget(undefined)
+                                }
+                              }}
+                            />
+                          </Show>
+                          <Show when={renaming() !== row.node.relativePath}>
+                            <Button
+                              type="button"
+                              class="dev-files__delete"
+                              aria-label={`Rename ${row.node.relativePath}`}
+                              onClick={() => beginRename(row.node)}
+                            >
+                              <Pencil aria-hidden="true" />
+                            </Button>
+                          </Show>
+                          <Show when={row.hasChildren && renaming() !== row.node.relativePath}>
+                            <Button
+                              type="button"
+                              class="dev-files__delete"
+                              aria-label={
+                                pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
+                                pendingTree()?.summary ===
+                                  `${row.node.relativePath} → ${row.node.relativePath}-copy`
+                                  ? `Confirm copy ${row.node.relativePath}`
+                                  : `Copy ${row.node.relativePath}`
+                              }
+                              onClick={() => void planTreeCopy(row.node)}
+                            >
+                              <Copy aria-hidden="true" />
+                            </Button>
+                          </Show>
+                          <Show
+                            when={
+                              renaming() === row.node.relativePath &&
+                              overwriteTarget() !== undefined
+                            }
+                            fallback={
+                              <Show when={renaming() !== row.node.relativePath}>
+                                <Button
+                                  type="button"
+                                  class="dev-files__delete"
+                                  aria-label={
+                                    confirmDelete() === row.node.relativePath ||
+                                    pendingTree()?.summary === row.node.relativePath
+                                      ? `Confirm delete ${row.node.relativePath}`
+                                      : `Delete ${row.node.relativePath}`
+                                  }
+                                  onClick={() => void deleteFile(row.node)}
+                                >
+                                  {row.hasChildren
+                                    ? pendingTree()?.summary === row.node.relativePath
+                                      ? 'Confirm'
+                                      : 'Delete'
+                                    : confirmDelete() === row.node.relativePath
+                                      ? 'Confirm'
+                                      : 'Delete'}
+                                </Button>
+                              </Show>
+                            }
+                          >
+                            <Button
+                              type="button"
+                              class="dev-files__delete"
+                              aria-label={`Confirm overwrite ${overwriteTarget()}`}
+                              onClick={() => void commitOverwriteRename()}
+                            >
+                              Overwrite
+                            </Button>
+                          </Show>
+                        </>
                       }
                       onFocusIn={() => {
                         // Index within the WINDOW, not the whole flattened list.
@@ -993,127 +1233,13 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                         if (offset !== -1) setFocusedRow(windowStart + offset)
                       }}
                     >
-                      <Show
-                        when={row.hasChildren}
-                        fallback={
-                          <>
-                            <FileIcon aria-hidden="true" class="dev-files__icon" />
-                            <Button
-                              type="button"
-                              class="dev-files__name"
-                              onClick={() => void openFile(row.node)}
-                            >
-                              {row.node.name}
-                            </Button>
-                          </>
-                        }
-                      >
-                        <Button
-                          type="button"
-                          class="dev-files__name"
-                          aria-expanded={expanded().has(row.node.relativePath)}
-                          onClick={() => void toggleDirectory(row.node)}
-                        >
-                          <Show
-                            when={expanded().has(row.node.relativePath)}
-                            fallback={<ChevronRight aria-hidden="true" class="dev-files__icon" />}
-                          >
-                            <ChevronDown aria-hidden="true" class="dev-files__icon" />
-                          </Show>
-                          <Folder aria-hidden="true" class="dev-files__icon" />
-                          {row.node.name}
-                        </Button>
-                      </Show>
-                      <Show when={markerBadge(markers().get(row.node.relativePath))}>
-                        {(badge) => <span class="dev-files__badge">{badge()}</span>}
-                      </Show>
-                      <Show when={renaming() === row.node.relativePath}>
-                        <Input
-                          class="dev-files__filter"
-                          aria-label={`Rename ${row.node.relativePath}`}
-                          value={renameValue()}
-                          onInput={(event) => setRenameValue(event.currentTarget.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              if (overwriteTarget()) void commitOverwriteRename()
-                              else void submitRename()
-                            }
-                            if (event.key === 'Escape') {
-                              setRenaming(undefined)
-                              setOverwriteTarget(undefined)
-                            }
-                          }}
-                        />
-                      </Show>
-                      <Show when={renaming() !== row.node.relativePath}>
-                        <Button
-                          type="button"
-                          class="dev-files__delete"
-                          aria-label={`Rename ${row.node.relativePath}`}
-                          onClick={() => beginRename(row.node)}
-                        >
-                          <Pencil aria-hidden="true" />
-                        </Button>
-                      </Show>
-                      <Show when={row.hasChildren && renaming() !== row.node.relativePath}>
-                        <Button
-                          type="button"
-                          class="dev-files__delete"
-                          aria-label={
-                            pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
-                            pendingTree()?.summary ===
-                              `${row.node.relativePath} → ${row.node.relativePath}-copy`
-                              ? `Confirm copy ${row.node.relativePath}`
-                              : `Copy ${row.node.relativePath}`
-                          }
-                          onClick={() => void planTreeCopy(row.node)}
-                        >
-                          <Copy aria-hidden="true" />
-                        </Button>
-                      </Show>
-                      <Show
-                        when={
-                          renaming() === row.node.relativePath && overwriteTarget() !== undefined
-                        }
-                        fallback={
-                          <Show when={renaming() !== row.node.relativePath}>
-                            <Button
-                              type="button"
-                              class="dev-files__delete"
-                              aria-label={
-                                confirmDelete() === row.node.relativePath ||
-                                pendingTree()?.summary === row.node.relativePath
-                                  ? `Confirm delete ${row.node.relativePath}`
-                                  : `Delete ${row.node.relativePath}`
-                              }
-                              onClick={() => void deleteFile(row.node)}
-                            >
-                              {row.hasChildren
-                                ? pendingTree()?.summary === row.node.relativePath
-                                  ? 'Confirm'
-                                  : 'Delete'
-                                : confirmDelete() === row.node.relativePath
-                                  ? 'Confirm'
-                                  : 'Delete'}
-                            </Button>
-                          </Show>
-                        }
-                      >
-                        <Button
-                          type="button"
-                          class="dev-files__delete"
-                          aria-label={`Confirm overwrite ${overwriteTarget()}`}
-                          onClick={() => void commitOverwriteRename()}
-                        >
-                          Overwrite
-                        </Button>
-                      </Show>
-                    </div>
+                      <span class="dev-files__name">{row.node.name}</span>
+                    </TreeRow>
                   )}
                 </For>
               </VirtualWindow>
-            </Show>
-          </div>
+            </Tree>
+          </Show>
         </Show>
       </Show>
     </section>

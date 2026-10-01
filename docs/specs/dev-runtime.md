@@ -3094,6 +3094,20 @@ filename-part hits highest; ties break by shorter path; results are bounded
 V1 ranks only loaded paths by design — a prebuilt index over the whole
 worktree (paged provider-side) is a future slice.
 
+The visible Files projection is rendered through the shared UI `Tree` and
+`TreeRow` contract. The host supplies the complete ordered visible-item
+descriptors and owns filesystem/worktree state, expanded paths, activation,
+selection policy, and `DevRuntimeService` calls. The shared tree owns the
+treeitem ARIA metadata, roving tab stop, arrow-key navigation, and focus handoff
+for virtualized rows. Its row-size callback reports each mounted row's actual
+border-box block size in CSS pixels; the host uses those measurements for
+identity-keyed variable-height range, spacer, and reveal calculations. A
+focused row is revealed and mounted before focus moves, while the DOM remains
+limited to the viewport, bounded overscan, and the initial measurement slice.
+Do not assume a fixed row height: text sizing and zoom may change shared row
+measurements, and scroll anchoring must preserve the current item or end
+position while those measurements update.
+
 ## Local git and diffs
 
 Git commands run through the per-repo mutation/read scheduler with argv arrays,

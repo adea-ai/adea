@@ -28,7 +28,7 @@
   border: 1px solid var(--border);
   border-radius: 0.35rem;
   background: var(--background);
-  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim, #000) 32%, transparent);
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim) 32%, transparent);
 }
 
 .dev-files__quickopen-list {
@@ -84,15 +84,8 @@
   padding: 0.25rem 0;
 }
 
-/* The window (#677) renders a slice of the flattened rows, so every row must
- * be exactly this tall: `row-window.ts` carries the same number and a test
- * asserts the two agree. */
-.dev-files {
-  --dev-files-row-height: 28px;
-}
-
-.dev-files__row {
-  height: var(--dev-files-row-height);
+.dev-files__quickopen-result {
+  min-height: 2rem;
   display: flex;
   min-width: 0;
   align-items: center;
@@ -106,42 +99,8 @@
   text-align: start;
 }
 
-.dev-files__row:hover {
+.dev-files__quickopen-result:hover {
   background: color-mix(in srgb, var(--secondary) 55%, transparent);
-}
-
-/* Keep indentation in CSS instead of using a dynamic inline style. Deeper
- * paths are capped so an unusually deep tree cannot push controls off-screen. */
-.dev-files__row[data-depth='1'] {
-  padding-inline-start: 1.5rem;
-}
-
-.dev-files__row[data-depth='2'] {
-  padding-inline-start: 2.5rem;
-}
-
-.dev-files__row[data-depth='3'] {
-  padding-inline-start: 3.5rem;
-}
-
-.dev-files__row[data-depth='4'] {
-  padding-inline-start: 4.5rem;
-}
-
-.dev-files__row[data-depth='5'] {
-  padding-inline-start: 5.5rem;
-}
-
-.dev-files__row[data-depth='6'] {
-  padding-inline-start: 6.5rem;
-}
-
-.dev-files__row[data-depth='7'] {
-  padding-inline-start: 7.5rem;
-}
-
-.dev-files__row[data-depth='8'] {
-  padding-inline-start: 8.5rem;
 }
 
 .dev-files__icon {
@@ -152,14 +111,11 @@
 }
 
 .dev-files__name {
+  display: block;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
-  flex: 1;
-  border: 0;
-  background: transparent;
   color: inherit;
-  font: inherit;
-  text-align: start;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -168,7 +124,7 @@
   flex-shrink: 0;
   padding: 0 0.3rem;
   border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--warning, #b45309) 22%, transparent);
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
   color: var(--foreground);
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 0.65rem;
@@ -185,15 +141,15 @@
   opacity: 0;
 }
 
-.dev-files__row:hover .dev-files__delete,
+.dev-files__tree-row:hover .dev-files__delete,
 .dev-files__delete:focus-visible {
   opacity: 1;
 }
 
 .dev-files__delete:hover,
 .dev-files__delete[aria-label^='Confirm delete'] {
-  background: color-mix(in srgb, var(--destructive, #b91c1c) 18%, transparent);
-  color: var(--destructive, #b91c1c);
+  background: color-mix(in srgb, var(--destructive) 18%, transparent);
+  color: var(--destructive);
   opacity: 1;
 }
 
@@ -272,11 +228,11 @@
 }
 
 .dev-sc__diff-line--add {
-  color: var(--dev-diff-add, #16a34a);
+  color: var(--diff-add-foreground);
 }
 
 .dev-sc__diff-line--delete {
-  color: var(--dev-diff-delete, #dc2626);
+  color: var(--diff-delete-foreground);
 }
 
 .dev-sc__diff-line--meta {
@@ -332,7 +288,7 @@
 }
 
 .dev-editor__banner--conflict {
-  background: color-mix(in srgb, var(--warning, #b45309) 16%, transparent);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
 }
 
 .dev-editor__surface {
