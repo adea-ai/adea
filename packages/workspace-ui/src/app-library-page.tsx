@@ -1,16 +1,14 @@
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
-import { Badge } from '@adea-ai/ui/components/ui/badge'
-import { ListGroup, ListRow } from '@adea-ai/ui/components/composites/list-row'
 import {
-  ChevronDown,
-  ChevronUp,
+  Check,
   Code2,
   GitBranch,
-  LayoutGrid,
   Map,
   MessageSquareText,
+  Plus,
   Search,
+  SquareKanban,
 } from 'lucide-solid'
 import { createEffect, createSignal, For, Show } from 'solid-js'
 import type { RailPreferencesV1 } from './rail-preferences'
@@ -25,93 +23,65 @@ const APP_ICONS = {
   virtual: Map,
   chat: MessageSquareText,
   dev: Code2,
-  kanban: LayoutGrid,
+  kanban: SquareKanban,
   'source-control': GitBranch,
 }
 
-function AppLibraryRow(props: {
+/**
+ * One launchpad tile (the KiroCrew library pattern): the app's mark, its
+ * name, and a status caption, with the sidebar toggle riding the icon's
+ * corner and Open as the tile's own action. Reordering is not a tile
+ * concern — the rail's drag-and-drop owns the order.
+ */
+function AppLibraryTile(props: {
   app: WorkspaceApp
   enabled: boolean
-  enabledOrder: readonly string[]
   onOpen(id: WorkspaceAppId): void
-  onReorder(id: WorkspaceAppId, direction: 'down' | 'up'): void
   onSetEnabled(id: WorkspaceAppId, enabled: boolean): void
 }) {
   const Icon = APP_ICONS[props.app.id]
-  const position = () => props.enabledOrder.indexOf(props.app.id)
-
   return (
-    <ListRow
-      leading={<Icon aria-hidden="true" />}
-      description={props.app.description}
-      trailing={
-        <Show
-          when={props.enabled}
-          fallback={
-            <ActionButton
-              variant="outline"
-              size="sm"
-              tooltip={`Add ${props.app.name} to your sidebar`}
-              aria-label={`Enable ${props.app.name}`}
-              onClick={() => props.onSetEnabled(props.app.id, true)}
-            >
-              Enable
-            </ActionButton>
+    <div class="workspace-app-library__tile" data-enabled={props.enabled ? 'true' : 'false'}>
+      <div class="workspace-app-library__tile-media">
+        <span class="workspace-app-library__tile-icon" aria-hidden="true">
+          <Icon />
+        </span>
+        <ActionButton
+          variant={props.enabled ? 'secondary' : 'outline'}
+          size="icon-xs"
+          class="workspace-app-library__tile-toggle"
+          aria-label={`${props.enabled ? 'Disable' : 'Enable'} ${props.app.name}`}
+          tooltip={
+            props.enabled
+              ? `Remove ${props.app.name} from your sidebar`
+              : `Add ${props.app.name} to your sidebar`
           }
+          onClick={() => props.onSetEnabled(props.app.id, !props.enabled)}
         >
-          <>
-            <Badge variant="secondary">In sidebar</Badge>
-            <ActionButton
-              variant="ghost"
-              size="sm"
-              tooltip={`Switch to ${props.app.name}`}
-              onClick={() => props.onOpen(props.app.id)}
-            >
-              Open {props.app.name}
-            </ActionButton>
-            <ActionButton
-              variant="ghost"
-              size="icon-sm"
-              tooltip={
-                position() === 0
-                  ? `${props.app.name} is already first in your sidebar`
-                  : `Move ${props.app.name} earlier in your sidebar`
-              }
-              aria-label={`Move ${props.app.name} up`}
-              disabled={position() === 0}
-              onClick={() => props.onReorder(props.app.id, 'up')}
-            >
-              <ChevronUp aria-hidden="true" />
-            </ActionButton>
-            <ActionButton
-              variant="ghost"
-              size="icon-sm"
-              tooltip={
-                position() === props.enabledOrder.length - 1
-                  ? `${props.app.name} is already last in your sidebar`
-                  : `Move ${props.app.name} later in your sidebar`
-              }
-              aria-label={`Move ${props.app.name} down`}
-              disabled={position() === props.enabledOrder.length - 1}
-              onClick={() => props.onReorder(props.app.id, 'down')}
-            >
-              <ChevronDown aria-hidden="true" />
-            </ActionButton>
-            <ActionButton
-              variant="ghost"
-              size="sm"
-              aria-label={`Disable ${props.app.name}`}
-              tooltip={`Remove ${props.app.name} from your sidebar`}
-              onClick={() => props.onSetEnabled(props.app.id, false)}
-            >
-              Disable
-            </ActionButton>
-          </>
-        </Show>
-      }
-    >
-      {props.app.name}
-    </ListRow>
+          <Show when={props.enabled} fallback={<Plus aria-hidden="true" />}>
+            <Check aria-hidden="true" />
+          </Show>
+        </ActionButton>
+      </div>
+      <Show
+        when={props.enabled}
+        fallback={<span class="workspace-app-library__tile-name">{props.app.name}</span>}
+      >
+        <ActionButton
+          variant="ghost"
+          size="sm"
+          class="workspace-app-library__tile-open"
+          aria-label={`Open ${props.app.name}`}
+          tooltip={`Switch to ${props.app.name}`}
+          onClick={() => props.onOpen(props.app.id)}
+        >
+          {props.app.name}
+        </ActionButton>
+      </Show>
+      <span class="workspace-app-library__tile-caption">
+        {props.enabled ? 'In sidebar' : 'Not in sidebar'}
+      </span>
+    </div>
   )
 }
 
@@ -123,7 +93,6 @@ export function AppLibraryPage(props: {
   preferences: RailPreferencesV1
   onSetEnabled(id: WorkspaceAppId, enabled: boolean): void
   onOpen(id: WorkspaceAppId): void
-  onReorder(id: WorkspaceAppId, direction: 'down' | 'up'): void
   onReset(): void
 }) {
   let searchInput: HTMLInputElement | undefined
@@ -136,17 +105,17 @@ export function AppLibraryPage(props: {
   })
   const [enabledOnly, setEnabledOnly] = createSignal(false)
   const [search, setSearch] = createSignal('')
-  const enabledOrder = () => enabledWorkspaceApps(props.preferences).map((app) => app.id)
-  const enabled = () => new Set(enabledOrder())
-  const visible = () =>
-    workspaceApps.filter(
-      (app) =>
-        (!enabledOnly() || enabled().has(app.id)) &&
-        `${app.name} ${app.description}`.toLowerCase().includes(search().trim().toLowerCase())
-    )
-  const enabledApps = () => visible().filter((app) => enabled().has(app.id))
-  const availableApps = () => visible().filter((app) => !enabled().has(app.id))
-  const order = () => enabledOrder()
+  const enabledIds = () => new Set(enabledWorkspaceApps(props.preferences).map((app) => app.id))
+  const matches = (app: WorkspaceApp) =>
+    `${app.name} ${app.description}`.toLowerCase().includes(search().trim().toLowerCase())
+  // Enabled apps lead in rail order; everything else follows in catalog
+  // order, so the grid reads as "active first, then what you can add".
+  const tiles = () => [
+    ...enabledWorkspaceApps(props.preferences).filter((app) => matches(app)),
+    ...(enabledOnly()
+      ? []
+      : workspaceApps.filter((app) => !enabledIds().has(app.id) && matches(app))),
+  ]
 
   return (
     <main class="workspace-app-library" aria-labelledby="workspace-app-library-title">
@@ -182,54 +151,38 @@ export function AppLibraryPage(props: {
       </header>
       <div class="workspace-app-library__body">
         <Show
-          when={visible().length > 0}
+          when={tiles().length > 0}
           fallback={
             <p class="workspace-app-library__empty" role="status">
               No apps match these filters.
             </p>
           }
         >
-          <ListGroup label="In your sidebar">
-            <For each={enabledApps()}>
+          <div class="workspace-app-library__grid">
+            <For each={tiles()}>
               {(app) => (
-                <AppLibraryRow
+                <AppLibraryTile
                   app={app}
-                  enabled
-                  enabledOrder={order()}
+                  enabled={enabledIds().has(app.id)}
                   onOpen={props.onOpen}
-                  onReorder={props.onReorder}
                   onSetEnabled={props.onSetEnabled}
                 />
               )}
             </For>
-          </ListGroup>
-          <Show when={availableApps().length > 0}>
-            <ListGroup label="Available">
-              <For each={availableApps()}>
-                {(app) => (
-                  <AppLibraryRow
-                    app={app}
-                    enabled={false}
-                    enabledOrder={order()}
-                    onOpen={props.onOpen}
-                    onReorder={props.onReorder}
-                    onSetEnabled={props.onSetEnabled}
-                  />
-                )}
-              </For>
-            </ListGroup>
-          </Show>
+          </div>
         </Show>
       </div>
       <footer class="workspace-app-library__footer">
         <ActionButton
           variant="ghost"
           size="sm"
+          class="workspace-app-library__reset"
           tooltip="Restore the default apps and sidebar order"
           onClick={props.onReset}
         >
           Reset Navigation
         </ActionButton>
+        <p>Drag the icons in the sidebar to reorder your apps.</p>
         <p>
           External plugins, skills and connectors are managed in Plugins. Larger installable apps
           will appear here when their installation is supported.

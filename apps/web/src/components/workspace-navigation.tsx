@@ -17,8 +17,10 @@ import type { RegistryPluginsProviderOptions } from '@adea-ai/workspace-ui/plugi
 import type { RailPreferencesV1 } from '@adea-ai/workspace-ui/rail-preferences'
 import {
   defaultRailPreferences,
+  railMoveAnnouncement,
   readRailPreferences,
   reorderRailItems,
+  reorderRailItemsRelativeTo,
   writeRailPreferences,
 } from '@adea-ai/workspace-ui/rail-preferences'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
@@ -28,6 +30,7 @@ import {
   enabledWorkspaceApps,
   resolveWorkspaceApp,
   setWorkspaceAppEnabled,
+  workspaceApps,
   type WorkspaceAppId,
 } from '@adea-ai/workspace-ui/workspace-apps'
 import { WorkspaceTopBar } from './workspace-top-bar'
@@ -252,6 +255,22 @@ export type WorkspaceNavigationProps = Readonly<{
   virtualProps: WorkspaceShellProps
   workspaces: readonly WorkspaceSummary[]
 }>
+
+/** The rail's live-region announcement for one applied move of `id`. */
+function railMoveAnnouncementFor(
+  id: WorkspaceAppId,
+  previous: RailPreferencesV1,
+  next: RailPreferencesV1
+): string {
+  const position = enabledWorkspaceApps(next).findIndex((app) => app.id === id) + 1
+  const moved = position !== enabledWorkspaceApps(previous).findIndex((app) => app.id === id) + 1
+  return railMoveAnnouncement(
+    workspaceApps.find((app) => app.id === id)?.name ?? id,
+    position,
+    enabledWorkspaceApps(next).length,
+    moved
+  )
+}
 
 // Rail customization applies the versioned order/hidden preference, keeping
 // the active view visible even when it is hidden. Unknown ids preserved by
@@ -605,6 +624,20 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         onViewChange={(id) => changeApp(id)}
         onViewIntent={preloadView}
         onPanelIntent={preloadPanel}
+        reorder={{
+          onDrop: (id, targetId, position) => {
+            const previous = railPreferences()
+            const next = reorderRailItemsRelativeTo(previous, id, targetId, position)
+            persistRailPreferences(next)
+            return railMoveAnnouncementFor(id, previous, next)
+          },
+          onMove: (id, direction) => {
+            const previous = railPreferences()
+            const next = reorderRailItems(previous, id, direction, orderedViews())
+            persistRailPreferences(next)
+            return railMoveAnnouncementFor(id, previous, next)
+          },
+        }}
         view={activeAppId()}
         views={orderedViews()}
         workspaces={props.workspaces}
@@ -629,11 +662,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                 persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
               }
               onOpen={(id) => changeApp(id)}
-              onReorder={(id, direction) =>
-                persistRailPreferences(
-                  reorderRailItems(railPreferences(), id, direction, orderedViews())
-                )
-              }
               onReset={() => persistRailPreferences(defaultRailPreferences)}
             />
           }

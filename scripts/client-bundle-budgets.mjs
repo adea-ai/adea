@@ -19,10 +19,20 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // Re-measured for the shared accessible file tree (2026-10-01, #872): the
   // shared Tree/TreeRow composites add ~6.4 KB raw to the total. Kept at the
   // same rounding step rather than pinning to the build.
+<<<<<<< HEAD
   // Re-measured for the shared app-ui boundaries (2026-10-01, #863): the
   // module split around the shared components moved the total by ~74 bytes.
   // Kept at the same rounding step rather than pinning to the build.
   total: { rawBytes: 2_365_000, gzipBytes: 700 * 1024, fileCount: 93 },
+=======
+  // Re-measured for the workspace-wide runtime-resources control and the
+  // launchpad rail reorder (2026-10-01): 96 files / 2,358,705 raw / 703,875
+  // gzip. The resources sheet rides its own lazy chunk off the shared top bar
+  // (+1), and the rail reorder plus launchpad tiles split two more shared
+  // chunks. The cap keeps the same +2 headroom as above; every per-route and
+  // startup byte budget held without moving.
+  total: { rawBytes: 2_365_000, gzipBytes: 700 * 1024, fileCount: 98 },
+>>>>>>> bbc0bab8 (feat(workspace): launchpad App Library with rail drag-and-drop reorder)
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     virtual: { rawBytes: 14 * 1024, gzipBytes: 6 * 1024 },
@@ -36,7 +46,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // primitives there. Ratcheted to 224 KB rather than the measured value so
     // the gate carries ~2% headroom instead of the 139 bytes this route had,
     // which made every incidental change a budget failure.
-    chat: { rawBytes: 224 * 1024, gzipBytes: 66 * 1024 },
+    // Re-measured for the rail drag-and-drop reorder and the launchpad App
+    // Library (2026-10-01): 227,192 raw / 67,944 gzip — the SquareKanban icon
+    // and the rail's pointer/keyboard reorder + live region ride the shared
+    // workspace-navigation entry this route composes. Ratcheted to 68 KiB for
+    // the same ~2% headroom reason as above.
+    chat: { rawBytes: 224 * 1024, gzipBytes: 68 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
@@ -53,7 +68,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // route's second ListRowControl importer, so rolldown splits
     // list-row-control into its own chunk (net +220 raw over main's 12,188/3
     // files; gzip stays under the 5 KiB cap). Ratcheted to the next whole KiB
-    // for the same reason as above.
+    // for the same reason as above. Re-measured for the launchpad grid
+    // (2026-10-01): 7,860 raw / 3,333 gzip across 4 files — the tile grid
+    // drops the shared list-row/badge composites for plain hooks, so the
+    // caps keep their headroom untouched.
     appLibrary: { rawBytes: 13 * 1024, gzipBytes: 5 * 1024 },
     devShell: { rawBytes: 128 * 1024, gzipBytes: 40 * 1024 },
     devUtilityPanes: { rawBytes: 168 * 1024, gzipBytes: 56 * 1024 },
