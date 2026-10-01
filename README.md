@@ -11,7 +11,7 @@ state wherever the virtual view mounts.
 
 - Turborepo, TanStack Start, SolidJS, and TypeScript
 - Bun for installation, scripts, and tests
-- Scene manifests and telemetry schema via `@adea-ai/spatial-protocol`
+- Scene manifests and telemetry schema via `@adea-ai/spatial`
   (the Three.js runtime, scenes, and asset pipeline live in Agent Sim)
 - TanStack Query's Solid bindings for server state and `solid-js/store` for
   client-only coordination
@@ -63,7 +63,7 @@ Cross-app portal defaults use `adea.localhost` and `world.localhost`. Set
 Portless name.
 
 The asset sync step stages the tracked scene manifests from
-`@adea-ai/spatial-protocol` into the ignored public-assets directory. The
+`@adea-ai/spatial` into the ignored public-assets directory. The
 spatial engine itself lives in the private Agent Sim repo and is delivered
 through the entitlement-gated engine remote.
 
@@ -105,7 +105,7 @@ for the integration contract and required environment variables.
 The spatial engine (InstancedMesh scene fields, frustum culling, Meshopt GLB
 and KTX2/Basis decoding, asset optimization, performance budgets) lives in
 the private Agent Sim repo. This repository stages only the tracked scene
-manifests from `@adea-ai/spatial-protocol` into the ignored Next
+manifests from `@adea-ai/spatial` into the ignored Next
 public-assets directory, so plain checkouts build and test with zero setup
 and no credentials.
 

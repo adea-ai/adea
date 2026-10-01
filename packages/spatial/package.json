@@ -1,11 +1,14 @@
 {
-  "name": "@adea-ai/asset-manifests",
-  "version": "0.69.10",
-  "description": "Shared scene and asset manifest contracts for Adea workspaces.",
+  "name": "@adea-ai/spatial",
+  "version": "0.70.0",
+  "description": "Scene and asset manifest contracts plus the shell-to-engine spatial protocol for Adea workspaces: scene mount manifests, spawn URL helpers, and scene telemetry schemas. Pure types — no rendering, no binaries.",
   "keywords": [
     "assets",
     "manifest",
+    "protocol",
     "scene",
+    "spatial",
+    "telemetry",
     "threejs",
     "workspace"
   ],
@@ -13,7 +16,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/adea-ai/adea.git",
-    "directory": "packages/asset-manifests"
+    "directory": "packages/spatial"
   },
   "files": [
     "dist",
@@ -35,6 +38,7 @@
     "lint": "oxlint",
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "test": "bun test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

@@ -5,6 +5,7 @@ import { tanstackStart } from '@tanstack/solid-start/plugin/vite'
 import viteSolid from 'vite-plugin-solid'
 import tailwindcss from '@tailwindcss/postcss'
 import { forbiddenClientModule, PUBLIC_ENV_NAMES } from './start/client-policy.mjs'
+import { selectiveUiSourcePlugin } from './start/ui-tailwind-sources'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url)).replaceAll('\\', '/')
@@ -114,6 +115,7 @@ export default defineConfig(({ mode }) => {
         spa: { enabled: true, maskPath: '/', prerender: { enabled: true, outputPath: '/index' } },
       }),
       viteSolid({ ssr: true }),
+      selectiveUiSourcePlugin(root),
       protectClientGraph(),
     ],
   }
