@@ -23,13 +23,17 @@ test('Dev sidebar search reveals matching hierarchy and restores collapse state'
   const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
   const group = sidebar.getByRole('button', { name: 'Runtime group' })
   const project = sidebar.getByRole('button', { name: /Canonical project/ })
-  const sessions = sidebar.locator('.dev-tree-row--session')
+  const sessions = sidebar
+    .getByRole('button')
+    .filter({ hasText: /First canonical session|Second canonical session/ })
   const filter = page.getByRole('searchbox', { name: 'Filter projects and sessions' })
 
   await expect(group).toHaveAttribute('aria-expanded', 'true')
   await expect(project).toHaveAttribute('aria-expanded', 'true')
+  await expect(project).toHaveAttribute('aria-current', 'page')
   await project.click()
   await expect(project).toHaveAttribute('aria-expanded', 'false')
+  await expect(project).toHaveAttribute('aria-current', 'page')
   await page.evaluate(() => window.desktopRuntimeChatHarness.selectFirst())
   await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
   await group.click()

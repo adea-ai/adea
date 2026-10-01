@@ -22,15 +22,16 @@ const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url)).replace
  * (hydration then throws "Failed attempt to create new DOM elements during
  * hydration").
  *
- * `start/lucide-solid-dev-shim.jsx` re-exports exactly the icons the client
- * graph imports, as deep imports. Both dev environments go through it, so
- * they compile the same source modules (hydration matches) and only those
- * modules enter the graph. The `.jsx` extension is deliberate: it keeps the
- * shim outside vite's optimizable-entry set, so no optimizeDeps include or
- * discovery can pre-bundle it. The production build never sees the alias: it
- * keeps resolving the `solid` condition directly and tree-shakes the barrel
- * as before. The shim is held in lock-step with the sources by
- * scripts/lucide-dev-shim.test.ts.
+ * `start/lucide-solid-dev-shim.jsx` re-exports the icon names required by the
+ * statically linked app and shared-UI modules, as deep imports. Vite serves the
+ * package as ESM, so a root-barrel import links all static re-exports even when
+ * the app selects one public name. Literal dynamic imports are preflighted but
+ * never loaded or executed by the check. Both dev environments use the same
+ * shim, so they compile the same source modules (hydration matches). The `.jsx` extension keeps the shim outside vite's
+ * optimizable-entry set, so no optimizeDeps include or discovery can pre-bundle
+ * it. The production build never sees the alias: it keeps resolving the `solid`
+ * condition directly and tree-shakes the barrel as before. The shim is held in
+ * lock-step with the sources by `scripts/lucide-dev-shim.test.ts`.
  */
 function lucideDevShimAlias() {
   return {
@@ -179,7 +180,9 @@ export default defineConfig(({ command }) => ({
     tanstackStart({ srcDirectory: './src/start' }),
     viteSolid({ ssr: true }),
     trimZodLocales(),
-    selectiveUiSourcePlugin(root),
+    // The same reachable source graph checks the curated dev shim before the
+    // web server starts, and again when source or shim files change.
+    selectiveUiSourcePlugin(root, { checkLucideDevShim: true }),
     protectClientGraph(),
   ],
 }))

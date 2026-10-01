@@ -2,7 +2,12 @@ import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 import { createSignal, For, onCleanup, onMount } from 'solid-js'
 import { ChatView } from './chat-view'
 import type { ChatDraftChange } from './chat-composer'
-import type { ChatConversation, ChatConversationModel, TranscriptAccumulator } from './model'
+import type {
+  ChatConversation,
+  ChatConversationModel,
+  ChatDraftValue,
+  TranscriptAccumulator,
+} from './model'
 import './visual-fixture.css'
 
 export type ChatVisualFixtureState = 'conversation' | 'attention' | 'reconnect' | 'streaming'
@@ -69,7 +74,8 @@ function conversation(
   state: ChatVisualFixtureState,
   events: readonly RuntimeEvent[],
   draft = state === 'attention' ? 'I can clarify the target environment.' : '',
-  generation = 3
+  generation = 3,
+  draftBlocks: ChatDraftValue['blocks'] = []
 ): ChatConversation {
   return {
     runtimeSessionId: sessionId,
@@ -91,6 +97,7 @@ function conversation(
     version: 4,
     activeHarnessRunId: '00000000-0000-4000-8000-000000000009',
     draft,
+    draftBlocks,
     events: events.map((item) => ({ ...item, generation })),
     retention: {
       maxEvents: 1_000,
@@ -111,11 +118,17 @@ function draftModel(
   pending: Set<PendingSend>,
   deferred: boolean,
   getDraftRevision: () => number,
-  setCanonicalDraft: (draft: string) => void
+  setCanonicalDraft: (draft: string | ChatDraftValue) => void
 ): Pick<
   ChatConversationModel,
-  'openTranscript' | 'send' | 'cancel' | 'draftRevision' | 'setDraftIfCurrent'
+  | 'openTranscript'
+  | 'send'
+  | 'cancel'
+  | 'draftRevision'
+  | 'setDraftIfCurrent'
+  | 'createPasteBlockId'
 > {
+  let nextPasteBlockId = 0
   return {
     openTranscript: async () => {
       throw new Error('visual draft fixture does not attach a transcript')
@@ -128,6 +141,7 @@ function draftModel(
     },
     cancel: async () => getConversation(),
     draftRevision: () => getDraftRevision(),
+    createPasteBlockId: () => `visual-chat-paste-${++nextPasteBlockId}`,
     setDraftIfCurrent: (runtimeSessionId, generation, nextDraft, expectedRevision) => {
       const current = getConversation()
       if (
@@ -235,9 +249,10 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const events = state === 'attention' ? attentionEvents : transcriptEvents
   const model =
     state === 'reconnect' ? reconnectModel() : state === 'streaming' ? streamingModel() : undefined
-  const [draft, setDraft] = createSignal(
-    state === 'attention' ? 'I can clarify the target environment.' : ''
-  )
+  const [draft, setDraft] = createSignal<ChatDraftValue>({
+    text: state === 'attention' ? 'I can clarify the target environment.' : '',
+    blocks: [],
+  })
   const [draftRevision, setDraftRevision] = createSignal(0)
   const [generation, setGeneration] = createSignal(3)
   const [mountKey, setMountKey] = createSignal(0)
@@ -286,7 +301,9 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
       deferred,
       () => draftRevision(),
       (nextDraft) => {
-        setDraft(nextDraft)
+        const normalized =
+          typeof nextDraft === 'string' ? { text: nextDraft, blocks: [] } : nextDraft
+        setDraft(normalized)
         setDraftRevision((revision) => revision + 1)
       }
     )
@@ -304,12 +321,18 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
       data-chat-visual-state={state}
       data-chat-session-id={sessionId}
       data-chat-generation={generation()}
-      data-chat-draft={draft()}
+      data-chat-draft={draft().text}
     >
       <div class="dev-chat-visual-fixture__stage">
         <For each={[mountKey()]}>
           {() => {
-            activeConversation = conversation(state, events, draft(), generation())
+            activeConversation = conversation(
+              state,
+              events,
+              draft().text,
+              generation(),
+              draft().blocks
+            )
             return (
               <ChatView
                 conversation={activeConversation}

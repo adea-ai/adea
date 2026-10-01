@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/web",
-  "version": "0.70.8",
+  "version": "0.71.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -24,7 +24,7 @@
     "start:test": "bun test test/start-host.test.ts",
     "start:test:local": "node start/test-local.mjs",
     "start:verify": "bun run start:test && bun run build && bun run typecheck && bun run start:check-bundle",
-    "test": "bun test --conditions=browser test/*.test.ts",
+    "test": "bun test --conditions=browser test/*.test.ts start/ui-tailwind-sources.test.ts",
     "typecheck": "bun run cf-typegen && tsc --noEmit",
     "upload": "cf previews deploy"
   },
@@ -40,7 +40,7 @@
     "@adea-ai/spatial": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.89.2",
+    "@adea-ai/ui": "0.93.2",
     "@adea-ai/workspace-ui": "workspace:*",
     "@neondatabase/auth": "0.5.0-beta",
     "@tanstack/solid-router": "1.170.33",

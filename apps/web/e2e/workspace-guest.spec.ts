@@ -104,10 +104,17 @@ test('a guest can use a workspace before opening the optional persistence flow',
   })
   // The shared AccountMenu composite opens upward with its own popper gutter,
   // so the menu bottom no longer touches the trigger top pixel-for-pixel the
-  // way the app-local menu did; the left edge stays exactly aligned.
+  // way the app-local menu did.
+  //
+  // The left edge also cannot stay exactly aligned: floating-ui's arrow
+  // middleware shifts an aligned popper sideways by
+  // (arrowWidth + 2*arrowPadding - anchorWidth) / 2 = (32 + 8 - 36) / 2 = 2
+  // so the 32px arrow plus its 4px padding fits when the anchor (36px) is
+  // narrower than them combined, and Kobalte then rounds the offset — leaving
+  // the menu at round(triggerLeft - 2), observed as 1.5px.
   expect(
     Math.abs(accountMenuPosition.menuLeft - accountMenuPosition.triggerLeft)
-  ).toBeLessThanOrEqual(1)
+  ).toBeLessThanOrEqual(2.5)
   expect(
     Math.abs(accountMenuPosition.menuBottom - accountMenuPosition.triggerTop)
   ).toBeLessThanOrEqual(16)
