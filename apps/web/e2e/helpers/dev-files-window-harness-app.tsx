@@ -28,23 +28,26 @@ const rootIdentity = {
 const observedAt = '2026-01-02T03:04:05.000Z'
 const entryCount = 1_200
 const pageSize = 500
-const entries: readonly FileEntry[] = Array.from({ length: entryCount }, (_, index) => {
-  const relativePath = `file-${String(index).padStart(4, '0')}.txt`
-  const size = String(100 + index)
+function entry(relativePath: string, serial: number, kind: FileEntry['kind'] = 'file'): FileEntry {
+  const size = String(100 + serial)
   return {
     path: { worktreeId, rootIdentity, relativePath },
     identity: {
       device: 'fixture-device',
-      inode: String(index + 1),
-      mtimeNs: String(1_700_000_000_000_000 + index),
+      inode: String(serial + 1),
+      mtimeNs: String(1_700_000_000_000_000 + serial),
       size,
-      contentSha256: index.toString(16).padStart(64, '0'),
+      contentSha256: serial.toString(16).padStart(64, '0'),
     },
-    kind: 'file',
+    kind,
     size,
     observedAt,
   }
-})
+}
+
+const entries: readonly FileEntry[] = Array.from({ length: entryCount }, (_, index) =>
+  entry(`file-${String(index).padStart(4, '0')}.txt`, index)
+)
 
 type ListPageCall = Readonly<{
   cursor?: string
@@ -102,6 +105,11 @@ const runtime: DevRuntimeService = {
       case 'dev.files.list': {
         const cursor = typeof command.body.cursor === 'string' ? command.body.cursor : undefined
         const start = cursor === undefined ? 0 : Number(cursor)
+        const requestedPath = (command.body.path as { relativePath?: unknown }).relativePath
+        const treeFixture = new URLSearchParams(window.location.search).get('shape') === 'tree'
+        if (treeFixture && requestedPath === 'src') {
+          return reply(command, { items: [entry('src/entry.ts', entryCount + 1)] })
+        }
         const requestedLimit = command.body.limit
         const limit =
           typeof requestedLimit === 'number'
@@ -120,10 +128,18 @@ const runtime: DevRuntimeService = {
               }
             : {}),
         })
-        const end = Math.min(entries.length, start + limit)
+        const requestedRows = Number(new URLSearchParams(window.location.search).get('rows'))
+        const rowCount =
+          treeFixture && Number.isInteger(requestedRows) && requestedRows > 0
+            ? Math.min(requestedRows, entries.length)
+            : entries.length
+        const listing: readonly FileEntry[] = treeFixture
+          ? [entry('src', entryCount + 2, 'directory'), ...entries.slice(0, rowCount)]
+          : entries
+        const end = Math.min(listing.length, start + limit)
         return reply(command, {
-          items: entries.slice(start, end),
-          ...(end < entries.length ? { nextCursor: String(end) } : {}),
+          items: listing.slice(start, end),
+          ...(end < listing.length ? { nextCursor: String(end) } : {}),
         })
       }
       case 'dev.git.status':

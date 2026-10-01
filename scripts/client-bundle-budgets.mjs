@@ -16,7 +16,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // App Library's second list-row-control importer, so rolldown splits that
   // route's list-row chunk out (3 → 4 files there) and puts the total one over
   // the old cap. The cap keeps the same +2 headroom as above.
-  total: { rawBytes: 2_350_000, gzipBytes: 700 * 1024, fileCount: 93 },
+  // Re-measured for the shared accessible file tree (2026-10-01, #872): the
+  // shared Tree/TreeRow composites add ~6.4 KB raw to the total. Kept at the
+  // same rounding step rather than pinning to the build.
+  total: { rawBytes: 2_365_000, gzipBytes: 700 * 1024, fileCount: 93 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     virtual: { rawBytes: 14 * 1024, gzipBytes: 6 * 1024 },
