@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 // DevRuntimeService. The mounted application-route journey remains separate.
 test.use({ headless: true })
 
-const FILES_TREE_HARNESS_PATH = '/__adea-files-tree-harness'
+const FILES_TREE_HARNESS_PATH = '/__dev-files-window'
 
 function harnessHtml(): string {
   return [
@@ -20,7 +20,7 @@ function harnessHtml(): string {
 function harnessModuleSource(): string {
   const harnessPath = resolve(
     process.cwd(),
-    'apps/web/e2e/helpers/dev-view-files-tree-harness-app.tsx'
+    'apps/web/e2e/helpers/dev-files-window-harness-app.tsx'
   )
   if (!harnessPath.startsWith(process.cwd())) {
     throw new Error('Files tree harness path escaped the repository root')
@@ -36,7 +36,7 @@ async function mountFilesTree(
   await page.route('**' + FILES_TREE_HARNESS_PATH + '**', (route) =>
     route.fulfill({ contentType: 'text/html', body: harnessHtml() })
   )
-  await page.goto(`${FILES_TREE_HARNESS_PATH}?rows=${options.rows ?? 160}`)
+  await page.goto(`${FILES_TREE_HARNESS_PATH}?shape=tree&rows=${options.rows ?? 160}`)
   await page.addScriptTag({ type: 'module', content: harnessModuleSource() })
   const pane = page.getByRole('region', { name: 'Files' })
   const tree = pane.getByRole('tree', { name: 'Worktree files' })
@@ -52,9 +52,11 @@ async function mountFilesTree(
   return { pane, tree }
 }
 
-type FilesTreeHarnessWindow = Window & {
-  devViewFilesTreeHarness: {
-    report(): Readonly<{ openedPaths: readonly string[]; operations: readonly string[] }>
+type FilesWindowHarness = Window & {
+  devFilesWindowHarness: {
+    report(): Readonly<{
+      openedFile?: Readonly<{ relativePath: string }>
+    }>
   }
 }
 
@@ -82,8 +84,8 @@ test('Files tree enters by Tab, supports tree navigation, and opens through its 
 
   await expect
     .poll(() =>
-      page.evaluate(() =>
-        (window as FilesTreeHarnessWindow).devViewFilesTreeHarness.report().openedPaths.at(-1)
+      page.evaluate(
+        () => (window as FilesWindowHarness).devFilesWindowHarness.report().openedFile?.relativePath
       )
     )
     .toBe('src/entry.ts')
@@ -144,13 +146,13 @@ test('Files tree reveals offscreen focus with measured rows at narrow width and 
   await first.focus()
   await page.keyboard.press('End')
 
-  const last = tree.locator('[data-tree-id="file-159.txt"]')
+  const last = tree.locator('[data-tree-id="file-0159.txt"]')
   await expect(last).toBeFocused()
   const metrics = await page.evaluate(() => {
     const treeElement = document.querySelector<HTMLElement>(
       '[role="tree"][aria-label="Worktree files"]'
     )
-    const row = document.querySelector<HTMLElement>('[data-tree-id="file-159.txt"]')
+    const row = document.querySelector<HTMLElement>('[data-tree-id="file-0159.txt"]')
     const window = treeElement?.querySelector<HTMLElement>('[data-slot="virtual-window-space"]')
     if (!treeElement || !row || !window) throw new Error('Files tree measurement nodes are missing')
     const treeBox = treeElement.getBoundingClientRect()

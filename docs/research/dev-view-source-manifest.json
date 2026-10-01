@@ -365,7 +365,7 @@
             "src/modules/explorer/TreeRow.tsx": "sha256:ad44a687000f13eb39eb8a8a26dcf5a0dd9b7701156ea907fb0bb862d5924c89"
           },
           "hostSeams": "Adea composes the hierarchy through @adea-ai/ui Tree/TreeRow and VirtualWindow. Shared UI owns treeitem semantics, roving focus, arrow navigation, focus reveal requests, and mounted row-size reports; the Files host owns FileTreeNode projection, expansion/activation policy, selection, DevRuntimeService filesystem/git calls, measured range calculation, and scroll anchoring. No React, Tauri, or donor runtime dependency is imported.",
-          "coverageNote": "TreeRow.tsx has no directly colocated donor test. Adea adds a component-scoped FilesPane keyboard/windowing E2E fixture; this does not establish mounted application-route reachability.",
+          "coverageNote": "TreeRow.tsx has no directly colocated donor test. Adea registers a component-scoped FilesPane keyboard/windowing E2E fixture using fixture transport; this does not establish mounted application-route reachability and has not run. Shared Tree exports remain unpublished in UI PR #179 and absent from Adea's current @adea-ai/ui 0.89.1 dependency, so type/build, packed-consumer, browser/axe, and bundle-budget gates remain pending publication and dependency adoption.",
           "reviewOnlySources": [
             "src/modules/editor/lib/useDocument.ts",
             "src/modules/git-history/lib/remoteWebUrl.ts"
