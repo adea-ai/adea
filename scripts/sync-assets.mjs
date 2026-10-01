@@ -3,14 +3,14 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Stages the public scene manifests (tracked in
-// packages/spatial-protocol/data, mirrored from the private agent-sim
+// packages/spatial/data, mirrored from the private agent-sim
 // engine) into the ignored Next public-assets directory.
 //
 // The engine (models, textures, audio, runtime catalogs) lives in the
 // private agent-sim repo and is never synced here: this step emits manifests
 // only, so plain checkouts, CI lanes, and public builds stay green without
 // credentials. The entitlement-gated engine remote resolves these same-origin
-// manifest URLs at runtime (see @adea-ai/spatial-protocol manifests).
+// manifest URLs at runtime (see @adea-ai/spatial manifests).
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const publicAssets = resolve(repoRoot, 'apps/web/public/assets')
@@ -32,7 +32,7 @@ for (const entry of await readdir(webRoot).catch(() => [])) {
   }
 }
 
-const protocolData = resolve(repoRoot, 'packages/spatial-protocol/data')
+const protocolData = resolve(repoRoot, 'packages/spatial/data')
 
 await rm(stagingAssets, { recursive: true, force: true })
 await mkdir(stagingAssets, { recursive: true })

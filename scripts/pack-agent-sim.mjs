@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 // Stages the private Agent Sim engine pack into the shell's public assets so
 // entitled deployments resolve the engine same-origin at
-// `/assets/agent-sim/engine.json` (see packages/spatial-protocol/src/engine.ts
+// `/assets/agent-sim/engine.json` (see packages/spatial/src/engine.ts
 // for the guard contract).
 //
 // Enabled only when ADEA_AGENT_SIM_DIST points at a prepared engine pack

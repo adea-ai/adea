@@ -2,8 +2,7 @@ import { createEffect, createSignal, onMount } from 'solid-js'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import type { HqSceneId } from '@adea-ai/app-core'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
-import { hqHomeManifest, hqWorkManifest } from '@adea-ai/spatial-protocol'
-import type { SceneStartPosition } from '@adea-ai/asset-manifests'
+import { hqHomeManifest, hqWorkManifest, type SceneStartPosition } from '@adea-ai/spatial'
 // Subpath imports keep this chunk's static graph shallow: the package barrel
 // re-exports the dialogs and the conventional shell, which would otherwise be
 // preloaded with the virtual scene.

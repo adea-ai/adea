@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Publishes the moat-free shared packages (@adea-ai/asset-manifests,
-// @adea-ai/audio, @adea-ai/spatial-protocol) to the public npm registry so the
+// Publishes the moat-free shared packages (@adea-ai/audio, @adea-ai/spatial)
+// to the public npm registry so the
 // private agent-sim repo — and, later, the public adea repo — consume them
 // without any registry auth. These packages have zero @adea-ai/* transitive
 // deps beyond each other and contain no engine, simulation, or binary-asset
@@ -38,7 +38,7 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
-const PUBLISH_PACKAGES = ['packages/asset-manifests', 'packages/audio', 'packages/spatial-protocol']
+const PUBLISH_PACKAGES = ['packages/audio', 'packages/spatial']
 
 function sh(args, cwd, extraEnv) {
   const result = spawnSync(args[0], args.slice(1), {
