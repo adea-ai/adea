@@ -38,6 +38,7 @@ function ControlButton(props: ControlButtonProps) {
     window.addEventListener('pointerup', onWindowPointerUp)
     window.addEventListener('blur', onBlur)
     onCleanup(() => {
+      release()
       window.removeEventListener('pointerup', onWindowPointerUp)
       window.removeEventListener('blur', onBlur)
     })
