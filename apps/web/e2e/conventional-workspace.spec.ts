@@ -1170,7 +1170,11 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
 
   await page.getByRole('button', { name: /^Product( |$)/ }).click()
   await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
-  await expect(page.getByRole('heading', { name: 'Thread' })).toBeVisible()
+  // The shared thread panel titles itself through the aside's accessible name
+  // ("Thread: <label>"); its visible "Thread" caption is a span, not a heading.
+  await expect(
+    page.getByRole('complementary', { name: 'Thread: Focused discussion' })
+  ).toBeVisible()
   await expect(page.getByText('I will add competitor evidence here.')).toBeVisible()
   await expect
     .poll(() =>
