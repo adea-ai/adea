@@ -1,28 +1,9 @@
 import {
-  CircleHelp,
-  Info,
-  LogIn,
-  LogOut,
-  Megaphone,
-  RefreshCw,
-  Settings2,
-  Smartphone,
-  UserRound,
-} from 'lucide-solid'
-import { For, onCleanup, Show } from 'solid-js'
+  AccountMenu as SharedAccountMenu,
+  type AccountMenuItem as SharedAccountMenuItem,
+} from '@adea-ai/ui/components/composites/account-menu'
 
-import { Button } from '@adea-ai/ui/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuTrigger,
-} from '@adea-ai/ui/components/ui/dropdown-menu'
-
-import { accountMenuItemsForPlatform, accountSessionItem } from './account-menu-model'
+import { accountMenuItemsForPlatform } from './account-menu-model'
 
 type AccountMenuProps = {
   authenticated: boolean
@@ -37,88 +18,37 @@ type AccountMenuProps = {
   platform: 'desktop' | 'web'
 }
 
-const icons = {
-  mobile: Smartphone,
-  settings: Settings2,
-  about: Info,
-  help: CircleHelp,
-  feedback: Megaphone,
-  updates: RefreshCw,
-} as const
-
 export function AccountMenu(props: AccountMenuProps) {
-  let trigger: HTMLButtonElement | undefined
-  let updatesAfterClose = false
-  onCleanup(() => {
-    updatesAfterClose = false
-  })
-  const sessionItem = () => accountSessionItem(props.authenticated)
-  const visibleMenuItems = () => accountMenuItemsForPlatform(props.platform)
+  const items = (): SharedAccountMenuItem[] =>
+    accountMenuItemsForPlatform(props.platform).map((item) => ({
+      id: item.id,
+      label: item.label,
+      disabled: item.disabled,
+      shortcut: item.id === 'settings' ? '⌘,' : undefined,
+      onSelect:
+        item.id === 'about'
+          ? () => props.onOpenAbout()
+          : item.id === 'settings'
+            ? () => props.onOpenSettings()
+            : undefined,
+      onSelectAfterClose:
+        item.id === 'updates' && props.onOpenUpdates
+          ? (trigger: HTMLButtonElement | undefined) => props.onOpenUpdates?.(trigger)
+          : undefined,
+    }))
 
   return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger
-        ref={(element: HTMLButtonElement) => (trigger = element)}
-        as={Button}
-        variant="ghost"
-        size="icon-lg"
-        class="global-rail__button global-rail__account-trigger"
-        aria-label="User settings"
-        onFocus={() => props.onIntent?.()}
-        onPointerEnter={() => props.onIntent?.()}
-      >
-        <UserRound aria-hidden="true" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        onCloseAutoFocus={(event) => {
-          if (!updatesAfterClose) return
-          updatesAfterClose = false
-          const openUpdates = props.onOpenUpdates
-          if (!openUpdates) return
-          // Finish the menu's focus cycle before the controlled dialog starts.
-          // The shared dialog owns restoration to this persistent trigger.
-          event.preventDefault()
-          openUpdates(trigger)
-        }}
-        hideArrow
-        placement="top-start"
-        gutter={0}
-        class="global-account-menu max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-      >
-        <DropdownMenuGroup>
-          <For each={visibleMenuItems()}>
-            {(item) => {
-              const Icon = icons[item.id]
-              const onSelect = () => {
-                if (item.id === 'settings') props.onOpenSettings()
-                else if (item.id === 'about') props.onOpenAbout()
-                else if (item.id === 'updates') updatesAfterClose = true
-              }
-              return (
-                <DropdownMenuItem disabled={item.disabled} onSelect={onSelect}>
-                  <Icon aria-hidden="true" />
-                  <span>{item.label}</span>
-                  <Show when={item.id === 'settings'}>
-                    <DropdownMenuShortcut aria-hidden="true">⌘,</DropdownMenuShortcut>
-                  </Show>
-                </DropdownMenuItem>
-              )
-            }}
-          </For>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem
-            disabled={props.busy}
-            onSelect={props.authenticated ? props.onSignOut : props.onSignIn}
-          >
-            <Show when={props.authenticated} fallback={<LogIn aria-hidden="true" />}>
-              <LogOut aria-hidden="true" />
-            </Show>
-            <span>{sessionItem().label}</span>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <SharedAccountMenu
+      authenticated={props.authenticated}
+      busy={props.busy}
+      class="global-rail__button global-rail__account-trigger"
+      items={items()}
+      label="User settings"
+      onIntent={props.onIntent}
+      onSignIn={props.onSignIn}
+      onSignOut={props.onSignOut}
+      platform={props.platform}
+      size="icon-lg"
+    />
   )
 }

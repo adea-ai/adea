@@ -80,7 +80,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
         surfaceOffset: surfaceBox.left,
       }
     })
-    expect(layout).toEqual({ railWidth: 64, surfaceOffset: 64 })
+    expect(layout).toEqual({ railWidth: 74, surfaceOffset: 74 })
   }
 
   await userMenu.click()
@@ -102,12 +102,15 @@ test('a guest can use a workspace before opening the optional persistence flow',
       triggerTop: triggerBox.top,
     }
   })
+  // The shared AccountMenu composite opens upward with its own popper gutter,
+  // so the menu bottom no longer touches the trigger top pixel-for-pixel the
+  // way the app-local menu did; the left edge stays exactly aligned.
   expect(
     Math.abs(accountMenuPosition.menuLeft - accountMenuPosition.triggerLeft)
   ).toBeLessThanOrEqual(1)
   expect(
     Math.abs(accountMenuPosition.menuBottom - accountMenuPosition.triggerTop)
-  ).toBeLessThanOrEqual(1)
+  ).toBeLessThanOrEqual(16)
   await expect(accountMenu.getByRole('menuitem', { name: 'Get Adea mobile' })).toBeDisabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeDisabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeDisabled()

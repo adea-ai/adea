@@ -104,6 +104,7 @@ import {
   reorderProjectsRelativeTo,
 } from './sidebar/reorder'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
 // Keep the sidebar and runtime controls independent of the central split
 // renderer. Its resize dependency is loaded when the panes actually mount.
@@ -1185,22 +1186,24 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           }
           onClick={() => toggleUtilityGroup(['agents', 'history'])}
         />
-        <Button
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip={resourcesSheetOpen() ? 'Close runtime resources' : 'Open runtime resources'}
           aria-label="Runtime resources"
           aria-pressed={resourcesSheetOpen()}
           onClick={() => setResourcesSheetOpen(!resourcesSheetOpen())}
         >
           <Gauge aria-hidden="true" />
-        </Button>
+        </ActionButton>
       </Show>
       <Show when={props.appMode !== 'source-control'}>
-        <Button
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip={focusMode() ? 'Exit focus mode' : 'Enter focus mode'}
           aria-label={focusMode() ? 'Exit focus mode' : 'Enter focus mode'}
           aria-pressed={focusMode()}
           onClick={() => {
@@ -1211,7 +1214,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           }}
         >
           <Maximize2 aria-hidden="true" />
-        </Button>
+        </ActionButton>
       </Show>
     </div>
   )
@@ -1259,16 +1262,26 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             class="dev-button dev-button--secondary"
             disabled={countLeaves(layout().center) >= 8}
             onClick={() => {
-              const pane = countLeaves(layout().center) % 2 === 0 ? 'terminal' : 'editor'
               const suffix = ++nextPaneId
-              updateLayout((state) =>
-                splitPane(state, state.focusedLeafId, {
+              updateLayout((state) => {
+                const focused = listLeaves(state.center).find(
+                  (leaf) => leaf.id === state.focusedLeafId
+                )
+                if (!focused) return state
+                return splitPane(state, state.focusedLeafId, {
                   direction: 'row',
                   placement: 'after',
-                  leaf: { kind: 'leaf', id: `dev-pane-${suffix}`, pane },
+                  leaf: {
+                    kind: 'leaf',
+                    id: `dev-pane-${suffix}`,
+                    pane: focused.pane,
+                    ...(focused.pane === 'editor' && focused.resourceId !== undefined
+                      ? { resourceId: focused.resourceId }
+                      : {}),
+                  },
                   splitId: `dev-split-${suffix}`,
                 })
-              )
+              })
             }}
           >
             <TerminalSquare aria-hidden="true" /> <span>Split pane</span>
@@ -1304,15 +1317,16 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         >
           <div class="dev-resources-sheet__bar">
             <span>Runtime resources</span>
-            <Button
+            <ActionButton
               type="button"
               variant="outline"
               size="icon-sm"
+              tooltip="Close runtime resources"
               aria-label="Close runtime resources"
               onClick={() => setResourcesSheetOpen(false)}
             >
               <X aria-hidden="true" />
-            </Button>
+            </ActionButton>
           </div>
           <Suspense fallback={<p class="dev-resources__note">Loading…</p>}>
             <ResourcesPane
@@ -1877,10 +1891,13 @@ function UtilitySlot(props: {
         <div class="dev-utility-panel__heading">
           <h2>{visibleItem()?.title}</h2>
           <Show when={!props.fixedPane}>
-            <Button
+            <ActionButton
               type="button"
               variant="outline"
               size="icon-sm"
+              tooltip={
+                props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
+              }
               aria-label={
                 props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
               }
@@ -1890,16 +1907,17 @@ function UtilitySlot(props: {
               }
             >
               <Maximize2 aria-hidden="true" />
-            </Button>
-            <Button
+            </ActionButton>
+            <ActionButton
               type="button"
               variant="outline"
               size="icon-sm"
+              tooltip={`Collapse ${sideLabel().toLowerCase()} utility slot`}
               aria-label={`Collapse ${sideLabel().toLowerCase()} utility slot`}
               onClick={props.onCollapse}
             >
               <X aria-hidden="true" />
-            </Button>
+            </ActionButton>
           </Show>
         </div>
         <Suspense fallback={<p class="dev-pane-state__line">Loading pane…</p>}>

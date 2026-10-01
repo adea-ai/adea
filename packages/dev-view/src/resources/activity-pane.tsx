@@ -10,6 +10,7 @@ import type { DevError, HarnessRun, RuntimeSession } from '@adea-ai/types/dev-ru
 import '@adea-ai/app-ui/dev-view.css'
 import { Square } from 'lucide-solid'
 import { For, Show, createResource, createSignal } from 'solid-js'
+import { cn } from '@adea-ai/ui/lib/utils'
 
 import type { DevRuntimeService } from '../platform'
 import { buildDevCommand } from '../browser/command'
@@ -107,8 +108,7 @@ export function ActivityPane(props: ActivityPaneProps) {
             <For each={rows()}>
               {(row) => (
                 <li
-                  class="dev-activity__row"
-                  classList={{ 'dev-activity__row--attention': row.attention }}
+                  class={cn('dev-activity__row', { 'dev-activity__row--attention': row.attention })}
                 >
                   <span class="dev-activity__row-title">
                     <span>
@@ -116,11 +116,10 @@ export function ActivityPane(props: ActivityPaneProps) {
                       <Show when={row.modelId !== undefined}> · {row.modelId}</Show>
                     </span>
                     <span
-                      class="dev-activity__badge"
-                      classList={{
+                      class={cn('dev-activity__badge', {
                         'dev-activity__badge--attention': row.attention,
                         'dev-activity__badge--running': row.running,
-                      }}
+                      })}
                     >
                       {ACTIVITY_STATE_LABELS[row.state]}
                     </span>

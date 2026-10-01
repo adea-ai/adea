@@ -7,8 +7,8 @@ import {
   MessageComposer as SharedMessageComposer,
 } from '@adea-ai/ui/components/conversation'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from './platform'
 import { keyedRows } from './keyed-rows'
 import { mergeTranscription } from './transcription'
@@ -169,17 +169,18 @@ export function MessageComposer(props: {
                     return (
                       <span>
                         {artifact()?.filename ?? 'Artifact'}
-                        <Button
+                        <ActionButton
                           type="button"
                           variant="ghost"
                           size="icon-2xs"
+                          tooltip={`Remove ${artifact()?.filename ?? 'Artifact'}`}
                           aria-label={`Remove ${artifact()?.filename ?? 'Artifact'}`}
                           onClick={() =>
                             setAttachmentIds((ids) => ids.filter((id) => id !== artifactId))
                           }
                         >
                           <X aria-hidden="true" />
-                        </Button>
+                        </ActionButton>
                       </span>
                     )
                   }}
@@ -241,37 +242,35 @@ export function MessageComposer(props: {
           </div>
         }
         trailing={
-          <Tooltip>
-            <TooltipTrigger
-              as={Button}
-              variant="ghost"
-              size="icon-sm"
-              aria-label={
-                transcriptionState() === 'listening' || transcriptionState() === 'processing'
-                  ? 'Cancel dictation'
-                  : 'Start dictation'
-              }
-              aria-pressed={transcriptionState() === 'listening' || undefined}
-              disabled={props.disabled || sending() || transcriptionState() === 'unavailable'}
-              onClick={() => void dictate()}
-            >
-              <Show
-                when={transcriptionState() === 'processing'}
-                fallback={
-                  <Show when={transcriptionState() === 'listening'} fallback={<Mic />}>
-                    <MicOff />
-                  </Show>
-                }
-              >
-                <LoaderCircle class="conventional-spin" />
-              </Show>
-            </TooltipTrigger>
-            <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
-              {props.transcription
+          <ActionButton
+            variant="ghost"
+            size="icon-sm"
+            tooltip={
+              props.transcription
                 ? `Dictate with ${props.transcription.label}`
-                : 'Dictation is available in Adea Desktop'}
-            </TooltipContent>
-          </Tooltip>
+                : 'Dictation is available in Adea Desktop'
+            }
+            tooltipSide="top"
+            aria-label={
+              transcriptionState() === 'listening' || transcriptionState() === 'processing'
+                ? 'Cancel dictation'
+                : 'Start dictation'
+            }
+            aria-pressed={transcriptionState() === 'listening' || undefined}
+            disabled={props.disabled || sending() || transcriptionState() === 'unavailable'}
+            onClick={() => void dictate()}
+          >
+            <Show
+              when={transcriptionState() === 'processing'}
+              fallback={
+                <Show when={transcriptionState() === 'listening'} fallback={<Mic />}>
+                  <MicOff />
+                </Show>
+              }
+            >
+              <LoaderCircle class="conventional-spin" />
+            </Show>
+          </ActionButton>
         }
       />
       <div class="conventional-composer__status" aria-live="polite">

@@ -1,5 +1,4 @@
 import type { WorkspaceSummary } from '@adea-ai/types'
-import { Button, type ButtonProps } from '@adea-ai/ui/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,11 +8,14 @@ import {
 } from '@adea-ai/ui/components/ui/dropdown-menu'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@adea-ai/ui/components/ui/tooltip'
+  SideRail,
+  SideRailButton,
+  SideRailContent,
+  SideRailFooter,
+  SideRailHeader,
+  SideRailItem,
+  SideRailSection,
+} from '@adea-ai/ui/components/layout/side-rail'
 import {
   Bell,
   BriefcaseBusiness,
@@ -49,54 +51,9 @@ const VIEW_LABELS: Record<string, string> = {
   'source-control': 'Source control',
 }
 
-type RailActionProps = {
-  active?: boolean
-  disabled?: boolean
-  icon: typeof Home
-  label: string
-  onClick?: () => void
-  /** Fires on hover or keyboard focus — a chance to prefetch before the click. */
-  onIntent?: () => void
-}
-
-function RailAction(props: RailActionProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        as={Button}
-        variant={props.active ? 'secondary' : 'ghost'}
-        size="icon-lg"
-        class="global-rail__button"
-        aria-label={props.label}
-        aria-pressed={props.active || undefined}
-        disabled={props.disabled}
-        onClick={() => props.onClick?.()}
-        onFocus={() => props.onIntent?.()}
-        onPointerEnter={() => props.onIntent?.()}
-      >
-        <props.icon aria-hidden="true" />
-      </TooltipTrigger>
-      <TooltipContent hideArrow placement="right" gutter={4} data-slot="tooltip-content">
-        {props.label}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
 function WorkspaceMark(props: { workspace?: WorkspaceSummary }) {
   const Icon = props.workspace?.scene === 'home' ? Home : BriefcaseBusiness
   return <Icon aria-hidden="true" />
-}
-
-// Both published primitives need to decorate the same button. This tiny
-// polymorphic bridge composes their trigger props; menu state and keyboard
-// behavior remain owned by the published DropdownMenu.
-type WorkspaceTooltipButtonProps = Omit<ButtonProps, 'type'> & {
-  type?: 'button' | 'reset' | 'submit'
-}
-
-function WorkspaceTooltipButton(props: WorkspaceTooltipButtonProps) {
-  return <TooltipTrigger as={Button} {...props} />
 }
 
 export function GlobalWorkspaceRail(props: {
@@ -175,113 +132,141 @@ export function GlobalWorkspaceRail(props: {
   })
 
   return (
-    <TooltipProvider openDelay={200} closeDelay={300} skipDelayDuration={300}>
-      <nav class="global-rail" aria-label="Global navigation">
-        <div class="global-rail__workspace">
-          <DropdownMenu modal={false} placement="right-start" gutter={4}>
-            <Tooltip>
-              <DropdownMenuTrigger
-                as={WorkspaceTooltipButton}
-                variant="default"
-                size="icon-lg"
-                class="global-rail__workspace-trigger"
-                aria-label={`Switch workspace, current ${activeWorkspaceLabel()}`}
-              >
-                <WorkspaceMark workspace={props.activeWorkspace} />
-              </DropdownMenuTrigger>
-              <TooltipContent hideArrow placement="right" gutter={4} data-slot="tooltip-content">
-                Switch workspace
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent
-              hideArrow
-              class="global-rail__workspace-menu max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+    <SideRail collapsed class="global-rail" aria-label="Global navigation">
+      <SideRailHeader>
+        <DropdownMenu modal={false} placement="right-start" gutter={4}>
+          <DropdownMenuTrigger
+            as={SideRailButton}
+            label={`Switch workspace, current ${activeWorkspaceLabel()}`}
+            class="global-rail__workspace-trigger"
+          >
+            <WorkspaceMark workspace={props.activeWorkspace} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            hideArrow
+            class="global-rail__workspace-menu max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+          >
+            <DropdownMenuRadioGroup
+              value={props.activeWorkspace?.id ?? ''}
+              onChange={(id) => {
+                const workspace = props.workspaces.find((entry) => entry.id === id)
+                if (workspace) props.onWorkspaceChange(workspace)
+              }}
             >
-              <DropdownMenuRadioGroup
-                value={props.activeWorkspace?.id ?? ''}
-                onChange={(id) => {
-                  const workspace = props.workspaces.find((entry) => entry.id === id)
-                  if (workspace) props.onWorkspaceChange(workspace)
-                }}
-              >
-                <For each={workspaceRows()}>
-                  {(entry) => (
-                    <DropdownMenuRadioItem value={entry.item().id} closeOnSelect>
-                      <WorkspaceMark workspace={entry.item()} />
-                      <span class="global-rail__workspace-name">{entry.item().name}</span>
-                    </DropdownMenuRadioItem>
-                  )}
-                </For>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+              <For each={workspaceRows()}>
+                {(entry) => (
+                  <DropdownMenuRadioItem value={entry.item().id} closeOnSelect>
+                    <WorkspaceMark workspace={entry.item()} />
+                    <span class="global-rail__workspace-name">{entry.item().name}</span>
+                  </DropdownMenuRadioItem>
+                )}
+              </For>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SideRailHeader>
 
-        <div class="global-rail__search">
-          <RailAction icon={Search} label="Search workspace" onClick={props.onOpenSearch} />
-          <kbd aria-hidden="true">⌘ K</kbd>
-        </div>
+      <SideRailContent>
+        <SideRailSection label="Search">
+          <SideRailItem
+            as="button"
+            type="button"
+            label="Search workspace"
+            aria-label="Search workspace"
+            shortcut="⌘K"
+            keyshortcuts="Meta+K Control+K"
+            onClick={props.onOpenSearch}
+          >
+            <Search aria-hidden="true" />
+          </SideRailItem>
+        </SideRailSection>
 
         <Separator class="global-rail__separator" />
 
-        <div class="global-rail__views" role="group" aria-label="Workspace views">
+        <SideRailSection label="Workspace views" role="group" aria-label="Workspace views">
           <For each={props.views}>
             {(view) => {
               const Icon = VIEW_ICONS[view] ?? Map
+              const active = () => !props.libraryActive && props.view === view
+              const onIntent = () => {
+                if (view === 'virtual' || view === 'chat' || view === 'dev')
+                  props.onViewIntent?.(view)
+              }
               return (
-                <RailAction
-                  active={!props.libraryActive && props.view === view}
-                  icon={Icon}
-                  label={VIEW_LABELS[view] ?? view}
-                  onClick={() => props.onViewChange(view)}
-                  onIntent={() => {
-                    if (view === 'virtual' || view === 'chat' || view === 'dev')
-                      props.onViewIntent?.(view)
-                  }}
-                />
+                <div class="global-rail__intent" onPointerEnter={onIntent} onFocusIn={onIntent}>
+                  <SideRailItem
+                    as="button"
+                    type="button"
+                    active={active()}
+                    aria-pressed={active() || undefined}
+                    label={VIEW_LABELS[view] ?? view}
+                    aria-label={VIEW_LABELS[view] ?? view}
+                    onClick={() => props.onViewChange(view)}
+                  >
+                    <Icon aria-hidden="true" />
+                  </SideRailItem>
+                </div>
               )
             }}
           </For>
-          <RailAction
-            icon={LayoutGrid}
-            label="App Library"
+          <SideRailItem
+            as="button"
+            type="button"
             active={props.libraryActive}
+            aria-pressed={props.libraryActive || undefined}
+            label="App Library"
+            aria-label="App Library"
             onClick={props.onOpenAppLibrary}
-          />
-          <RailAction
+          >
+            <LayoutGrid aria-hidden="true" />
+          </SideRailItem>
+          <SideRailItem
+            as="button"
+            type="button"
             disabled
-            icon={Bell}
             label="Notifications (coming soon)"
+            aria-label="Notifications (coming soon)"
             onClick={props.onOpenNotifications}
-          />
-        </div>
+          >
+            <Bell aria-hidden="true" />
+          </SideRailItem>
+        </SideRailSection>
+      </SideRailContent>
 
-        <div class="global-rail__footer">
-          <RailAction
+      <SideRailFooter>
+        <div
+          class="global-rail__intent"
+          onPointerEnter={() => props.onPanelIntent?.('plugins')}
+          onFocusIn={() => props.onPanelIntent?.('plugins')}
+        >
+          <SideRailItem
+            as="button"
+            type="button"
             disabled={!props.activeWorkspace}
-            icon={Plug}
             label="Plugins"
+            aria-label="Plugins"
             onClick={props.onOpenPlugins}
-            onIntent={() => props.onPanelIntent?.('plugins')}
-          />
-          <AccountMenu
-            authenticated={props.account.authenticated}
-            busy={props.account.busy}
-            onIntent={() => {
-              // The menu is the path to settings and about: warm both dialogs
-              // when the user reaches for it.
-              props.onPanelIntent?.('settings')
-              props.onPanelIntent?.('about')
-            }}
-            onOpenUpdates={props.account.onOpenUpdates}
-            onOpenAbout={props.onOpenAbout}
-            onOpenSettings={props.onOpenSettings}
-            onSignIn={props.account.onSignIn}
-            onSignOut={props.account.onSignOut}
-            platform={props.account.platform}
-          />
+          >
+            <Plug aria-hidden="true" />
+          </SideRailItem>
         </div>
-      </nav>
-    </TooltipProvider>
+        <AccountMenu
+          authenticated={props.account.authenticated}
+          busy={props.account.busy}
+          onIntent={() => {
+            // The menu is the path to settings and about: warm both dialogs
+            // when the user reaches for it.
+            props.onPanelIntent?.('settings')
+            props.onPanelIntent?.('about')
+          }}
+          onOpenUpdates={props.account.onOpenUpdates}
+          onOpenAbout={props.onOpenAbout}
+          onOpenSettings={props.onOpenSettings}
+          onSignIn={props.account.onSignIn}
+          onSignOut={props.account.onSignOut}
+          platform={props.account.platform}
+        />
+      </SideRailFooter>
+    </SideRail>
   )
 }

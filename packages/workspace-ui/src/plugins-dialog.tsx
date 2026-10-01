@@ -1,5 +1,6 @@
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -537,24 +538,26 @@ function NavigationPanel(props: { navigation: AppLibraryNavigation }) {
                 </Show>
               </span>
               <span class="plugins-navigation__controls">
-                <Button
+                <ActionButton
                   type="button"
                   variant="ghost"
                   size="icon-sm"
+                  tooltip={`Move ${item.label} up`}
                   aria-label={`Move ${item.label} up`}
                   onClick={() => props.navigation.onReorder(item.id, 'up')}
                 >
                   <ChevronUp aria-hidden="true" />
-                </Button>
-                <Button
+                </ActionButton>
+                <ActionButton
                   type="button"
                   variant="ghost"
                   size="icon-sm"
+                  tooltip={`Move ${item.label} down`}
                   aria-label={`Move ${item.label} down`}
                   onClick={() => props.navigation.onReorder(item.id, 'down')}
                 >
                   <ChevronDown aria-hidden="true" />
-                </Button>
+                </ActionButton>
                 <Checkbox
                   class="plugins-navigation__visibility"
                   label="Show"

@@ -410,10 +410,3 @@
   padding: 0.2rem 0.5rem;
   color: var(--dev-muted);
 }
-
-/* Window padding (#677): stands in for the rows the window does not render, so
- * the scrollbar keeps describing the whole list. The height arrives as a
- * custom property because the value is geometry, not styling. */
-.dev-files__window-pad {
-  height: var(--dev-files-pad, 0);
-}

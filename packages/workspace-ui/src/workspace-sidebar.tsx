@@ -306,6 +306,7 @@ export function WorkspaceSidebar(props: Props) {
         />
       </Show>
       <SidebarNav
+        id="workspace-navigation"
         as="aside"
         ref={setSidebar}
         class={cn('conventional-sidebar', {
@@ -321,6 +322,7 @@ export function WorkspaceSidebar(props: Props) {
           maximum={SIDEBAR_MAX_WIDTH}
           step={16}
           label="Resize workspace navigation"
+          controls="workspace-navigation"
           class="conventional-sidebar__resize"
           onChange={updateSidebarWidth}
           onCommit={persistSidebarWidth}

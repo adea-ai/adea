@@ -1,21 +1,15 @@
 import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from '@adea-ai/types'
 import {
-  CheckCheck,
-  File,
-  LockKeyhole,
-  MessageSquareReply,
-  Pencil,
-  RotateCcw,
-  Trash2,
-} from 'lucide-solid'
+  AttachmentCard,
+  MessageBody as SharedMessageBody,
+  MessageRow as SharedMessageRow,
+} from '@adea-ai/ui/components/conversation'
+import { BotMessageSquare, CircleUserRound, File, LockKeyhole } from 'lucide-solid'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import type { PrivateContentResolver } from './platform'
-import { ConversationAvatar } from './conversation-avatar'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
-// Intl.DateTimeFormat construction is surprisingly expensive; share one
-// formatter across every row instead of building it per binding evaluation.
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
 
 function senderLabel(message: MessageSummary, agents: ReadonlyMap<string, AgentSummary>) {
@@ -42,7 +36,10 @@ function samePrivateContentIdentity(left: PrivateContentIdentity, right: Private
   )
 }
 
-function MessageBody(props: { message: MessageSummary; privateContent?: PrivateContentResolver }) {
+function PrivateMessageBody(props: {
+  message: MessageSummary
+  privateContent?: PrivateContentResolver
+}) {
   const [resolution, setResolution] = createSignal<PrivateContentResolution>()
   const currentIdentity = (): PrivateContentIdentity | undefined => {
     const contentRefId = props.message.bodyContentRefId
@@ -88,74 +85,96 @@ function MessageBody(props: { message: MessageSummary; privateContent?: PrivateC
 
   return (
     <Show
-      when={!props.message.deleted}
-      fallback={<p class="conventional-message__deleted">Message deleted</p>}
-    >
-      <Show
-        when={!(props.message.bodyContentRefId && !props.message.bodyText && !resolvedBody())}
-        fallback={
-          <div
-            class="conventional-private-content"
-            role={resolutionState() === 'unavailable' ? 'alert' : 'status'}
-          >
-            <LockKeyhole aria-hidden="true" />
-            <div>
-              <strong>
-                {resolutionState() === 'loading'
-                  ? 'Opening private content…'
-                  : 'Private content unavailable'}
-              </strong>
-              <span>
-                {props.privateContent
-                  ? 'This device is not currently authorized for this content.'
-                  : 'Open this conversation on its authorized desktop device.'}
-              </span>
-            </div>
+      when={!(props.message.bodyContentRefId && !props.message.bodyText && !resolvedBody())}
+      fallback={
+        <div
+          class="conventional-private-content"
+          role={resolutionState() === 'unavailable' ? 'alert' : 'status'}
+        >
+          <LockKeyhole aria-hidden="true" />
+          <div>
+            <strong>
+              {resolutionState() === 'loading'
+                ? 'Opening private content…'
+                : 'Private content unavailable'}
+            </strong>
+            <span>
+              {props.privateContent
+                ? 'This device is not currently authorized for this content.'
+                : 'Open this conversation on its authorized desktop device.'}
+            </span>
           </div>
-        }
-      >
-        <div class="conventional-message__body">
-          <For
-            each={(props.message.bodyText ?? resolvedBody() ?? '')
-              .split(/(```[\s\S]*?```)/g)
-              .filter(Boolean)}
-          >
-            {(block) => (
-              <Show
-                when={block.startsWith('```') && block.endsWith('```')}
-                fallback={<p>{block}</p>}
-              >
-                <pre tabIndex={0} aria-label="Code block">
-                  <code>{block.slice(3, -3).replace(/^\w+\n/, '')}</code>
-                </pre>
-              </Show>
-            )}
-          </For>
         </div>
-      </Show>
+      }
+    >
+      <SharedMessageBody text={props.message.bodyText ?? resolvedBody() ?? ''} />
     </Show>
   )
 }
 
-function ArtifactCard(props: { artifact?: ArtifactSummary; artifactId: string }) {
-  const unavailable = () => !props.artifact || props.artifact.availability !== 'available'
+function MessageAvatarContent(props: { avatarRef?: string; kind: 'agent' | 'system' | 'user' }) {
+  const [imageFailed, setImageFailed] = createSignal(false)
+
+  createEffect(() => {
+    void props.avatarRef
+    setImageFailed(false)
+  })
+
   return (
-    <article
-      class="conventional-artifact-card"
-      aria-label={`Attachment ${props.artifact?.filename ?? props.artifactId}`}
+    <Show
+      when={props.avatarRef && !imageFailed()}
+      fallback={
+        props.kind === 'user' ? (
+          <CircleUserRound aria-hidden="true" />
+        ) : (
+          <BotMessageSquare aria-hidden="true" />
+        )
+      }
     >
-      <File aria-hidden="true" />
-      <div>
-        <strong>{props.artifact?.filename ?? 'Unavailable Artifact'}</strong>
-        <span>
-          {props.artifact?.deletionState === 'deleted'
-            ? 'Deleted'
-            : unavailable()
-              ? 'Unavailable'
-              : `${props.artifact!.mediaType} · ${props.artifact!.sizeBytes.toLocaleString()} bytes`}
-        </span>
-      </div>
-    </article>
+      <img
+        src={props.avatarRef}
+        alt=""
+        class="size-full rounded-full object-cover"
+        loading="lazy"
+        decoding="async"
+        fetchpriority="low"
+        referrerpolicy="no-referrer"
+        onError={() => setImageFailed(true)}
+      />
+    </Show>
+  )
+}
+
+function ArtifactAttachments(props: {
+  artifacts: ReadonlyMap<string, ArtifactSummary>
+  artifactIds: readonly string[]
+}) {
+  return (
+    <div class="flex flex-wrap gap-2">
+      <For each={props.artifactIds}>
+        {(artifactId) => {
+          const artifact = () => props.artifacts.get(artifactId)
+          const unavailable = () => !artifact() || artifact()!.availability !== 'available'
+          const detail = () => {
+            const value = artifact()
+            if (value?.deletionState === 'deleted') return 'Deleted'
+            if (unavailable()) return 'Unavailable'
+            return `${value!.mediaType} · ${value!.sizeBytes.toLocaleString()} bytes`
+          }
+
+          return (
+            <AttachmentCard
+              aria-label={`Attachment ${artifact()?.filename ?? artifactId}`}
+              disabled
+              detail={detail()}
+              icon={<File aria-hidden="true" />}
+              name={artifact()?.filename ?? 'Unavailable Artifact'}
+              unavailable={unavailable()}
+            />
+          )
+        }}
+      </For>
+    </div>
   )
 }
 
@@ -177,99 +196,56 @@ export function MessageRow(props: {
   task?: TaskSummary
 }) {
   const label = () => senderLabel(props.message, props.agents)
-  const senderAgentId = () =>
-    props.message.sender.kind === 'agent' ? props.message.sender.agentId : undefined
   const senderAgent = () => {
-    const agentId = senderAgentId()
+    const agentId = props.message.sender.kind === 'agent' ? props.message.sender.agentId : undefined
     return agentId ? props.agents.get(agentId) : undefined
   }
+  const taskLink = () =>
+    props.task ? (
+      <Button type="button" onClick={() => props.onOpenTask?.(props.task!.id)}>
+        Task · {props.task.title}
+      </Button>
+    ) : undefined
 
   return (
-    <article
-      class={`conventional-message conventional-message--${props.message.sender.kind}${props.highlighted ? ' conventional-message--highlighted' : ''}`}
+    <SharedMessageRow
       data-message-id={props.message.id}
-      tabIndex={props.highlighted ? -1 : undefined}
-      aria-busy={props.pending || undefined}
+      dateTime={props.message.createdAt}
+      edited={Boolean(props.message.editedAt)}
+      highlighted={props.highlighted}
+      link={taskLink()}
+      onDelete={props.onDelete}
+      onEdit={props.onEdit}
+      onOpenThread={
+        !props.message.threadRootMessageId && !props.message.deleted
+          ? () => props.onOpenThread?.(props.message.id)
+          : undefined
+      }
+      onRetry={props.retry}
+      onThreadIntent={() => props.onThreadIntent?.(props.message.id)}
+      pending={props.pending}
+      senderKind={props.message.sender.kind}
+      senderName={label()}
+      time={timeFormatter.format(new Date(props.message.createdAt))}
+      deleted={props.message.deleted}
+      avatar={
+        <MessageAvatarContent
+          kind={props.message.sender.kind}
+          avatarRef={senderAgent()?.avatarRef}
+        />
+      }
+      attachments={
+        props.message.artifactIds.length ? (
+          <ArtifactAttachments
+            artifacts={props.artifacts}
+            artifactIds={props.message.artifactIds}
+          />
+        ) : undefined
+      }
     >
-      <div class="conventional-message__avatar" aria-hidden="true">
-        <ConversationAvatar kind={props.message.sender.kind} avatarRef={senderAgent()?.avatarRef} />
-      </div>
-      <div class="conventional-message__content">
-        <div class="conventional-message__bubble">
-          <span class="visually-hidden">{label()}</span>
-          <MessageBody message={props.message} privateContent={props.privateContent} />
-          <Show when={props.message.artifactIds.length}>
-            <div class="conventional-message__artifacts">
-              <For each={props.message.artifactIds}>
-                {(artifactId) => (
-                  <ArtifactCard
-                    artifactId={artifactId}
-                    artifact={props.artifacts.get(artifactId)}
-                  />
-                )}
-              </For>
-            </div>
-          </Show>
-          <Show when={props.task}>
-            {(task) => (
-              <Button
-                type="button"
-                class="conventional-task-link"
-                onClick={() => props.onOpenTask?.(task().id)}
-              >
-                Task · {task().title}
-              </Button>
-            )}
-          </Show>
-          <div class="conventional-message__meta">
-            <time dateTime={props.message.createdAt}>
-              {timeFormatter.format(new Date(props.message.createdAt))}
-            </time>
-            <Show when={props.message.editedAt}>
-              <span>edited</span>
-            </Show>
-            <Show when={props.pending}>
-              <span role="status">sending…</span>
-            </Show>
-            <Show when={props.message.sender.kind === 'user'}>
-              <span class="conventional-message__receipt" aria-label="Delivered">
-                <CheckCheck aria-hidden="true" />
-              </span>
-            </Show>
-          </div>
-        </div>
-        <footer class="conventional-message__actions">
-          <Show when={!props.message.threadRootMessageId && !props.message.deleted}>
-            <Button
-              type="button"
-              onClick={() => props.onOpenThread?.(props.message.id)}
-              onPointerEnter={() => props.onThreadIntent?.(props.message.id)}
-              onFocus={() => props.onThreadIntent?.(props.message.id)}
-            >
-              <MessageSquareReply aria-hidden="true" />
-              Thread
-            </Button>
-          </Show>
-          <Show when={props.onEdit && !props.message.deleted}>
-            <Button type="button" onClick={() => props.onEdit?.()}>
-              <Pencil aria-hidden="true" />
-              Edit
-            </Button>
-          </Show>
-          <Show when={props.onDelete && !props.message.deleted}>
-            <Button type="button" onClick={() => props.onDelete?.()}>
-              <Trash2 aria-hidden="true" />
-              Delete
-            </Button>
-          </Show>
-          <Show when={props.retry}>
-            <Button type="button" onClick={() => props.retry?.()}>
-              <RotateCcw aria-hidden="true" />
-              Retry
-            </Button>
-          </Show>
-        </footer>
-      </div>
-    </article>
+      <Show when={!props.message.deleted}>
+        <PrivateMessageBody message={props.message} privateContent={props.privateContent} />
+      </Show>
+    </SharedMessageRow>
   )
 }

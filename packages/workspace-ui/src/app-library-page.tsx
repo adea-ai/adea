@@ -1,5 +1,6 @@
-import { Input } from '@adea-ai/ui/components/ui/input'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { ListGroup, ListRow } from '@adea-ai/ui/components/composites/list-row'
 import {
@@ -42,19 +43,7 @@ function AppLibraryRow(props: {
 
   return (
     <ListRow
-      class="workspace-app-library__row"
-      leading={
-        <span
-          class={
-            props.enabled
-              ? 'workspace-app-library__icon'
-              : 'workspace-app-library__icon workspace-app-library__icon--muted'
-          }
-          aria-hidden="true"
-        >
-          <Icon />
-        </span>
-      }
+      leading={<Icon aria-hidden="true" />}
       description={props.app.description}
       trailing={
         <Show
@@ -75,24 +64,26 @@ function AppLibraryRow(props: {
             <Button variant="ghost" size="sm" onClick={() => props.onOpen(props.app.id)}>
               Open {props.app.name}
             </Button>
-            <Button
+            <ActionButton
               variant="ghost"
               size="icon-sm"
+              tooltip={`Move ${props.app.name} up`}
               aria-label={`Move ${props.app.name} up`}
               disabled={position() === 0}
               onClick={() => props.onReorder(props.app.id, 'up')}
             >
               <ChevronUp aria-hidden="true" />
-            </Button>
-            <Button
+            </ActionButton>
+            <ActionButton
               variant="ghost"
               size="icon-sm"
+              tooltip={`Move ${props.app.name} down`}
               aria-label={`Move ${props.app.name} down`}
               disabled={position() === props.enabledOrder.length - 1}
               onClick={() => props.onReorder(props.app.id, 'down')}
             >
               <ChevronDown aria-hidden="true" />
-            </Button>
+            </ActionButton>
             <Button
               variant="ghost"
               size="sm"
@@ -151,9 +142,11 @@ export function AppLibraryPage(props: {
           <p>Choose the views and tools in your workspace.</p>
         </div>
         <div class="workspace-app-library__controls">
-          <div class="workspace-app-library__search">
-            <Search aria-hidden="true" class="workspace-app-library__search-icon" />
-            <Input
+          <InputGroup class="w-64 max-w-full flex-1 basis-48">
+            <InputGroupAddon>
+              <Search aria-hidden="true" />
+            </InputGroupAddon>
+            <InputGroupInput
               ref={(element) => (searchInput = element)}
               aria-label="Search apps"
               type="search"
@@ -161,7 +154,7 @@ export function AppLibraryPage(props: {
               value={search()}
               onInput={(event) => setSearch(event.currentTarget.value)}
             />
-          </div>
+          </InputGroup>
           <Button
             variant={enabledOnly() ? 'secondary' : 'outline'}
             size="sm"

@@ -19,6 +19,7 @@ import type {
 import '@adea-ai/app-ui/dev-view.css'
 import { RefreshCw, X } from 'lucide-solid'
 import { For, Show, createResource, createSignal } from 'solid-js'
+import { cn } from '@adea-ai/ui/lib/utils'
 
 import type { DevRuntimeService } from '../platform'
 import { buildDevCommand } from '../browser/command'
@@ -242,8 +243,9 @@ export function ResourcesPane(props: ResourcesPaneProps) {
                 <For each={cards()}>
                   {(card) => (
                     <li
-                      class="dev-resources__row"
-                      classList={{ 'dev-resources__row--alert': card.failure !== undefined }}
+                      class={cn('dev-resources__row', {
+                        'dev-resources__row--alert': card.failure !== undefined,
+                      })}
                     >
                       <span class="dev-resources__row-main">
                         <span class="dev-resources__row-title">

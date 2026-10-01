@@ -9,6 +9,7 @@ import {
 import type { ShellObservation } from './blocks'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { ScrollArea } from '@adea-ai/ui/components/ui/scroll-area'
 
 /**
  * Small fixture renderer for the authenticated terminal journey.
@@ -77,7 +78,7 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
   onCleanup(() => transport.dispose())
 
   return (
-    <section
+    <ScrollArea
       aria-label={
         props.worktreeLabel ? `Integrated terminal — ${props.worktreeLabel}` : 'Integrated terminal'
       }
@@ -86,7 +87,7 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
       data-renderer="dom"
       onKeyDown={onKeyDown}
       role="region"
-      tabIndex={0}
+      orientation="both"
     >
       <div class="dev-terminal-pane-status" data-state={connection()}>
         {connection() === 'reconnecting' ? 'reconnecting' : connection()}
@@ -102,9 +103,14 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
       <div class="dev-terminal-pane-cwd" data-cwd-source={cwd() ? 'authenticated' : 'pending'}>
         {cwd() ?? 'Awaiting authenticated cwd'}
       </div>
-      <div aria-label="Terminal output" class="dev-terminal-surface" tabIndex={0}>
+      <ScrollArea
+        aria-label="Terminal output"
+        role="region"
+        class="dev-terminal-surface"
+        orientation="both"
+      >
         <pre>{output()}</pre>
-      </div>
+      </ScrollArea>
       <ul aria-label="Command blocks">
         <For each={observations().filter((observation) => observation.kind === 'precmd')}>
           {(observation) => (
@@ -143,6 +149,6 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
         }}
         type="text"
       />
-    </section>
+    </ScrollArea>
   )
 }

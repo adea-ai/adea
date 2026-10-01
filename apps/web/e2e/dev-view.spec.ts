@@ -189,6 +189,10 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   const splitPane = page.getByRole('button', { name: 'Split pane', exact: true })
   await expectPointerHitsButton(page, splitPane, 'Split pane')
   await splitPane.click()
+  // Splitting retains the focused pane's kind (docs/specs/dev-runtime.md), so
+  // splitting the lone terminal yields a second terminal, not an editor.
+  await expect(page.getByRole('region', { name: 'terminal pane' })).toHaveCount(2)
+  await expect(page.getByRole('region', { name: 'editor pane' })).toHaveCount(0)
   const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
   await separator.focus()
   await page.keyboard.press('ArrowRight')
@@ -197,7 +201,9 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await page.getByRole('button', { name: 'Split pane' }).click()
   await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
   await page.getByRole('button', { name: 'Close terminal pane' }).last().click()
-  await expect(page.getByRole('region', { name: 'editor pane' })).toBeFocused()
+  await expect(page.locator('[data-pane-id]')).toHaveCount(2)
+  // Closing the trailing pane returns focus to the surviving neighbour.
+  await expect(page.locator('[data-pane-id="dev-pane-1"]')).toBeFocused()
   await expect(page.getByRole('button', { name: 'Undo close' })).toBeEnabled()
   await page.getByRole('button', { name: 'Undo close' }).click()
   await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
@@ -293,10 +299,11 @@ test('center panes move by keyboard while keeping one primary session', async ({
   await expect(panes).toHaveCount(2)
   await expect(panes.first()).toHaveAttribute('data-pane-id', 'dev-terminal')
 
-  await page.getByRole('region', { name: 'terminal pane' }).click()
+  await page.locator('[data-pane-id="dev-terminal"]').click()
   await page.keyboard.press('ControlOrMeta+Alt+ArrowRight')
   await expect(panes.first()).toHaveAttribute('data-pane-id', 'dev-pane-1')
-  await expect(page.getByRole('region', { name: 'terminal pane' })).toBeFocused()
+  // The moved pane keeps DOM focus as it crosses its sibling.
+  await expect(page.locator('[data-pane-id="dev-terminal"]')).toBeFocused()
 
   await page.keyboard.press('ControlOrMeta+Alt+ArrowLeft')
   await expect(panes.first()).toHaveAttribute('data-pane-id', 'dev-terminal')

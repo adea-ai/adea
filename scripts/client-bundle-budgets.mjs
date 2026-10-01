@@ -6,11 +6,15 @@ import { gzipSync } from 'node:zlib'
 // catches total payload growth; the startup and view caps stop lazy features
 // from consuming startup headroom without being downloaded on initial load.
 export const CLIENT_BUNDLE_BUDGETS = {
-  total: { rawBytes: 2_350_000, gzipBytes: 700 * 1024, fileCount: 84 },
+  total: { rawBytes: 2_350_000, gzipBytes: 700 * 1024, fileCount: 86 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     virtual: { rawBytes: 14 * 1024, gzipBytes: 6 * 1024 },
-    chat: { rawBytes: 176 * 1024, gzipBytes: 56 * 1024 },
+    // The chat route composes the shared conversation surface and composer
+    // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
+    // 65,600 gzip measured — the shared modules carry the keyboard and
+    // composition behaviour that used to be tree-shaken into the route.
+    chat: { rawBytes: 216 * 1024, gzipBytes: 65 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the

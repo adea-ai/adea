@@ -11,6 +11,16 @@ resolver. Resolved plaintext is shown only while its resolver, workspace, and
 content reference still match. Switching items hides old plaintext immediately,
 and later responses or failures from the previous request are ignored.
 
+## Conversation presentation
+
+The workspace keeps channel and thread queries, participant and artifact lookup,
+read markers, drafts, private-content authorization, and message submission in its
+app adapter. It composes the published `ConversationSurface`, `MessageRow`,
+`MessageBody`, `AttachmentCard`, and `ThreadPanel` for transcript presentation.
+Reading position is cached by channel as both a scroll offset and follow intent;
+the shared scroller owns follow behavior while the workspace owns that identity
+and restoration snapshot.
+
 ## Global rail
 
 The `GlobalWorkspaceRail` stays mounted across workspace views. Ctrl/Cmd+K

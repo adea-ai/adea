@@ -45,6 +45,7 @@ import {
   type ResponsivePresetId,
 } from './responsive-presets'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 
@@ -622,16 +623,17 @@ export function BrowserPane(props: BrowserPaneProps) {
     <section class="dev-browser" aria-label="Browser">
       <div class="dev-browser__chrome" role="toolbar" aria-label="Browser navigation">
         <div class="dev-browser__nav-group" role="group" aria-label="Navigation">
-          <Button
+          <ActionButton
             type="button"
             variant="outline"
             size="icon-sm"
+            tooltip="Reload"
             aria-label="Reload"
             disabled={!activeLane() || !currentUrl()}
             onClick={reloadCurrentPage}
           >
             <RotateCw aria-hidden="true" />
-          </Button>
+          </ActionButton>
         </div>
         <form
           class="dev-browser__url"
@@ -654,42 +656,46 @@ export function BrowserPane(props: BrowserPaneProps) {
             onKeyDown={handleUrlKeyDown}
           />
         </form>
-        <Button
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip="Screenshot"
           aria-label="Screenshot"
           aria-busy={screenshotBusy()}
           disabled={!screenshotContext().canCapture || screenshotBusy()}
           onClick={screenshot}
         >
           <Camera aria-hidden="true" />
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip={miniPreviewOpen() ? 'Close floating preview' : 'Float preview'}
           aria-label={miniPreviewOpen() ? 'Close floating preview' : 'Float preview'}
           aria-pressed={miniPreviewOpen()}
           onClick={() => setMiniPreviewOpen((value) => !value)}
         >
           <PictureInPicture2 aria-hidden="true" />
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip={cookiesOpen() ? 'Close cookie import' : 'Import cookies'}
           aria-label={cookiesOpen() ? 'Close cookie import' : 'Import cookies'}
           aria-pressed={cookiesOpen()}
           disabled={!activeLane()}
           onClick={() => setCookiesOpen((value) => !value)}
         >
           <Cookie aria-hidden="true" />
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip="Close browser pane"
           aria-label="Close browser pane"
           onClick={() => {
             setCookiesOpen(false)
@@ -697,7 +703,7 @@ export function BrowserPane(props: BrowserPaneProps) {
           }}
         >
           <X aria-hidden="true" />
-        </Button>
+        </ActionButton>
       </div>
 
       <div class="dev-browser__identity" role="status">
@@ -985,10 +991,11 @@ export function BrowserPane(props: BrowserPaneProps) {
             >
               Rotate
             </Button>
-            <Button
+            <ActionButton
               type="button"
               variant="outline"
               size="icon-sm"
+              tooltip="Zoom out"
               aria-label="Zoom out"
               disabled={!activeLane()}
               onClick={() => {
@@ -1002,14 +1009,15 @@ export function BrowserPane(props: BrowserPaneProps) {
               }}
             >
               −
-            </Button>
+            </ActionButton>
             <span class="dev-browser__row-meta">
               {Math.round((viewportForActiveLane()?.zoomScale ?? 1) * 100)}%
             </span>
-            <Button
+            <ActionButton
               type="button"
               variant="outline"
               size="icon-sm"
+              tooltip="Zoom in"
               aria-label="Zoom in"
               disabled={!activeLane()}
               onClick={() => {
@@ -1023,7 +1031,7 @@ export function BrowserPane(props: BrowserPaneProps) {
               }}
             >
               +
-            </Button>
+            </ActionButton>
             <Show
               when={viewportForActiveLane()}
               fallback={

@@ -1,6 +1,10 @@
 import { expect, test } from 'bun:test'
 
-import { assertClientBundleBudgets, inspectClientBundle } from './client-bundle-budgets.mjs'
+import {
+  CLIENT_BUNDLE_BUDGETS,
+  assertClientBundleBudgets,
+  inspectClientBundle,
+} from './client-bundle-budgets.mjs'
 
 interface ClientChunk {
   file: string
@@ -161,7 +165,7 @@ test('fails closed when no other lazy Dev utility panes can be attributed', () =
 
 test('enforces each route budget independently of the full-client total', () => {
   const report = inspectClientBundle(fixture())
-  report.views.chat.rawBytes = 180_225
+  report.views.chat.rawBytes = CLIENT_BUNDLE_BUDGETS.views.chat.rawBytes + 1
 
   expect(() => assertClientBundleBudgets(report)).toThrow('Chat route exceeds raw byte budget')
 })
@@ -185,6 +189,6 @@ test('retains aggregate raw, gzip, and file-count ceilings', () => {
   expect(() => assertClientBundleBudgets(overGzip)).toThrow('Total client JavaScript exceeds gzip')
 
   const overFiles = inspectClientBundle(fixture())
-  overFiles.total.fileCount = 85
+  overFiles.total.fileCount = CLIENT_BUNDLE_BUDGETS.total.fileCount + 1
   expect(() => assertClientBundleBudgets(overFiles)).toThrow('Client JavaScript chunk-count budget')
 })
