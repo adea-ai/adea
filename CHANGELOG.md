@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.71.4](https://github.com/adea-ai/adea/compare/v0.71.3...v0.71.4) (2026-10-01)
+
+
+### Maintenance
+
+* **deps:** bump @adea-ai/ui from 0.93.2 to 0.95.0 ([#892](https://github.com/adea-ai/adea/issues/892)) ([cf7a496](https://github.com/adea-ai/adea/commit/cf7a496604fd4c27c8218ef5d5c7a05a6a1c9f33))
+
+## [0.71.3](https://github.com/adea-ai/adea/compare/v0.71.2...v0.71.3) (2026-10-01)
+
+
+### Bug Fixes
+
+* **deps:** update external major dependencies (major) ([#883](https://github.com/adea-ai/adea/issues/883)) ([67fb9f3](https://github.com/adea-ai/adea/commit/67fb9f393998fd493c9706617c1b1267f3c2b03d))
+
+
+### Maintenance
+
+* **dev-view:** adopt shared accessible file tree ([#872](https://github.com/adea-ai/adea/issues/872)) ([1163779](https://github.com/adea-ai/adea/commit/1163779482722dedba6a50da63c638200ba9d1bb))
+
 ## [0.71.2](https://github.com/adea-ai/adea/compare/v0.71.1...v0.71.2) (2026-10-01)
 
 

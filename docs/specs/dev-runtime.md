@@ -2955,11 +2955,19 @@ memory state if any commit fails. No deletion error is logged-and-ignored.
 
 ## Files and search
 
-The Files tree uses the shared UI virtual-window geometry with a fixed row-height
-contract. Only the mounted range is rendered, while its scroll space represents
-the full listing. A focused row remains mounted while the reader scrolls; focus
-tracking uses the bubbling focus-in event so child controls participate. The host
-keeps range calculation, filtering, worktree identity and file-opening authority.
+The visible Files projection composes the shared UI `Tree`, `TreeRow`, and
+`VirtualWindow` contract. The host supplies the complete ordered visible-item
+descriptors and owns filesystem/worktree state, expanded paths, activation,
+selection policy, and `DevRuntimeService` calls. The shared tree owns treeitem
+ARIA metadata, the roving tab stop, arrow-key navigation, and focus handoff for
+virtualized rows. Its row-size callback reports each mounted row's actual
+border-box block size in CSS pixels; the host uses those measurements for
+identity-keyed variable-height range, spacer, and reveal calculations. A focused
+row is revealed and mounted before focus moves, while the DOM remains limited to
+the viewport, bounded overscan, and the initial measurement slice. Do not assume
+a fixed row height: text sizing and zoom may change shared row measurements, and
+scroll anchoring must preserve the current item or end position while those
+measurements update.
 
 Every operation carries scope, live worktree ID/generation, authorized root,
 canonical relative path, and expected file identity where relevant.

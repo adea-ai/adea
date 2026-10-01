@@ -16,6 +16,9 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // App Library's second list-row-control importer, so rolldown splits that
   // route's list-row chunk out (3 → 4 files there) and puts the total one over
   // the old cap. The cap keeps the same +2 headroom as above.
+  // Re-measured for the shared accessible file tree (2026-10-01, #872): the
+  // shared Tree/TreeRow composites add ~6.4 KB raw to the total. Kept at the
+  // same rounding step rather than pinning to the build.
   // Re-measured for the shared app-ui boundaries (2026-10-01, #863): the
   // module split around the shared components moved the total by ~74 bytes.
   // Kept at the same rounding step rather than pinning to the build.
