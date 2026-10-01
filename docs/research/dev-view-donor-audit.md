@@ -311,6 +311,31 @@ packing also exposed missing folder entry points, omitted license/NOTICE, leaked
 test declarations, and root imports requiring absent optional chart/carousel
 peers. These findings are tracked separately from donor adoption.
 
+### Shared migration continuation (2026-09-30)
+
+The `migrationContinuation` section of [the existing inventory](dev-view-ui-traceability.json)
+records current implementation and acceptance separately from the historical
+reference snapshot. Adea [#811](https://github.com/adea-ai/adea/issues/811) requires
+shared primitives and reusable compositions throughout the app;
+[#757](https://github.com/adea-ai/adea/issues/757) supplies the current integrated
+shell and direct appearance-entry requirements.
+
+| Slice                                    | Current evidence                                                                                                        | Remaining acceptance                                                                   |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Canonical themes                         | [#827](https://github.com/adea-ai/adea/pull/827) merged; all 34 published palettes consumed; 25 checks passed           | Direct live appearance entry; current native/package and CSS/font evidence             |
+| Forms and lint                           | [#826](https://github.com/adea-ai/adea/pull/826) merged; 32 checks passed; no primitive-import exceptions               | One datalist exception, five wrapper paths, styling escape-hatch removal               |
+| Shared interaction contracts             | [UI #135](https://github.com/adea-ai/ui/pull/135) merged; UI 0.82.0 published after actual packed consumer gates passed | Final published consumer adoption gates                                                |
+| Conversation, account, navigation, board | Isolated local implementations consume shared presentation and retain application effects                               | Published dependency, refreshed route/browser/visual gates and merges                  |
+| Cortana recovery                         | [#2416](https://github.com/adea-ai/cortana/pull/2416); local recovered checks passed                                    | Published command contrast correction, browser proof, fast-forward PR update and merge |
+
+The shared sidebar touch regression now tests visible creation actions and real
+tap callbacks in Chromium and WebKit. The Board regressions test legal pointer
+drops, disabled destinations, keyboard boundaries and asynchronous controlled
+focus restoration, including cancellation when another action takes focus.
+These checks prove component contracts and synthetic consumer paths; they do
+not prove native providers or packaged acceptance. The historical manual
+accessibility waiver remains a waiver, never evidence that new code passed.
+
 ### Standalone appearance extraction checkpoint
 
 [UI PR #17](https://github.com/adea-ai/ui/pull/17) extracts the existing accepted

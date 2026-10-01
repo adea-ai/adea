@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.70.5](https://github.com/adea-ai/adea/compare/v0.70.4...v0.70.5) (2026-10-01)
+
+
+### Maintenance
+
+* **dev-view:** use shared utility controls ([#848](https://github.com/adea-ai/adea/issues/848)) ([403ad68](https://github.com/adea-ai/adea/commit/403ad688bfb0ab1ff27a99465b82e33299233a59))
+
+## [0.70.4](https://github.com/adea-ai/adea/compare/v0.70.3...v0.70.4) (2026-10-01)
+
+
+### Maintenance
+
+* consume shared conversation and navigation components ([#831](https://github.com/adea-ai/adea/issues/831)) ([9e0cbc1](https://github.com/adea-ai/adea/commit/9e0cbc1c308ad046999d852fc791d83b916b0134))
+
+## [0.70.3](https://github.com/adea-ai/adea/compare/v0.70.2...v0.70.3) (2026-10-01)
+
+
+### Maintenance
+
+* open Renovate PRs as drafts, group majors, and retire Dependabot ([#865](https://github.com/adea-ai/adea/issues/865)) ([d2a57a6](https://github.com/adea-ai/adea/commit/d2a57a6cb8e862d2d9af7aa5ac6eafbe95ca19ec))
+
+## [0.70.2](https://github.com/adea-ai/adea/compare/v0.70.1...v0.70.2) (2026-10-01)
+
+
+### Bug Fixes
+
+* **audio:** declare the @adea-ai/ui dependency ([#860](https://github.com/adea-ai/adea/issues/860)) ([bd123da](https://github.com/adea-ai/adea/commit/bd123da02065ac1725bb812c674529a4781dd6d8))
+
+## [0.70.1](https://github.com/adea-ai/adea/compare/v0.70.0...v0.70.1) (2026-10-01)
+
+
+### Performance
+
+* **web:** scan imported shared UI sources selectively ([#846](https://github.com/adea-ai/adea/issues/846)) ([e67fee4](https://github.com/adea-ai/adea/commit/e67fee4e4d6508a3297ee31f53d2dad70d4152fd))
+
 ## [0.70.0](https://github.com/adea-ai/adea/compare/v0.69.10...v0.70.0) (2026-09-30)
 
 

@@ -6,6 +6,7 @@ export function browserPaneHarnessHtml(): string {
   return [
     '<!doctype html>',
     '<html><head><meta charset="utf-8"><title>browser pane harness</title>',
+    '<link rel="stylesheet" href="/src/start/globals.css">',
     '<style>html, body, #harness-root { margin: 0; width: 100%; height: 100%; }</style>',
     '</head><body><div id="harness-root"></div></body></html>',
   ].join('')
