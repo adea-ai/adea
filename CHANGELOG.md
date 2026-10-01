@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.71.1](https://github.com/adea-ai/adea/compare/v0.71.0...v0.71.1) (2026-10-01)
+
+
+### Maintenance
+
+* **deps:** bump @adea-ai/ui from 0.89.2 to 0.93.2 ([#886](https://github.com/adea-ai/adea/issues/886)) ([8c5c9d3](https://github.com/adea-ai/adea/commit/8c5c9d366e5b27c0c8f9d450bd7e29011f8e3989))
+
+## [0.71.0](https://github.com/adea-ai/adea/compare/v0.70.14...v0.71.0) (2026-10-01)
+
+
+### Features
+
+* **dev-view:** adopt atomic chat composer ([#876](https://github.com/adea-ai/adea/issues/876)) ([5db1625](https://github.com/adea-ai/adea/commit/5db16258a785f9e89e04f083b02f278a3db24d1a))
+
+## [0.70.14](https://github.com/adea-ai/adea/compare/v0.70.13...v0.70.14) (2026-10-01)
+
+
+### Maintenance
+
+* **workspace-ui:** consume shared rail and account menu ([#855](https://github.com/adea-ai/adea/issues/855)) ([e094afd](https://github.com/adea-ai/adea/commit/e094afd2558774a1e21f898552977ede1e8373fd))
+
+## [0.70.13](https://github.com/adea-ai/adea/compare/v0.70.12...v0.70.13) (2026-10-01)
+
+
+### Bug Fixes
+
+* **workspace-ui:** wire search keys to cmdk's active-option contract ([39c0ae6](https://github.com/adea-ai/adea/commit/39c0ae6eb6f00e3b2e47cdc8bf697cc9d00d9a45))
+
+## [0.70.12](https://github.com/adea-ai/adea/compare/v0.70.11...v0.70.12) (2026-10-01)
+
+
+### Maintenance
+
+* **workspace-ui:** adopt shared catalog browser ([#856](https://github.com/adea-ai/adea/issues/856)) ([dd5fac8](https://github.com/adea-ai/adea/commit/dd5fac852cc035def887debcc28709d91863f862))
+
+## [0.70.11](https://github.com/adea-ai/adea/compare/v0.70.10...v0.70.11) (2026-10-01)
+
+
+### Bug Fixes
+
+* **theme:** enforce published palette authority ([#869](https://github.com/adea-ai/adea/issues/869)) ([60940b4](https://github.com/adea-ai/adea/commit/60940b43f410ecdfc66f04ff6a61c0b345450ea7))
+* **ui:** enforce shared class and action contracts ([#854](https://github.com/adea-ai/adea/issues/854)) ([f0f9201](https://github.com/adea-ai/adea/commit/f0f9201f5ed9ca3576935878946a56724a6c4355))
+
 ## [0.70.10](https://github.com/adea-ai/adea/compare/v0.70.9...v0.70.10) (2026-10-01)
 
 

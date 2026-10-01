@@ -5,7 +5,7 @@ import { createMemo, createSignal, type Accessor } from 'solid-js'
  * once the key exists, so the control flow keeps the row's DOM; the row's
  * bindings update through `entry.item()` instead of remounting.
  */
-export type KeyedRow<T> = Readonly<{ item: Accessor<T> }>
+export type KeyedRow<T, K = string> = Readonly<{ key: K; item: Accessor<T> }>
 
 /**
  * Maps a reactive list to stable, key-indexed rows.
@@ -29,10 +29,10 @@ export function keyedRows<T, K>(
   list: () => readonly T[],
   key: (item: T) => K,
   equals: false | ((previous: T, next: T) => boolean) = false
-): Accessor<readonly KeyedRow<T>[]> {
-  type Entry = { row: KeyedRow<T>; set(item: T): void }
+): Accessor<readonly KeyedRow<T, K>[]> {
+  type Entry = { row: KeyedRow<T, K>; set(item: T): void }
   let entries = new Map<K, Entry>()
-  return createMemo<readonly KeyedRow<T>[]>(() => {
+  return createMemo<readonly KeyedRow<T, K>[]>(() => {
     const items = list()
     const next = new Map<K, Entry>()
     const rows = items.map((item) => {
@@ -48,7 +48,10 @@ export function keyedRows<T, K>(
               ? false
               : (previousHolder, nextHolder) => equals(previousHolder[0], nextHolder[0]),
         })
-        entry = { row: { item: () => holder()[0] }, set: (nextItem) => setHolder([nextItem]) }
+        entry = {
+          row: { key: itemKey, item: () => holder()[0] },
+          set: (nextItem) => setHolder([nextItem]),
+        }
       } else if (!next.has(itemKey)) {
         entry.set(item)
       }

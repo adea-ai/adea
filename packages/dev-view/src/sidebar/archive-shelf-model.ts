@@ -87,3 +87,13 @@ export function confirmPendingDelete(state: ArchiveShelfState): {
   const commitId = state.pendingDeleteId
   return { state: { ...state, pendingDeleteId: undefined }, commitId }
 }
+
+/** Legacy projections without an archive timestamp must not imply recency. */
+export function archiveTimeLabel(value: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value)) return 'Archive time unavailable'
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return 'Archive time unavailable'
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+    date
+  )
+}

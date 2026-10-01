@@ -399,13 +399,30 @@ describe('ChatConversationModel', () => {
     const model = createChatConversationModel(service, SCOPE)
     await model.list()
     model.remember(current, scrollback)
-    model.setDraft(current.id, 'unfinished composer draft')
+    const pasteBlock = {
+      id: 'paste-1',
+      seq: 1,
+      lines: 2,
+      content: 'first line\nsecond line',
+    }
+    model.setDraft(current.id, {
+      text: 'unfinished [ Paste #1 · 2 lines ] composer draft',
+      blocks: [pasteBlock],
+    })
     expect(model.draftRevision(current.id)).toBe(1)
-    expect(model.setDraftIfCurrent(current.id, current.generation, 'late clear', 0)).toBeUndefined()
     expect(
-      model.setDraftIfCurrent(current.id, current.generation + 1, 'late old generation')
+      model.setDraftIfCurrent(current.id, current.generation, { text: 'late clear', blocks: [] }, 0)
     ).toBeUndefined()
-    expect(model.project().conversations[0]?.draft).toBe('unfinished composer draft')
+    expect(
+      model.setDraftIfCurrent(current.id, current.generation + 1, {
+        text: 'late old generation',
+        blocks: [],
+      })
+    ).toBeUndefined()
+    expect(model.project().conversations[0]).toMatchObject({
+      draft: 'unfinished [ Paste #1 · 2 lines ] composer draft',
+      draftBlocks: [pasteBlock],
+    })
 
     const snapshot = () => {
       const conversation = model.project().conversations[0]
@@ -416,6 +433,7 @@ describe('ChatConversationModel', () => {
         eventSequence: conversation.events.map((item) => item.seq),
         eventIds: conversation.events.map((item) => item.eventId),
         draft: conversation.draft,
+        draftBlocks: conversation.draftBlocks,
       }
     }
     const expected = snapshot()
@@ -435,6 +453,45 @@ describe('ChatConversationModel', () => {
     ])
     expect(calls.some((operation) => operation.includes('launch'))).toBe(false)
     expect(calls.some((operation) => operation === 'dev.session.create')).toBe(false)
+  })
+
+  test('allocates unique paste IDs for the current generation and preserves blocks across resume', async () => {
+    const current = session({ displayName: 'Atomic draft' })
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.list')
+        return ok(command.operation, { items: [current], observedAt: '2026-09-22T10:00:00Z' })
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+    await model.list()
+
+    const firstId = model.createPasteBlockId(current.id, current.generation)
+    const secondId = model.createPasteBlockId(current.id, current.generation)
+    expect(firstId).toMatch(/^paste-[a-z0-9]+$/)
+    expect(secondId).not.toBe(firstId)
+    expect(() => model.createPasteBlockId(current.id, current.generation + 1)).toThrow(
+      'Paste block identity does not belong to the current session generation'
+    )
+
+    const block = { id: firstId, seq: 1, lines: 1, content: 'private pasted line' }
+    model.setDraft(current.id, { text: '[ Paste #1 · 1 lines ]', blocks: [block] })
+    const resumed = { ...current, generation: current.generation + 1, version: current.version + 1 }
+    model.remember(resumed)
+    expect(() => model.createPasteBlockId(current.id, current.generation)).toThrow(
+      'Paste block identity does not belong to the current session generation'
+    )
+    expect(model.createPasteBlockId(current.id, resumed.generation)).not.toBe(firstId)
+    expect(model.project().conversations[0]).toMatchObject({
+      generation: resumed.generation,
+      draft: '[ Paste #1 · 1 lines ]',
+      draftBlocks: [block],
+    })
+    expect(
+      model.setDraftIfCurrent(current.id, current.generation, { text: '', blocks: [] }, 1)
+    ).toBeUndefined()
+    expect(model.project().conversations[0]?.draftBlocks).toEqual([block])
   })
 
   test('create is staged and idempotent, with one session, run, and prompt', async () => {

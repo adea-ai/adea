@@ -180,7 +180,7 @@
   border: 1px solid var(--border);
   border-radius: 0.35rem;
   background: var(--background);
-  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim, #000) 32%, transparent);
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim) 32%, transparent);
 }
 
 .dev-terminal-search input[type='text'] {
@@ -239,7 +239,7 @@
   border: 1px solid var(--border);
   border-radius: 0.35rem;
   background: var(--background);
-  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim, #000) 32%, transparent);
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim) 32%, transparent);
   font-size: 0.72rem;
 }
 
@@ -324,7 +324,7 @@
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   background: var(--background);
-  box-shadow: 0 0.6rem 1.6rem color-mix(in srgb, var(--scrim, #000) 40%, transparent);
+  box-shadow: 0 0.6rem 1.6rem color-mix(in srgb, var(--scrim) 40%, transparent);
   overflow-y: auto;
 }
 

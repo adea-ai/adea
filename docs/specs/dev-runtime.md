@@ -1391,11 +1391,22 @@ Send, Steer and Stop are available only when the host supplies their authorized
 operation (or the model supplies send/cancel). Missing handlers cannot clear a
 draft or report delivery; unsupported Steer remains disabled with a visible
 reason. Authority, connectivity and approval gates apply to Stop as well.
-The runtime composer mounts the published `@adea-ai/ui` ChatComposer. Adea owns
-its canonical draft changes and async delivery fence; shared UI owns the input,
-IME handling, pending presentation and action-row composition. Agent/profile,
-Auto/Customize pins, resolved location and authorized Stop/Steer/launch controls
-are host slots. This host has no queue operation, so it does not advertise one.
+The runtime composer mounts the published `@adea-ai/ui` AtomicChatComposer.
+Adea's scoped desktop Chat host owns one in-memory `{ text, blocks }` draft per
+canonical session; the shared editor reports both fields in one synchronous
+change. Paste block IDs are allocated by the current model only for its current
+session generation. Before Chat's existing text-only `chat_user` transport,
+the host expands every backed paste marker to its original text, rejects an
+unresolved marker, and applies the existing 65,536-character prompt limit to
+the expanded value. The block sidecar is never added to a runtime command,
+event, local storage record, or new persistence authority. Same-session
+remounts and resume preserve the in-memory pair; failure, stale identity, or a
+newer revision cannot clear it. Async delivery captures the expanded text and
+paired blocks before awaiting and clears only the still-current matching draft.
+Shared UI owns input, IME handling, pending presentation, paste editing and
+action-row composition. Agent/profile, Auto/Customize pins, resolved location
+and authorized Stop/Steer/launch controls are host slots. This host has no
+queue operation, so it does not advertise one.
 Desktop Chat retains a bounded presentation-only reading-position snapshot per
 session and generation in the active authenticated model host. Scope replacement
 clears these snapshots and rejects late writes from the previous scope. A
@@ -1659,6 +1670,25 @@ expanded even when their stored collapse IDs are set, so collapsed navigation
 cannot hide a match. Clearing the query restores the full projection and the
 unchanged collapse state. Typing or clearing the filter MUST NOT issue runtime
 commands, change selected canonical IDs, or mutate stored collapse state.
+
+The Dev sidebar consumes the published `@adea-ai/ui` `SidebarNav` shell,
+sections, and rows used by the workspace navigation. Shared UI owns the
+header, scrolling region, footer, row styling, disclosure interaction, status
+chips, and focus treatment. Adea supplies runtime groups/projects/sessions,
+selection, persisted collapse IDs, and reorder callbacks. The selected project
+uses the shared section active state even while collapsed; session selection
+uses the shared active row state. Shared navigation controls preserve 44px
+coarse-pointer targets without changing desktop density. Changing the shell
+does not change the commands or their authorization. Its archive shelf uses
+shared row, action, scrolling, empty-state, alert, and focus-managed destructive
+confirmation components. Failed archive reads name their error and preserve
+previously loaded rows; absent archive timestamps are labeled unavailable rather
+than implying recency. A successful restore returns focus to the persistent shelf
+control if its removed button still held focus. Restore still
+calls the authenticated unarchive contract, and deletion still requires
+confirmation and reports the missing host contract rather than fabricating
+success. An unavailable provider can leave only the filter and archive controls
+visible; it does not make the sidebar disconnected or authorize mock data.
 
 ### Browser lane
 
@@ -3093,6 +3123,10 @@ filename-part hits highest; ties break by shorter path; results are bounded
 `onOpenFile` path as tree selection; nothing in the picker grants authority.
 V1 ranks only loaded paths by design — a prebuilt index over the whole
 worktree (paged provider-side) is a future slice.
+The picker composes the shared `CommandDialog`/`Command` input and list
+primitives for listbox semantics, active-option announcements, keyboard
+selection, and focus restoration. Its built-in filter stays disabled so the
+files pane's fuzzy ranking and loaded-path boundary remain authoritative.
 
 ## Local git and diffs
 
