@@ -1524,7 +1524,9 @@ test('workspace search keeps duplicate destination labels tied to their domain i
   expect(await input.getAttribute('aria-activedescendant')).toBe(await channel.getAttribute('id'))
 })
 
-test('shared sidebar reports a failed mark-all-read action in Chat', async ({ page }) => {
+test('shared sidebar reports failed mark-all-read actions and preserves Virtual status', async ({
+  page,
+}) => {
   await mockWorkspace(page)
   await page.route('**/api/v1/workspaces/workspace-1/read-state', async (route) => {
     if (route.request().method() === 'POST') {
@@ -1543,6 +1545,32 @@ test('shared sidebar reports a failed mark-all-read action in Chat', async ({ pa
   await expect(sidebar.getByRole('button', { name: 'Mark all read' })).toBeEnabled()
   await sidebar.getByRole('button', { name: 'Mark all read' }).click()
   await expect(sidebar.getByRole('alert')).toContainText(
+    'Unread conversations could not be marked as read.'
+  )
+
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('button', { name: 'Virtual view', exact: true })
+    .click()
+  const virtualSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  await expect(virtualSidebar.getByRole('button', { name: 'Mark all read' })).toBeEnabled()
+  await virtualSidebar.getByRole('button', { name: 'Mark all read' }).click()
+  await expect(virtualSidebar.getByRole('alert')).toContainText(
+    'Unread conversations could not be marked as read.'
+  )
+  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+  await expect(virtualSidebar).toBeHidden()
+  const viewportWidth = await page
+    .locator('.workspace-scene-viewport')
+    .evaluate((element) => element.getBoundingClientRect().width)
+  const shellWidth = await page
+    .locator('.workspace-shell--contextual')
+    .evaluate((element) => element.getBoundingClientRect().width)
+  expect(viewportWidth).toBeGreaterThanOrEqual(shellWidth - 1)
+  await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+  await expect(virtualSidebar).toBeVisible()
+  await expect(virtualSidebar.getByRole('alert')).toContainText(
     'Unread conversations could not be marked as read.'
   )
 })

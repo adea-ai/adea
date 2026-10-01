@@ -407,6 +407,10 @@ html {
 .workspace-shell--contextual > .conventional-sidebar {
   flex-basis: var(--conventional-sidebar-width);
 }
+.workspace-shell--contextual:has(> .conventional-sidebar:not(.conventional-sidebar--open))
+  > .conventional-sidebar {
+  flex-basis: 0;
+}
 .workspace-shell--contextual > .workspace-scene-viewport {
   flex: 1;
   min-width: 0;

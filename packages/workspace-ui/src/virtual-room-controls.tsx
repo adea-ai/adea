@@ -188,33 +188,31 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
 
   return (
     <>
-      <Show when={sidebarOpen()}>
-        <WorkspaceSidebar
-          agents={settledData(agents) ?? []}
-          channelBusy={updateChannelMutation.isPending || archiveChannelMutation.isPending}
-          collapsedRoomIds={collapsedRoomIds()}
-          mobileOpen={sidebarOpen()}
-          navigation={navigation()}
-          onArchiveChannel={archiveChannel}
-          onChannelIntent={prefetchChannelMessages}
-          onCreateGroup={() => setDialog('create-group')}
-          onCreateRoom={() => setDialog('create-room')}
-          onMarkAllRead={() => markAllReadMutation.mutateAsync().then(() => undefined)}
-          onOpenAgents={() => routeToChat('agents')}
-          onOpenTasks={() => routeToChat('tasks')}
-          onRenameChannel={renameChannel}
-          onSelectChannel={selectChannel}
-          onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
-          onToggleRoom={(roomId) => workspaceStore.getState().toggleRoomCollapsed(roomId)}
-          onUpdateRoom={updateRoom}
-          roomBusy={updateRoomMutation.isPending}
-          selectedChannelId={selectedChannelId()}
-          readState={settledData(readState)?.readState ?? []}
-          status={sidebarStatus()}
-          workspaceReady={Boolean(activeWorkspace())}
-          workspaceName={activeWorkspace()?.name ?? 'Virtual'}
-        />
-      </Show>
+      <WorkspaceSidebar
+        agents={settledData(agents) ?? []}
+        channelBusy={updateChannelMutation.isPending || archiveChannelMutation.isPending}
+        collapsedRoomIds={collapsedRoomIds()}
+        mobileOpen={sidebarOpen()}
+        navigation={navigation()}
+        onArchiveChannel={archiveChannel}
+        onChannelIntent={prefetchChannelMessages}
+        onCreateGroup={() => setDialog('create-group')}
+        onCreateRoom={() => setDialog('create-room')}
+        onMarkAllRead={() => markAllReadMutation.mutateAsync().then(() => undefined)}
+        onOpenAgents={() => routeToChat('agents')}
+        onOpenTasks={() => routeToChat('tasks')}
+        onRenameChannel={renameChannel}
+        onSelectChannel={selectChannel}
+        onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
+        onToggleRoom={(roomId) => workspaceStore.getState().toggleRoomCollapsed(roomId)}
+        onUpdateRoom={updateRoom}
+        roomBusy={updateRoomMutation.isPending}
+        selectedChannelId={selectedChannelId()}
+        readState={settledData(readState)?.readState ?? []}
+        status={sidebarStatus()}
+        workspaceReady={Boolean(activeWorkspace())}
+        workspaceName={activeWorkspace()?.name ?? 'Virtual'}
+      />
       <Suspense fallback={null}>
         <Show when={dialog() === 'create-room' && activeWorkspace()}>
           {(workspace) => (
