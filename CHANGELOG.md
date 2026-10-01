@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.70.11](https://github.com/adea-ai/adea/compare/v0.70.10...v0.70.11) (2026-10-01)
+
+
+### Bug Fixes
+
+* **theme:** enforce published palette authority ([#869](https://github.com/adea-ai/adea/issues/869)) ([60940b4](https://github.com/adea-ai/adea/commit/60940b43f410ecdfc66f04ff6a61c0b345450ea7))
+* **ui:** enforce shared class and action contracts ([#854](https://github.com/adea-ai/adea/issues/854)) ([f0f9201](https://github.com/adea-ai/adea/commit/f0f9201f5ed9ca3576935878946a56724a6c4355))
+
 ## [0.70.10](https://github.com/adea-ai/adea/compare/v0.70.9...v0.70.10) (2026-10-01)
 
 
