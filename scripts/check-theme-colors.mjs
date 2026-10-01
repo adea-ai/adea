@@ -13,6 +13,17 @@ import { readFile, readdir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 
 const SCAN_EXTENSIONS = ['.ts', '.tsx', '.css']
+// Discover common stylesheet variants too; until scanSource has a parser for
+// them, they must fail closed rather than silently bypass the CSS contract.
+const SOURCE_STYLESHEET_EXTENSIONS = [
+  '.css',
+  '.scss',
+  '.sass',
+  '.less',
+  '.styl',
+  '.pcss',
+  '.postcss',
+]
 /** Source surfaces to scan. */
 export const SCAN_ROOTS = [
   { directory: 'packages/ui/src', extensions: SCAN_EXTENSIONS },
@@ -471,11 +482,100 @@ async function* sourceFiles(directory, extensions) {
 }
 
 /**
+ * Report stylesheet sources outside the configured scan roots and roots that
+ * stopped resolving or no longer contain any files with their configured
+ * extensions. This inventory is intentionally based on the working tree, so a
+ * newly added local source stylesheet cannot evade the gate before it is added
+ * to Git.
+ */
+export async function findScanInventoryGaps(root, scanRoots = SCAN_ROOTS) {
+  const missingRoots = []
+  const emptyRoots = []
+
+  for (const scanRoot of scanRoots) {
+    const directory = join(root, scanRoot.directory)
+    let entries
+    try {
+      entries = await readdir(directory, { withFileTypes: true })
+    } catch {
+      missingRoots.push(scanRoot.directory)
+      continue
+    }
+
+    if (entries.length === 0) {
+      emptyRoots.push(scanRoot.directory)
+      continue
+    }
+
+    const eligibleFiles = sourceFiles(directory, scanRoot.extensions)
+    if ((await eligibleFiles.next()).done) emptyRoots.push(scanRoot.directory)
+  }
+
+  const uncoveredStyles = []
+  for (const collection of ['packages', 'apps']) {
+    let packages
+    try {
+      packages = await readdir(join(root, collection), { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    for (const packageEntry of packages) {
+      if (!packageEntry.isDirectory()) continue
+      const sourceDirectory = join(root, collection, packageEntry.name, 'src')
+      for await (const path of sourceFiles(sourceDirectory, SOURCE_STYLESHEET_EXTENSIONS)) {
+        const file = relative(root, path).split(sep).join('/')
+        const extension = SOURCE_STYLESHEET_EXTENSIONS.find((suffix) => file.endsWith(suffix))
+        if (extension !== '.css' || !isCoveredSource(file, extension, scanRoots)) {
+          uncoveredStyles.push(file)
+        }
+      }
+    }
+  }
+
+  return {
+    uncoveredStyles: uncoveredStyles.toSorted(),
+    missingRoots: missingRoots.toSorted(),
+    emptyRoots: emptyRoots.toSorted(),
+  }
+}
+
+function isCoveredSource(file, extension, scanRoots) {
+  return scanRoots.some((scanRoot) => {
+    const directory = scanRoot.directory.replace(/\/$/, '')
+    return (
+      (file === directory || file.startsWith(`${directory}/`)) &&
+      scanRoot.extensions.includes(extension)
+    )
+  })
+}
+
+/**
  * Every color literal in the component surface, grouped by file, with the
  * baseline applied. Returns both the offenders and the baseline entries that no
  * longer match their count.
  */
 export async function scanThemeColors(root) {
+  const inventory = await findScanInventoryGaps(root)
+  if (
+    inventory.uncoveredStyles.length > 0 ||
+    inventory.missingRoots.length > 0 ||
+    inventory.emptyRoots.length > 0
+  ) {
+    const details = [
+      inventory.uncoveredStyles.length > 0
+        ? `uncovered product stylesheets: ${inventory.uncoveredStyles.join(', ')}`
+        : null,
+      inventory.missingRoots.length > 0
+        ? `missing configured scan roots: ${inventory.missingRoots.join(', ')}`
+        : null,
+      inventory.emptyRoots.length > 0
+        ? `configured scan roots with no eligible sources: ${inventory.emptyRoots.join(', ')}`
+        : null,
+    ].filter(Boolean)
+    throw new Error(`Theme color scan inventory is incomplete: ${details.join('; ')}`)
+  }
+
   const counts = new Map()
   for (const scanRoot of SCAN_ROOTS) {
     for await (const path of sourceFiles(join(root, scanRoot.directory), scanRoot.extensions)) {

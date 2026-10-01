@@ -1,10 +1,14 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
   BASELINE,
   GENERATED_THEME_FILES,
   SCAN_ROOTS,
+  findScanInventoryGaps,
   scanSource,
   scanThemeColors,
 } from './check-theme-colors.mjs'
@@ -31,6 +35,79 @@ describe('theme color contract', () => {
     // A baselined file that no longer has its literals must be removed from the
     // baseline, which is what makes the exception list burn down.
     expect(stale.map((entry) => `${entry.file}: ${entry.literals}`)).toEqual([])
+  })
+
+  test('keeps configured roots and every product source stylesheet in the inventory', async () => {
+    const { uncoveredStyles, missingRoots, emptyRoots } = await findScanInventoryGaps(root)
+
+    expect(uncoveredStyles).toEqual([])
+    expect(missingRoots).toEqual([])
+    expect(emptyRoots).toEqual([])
+  })
+
+  test('fails closed when a new source package adds an uncovered stylesheet', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'adea-theme-inventory-'))
+    try {
+      await mkdir(join(fixture, 'packages/ui/src'), { recursive: true })
+      await mkdir(join(fixture, 'packages/new-ui/src'), { recursive: true })
+      await writeFile(join(fixture, 'packages/ui/src/theme.css'), '.ui { color: red; }')
+      await writeFile(join(fixture, 'packages/ui/src/theme.scss'), '.ui { color: blue; }')
+      await writeFile(join(fixture, 'packages/new-ui/src/palette.css'), '.new { color: blue; }')
+
+      const roots = [{ directory: 'packages/ui/src', extensions: ['.ts', '.tsx', '.css'] }]
+      expect(await findScanInventoryGaps(fixture, roots)).toEqual({
+        uncoveredStyles: ['packages/new-ui/src/palette.css', 'packages/ui/src/theme.scss'],
+        missingRoots: [],
+        emptyRoots: [],
+      })
+      expect(
+        await findScanInventoryGaps(fixture, [
+          ...roots,
+          { directory: 'packages/new-ui/src', extensions: ['.ts', '.tsx', '.css'] },
+        ])
+      ).toEqual({
+        uncoveredStyles: ['packages/ui/src/theme.scss'],
+        missingRoots: [],
+        emptyRoots: [],
+      })
+
+      for (const scanRoot of SCAN_ROOTS) {
+        await mkdir(join(fixture, scanRoot.directory), { recursive: true })
+        await writeFile(join(fixture, scanRoot.directory, 'inventory.ts'), 'export {}')
+      }
+      await writeFile(
+        join(fixture, 'packages/ui/src/covered.css'),
+        '.ui { color: var(--foreground); }'
+      )
+      await expect(scanThemeColors(fixture)).rejects.toThrow(
+        'uncovered product stylesheets: packages/new-ui/src/palette.css, packages/ui/src/theme.scss'
+      )
+    } finally {
+      await rm(fixture, { recursive: true, force: true })
+    }
+  })
+
+  test('reports missing and empty configured source roots', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'adea-theme-inventory-'))
+    try {
+      await mkdir(join(fixture, 'packages/ui/src'), { recursive: true })
+      await writeFile(join(fixture, 'packages/ui/src/theme.css'), '.ui { color: red; }')
+      await mkdir(join(fixture, 'packages/empty-ui/src'), { recursive: true })
+
+      expect(
+        await findScanInventoryGaps(fixture, [
+          { directory: 'packages/ui/src', extensions: ['.css'] },
+          { directory: 'packages/missing-ui/src', extensions: ['.css'] },
+          { directory: 'packages/empty-ui/src', extensions: ['.css'] },
+        ])
+      ).toEqual({
+        uncoveredStyles: [],
+        missingRoots: ['packages/missing-ui/src'],
+        emptyRoots: ['packages/empty-ui/src'],
+      })
+    } finally {
+      await rm(fixture, { recursive: true, force: true })
+    }
   })
 
   test('flags literals and rejects consumer-authored token values', () => {
@@ -154,6 +231,16 @@ describe('theme color contract', () => {
     expect(scanSource('--background: #123456; color: #abcdef;', GENERATED_THEME_FILES[0])).toEqual(
       []
     )
+    expect(
+      scanSource('--background: #123456; color: #abcdef;', 'packages/ui/src/styles/theme.css')
+    ).toEqual([
+      {
+        file: 'packages/ui/src/styles/theme.css',
+        line: 1,
+        literals: ['#123456', '#abcdef'],
+        overriddenTokens: ['--background'],
+      },
+    ])
   })
 
   test('comments remain documentation and scanning resumes after them', () => {
