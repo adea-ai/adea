@@ -1690,8 +1690,18 @@
 .workspace-topbar__view-actions .dev-button--toggle span {
   display: none;
 }
-.workspace-frame .conventional-mobile-menu {
-  display: none;
+/* Inside the workspace frame the top bar owns the sidebar opener at desktop
+   widths. Below 48rem the shared Sheet keeps its own trigger instead, parked
+   under the top bar in the band the surface headers already reserve. */
+@media (min-width: 48rem) {
+  .workspace-frame .conventional-mobile-menu {
+    display: none;
+  }
+}
+@media (max-width: 48rem) {
+  .workspace-frame .conventional-mobile-menu {
+    top: calc(var(--workspace-topbar-height) + 0.4rem);
+  }
 }
 .workspace-app-library {
   display: flex;
