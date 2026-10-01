@@ -142,7 +142,7 @@
     "@adea-ai/spatial": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.93.2",
+    "@adea-ai/ui": "0.95.0",
     "lucide-solid": "^1.45.0",
     "solid-js": "^1.9.15"
   },
