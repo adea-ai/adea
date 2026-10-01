@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.71.4](https://github.com/adea-ai/adea/compare/v0.71.3...v0.71.4) (2026-10-01)
+
+
+### Maintenance
+
+* **deps:** bump @adea-ai/ui from 0.93.2 to 0.95.0 ([#892](https://github.com/adea-ai/adea/issues/892)) ([cf7a496](https://github.com/adea-ai/adea/commit/cf7a496604fd4c27c8218ef5d5c7a05a6a1c9f33))
+
 ## [0.71.3](https://github.com/adea-ai/adea/compare/v0.71.2...v0.71.3) (2026-10-01)
 
 
