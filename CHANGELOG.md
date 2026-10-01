@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.8](https://github.com/adea-ai/adea/compare/v0.70.7...v0.70.8) (2026-10-01)
+
+
+### Maintenance
+
+* **workspace-ui:** adopt shared UI primitives ([#847](https://github.com/adea-ai/adea/issues/847)) ([31dcae1](https://github.com/adea-ai/adea/commit/31dcae166eb7a7d4da55635c1b213663ca555a99))
+
 ## [0.70.7](https://github.com/adea-ai/adea/compare/v0.70.6...v0.70.7) (2026-10-01)
 
 
