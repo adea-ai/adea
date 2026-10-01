@@ -80,7 +80,10 @@ test('a guest can use a workspace before opening the optional persistence flow',
         surfaceOffset: surfaceBox.left,
       }
     })
-    expect(layout).toEqual({ railWidth: 74, surfaceOffset: 74 })
+    // --rail-width moved 4.625rem (74px) to 3.5rem (56px) in @adea-ai/ui
+    // 0.95.0; the grid column and the surface inset both track the token, so
+    // the rail and the surface offset move together.
+    expect(layout).toEqual({ railWidth: 56, surfaceOffset: 56 })
   }
 
   await userMenu.click()
