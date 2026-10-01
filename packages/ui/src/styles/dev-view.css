@@ -141,6 +141,7 @@
   min-width: 0;
   flex: none;
   width: clamp(13rem, 16vw, 17rem);
+  background: var(--dev-panel);
 }
 
 .dev-tree-group + .dev-tree-group {
@@ -505,7 +506,11 @@
     z-index: var(--z-drawer);
     inset-block: 0;
     inset-inline-start: 0;
-    width: min(17rem, 84vw);
+    /* The drawer is anchored to the workspace body, which starts at the rail
+       edge, so it must also end there: without the rail term the shelf row
+       lands at rail-width + row-width and overflows a narrow viewport (seen
+       as 399.8 > 320 at 320px with a 200% root font). */
+    width: min(17rem, 84vw, calc(100vw - var(--workspace-rail-width, 0px)));
     visibility: hidden;
     transform: translateX(-105%);
     transition:

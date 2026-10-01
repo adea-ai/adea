@@ -38,8 +38,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // delta (the plugins dialog became a second importer). Ratcheted to the
     // next whole KiB rather than the measured value; on a route this small one
     // chunk split swings hundreds of bytes, and the old cap sat 61 bytes above
-    // main's own build.
-    appLibrary: { rawBytes: 12 * 1024, gzipBytes: 5 * 1024 },
+    // main's own build. Re-measured for the shared dev sidebar (2026-10-01,
+    // #853): 12,408 raw / 4,875 gzip across 4 files — the archive shelf is this
+    // route's second ListRowControl importer, so rolldown splits
+    // list-row-control into its own chunk (net +220 raw over main's 12,188/3
+    // files; gzip stays under the 5 KiB cap). Ratcheted to the next whole KiB
+    // for the same reason as above.
+    appLibrary: { rawBytes: 13 * 1024, gzipBytes: 5 * 1024 },
     devShell: { rawBytes: 128 * 1024, gzipBytes: 40 * 1024 },
     devUtilityPanes: { rawBytes: 168 * 1024, gzipBytes: 56 * 1024 },
     devTerminal: { rawBytes: 768 * 1024, gzipBytes: 192 * 1024 },

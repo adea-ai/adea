@@ -23,7 +23,7 @@ import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
 import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
 import { Search } from 'lucide-solid'
-import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
+import { For, Show, children, createMemo, createSignal, type JSX } from 'solid-js'
 
 import type { DevGroupFixture, DevProjectFixture } from '../dev-workspace-entry'
 import type { ArchiveShelfState } from './archive-shelf-model'
@@ -95,6 +95,9 @@ type DevSidebarNavigationProps = {
 
 export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
   const [query, setQuery] = createSignal('')
+  // Children arrive as an unmemoized JSX getter; resolve them once so the
+  // footer condition and body share a single constructed instance.
+  const resolvedChildren = children(() => props.children)
   const isFiltering = () => query().trim().length > 0
   const visibleGroups = createMemo(() => filterDevNavigationGroups(props.groups, query()))
   const groupCollapsed = (groupId: string) => !isFiltering() && props.collapsedGroups.has(groupId)
@@ -294,8 +297,10 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
             </Show>
           </nav>
         </SidebarNavContent>
-        <Show when={props.children}>
-          <SidebarNavFooter class="max-h-1/2 overflow-y-auto">{props.children}</SidebarNavFooter>
+        <Show when={resolvedChildren()}>
+          <SidebarNavFooter class="max-h-1/2 overflow-y-auto">
+            {resolvedChildren()}
+          </SidebarNavFooter>
         </Show>
       </SidebarNav>
     </div>
