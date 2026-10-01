@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.71.0](https://github.com/adea-ai/adea/compare/v0.70.14...v0.71.0) (2026-10-01)
+
+
+### Features
+
+* **dev-view:** adopt atomic chat composer ([#876](https://github.com/adea-ai/adea/issues/876)) ([5db1625](https://github.com/adea-ai/adea/commit/5db16258a785f9e89e04f083b02f278a3db24d1a))
+
 ## [0.70.14](https://github.com/adea-ai/adea/compare/v0.70.13...v0.70.14) (2026-10-01)
 
 
