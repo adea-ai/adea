@@ -51,7 +51,6 @@ import {
 import '../files/files-pane.css'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
@@ -399,7 +398,6 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           type="button"
           variant="outline"
           size="icon-sm"
-          tooltip="Refresh status"
           aria-label="Refresh status"
           tooltip="Refresh the selected worktree's Git status."
           onClick={() => void refresh()}
@@ -410,7 +408,6 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           type="button"
           variant="outline"
           size="icon-sm"
-          tooltip="Fetch from origin"
           aria-label="Fetch from origin"
           tooltip="Fetch updates from the configured origin remote."
           onClick={() => void fetch()}

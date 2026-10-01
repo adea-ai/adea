@@ -46,7 +46,6 @@ import {
 } from './responsive-presets'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 
@@ -628,7 +627,6 @@ export function BrowserPane(props: BrowserPaneProps) {
             type="button"
             variant="outline"
             size="icon-sm"
-            tooltip="Reload"
             aria-label="Reload"
             tooltip="Reload the selected browser page."
             disabled={!activeLane() || !currentUrl()}
@@ -662,7 +660,6 @@ export function BrowserPane(props: BrowserPaneProps) {
           type="button"
           variant="outline"
           size="icon-sm"
-          tooltip="Screenshot"
           aria-label="Screenshot"
           tooltip="Capture screenshot metadata for the selected browser page."
           aria-busy={screenshotBusy()}
@@ -675,7 +672,6 @@ export function BrowserPane(props: BrowserPaneProps) {
           type="button"
           variant="outline"
           size="icon-sm"
-          tooltip={miniPreviewOpen() ? 'Close floating preview' : 'Float preview'}
           aria-label={miniPreviewOpen() ? 'Close floating preview' : 'Float preview'}
           tooltip="Toggle the floating browser preview."
           aria-pressed={miniPreviewOpen()}
@@ -687,7 +683,6 @@ export function BrowserPane(props: BrowserPaneProps) {
           type="button"
           variant="outline"
           size="icon-sm"
-          tooltip={cookiesOpen() ? 'Close cookie import' : 'Import cookies'}
           aria-label={cookiesOpen() ? 'Close cookie import' : 'Import cookies'}
           tooltip="Open or close cookie import for this browser lane."
           aria-pressed={cookiesOpen()}
@@ -700,7 +695,6 @@ export function BrowserPane(props: BrowserPaneProps) {
           type="button"
           variant="outline"
           size="icon-sm"
-          tooltip="Close browser pane"
           aria-label="Close browser pane"
           tooltip="Close the browser pane."
           onClick={() => {
@@ -1002,7 +996,6 @@ export function BrowserPane(props: BrowserPaneProps) {
               type="button"
               variant="outline"
               size="icon-sm"
-              tooltip="Zoom out"
               aria-label="Zoom out"
               tooltip="Zoom out the responsive preview."
               disabled={!activeLane()}
@@ -1025,7 +1018,6 @@ export function BrowserPane(props: BrowserPaneProps) {
               type="button"
               variant="outline"
               size="icon-sm"
-              tooltip="Zoom in"
               aria-label="Zoom in"
               tooltip="Zoom in the responsive preview."
               disabled={!activeLane()}
