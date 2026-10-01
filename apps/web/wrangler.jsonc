@@ -40,6 +40,51 @@
       "localConnectionString": "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable",
     },
   ],
+  // Hosted configuration that must survive worker recreation. The 2026-10-01
+  // release cascade recreated the Worker and every dashboard-managed secret
+  // was lost with it, which took the marketplace proxy (and Neon Auth) down
+  // until the values were restored. Keep every hosted value here so a fresh
+  // upload can never ship without them:
+  // - `vars` are non-secret identifiers and origins;
+  // - `secrets_store_secrets` reference the account Secrets Store
+  //   (`control-plane-neon`), the source of truth per CLOUDFLARE.md, so the
+  //   values never live in this repository.
+  // Secrets that cannot come from the store yet are set with
+  // `wrangler secret put` and listed in CLOUDFLARE.md.
+  "vars": {
+    // Production Control Plane public origin (Railway), per CLOUDFLARE.md.
+    "CONTROL_PLANE_ORIGIN": "https://control-planecontrol-api-production.up.railway.app",
+    // Server-side service scope shared with the Control Plane service
+    // credential's `workspaceIds` claim (credential adea-web-worker-v2).
+    "CONTROL_PLANE_SCOPE_WORKSPACE_ID": "wsp_59RJWZSA7TXWDN0KN3KSV8478W",
+  },
+  "secrets_store_secrets": [
+    {
+      "binding": "CONTROL_PLANE_SERVICE_TOKEN",
+      "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
+      "secret_name": "AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN",
+    },
+    {
+      "binding": "DATABASE_URL",
+      "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
+      "secret_name": "AGENT_HQ_NEON_PRODUCTION_DATABASE_URL",
+    },
+    {
+      "binding": "NEON_AUTH_BASE_URL",
+      "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
+      "secret_name": "AGENT_HQ_NEON_PRODUCTION_AUTH_BASE_URL",
+    },
+    {
+      "binding": "NEON_AUTH_COOKIE_SECRET",
+      "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
+      "secret_name": "AGENT_HQ_WORKER_AUTH_COOKIE_SECRET",
+    },
+    {
+      "binding": "AUTH_TRUSTED_ORIGINS",
+      "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
+      "secret_name": "AGENT_HQ_WORKER_AUTH_TRUSTED_ORIGINS",
+    },
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
