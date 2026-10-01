@@ -43,7 +43,7 @@
   position: relative;
   z-index: var(--z-sticky);
   min-width: 0;
-  padding-block: max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-bottom));
+  padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
 }
 
 .global-rail__workspace-menu {
@@ -57,30 +57,6 @@
   white-space: nowrap;
 }
 
-.global-rail__button {
-  position: relative;
-}
-
-.global-rail__button svg {
-  width: 1.5rem;
-  height: 1.5rem;
-}
-
-.global-rail__button[aria-pressed='true']::after {
-  position: absolute;
-  top: 0.45rem;
-  right: -0.46rem;
-  bottom: 0.45rem;
-  width: 2px;
-  border-radius: 999px;
-  background: var(--foreground);
-  content: '';
-}
-
-.global-rail__separator {
-  width: 2rem;
-  margin: 0.15rem 0;
-}
 .global-rail__intent {
   display: flex;
   min-width: 0;
