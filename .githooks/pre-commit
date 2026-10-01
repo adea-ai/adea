@@ -27,16 +27,15 @@ staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
 [ -z "$staged_files" ] && exit 0
 
 # Only gate on files this repo's tooling actually owns.
-gateable="$(printf '%s\n' "$staged_files" \
-  | grep -E '\.(ts|tsx|js|jsx|mjs|cjs|css|json|md|mdx)$' || true)"
-
 status=0
 note() { printf '\033[1m[pre-commit]\033[0m %s\n' "$1"; }
 fail() { printf '\033[31m[pre-commit] FAILED:\033[0m %s\n' "$1" >&2; status=1; }
 
 # ---------------------------------------------------------------- format ----
-if [ -n "$gateable" ]; then
-  unformatted="$(printf '%s\n' "$gateable" | xargs bunx oxfmt --check 2>&1)" || {
+formattable="$(printf '%s\n' "$staged_files" \
+  | grep -E '\.(ts|tsx|js|jsx|mjs|cjs|css|json|md|mdx)$' || true)"
+if [ -n "$formattable" ]; then
+  unformatted="$(printf '%s\n' "$formattable" | xargs bunx oxfmt --check 2>&1)" || {
     note 'formatting drifted — run `bun run fmt` to fix'
     printf '%s\n' "$unformatted" >&2
     fail 'format:check'
@@ -46,10 +45,12 @@ fi
 # ------------------------------------------------------------------ lint ----
 # oxlint reads .oxlintrc.json for its own scoping, so linting the staged
 # files directly honours the per-path overrides (the ratchet block).
-if [ -n "$gateable" ]; then
-  lintout="$(printf '%s\n' "$gateable" \
-    | grep -E '\.(ts|tsx|js|jsx|mjs|cjs)$' \
-    | xargs bunx oxlint --deny-warnings 2>&1)" || {
+#
+# `|| true` matters: grep exits 1 when nothing matches, and with pipefail
+# that would otherwise read as a lint failure on e.g. a CSS-only commit.
+lintable="$(printf '%s\n' "$staged_files" | grep -E '\.(ts|tsx|js|jsx|mjs|cjs)$' || true)"
+if [ -n "$lintable" ]; then
+  lintout="$(printf '%s\n' "$lintable" | xargs bunx oxlint --deny-warnings 2>&1)" || {
     note 'lint errors — fix these before committing'
     printf '%s\n' "$lintout" >&2
     fail 'lint'
