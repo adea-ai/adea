@@ -1,6 +1,7 @@
 import { For, Show } from 'solid-js'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Item, ItemDescription, ItemTitle } from '@adea-ai/ui/components/ui/item'
 
 import { capabilitySnapshotAge, presentCapability } from './capability-status'
 import { keyedRows } from './keyed-rows'
@@ -19,18 +20,26 @@ const toneBadge = {
 export function CapabilityCard(props: { status: CapabilityStatus }) {
   const capability = () => presentCapability(props.status)
   return (
-    <div class="conventional-settings-row" data-capability={capability().id}>
-      <div>
-        <h4>{capability().title}</h4>
-        <p>{capability().hint ?? 'This capability is ready on this device.'}</p>
-      </div>
-      <Badge
-        variant={toneBadge[capability().tone]}
-        aria-label={`${capability().title}: ${capability().label}`}
-      >
-        {capability().label}
-      </Badge>
-    </div>
+    <Item
+      variant="outline"
+      size="md"
+      data-capability={capability().id}
+      trailing={
+        <Badge
+          variant={toneBadge[capability().tone]}
+          aria-label={`${capability().title}: ${capability().label}`}
+        >
+          {capability().label}
+        </Badge>
+      }
+    >
+      <ItemTitle role="heading" aria-level="4">
+        {capability().title}
+      </ItemTitle>
+      <ItemDescription>
+        {capability().hint ?? 'This capability is ready on this device.'}
+      </ItemDescription>
+    </Item>
   )
 }
 
