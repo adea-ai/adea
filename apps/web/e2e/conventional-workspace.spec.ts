@@ -1544,6 +1544,8 @@ test('shared sidebar reports failed mark-all-read actions and preserves Virtual 
   await expect(virtualSidebar.getByRole('alert')).toContainText(
     'Unread conversations could not be marked as read.'
   )
+})
+
 test('workspace search keeps duplicate destination labels tied to their domain identity', async ({
   page,
 }) => {
