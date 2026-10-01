@@ -320,13 +320,13 @@ shared primitives and reusable compositions throughout the app;
 [#757](https://github.com/adea-ai/adea/issues/757) supplies the current integrated
 shell and direct appearance-entry requirements.
 
-| Slice                                    | Current evidence                                                                                              | Remaining acceptance                                                                   |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Canonical themes                         | [#827](https://github.com/adea-ai/adea/pull/827) merged; all 34 published palettes consumed; 25 checks passed | Direct live appearance entry; current native/package and CSS/font evidence             |
-| Forms and lint                           | [#826](https://github.com/adea-ai/adea/pull/826) merged; 32 checks passed; no primitive-import exceptions     | One datalist exception, five wrapper paths, styling escape-hatch removal               |
-| Shared interaction contracts             | [UI #135](https://github.com/adea-ai/ui/pull/135) merged; UI 0.82.0 published after actual packed consumer gates passed    | Final published consumer adoption gates                         |
-| Conversation, account, navigation, board | Isolated local implementations consume shared presentation and retain application effects                     | Published dependency, refreshed route/browser/visual gates and merges                  |
-| Cortana recovery                         | [#2416](https://github.com/adea-ai/cortana/pull/2416); local recovered checks passed                          | Published command contrast correction, browser proof, fast-forward PR update and merge |
+| Slice                                    | Current evidence                                                                                                        | Remaining acceptance                                                                   |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Canonical themes                         | [#827](https://github.com/adea-ai/adea/pull/827) merged; all 34 published palettes consumed; 25 checks passed           | Direct live appearance entry; current native/package and CSS/font evidence             |
+| Forms and lint                           | [#826](https://github.com/adea-ai/adea/pull/826) merged; 32 checks passed; no primitive-import exceptions               | One datalist exception, five wrapper paths, styling escape-hatch removal               |
+| Shared interaction contracts             | [UI #135](https://github.com/adea-ai/ui/pull/135) merged; UI 0.82.0 published after actual packed consumer gates passed | Final published consumer adoption gates                                                |
+| Conversation, account, navigation, board | Isolated local implementations consume shared presentation and retain application effects                               | Published dependency, refreshed route/browser/visual gates and merges                  |
+| Cortana recovery                         | [#2416](https://github.com/adea-ai/cortana/pull/2416); local recovered checks passed                                    | Published command contrast correction, browser proof, fast-forward PR update and merge |
 
 The shared sidebar touch regression now tests visible creation actions and real
 tap callbacks in Chromium and WebKit. The Board regressions test legal pointer

@@ -194,6 +194,12 @@
   min-width: 0;
   overflow: hidden;
 }
+/* The shared ruler is pointer-events-none except for its handle, and cursor
+   inherits, so this covers the whole drag affordance without touching the
+   shared package. Pointer parity is a deliberate product gate. */
+.conventional-sidebar__resize {
+  cursor: pointer;
+}
 .conventional-sidebar__close {
   display: none;
 }
