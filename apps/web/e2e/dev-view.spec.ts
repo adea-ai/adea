@@ -385,6 +385,19 @@ test('each utility toggle reveals its pane and the sidebar fills the workspace h
   expect(Math.abs(sidebarBox!.height - panesBox!.height)).toBeLessThanOrEqual(2)
 })
 
+test('Dev shell reports when the E2E fixture has no browser read capability', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openDevView(page, '/?view=dev&devE2e=preserved')
+  await devToolbarControl(page, 'Browser / Devices').click()
+
+  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  await rightUtilities.getByRole('tab', { name: 'Browser' }).click()
+  await expect(rightUtilities).toContainText(
+    'Requires dev.browser.read, which has not been reported by this provider yet.'
+  )
+  await expect(rightUtilities.getByRole('button', { name: 'Float preview' })).toHaveCount(0)
+})
+
 /**
  * Opens the Dev surface and waits for the lazy workspace chunk to mount. On a
  * cold dev server the chunk transform can outrun default expect timeouts, so

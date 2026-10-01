@@ -114,6 +114,92 @@ test('BrowserPane port click navigates directly and binds the lane; history stay
   })
 })
 
+test('synthetic BrowserPane preview exposes tooltips and supports pointer and keyboard movement', async ({
+  page,
+}) => {
+  // This harness supplies a deterministic fake DevRuntimeService. It verifies
+  // UI interaction and geometry, not a packaged browser lane or native runtime.
+  const pane = await mountBrowserPane(page)
+  const floatPreview = pane.getByRole('button', { name: 'Float preview' })
+  await floatPreview.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('Toggle the floating browser preview.')
+  await floatPreview.click()
+
+  const preview = page.getByRole('region', { name: 'Browser preview', exact: true })
+  await expect(preview).toBeVisible()
+  await expect.poll(async () => (await preview.boundingBox())?.width ?? 0).toBeGreaterThan(100)
+
+  const move = page.getByRole('button', { name: 'Move Browser preview' })
+  await move.hover()
+  await expect(
+    page.getByRole('tooltip', {
+      name: 'Move Browser preview. Use arrow keys to adjust its position.',
+    })
+  ).toHaveText('Move Browser preview. Use arrow keys to adjust its position.')
+  const beforeMove = await preview.boundingBox()
+  expect(beforeMove).not.toBeNull()
+  await move.focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect.poll(async () => (await preview.boundingBox())?.x ?? 0).toBeLessThan(beforeMove!.x)
+
+  const beforePointerMove = await preview.boundingBox()
+  const moveBounds = await move.boundingBox()
+  expect(beforePointerMove).not.toBeNull()
+  expect(moveBounds).not.toBeNull()
+  await page.mouse.move(
+    moveBounds!.x + moveBounds!.width / 2,
+    moveBounds!.y + moveBounds!.height / 2
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    moveBounds!.x + moveBounds!.width / 2 - 20,
+    moveBounds!.y + moveBounds!.height / 2 + 15
+  )
+  await page.mouse.up()
+  await expect
+    .poll(async () => (await preview.boundingBox())?.x ?? 0)
+    .toBeLessThan(beforePointerMove!.x)
+  await expect
+    .poll(async () => (await preview.boundingBox())?.y ?? 0)
+    .toBeGreaterThan(beforePointerMove!.y)
+
+  const resize = page.getByRole('button', { name: 'Resize Browser preview east' })
+  await resize.hover()
+  await expect(
+    page.getByRole('tooltip', {
+      name: 'Resize Browser preview from the east edge. Use arrow keys to resize.',
+    })
+  ).toHaveText('Resize Browser preview from the east edge. Use arrow keys to resize.')
+  const beforeResize = await preview.boundingBox()
+  expect(beforeResize).not.toBeNull()
+  await resize.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect
+    .poll(async () => (await preview.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(beforeResize!.width)
+
+  const beforePointerResize = await preview.boundingBox()
+  const resizeBounds = await resize.boundingBox()
+  expect(beforePointerResize).not.toBeNull()
+  expect(resizeBounds).not.toBeNull()
+  await page.mouse.move(
+    resizeBounds!.x + resizeBounds!.width / 2,
+    resizeBounds!.y + resizeBounds!.height / 2
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    resizeBounds!.x + resizeBounds!.width / 2 + 20,
+    resizeBounds!.y + resizeBounds!.height / 2
+  )
+  await page.mouse.up()
+  await expect
+    .poll(async () => (await preview.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(beforePointerResize!.width)
+
+  await page.getByRole('button', { name: 'Close Browser preview' }).click()
+  await expect(preview).toHaveCount(0)
+})
+
 test('BrowserPane applies the viewport size it reports when zoom changes', async ({ page }) => {
   const pane = await mountBrowserPane(page)
   const viewportCommands = () =>
