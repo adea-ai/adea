@@ -58,13 +58,13 @@ export function AccountDrawer(props: AccountDrawerProps) {
       </Show>
       <DrawerContent class="workspace-account-drawer__content">
         <DrawerHeader>
-          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-            <div class="flex min-w-0 items-center gap-3">
+          <div class="flex min-w-0 items-center justify-between gap-4">
+            <div class="flex min-w-0 flex-1 items-center gap-3">
               <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
                 <UserRound class="size-5" aria-hidden="true" />
               </span>
               <div class="min-w-0">
-                <DrawerTitle class="truncate">{accountLabel()}</DrawerTitle>
+                <DrawerTitle>{accountLabel()}</DrawerTitle>
                 <DrawerDescription>
                   {props.authenticated
                     ? 'Signed in · workspace saved'
@@ -72,16 +72,18 @@ export function AccountDrawer(props: AccountDrawerProps) {
                 </DrawerDescription>
               </div>
             </div>
-            <ThemeToggle class="shrink-0" />
+            <div class="shrink-0">
+              <ThemeToggle />
+            </div>
           </div>
         </DrawerHeader>
         <div class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
           <Show when={props.musicControl}>
             <section
-              class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-t pt-5"
+              class="flex items-center justify-between gap-4 border-t pt-5"
               aria-labelledby="account-music-title"
             >
-              <div class="min-w-0">
+              <div class="min-w-0 flex-1">
                 <h2 id="account-music-title" class="text-sm font-semibold">
                   Music
                 </h2>
@@ -91,10 +93,10 @@ export function AccountDrawer(props: AccountDrawerProps) {
             </section>
           </Show>
           <section
-            class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-t pt-5"
+            class="flex items-center justify-between gap-4 border-t pt-5"
             aria-labelledby="account-session-title"
           >
-            <div class="min-w-0">
+            <div class="min-w-0 flex-1">
               <h2 id="account-session-title" class="text-sm font-semibold">
                 Account
               </h2>

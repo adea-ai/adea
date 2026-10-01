@@ -114,15 +114,6 @@
       "rules": {
         "adea/no-interactive-wrappers": "off"
       }
-    },
-    {
-      "files": ["packages/ui/src/components/**"],
-      "rules": {
-        "shadcn/no-restyle": "off",
-        "shadcn/no-arbitrary-values": "off",
-        "shadcn/no-inline-styles": "off",
-        "shadcn/require-static-classes": "off"
-      }
     }
   ],
   "ignorePatterns": [

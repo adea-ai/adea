@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.71.6](https://github.com/adea-ai/adea/compare/v0.71.5...v0.71.6) (2026-10-01)
+
+
+### Maintenance
+
+* **ui:** enforce shared app-ui boundaries ([#863](https://github.com/adea-ai/adea/issues/863)) ([d63ecde](https://github.com/adea-ai/adea/commit/d63ecde52c40996d4da255a2ad9d272645873279))
+
+## [0.71.5](https://github.com/adea-ai/adea/compare/v0.71.4...v0.71.5) (2026-10-01)
+
+
+### Bug Fixes
+
+* **desktop-updater:** bound update staging and correct signing docs ([#899](https://github.com/adea-ai/adea/issues/899)) ([939f51d](https://github.com/adea-ai/adea/commit/939f51d9818ea27c1d656cbb2df4b473ada0cffb))
+
+## [0.71.4](https://github.com/adea-ai/adea/compare/v0.71.3...v0.71.4) (2026-10-01)
+
+
+### Maintenance
+
+* **deps:** bump @adea-ai/ui from 0.93.2 to 0.95.0 ([#892](https://github.com/adea-ai/adea/issues/892)) ([cf7a496](https://github.com/adea-ai/adea/commit/cf7a496604fd4c27c8218ef5d5c7a05a6a1c9f33))
+
+## [0.71.3](https://github.com/adea-ai/adea/compare/v0.71.2...v0.71.3) (2026-10-01)
+
+
+### Bug Fixes
+
+* **deps:** update external major dependencies (major) ([#883](https://github.com/adea-ai/adea/issues/883)) ([67fb9f3](https://github.com/adea-ai/adea/commit/67fb9f393998fd493c9706617c1b1267f3c2b03d))
+
+
+### Maintenance
+
+* **dev-view:** adopt shared accessible file tree ([#872](https://github.com/adea-ai/adea/issues/872)) ([1163779](https://github.com/adea-ai/adea/commit/1163779482722dedba6a50da63c638200ba9d1bb))
+
 ## [0.71.2](https://github.com/adea-ai/adea/compare/v0.71.1...v0.71.2) (2026-10-01)
 
 

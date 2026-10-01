@@ -1,7 +1,7 @@
 // The desktop update family: feed polling, in-place install, and the manual
 // fallback. Lives outside `commands.ts` so the whole flow is testable without
 // the full command registry (scripts/desktop-update-boundary.test.ts).
-import { rmSync } from 'node:fs'
+import { readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   downloadUpdateArchive,
@@ -67,6 +67,57 @@ export function versionLessThan(a: string, b: string): boolean {
 
 function releaseTagUrl(version: string): string {
   return `https://github.com/adea-ai/adea/releases/tag/v${version}`
+}
+
+/** Staging entry names this module owns inside `<dataDir>/updates`. */
+const EXTRACTED_PREFIX = 'extracted-'
+
+/** Best-effort removal: a stale-file problem must not fail an update. */
+function removeQuietly(path: string, recursive: boolean): void {
+  try {
+    rmSync(path, { force: true, recursive })
+  } catch {
+    /* left behind; the next install prunes it again */
+  }
+}
+
+/**
+ * Drop the staging leftovers of installs that are no longer live: the
+ * `extracted-<version>` payload directories and any abandoned `.partial`
+ * download.
+ *
+ * A successful install removes its own payload from the apply script, but an
+ * install interrupted between extraction and staging — a killed process, a
+ * forced quit — never reaches that step, and neither case reaches the
+ * archive cleanup below. Without this the directory grows by one fully
+ * extracted bundle per update for the life of the install, which is how a
+ * twelve-update history left multiple gigabytes behind.
+ *
+ * Only strictly older versions are removed: the payload for `keepVersion` is
+ * the one an install may be using, and the updater only ever moves forward.
+ * An unparseable directory name cannot be a live install, so it is removed.
+ *
+ * Cleanup is best effort and never throws — a stale-file problem must not be
+ * what fails an otherwise good update.
+ */
+export function pruneStaleUpdateArtifacts(updatesDir: string, keepVersion: string): void {
+  let entries: string[]
+  try {
+    entries = readdirSync(updatesDir)
+  } catch {
+    return // nothing has ever been staged here
+  }
+  for (const entry of entries) {
+    const path = join(updatesDir, entry)
+    if (entry.endsWith('.partial')) {
+      removeQuietly(path, false)
+      continue
+    }
+    if (!entry.startsWith(EXTRACTED_PREFIX)) continue
+    const version = entry.slice(EXTRACTED_PREFIX.length)
+    if (version === keepVersion || !versionLessThan(version, keepVersion)) continue
+    removeQuietly(path, true)
+  }
 }
 
 export function createUpdateManager(input: {
@@ -229,14 +280,17 @@ export function createUpdateManager(input: {
         total_bytes: null,
       })
       // Slim path: when the release was built against the same CEF framework
-      // this bundle already carries, only the ~1MB app layer downloads and
-      // overlays — no 117MB framework re-download, no launcher reinstall.
+      // this bundle already carries, only the app layer downloads and
+      // overlays — no framework re-download, no launcher reinstall.
       let useSlim = false
       if (manifest.slim && manifest.runtime) {
         runtimeHash ??= input.runtimeSha256 ?? (await installedRuntimeSha256())
         useSlim = runtimeHash === manifest.runtime.sha256
       }
       const updatesDir = join(dataDir, 'updates')
+      // Clear what earlier installs left behind before adding this one's
+      // payload to the same directory.
+      pruneStaleUpdateArtifacts(updatesDir, manifest.version)
       const slim = useSlim ? manifest.slim : null
       const archivePath = join(
         updatesDir,

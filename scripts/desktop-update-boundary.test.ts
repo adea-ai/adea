@@ -4,7 +4,7 @@
 // here.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash, createPrivateKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,7 +16,7 @@ import {
   verifyUpdateSignature,
 } from '../apps/desktop/shell/src/updater'
 import { signDesktopUpdate } from './sign-desktop-update.mjs'
-import { createUpdateManager } from '../apps/desktop/shell/src/updates'
+import { createUpdateManager, pruneStaleUpdateArtifacts } from '../apps/desktop/shell/src/updates'
 
 const keys = generateKeyPairSync('ed25519')
 const TEST_PRIVATE_PEM = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
@@ -242,6 +242,84 @@ describe('update edge branches', () => {
       })
       expect('target' in staged && staged.target).toBe('/Applications/Adea.app')
       expect('scriptPath' in staged && staged.scriptPath.endsWith('apply-update.sh')).toBe(true)
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
+  test('the apply script deletes the extracted payload once it is spent', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-updates-state-'))
+    const bundlePath = join(dataDir, 'updates', 'extracted-9.9.9', 'Adea.app')
+    try {
+      // The staging directory exists by the time a real install stages its
+      // swap (the download creates it); make the fixture match.
+      mkdirSync(join(dataDir, 'updates', 'extracted-9.9.9'), { recursive: true })
+      for (const mode of ['full', 'slim'] as const) {
+        const staged = stageUpdateSwap({
+          newAppPath: bundlePath,
+          dataDir,
+          execPath: '/Applications/Adea.app/Contents/MacOS/bun',
+          mode,
+        })
+        expect('scriptPath' in staged).toBe(true)
+        const script = readFileSync('scriptPath' in staged ? staged.scriptPath : '', 'utf8')
+        const payloadDir = JSON.stringify(join(dataDir, 'updates', 'extracted-9.9.9'))
+        // Present, and after the step that consumes the payload, so a
+        // successful install never leaves a full extracted copy of itself.
+        expect(script).toContain(`rm -rf ${payloadDir}`)
+        expect(script.indexOf(`rm -rf ${payloadDir}`)).toBeGreaterThan(
+          mode === 'slim' ? script.indexOf('ditto ') : script.indexOf('mv ')
+        )
+      }
+      // A failed move exits before the delete, keeping the payload to inspect.
+      const failedSwap = stageUpdateSwap({
+        newAppPath: bundlePath,
+        dataDir,
+        execPath: '/Applications/Adea.app/Contents/MacOS/bun',
+        mode: 'full',
+      })
+      const script = readFileSync('scriptPath' in failedSwap ? failedSwap.scriptPath : '', 'utf8')
+      expect(script.indexOf('exit 1')).toBeLessThan(
+        script.indexOf(`rm -rf ${JSON.stringify(join(dataDir, 'updates', 'extracted-9.9.9'))}`)
+      )
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
+  test('staging prunes older extracted payloads and abandoned partial downloads', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-updates-state-'))
+    const updatesDir = join(dataDir, 'updates')
+    try {
+      mkdirSync(join(updatesDir, 'extracted-0.69.1', 'Adea.app'), { recursive: true })
+      mkdirSync(join(updatesDir, 'extracted-0.70.0'), { recursive: true })
+      mkdirSync(join(updatesDir, 'extracted-0.71.3'), { recursive: true })
+      mkdirSync(join(updatesDir, 'extracted-not-a-version'), { recursive: true })
+      writeFileSync(join(updatesDir, 'Adea-0.70.0-update.tar.zst.partial'), 'bytes')
+      writeFileSync(join(updatesDir, 'apply-update.sh'), '#!/bin/sh\n')
+      writeFileSync(join(updatesDir, 'Adea-0.71.3.app.tar.zst'), 'bytes')
+
+      pruneStaleUpdateArtifacts(updatesDir, '0.71.3')
+
+      // The install in flight keeps its payload; everything older is gone,
+      // including a name that is not a version at all.
+      expect(existsSync(join(updatesDir, 'extracted-0.71.3'))).toBe(true)
+      expect(existsSync(join(updatesDir, 'extracted-0.70.0'))).toBe(false)
+      expect(existsSync(join(updatesDir, 'extracted-0.69.1'))).toBe(false)
+      expect(existsSync(join(updatesDir, 'extracted-not-a-version'))).toBe(false)
+      expect(existsSync(join(updatesDir, 'Adea-0.70.0-update.tar.zst.partial'))).toBe(false)
+      // Never touches anything it does not own.
+      expect(existsSync(join(updatesDir, 'apply-update.sh'))).toBe(true)
+      expect(existsSync(join(updatesDir, 'Adea-0.71.3.app.tar.zst'))).toBe(true)
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
+  test('pruning an absent staging directory is a no-op, not a failure', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-updates-state-'))
+    try {
+      expect(() => pruneStaleUpdateArtifacts(join(dataDir, 'updates'), '0.71.3')).not.toThrow()
     } finally {
       rmSync(dataDir, { force: true, recursive: true })
     }
