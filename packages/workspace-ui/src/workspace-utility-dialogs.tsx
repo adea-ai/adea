@@ -16,18 +16,15 @@ import {
   Hash,
   ListTodo,
   MessageSquare,
-  Search,
   Settings,
 } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { keyedRows } from './keyed-rows'
 
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
-import { fuzzySearchMatch, searchKeyboardSelection } from './workspace-model'
+import { fuzzySearchMatch } from './workspace-model'
 import type { PrivateContentResolver } from './platform'
-import { Button } from '@adea-ai/ui/components/ui/button'
-import { Input } from '@adea-ai/ui/components/ui/input'
-import { Label } from '@adea-ai/ui/components/ui/label'
+import { Command, CommandInput, CommandItem, CommandList } from '@adea-ai/ui/components/ui/command'
 
 type SearchResult = WorkspaceSearchResult
 
@@ -72,7 +69,13 @@ export function WorkspaceSearchDialog(props: {
   const [selectedIndex, setSelectedIndex] = createSignal(0)
   const [localResults, setLocalResults] = createSignal<readonly SearchResult[]>([])
   const [localSearching, setLocalSearching] = createSignal(false)
-  const [selected, setSelected] = createSignal<HTMLButtonElement>()
+  let lastChannelIntent: string | undefined
+
+  function prefetchChannel(channelId: string): void {
+    if (lastChannelIntent === channelId) return
+    lastChannelIntent = channelId
+    props.onChannelIntent?.(channelId)
+  }
 
   createEffect(() => {
     const value = query()
@@ -248,11 +251,6 @@ export function WorkspaceSearchDialog(props: {
     setSelectedIndex(0)
   })
 
-  createEffect(() => {
-    void selectedIndex()
-    selected()?.scrollIntoView({ block: 'nearest' })
-  })
-
   const select = (result: SearchResult) => {
     props.onSelect(result)
     props.onClose()
@@ -267,65 +265,60 @@ export function WorkspaceSearchDialog(props: {
       title={props.scopeChannelId ? 'Search this conversation' : 'Search workspace'}
       description="Search Rooms, conversations, Agents, Tasks, Artifacts, and cloud-safe message text."
     >
-      <Label class="conventional-search-field">
-        <Search aria-hidden="true" />
-        <span class="visually-hidden">Search workspace</span>
-        <Input
+      {/* The host owns ranking across quick destinations, local private hits,
+          and remote hits; cmdk only owns selection and keyboard behavior. */}
+      <Command
+        class="conventional-search-command h-auto"
+        label="Search workspace"
+        shouldFilter={false}
+        vimBindings={false}
+        value={resultRows()[selectedIndex()]?.key ?? ''}
+        onValueChange={(value) => {
+          const index = resultRows().findIndex((entry) => entry.key === value)
+          if (index < 0) return
+          setSelectedIndex(index)
+          const result = resultRows()[index]?.item()
+          if (result?.kind === 'channel') prefetchChannel(result.id)
+        }}
+      >
+        <CommandInput
           value={query()}
-          onInput={(event) => setQuery(event.currentTarget.value)}
+          onValueChange={setQuery}
           placeholder="Find a Room, conversation, Agent, or Task"
           autofocus
-          aria-controls="workspace-search-results"
-          aria-activedescendant={
-            results()[selectedIndex()] ? `search-result-${selectedIndex()}` : undefined
-          }
-          onKeyDown={(event) => {
-            const keyboard = searchKeyboardSelection(event.key, selectedIndex(), results().length)
-            if (keyboard.action === 'move') {
-              event.preventDefault()
-              setSelectedIndex(keyboard.index)
-            } else if (keyboard.action === 'open' && results()[keyboard.index]) {
-              event.preventDefault()
-              select(results()[keyboard.index]!)
-            }
-          }}
         />
-      </Label>
-      <ul
-        id="workspace-search-results"
-        class="conventional-search-results"
-        role="listbox"
-        aria-label="Search results"
-        aria-live="polite"
-      >
-        <For each={resultRows()}>
-          {(entry, index) => {
-            const result = entry.item
-            return (
-              <li role="presentation">
-                <Button
-                  id={`search-result-${index()}`}
-                  ref={index() === selectedIndex() ? setSelected : undefined}
-                  type="button"
-                  role="option"
-                  aria-selected={index() === selectedIndex()}
-                  onMouseEnter={() => {
-                    setSelectedIndex(index())
-                    if (result().kind === 'channel') props.onChannelIntent?.(result().id)
+        <CommandList class="conventional-search-results" label="Search results" aria-live="polite">
+          <For each={resultRows()}>
+            {(entry) => {
+              const result = entry.item
+              const channelId = () => {
+                const item = result()
+                return item.kind === 'channel' ? item.id : undefined
+              }
+              return (
+                <CommandItem
+                  value={entry.key}
+                  onSelect={() => select(result())}
+                  onPointerEnter={() => {
+                    const id = channelId()
+                    if (id) prefetchChannel(id)
                   }}
-                  onClick={() => select(result())}
+                  onPointerLeave={() => {
+                    const id = channelId()
+                    if (id && lastChannelIntent === id) lastChannelIntent = undefined
+                  }}
                 >
                   {searchResultIcon(result().kind)}
                   <span>
                     <strong>{result().label}</strong>
                     <small>{result().secondary}</small>
                   </span>
-                </Button>
-              </li>
-            )
-          }}
-        </For>
-      </ul>
+                </CommandItem>
+              )
+            }}
+          </For>
+        </CommandList>
+      </Command>
       <Show when={(remote.isFetching || localSearching()) && debouncedQuery().length >= 2}>
         <p class="conventional-dialog-empty" role="status">
           Searching…

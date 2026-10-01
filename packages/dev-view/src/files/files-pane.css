@@ -16,28 +16,16 @@
 /* Quick-open picker (#399 residue): a pane-local overlay anchored under the
  * toolbar, stacked on the named menu scale. */
 .dev-files__quickopen {
-  position: absolute;
-  inset-inline: 0.5rem;
-  top: 2.4rem;
-  z-index: var(--z-menu, 140);
   display: flex;
   max-height: 60%;
   flex-direction: column;
   gap: 0.25rem;
   padding: 0.25rem;
-  border: 1px solid var(--border);
-  border-radius: 0.35rem;
-  background: var(--background);
-  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim, #000) 32%, transparent);
 }
 
 .dev-files__quickopen-list {
   min-height: 0;
   overflow-y: auto;
-}
-
-.dev-files__quickopen-row--active {
-  background: color-mix(in srgb, var(--secondary) 72%, transparent);
 }
 
 .dev-files__quickopen-empty {
@@ -68,6 +56,15 @@
 .dev-files__filter:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
   outline-offset: 1px;
+}
+
+.dev-files__quickopen [data-slot='command-input-wrapper'] {
+  height: 1.75rem;
+}
+
+.dev-files__quickopen-input {
+  min-width: 0;
+  flex: 1;
 }
 
 .dev-files__actions {

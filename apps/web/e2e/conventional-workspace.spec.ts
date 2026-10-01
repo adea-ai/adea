@@ -1442,9 +1442,31 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
 
   await page.keyboard.press('Control+k')
   const globalSearch = page.getByRole('dialog', { name: 'Search workspace' })
-  await globalSearch.getByRole('textbox').fill('launch brief')
+  const searchInput = globalSearch.getByRole('combobox', { name: 'Search workspace' })
+  const results = globalSearch.getByRole('listbox', { name: 'Search results' })
+  const options = results.getByRole('option')
+  await expect(searchInput).toBeFocused()
+  await expect(options).toHaveCount(13)
+
+  const supportPrefetch = page.waitForRequest((request) =>
+    request.url().includes('/channels/channel-support/messages')
+  )
+  await searchInput.press('ArrowDown')
+  await searchInput.press('ArrowDown')
+  await searchInput.press('ArrowDown')
+  const supportChannel = globalSearch.getByRole('option', {
+    name: /Support Room conversation/,
+  })
+  await expect(supportChannel).toHaveAttribute('aria-selected', 'true')
+  expect(await searchInput.getAttribute('aria-controls')).toBe(await results.getAttribute('id'))
+  expect(await searchInput.getAttribute('aria-activedescendant')).toBe(
+    await supportChannel.getAttribute('id')
+  )
+  await supportPrefetch
+
+  await searchInput.fill('launch brief')
   await expect(globalSearch.getByRole('option', { name: /launch-brief\.md/ })).toBeVisible()
-  await expect(globalSearch.getByRole('textbox')).toBeFocused()
+  await expect(searchInput).toBeFocused()
   await expect(globalSearch.getByRole('option', { name: /launch-brief\.md/ })).toHaveAttribute(
     'aria-selected',
     'true'
@@ -1455,7 +1477,7 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
 
   await page.keyboard.press('Control+f')
   const conversationSearch = page.getByRole('dialog', { name: 'Search this conversation' })
-  await conversationSearch.getByRole('textbox').fill('durable')
+  await conversationSearch.getByRole('combobox', { name: 'Search workspace' }).fill('durable')
   await expect(conversationSearch.getByRole('option', { name: /durable workspace/ })).toBeVisible()
   await page.keyboard.press('Enter')
   // The shared message row signals `highlighted` with design tokens instead of
@@ -1470,6 +1492,30 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
   )
   await page.keyboard.press('Control+Shift+u')
   expect((await unreadRequest).postDataJSON()).toEqual({ action: 'unread' })
+})
+
+test('workspace search keeps duplicate destination labels tied to their domain identity', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  await page.goto('/')
+  await page.keyboard.press('Control+k')
+
+  const dialog = page.getByRole('dialog', { name: 'Search workspace' })
+  const input = dialog.getByRole('combobox', { name: 'Search workspace' })
+  const results = dialog.getByRole('listbox', { name: 'Search results' })
+  const room = results.getByRole('option', { name: 'Support Room', exact: true })
+  const channel = results.getByRole('option', { name: 'Support Room conversation', exact: true })
+  await expect(results.getByRole('option')).toHaveCount(13)
+
+  const channelPrefetch = page.waitForRequest((request) =>
+    request.url().includes('/channels/channel-support/messages')
+  )
+  await channel.hover()
+  await channelPrefetch
+  await expect(channel).toHaveAttribute('aria-selected', 'true')
+  await expect(room).toHaveAttribute('aria-selected', 'false')
+  expect(await input.getAttribute('aria-activedescendant')).toBe(await channel.getAttribute('id'))
 })
 
 test('global rail opens workspace search from Virtual and Dev', async ({ page }) => {
