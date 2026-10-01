@@ -6,6 +6,10 @@
 
 /* Touch-only scene controls sit inside the safe area and suppress browser text
    selection/callouts while preserving pointer capture for held movement keys. */
+.workspace-on-screen-controls {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
 .workspace-on-screen-controls,
 .workspace-on-screen-controls button {
   -webkit-touch-callout: none;

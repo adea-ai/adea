@@ -1,11 +1,12 @@
 import { ZoomIn, ZoomOut } from 'lucide-solid'
 import { onCleanup, Show, type JSX } from 'solid-js'
 
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
 type ControlButtonProps = {
   code: string
   label: string
+  tooltip: string
   children: JSX.Element
 }
 
@@ -52,11 +53,12 @@ function ControlButton(props: ControlButtonProps) {
   }
 
   return (
-    <Button
+    <ActionButton
       type="button"
       variant="secondary"
       size="icon-xl"
       aria-label={props.label}
+      tooltip={props.tooltip}
       class="touch-none select-none"
       onContextMenu={(event) => event.preventDefault()}
       onPointerCancel={release}
@@ -65,7 +67,7 @@ function ControlButton(props: ControlButtonProps) {
       onPointerUp={release}
     >
       {props.children}
-    </Button>
+    </ActionButton>
   )
 }
 
@@ -89,17 +91,17 @@ export function OnScreenControls(props: OnScreenControlsProps) {
       <Show when={showMovementControls()}>
         <div class="pointer-events-auto grid grid-cols-3 gap-1.5 rounded-3xl bg-scrim/20 p-2 backdrop-blur-sm">
           <span />
-          <ControlButton code="KeyW" label="Move forward">
+          <ControlButton code="KeyW" label="Move forward" tooltip="Hold to move forward">
             ▲
           </ControlButton>
           <span />
-          <ControlButton code="KeyA" label="Move left">
+          <ControlButton code="KeyA" label="Move left" tooltip="Hold to move left">
             ◀
           </ControlButton>
-          <ControlButton code="KeyS" label="Move backward">
+          <ControlButton code="KeyS" label="Move backward" tooltip="Hold to move backward">
             ▼
           </ControlButton>
-          <ControlButton code="KeyD" label="Move right">
+          <ControlButton code="KeyD" label="Move right" tooltip="Hold to move right">
             ▶
           </ControlButton>
         </div>
@@ -111,30 +113,30 @@ export function OnScreenControls(props: OnScreenControlsProps) {
             role="group"
             aria-label="Camera zoom"
           >
-            <Button
+            <ActionButton
               type="button"
               variant="secondary"
               size="icon-lg"
               aria-label="Zoom out"
-              title="Zoom out"
+              tooltip="Zoom out"
               onClick={() => props.onZoomOut?.()}
             >
               <ZoomOut aria-hidden="true" />
-            </Button>
-            <Button
+            </ActionButton>
+            <ActionButton
               type="button"
               variant="secondary"
               size="icon-lg"
               aria-label="Zoom in"
-              title="Zoom in"
+              tooltip="Zoom in"
               onClick={() => props.onZoomIn?.()}
             >
               <ZoomIn aria-hidden="true" />
-            </Button>
+            </ActionButton>
           </div>
         </Show>
         <Show when={showJumpControl()}>
-          <ControlButton code="Space" label="Jump">
+          <ControlButton code="Space" label="Jump" tooltip="Hold to jump">
             JUMP
           </ControlButton>
         </Show>

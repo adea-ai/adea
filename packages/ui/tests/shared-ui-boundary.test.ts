@@ -43,4 +43,11 @@ describe('private application UI boundary', () => {
     expect(theme).not.toContain('border-color: var(--border)')
     expect(theme).not.toContain('background: var(--background)')
   })
+
+  test('keeps on-screen controls clear of the device bottom safe area', () => {
+    const theme = source('styles/theme.css')
+    expect(theme).toContain(
+      '.workspace-on-screen-controls {\n  padding-bottom: env(safe-area-inset-bottom);\n}'
+    )
+  })
 })
