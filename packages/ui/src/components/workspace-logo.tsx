@@ -1,10 +1,19 @@
-import { splitProps, type ComponentProps } from 'solid-js'
+import type { ComponentProps } from 'solid-js'
+
+type WorkspaceLogoProps = Pick<ComponentProps<'svg'>, 'class' | 'aria-hidden'> & {
+  role?: 'img' | 'presentation'
+}
 
 /** The canonical Adea mark used by web, desktop, and dialogs. */
-export function WorkspaceLogo(props: ComponentProps<'svg'>) {
-  const [local, rest] = splitProps(props, ['class'])
+export function WorkspaceLogo(props: WorkspaceLogoProps) {
   return (
-    <svg viewBox="0 0 64 64" role="img" aria-label="Adea" class={local.class} {...rest}>
+    <svg
+      viewBox="0 0 64 64"
+      role={props.role ?? 'img'}
+      aria-label="Adea"
+      aria-hidden={props['aria-hidden']}
+      class={props.class}
+    >
       <rect width="64" height="64" rx="16" class="fill-(--workspace-logo-surface)" />
       <path d="M10 16h7v13h9V16h7v32h-7V36h-9v12h-7z" class="fill-(--workspace-logo-foreground)" />
       <path

@@ -7,6 +7,11 @@ local primitive or a forwarding barrel here. Scene branding and Three.js runtime
 behavior stay in their owning packages. The Solid stack is recorded in
 [decision 0007](../../docs/decisions/0007-solid-tanstack-start.md).
 
+The branded `WorkspaceLogo` accepts only its layout class, image/presentation
+role, and decorative `aria-hidden` state. It does not forward activation
+handlers, tab stops, or arbitrary SVG props. Compose a shared control around
+the mark when an action needs branding.
+
 The unused local Toggle, ToggleGroup, RadioGroup, Tabs, Card, and Spinner copies
 and their private exports have been removed. Workspace overlays and controls
 compose published shared components; this package keeps only host preference
