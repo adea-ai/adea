@@ -4,8 +4,8 @@ Adea is a browser-based workspace with Home and Work workspaces, chat,
 tasks, and a plugin marketplace. The spatial 3D scenes (home/work worlds,
 character and interior content, room designer) live in the private Agent Sim
 engine repo and mount here through an entitlement-gated remote; this
-repository ships the shell, the scene-manifest protocol, and an unavailable
-state wherever the virtual view mounts.
+repository ships the shell, scene-manifest protocol, engine loader, and
+fallback for builds without an engine pack.
 
 ## Stack
 
@@ -15,7 +15,8 @@ state wherever the virtual view mounts.
   (the Three.js runtime, scenes, and asset pipeline live in Agent Sim)
 - TanStack Query's Solid bindings for server state and `solid-js/store` for
   client-only coordination
-- shadcn-style primitives backed by Kobalte and corvu
+- Shared Solid components from published `@adea-ai/ui`, with theme contracts
+  from `@adea-ai/themes` and app-owned adapters in `@adea-ai/app-ui`
   ([decision 0007](docs/decisions/0007-solid-tanstack-start.md))
 - Vite 8 (Rolldown) for the app and library builds, `tsc` for declarations and
   type-only packages ([decision 0008](docs/decisions/0008-build-bundler-vite-vs-bun.md))
@@ -70,8 +71,12 @@ delivered through the entitlement-gated engine remote.
 ## Plugin marketplace
 
 Adea consumes the authoritative registry through the same-origin server
-proxy. The proxy calls Control Plane; browser and desktop clients never fetch
-the publication branch or upstream plugin content directly. The registry's
+proxy. The proxy calls authenticated Control Plane APIs for verified core
+catalog metadata and installation state. The browser may fetch a smaller
+public browsing index directly, but accepts it only after its declared digest
+and catalog ID match the verified catalog. Icons can load from publication,
+upstream, or third-party URLs. These display paths do not download plugin
+source or grant installation or execution authority. The registry's
 stable latest pointer is
 [`catalog-latest.v1.json`](https://raw.githubusercontent.com/adea-ai/plugins/catalog-assets/catalog-latest.v1.json),
 and each verified catalog is pinned by its `catalogId`, which is also its
@@ -86,12 +91,13 @@ requirements. `metadata-only` entries are visible as unavailable metadata and
 cannot be enabled. A stale last-known-good catalog is labeled stale; a failed
 verification is fail-closed.
 
-Adea is a read-only catalog consumer. Add/Enable submits the exact plugin
+Adea browses catalog metadata. Add/Enable submits the exact plugin
 and release pins, requested harness, and workspace/user identity to Control
 Plane. It does not claim local installation state, download upstream content,
 or execute plugin content. Control Plane owns authorization, connector and
 credential resolution, server-side release verification, installation state,
-and execution records. See [`docs/marketplace-consumer.md`](docs/marketplace-consumer.md)
+and execution records. A returned `installed` state does not prove that plugin
+files have been materialized or a harness has been activated. See [`docs/marketplace-consumer.md`](docs/marketplace-consumer.md)
 for the integration contract and required environment variables.
 
 ## Architecture references
@@ -105,8 +111,12 @@ for the integration contract and required environment variables.
 The spatial engine (InstancedMesh scene fields, frustum culling, Meshopt GLB
 and KTX2/Basis decoding, asset optimization, performance budgets) lives in
 the private Agent Sim repository. This repository stages only the tracked scene
-manifests from `@adea-ai/spatial` into `apps/web/public/assets`, so plain
-checkouts build and test with no credentials or additional setup.
+manifests from `@adea-ai/spatial` into `apps/web/public/assets`. Public build
+inputs and the conventional UI do not require a private engine pack. Install
+the pinned dependencies and configure local PostgreSQL for persistence-backed
+workspace flows and integration tests as described above. Engine rendering
+requires a separately prepared pack; without it, the virtual view shows its
+unavailable state.
 
 ## Verification
 

@@ -2,9 +2,34 @@
 
 Status: Canonical repository source
 Owner: Adea architecture
-Last reviewed: 2026-08-28
+Last reviewed: 2026-10-01
 
 These Mermaid definitions are the version-controlled Adea source for the rendered diagrams cataloged in the canonical Google Docs. Cross-repository Control Plane and Cortana diagrams remain in their owning repositories.
+
+## Current repository boundaries
+
+Adea's application, Control Plane, Cortana, shared UI, themes, and plugin catalog
+repositories have separate public contracts. Adea and Cortana consume published
+`@adea-ai/ui` components and `@adea-ai/themes` contracts. Adea's local
+`@adea-ai/app-ui` package owns application adapters. Private Agent Sim owns the
+spatial implementation, and the private Assets repository holds restricted
+payloads. Adea retains public
+manifests, the loader, mount contract, controls, and unavailable fallback.
+
+These diagrams include target architecture. They do not certify deployed
+topology, complete implementation, distributed engine contents, or payload
+redistribution rights. Current Adea events stream through its web service;
+Railway event-gateway scale and replay labels below describe targets. Current
+local Control Plane uses an embedded SQLite queue instead of Restate. The
+Electrobun shell uses a transitional file-backed store with AES-GCM-sealed content, not
+the SQLite/keyring target. See [local content](../specs/local-content.md) and
+[desktop authentication](../specs/desktop-auth.md) for the current gaps.
+
+Marketplace core metadata goes from the publication snapshot through verified,
+authenticated Control Plane APIs to Adea's same-origin proxy. Browsing indexes
+and display icons have qualified direct-fetch paths. Installation state and
+advisory plans do not establish materialization or activation. See the
+[marketplace consumer contract](../marketplace-consumer.md).
 
 ## Editing and rendering rules
 
@@ -41,14 +66,14 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph HQ["Adea — Private First-Party Product"]
+    subgraph HQ["Adea: Public Application / Private Optional Spatial Payload"]
         C[Desktop / Web / Mobile UI]
         API[Application Services]
         HQDB[(Adea Neon / Cloud-Safe Metadata)]
         RELAY[Adea Remote Relay / HPKE Ciphertext]
         EVT[Railway Event Gateway / Neon WorkspaceEvents]
     end
-    subgraph CP["Control Plane — Open Source / Apache-2.0"]
+    subgraph CP["Control Plane: Open Source / Apache-2.0"]
         CPAPI[Control API / Public SDK]
         POL[Profiles / Skills / ProjectState / Context Policy]
         CPO{Optional ContextProvider?}
@@ -62,7 +87,7 @@ flowchart TB
         CPDB[(PersistenceProvider: SQLite Local/Simple / PostgreSQL Server/Cloud)]
     end
     subgraph CT["Optional Context / Memory Providers"]
-        CTAPI[Cortana — Preferred / Desktop / MCP / HTTP / CLI]
+        CTAPI[Cortana: Preferred / Desktop / MCP / HTTP / CLI]
         CB[Bounded ContextBundle]
         CTDB[(Cortana Local SQLite Brain)]
         ALT[Other Compatible Provider]
@@ -127,7 +152,7 @@ flowchart TB
         CL --> EC[Event Client]
     end
     subgraph App["Adea Application Services"]
-        AUTH["Neon Auth<br/>via @agent-hq/auth"]
+        AUTH["Neon Auth<br/>via @adea-ai/auth"]
         API[API]
         WS[Workspace / Agent / Task / Conversation Metadata Services]
         RELAY[Remote Control Relay / HPKE]
@@ -135,7 +160,7 @@ flowchart TB
         DB[(Neon / Drizzle Cloud Metadata)]
     end
     CL --> AUTH
-    CL <--> LC[(Encrypted Local Content / rusqlite)]
+    CL <--> LC[(Encrypted Local Content / File-Backed Shell Store)]
     AUTH --> API
     API --> WS
     WS --> DB
@@ -188,12 +213,12 @@ sequenceDiagram
 flowchart LR
     U([User]) --> B[Browser / Adea Client]
     subgraph AppCloud["Adea Application Trust Zone"]
-        AUTH["Neon Auth<br/>via @agent-hq/auth"]
+        AUTH["Neon Auth<br/>via @adea-ai/auth"]
         API[Adea API]
         DB[(Adea Neon / Cloud-Safe Metadata)]
         RELAY[Remote Relay / HPKE Ciphertext]
         EG[Railway Event Gateway]
-        ART[@agent-hq/artifacts]
+        ART[Adea Artifact API]
         BLOB[(Adea Cloudflare R2 - separate product bucket)]
     end
     subgraph Control["Selected Control Plane Trust Zone - local, self-hosted, or managed cloud"]
@@ -357,8 +382,8 @@ flowchart TB
         RG[Runtime Gateway - non-co-located RuntimeNode only]
     end
     subgraph Local["Paired Developer Device"]
-        LC[(Encrypted Adea Local Content / rusqlite)]
-        LCP[Local All-in-One Control Plane / Restate / node:sqlite]
+        LC[(Encrypted Adea Local Content / File-Backed Shell Store)]
+        LCP[Local All-in-One Control Plane / Embedded SQLite Queue]
         LG[Bounded LangGraph.js]
         RH[Local Runtime Host]
         MPI[Managed Local Pi]
@@ -438,7 +463,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    AUTH[Neon Auth] --> AB[@agent-hq/auth]
+    AUTH[Neon Auth] --> AB[@adea-ai/auth]
     AB --> AI[(AuthIdentity)]
     AI --> U[(Stable Adea User)]
     U --> UP[User PrincipalRef]
@@ -565,7 +590,7 @@ flowchart LR
     D -->|ProjectState| P[StatePromotionProposal]
     D -->|Cloud Artifact| A[Artifact Upload Intent]
     D -->|No| L[Remain Local]
-    A --> V[Adea Cloudflare R2 via @agent-hq/artifacts]
+    A --> V[Adea Cloudflare R2 via Artifact API]
     Note[Absolute paths never enter cloud product state]
     NM -. enforces .-> Note
 ```

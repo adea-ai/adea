@@ -100,13 +100,28 @@ separate RuntimeNode device credential.
 
 ## Virtual view and Agent Sim
 
-The virtual view mounts the Agent Sim engine only on entitled deployments:
-official desktop builds pack the engine at build time
-(`release-assets.yml` checks out the private `agent-sim` repo when
-`AGENT_SIM_REF`/`AGENT_SIM_DEPLOY_TOKEN` are configured), and local builds can
-do the same by pointing `ADEA_AGENT_SIM_DIST` at a local engine pack before
-`shell:build`. Builds without a pack, including forks, render the offline
-fallback and never fetch engine code.
+The virtual view needs a prepared Agent Sim engine pack. When both
+`AGENT_SIM_REF` and `AGENT_SIM_DEPLOY_TOKEN` are configured,
+`release-assets.yml` downloads the private release archive and verifies its
+SHA-256 sidecar before staging it. With neither configured, the workflow builds
+a shell without the engine. With only one configured, it fails. This optional
+workflow path does not by itself prove that a particular released bundle
+contains the pack.
+
+Local builds can stage a prepared pack by setting `ADEA_AGENT_SIM_DIST` before
+`shell:build`. Builds without a pack render the unavailable fallback. The
+public loader validates the manifest's same-origin JavaScript entry URL and
+nonempty diagnostic version, then expects `window.__adeaAgentSim.mount` to
+return an `unmount()` operation. It does not enforce a version compatibility
+range or verify the entry file's digest. Pack compatibility and released
+bundle contents need separate artifact evidence.
+
+The published [v0.71.6 update archive](https://github.com/adea-ai/adea/releases/tag/v0.71.6)
+was inspected on 2026-10-01. Its archive digest matched GitHub release metadata,
+and it contains the engine manifest, entry module, stylesheet, and runtime
+assets. The manifest reports engine version `0.11.0`. This confirms inclusion
+in that update archive; it does not establish runtime mount success, exact
+export lineage, or permission to redistribute licensed payloads.
 
 The shell updates itself through the signed release feed. The version surface
 verifies each archive's digest and Ed25519 signature before installing it and

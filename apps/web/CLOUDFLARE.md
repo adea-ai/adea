@@ -42,7 +42,7 @@ also writes a `.wrangler/deploy/config.json` redirect. The legacy
 2. **GitHub Actions deployment.** The repository-owned
    `.github/workflows/cloudflare-preview.yml` and
    `.github/workflows/cloudflare-production.yml` call the shared Code Foundry
-   Cloudflare workflow at `v1.38.1`. This release packages the production Build
+   Cloudflare workflow at `v1.39.3`. This release packages the production Build
    Output before the prebuilt upload; `v1.36.4` omitted that step and failed
    with "no root config found" despite a successful Vite build. Configure these
    repository secrets:
