@@ -49,8 +49,8 @@ import {
   type WorktreeContext,
 } from '../files/worktree-context'
 import '../files/files-pane.css'
-import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
@@ -398,8 +398,8 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           type="button"
           variant="outline"
           size="icon-sm"
-          tooltip="Refresh status"
           aria-label="Refresh status"
+          tooltip="Refresh the selected worktree's Git status."
           onClick={() => void refresh()}
         >
           <RefreshCw aria-hidden="true" />
@@ -408,8 +408,8 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           type="button"
           variant="outline"
           size="icon-sm"
-          tooltip="Fetch from origin"
           aria-label="Fetch from origin"
+          tooltip="Fetch updates from the configured origin remote."
           onClick={() => void fetch()}
         >
           <Download aria-hidden="true" />
@@ -523,7 +523,8 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
                           fallback={
                             <Button
                               type="button"
-                              class="dev-sc__hunk-action"
+                              variant="ghost"
+                              size="sm"
                               aria-label={`Stage hunk ${hunkIndex() + 1} of ${group.path}`}
                               onClick={() => void stageHunk(hunk, 'stage')}
                             >
@@ -533,7 +534,8 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
                         >
                           <Button
                             type="button"
-                            class="dev-sc__hunk-action"
+                            variant="ghost"
+                            size="sm"
                             aria-label={`Unstage hunk ${hunkIndex() + 1} of ${group.path}`}
                             onClick={() => void stageHunk(hunk, 'unstage')}
                           >
@@ -878,7 +880,7 @@ function RemoteSection(props: {
             </Show>
             <div class="dev-files__row">
               <span class="dev-files__badge">{checksLabel(checkSummary())}</span>
-              <Button type="button" class="dev-files__delete" onClick={() => void loadChecks()}>
+              <Button type="button" variant="outline" size="sm" onClick={() => void loadChecks()}>
                 Load checks
               </Button>
             </div>
@@ -925,7 +927,9 @@ function StatusRow(props: {
     <div class="dev-files__row">
       <Button
         type="button"
-        class="dev-files__name"
+        variant="ghost"
+        size="sm"
+        class="min-w-0 flex-1 justify-start"
         title={`${statusLabel(code())}: ${props.entry.path.relativePath}`}
         onClick={() =>
           void props.onDiff(
@@ -934,21 +938,21 @@ function StatusRow(props: {
           )
         }
       >
-        {props.entry.path.relativePath}
+        <span class="dev-files__name">{props.entry.path.relativePath}</span>
       </Button>
       <span class="dev-files__badge">{code()}</span>
       <Show when={props.onStage}>
-        <Button type="button" class="dev-files__delete" onClick={() => props.onStage?.()}>
+        <Button type="button" variant="outline" size="sm" onClick={() => props.onStage?.()}>
           Stage
         </Button>
       </Show>
       <Show when={props.onUnstage}>
-        <Button type="button" class="dev-files__delete" onClick={() => props.onUnstage?.()}>
+        <Button type="button" variant="outline" size="sm" onClick={() => props.onUnstage?.()}>
           Unstage
         </Button>
       </Show>
       <Show when={props.onDiscard}>
-        <Button type="button" class="dev-files__delete" onClick={() => props.onDiscard?.()}>
+        <Button type="button" variant="destructive" size="sm" onClick={() => props.onDiscard?.()}>
           {props.discardArmed ? 'Confirm' : 'Discard'}
         </Button>
       </Show>
