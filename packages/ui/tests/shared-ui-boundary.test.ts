@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const source = (path: string) => readFileSync(join(import.meta.dir, '../src', path), 'utf8')
+const repositoryFile = (path: string) => readFileSync(join(import.meta.dir, '../../..', path), 'utf8')
 
 describe('private application UI boundary', () => {
   test('delegates mode selection and roving focus to the published controlled toggle', () => {
@@ -49,5 +50,29 @@ describe('private application UI boundary', () => {
     expect(theme).toContain(
       '.workspace-on-screen-controls {\n  padding-bottom: env(safe-area-inset-bottom);\n}'
     )
+  })
+
+  test('keeps raw and wrapper exemptions at the main-branch ratchet baseline', () => {
+    type Override = { files: string[]; rules: Record<string, string> }
+    const config = JSON.parse(repositoryFile('.oxlintrc.json')) as { overrides: Override[] }
+    const rawInteractiveExemptions = config.overrides.flatMap(({ files, rules }) =>
+      rules['adea/no-raw-interactive-elements'] === 'off' ? files : []
+    )
+    const wrapperExemptions = config.overrides.flatMap(({ files, rules }) =>
+      rules['adea/no-interactive-wrappers'] === 'off' ? files : []
+    )
+    const appearanceRules = [
+      'shadcn/no-restyle',
+      'shadcn/no-arbitrary-values',
+      'shadcn/no-inline-styles',
+      'shadcn/require-static-classes',
+    ]
+    const appearanceExemptions = config.overrides.flatMap(({ files, rules }) =>
+      appearanceRules.some((rule) => rules[rule] === 'off') ? files : []
+    )
+
+    expect(rawInteractiveExemptions).toEqual([])
+    expect(wrapperExemptions).toEqual(['packages/dev-view/src/browser/mini-preview.tsx'])
+    expect(appearanceExemptions).toEqual([])
   })
 })
