@@ -43,7 +43,7 @@
     "test:browser:desktop-client": "bunx playwright install --with-deps chromium && bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
   },
   "devDependencies": {
-    "@adea-ai/ui": "0.93.2",
+    "@adea-ai/ui": "0.95.0",
     "@playwright/test": "^1.63.0",
     "@shadcn/lint": "^0.1.1",
     "@tailwindcss/postcss": "^4.3.3",
