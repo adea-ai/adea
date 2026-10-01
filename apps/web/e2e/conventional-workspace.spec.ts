@@ -942,7 +942,13 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   await page.goto('/')
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
   await expect(globalNavigation).toBeVisible()
-  await expect(globalNavigation.getByText('⌘ K')).toBeVisible()
+  // The global rail renders permanently collapsed, where the shared rail draws
+  // no chord glyph; the chord reaches assistive technology through
+  // `aria-keyshortcuts`, which is the contract that must hold in that state.
+  await expect(globalNavigation.getByRole('button', { name: 'Search workspace' })).toHaveAttribute(
+    'aria-keyshortcuts',
+    'Meta+K Control+K'
+  )
   await expect(
     globalNavigation.getByRole('button', { name: 'Notifications (coming soon)' })
   ).toBeDisabled()
@@ -1164,7 +1170,11 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
 
   await page.getByRole('button', { name: /^Product( |$)/ }).click()
   await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
-  await expect(page.getByRole('heading', { name: 'Thread' })).toBeVisible()
+  // The shared thread panel titles itself through the aside's accessible name
+  // ("Thread: <label>"); its visible "Thread" caption is a span, not a heading.
+  await expect(
+    page.getByRole('complementary', { name: 'Thread: Focused discussion' })
+  ).toBeVisible()
   await expect(page.getByText('I will add competitor evidence here.')).toBeVisible()
   await expect
     .poll(() =>
@@ -1448,7 +1458,12 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
   await conversationSearch.getByRole('textbox').fill('durable')
   await expect(conversationSearch.getByRole('option', { name: /durable workspace/ })).toBeVisible()
   await page.keyboard.press('Enter')
-  await expect(page.locator('[data-message-id="message-root"]')).toHaveClass(/highlighted/)
+  // The shared message row signals `highlighted` with design tokens instead of
+  // the app-local `conventional-message--highlighted` class, and makes the
+  // jumped-to row programmatically focusable.
+  const jumpedTo = page.locator('[data-message-id="message-root"]')
+  await expect(jumpedTo).toHaveClass(/bg-primary-subtle shadow-\[inset_3px_0_var\(--primary\)\]/)
+  await expect(jumpedTo).toHaveAttribute('tabindex', '-1')
 
   const unreadRequest = page.waitForRequest((request) =>
     request.url().includes('/read-state/channels/channel-product')
@@ -1509,7 +1524,9 @@ test('the live appearance popover previews the visible workspace at wide and nar
   await page.goto('/?view=chat&scene=work')
   await page.getByRole('button', { name: 'Appearance settings', exact: true }).click()
   const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
-  await expect(popup).toBeVisible()
+  // The appearance panel is a lazy chunk fetched on this first open; the lane's
+  // cold dev server can take well past the default budget to serve it.
+  await expect(popup).toBeVisible({ timeout: 30_000 })
   const modes = popup.getByRole('radiogroup', { name: 'Appearance mode' })
   await modes.getByText('Light', { exact: true }).click()
   await expect(page).toHaveScreenshot('workspace-appearance-popover-light.png', {
@@ -1662,7 +1679,7 @@ test('the settings dialog survives re-selecting its active tab and keeps its dis
   expect(pageErrors).toEqual([])
 })
 
-test('settings tabs keep vertical keyboard focus and synchronize the selected section hash', async ({
+test('settings tabs keep horizontal keyboard focus and synchronize the selected section hash', async ({
   page,
 }) => {
   await mockWorkspace(page)
@@ -1674,10 +1691,10 @@ test('settings tabs keep vertical keyboard focus and synchronize the selected se
   const account = tablist.getByRole('tab', { name: 'Account & app', exact: true })
   const appearance = tablist.getByRole('tab', { name: 'Appearance', exact: true })
   const permissions = tablist.getByRole('tab', { name: 'Permissions', exact: true })
-  await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
+  await expect(tablist).toHaveAttribute('aria-orientation', 'horizontal')
 
   await account.focus()
-  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowRight')
   await expect(appearance).toBeFocused()
   await expect(appearance).toHaveAttribute('aria-selected', 'true')
   await expect(page).toHaveURL(/#settings\/appearance$/)
@@ -1690,7 +1707,7 @@ test('settings tabs keep vertical keyboard focus and synchronize the selected se
   await expect(permissions).toBeFocused()
   await expect(page).toHaveURL(/#settings\/permissions$/)
 
-  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowRight')
   await expect(account).toBeFocused()
   await expect(account).toHaveAttribute('aria-selected', 'true')
   await expect(page).toHaveURL(/#settings\/account$/)
@@ -1981,7 +1998,9 @@ test('themed shell and Library remain usable across desktop and narrow layouts',
   const light = await toolbar.evaluate((element) => getComputedStyle(element).backgroundColor)
   await page.screenshot({ path: testInfo.outputPath('library-light-desktop.png') })
   await page.getByRole('button', { name: 'User settings', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+  // Not `exact`: the shared account item appends its `⌘,` chord glyph to the
+  // accessible name, which workspace-guest.spec.ts asserts is displayed.
+  await page.getByRole('menuitem', { name: 'Settings' }).click()
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
   await settings.getByRole('tab', { name: 'Appearance', exact: true }).click()
   const appearance = settings.getByRole('region', { name: 'Appearance', exact: true })
@@ -2021,7 +2040,7 @@ test('Chat conversation surface follows the shared light and dark theme backgrou
   await expect(surface).toBeVisible()
   for (const mode of ['Light', 'Dark']) {
     await page.getByRole('button', { name: 'User settings', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Settings' }).click()
     const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
     await settings.getByRole('tab', { name: 'Appearance', exact: true }).click()
     const appearance = settings.getByRole('region', { name: 'Appearance', exact: true })
