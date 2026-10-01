@@ -278,9 +278,13 @@ shadcn finding the same way you fix a type error.
   `workspace-*`, `visually-hidden` (defined in `packages/ui/src/styles/`).
   Add new hooks in those stylesheets rather than restyling a component
   inline.
-- Colors come from the tokens in `packages/ui/src/styles/theme.css`
-  (`bg-primary`, `text-muted-foreground`, `bg-scrim/*`, …). Declare a
-  `--color-*` token there before using a new color; never use raw palette
+- Colors come from the published semantic tokens (`bg-primary`,
+  `text-muted-foreground`, `bg-scrim/*`, …). Canonical palette roles and values
+  belong in `@adea-ai/themes`; shared structural tokens and UI projections
+  belong in `@adea-ai/ui`. Adea's private styles may define domain aliases
+  that reference those tokens, but must not declare a competing palette or
+  override published roles. Do not add a color literal to the private theme
+  sheet or a new literal-bearing scanner exemption. Never use raw palette
   classes such as `bg-slate-950` or `text-emerald-700`. Even the
   linter-accepted `white`/`black` should go through the scrim tokens
   (`bg-scrim/*`, `text-scrim-foreground`, `border-scrim-edge/*`) — they are

@@ -33,9 +33,9 @@
 }
 
 :root {
-  /* Adea brand marks and host glass capability remain product-owned. */
-  --workspace-logo-surface: #111827;
-  --workspace-logo-foreground: #f8fafc;
+  /* Brand marks use the published theme-invariant contrast pair. */
+  --workspace-logo-surface: var(--scrim);
+  --workspace-logo-foreground: var(--scrim-foreground);
   --surface-alpha: 1;
   --surface-frost: 0.92;
   --surface-translucent: 0.8;

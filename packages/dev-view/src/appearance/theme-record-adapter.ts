@@ -14,6 +14,7 @@ import adeaLight from '@adea-ai/themes/themes/adea-light'
 
 import { CANONICAL_THEME_META } from '@adea-ai/app-ui/components/canonical-theme-meta'
 import {
+  accentPresetById,
   builtinThemeRegistry,
   customThemeVariants,
   deriveAccentRoles,
@@ -21,6 +22,9 @@ import {
   themeRegistry,
   type ThemeVariant,
 } from '@adea-ai/app-ui/components/appearance'
+
+/** The published blue preset is the host's default custom accent. */
+export const DEFAULT_CUSTOM_ACCENT = accentPresetById('blue')?.light ?? adeaLight.colors.accent
 
 /** Every picker record is a published catalogue theme; the catalogue carries
  * the per-family upstream provenance and licenses (see its NOTICE). */
@@ -180,7 +184,7 @@ export type AccentDraftValidation = Readonly<{
 export function normalizeCustomAccent(value: string, background: string): AccentDraftValidation {
   const normalized = normalizeAccentValue(value, background)
   if (normalized === undefined) {
-    return { error: `“${value}” is not a hex color such as #2563eb.` }
+    return { error: `“${value}” is not a hex color such as ${DEFAULT_CUSTOM_ACCENT}.` }
   }
   return { value: normalized }
 }
