@@ -73,8 +73,12 @@ function makeFixture(entrySource: string): Fixture {
 
   mkdirSync(dirname(linkedUiRoot), { recursive: true })
   symlinkSync(uiRoot, linkedUiRoot, 'dir')
+  // Resolve tailwindcss through the module graph rather than assuming it is
+  // hoisted into apps/web/node_modules. The workspace installs it at the repo
+  // root, so the fixed path is missing on CI and symlinkSync threw before the
+  // test did any work.
   symlinkSync(
-    resolve(dirname(import.meta.dir), 'node_modules/tailwindcss'),
+    dirname(createRequire(import.meta.url).resolve('tailwindcss/package.json')),
     linkedTailwindRoot,
     'dir'
   )
