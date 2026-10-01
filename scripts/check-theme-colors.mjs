@@ -513,22 +513,14 @@ export async function findScanInventoryGaps(root, scanRoots = SCAN_ROOTS) {
 
   const uncoveredStyles = []
   for (const collection of ['packages', 'apps']) {
-    let packages
-    try {
-      packages = await readdir(join(root, collection), { withFileTypes: true })
-    } catch {
-      continue
-    }
-
-    for (const packageEntry of packages) {
-      if (!packageEntry.isDirectory()) continue
-      const sourceDirectory = join(root, collection, packageEntry.name, 'src')
-      for await (const path of sourceFiles(sourceDirectory, SOURCE_STYLESHEET_EXTENSIONS)) {
-        const file = relative(root, path).split(sep).join('/')
-        const extension = SOURCE_STYLESHEET_EXTENSIONS.find((suffix) => file.endsWith(suffix))
-        if (extension !== '.css' || !isCoveredSource(file, extension, scanRoots)) {
-          uncoveredStyles.push(file)
-        }
+    // Desktop hosts can nest their sources (apps/desktop/shell/src). Searching
+    // only apps/*/src would silently miss a new stylesheet in those hosts.
+    for await (const path of sourceFiles(join(root, collection), SOURCE_STYLESHEET_EXTENSIONS)) {
+      const file = relative(root, path).split(sep).join('/')
+      if (!file.split('/').slice(0, -1).includes('src')) continue
+      const extension = SOURCE_STYLESHEET_EXTENSIONS.find((suffix) => file.endsWith(suffix))
+      if (extension !== '.css' || !isCoveredSource(file, extension, scanRoots)) {
+        uncoveredStyles.push(file)
       }
     }
   }

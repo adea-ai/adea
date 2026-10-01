@@ -74,7 +74,8 @@ light/dark palette come from the published `@adea-ai/themes` catalogue.
 `scripts/check-theme-colors.mjs` enforces the rule across `packages/ui`,
 `packages/workspace-ui`, `packages/dev-view`, and `apps/web/src`;
 `scripts/theme-color-boundary.test.ts` also checks that every source stylesheet
-under `packages/*/src` and `apps/*/src` is covered by a configured scan root,
+under a `src` directory in `packages` or `apps` is covered by a configured scan root,
+including nested hosts such as `apps/desktop/shell/src`,
 and that each configured root still exists and contains eligible source. A new
 CSS-bearing package therefore fails closed until its source root is reviewed.
 

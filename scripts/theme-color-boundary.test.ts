@@ -87,6 +87,35 @@ describe('theme color contract', () => {
     }
   })
 
+  test('discovers nested desktop sources while excluding dependency and build output', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'adea-theme-inventory-'))
+    try {
+      for (const directory of [
+        'packages/ui/src',
+        'apps/desktop/shell/src',
+        'apps/desktop/node_modules/donor/src',
+        'apps/desktop/dist/src',
+      ]) {
+        await mkdir(join(fixture, directory), { recursive: true })
+        await writeFile(join(fixture, directory, 'panel.css'), '.panel { color: red; }')
+      }
+      const roots = [{ directory: 'packages/ui/src', extensions: ['.css'] }]
+      expect(await findScanInventoryGaps(fixture, roots)).toEqual({
+        uncoveredStyles: ['apps/desktop/shell/src/panel.css'],
+        missingRoots: [],
+        emptyRoots: [],
+      })
+      expect(
+        await findScanInventoryGaps(fixture, [
+          ...roots,
+          { directory: 'apps/desktop/shell/src', extensions: ['.css'] },
+        ])
+      ).toEqual({ uncoveredStyles: [], missingRoots: [], emptyRoots: [] })
+    } finally {
+      await rm(fixture, { recursive: true, force: true })
+    }
+  })
+
   test('reports missing and empty configured source roots', async () => {
     const fixture = await mkdtemp(join(tmpdir(), 'adea-theme-inventory-'))
     try {
