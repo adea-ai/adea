@@ -21,14 +21,14 @@
     },
     "apps/desktop": {
       "name": "@adea-ai/desktop",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/dev-view": "workspace:*",
       },
     },
     "apps/mobile": {
       "name": "@adea-ai/mobile",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@capacitor/android": "^8.5.0",
         "@capacitor/core": "^8.5.0",
@@ -41,7 +41,7 @@
     },
     "apps/web": {
       "name": "@adea-ai/web",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-core": "workspace:*",
@@ -78,21 +78,21 @@
     },
     "packages/api-client": {
       "name": "@adea-ai/api-client",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/app-core": {
       "name": "@adea-ai/app-core",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/audio": {
       "name": "@adea-ai/audio",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/ui": "0.89.1",
         "lucide-solid": "^1.45.0",
@@ -105,7 +105,7 @@
     },
     "packages/auth": {
       "name": "@adea-ai/auth",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "@neondatabase/auth": "0.5.0-beta",
@@ -114,11 +114,11 @@
     },
     "packages/config": {
       "name": "@adea-ai/config",
-      "version": "0.70.0",
+      "version": "0.70.2",
     },
     "packages/data": {
       "name": "@adea-ai/data",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/state": "workspace:*",
@@ -133,7 +133,7 @@
     },
     "packages/db": {
       "name": "@adea-ai/db",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -146,7 +146,7 @@
     },
     "packages/dev-view": {
       "name": "@adea-ai/dev-view",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/state": "workspace:*",
@@ -163,7 +163,7 @@
         "@xterm/addon-serialize": "^0.13.0",
         "@xterm/addon-web-links": "^0.11.0",
         "@xterm/addon-webgl": "^0.18.0",
-        "@xterm/xterm": "^5.5.0",
+        "@xterm/xterm": "^6.0.0",
         "lucide-solid": "^1.45.0",
         "solid-js": "^1.9.15",
       },
@@ -174,18 +174,18 @@
     },
     "packages/remote-content": {
       "name": "@adea-ai/remote-content",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@hpke/core": "1.9.0",
       },
     },
     "packages/spatial": {
       "name": "@adea-ai/spatial",
-      "version": "0.70.0",
+      "version": "0.70.2",
     },
     "packages/state": {
       "name": "@adea-ai/state",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "solid-js": "^1.9.15",
@@ -193,11 +193,11 @@
     },
     "packages/types": {
       "name": "@adea-ai/types",
-      "version": "0.70.0",
+      "version": "0.70.2",
     },
     "packages/ui": {
       "name": "@adea-ai/app-ui",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/themes": "0.8.1",
         "@adea-ai/ui": "0.89.1",
@@ -212,7 +212,7 @@
     },
     "packages/workspace-ui": {
       "name": "@adea-ai/workspace-ui",
-      "version": "0.70.0",
+      "version": "0.70.2",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-ui": "workspace:*",
@@ -1200,7 +1200,7 @@
 
     "@xterm/addon-webgl": ["@xterm/addon-webgl@0.18.0", "", { "peerDependencies": { "@xterm/xterm": "^5.0.0" } }, "sha512-xCnfMBTI+/HKPdRnSOHaJDRqEpq2Ugy8LEj9GiY4J3zJObo3joylIFaMvzBwbYRg8zLtkO0KQaStCeSfoaI2/w=="],
 
-    "@xterm/xterm": ["@xterm/xterm@5.5.0", "", {}, "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=="],
+    "@xterm/xterm": ["@xterm/xterm@6.0.0", "", {}, "sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg=="],
 
     "acorn": ["acorn@8.18.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ=="],
 
@@ -2097,6 +2097,16 @@
     "@tanstack/start-server-core/seroval": ["seroval@1.6.7", "", {}, "sha512-AeDcLh0yO2SFm9W71essgnSzLV9DI8ZH0x0knXn2DMnUZj728mpLbxjlbB6IqKCmqh8JA3cEqRyGoNkt584JcQ=="],
 
     "@triplit/db/nanoid": ["nanoid@5.1.16", "", { "bin": { "nanoid": "bin/nanoid.js" } }, "sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ=="],
+
+    "@xterm/addon-fit/@xterm/xterm": ["@xterm/xterm@5.5.0", "", {}, "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=="],
+
+    "@xterm/addon-search/@xterm/xterm": ["@xterm/xterm@5.5.0", "", {}, "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=="],
+
+    "@xterm/addon-serialize/@xterm/xterm": ["@xterm/xterm@5.5.0", "", {}, "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=="],
+
+    "@xterm/addon-web-links/@xterm/xterm": ["@xterm/xterm@5.5.0", "", {}, "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=="],
+
+    "@xterm/addon-webgl/@xterm/xterm": ["@xterm/xterm@5.5.0", "", {}, "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=="],
 
     "babel-plugin-jsx-dom-expressions/@babel/helper-module-imports": ["@babel/helper-module-imports@7.18.6", "", { "dependencies": { "@babel/types": "^7.18.6" } }, "sha512-0NFvs3VkuSYbFi1x2Vd6tKrywq+z/cLeYC/RJNFrIX/30Bf5aiGYbtvGXolEktzJH8o5E5KJ3tT+nkxuuZFVlA=="],
 
