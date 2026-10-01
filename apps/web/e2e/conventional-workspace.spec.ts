@@ -1179,14 +1179,56 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
   await page.getByRole('button', { name: 'Close thread' }).click()
 })
 
+test('restores a channel reading position without rearming transcript follow', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.route('**/api/v1/workspaces/workspace-e2e/channels/*/messages**', async (route) => {
+    const requestUrl = new URL(route.request().url())
+    const channelId = requestUrl.pathname.split('/').at(-2)
+    if (route.request().method() !== 'GET' || channelId !== 'channel-product') {
+      return route.fallback()
+    }
+
+    const history = Array.from({ length: 60 }, (_, index) => ({
+      ...messages[0],
+      bodyText: `Synthetic history row ${index + 1}. ${'Readable transcript content. '.repeat(5)}`,
+      channelId,
+      createdAt: new Date(Date.UTC(2026, 8, 30, 12, index)).toISOString(),
+      id: `scroll-history-${index + 1}`,
+      sequence: index + 1,
+    }))
+    return route.fulfill({
+      contentType: 'application/json',
+      json: { messages: history, nextAfterSequence: null },
+    })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  const transcript = page.locator('.conventional-transcript > div:first-child')
+  await expect.poll(() => transcript.evaluate((node) => node.scrollHeight)).toBeGreaterThan(1000)
+  await transcript.evaluate((node) => {
+    node.scrollTop = 420
+    node.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(420)
+  await expect(page.getByRole('button', { name: 'Jump to latest' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Research Agent', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Research Agent', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+
+  await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(420)
+  await expect(page.getByRole('button', { name: 'Jump to latest' })).toBeVisible()
+})
+
 test('opens responsive Task detail and restores focus on dismissal', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')
   await page.getByRole('button', { name: 'Tasks', exact: true }).click()
   const taskTrigger = page.getByRole('button', { name: /Launch planning/ })
   await taskTrigger.click()
-  await expect(page.getByRole('heading', { name: 'Launch planning' })).toBeVisible()
   const detail = page.getByRole('dialog', { name: 'Launch planning', exact: true })
+  await expect(detail.getByRole('heading', { name: 'Launch planning' })).toBeVisible()
   await expect(detail).toHaveAttribute('data-side', 'right')
   await expect(page.locator('[class*="bg-scrim/50"]')).toHaveCount(1)
   await expect(detail.locator('.conventional-detail-panel')).toHaveCSS('overflow-y', 'auto')
@@ -1223,6 +1265,113 @@ test('opens responsive Task detail and restores focus on dismissal', async ({ pa
   await expect(taskTrigger).toBeFocused()
 })
 
+test('Task board preserves task data and moves cards with keyboard and drag', async ({
+  page,
+}, testInfo) => {
+  await mockWorkspace(page)
+  let boardTasks = tasks.map((task) => ({ ...task }))
+  const taskActions: string[] = []
+  const nextStateByAction = {
+    cancel: 'cancelled',
+    complete: 'completed',
+    queue: 'queued',
+    review: 'in_review',
+    start: 'in_progress',
+  } as const
+  await page.route('**/api/v1/workspaces/**/tasks**', async (route) => {
+    const url = new URL(route.request().url())
+    const method = route.request().method()
+    if (method === 'GET' && url.pathname.endsWith('/tasks'))
+      return route.fulfill({ contentType: 'application/json', json: boardTasks })
+
+    const action = url.pathname.split('/').at(-1) ?? ''
+    const taskId = url.pathname.split('/').at(-2) ?? ''
+    const nextState = nextStateByAction[action as keyof typeof nextStateByAction]
+    if (method === 'POST' && nextState) {
+      const taskIndex = boardTasks.findIndex((task) => task.id === taskId)
+      if (taskIndex < 0) return route.fulfill({ status: 404, json: { error: 'Task not found' } })
+      taskActions.push(`${taskId}/${action}`)
+      const task = {
+        ...boardTasks[taskIndex]!,
+        lifecycleState: nextState,
+        version: boardTasks[taskIndex]!.version + 1,
+      }
+      boardTasks.splice(taskIndex, 1, task)
+      return route.fulfill({ contentType: 'application/json', json: { task } })
+    }
+    return route.fallback()
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  const board = page.getByRole('region', { name: 'Task board' })
+  const planned = board.getByRole('region', { name: 'Planned' })
+  const queued = board.getByRole('region', { name: 'Queued' })
+  const inProgress = board.getByRole('region', { name: 'In-Progress' })
+  const completed = board.getByRole('region', { name: 'Completed' })
+  const taskTrigger = planned.getByRole('button', { name: 'Launch planning', exact: true })
+
+  await expect(taskTrigger).toBeVisible()
+  await expect(planned.locator('header > span')).toHaveText('1')
+  await expect(queued.locator('header > span')).toHaveText('1')
+  await expect(planned.getByLabel('Priority: high')).toBeVisible()
+  await expect(planned.getByText('Prepare the launch brief and confirm audience.')).toBeVisible()
+  await expect(planned.getByText('Research Agent')).toBeVisible()
+  await expect(planned.getByText('Product', { exact: true })).toBeVisible()
+  await expect(queued.getByRole('button', { name: 'Review launch', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('task-board.png'), animations: 'disabled' })
+
+  await taskTrigger.focus()
+  await page.keyboard.press('Control+ArrowRight')
+  await expect(queued.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
+  await expect(planned.locator('header > span')).toHaveText('0')
+  await expect(queued.locator('header > span')).toHaveText('2')
+  await expect.poll(() => taskActions).toContain('task-launch/queue')
+  const queuedCard = queued
+    .getByRole('button', { name: 'Launch planning', exact: true })
+    .locator('xpath=ancestor::article[@aria-roledescription="Draggable card"]')
+  await expect(queuedCard).toBeFocused()
+  await queuedCard.dragTo(planned)
+  await expect(planned.locator('header > span')).toHaveText('0')
+  await expect(queued.locator('header > span')).toHaveText('2')
+  await expect.poll(() => taskActions).toEqual(['task-launch/queue'])
+
+  await queuedCard.focus()
+  await page.keyboard.press('Control+ArrowRight')
+  await expect(
+    inProgress.getByRole('button', { name: 'Launch planning', exact: true })
+  ).toBeVisible()
+  await expect(queued.locator('header > span')).toHaveText('1')
+  await expect(inProgress.locator('header > span')).toHaveText('1')
+  await expect.poll(() => taskActions).toContain('task-launch/start')
+
+  const inReview = board.getByRole('region', { name: 'In-Review' })
+  const launchCard = inProgress
+    .getByRole('button', { name: 'Launch planning', exact: true })
+    .locator('xpath=ancestor::article[@aria-roledescription="Draggable card"]')
+  await inReview.scrollIntoViewIfNeeded()
+  await launchCard.dragTo(inReview)
+  await expect(inReview.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
+  await expect(inProgress.locator('header > span')).toHaveText('0')
+  await expect(inReview.locator('header > span')).toHaveText('1')
+  await expect.poll(() => taskActions).toContain('task-launch/review')
+  const inReviewCard = inReview
+    .getByRole('button', { name: 'Launch planning', exact: true })
+    .locator('xpath=ancestor::article[@aria-roledescription="Draggable card"]')
+  await expect(inReviewCard).toBeFocused()
+  await page.keyboard.press('Control+ArrowRight')
+  await expect(
+    completed.getByRole('button', { name: 'Launch planning', exact: true })
+  ).toBeVisible()
+  await expect(inReview.locator('header > span')).toHaveText('0')
+  await expect(completed.locator('header > span')).toHaveText('1')
+  await expect.poll(() => taskActions).toContain('task-launch/complete')
+  const completedCard = completed
+    .getByRole('button', { name: 'Launch planning', exact: true })
+    .locator('xpath=ancestor::article[@aria-roledescription="Draggable card"]')
+  await expect(completedCard).toBeFocused()
+})
+
 test('supports narrow navigation, keyboard search, and dark mode', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mockWorkspace(page)
@@ -1252,6 +1401,29 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
     document.documentElement.classList.add('dark')
   })
   await expect(page).toHaveScreenshot('workspace-narrow-dark.png', { animations: 'disabled' })
+})
+
+test('keeps contextual section actions visible on touch devices', async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  })
+
+  try {
+    const page = await context.newPage()
+    await mockWorkspace(page)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+
+    const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
+    await expect(navigation.getByRole('button', { name: 'Create Room' })).toBeVisible()
+    await expect(
+      navigation.getByRole('button', { name: 'Create group conversation' })
+    ).toBeVisible()
+  } finally {
+    await context.close()
+  }
 })
 
 test('operates unread actions and deep-linked search entirely by keyboard', async ({ page }) => {
@@ -1489,6 +1661,40 @@ test('the settings dialog survives re-selecting its active tab and keeps its dis
   await expect(page.locator('.conventional-workspace')).toBeVisible()
   expect(await page.locator('[inert]').count()).toBe(0)
   expect(pageErrors).toEqual([])
+})
+
+test('settings tabs keep vertical keyboard focus and synchronize the selected section hash', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  await page.goto('/#settings/account')
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(settings).toBeVisible()
+
+  const tablist = settings.getByRole('tablist', { name: 'Settings sections' })
+  const account = tablist.getByRole('tab', { name: 'Account & app', exact: true })
+  const appearance = tablist.getByRole('tab', { name: 'Appearance', exact: true })
+  const permissions = tablist.getByRole('tab', { name: 'Permissions', exact: true })
+  await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
+
+  await account.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(appearance).toBeFocused()
+  await expect(appearance).toHaveAttribute('aria-selected', 'true')
+  await expect(page).toHaveURL(/#settings\/appearance$/)
+
+  await page.keyboard.press('Home')
+  await expect(account).toBeFocused()
+  await expect(page).toHaveURL(/#settings\/account$/)
+
+  await page.keyboard.press('End')
+  await expect(permissions).toBeFocused()
+  await expect(page).toHaveURL(/#settings\/permissions$/)
+
+  await page.keyboard.press('ArrowDown')
+  await expect(account).toBeFocused()
+  await expect(account).toHaveAttribute('aria-selected', 'true')
+  await expect(page).toHaveURL(/#settings\/account$/)
 })
 
 test('the appearance section keeps the ported Zeron composition', async ({ page }) => {
@@ -1886,4 +2092,53 @@ test('repeated Chat and Library transitions release workspace event listeners', 
   await cycle()
   await cycle()
   await expect.poll(counts).toEqual(baseline)
+})
+
+test('App Library description rows retain readable content and actions in narrow and enlarged layouts', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  await page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('button', { name: 'App Library', exact: true })
+    .click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  await expect(library).toBeVisible()
+  const rows = library.locator('[class~="group/row"]')
+  await expect(rows.first()).toBeVisible()
+  for (const scale of [1, 2]) {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.evaluate((factor) => {
+      document.documentElement.style.fontSize = `${16 * factor}px`
+    }, scale)
+    const bounds = await rows.evaluateAll((elements) =>
+      elements.map((element) => {
+        const row = element.getBoundingClientRect()
+        const slots = Array.from(element.children)
+        const leading = slots[0]?.firstElementChild?.getBoundingClientRect()
+        const text = slots[1]?.getBoundingClientRect()
+        const controls = Array.from(element.querySelectorAll('button')).map((button) =>
+          button.getBoundingClientRect()
+        )
+        return {
+          titleSeparatedFromLeading: !leading || !text || leading.right <= text.left + 1,
+          controlsContained: controls.every(
+            (control) =>
+              control.left >= row.left - 1 &&
+              control.right <= row.right + 1 &&
+              control.top >= row.top - 1 &&
+              control.bottom <= row.bottom + 1
+          ),
+          textHasWidth: !!text && text.width >= 80,
+        }
+      })
+    )
+    expect(bounds.length).toBeGreaterThan(0)
+    for (const row of bounds) {
+      expect(row.titleSeparatedFromLeading).toBe(true)
+      expect(row.controlsContained).toBe(true)
+      expect(row.textHasWidth).toBe(true)
+    }
+  }
 })

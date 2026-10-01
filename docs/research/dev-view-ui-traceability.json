@@ -10883,5 +10883,169 @@
         "limits": "Named checks qualify their recorded source only. Historical production budget is explicitly pinned to its checked head; no fresh production mount/build/native acceptance is claimed fordfb5ba10."
       }
     ]
+  },
+  "migrationContinuation": {
+    "asOf": "2026-09-30",
+    "scope": "Complete Adea shared UI/theme migration and finish the existing Cortana shared-UI recovery pull request. Historical donor and issue records above remain evidence snapshots, not current acceptance.",
+    "inspectedAdeaMain": "791fb91d",
+    "requirements": [
+      "https://github.com/adea-ai/adea/issues/811",
+      "https://github.com/adea-ai/adea/issues/757"
+    ],
+    "coverageLimits": [
+      "The historical 414-record reference inventory is preserved; its semantic decision and PR-review reconciliation remains incomplete.",
+      "Current Adea M12/M13 all-state issue lists were refreshed. Linked acceptance comments and all donor units still require per-workflow reconciliation.",
+      "Headless synthetic browser evidence does not establish native producer availability, packaged release acceptance, or manual assistive-technology acceptance."
+    ],
+    "slices": [
+      {
+        "id": "canonical-theme-consumption",
+        "status": "merged",
+        "proof": "https://github.com/adea-ai/adea/pull/827",
+        "mergeCommit": "7221da104ea3772df7c979bc334a0345364a8722",
+        "ownership": "Themes owns all 34 palettes; UI projects framework roles; Adea generates its adapters from published contracts and preserves local preference/native capability authority.",
+        "readiness": {
+          "consumerMounted": "verified",
+          "functionalEndToEnd": "22 appearance browser cases passed",
+          "packagedEvidence": "pending"
+        },
+        "validation": [
+          "All 25 pull-request checks passed before squash merge.",
+          "Local formatting/lint/types/build/unit/coverage and browser visual lanes passed.",
+          "Every catalogue editor contrast fixture meets the existing 4.5 floor with an empty exclusion set."
+        ],
+        "remaining": [
+          "Direct live appearance entry from #425/#757",
+          "Current packaged/native appearance evidence",
+          "Separate CSS/font asset measurements"
+        ]
+      },
+      {
+        "id": "forms-and-import-enforcement",
+        "status": "merged",
+        "proof": "https://github.com/adea-ai/adea/pull/826",
+        "mergeCommit": "0b212d100724226cf1cfc7425a99c15f51f9fa87",
+        "ownership": "Shared primitives own interactive markup. Adea provides field values, validation, labels, and domain callbacks.",
+        "readiness": {
+          "libraryReady": "published UI 0.81.1",
+          "consumerMounted": "verified",
+          "functionalEndToEnd": "focused forms and 46 combined conversation/workspace visual cases passed",
+          "packagedEvidence": "pending"
+        },
+        "validation": [
+          "All 32 pull-request checks passed before squash merge.",
+          "No primitive-library import exemptions remain.",
+          "Raw-interactive path exemption remains only for the workspace-name datalist options.",
+          "Interactive-wrapper path exemptions remain for mini-preview, fixture-terminal-pane, message-row, task-board, workspace-sidebar."
+        ],
+        "remaining": [
+          "Adopt Input.suggestions and remove native datalist exception",
+          "Replace the five remaining local interaction wrappers",
+          "Remove broad styling-hook allowlist and app-ui styling exemption after shared composition adoption"
+        ]
+      },
+      {
+        "id": "shared-interaction-contracts",
+        "status": "merged",
+        "proof": "https://github.com/adea-ai/ui/pull/135",
+        "proofCommit": "e8e7e75",
+        "ownership": "Reusable account/dialog focus, thread header actions, native suggestions, command semantics, board movement/focus, and semantic/touch sidebar presentation; host effects stay injected.",
+        "readiness": {
+          "sourceReviewed": "existing shared components inspected",
+          "libraryReady": "published UI 0.82.0; npm integrity sha512-voz36ixNQ1DfoSVTtVMnlp9ZYirI1iQsmFB9veQnkgMYofvPlOg8P/EDPeBWMPItpuXKjD9CveM1fykEI6lh6w==",
+          "consumerMounted": "packed Adea pilot checks passed",
+          "functionalEndToEnd": "synthetic component/consumer evidence only",
+          "packagedEvidence": "pending"
+        },
+        "validation": [
+          "249 unit cases and coverage passed.",
+          "Format/lint/types/build/registry/Storybook/package/tree-shaking gates passed.",
+          "Actual packed consumer, paste, conversation, transcript, layout model/renderer, appearance, native select checks passed.",
+          "Chromium/WebKit regressions cover command actions, account focus, thread actions, board legal drops and bounded keyboard movement, controlled focus cancellation, sidebar heading/disclosure/axe and touch creation actions.",
+          "All applicable exact-head checks passed before squash merge; Release Please PR #137 merged as c0b5cc8ff351f8ab2bca55b62c4fdda53398d068.",
+          "Trusted publication run 36688734899 passed packed layout, native select, conversation and appearance checks before publishing the same verified archive."
+        ],
+        "remaining": ["Pass final production-route adoption gates in Adea and Cortana."],
+        "mergeCommit": "ebe13627c7383c84b2f8c40b830292e3034a3b13"
+      },
+      {
+        "id": "conversation-adoption",
+        "status": "local_implementation",
+        "proofCommit": "c6525b21",
+        "implementation": [
+          "packages/workspace-ui/src/conversation-surface.tsx",
+          "packages/workspace-ui/src/message-row.tsx",
+          "packages/workspace-ui/src/thread-panel.tsx"
+        ],
+        "ownership": "Shared surface/message/attachment/thread presentation; workspace queries, read markers, drafts, private conversations and submission remain Adea-owned.",
+        "readiness": {
+          "consumerMounted": "implemented",
+          "functionalEndToEnd": "pending refreshed published-package browser verification",
+          "packagedEvidence": "pending"
+        },
+        "remaining": [
+          "Adopt released thread contract",
+          "Run production-route behavior, visual and accessibility lanes",
+          "Complete mention and attachment chooser presentation audit"
+        ]
+      },
+      {
+        "id": "account-adoption",
+        "status": "local_implementation",
+        "proofCommit": "239b414887feb3cfa94655af2a5a45019907beae",
+        "implementation": ["packages/workspace-ui/src/account-menu.tsx"],
+        "ownership": "Shared account menu and overlay focus; session, platform intents, updates and disabled capability truth remain Adea-owned.",
+        "readiness": {
+          "consumerMounted": "implemented",
+          "functionalEndToEnd": "pending refreshed published-package browser verification",
+          "packagedEvidence": "pending"
+        },
+        "remaining": [
+          "Adopt released account contract",
+          "Verify update-dialog opener focus and account actions on the production route",
+          "Retire superseded menu CSS"
+        ]
+      },
+      {
+        "id": "navigation-and-task-board",
+        "status": "local_implementation",
+        "proofCommit": "3f0bb33e",
+        "ownership": "Shared rail/sidebar/board; routing, workspace/session selection, grouping, lifecycle transition services, and persisted widths remain Adea-owned.",
+        "readiness": {
+          "consumerMounted": "implemented in isolated pilot branches",
+          "functionalEndToEnd": "focused production-route synthetic cases passed; final published-package lanes pending",
+          "packagedEvidence": "pending"
+        },
+        "remaining": [
+          "Merge pilot work on the canonical theme baseline",
+          "Adopt released sidebar/board contracts",
+          "Run current exact-head gates and remove corresponding wrapper exemptions"
+        ]
+      },
+      {
+        "id": "cortana-session-recovery",
+        "status": "local_recovery",
+        "proof": "https://github.com/adea-ai/cortana/pull/2416",
+        "proofCommit": "13250257",
+        "ownership": "Preserve Cortana knowledge composition; share primitives and command contrast rather than recreating an app-local disabled-row override.",
+        "readiness": {
+          "functionalEndToEnd": "local lint/types/build and 56 browser-condition cases passed; command contrast pending published fix",
+          "packagedEvidence": "pending"
+        },
+        "remaining": [
+          "Adopt published Command correction",
+          "Refresh contrast and focused browser evidence",
+          "Fast-forward recovered work into the original PR branch, pass gates, squash merge"
+        ]
+      }
+    ],
+    "nextActions": [
+      "Extract generic presentation already ported in plugins-dialog; preserve #757 App Library separately and retain Kiro source/NOTICE provenance.",
+      "Finish direct live appearance, contextual Dev/Virtual shell, files/source-control, runtime/history/search/resources/permission presentation using mapped donor units and existing shared contracts.",
+      "Move floating preview interaction into shared UI with donor provenance; use shared focus/scroll composition for fixture terminal.",
+      "Remove appearance overrides and remaining exemptions; add actual-CLI negative cases for raw style/classList and future composition drift.",
+      "Audit every production action, responsive view and nested overlay; verify truthful unsupported capabilities instead of fabricating handlers.",
+      "Complete source/decision, CSS/font, native/package and cleanup evidence before any completion claim."
+    ]
   }
 }

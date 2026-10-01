@@ -112,10 +112,10 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
       <div class="dev-browser__row">
         <p class="dev-browser__section-title">Import cookies</p>
         <div class="dev-browser__actions">
-          <Button type="button" variant="outline" size="icon-sm" onClick={() => void refetch()}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
             Reload sources
           </Button>
-          <Button type="button" variant="outline" size="icon-sm" onClick={() => props.onClose()}>
+          <Button type="button" variant="outline" size="sm" onClick={() => props.onClose()}>
             Close
           </Button>
         </div>
@@ -164,7 +164,7 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
                 <Button
                   type="button"
                   variant="outline"
-                  size="icon-sm"
+                  size="sm"
                   disabled={!state().selectable || busy()}
                   onClick={() => void planFor(source)}
                 >
@@ -205,7 +205,7 @@ function Preview(props: {
         <Button
           type="button"
           variant="outline"
-          size="icon-sm"
+          size="sm"
           disabled={props.busy || !canCommit(props.preview, new Date().toISOString())}
           onClick={() => props.onCommit()}
         >
@@ -214,7 +214,7 @@ function Preview(props: {
         <Button
           type="button"
           variant="outline"
-          size="icon-sm"
+          size="sm"
           disabled={props.busy}
           onClick={props.onDiscard}
         >

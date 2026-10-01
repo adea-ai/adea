@@ -101,7 +101,7 @@ slot, heavier), **Deno Desktop** (4.0 s startup for the same CEF cost), **Chrome
 `--app`** (no shell bridge by definition), **Electrobun + Rust** (wgpu-native
 surface — structurally cannot host the web client). ¹ **Tauri cannot serve the
 Agent Sim pack**: desktop entitlement requires the engine manifest and entry at
-the page origin (same-origin guard in `@adea-ai/spatial-protocol`) and the
+the page origin (same-origin guard in `@adea-ai/spatial`) and the
 engine resolves ~300 MB of world assets relative to `engine.js`; an embedded
 `frontendDist` origin cannot provide them without baking the world into the
 binary.

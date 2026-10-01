@@ -5,6 +5,7 @@
   "labels": ["dependencies"],
   "rebaseWhen": "behind-base-branch",
   "pruneStaleBranches": true,
+  "draftPR": true,
   "lockFileMaintenance": {
     "enabled": true,
     "schedule": ["before 10am on monday"]
@@ -14,36 +15,37 @@
   },
   "packageRules": [
     {
-      "description": "Every @adea-ai/* package rides one branch: the shared design system moves as a unit, the version pins are updated in place, and the branch automerges only when the full validation suite passes. Tests that assert the pinned shared version are part of those gates, so a green automerge is the trust.",
+      "description": "Every @adea-ai/* package rides one branch: the shared design system moves as a unit and the version pins are updated in place. Tests that assert the pinned shared version are part of the gates, and the gates run when a human marks the draft ready — that green run is the trust.",
       "groupName": "adea-ai design system",
       "separateMajorMinor": true,
-      "automerge": true,
-      "automergeType": "pr",
       "schedule": ["at any time"],
       "labels": ["dependencies", "design-system"],
-      "matchPackageNames": ["@adea-ai/*"]
+      "matchPackageNames": ["/^@adea-ai//"]
     },
     {
-      "description": "Non-major external dependency updates ride one branch and automerge once validation passes.",
+      "description": "Non-major external dependency updates ride one grouped draft branch per cycle. No auto-merge: GitHub refuses to attach it to a draft PR, and every PR must open as a draft because the code-foundry gates only run on the ready-for-review transition.",
       "matchUpdateTypes": ["patch", "minor", "pin", "digest"],
       "groupName": "external non-major dependencies",
-      "automerge": true,
-      "automergeType": "pr",
       "schedule": ["after 8am and before 8pm every weekday"],
-      "matchPackageNames": ["!@adea-ai/*"]
+      "matchPackageNames": ["!/^@adea-ai//"]
     },
     {
-      "description": "Major bumps of external dependencies get a reviewed PR, one per package.",
+      "description": "Major external bumps share one draft PR per cycle instead of one per package — a grouped major PR reads as one upgrade decision.",
       "matchUpdateTypes": ["major"],
+      "groupName": "external major dependencies",
       "labels": ["dependencies", "major"],
-      "matchPackageNames": ["!@adea-ai/*"]
+      "matchPackageNames": ["!/^@adea-ai//"]
     },
     {
-      "description": "oxlint is held at 1.83.0 by the package.json override while newer tree-wide scoping findings are triaged; Renovate must not fight that pin.",
-      "matchPackageNames": ["oxlint"],
+      "description": "Code Foundry runtime pins are sync-managed (runtime_ref in code-foundry.yml) and must not be independently upgraded; a bump branched before a sync can resurrect legacy caller files when merged.",
+      "matchPackageNames": ["/^0xPlayerOne\\/code-foundry/"],
       "enabled": false
+    },
+    {
+      "description": "TypeScript stays on the 6.x line this repository pins; 7.x is a deliberate upgrade, not a routine bump.",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7"
     }
   ],
-  "platformAutomerge": false,
-  "automergeStrategy": "squash"
+  "osvVulnerabilityAlerts": true
 }

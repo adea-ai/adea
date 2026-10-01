@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/workspace-ui",
-  "version": "0.69.10",
+  "version": "0.70.5",
   "private": true,
   "type": "module",
   "sideEffects": false,
@@ -139,7 +139,7 @@
     "@adea-ai/audio": "workspace:*",
     "@adea-ai/data": "workspace:*",
     "@adea-ai/dev-view": "workspace:*",
-    "@adea-ai/spatial-protocol": "workspace:*",
+    "@adea-ai/spatial": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
     "@adea-ai/ui": "0.89.1",

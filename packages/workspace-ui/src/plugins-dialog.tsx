@@ -1,5 +1,6 @@
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import {
   CatalogBrowser,
   CatalogDetail,
