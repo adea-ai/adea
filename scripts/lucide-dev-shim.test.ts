@@ -213,6 +213,11 @@ describe('lucide-solid dev shim', () => {
     ).toBe('')
   })
 
+  test('includes the shared Stat glyphs used by workspace property lists', () => {
+    expect(shimExports.get('ArrowDownRight')).toBe('arrow-down-right')
+    expect(shimExports.get('ArrowUpRight')).toBe('arrow-up-right')
+  })
+
   test('every shim icon module exists in the installed lucide-solid', () => {
     const require = createRequire(shimPath)
     const packageDir = resolve(dirname(require.resolve('lucide-solid')), '..', '..')

@@ -63,10 +63,7 @@ export function CreateRoomDialog(props: {
           event.preventDefault()
           const form = new FormData(event.currentTarget)
           void props
-            .onCreate({
-              functionKey: String(form.get('functionKey') ?? ''),
-              name: String(form.get('name') ?? ''),
-            })
+            .onCreate(roomFormInputFromForm(form))
             .then(() => props.onClose())
             .catch(() => setError('Room could not be created. Check the fields and retry.'))
         }}
@@ -111,6 +108,15 @@ export const roomFunctionKeySuggestions = [
   'operations',
 ] as const
 
+export function roomFormInputFromForm(
+  form: FormData
+): Readonly<{ functionKey: string; name: string }> {
+  return {
+    functionKey: String(form.get('functionKey') ?? ''),
+    name: String(form.get('name') ?? ''),
+  }
+}
+
 export function EditRoomDialog(props: {
   busy: boolean
   initialFunctionKey: string
@@ -137,10 +143,7 @@ export function EditRoomDialog(props: {
           const form = new FormData(event.currentTarget)
           setError(null)
           void props
-            .onSave({
-              functionKey: String(form.get('functionKey') ?? ''),
-              name: String(form.get('name') ?? ''),
-            })
+            .onSave(roomFormInputFromForm(form))
             .then(() => props.onClose())
             .catch(() => setError('Room could not be updated. Check the fields and retry.'))
         }}
