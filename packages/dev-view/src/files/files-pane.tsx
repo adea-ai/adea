@@ -807,7 +807,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
       </div>
       <CommandDialog
         open={quickOpenOpen()}
-        onOpenChange={(open) => {
+        onOpenChange={(open: boolean) => {
           if (!open) closeQuickOpen()
         }}
         container={filesPaneElement()}
