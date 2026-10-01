@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.70.8",
+  "version": "0.70.10",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [

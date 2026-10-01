@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.70.10](https://github.com/adea-ai/adea/compare/v0.70.9...v0.70.10) (2026-10-01)
+
+
+### Bug Fixes
+
+* **web:** preflight shared UI Lucide dev exports ([#862](https://github.com/adea-ai/adea/issues/862)) ([c554b9f](https://github.com/adea-ai/adea/commit/c554b9f966e9d9b30a2b09546dbe7d76e358f65e))
+
+## [0.70.9](https://github.com/adea-ai/adea/compare/v0.70.8...v0.70.9) (2026-10-01)
+
+
+### Maintenance
+
+* consume shared App Library controls and action tooltips ([#845](https://github.com/adea-ai/adea/issues/845)) ([ad2d316](https://github.com/adea-ai/adea/commit/ad2d31633eae31902b75b0d905a6168fd16158e2))
+
 ## [0.70.8](https://github.com/adea-ai/adea/compare/v0.70.7...v0.70.8) (2026-10-01)
 
 

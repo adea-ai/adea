@@ -1,17 +1,16 @@
 .auth-shell {
-  --auth-background: var(--hq-shell-background);
-  --auth-surface: var(--hq-shell-surface);
-  --auth-surface-strong: var(--hq-shell-surface-strong);
-  --auth-border: var(--hq-shell-border);
-  --auth-border-subtle: var(--hq-shell-border-subtle);
-  --auth-foreground: var(--hq-shell-foreground);
-  --auth-muted: var(--hq-shell-muted);
-  --auth-muted-strong: var(--hq-shell-muted);
-  --auth-accent: var(--hq-shell-accent);
-  --auth-accent-hover: var(--hq-shell-accent-strong);
-  --auth-accent-foreground: var(--hq-shell-accent-foreground);
-  --auth-grid-line: rgb(255 255 255 / 4%);
-  --auth-panel-shadow: 0 1.5rem 4rem rgb(0 0 0 / 24%);
+  --auth-background: var(--background);
+  --auth-surface: var(--card);
+  --auth-surface-strong: var(--secondary);
+  --auth-border: var(--border);
+  --auth-border-subtle: var(--input);
+  --auth-foreground: var(--foreground);
+  --auth-muted: var(--muted-foreground);
+  --auth-muted-strong: var(--muted-foreground);
+  --auth-accent: var(--primary);
+  --auth-accent-foreground: var(--primary-foreground);
+  --auth-grid-line: color-mix(in oklab, var(--border) 12%, transparent);
+  --auth-panel-shadow: var(--shadow-xl);
 
   display: grid;
   min-height: 100svh;
@@ -59,9 +58,6 @@
 /* Auth-surface status and actions. Shared by the desktop start surface and
    available to any auth document; the marks carry the theme's state colors. */
 .auth-status {
-  --auth-status-warning: #e7c77d;
-  --auth-status-error: #f1aaa2;
-
   display: flex;
   gap: 0.75rem;
   align-items: flex-start;
@@ -93,18 +89,18 @@
 }
 
 .auth-status__mark--ready {
-  border-color: var(--hq-shell-active);
-  background: var(--hq-shell-active);
+  border-color: var(--success);
+  background: var(--success);
 }
 
 .auth-status__mark--warning {
-  border-color: var(--auth-status-warning);
-  background: var(--auth-status-warning);
+  border-color: var(--warning);
+  background: var(--warning);
 }
 
 .auth-status__mark--error {
-  border-color: var(--auth-status-error);
-  background: var(--auth-status-error);
+  border-color: var(--destructive);
+  background: var(--destructive);
 }
 
 .auth-actions {
