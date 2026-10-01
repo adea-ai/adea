@@ -2,13 +2,11 @@ import { ZoomIn, ZoomOut } from 'lucide-solid'
 import { onCleanup, Show, type JSX } from 'solid-js'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { cn } from '#lib/utils'
 
 type ControlButtonProps = {
   code: string
   label: string
   children: JSX.Element
-  class?: string
 }
 
 function sendKeyEvent(type: 'keydown' | 'keyup', code: string): void {
@@ -56,11 +54,10 @@ function ControlButton(props: ControlButtonProps) {
   return (
     <Button
       type="button"
+      variant="secondary"
+      size="icon-xl"
       aria-label={props.label}
-      class={cn(
-        'flex size-14 touch-none select-none items-center justify-center rounded-2xl border border-scrim-edge/25 bg-scrim/65 p-2 text-scrim-foreground shadow-lg backdrop-blur-sm transition active:scale-95 [-webkit-touch-callout:none] [-webkit-user-select:none]',
-        props.class
-      )}
+      class="touch-none select-none"
       onContextMenu={(event) => event.preventDefault()}
       onPointerCancel={release}
       onPointerDown={press}
@@ -87,22 +84,22 @@ export function OnScreenControls(props: OnScreenControlsProps) {
   return (
     <div
       data-agent-hq-on-screen-controls
-      class="pointer-events-none fixed inset-x-4 bottom-4 z-30 flex select-none items-end justify-between gap-4 pb-[env(safe-area-inset-bottom)] sm:inset-x-6 sm:bottom-6 [-webkit-touch-callout:none] [-webkit-user-select:none]"
+      class="workspace-on-screen-controls pointer-events-none fixed inset-x-4 bottom-4 z-30 flex select-none items-end justify-between gap-4 sm:inset-x-6 sm:bottom-6"
     >
       <Show when={showMovementControls()}>
-        <div class="pointer-events-auto grid grid-cols-3 gap-1.5 rounded-3xl bg-scrim/20 p-2 backdrop-blur-[2px]">
+        <div class="pointer-events-auto grid grid-cols-3 gap-1.5 rounded-3xl bg-scrim/20 p-2 backdrop-blur-sm">
           <span />
-          <ControlButton code="KeyW" label="Move forward" class="size-12 rounded-xl text-xl">
+          <ControlButton code="KeyW" label="Move forward">
             ▲
           </ControlButton>
           <span />
-          <ControlButton code="KeyA" label="Move left" class="size-12 rounded-xl text-xl">
+          <ControlButton code="KeyA" label="Move left">
             ◀
           </ControlButton>
-          <ControlButton code="KeyS" label="Move backward" class="size-12 rounded-xl text-xl">
+          <ControlButton code="KeyS" label="Move backward">
             ▼
           </ControlButton>
-          <ControlButton code="KeyD" label="Move right" class="size-12 rounded-xl text-xl">
+          <ControlButton code="KeyD" label="Move right">
             ▶
           </ControlButton>
         </div>
@@ -110,7 +107,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
       <div class="pointer-events-auto ml-auto flex flex-col items-end gap-2">
         <Show when={showZoomControls()}>
           <div
-            class="flex items-center gap-1.5 rounded-2xl bg-scrim/20 p-1.5 backdrop-blur-[2px]"
+            class="flex items-center gap-1.5 rounded-2xl bg-scrim/20 p-1.5 backdrop-blur-sm"
             role="group"
             aria-label="Camera zoom"
           >
@@ -120,7 +117,6 @@ export function OnScreenControls(props: OnScreenControlsProps) {
               size="icon-lg"
               aria-label="Zoom out"
               title="Zoom out"
-              class="workspace-on-screen-controls-zoom-button"
               onClick={() => props.onZoomOut?.()}
             >
               <ZoomOut aria-hidden="true" />
@@ -131,7 +127,6 @@ export function OnScreenControls(props: OnScreenControlsProps) {
               size="icon-lg"
               aria-label="Zoom in"
               title="Zoom in"
-              class="workspace-on-screen-controls-zoom-button"
               onClick={() => props.onZoomIn?.()}
             >
               <ZoomIn aria-hidden="true" />
@@ -139,7 +134,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
           </div>
         </Show>
         <Show when={showJumpControl()}>
-          <ControlButton code="Space" label="Jump" class="text-xs font-semibold">
+          <ControlButton code="Space" label="Jump">
             JUMP
           </ControlButton>
         </Show>

@@ -56,9 +56,9 @@ export const BASELINE = [
   },
   {
     file: 'packages/ui/src/styles/base.css',
-    literals: 26,
+    literals: 2,
     reason:
-      'scroll-fade masks use #000 as an opaque alpha stop in a mask-image gradient, which composites alpha rather than painting a color',
+      'shimmer derives its animated text highlight from currentColor with dynamic OKLCH calculations rather than a palette literal',
   },
 ]
 
