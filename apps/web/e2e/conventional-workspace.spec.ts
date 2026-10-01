@@ -1806,7 +1806,7 @@ test('integrated chrome keeps the global rail while Virtual navigation collapses
   await page.goto('/?view=virtual')
   const toolbar = page.getByLabel('Workspace toolbar')
   await expect(toolbar).toBeVisible()
-  const navigation = page.getByRole('complementary', { name: 'Virtual navigation' })
+  const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(navigation).toBeVisible()
   await expect(page.getByRole('main')).toHaveCount(1)
   await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
@@ -1828,7 +1828,7 @@ test('integrated chrome keeps the global rail while Virtual navigation collapses
 test('Virtual room designer keeps the contextual sidebar and global rail', async ({ page }) => {
   await mockConnectedWorkspace(page)
   await page.goto('/?view=virtual&roomDesigner=1')
-  const sidebar = page.getByRole('complementary', { name: 'Virtual navigation' })
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })).toBeVisible()
   await expect(sidebar).toBeVisible()
   await expect(page.getByRole('main')).toHaveCount(1)
@@ -1851,11 +1851,108 @@ test('Virtual room designer keeps the contextual sidebar and global rail', async
   await expect(sidebar).toBeHidden()
   await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible()
   await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
-  await sidebar.getByRole('button', { name: 'Open conversations' }).click()
+  await sidebar.getByRole('button', { name: 'Product', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Chat view', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true'
   )
+})
+
+test('Chat and Virtual use the same resizable sidebar and preserve selection and thread state', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  await page.setViewportSize({ width: 1280, height: 840 })
+  await page.goto('/?view=chat')
+
+  const toolbar = page.getByLabel('Workspace toolbar')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  const chatSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  await expect(
+    chatSidebar.getByRole('button', { name: 'Research Agent', exact: true })
+  ).toBeVisible()
+  await expect(chatSidebar.getByRole('button', { name: 'Launch group', exact: true })).toBeVisible()
+  await expect(chatSidebar.getByLabel(/unread in Product/)).toBeVisible()
+
+  await chatSidebar.getByRole('button', { name: 'Research Agent', exact: true }).click()
+  await expect(page.getByText('Direct Conversation', { exact: true })).toBeVisible()
+  const resizeHandle = page.getByRole('separator', { name: 'Resize workspace navigation' })
+  const initialWidth = await chatSidebar.evaluate(
+    (element) => element.getBoundingClientRect().width
+  )
+  await resizeHandle.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect
+    .poll(() => chatSidebar.evaluate((element) => element.getBoundingClientRect().width))
+    .toBeGreaterThan(initialWidth)
+  const resizedWidth = await chatSidebar.evaluate(
+    (element) => element.getBoundingClientRect().width
+  )
+  const wideChatSidebar = await chatSidebar.screenshot({ animations: 'disabled' })
+
+  await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
+  const virtualSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  await expect(virtualSidebar).toBeVisible()
+  await expect(
+    virtualSidebar.getByRole('button', { name: 'Research Agent', exact: true })
+  ).toHaveAttribute('aria-current', 'page')
+  expect(await virtualSidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(
+    resizedWidth
+  )
+  expect(await virtualSidebar.screenshot({ animations: 'disabled' })).toEqual(wideChatSidebar)
+
+  await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
+  await expect(page.getByText('Direct Conversation', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
+  await expect(page.getByRole('heading', { name: 'Thread' })).toBeVisible()
+  await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
+  await expect(virtualSidebar.getByRole('button', { name: /^Product( |$)/ })).toHaveAttribute(
+    'aria-current',
+    'page'
+  )
+  await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Thread' })).toBeVisible()
+
+  await page.setViewportSize({ width: 390, height: 840 })
+  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+  await expect(chatSidebar).toBeHidden()
+  await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+  await expect(chatSidebar).toBeVisible()
+  const narrowChatSidebar = await chatSidebar.screenshot({ animations: 'disabled' })
+  await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
+  await expect(virtualSidebar).toBeVisible()
+  expect(await virtualSidebar.screenshot({ animations: 'disabled' })).toEqual(narrowChatSidebar)
+})
+
+test('Virtual sidebar actions create a room and group conversation through workspace services', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=virtual')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  await expect(sidebar.getByRole('button', { name: 'Create Room' })).toBeVisible()
+
+  await sidebar.getByRole('button', { name: 'Create Room' }).click()
+  await page.getByRole('button', { name: 'Engineering', exact: true }).click()
+  await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  )
+  await expect(page.getByRole('button', { name: 'Engineering', exact: true })).toBeVisible()
+
+  await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
+  await expect(sidebar).toBeVisible()
+  await sidebar.getByRole('button', { name: 'Create group conversation' }).click()
+  const groupDialog = page.getByRole('dialog', { name: 'New group conversation' })
+  await groupDialog.getByLabel('Conversation name').fill('Virtual group')
+  await groupDialog.getByRole('button', { name: 'Create conversation' }).click()
+  await expect(page.getByRole('button', { name: 'Virtual group', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page'
+  )
+  await expect(page.getByText('Group conversation', { exact: true })).toBeVisible()
 })
 
 test('collapsed Chat navigation is absent from keyboard and accessibility navigation', async ({
@@ -1937,7 +2034,7 @@ test('top bar history traverses app destinations and truncates a forward branch'
   await expect(page.getByRole('main', { name: 'App Library' })).toBeVisible()
   await toolbar.getByRole('button', { name: 'Back', exact: true }).click()
   await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
-  await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
   await expect(toolbar.getByRole('button', { name: 'Forward', exact: true })).toBeDisabled()
 })
 
@@ -2096,9 +2193,9 @@ test('themed shell and Library remain usable across desktop and narrow layouts',
     .getByRole('navigation', { name: 'Global navigation' })
     .getByRole('button', { name: 'Virtual view', exact: true })
     .click()
-  await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
   await toolbar.getByRole('button', { name: 'Collapse contextual sidebar', exact: true }).click()
-  await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeHidden()
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeHidden()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true
   )

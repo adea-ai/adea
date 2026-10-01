@@ -400,43 +400,14 @@ html {
 
 /* The virtual scene and its navigation share the same inner frame. */
 .workspace-shell--contextual {
+  --conventional-sidebar-width: 17rem;
   display: flex;
   height: 100%;
+}
+.workspace-shell--contextual > .conventional-sidebar {
+  flex-basis: var(--conventional-sidebar-width);
 }
 .workspace-shell--contextual > .workspace-scene-viewport {
   flex: 1;
   min-width: 0;
-}
-.virtual-context-sidebar {
-  flex: none;
-  width: 17rem;
-  padding: 1rem;
-  overflow: auto;
-  border-inline-end: 1px solid var(--border);
-  background: var(--card);
-  color: var(--card-foreground);
-}
-.virtual-context-sidebar[hidden] {
-  display: none;
-}
-.virtual-context-sidebar h1 {
-  margin: 0 0 1.5rem;
-  font-size: 0.875rem;
-}
-.virtual-context-sidebar h2 {
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-}
-.virtual-context-sidebar__room {
-  width: 100%;
-  justify-content: flex-start;
-}
-@media (max-width: 48rem) {
-  .virtual-context-sidebar {
-    position: absolute;
-    inset-block: 0;
-    inset-inline-start: 0;
-    z-index: var(--z-drawer);
-    width: min(17rem, 84%);
-  }
 }

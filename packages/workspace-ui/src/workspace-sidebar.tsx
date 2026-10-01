@@ -22,6 +22,8 @@ import {
 import { createMemo, createSignal, For, lazy, onMount, Show, type JSX } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,7 +72,9 @@ function clampSidebarWidth(width: number): number {
 }
 
 function workspaceRootFor(sidebar: HTMLElement | null | undefined): HTMLElement | null {
-  return sidebar?.closest<HTMLElement>('.conventional-workspace') ?? null
+  return (
+    sidebar?.closest<HTMLElement>('.conventional-workspace, .workspace-shell--contextual') ?? null
+  )
 }
 
 function applySidebarWidth(root: HTMLElement, width: number) {
@@ -170,9 +174,9 @@ type Props = Readonly<{
   onArchiveChannel: (channel: ChannelSummary) => Promise<void>
   onCreateGroup: () => void
   onCreateRoom: () => void
+  onMarkAllRead: () => void | Promise<void>
   onOpenAgents: () => void
   onOpenTasks: () => void
-  onMarkAllRead: () => void
   /** Fires on hover/focus of a channel affordance — prefetch before click. */
   onChannelIntent?: (channelId: string) => void
   onRenameChannel: (channel: ChannelSummary, title: string) => Promise<void>
@@ -186,6 +190,8 @@ type Props = Readonly<{
   roomBusy: boolean
   selectedChannelId: string | null
   readState: readonly ChannelReadStateSummary[]
+  status?: JSX.Element
+  workspaceReady?: boolean
   workspaceName: string
 }>
 
@@ -262,12 +268,23 @@ export function WorkspaceSidebar(props: Props) {
     setSidebarWidth(clampSidebarWidth(stored))
   })
 
-  const changeSidebarWidth = (value: number) => {
+  const updateSidebarWidth = (nextWidth: number) => {
     const root = workspaceRootFor(sidebar())
     if (!root) return
-    const width = clampSidebarWidth(value)
+    const width = clampSidebarWidth(nextWidth)
     applySidebarWidth(root, width)
     setSidebarWidth(width)
+  }
+
+  const persistSidebarWidth = (nextWidth: number) => {
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(nextWidth)))
+  }
+
+  const markAllRead = () => {
+    setActionError(null)
+    void Promise.resolve()
+      .then(() => props.onMarkAllRead())
+      .catch(() => setActionError('Unread conversations could not be marked as read.'))
   }
 
   return (
@@ -289,17 +306,17 @@ export function WorkspaceSidebar(props: Props) {
         })}
         aria-label="Workspace navigation"
       >
+        {/* Focusable separator widget: keyboard-resizable, so it must expose
+            its value range (axe aria-required-attr on focusable separators). */}
         <SidebarNavResizeHandle
-          class="conventional-sidebar__resize"
-          label="Resize workspace navigation"
-          controls="workspace-navigation"
+          value={sidebarWidth()}
           minimum={SIDEBAR_MIN_WIDTH}
           maximum={SIDEBAR_MAX_WIDTH}
-          value={sidebarWidth()}
-          onChange={changeSidebarWidth}
-          onCommit={(width) =>
-            window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
-          }
+          step={16}
+          label="Resize workspace navigation"
+          class="conventional-sidebar__resize"
+          onChange={updateSidebarWidth}
+          onCommit={persistSidebarWidth}
         />
         <SidebarNavHeader>
           <SidebarNavTitle as="h1">{props.workspaceName}</SidebarNavTitle>
@@ -329,11 +346,12 @@ export function WorkspaceSidebar(props: Props) {
           </div>
           <Show when={actionError()}>
             {(message) => (
-              <p role="alert" class="conventional-sidebar-error">
-                {message()}
-              </p>
+              <Alert variant="destructive" class="conventional-sidebar-error">
+                <AlertDescription>{message()}</AlertDescription>
+              </Alert>
             )}
           </Show>
+          <Show when={props.status}>{props.status}</Show>
           <SidebarNavSection
             label="Rooms"
             headingAs="h2"
@@ -346,6 +364,7 @@ export function WorkspaceSidebar(props: Props) {
                 size="icon-md"
                 tooltip="Create Room"
                 aria-label="Create Room"
+                disabled={props.workspaceReady === false}
                 onClick={() => props.onCreateRoom()}
               >
                 <Plus aria-hidden="true" />
@@ -355,7 +374,9 @@ export function WorkspaceSidebar(props: Props) {
             <Show
               when={props.navigation.rooms.length}
               fallback={
-                <p class="conventional-sidebar-empty">Create a Room to organize the work.</p>
+                <EmptyDescription class="conventional-sidebar-empty">
+                  Create a Room to organize the work.
+                </EmptyDescription>
               }
             >
               <For each={roomRows()}>
@@ -509,6 +530,7 @@ export function WorkspaceSidebar(props: Props) {
                 size="icon-md"
                 tooltip="Create group conversation"
                 aria-label="Create group conversation"
+                disabled={props.workspaceReady === false}
                 onClick={() => props.onCreateGroup()}
               >
                 <Plus aria-hidden="true" />
@@ -571,7 +593,7 @@ export function WorkspaceSidebar(props: Props) {
             type="button"
             aria-label="Mark all read"
             disabled={!hasUnread()}
-            onClick={() => props.onMarkAllRead()}
+            onClick={markAllRead}
           >
             <MessageCircle aria-hidden="true" />
             Mark all read

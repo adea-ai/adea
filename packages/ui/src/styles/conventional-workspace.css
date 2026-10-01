@@ -121,6 +121,7 @@
 }
 
 .conventional-workspace,
+.workspace-shell--contextual,
 .conventional-dialog {
   --cw-bg: var(--background);
   --cw-surface: var(--card);
@@ -216,6 +217,7 @@
 .conventional-sidebar {
   --sidebar-width: var(--conventional-sidebar-width, 17rem);
   position: relative;
+  flex: none;
   grid-row: 1;
   min-width: 0;
   overflow: hidden;
@@ -224,6 +226,7 @@
    inherits, so this covers the whole drag affordance without touching the
    shared package. Pointer parity is a deliberate product gate. */
 .conventional-sidebar__resize {
+  z-index: 6;
   cursor: pointer;
 }
 .conventional-sidebar__close {
@@ -290,18 +293,9 @@
 }
 .conventional-sidebar-error {
   margin: 0 0.55rem 0.5rem;
-  padding: 0.5rem 0.6rem;
-  border-radius: 0.4rem;
-  background: color-mix(in srgb, var(--cw-danger) 10%, transparent);
-  color: var(--cw-danger);
-  font-size: 0.78rem;
-  line-height: 1.4;
 }
 .conventional-sidebar-empty {
   padding-inline: 0.75rem;
-  color: var(--muted-foreground);
-  font-size: 0.875rem;
-  line-height: 1.45;
 }
 .conventional-sidebar__read-actions {
   width: 100%;

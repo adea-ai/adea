@@ -18,6 +18,47 @@ export type WorkspaceNavigation = Readonly<{
   rooms: readonly RoomNavigationItem[]
 }>
 
+export type WorkspaceSelectionDecision =
+  | Readonly<{ action: 'wait' }>
+  | Readonly<{ action: 'preserve'; clearExplicitSelection: boolean }>
+  | Readonly<{ action: 'select'; channelId: string; roomId: string | null }>
+
+/**
+ * Preserve a valid selection, including one just created while its list query
+ * is refreshing. The caller must not call the store's channel setter for the
+ * preserve result because changing channels closes an open thread.
+ */
+export function reconcileWorkspaceChannelSelection(
+  input: Readonly<{
+    channels: readonly ChannelSummary[] | undefined
+    explicitSelection: string | null
+    navigation: WorkspaceNavigation
+    selectedChannelId: string | null
+  }>
+): WorkspaceSelectionDecision {
+  if (!input.channels?.length) return { action: 'wait' }
+
+  if (input.selectedChannelId && input.channels.some(({ id }) => id === input.selectedChannelId)) {
+    return {
+      action: 'preserve',
+      clearExplicitSelection: input.explicitSelection === input.selectedChannelId,
+    }
+  }
+
+  if (input.selectedChannelId && input.selectedChannelId === input.explicitSelection) {
+    return { action: 'preserve', clearExplicitSelection: false }
+  }
+
+  const firstRoom = input.navigation.rooms.find(({ selectionChannelId }) => selectionChannelId)
+  const channelId =
+    firstRoom?.selectionChannelId ??
+    input.navigation.directAgentChannels[0]?.id ??
+    input.navigation.groupChannels[0]?.id
+  return channelId
+    ? { action: 'select', channelId, roomId: firstRoom?.room.id ?? null }
+    : { action: 'wait' }
+}
+
 function compareChannels(left: ChannelSummary, right: ChannelSummary) {
   return (
     left.sortOrder - right.sortOrder ||

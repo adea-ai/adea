@@ -6,6 +6,7 @@ import {
   fuzzySearchMatch,
   parseAgentMentions,
   projectWorkspaceNavigation,
+  reconcileWorkspaceChannelSelection,
 } from '../../src/workspace-model'
 
 const room = (id: string, sortOrder: number): RoomSummary => ({
@@ -69,6 +70,71 @@ describe('conventional workspace projection', () => {
     ])
     expect(navigation.directAgentChannels.map(({ id }) => id)).toEqual(['agent-dm'])
     expect(navigation.groupChannels.map(({ id }) => id)).toEqual(['group-1'])
+  })
+
+  test('preserves valid direct and group selections without issuing a channel change', () => {
+    const channels = [
+      channel('engineering-main', 'room', {
+        isPrimaryRoomChannel: true,
+        roomId: 'engineering',
+      }),
+      channel('agent-dm', 'direct_agent', { agentId: 'agent-1' }),
+      channel('group-1', 'group'),
+    ]
+    const navigation = projectWorkspaceNavigation([room('engineering', 1)], channels)
+
+    for (const selectedChannelId of ['agent-dm', 'group-1']) {
+      expect(
+        reconcileWorkspaceChannelSelection({
+          channels,
+          explicitSelection: null,
+          navigation,
+          selectedChannelId,
+        })
+      ).toEqual({ action: 'preserve', clearExplicitSelection: false })
+    }
+  })
+
+  test('preserves a freshly created selection until it appears in the channel query', () => {
+    const channels = [channel('agent-dm', 'direct_agent', { agentId: 'agent-1' })]
+    const navigation = projectWorkspaceNavigation([], channels)
+
+    expect(
+      reconcileWorkspaceChannelSelection({
+        channels,
+        explicitSelection: 'new-group',
+        navigation,
+        selectedChannelId: 'new-group',
+      })
+    ).toEqual({ action: 'preserve', clearExplicitSelection: false })
+
+    const refreshedChannels = [...channels, channel('new-group', 'group')]
+    expect(
+      reconcileWorkspaceChannelSelection({
+        channels: refreshedChannels,
+        explicitSelection: 'new-group',
+        navigation: projectWorkspaceNavigation([], refreshedChannels),
+        selectedChannelId: 'new-group',
+      })
+    ).toEqual({ action: 'preserve', clearExplicitSelection: true })
+  })
+
+  test('replaces a stale channel selection with the first available room selection', () => {
+    const channels = [
+      channel('engineering-main', 'room', {
+        isPrimaryRoomChannel: true,
+        roomId: 'engineering',
+      }),
+      channel('agent-dm', 'direct_agent', { agentId: 'agent-1' }),
+    ]
+    expect(
+      reconcileWorkspaceChannelSelection({
+        channels,
+        explicitSelection: null,
+        navigation: projectWorkspaceNavigation([room('engineering', 1)], channels),
+        selectedChannelId: 'removed-channel',
+      })
+    ).toEqual({ action: 'select', channelId: 'engineering-main', roomId: 'engineering' })
   })
 
   test('fuzzy-matches command palette destinations without changing navigation ownership', () => {
