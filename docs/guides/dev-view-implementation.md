@@ -431,6 +431,16 @@ Issue: [#400](https://github.com/adea-ai/adea/issues/400)
 7. Port Zeron's archive/history interaction semantics and add source,
    confidence, freshness, degraded reason, and pagination.
 
+Chat's runtime composer consumes the published `AtomicChatComposer`. The
+authenticated desktop model host keeps the `{ text, blocks }` draft pair in
+memory under the canonical session and generation, then expands validated
+paste markers into the existing plain-text `chat_user` transport. Do not add
+paste blocks to runtime DTOs, local storage, or another persistence store;
+unresolved markers and prompts over the existing 65,536-character limit fail
+closed without clearing the draft. The shared editor owns paste editing and
+IME behavior, while the host owns block identity, scoped continuity and
+revision-fenced clearing after successful delivery.
+
 ## Browser and Devices (#422)
 
 Issue: [#422](https://github.com/adea-ai/adea/issues/422)

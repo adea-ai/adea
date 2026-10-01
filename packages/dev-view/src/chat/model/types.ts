@@ -5,6 +5,12 @@ import type {
   RuntimeSession,
   Scope,
 } from '@adea-ai/types/dev-runtime'
+import type { PasteBlock } from '@adea-ai/ui/components/conversation/paste-tokens'
+
+export type ChatDraftValue = Readonly<{
+  text: string
+  blocks: readonly PasteBlock[]
+}>
 
 export type ChatConversationStatus = RuntimeSession['lifecycle'] | 'stale_generation'
 
@@ -32,6 +38,7 @@ export type ChatConversation = Readonly<{
   version: number
   activeHarnessRunId?: string
   draft: string
+  draftBlocks: readonly PasteBlock[]
   events: readonly RuntimeEvent[]
   retention: ChatRetentionTruth
 }>
@@ -62,7 +69,7 @@ export type ConversationRegistryInput = Readonly<{
   projects: readonly Project[]
   sessions: readonly RuntimeSession[]
   events?: ReadonlyMap<string, readonly RuntimeEvent[]>
-  drafts?: ReadonlyMap<string, string>
+  drafts?: ReadonlyMap<string, string | ChatDraftValue>
 }>
 
 export type ChatUserInput = Readonly<{

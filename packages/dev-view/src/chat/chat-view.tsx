@@ -11,7 +11,9 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 export type ChatViewProps = Readonly<{
   conversation: ChatConversation
   model?: Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> &
-    Partial<Pick<ChatConversationModel, 'draftRevision' | 'setDraftIfCurrent'>>
+    Partial<
+      Pick<ChatConversationModel, 'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId'>
+    >
   authority?: ChatInputAuthority
   connected?: boolean
   awaitingApproval?: boolean
@@ -150,6 +152,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     if (props.onSend) return props.onSend(text)
     await props.model?.send(props.conversation.runtimeSessionId, text)
   }
+  let fallbackPasteBlockId = 0
   const stop = async () => {
     if (props.onStop) return props.onStop()
     if (props.model) await props.model.cancel(props.conversation.runtimeSessionId)
@@ -230,6 +233,12 @@ export function ChatView(props: ChatViewProps): JSX.Element {
                 onSteer={props.onSteer}
                 onStop={props.onStop || props.model ? stop : undefined}
                 onDraftChange={changeDraft}
+                createPasteBlockId={() =>
+                  props.model?.createPasteBlockId?.(
+                    props.conversation.runtimeSessionId,
+                    props.conversation.generation
+                  ) ?? `chat-paste-${++fallbackPasteBlockId}`
+                }
                 draftRevision={
                   props.draftRevision ??
                   props.model?.draftRevision?.(props.conversation.runtimeSessionId)
