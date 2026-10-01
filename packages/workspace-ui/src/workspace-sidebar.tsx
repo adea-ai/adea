@@ -37,6 +37,7 @@ import {
   SidebarNavFooter,
   SidebarNavHeader,
   SidebarNavItem,
+  SidebarNavLabel,
   SidebarNavResizeHandle,
   SidebarNavRow,
   SidebarNavSection,
@@ -119,6 +120,7 @@ function ConversationChannelRow(props: {
               as={ActionButton}
               variant="ghost"
               size="icon-md"
+              touchTarget="comfortable"
               tooltip={`Conversation options for ${props.label}`}
               aria-label={`Conversation options for ${props.label}`}
             >
@@ -143,6 +145,7 @@ function ConversationChannelRow(props: {
             type="button"
             variant="destructive"
             size="icon-md"
+            touchTarget="comfortable"
             tooltip={`Delete ${props.label}`}
             aria-label={`Delete ${props.label}`}
             onClick={() => props.onArchive(props.channel)}
@@ -163,7 +166,7 @@ function ConversationChannelRow(props: {
         onFocus={() => props.onIntent?.()}
       >
         {props.icon}
-        <span>{props.label}</span>
+        <SidebarNavLabel>{props.label}</SidebarNavLabel>
       </SidebarNavItem>
     </SidebarNavRow>
   )
@@ -328,6 +331,7 @@ export function WorkspaceSidebar(props: Props) {
             type="button"
             variant="ghost"
             size="icon-md"
+            touchTarget="comfortable"
             tooltip="Close workspace navigation"
             aria-label="Close workspace navigation"
             class="conventional-sidebar__close"
@@ -366,6 +370,7 @@ export function WorkspaceSidebar(props: Props) {
                 type="button"
                 variant="ghost"
                 size="icon-md"
+                touchTarget="comfortable"
                 tooltip="Create a room"
                 aria-label="Create Room"
                 disabled={props.workspaceReady === false}
@@ -418,6 +423,7 @@ export function WorkspaceSidebar(props: Props) {
                                 as={ActionButton}
                                 variant="ghost"
                                 size="icon-md"
+                                touchTarget="comfortable"
                                 tooltip={`Room options for ${item().room.name}`}
                                 aria-label={`Room options for ${item().room.name}`}
                               >
@@ -445,6 +451,7 @@ export function WorkspaceSidebar(props: Props) {
                                 type="button"
                                 variant="ghost"
                                 size="icon-md"
+                                touchTarget="comfortable"
                                 tooltip={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
                                 aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
                                 aria-expanded={!collapsed()}
@@ -490,7 +497,7 @@ export function WorkspaceSidebar(props: Props) {
                           }
                         >
                           <RoomIcon functionKey={item().room.functionKey} />
-                          <span>{item().room.name}</span>
+                          <SidebarNavLabel>{item().room.name}</SidebarNavLabel>
                         </SidebarNavItem>
                       </SidebarNavRow>
                       <Show when={item().visibleChannels.length && !collapsed()}>
@@ -512,7 +519,7 @@ export function WorkspaceSidebar(props: Props) {
                                 onFocus={() => props.onChannelIntent?.(channelEntry.item().id)}
                               >
                                 <Hash aria-hidden="true" />
-                                <span>{channelEntry.item().title}</span>
+                                <SidebarNavLabel>{channelEntry.item().title}</SidebarNavLabel>
                               </SidebarNavItem>
                             )}
                           </For>
@@ -535,6 +542,7 @@ export function WorkspaceSidebar(props: Props) {
                 type="button"
                 variant="ghost"
                 size="icon-md"
+                touchTarget="comfortable"
                 tooltip="Create a group conversation"
                 aria-label="Create group conversation"
                 disabled={props.workspaceReady === false}
