@@ -203,12 +203,12 @@ export function WorkspaceSettingsDialog(props: {
       <Tabs
         id="settings-tabs"
         class="conventional-settings-shell"
-        orientation="vertical"
+        orientation="horizontal"
         value={section()}
         onChange={(value) => selectSection(value as SettingsSection)}
       >
         <TabsList
-          class="conventional-settings-nav w-full data-[orientation=vertical]:flex-row"
+          class="conventional-settings-nav w-full"
           appearance="segmented"
           aria-label="Settings sections"
         >
