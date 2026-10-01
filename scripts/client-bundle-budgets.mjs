@@ -51,7 +51,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     appLibrary: { rawBytes: 13 * 1024, gzipBytes: 5 * 1024 },
     devShell: { rawBytes: 128 * 1024, gzipBytes: 40 * 1024 },
     devUtilityPanes: { rawBytes: 168 * 1024, gzipBytes: 56 * 1024 },
-    devTerminal: { rawBytes: 768 * 1024, gzipBytes: 192 * 1024 },
+    // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
+    // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
+    // carries ~2.2% headroom instead of leaving the cap pinned to the build.
+    devTerminal: { rawBytes: 768 * 1024, gzipBytes: 197 * 1024 },
     devEditor: { rawBytes: 512 * 1024, gzipBytes: 160 * 1024 },
   },
 }
