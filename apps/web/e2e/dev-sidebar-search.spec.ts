@@ -30,8 +30,10 @@ test('Dev sidebar search reveals matching hierarchy and restores collapse state'
 
   await expect(group).toHaveAttribute('aria-expanded', 'true')
   await expect(project).toHaveAttribute('aria-expanded', 'true')
+  await expect(project).toHaveAttribute('aria-current', 'page')
   await project.click()
   await expect(project).toHaveAttribute('aria-expanded', 'false')
+  await expect(project).toHaveAttribute('aria-current', 'page')
   await page.evaluate(() => window.desktopRuntimeChatHarness.selectFirst())
   await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
   await group.click()

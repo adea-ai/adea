@@ -228,6 +228,7 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                             <SidebarNavSection
                               class="ms-2"
                               label={project.name}
+                              active={props.selectedProject === project.id}
                               headingAs="h3"
                               collapsible
                               count={project.sessions.length}

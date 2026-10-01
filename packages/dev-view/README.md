@@ -16,7 +16,9 @@ without repeating the initial authorized-root/group requests.
 The sidebar's shell, disclosures, navigation rows, status chips, and archive
 presentation come from the published shared UI package. The Dev package keeps
 runtime projections, selection, filtering, collapse preferences, and reorder
-and archive callbacks. Deletion uses the shared confirmation dialog, preserving
+and archive callbacks. Selected projects and sessions use the shared active
+section and row states; collapsing a project keeps its selection marker.
+Deletion uses the shared confirmation dialog, preserving
 trigger focus after either choice. Restoring a focused archive row returns focus
 to the shelf toggle; failed reads retain their previous rows and show the error.
 Missing archive timestamps are labeled unavailable. A provider without an authenticated runtime scope shows

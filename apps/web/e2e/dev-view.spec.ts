@@ -180,6 +180,17 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
     'page'
   )
 
+  const runtimeProject = page.getByRole('button', { name: /^Runtime tools/ })
+  const exampleProject = page.getByRole('button', { name: /^Example project/ })
+  await expect(runtimeProject).toHaveAttribute('aria-current', 'page')
+  await expect(exampleProject).not.toHaveAttribute('aria-current', 'page')
+  await runtimeProject.click()
+  await expect(runtimeProject).toHaveAttribute('aria-expanded', 'false')
+  await expect(runtimeProject).toHaveAttribute('aria-current', 'page')
+  await runtimeProject.click()
+  await expect(runtimeProject).toHaveAttribute('aria-expanded', 'true')
+  await expect(runtimeProject).toHaveAttribute('aria-current', 'page')
+
   const group = page.getByRole('button', { name: 'PRODUCT' })
   await group.click()
   await expect(group).toHaveAttribute('aria-expanded', 'false')

@@ -1664,7 +1664,10 @@ The Dev sidebar consumes the published `@adea-ai/ui` `SidebarNav` shell,
 sections, and rows used by the workspace navigation. Shared UI owns the
 header, scrolling region, footer, row styling, disclosure interaction, status
 chips, and focus treatment. Adea supplies runtime groups/projects/sessions,
-selection, persisted collapse IDs, and reorder callbacks; changing the shell
+selection, persisted collapse IDs, and reorder callbacks. The selected project
+uses the shared section active state even while collapsed; session selection
+uses the shared active row state. Shared navigation controls preserve 44px
+coarse-pointer targets without changing desktop density. Changing the shell
 does not change the commands or their authorization. Its archive shelf uses
 shared row, action, scrolling, empty-state, alert, and focus-managed destructive
 confirmation components. Failed archive reads name their error and preserve
