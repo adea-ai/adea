@@ -105,11 +105,11 @@ official desktop builds pack the engine at build time
 (`release-assets.yml` checks out the private `agent-sim` repo when
 `AGENT_SIM_REF`/`AGENT_SIM_DEPLOY_TOKEN` are configured), and local builds can
 do the same by pointing `ADEA_AGENT_SIM_DIST` at a local engine pack before
-`shell:build`. Builds without a pack — including any fork's — render the
-offline fallback and never fetch engine code.
+`shell:build`. Builds without a pack, including forks, render the offline
+fallback and never fetch engine code.
 
-The shell does self-update: the version surface checks the signed release feed,
-verifies the archive against its digest and Ed25519 signature, then installs and
-relaunches — see [the updater spec](../../docs/specs/updater.md). Apple signing
-and notarization are still pending, and `adea://` URL-scheme registration for the
-auth callback is not packaged yet.
+The shell updates itself through the signed release feed. The version surface
+verifies each archive's digest and Ed25519 signature before installing it and
+relaunching. See [the updater spec](../../docs/specs/updater.md). Apple signing
+and notarization are still pending, and `adea://` URL-scheme registration for
+the auth callback is not packaged yet.

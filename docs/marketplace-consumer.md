@@ -23,9 +23,9 @@ sanitized artifact metadata only. The Plugins action remains unavailable until
 workspace bootstrap resolves, so provider loading never races workspace identity.
 Configure the proxy with:
 
-- `CONTROL_PLANE_ORIGIN` — HTTPS Control Plane origin in production;
-- `CONTROL_PLANE_SERVICE_TOKEN` — server-only scoped service credential;
-- `CONTROL_PLANE_SCOPE_WORKSPACE_ID` — server-side service scope.
+- `CONTROL_PLANE_ORIGIN`: HTTPS Control Plane origin in production;
+- `CONTROL_PLANE_SERVICE_TOKEN`: server-only scoped service credential;
+- `CONTROL_PLANE_SCOPE_WORKSPACE_ID`: server-side service scope.
 
 Before accepting a catalog, the shared provider validates `schemaVersion: 1`,
 the `catalogId` body digest, all five integrity-listed artifact digests, and
