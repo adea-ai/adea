@@ -9,7 +9,17 @@
 import type { FileEntry, Scope } from '@adea-ai/types/dev-runtime'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Copy, File as FileIcon, Folder, Pencil, RefreshCw, Search } from 'lucide-solid'
-import { For, Show, createMemo, createResource, createSignal, onCleanup, type JSX } from 'solid-js'
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  on,
+  onCleanup,
+  type JSX,
+} from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
 import {
@@ -635,6 +645,9 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   // Quick-open (#399 residue): a keyboard-first file picker (Ctrl/Cmd+P) over
   // the currently loaded paths, ranked fuzzily, opening through the same
   // onOpenFile path as tree selection. Bounded to 20 results.
+  // Quick-open (#399 residue): a keyboard-first file picker (Ctrl/Cmd+P) over
+  // the currently loaded paths, ranked fuzzily, opening through the same
+  // onOpenFile path as tree selection. Bounded to 20 results.
   const [quickOpenOpen, setQuickOpenOpen] = createSignal(false)
   const [quickOpenQuery, setQuickOpenQuery] = createSignal('')
   const [filesPaneElement, setFilesPaneElement] = createSignal<HTMLElement>()
@@ -687,22 +700,36 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     })
   )
   const treeItemById = createMemo(() => new Map(treeItems().map((item) => [item.id, item])))
+  // The composite syncs the host's active row to its effective default (the
+  // first row) on mount, so "active" alone must not pin the window — that
+  // would stick the pane at the top forever. Only a row the USER focused pins
+  // the window (unbounded, so a focused row stays mounted through scrolls and
+  // keyboard moves past the edge keep it reachable).
+  const [userFocusedRow, setUserFocusedRow] = createSignal(false)
   const rowSlice = createMemo(() => {
     // Read rows directly because the geometry memo mutates its stable Fenwick
     // tree in place as the visible projection changes.
     rows()
     geometryRevision()
     const geometry = rowGeometry()
-    return rowWindow({
+    const pin =
+      userFocusedRow() && activeRowId() !== null ? geometry.indexOf(activeRowId()!) : undefined
+    const slice = rowWindow({
       geometry,
-      pinIndex: activeRowId() === null ? undefined : geometry.indexOf(activeRowId()!),
+      pinIndex: pin === -1 ? undefined : pin,
       scrollTop: scrollTop(),
       viewportHeight: viewportHeight(),
     })
+    if (typeof window !== 'undefined') {
+      const log =
+        ((window as unknown as Record<string, unknown>).__sliceLog as unknown[] | undefined) ?? []
+      log.push([slice.start, slice.end, pin, userFocusedRow(), scrollTop()])
+      ;(window as unknown as Record<string, unknown>).__sliceLog = log
+    }
+    return slice
   })
   const windowedRows = createMemo(() => rows().slice(rowSlice().start, rowSlice().end))
   const pendingMeasurements = new Map<string, number>()
-  let pendingRevealId: string | undefined
   let measurementFrame: number | undefined
   let measurementScheduled = false
   let measurementsDisposed = false
@@ -732,7 +759,6 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         measureTree()
       })
     }
-    if (pendingRevealId !== undefined) revealTreeItem(pendingRevealId)
   }
 
   function flushRowMeasurements(): void {
@@ -745,7 +771,11 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     const oldScrollTop = element?.scrollTop ?? scrollTop()
     const oldViewportHeight = element?.clientHeight ?? viewportHeight()
     const oldTotalSize = geometry.totalSize
-    const atBottom = geometry.isMeasured && oldScrollTop + oldViewportHeight >= oldTotalSize - 2
+    // The bootstrap render has no extent yet (totalSize 0 until the first
+    // measurement lands): that state is not "at the bottom", and treating it
+    // so slammed the first measured layout to the end of the list.
+    const hadExtent = oldTotalSize > 0
+    const atBottom = hadExtent && oldScrollTop + oldViewportHeight >= oldTotalSize - 2
     const distanceFromBottom = Math.max(0, oldTotalSize - oldScrollTop - oldViewportHeight)
     const anchorIndex = geometry.indexAtOffset(oldScrollTop)
     const anchorId = geometry.idAt(anchorIndex)
@@ -761,20 +791,24 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     setGeometryRevision((revision) => revision + 1)
     if (element) {
       const nextIndex = anchorId === undefined ? -1 : geometry.indexOf(anchorId)
-      const desiredTop = atBottom
-        ? geometry.totalSize - oldViewportHeight - distanceFromBottom
-        : nextIndex >= 0
-          ? geometry.offsetAt(nextIndex) + anchorOffset
-          : oldScrollTop
+      const desiredTop = !hadExtent
+        ? oldScrollTop
+        : atBottom
+          ? geometry.totalSize - oldViewportHeight - distanceFromBottom
+          : nextIndex >= 0
+            ? geometry.offsetAt(nextIndex) + anchorOffset
+            : oldScrollTop
       const maxScrollTop = Math.max(0, geometry.totalSize - oldViewportHeight)
       element.scrollTop = Math.max(0, Math.min(maxScrollTop, desiredTop))
       setViewportHeight(element.clientHeight)
       setScrollTop(element.scrollTop)
     }
-    if (pendingRevealId !== undefined) revealTreeItem(pendingRevealId)
   }
 
-  function queueRowMeasurement(id: string, blockSize: number): void {
+  function queueRowMeasurement(id: string, rawBlockSize: number): void {
+    // Pixel-snap reported border boxes: sub-pixel wobble between rows would
+    // keep refining the shared estimate and drift the total scroll extent.
+    const blockSize = Math.round(rawBlockSize)
     if (measurementsDisposed || !Number.isFinite(blockSize) || blockSize <= 0) return
     pendingMeasurements.set(id, blockSize)
     if (measurementScheduled) return
@@ -786,37 +820,63 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     }
   }
 
+  /** The composite asks the host to mount + reveal a row before focus moves to
+   *  it. Geometry offsets are exact, and unlike the browser's focus
+   *  scroll-into-view this respects the tree's padding, so the revealed row
+   *  lands fully inside the scrollport. */
   function revealTreeItem(id: string): void {
-    if (filter().length > 0) {
-      pendingRevealId = undefined
-      return
-    }
     const geometry = rowGeometry()
     const index = geometry.indexOf(id)
-    if (index < 0) {
-      pendingRevealId = undefined
-      return
-    }
-    if (!treeElement || !geometry.isMeasured) {
-      pendingRevealId = id
-      return
-    }
-    pendingRevealId = undefined
-
-    const top = geometry.offsetAt(index)
+    if (index < 0 || !treeElement || !geometry.isMeasured) return
+    // The geometry measures rows from the scroll content's start, but the
+    // tree's block padding sits above row 0 — include it or the revealed row
+    // lands padding-height past the scrollport edge.
+    const paddingTop = Number.parseFloat(getComputedStyle(treeElement).paddingTop) || 0
+    const top = paddingTop + geometry.offsetAt(index)
     const bottom = top + geometry.blockSizeAt(index)
-    const currentScrollTop = treeElement.scrollTop
-    const viewportBottom = currentScrollTop + treeElement.clientHeight
-    const nextScrollTop =
-      top < currentScrollTop
-        ? top
-        : bottom > viewportBottom
-          ? bottom - treeElement.clientHeight
-          : currentScrollTop
-    if (nextScrollTop === currentScrollTop) return
-    treeElement.scrollTop = Math.max(0, nextScrollTop)
+    const current = treeElement.scrollTop
+    const viewportBottom = current + treeElement.clientHeight
+    const next =
+      top < current ? top : bottom > viewportBottom ? bottom - treeElement.clientHeight : current
+    if (typeof window !== 'undefined') {
+      const log =
+        ((window as unknown as Record<string, unknown>).__revealLog as unknown[] | undefined) ?? []
+      log.push(['reveal', id, 'cur', current, 'next', next, 'pTop', paddingTop])
+      ;(window as unknown as Record<string, unknown>).__revealLog = log
+    }
+    if (next === current) return
+    treeElement.scrollTop = Math.max(0, next)
     setScrollTop(treeElement.scrollTop)
+    // The geometry's estimate can lag a root-text resize (unseen rows use the
+    // last shared mean), so verify against the laid-out row and correct once
+    // the frame settles.
+    // Runs as a macrotask: the composite's focus-scroll is queued as a
+    // microtask right after this reveal, and correcting before it would just
+    // be undone.
+    if (typeof setTimeout !== 'function') return
+    const correct = () => {
+      const scroller = treeElement
+      if (!scroller) return
+      const el = scroller.querySelector<HTMLElement>(`[data-tree-id="${CSS.escape(id)}"]`)
+      if (!el) return
+      const box = scroller.getBoundingClientRect()
+      const rect = el.getBoundingClientRect()
+      if (rect.bottom - box.bottom > 0.5) {
+        scroller.scrollTop += rect.bottom - box.bottom
+        setScrollTop(scroller.scrollTop)
+      } else if (box.top - rect.top > 0.5) {
+        scroller.scrollTop += rect.top - box.top
+        setScrollTop(scroller.scrollTop)
+      }
+    }
+    setTimeout(correct, 0)
   }
+
+  createEffect(
+    on(activeRowId, (id) => {
+      if (id !== null && userFocusedRow()) revealTreeItem(id)
+    })
+  )
 
   function activateTreeItem(id: string): void {
     const node = findNode(nodes(), id)
@@ -854,6 +914,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
       ref={setFilesPaneElement}
       class="dev-files"
       aria-label="Files"
+      onFocusIn={() => setUserFocusedRow(true)}
       onKeyDown={(event) => {
         if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey) {
           if (event.key.toLowerCase() === 'p') {
@@ -863,6 +924,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           }
           return
         }
+        if (event.key === 'Escape' && quickOpenOpen()) closeQuickOpen()
       }}
     >
       <Show when={contentQuery().length > 0}>
@@ -1081,9 +1143,18 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
               onActivate={activateTreeItem}
               onRequestReveal={revealTreeItem}
               onRowSizeChange={queueRowMeasurement}
-              onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+              onScroll={(event) => {
+                const log =
+                  ((window as unknown as Record<string, unknown>).__scrollTrace as
+                    | unknown[]
+                    | undefined) ?? []
+                log.push(['scroll', event.currentTarget.scrollTop])
+                ;(window as unknown as Record<string, unknown>).__scrollTrace = log
+                setScrollTop(event.currentTarget.scrollTop)
+              }}
             >
               <VirtualWindow
+                class="shrink-0"
                 totalSize={rowSlice().totalSize}
                 offset={rowSlice().offset}
                 contentClass="dev-files__window-content"

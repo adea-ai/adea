@@ -11,7 +11,7 @@ const FILES_TREE_HARNESS_PATH = '/__dev-files-window'
 function harnessHtml(): string {
   return [
     '<!doctype html>',
-    '<html><head><meta charset="utf-8"><title>Files tree harness</title>',
+    '<html lang="en"><head><meta charset="utf-8"><title>Files tree harness</title>',
     '<style>html, body, #harness-root { margin: 0; width: 100%; height: 100%; }</style>',
     '</head><body><div id="harness-root"></div></body></html>',
   ].join('')

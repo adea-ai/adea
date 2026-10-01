@@ -222,10 +222,11 @@ export function rowWindow(
   let end = Math.min(total, Math.max(firstVisible + 1, lastVisible + 1) + overscan)
 
   const pin = input.pinIndex
-  const pinDistance = overscan * 2
   if (pin !== undefined && Number.isInteger(pin) && pin >= 0 && pin < total) {
-    if (pin < start && start - pin <= pinDistance) start = pin
-    if (pin >= end && pin - end < pinDistance) end = pin + 1
+    // The host only passes a pin for a row the user focused, and a focused row
+    // must stay mounted whatever the scroll does — extend the window to it.
+    if (pin < start) start = Math.max(0, pin - overscan)
+    if (pin >= end) end = Math.min(total, pin + 1 + overscan)
   }
 
   return {
