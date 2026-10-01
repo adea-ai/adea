@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.7](https://github.com/adea-ai/adea/compare/v0.70.6...v0.70.7) (2026-10-01)
+
+
+### Maintenance
+
+* **deps:** update the design system to themes 0.8.6 and ui 0.89.2 ([#871](https://github.com/adea-ai/adea/issues/871)) ([21c8d4e](https://github.com/adea-ai/adea/commit/21c8d4e689336a5e0de5beeb878e0318567bc98a))
+
 ## [0.70.6](https://github.com/adea-ai/adea/compare/v0.70.5...v0.70.6) (2026-10-01)
 
 
