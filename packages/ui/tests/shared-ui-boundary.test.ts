@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const source = (path: string) => readFileSync(join(import.meta.dir, '../src', path), 'utf8')
-const repositoryFile = (path: string) => readFileSync(join(import.meta.dir, '../../..', path), 'utf8')
+const repositoryFile = (path: string) =>
+  readFileSync(join(import.meta.dir, '../../..', path), 'utf8')
 
 describe('private application UI boundary', () => {
   test('delegates mode selection and roving focus to the published controlled toggle', () => {
