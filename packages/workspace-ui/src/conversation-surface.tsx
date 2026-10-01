@@ -12,9 +12,15 @@ import {
   useMessageListQuery,
   usePrefetchThreadMessages,
 } from '@adea-ai/data'
-import { Info, MailOpen, MessagesSquare, Search } from 'lucide-solid'
+import { Info, MailOpen, Search } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 
+import type { ConversationReadingPosition } from '@adea-ai/ui/components/conversation'
+import {
+  ConversationSurface as SharedConversationSurface,
+  MessageDayDivider,
+  ThreadPanel as SharedThreadPanel,
+} from '@adea-ai/ui/components/conversation'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import { keyedRows } from './keyed-rows'
 import { MessageComposer, type ComposerSubmission } from './message-composer'
@@ -36,17 +42,17 @@ import { Button } from '@adea-ai/ui/components/ui/button'
  */
 const transcriptCache = new Map<
   string,
-  { messages: readonly MessageSummary[]; scrollTop: number }
+  { messages: readonly MessageSummary[]; readingPosition: ConversationReadingPosition }
 >()
 const TRANSCRIPT_CACHE_LIMIT = 12
 
 function rememberTranscript(
   channelId: string,
   messages: readonly MessageSummary[],
-  scrollTop: number
+  readingPosition: ConversationReadingPosition
 ) {
   transcriptCache.delete(channelId)
-  transcriptCache.set(channelId, { messages, scrollTop })
+  transcriptCache.set(channelId, { messages, readingPosition })
   while (transcriptCache.size > TRANSCRIPT_CACHE_LIMIT) {
     transcriptCache.delete(transcriptCache.keys().next().value!)
   }
@@ -177,12 +183,12 @@ export function ConversationSurface(props: {
   // then accept whatever the query currently holds.
   let loadedChannelId: string | undefined
   // Live scroll position of the loaded channel — captured into the cache
-  // entry on switch instead of written to a map on every scroll event.
-  let liveScrollTop = 0
+  // entry on switch instead of writing a map on every scroll event.
+  let liveReadingPosition: ConversationReadingPosition = { top: 0, following: true }
   createEffect(() => {
     const channel = props.channel
     if (channel?.id !== loadedChannelId) {
-      if (loadedChannelId) rememberTranscript(loadedChannelId, messages(), liveScrollTop)
+      if (loadedChannelId) rememberTranscript(loadedChannelId, messages(), liveReadingPosition)
       loadedChannelId = channel?.id
       setCursor(undefined)
       // Restore the last-known transcript for the incoming channel. The merge
@@ -190,12 +196,9 @@ export function ConversationSurface(props: {
       // stale copy is a render bridge, not a second source of truth.
       const cached = channel ? transcriptCache.get(channel.id) : undefined
       setMessages(cached?.messages ?? [])
-      liveScrollTop = cached?.scrollTop ?? 0
+      liveReadingPosition = cached?.readingPosition ?? { top: 0, following: true }
       setOptimisticMessage(null)
       setPageBelongsToChannel(false)
-      requestAnimationFrame(() => {
-        if (transcript() && channel) transcript()!.scrollTop = cached?.scrollTop ?? 0
-      })
     }
     const data = settledData(messageQuery)
     if (!channel || !data) return
@@ -417,12 +420,20 @@ export function ConversationSurface(props: {
               </ul>
             </nav>
           </header>
-          <div
-            ref={setTranscript}
+          <SharedConversationSurface
             class="conventional-transcript"
+            ref={setTranscript}
+            resetKey={channel().id}
+            initialReadingPosition={transcriptCache.get(channel().id)?.readingPosition}
+            onReadingPositionChange={(position) => {
+              liveReadingPosition = position
+            }}
             aria-label={`${channel().title} message history`}
             onScroll={(event) => {
-              liveScrollTop = event.currentTarget.scrollTop
+              liveReadingPosition = {
+                top: event.currentTarget.scrollTop,
+                following: liveReadingPosition.following,
+              }
             }}
           >
             <Show when={(messageQuery.isPending || !pageBelongsToChannel()) && !messages().length}>
@@ -441,6 +452,64 @@ export function ConversationSurface(props: {
                 pageBelongsToChannel() &&
                 !rootMessages().length
               }
+              fallback={
+                <>
+                  <For each={transcriptRows()}>
+                    {(entry) => (
+                      <>
+                        <Show when={entry.item().showDayDivider}>
+                          <MessageDayDivider
+                            label={formatMessageDay(entry.item().message.createdAt)}
+                            role="separator"
+                          />
+                        </Show>
+                        <MessageRow
+                          agents={agentById()}
+                          artifacts={artifactById()}
+                          message={entry.item().message}
+                          highlighted={entry.item().message.id === props.searchTargetMessageId}
+                          onOpenTask={props.onOpenTask}
+                          onOpenThread={props.onThreadChange}
+                          onThreadIntent={prefetchThread}
+                          privateContent={props.privateContent}
+                          task={
+                            entry.item().message.taskId
+                              ? taskById().get(entry.item().message.taskId!)
+                              : undefined
+                          }
+                        />
+                      </>
+                    )}
+                  </For>
+                  <Show when={optimisticMessage()}>
+                    {(message) => (
+                      <MessageRow
+                        agents={agentById()}
+                        artifacts={artifactById()}
+                        message={message()}
+                        onOpenTask={props.onOpenTask}
+                        onOpenThread={props.onThreadChange}
+                        onThreadIntent={prefetchThread}
+                        pending
+                        privateContent={props.privateContent}
+                      />
+                    )}
+                  </Show>
+                  <Show when={settledData(messageQuery)?.nextAfterSequence}>
+                    {(nextSequence) => (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        class="mx-auto my-3"
+                        disabled={messageQuery.isFetching}
+                        onClick={() => setCursor(nextSequence())}
+                      >
+                        {messageQuery.isFetching ? 'Loading…' : 'Load newer messages'}
+                      </Button>
+                    )}
+                  </Show>
+                </>
+              }
             >
               <WorkspaceEmpty
                 title={
@@ -451,59 +520,7 @@ export function ConversationSurface(props: {
                 detail="Messages here are canonical Adea history and remain stable across runtime sessions."
               />
             </Show>
-            <For each={transcriptRows()}>
-              {(entry) => (
-                <>
-                  <Show when={entry.item().showDayDivider}>
-                    <div class="conventional-date-divider" role="separator">
-                      <span>{formatMessageDay(entry.item().message.createdAt)}</span>
-                    </div>
-                  </Show>
-                  <MessageRow
-                    agents={agentById()}
-                    artifacts={artifactById()}
-                    message={entry.item().message}
-                    highlighted={entry.item().message.id === props.searchTargetMessageId}
-                    onOpenTask={props.onOpenTask}
-                    onOpenThread={props.onThreadChange}
-                    onThreadIntent={prefetchThread}
-                    privateContent={props.privateContent}
-                    task={
-                      entry.item().message.taskId
-                        ? taskById().get(entry.item().message.taskId!)
-                        : undefined
-                    }
-                  />
-                </>
-              )}
-            </For>
-            <Show when={optimisticMessage()}>
-              {(message) => (
-                <MessageRow
-                  agents={agentById()}
-                  artifacts={artifactById()}
-                  message={message()}
-                  onOpenTask={props.onOpenTask}
-                  onOpenThread={props.onThreadChange}
-                  onThreadIntent={prefetchThread}
-                  pending
-                  privateContent={props.privateContent}
-                />
-              )}
-            </Show>
-            <Show when={settledData(messageQuery)?.nextAfterSequence}>
-              {(nextSequence) => (
-                <Button
-                  type="button"
-                  class="conventional-load-more"
-                  disabled={messageQuery.isFetching}
-                  onClick={() => setCursor(nextSequence())}
-                >
-                  {messageQuery.isFetching ? 'Loading…' : 'Load newer messages'}
-                </Button>
-              )}
-            </Show>
-          </div>
+          </SharedConversationSurface>
           <MessageComposer
             agents={props.agents}
             artifacts={props.artifacts}
@@ -517,13 +534,16 @@ export function ConversationSurface(props: {
             when={root()}
             fallback={
               <Show when={props.threadRootMessageId}>
-                <aside class="conventional-thread conventional-thread--missing" role="status">
-                  <MessagesSquare aria-hidden="true" />
-                  <p>This thread is outside the loaded history window.</p>
-                  <Button type="button" onClick={() => props.onThreadChange(null)}>
-                    Close thread
-                  </Button>
-                </aside>
+                <SharedThreadPanel
+                  class="conventional-thread"
+                  label="Thread"
+                  onClose={() => props.onThreadChange(null)}
+                >
+                  <WorkspaceEmpty
+                    title="Thread outside history window"
+                    detail="This thread is outside the loaded history window."
+                  />
+                </SharedThreadPanel>
               </Show>
             }
           >

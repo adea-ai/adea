@@ -55,7 +55,7 @@
               "next-themes",
               "lucide-react"
             ],
-            "message": "This is a Solid codebase — React libraries will not run. Use @adea-ai/app-ui components (@kobalte/core and @corvu primitives) and lucide-solid."
+            "message": "This is a Solid codebase \u2014 React libraries will not run. Use @adea-ai/app-ui components (@kobalte/core and @corvu primitives) and lucide-solid."
           }
         ]
       }
@@ -109,21 +109,9 @@
   },
   "overrides": [
     {
-      "files": [
-        "packages/dev-view/src/browser/mini-preview.tsx",
-        "packages/dev-view/src/terminal/fixture-terminal-pane.tsx",
-        "packages/workspace-ui/src/message-row.tsx",
-        "packages/workspace-ui/src/task-board.tsx",
-        "packages/workspace-ui/src/workspace-sidebar.tsx"
-      ],
+      "files": ["packages/dev-view/src/browser/mini-preview.tsx"],
       "rules": {
         "adea/no-interactive-wrappers": "off"
-      }
-    },
-    {
-      "files": ["packages/workspace-ui/src/create-workspace-dialogs.tsx"],
-      "rules": {
-        "adea/no-raw-interactive-elements": "off"
       }
     },
     {

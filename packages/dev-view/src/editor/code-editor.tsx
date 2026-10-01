@@ -22,6 +22,7 @@ import {
 } from './editor-document'
 import '../files/files-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
 export type CodeEditorProps = Readonly<{
   runtime: DevRuntimeService
@@ -350,34 +351,37 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
         <Show when={readOnlyReason()}>
           <span class="dev-terminal-muted">read-only — {readOnlyReason()}</span>
         </Show>
-        <Button
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip="Save file"
           aria-label="Save file"
           disabled={!dirty() || !!readOnlyReason()}
           onClick={() => void save()}
         >
           <Save aria-hidden="true" />
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip="Reload file"
           aria-label="Reload file"
           onClick={() => void reload()}
         >
           <RefreshCw aria-hidden="true" />
-        </Button>
-        <Button
+        </ActionButton>
+        <ActionButton
           type="button"
           variant="outline"
           size="icon-sm"
+          tooltip="Close editor"
           aria-label="Close editor"
           onClick={props.onClose}
         >
           ✕
-        </Button>
+        </ActionButton>
       </div>
       <Show when={conflict()}>
         {(shown) => (
