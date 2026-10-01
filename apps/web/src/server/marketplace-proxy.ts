@@ -39,7 +39,13 @@ export async function proxyMarketplaceCatalog(
       contractVersion,
       correlation: { traceId },
       operation: 'marketplace.catalog.read',
-      parameters: { workspaceIdentity: input },
+      // Control Plane scopes every marketplace identity to the authenticated
+      // service workspace: the caller's Agent HQ workspace id never crosses
+      // this boundary, and an identity outside the envelope workspace is
+      // rejected before any catalog read.
+      parameters: {
+        workspaceIdentity: { userId: input.userId, workspaceId: requiredControlPlaneWorkspaceId() },
+      },
       requestId,
       requestedAt: new Date().toISOString(),
       workspaceId: requiredControlPlaneWorkspaceId(),
@@ -65,6 +71,15 @@ export async function proxyMarketplaceInstallPlan(
   const traceId = inbound.traceId ?? identifier('trc')
   const commandId = identifier('cmd')
   const idempotencyKey = `marketplace-plan:${sha256(canonicalJson(input))}`
+  // Installations are tracked under the authenticated scope, so the identity
+  // in the payload names the same workspace as the envelope.
+  const payload = {
+    ...input,
+    workspaceIdentity: {
+      userId: input.workspaceIdentity.userId,
+      workspaceId: requiredControlPlaneWorkspaceId(),
+    },
+  }
   return proxyControlPlane(
     '/v1/marketplace/install-plan',
     {
@@ -75,8 +90,8 @@ export async function proxyMarketplaceInstallPlan(
       idempotencyKey,
       issuedAt: new Date().toISOString(),
       operation: 'marketplace.install.plan',
-      payload: input,
-      payloadHash: sha256(canonicalJson(input)),
+      payload,
+      payloadHash: sha256(canonicalJson(payload)),
       requestId,
       workspaceId: requiredControlPlaneWorkspaceId(),
     },
@@ -99,7 +114,15 @@ export async function proxyMarketplaceInstall(
   const requestId = inbound.requestId ?? identifier('req')
   const traceId = inbound.traceId ?? identifier('trc')
   const commandId = identifier('cmd')
-  const payload = { ...input }
+  // Installations are tracked under the authenticated scope, so the identity
+  // in the payload names the same workspace as the envelope.
+  const payload = {
+    ...input,
+    workspaceIdentity: {
+      userId: input.workspaceIdentity.userId,
+      workspaceId: requiredControlPlaneWorkspaceId(),
+    },
+  }
   return proxyControlPlane(
     '/v1/marketplace/install',
     {

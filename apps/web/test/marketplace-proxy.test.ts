@@ -4,6 +4,7 @@ import {
   inboundCorrelation,
   proxyMarketplaceCatalog,
   proxyMarketplaceInstall,
+  proxyMarketplaceInstallPlan,
 } from '../src/server/marketplace-proxy'
 
 const environmentKeys = [
@@ -56,6 +57,50 @@ describe('marketplace Control Plane proxy', () => {
     expect(requests[1]?.correlation).toMatchObject({
       traceId: expect.stringMatching(/^trc_[0-9A-HJKMNP-TV-Z]{26}$/u),
     })
+  })
+
+  test('scopes every marketplace identity to the authenticated workspace', async () => {
+    // Control Plane rejects identities outside the envelope workspace (the
+    // tenant is the service scope), and installations are tracked under that
+    // scope — so the caller's Agent HQ workspace id never crosses the hop.
+    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
+    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
+    const scope = 'wsp_01JABCDEF0123456789ABCDEFG'
+    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = scope
+    const requests: Record<string, unknown>[] = []
+    globalThis.fetch = async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return Response.json({ data: { ok: true } })
+    }
+
+    await proxyMarketplaceCatalog({ userId: 'user-1', workspaceId: 'workspace-1' })
+    await proxyMarketplaceInstallPlan({
+      instanceId: 'instance-1',
+      pluginId: 'plugin:openai-official:gmail',
+      releaseId: `release:${'b'.repeat(64)}`,
+      requestedHarness: 'codex',
+      workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
+    })
+    await proxyMarketplaceInstall({
+      canonicalContentDigest: `sha256:${'a'.repeat(64)}`,
+      idempotencyKey: 'marketplace-install-2',
+      pluginId: 'plugin:openai-official:gmail',
+      releaseId: `release:${'b'.repeat(64)}`,
+      requestedHarness: 'codex',
+      workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
+    })
+
+    expect(requests).toHaveLength(3)
+    for (const request of requests) {
+      expect(request.workspaceId).toBe(scope)
+    }
+    expect(requests[0]?.parameters).toMatchObject({
+      workspaceIdentity: { userId: 'user-1', workspaceId: scope },
+    })
+    for (const request of requests.slice(1)) {
+      const payload = request.payload as { workspaceIdentity: Record<string, unknown> }
+      expect(payload.workspaceIdentity).toEqual({ userId: 'user-1', workspaceId: scope })
+    }
   })
 
   test('carries an inbound request/trace id across the Control Plane hop', async () => {

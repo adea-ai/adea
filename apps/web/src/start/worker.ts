@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers'
 import handler, { createServerEntry } from '@tanstack/solid-start/server-entry'
 
 import { readWorkspaceEntryAccess } from '../server/workspace-entry-access'
-import { captureWorkerBindings } from '../server/worker-bindings'
+import { captureWorkerBindings, hydrateSecretStoreBindings } from '../server/worker-bindings'
 import { withRequestScope } from '../server/request-scope'
 import { runWithGateRequest } from '../server/gate-request-context'
 import {
@@ -27,6 +27,10 @@ import {
 export default createServerEntry({
   async fetch(request, opts) {
     captureWorkerBindings(env)
+    // Secrets Store bindings resolve lazily and must land on `process.env`
+    // before the gate, the auth boundary, or the marketplace proxy read
+    // their values; text vars and worker secrets are already strings.
+    await hydrateSecretStoreBindings(env)
     try {
       const rejected = rootDocumentPolicy(request)
       if (rejected) return rejected
