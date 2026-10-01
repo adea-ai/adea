@@ -17,6 +17,7 @@ export function WorkspaceTopBar(props: {
   title: string
   onOpenNotifications(): void
   actionsMount(element: HTMLDivElement): void
+  sidebarToggleRef?: (element: HTMLButtonElement | undefined) => void
   /** Workspace-wide actions rendered before the appearance control. */
   resources?: JSX.Element
   /**
@@ -115,6 +116,7 @@ export function WorkspaceTopBar(props: {
           <ArrowRight aria-hidden="true" />
         </ActionButton>
         <ActionButton
+          ref={props.sidebarToggleRef}
           variant="ghost"
           size="icon-sm"
           tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}

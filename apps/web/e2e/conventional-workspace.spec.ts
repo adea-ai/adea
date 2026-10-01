@@ -2057,7 +2057,7 @@ test.describe('touch workspace sidebar actions', () => {
 
     const toolbar = page.getByLabel('Workspace toolbar')
     const navigationToggle = toolbar.getByRole('button', {
-      name: 'Expand contextual sidebar',
+      name: /^(Expand|Collapse) contextual sidebar$/,
     })
     await expect(navigationToggle).toBeVisible()
     const toggleBounds = await navigationToggle.boundingBox()
@@ -2159,7 +2159,7 @@ test.describe('touch workspace sidebar actions', () => {
     )
   })
 
-  test.fixme('mobile navigation traps focus, closes with Escape, and restores focus', async ({
+  test('mobile navigation traps focus, closes with Escape, and restores focus', async ({
     page,
   }) => {
     await mockConnectedWorkspace(page)
@@ -2168,12 +2168,15 @@ test.describe('touch workspace sidebar actions', () => {
 
     const toolbar = page.getByLabel('Workspace toolbar')
     const navigationToggle = toolbar.getByRole('button', {
-      name: 'Expand contextual sidebar',
+      name: /^(Expand|Collapse) contextual sidebar$/,
     })
-    await navigationToggle.tap()
+    await navigationToggle.focus()
+    await page.keyboard.press('Enter')
 
+    const navigationDialog = page.getByRole('dialog')
     const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
-    const sidebarButtons = sidebar.getByRole('button')
+    const sidebarButtons = sidebar.locator('button:not(:disabled)')
+    await expect(navigationDialog).toHaveAttribute('aria-modal', 'true')
     await expect(sidebar).toBeVisible()
     await expect(sidebarButtons.first()).toBeFocused()
 
@@ -2185,6 +2188,86 @@ test.describe('touch workspace sidebar actions', () => {
     await page.keyboard.press('Escape')
     await expect(sidebar).not.toBeVisible()
     await expect(navigationToggle).toBeFocused()
+
+    await navigationToggle.focus()
+    await page.keyboard.press('Enter')
+    await expect(sidebar).toBeVisible()
+
+    const createRoom = sidebar.getByRole('button', { name: 'Create Room' })
+    await createRoom.click()
+    const roomDialog = page.getByRole('dialog', { name: 'Create Room' })
+    await expect(roomDialog.locator(':focus')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(roomDialog).not.toBeVisible()
+    await expect(sidebar).toBeVisible()
+    await expect(createRoom).toBeFocused()
+    await expect(navigationToggle).not.toBeFocused()
+
+    const createGroup = sidebar.getByRole('button', { name: 'Create group conversation' })
+    await createGroup.click()
+    const groupDialog = page.getByRole('dialog', { name: 'New group conversation' })
+    await expect(groupDialog.getByLabel('Conversation name')).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(groupDialog).not.toBeVisible()
+    await expect(sidebar).toBeVisible()
+    await expect(createGroup).toBeFocused()
+    await expect(navigationToggle).not.toBeFocused()
+
+    await sidebar.getByRole('button', { name: 'Research Agent', exact: true }).click()
+    await expect(sidebar).not.toBeVisible()
+    await expect(navigationToggle).toBeFocused()
+    await expect(page.locator('#workspace-main')).toContainText('Research Agent')
+  })
+
+  test('selecting navigation closes the shared mobile sheet in Chat and Virtual', async ({
+    page,
+  }) => {
+    await mockConnectedWorkspace(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+
+    for (const view of ['chat', 'virtual'] as const) {
+      await page.goto(`/?view=${view}`)
+      const toolbar = page.getByLabel('Workspace toolbar')
+      const navigationToggle = toolbar.getByRole('button', {
+        name: /^(Expand|Collapse) contextual sidebar$/,
+      })
+      await navigationToggle.focus()
+      await page.keyboard.press('Enter')
+
+      const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+      await expect(sidebar).toBeVisible()
+      await sidebar.getByRole('button', { name: 'Research Agent', exact: true }).click()
+      await expect(sidebar).not.toBeVisible()
+      await expect(navigationToggle).toHaveAttribute('aria-expanded', 'false')
+      await expect(navigationToggle).toBeFocused()
+    }
+  })
+
+  test('mobile Sheet reparenting preserves the persisted inline sidebar width', async ({ page }) => {
+    await mockConnectedWorkspace(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.addInitScript(() => {
+      localStorage.setItem('adea:workspace-sidebar-width', '320')
+    })
+    await page.goto('/?view=chat')
+
+    const toolbar = page.getByLabel('Workspace toolbar')
+    const navigationToggle = toolbar.getByRole('button', {
+      name: /^(Expand|Collapse) contextual sidebar$/,
+    })
+    await navigationToggle.focus()
+    await page.keyboard.press('Enter')
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+    await expect(sidebar).toBeVisible()
+
+    await page.setViewportSize({ width: 1280, height: 844 })
+    await expect(sidebar).toBeVisible()
+    await expect(
+      page.getByRole('separator', { name: 'Resize workspace navigation' })
+    ).toBeAttached()
+    await expect
+      .poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width))
+      .toBe(320)
   })
 })
 

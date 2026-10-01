@@ -56,6 +56,7 @@ export type WorkspaceDeepLink = Readonly<{
 export function ConventionalWorkspaceShell(props: {
   /** Router-backed deep link state. Reactive, so links apply on SPA navigation. */
   deepLink?: () => WorkspaceDeepLink
+  restoreFocusRef?: () => HTMLElement | undefined
   taskBoardOnly?: boolean
   manageSettings?: boolean
   /** Called after a deep link applies — the host removes its params. */
@@ -340,6 +341,7 @@ export function ConventionalWorkspaceShell(props: {
             </a>
             <WorkspaceSidebar
               agents={controller.agents}
+              restoreFocusRef={props.restoreFocusRef}
               channelBusy={controller.channelBusy}
               collapsedRoomIds={collapsedRoomIds()}
               mobileOpen={mobileSidebarOpen()}

@@ -19,11 +19,11 @@ import {
   Users,
   X,
 } from 'lucide-solid'
-import { createMemo, createSignal, For, lazy, onMount, Show, type JSX } from 'solid-js'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { createMemo, createSignal, For, lazy, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
+import { Sheet, SheetContent, SheetTitle } from '@adea-ai/ui/components/ui/sheet'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -178,6 +178,7 @@ type Props = Readonly<{
   collapsedRoomIds: readonly string[]
   mobileOpen: boolean
   navigation: WorkspaceNavigation
+  restoreFocusRef?: () => HTMLElement | undefined
   onArchiveChannel: (channel: ChannelSummary) => Promise<void>
   onCreateGroup: () => void
   onCreateRoom: () => void
@@ -205,9 +206,11 @@ type Props = Readonly<{
 export function WorkspaceSidebar(props: Props) {
   const [sidebar, setSidebar] = createSignal<HTMLElement>()
   const [sidebarWidth, setSidebarWidth] = createSignal(SIDEBAR_DEFAULT_WIDTH)
+  const [isNarrowViewport, setIsNarrowViewport] = createSignal(false)
   const [editingRoom, setEditingRoom] = createSignal<RoomSummary | null>(null)
   const [renamingChannel, setRenamingChannel] = createSignal<ChannelSummary | null>(null)
   const [actionError, setActionError] = createSignal<string | null>(null)
+  let workspaceRoot: HTMLElement | null = null
   const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
   const readStateByChannel = createMemo(
     () => new Map(props.readState.map((state) => [state.channelId, state]))
@@ -267,19 +270,28 @@ export function WorkspaceSidebar(props: Props) {
 
   // Restore the persisted sidebar width before first paint of the layout.
   onMount(() => {
+    workspaceRoot = workspaceRootFor(sidebar())
     const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
     if (!Number.isFinite(stored) || stored <= 0) return
-    const root = workspaceRootFor(sidebar())
-    if (!root) return
-    applySidebarWidth(root, stored)
+    if (!workspaceRoot) return
+    applySidebarWidth(workspaceRoot, stored)
     setSidebarWidth(clampSidebarWidth(stored))
   })
 
+  onMount(() => {
+    const media = window.matchMedia('(max-width: 48rem)')
+    const updateViewport = () => {
+      setIsNarrowViewport(media.matches)
+    }
+    updateViewport()
+    media.addEventListener('change', updateViewport)
+    onCleanup(() => media.removeEventListener('change', updateViewport))
+  })
+
   const updateSidebarWidth = (nextWidth: number) => {
-    const root = workspaceRootFor(sidebar())
-    if (!root) return
+    if (!workspaceRoot) return
     const width = clampSidebarWidth(nextWidth)
-    applySidebarWidth(root, width)
+    applySidebarWidth(workspaceRoot, width)
     setSidebarWidth(width)
   }
 
@@ -294,37 +306,36 @@ export function WorkspaceSidebar(props: Props) {
       .catch(() => setActionError('Unread conversations could not be marked as read.'))
   }
 
-  return (
-    <>
-      <SidebarToggleButton expanded={props.mobileOpen} onToggle={props.onToggleMobile} />
-      <Show when={props.mobileOpen}>
-        <Button
-          type="button"
-          class="conventional-sidebar-scrim"
-          aria-label="Close workspace navigation"
-          onClick={() => props.onToggleMobile(false)}
-        />
-      </Show>
+  const renderSidebar = (inSheet: boolean) => {
+    const navigationId = inSheet ? 'workspace-navigation-mobile' : 'workspace-navigation'
+
+    return (
       <SidebarNav
+        id={navigationId}
         as="aside"
-        ref={setSidebar}
+        ref={inSheet ? undefined : setSidebar}
         class={cn('conventional-sidebar', {
-          'conventional-sidebar--open': props.mobileOpen,
+          'conventional-sidebar--inline': !inSheet,
+          'conventional-sidebar--sheet': inSheet,
+          'conventional-sidebar--open': !inSheet && props.mobileOpen,
         })}
         aria-label="Workspace navigation"
       >
-        {/* Focusable separator widget: keyboard-resizable, so it must expose
-            its value range (axe aria-required-attr on focusable separators). */}
-        <SidebarNavResizeHandle
-          value={sidebarWidth()}
-          minimum={SIDEBAR_MIN_WIDTH}
-          maximum={SIDEBAR_MAX_WIDTH}
-          step={16}
-          label="Resize workspace navigation"
-          class="conventional-sidebar__resize"
-          onChange={updateSidebarWidth}
-          onCommit={persistSidebarWidth}
-        />
+        <Show when={!inSheet}>
+          {/* Resize stays on the inline panel; the portaled sheet is not in
+              the workspace grid and therefore must not own its geometry. */}
+          <SidebarNavResizeHandle
+            value={sidebarWidth()}
+            minimum={SIDEBAR_MIN_WIDTH}
+            maximum={SIDEBAR_MAX_WIDTH}
+            step={16}
+            label="Resize workspace navigation"
+            controls={navigationId}
+            class="conventional-sidebar__resize"
+            onChange={updateSidebarWidth}
+            onCommit={persistSidebarWidth}
+          />
+        </Show>
         <SidebarNavHeader>
           <SidebarNavTitle as="h1">{props.workspaceName}</SidebarNavTitle>
           <ActionButton
@@ -616,6 +627,31 @@ export function WorkspaceSidebar(props: Props) {
           </SidebarNavButton>
         </SidebarNavFooter>
       </SidebarNav>
+    )
+  }
+
+  return (
+    <>
+      <Sheet
+        open={isNarrowViewport() && props.mobileOpen}
+        onOpenChange={(open) => props.onToggleMobile(open)}
+      >
+        <Show when={isNarrowViewport()}>
+          <SidebarToggleButton expanded={props.mobileOpen} />
+        </Show>
+        <Show when={!isNarrowViewport()}>{renderSidebar(false)}</Show>
+        <Show when={isNarrowViewport()}>
+          <SheetContent
+            side="start"
+            class="conventional-sidebar-sheet"
+            closeButton={false}
+            restoreFocusRef={props.restoreFocusRef}
+          >
+            <SheetTitle class="sr-only">{props.workspaceName} navigation</SheetTitle>
+            {renderSidebar(true)}
+          </SheetContent>
+        </Show>
+      </Sheet>
       <Show when={editingRoom()}>
         {(room) => (
           <EditRoomDialog

@@ -283,9 +283,6 @@
 .conventional-sidebar__read-actions {
   width: 100%;
 }
-.conventional-sidebar-scrim {
-  display: none;
-}
 .conventional-mobile-menu {
   position: fixed;
   z-index: 12;
@@ -1640,17 +1637,8 @@
   .conventional-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
-  .conventional-sidebar {
-    --sidebar-width: min(19rem, max(9rem, calc(100vw - var(--workspace-rail-width, 4rem))));
-    position: fixed;
-    z-index: 40;
-    top: 0;
-    bottom: 0;
-    left: max(0px, min(var(--workspace-rail-width, 4rem), calc(100vw - var(--sidebar-width))));
-    height: auto;
-    transform: translateX(-105%);
-    transition: transform 0.18s ease;
-    box-shadow: var(--shadow-xl);
+  .conventional-sidebar--inline {
+    display: none;
   }
   .conventional-sidebar__resize {
     display: none;
@@ -1658,19 +1646,14 @@
   .conventional-sidebar__close {
     display: grid;
   }
-  .conventional-sidebar--open {
-    transform: none;
+  .conventional-sidebar-sheet {
+    width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
+    max-width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
   }
-  .conventional-sidebar-scrim {
-    position: fixed;
-    z-index: 39;
-    inset: 0;
-    display: block;
-    border: 0;
-    background: var(--cw-scrim);
-  }
-  .workspace-frame:has(.conventional-sidebar--open) > .global-rail {
-    z-index: auto;
+  .conventional-sidebar--sheet {
+    --sidebar-width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
+    width: 100%;
+    max-width: 100%;
   }
   .conventional-main {
     grid-column: 1;
@@ -1720,10 +1703,10 @@
 
 /* Sidebar collapse works at every width: a closed navigation aside collapses
    its grid column instead of only sliding off-canvas on small screens. */
-.conventional-workspace:has(> .conventional-sidebar:not(.conventional-sidebar--open)) {
+.conventional-workspace:has(> .conventional-sidebar--inline:not(.conventional-sidebar--open)) {
   grid-template-columns: 0 minmax(0, 1fr);
 }
-.conventional-sidebar:not(.conventional-sidebar--open) {
+.conventional-sidebar--inline:not(.conventional-sidebar--open) {
   visibility: hidden;
 }
 
@@ -1951,12 +1934,6 @@
   }
   .workspace-topbar__view-actions:empty {
     display: none;
-  }
-  .workspace-frame .conventional-sidebar {
-    top: var(--workspace-topbar-height);
-  }
-  .workspace-frame .conventional-sidebar-scrim {
-    top: var(--workspace-topbar-height);
   }
   .workspace-app-library {
     padding: 1rem;
