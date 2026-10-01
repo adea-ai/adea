@@ -181,7 +181,7 @@ test('enforces a separate budget for the aggregate of other lazy Dev panes', () 
 
 test('retains aggregate raw, gzip, and file-count ceilings', () => {
   const overRaw = inspectClientBundle(fixture())
-  overRaw.total.rawBytes = 2_350_001
+  overRaw.total.rawBytes = CLIENT_BUNDLE_BUDGETS.total.rawBytes + 1
   expect(() => assertClientBundleBudgets(overRaw)).toThrow('Total client JavaScript exceeds raw')
 
   const overGzip = inspectClientBundle(fixture())

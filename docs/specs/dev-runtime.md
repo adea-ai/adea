@@ -1671,6 +1671,25 @@ cannot hide a match. Clearing the query restores the full projection and the
 unchanged collapse state. Typing or clearing the filter MUST NOT issue runtime
 commands, change selected canonical IDs, or mutate stored collapse state.
 
+The Dev sidebar consumes the published `@adea-ai/ui` `SidebarNav` shell,
+sections, and rows used by the workspace navigation. Shared UI owns the
+header, scrolling region, footer, row styling, disclosure interaction, status
+chips, and focus treatment. Adea supplies runtime groups/projects/sessions,
+selection, persisted collapse IDs, and reorder callbacks. The selected project
+uses the shared section active state even while collapsed; session selection
+uses the shared active row state. Shared navigation controls preserve 44px
+coarse-pointer targets without changing desktop density. Changing the shell
+does not change the commands or their authorization. Its archive shelf uses
+shared row, action, scrolling, empty-state, alert, and focus-managed destructive
+confirmation components. Failed archive reads name their error and preserve
+previously loaded rows; absent archive timestamps are labeled unavailable rather
+than implying recency. A successful restore returns focus to the persistent shelf
+control if its removed button still held focus. Restore still
+calls the authenticated unarchive contract, and deletion still requires
+confirmation and reports the missing host contract rather than fabricating
+success. An unavailable provider can leave only the filter and archive controls
+visible; it does not make the sidebar disconnected or authorize mock data.
+
 ### Browser lane
 
 ```text
@@ -2936,11 +2955,19 @@ memory state if any commit fails. No deletion error is logged-and-ignored.
 
 ## Files and search
 
-The Files tree uses the shared UI virtual-window geometry with a fixed row-height
-contract. Only the mounted range is rendered, while its scroll space represents
-the full listing. A focused row remains mounted while the reader scrolls; focus
-tracking uses the bubbling focus-in event so child controls participate. The host
-keeps range calculation, filtering, worktree identity and file-opening authority.
+The visible Files projection composes the shared UI `Tree`, `TreeRow`, and
+`VirtualWindow` contract. The host supplies the complete ordered visible-item
+descriptors and owns filesystem/worktree state, expanded paths, activation,
+selection policy, and `DevRuntimeService` calls. The shared tree owns treeitem
+ARIA metadata, the roving tab stop, arrow-key navigation, and focus handoff for
+virtualized rows. Its row-size callback reports each mounted row's actual
+border-box block size in CSS pixels; the host uses those measurements for
+identity-keyed variable-height range, spacer, and reveal calculations. A focused
+row is revealed and mounted before focus moves, while the DOM remains limited to
+the viewport, bounded overscan, and the initial measurement slice. Do not assume
+a fixed row height: text sizing and zoom may change shared row measurements, and
+scroll anchoring must preserve the current item or end position while those
+measurements update.
 
 Every operation carries scope, live worktree ID/generation, authorized root,
 canonical relative path, and expected file identity where relevant.

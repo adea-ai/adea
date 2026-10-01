@@ -11,8 +11,15 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // skeleton for the shared card/input-group/scroll-area chunks (net +2 files
   // over the previous 86), and the file-count cap followed the same lesson the
   // chat route documented: a cap pinned exactly to the last build leaves zero
-  // headroom, so every new shared chunk is a budget failure.
-  total: { rawBytes: 2_350_000, gzipBytes: 700 * 1024, fileCount: 90 },
+  // headroom, so every new shared chunk is a budget failure. Re-measured for
+  // the shared dev sidebar (2026-10-01, #853): 91 files — the archive shelf is
+  // App Library's second list-row-control importer, so rolldown splits that
+  // route's list-row chunk out (3 → 4 files there) and puts the total one over
+  // the old cap. The cap keeps the same +2 headroom as above.
+  // Re-measured for the shared accessible file tree (2026-10-01, #872): the
+  // shared Tree/TreeRow composites add ~6.4 KB raw to the total. Kept at the
+  // same rounding step rather than pinning to the build.
+  total: { rawBytes: 2_365_000, gzipBytes: 700 * 1024, fileCount: 93 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     virtual: { rawBytes: 14 * 1024, gzipBytes: 6 * 1024 },
@@ -38,11 +45,19 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // delta (the plugins dialog became a second importer). Ratcheted to the
     // next whole KiB rather than the measured value; on a route this small one
     // chunk split swings hundreds of bytes, and the old cap sat 61 bytes above
-    // main's own build.
-    appLibrary: { rawBytes: 12 * 1024, gzipBytes: 5 * 1024 },
+    // main's own build. Re-measured for the shared dev sidebar (2026-10-01,
+    // #853): 12,408 raw / 4,875 gzip across 4 files — the archive shelf is this
+    // route's second ListRowControl importer, so rolldown splits
+    // list-row-control into its own chunk (net +220 raw over main's 12,188/3
+    // files; gzip stays under the 5 KiB cap). Ratcheted to the next whole KiB
+    // for the same reason as above.
+    appLibrary: { rawBytes: 13 * 1024, gzipBytes: 5 * 1024 },
     devShell: { rawBytes: 128 * 1024, gzipBytes: 40 * 1024 },
     devUtilityPanes: { rawBytes: 168 * 1024, gzipBytes: 56 * 1024 },
-    devTerminal: { rawBytes: 768 * 1024, gzipBytes: 192 * 1024 },
+    // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
+    // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
+    // carries ~2.2% headroom instead of leaving the cap pinned to the build.
+    devTerminal: { rawBytes: 768 * 1024, gzipBytes: 197 * 1024 },
     devEditor: { rawBytes: 512 * 1024, gzipBytes: 160 * 1024 },
   },
 }

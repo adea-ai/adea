@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/dev-view",
-  "version": "0.71.1",
+  "version": "0.71.3",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -150,7 +150,7 @@
     "@xterm/addon-serialize": "^0.13.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/addon-webgl": "^0.18.0",
-    "@xterm/xterm": "^5.5.0",
+    "@xterm/xterm": "^6.0.0",
     "lucide-solid": "^1.45.0",
     "solid-js": "^1.9.15"
   },

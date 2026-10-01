@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.71.3](https://github.com/adea-ai/adea/compare/v0.71.2...v0.71.3) (2026-10-01)
+
+
+### Bug Fixes
+
+* **deps:** update external major dependencies (major) ([#883](https://github.com/adea-ai/adea/issues/883)) ([67fb9f3](https://github.com/adea-ai/adea/commit/67fb9f393998fd493c9706617c1b1267f3c2b03d))
+
+
+### Maintenance
+
+* **dev-view:** adopt shared accessible file tree ([#872](https://github.com/adea-ai/adea/issues/872)) ([1163779](https://github.com/adea-ai/adea/commit/1163779482722dedba6a50da63c638200ba9d1bb))
+
+## [0.71.2](https://github.com/adea-ai/adea/compare/v0.71.1...v0.71.2) (2026-10-01)
+
+
+### Maintenance
+
+* **dev-view:** consume shared sidebar and archive components ([#853](https://github.com/adea-ai/adea/issues/853)) ([0bf084c](https://github.com/adea-ai/adea/commit/0bf084c514146b133d8d627311ccc5bd77f42ab4))
+
 ## [0.71.1](https://github.com/adea-ai/adea/compare/v0.71.0...v0.71.1) (2026-10-01)
 
 
