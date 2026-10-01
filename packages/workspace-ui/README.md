@@ -29,6 +29,11 @@ focus the App Library search when Chat is disabled. Workspace selection uses
 the published dropdown radio menu: arrow keys move between workspaces, Enter
 selects one, and Escape closes the menu and restores focus to its trigger.
 
+Workspace search composes the published `Command` primitives for combobox and
+listbox semantics, active-result selection, keyboard navigation, and focus
+management. Built-in command filtering stays disabled so local fuzzy ranking,
+authorized private results, and remote result ordering remain host-owned.
+
 The account menu opens Updates after its menu focus cycle closes. It supplies
 the persistent rail button through the host adapter to the published dialog
 so closing Updates restores focus without retaining a removed menu item.

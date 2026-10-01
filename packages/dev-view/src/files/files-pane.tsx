@@ -54,6 +54,12 @@ import './files-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import {
+  CommandDialog,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@adea-ai/ui/components/ui/command'
 import { VirtualWindow } from '@adea-ai/ui/components/layout/virtual-window'
 
 export type FilesPaneProps = Readonly<{
@@ -639,35 +645,25 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   // onOpenFile path as tree selection. Bounded to 20 results.
   const [quickOpenOpen, setQuickOpenOpen] = createSignal(false)
   const [quickOpenQuery, setQuickOpenQuery] = createSignal('')
-  const [quickOpenIndex, setQuickOpenIndex] = createSignal(0)
-  let quickOpenInput: HTMLInputElement | undefined
+  const [filesPaneElement, setFilesPaneElement] = createSignal<HTMLElement>()
   const loadedPaths = (): readonly string[] => flattenPaths(nodes())
   const quickOpenResults = (): readonly string[] => fuzzyQuickOpen(loadedPaths(), quickOpenQuery())
 
   function openQuickOpen(): void {
     setNotice(undefined)
     setQuickOpenQuery('')
-    setQuickOpenIndex(0)
     setQuickOpenOpen(true)
-    queueMicrotask(() => quickOpenInput?.focus())
   }
 
   function closeQuickOpen(): void {
     setQuickOpenOpen(false)
     setQuickOpenQuery('')
-    setQuickOpenIndex(0)
   }
 
   function openQuickOpenResult(relativePath: string): void {
     closeQuickOpen()
     const node = findNode(nodes(), relativePath)
     if (node) void openFile(node)
-  }
-
-  function moveQuickOpenIndex(step: 1 | -1): void {
-    const count = quickOpenResults().length
-    if (count === 0) return
-    setQuickOpenIndex((current) => (current + step + count) % count)
   }
 
   // The filter is a QUICK-OPEN jump, not a tree filter: the `<Show>` below
@@ -703,6 +699,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
 
   return (
     <section
+      ref={setFilesPaneElement}
       class="dev-files"
       aria-label="Files"
       onKeyDown={(event) => {
@@ -714,7 +711,6 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           }
           return
         }
-        if (event.key === 'Escape' && quickOpenOpen()) closeQuickOpen()
       }}
     >
       <Show when={contentQuery().length > 0}>
@@ -809,71 +805,43 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           <RefreshCw aria-hidden="true" />
         </ActionButton>
       </div>
-      <Show when={quickOpenOpen()}>
-        <div class="dev-files__quickopen" role="dialog" aria-label="Quick open">
-          <Input
-            type="search"
-            class="dev-files__filter"
-            placeholder="Jump to a file…"
-            aria-label="Quick open file"
-            value={quickOpenQuery()}
-            ref={(element) => {
-              quickOpenInput = element
-            }}
-            onInput={(event) => {
-              setQuickOpenQuery(event.currentTarget.value)
-              setQuickOpenIndex(0)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowDown') {
-                event.preventDefault()
-                moveQuickOpenIndex(1)
-              } else if (event.key === 'ArrowUp') {
-                event.preventDefault()
-                moveQuickOpenIndex(-1)
-              } else if (event.key === 'Enter') {
-                event.preventDefault()
-                const selected = quickOpenResults()[quickOpenIndex()]
-                if (selected !== undefined) openQuickOpenResult(selected)
-              } else if (event.key === 'Escape') {
-                event.preventDefault()
-                closeQuickOpen()
-              }
-            }}
-          />
-          <div class="dev-files__quickopen-list" role="listbox" aria-label="Matching files">
-            <Show
-              when={quickOpenResults().length > 0}
-              fallback={
-                <p class="dev-terminal-muted dev-files__quickopen-empty">
-                  No loaded file matches. Expand more of the tree, then search again.
-                </p>
-              }
-            >
-              <For each={quickOpenResults()}>
-                {(path, index) => (
-                  <Button
-                    type="button"
-                    role="option"
-                    aria-selected={index() === quickOpenIndex()}
-                    class={cn('dev-files__row', {
-                      'dev-files__quickopen-row--active': index() === quickOpenIndex(),
-                    })}
-                    onMouseDown={(event) => {
-                      // Select on press so a click cannot land on stale focus.
-                      event.preventDefault()
-                      openQuickOpenResult(path)
-                    }}
-                  >
-                    <FileIcon aria-hidden="true" class="dev-files__icon" />
-                    <span class="dev-files__name">{path}</span>
-                  </Button>
-                )}
-              </For>
-            </Show>
-          </div>
-        </div>
-      </Show>
+      <CommandDialog
+        open={quickOpenOpen()}
+        onOpenChange={(open: boolean) => {
+          if (!open) closeQuickOpen()
+        }}
+        container={filesPaneElement()}
+        label="Quick open"
+        modal={false}
+        shouldFilter={false}
+        loop
+        vimBindings={false}
+        overlayClassName="hidden"
+        class="dev-files__quickopen absolute left-2 right-2 top-10 z-(--z-menu) w-auto max-w-none translate-x-0 translate-y-0"
+      >
+        <CommandInput
+          class="dev-files__quickopen-input"
+          placeholder="Jump to a file…"
+          value={quickOpenQuery()}
+          autofocus
+          onValueChange={(query) => setQuickOpenQuery(query)}
+        />
+        <CommandList class="dev-files__quickopen-list" label="Matching files">
+          <For each={quickOpenResults()}>
+            {(path) => (
+              <CommandItem value={path} onSelect={() => openQuickOpenResult(path)}>
+                <FileIcon aria-hidden="true" class="dev-files__icon" />
+                <span class="dev-files__name">{path}</span>
+              </CommandItem>
+            )}
+          </For>
+        </CommandList>
+        <Show when={quickOpenResults().length === 0}>
+          <p class="dev-terminal-muted dev-files__quickopen-empty" role="status">
+            No loaded file matches. Expand more of the tree, then search again.
+          </p>
+        </Show>
+      </CommandDialog>
       <Show
         when={runtimeReady()}
         fallback={

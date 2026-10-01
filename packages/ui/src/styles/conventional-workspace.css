@@ -968,8 +968,7 @@
 .conventional-inline-form input,
 .conventional-inline-form textarea,
 .conventional-inline-form select,
-.conventional-dialog-form input,
-.conventional-search-field {
+.conventional-dialog-form input {
   width: 100%;
   min-height: 2.75rem;
   padding: 0.55rem 0.65rem;
@@ -977,19 +976,6 @@
   border-radius: 0.4rem;
   background: var(--cw-surface);
   color: var(--cw-text);
-}
-.conventional-search-field {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.conventional-search-field input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: inherit;
 }
 .conventional-detail-panel__actions {
   display: flex;

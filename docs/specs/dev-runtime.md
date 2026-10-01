@@ -3093,6 +3093,10 @@ filename-part hits highest; ties break by shorter path; results are bounded
 `onOpenFile` path as tree selection; nothing in the picker grants authority.
 V1 ranks only loaded paths by design — a prebuilt index over the whole
 worktree (paged provider-side) is a future slice.
+The picker composes the shared `CommandDialog`/`Command` input and list
+primitives for listbox semantics, active-option announcements, keyboard
+selection, and focus restoration. Its built-in filter stays disabled so the
+files pane's fuzzy ranking and loaded-path boundary remain authoritative.
 
 ## Local git and diffs
 
