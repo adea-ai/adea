@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.12](https://github.com/adea-ai/adea/compare/v0.70.11...v0.70.12) (2026-10-01)
+
+
+### Maintenance
+
+* **workspace-ui:** adopt shared catalog browser ([#856](https://github.com/adea-ai/adea/issues/856)) ([dd5fac8](https://github.com/adea-ai/adea/commit/dd5fac852cc035def887debcc28709d91863f862))
+
 ## [0.70.11](https://github.com/adea-ai/adea/compare/v0.70.10...v0.70.11) (2026-10-01)
 
 
