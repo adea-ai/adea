@@ -5,7 +5,17 @@ import { createMemo, createSignal, For, Show } from 'solid-js'
 import { AgentStatus } from './agent-status'
 import { keyedRows } from './keyed-rows'
 import { WorkspaceEmpty } from './workspace-states'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { PropertyList, PropertyTerm, PropertyValue } from '@adea-ai/ui/components/composites/stat'
+import { Avatar, AvatarFallback } from '@adea-ai/ui/components/ui/avatar'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@adea-ai/ui/components/ui/card'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
@@ -114,45 +124,57 @@ export function AgentRoster(props: Props) {
       <div class="conventional-agent-grid">
         <For each={agentRows()}>
           {(entry) => (
-            <article class="conventional-agent-card">
-              <div class="conventional-agent-card__avatar" aria-hidden="true">
-                <Bot />
-              </div>
-              <div class="conventional-agent-card__identity">
-                <h2>{entry.item().name}</h2>
-              </div>
-              <div class="conventional-agent-card__status">
-                <AgentStatus agent={entry.item()} compact />
-              </div>
-              <p>{entry.item().roleSummary ?? 'No role summary yet.'}</p>
-              <div class="conventional-agent-card__metadata">
-                <p>
-                  <span>Profile</span>
-                  <strong>
-                    {entry.item().profile.id} · v{entry.item().profile.version}
-                  </strong>
-                </p>
-                <p>
-                  <span>Room</span>
-                  <strong>
-                    {entry.item().roomId
-                      ? (roomById().get(entry.item().roomId!)?.name ?? 'Unavailable Room')
-                      : 'Unassigned'}
-                  </strong>
-                </p>
-                <p>
-                  <span>Profile state</span>
-                  <strong>{entry.item().profile.state}</strong>
-                </p>
-              </div>
-              <Button type="button" onClick={() => void props.onMessage(entry.item().id)}>
-                <MessageCircle aria-hidden="true" />
-                Open conversation
-              </Button>
-              <Button type="button" onClick={() => setEditingAgentId(entry.item().id)}>
-                <Pencil aria-hidden="true" />
-                Customize
-              </Button>
+            <article>
+              <Card>
+                <CardHeader>
+                  <Avatar size="lg" aria-hidden="true">
+                    <AvatarFallback name={entry.item().name} />
+                  </Avatar>
+                  <CardTitle role="heading" aria-level="2">
+                    {entry.item().name}
+                  </CardTitle>
+                  <AgentStatus agent={entry.item()} compact />
+                </CardHeader>
+                <CardContent>
+                  <div class="grid gap-3">
+                    <p>{entry.item().roleSummary ?? 'No role summary yet.'}</p>
+                    <PropertyList>
+                      <PropertyTerm>Profile</PropertyTerm>
+                      <PropertyValue>
+                        {entry.item().profile.id} · v{entry.item().profile.version}
+                      </PropertyValue>
+                      <PropertyTerm>Room</PropertyTerm>
+                      <PropertyValue>
+                        {entry.item().roomId
+                          ? (roomById().get(entry.item().roomId!)?.name ?? 'Unavailable Room')
+                          : 'Unassigned'}
+                      </PropertyValue>
+                      <PropertyTerm>Profile state</PropertyTerm>
+                      <PropertyValue>{entry.item().profile.state}</PropertyValue>
+                    </PropertyList>
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <div class="flex w-full flex-col items-stretch gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void props.onMessage(entry.item().id)}
+                    >
+                      <MessageCircle aria-hidden="true" />
+                      Open conversation
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setEditingAgentId(entry.item().id)}
+                    >
+                      <Pencil aria-hidden="true" />
+                      Customize
+                    </Button>
+                  </div>
+                </CardFooter>
+              </Card>
             </article>
           )}
         </For>
@@ -199,13 +221,16 @@ function AgentCustomizationForm(props: {
           <h2>Customize {props.agent.name}</h2>
           <p>Stable identity · {props.agent.id}</p>
         </div>
-        <Button
+        <ActionButton
           type="button"
           aria-label="Close Agent customization"
+          tooltip="Close Agent customization"
+          variant="ghost"
+          size="icon-sm"
           onClick={() => props.onCancel()}
         >
           <X aria-hidden="true" />
-        </Button>
+        </ActionButton>
       </div>
       <AgentStatus agent={props.agent} />
       <div class="conventional-form-grid">
@@ -340,9 +365,16 @@ function AgentCreateForm(props: {
     >
       <div class="conventional-inline-form__header">
         <h2>Create Agent</h2>
-        <Button type="button" aria-label="Cancel Agent creation" onClick={() => props.onCancel()}>
+        <ActionButton
+          type="button"
+          aria-label="Cancel Agent creation"
+          tooltip="Cancel Agent creation"
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => props.onCancel()}
+        >
           <X aria-hidden="true" />
-        </Button>
+        </ActionButton>
       </div>
       <Label>
         Name
