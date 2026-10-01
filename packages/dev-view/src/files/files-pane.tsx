@@ -832,12 +832,6 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     const viewportBottom = current + treeElement.clientHeight
     const next =
       top < current ? top : bottom > viewportBottom ? bottom - treeElement.clientHeight : current
-    if (typeof window !== 'undefined') {
-      const log =
-        ((window as unknown as Record<string, unknown>).__revealLog as unknown[] | undefined) ?? []
-      log.push(['reveal', id, 'cur', current, 'next', next, 'pTop', paddingTop])
-      ;(window as unknown as Record<string, unknown>).__revealLog = log
-    }
     if (next === current) return
     treeElement.scrollTop = Math.max(0, next)
     setScrollTop(treeElement.scrollTop)
@@ -1137,15 +1131,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
               onActivate={activateTreeItem}
               onRequestReveal={revealTreeItem}
               onRowSizeChange={queueRowMeasurement}
-              onScroll={(event) => {
-                const log =
-                  ((window as unknown as Record<string, unknown>).__scrollTrace as
-                    | unknown[]
-                    | undefined) ?? []
-                log.push(['scroll', event.currentTarget.scrollTop])
-                ;(window as unknown as Record<string, unknown>).__scrollTrace = log
-                setScrollTop(event.currentTarget.scrollTop)
-              }}
+              onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
             >
               <VirtualWindow
                 class="shrink-0"
