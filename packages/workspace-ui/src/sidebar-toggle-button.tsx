@@ -1,34 +1,32 @@
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-solid'
 import { Show } from 'solid-js'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { SheetTrigger } from '@adea-ai/ui/components/ui/sheet'
 
 /**
- * The fixed sidebar expand/collapse control, shared by every view (chat
- * shell, virtual scene, desktop, web) so position, size, theme, and icon
- * can never drift. Styled entirely by `.conventional-mobile-menu`.
+ * The standalone mobile Sheet trigger, shared by views without the workspace
+ * top bar so its position, size, theme, and icon cannot drift. The main
+ * WorkspaceFrame uses its top-bar control to open the same controlled Sheet.
  *
- * `expanded` reflects the sidebar state; the control swaps its icon and
- * label accordingly. The workspace CSS hides it while the sidebar is open.
+ * `expanded` reflects the shared sidebar state; the control swaps its icon
+ * and label accordingly. The Sheet root owns the open/close and focus behavior.
  */
-export function SidebarToggleButton(props: {
-  expanded: boolean
-  onToggle: (open: boolean) => void
-}) {
+export function SidebarToggleButton(props: { expanded: boolean }) {
   const label = () => (props.expanded ? 'Close workspace navigation' : 'Open workspace navigation')
 
   return (
-    <ActionButton
+    <SheetTrigger
+      as={ActionButton}
       type="button"
       class="conventional-mobile-menu"
       touchTarget="comfortable"
       tooltip={label()}
       aria-label={label()}
       aria-expanded={props.expanded}
-      onClick={() => props.onToggle(!props.expanded)}
     >
       <Show when={props.expanded} fallback={<PanelLeftOpen aria-hidden="true" />}>
         <PanelLeftClose aria-hidden="true" />
       </Show>
-    </ActionButton>
+    </SheetTrigger>
   )
 }

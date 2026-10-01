@@ -15,6 +15,7 @@ export function WorkspaceTopBar(props: {
   title: string
   onSearch(): void
   actionsMount(element: HTMLDivElement): void
+  sidebarToggleRef?: (element: HTMLButtonElement | undefined) => void
 }) {
   const router = useRouter()
   const sidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
@@ -98,6 +99,7 @@ export function WorkspaceTopBar(props: {
           <ArrowRight aria-hidden="true" />
         </ActionButton>
         <ActionButton
+          ref={props.sidebarToggleRef}
           variant="ghost"
           size="icon-sm"
           tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}

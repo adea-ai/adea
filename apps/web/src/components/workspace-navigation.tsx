@@ -260,6 +260,7 @@ export type WorkspaceNavigationProps = Readonly<{
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
+  const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
@@ -576,6 +577,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
         onSearch={openSearch}
         actionsMount={setToolbarMount}
+        sidebarToggleRef={setSidebarOpener}
       />
       <GlobalWorkspaceRail
         account={{
@@ -667,6 +669,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                     props.chatEntry && activeAppId() !== 'kanban' ? (
                       props.chatEntry(
                         <ConventionalWorkspace
+                          restoreFocusRef={sidebarOpener}
                           client={props.client}
                           deepLink={deepLink}
                           manageSettings={false}
@@ -677,6 +680,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                       )
                     ) : (
                       <ConventionalWorkspace
+                        restoreFocusRef={sidebarOpener}
                         taskBoardOnly={activeAppId() === 'kanban'}
                         client={props.client}
                         deepLink={deepLink}
@@ -697,6 +701,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                 fallback={
                   <SpatialWorkspace
                     {...props.virtualProps}
+                    restoreFocusRef={sidebarOpener}
                     apiClient={props.client}
                     initialScene={scene()}
                     onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
@@ -708,6 +713,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
               >
                 <RoomDesignerWorkspace
                   client={props.client}
+                  restoreFocusRef={sidebarOpener}
                   onOpenChat={() => changeView('chat')}
                   initialCharacter={props.virtualProps.initialCharacter}
                   initialScene={scene()}

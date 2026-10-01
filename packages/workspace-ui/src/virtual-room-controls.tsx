@@ -35,7 +35,11 @@ const CreateRoomDialog = lazy(() =>
 
 type SidebarDialog = 'create-group' | 'create-room' | null
 
-export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat: () => void }) {
+export function VirtualRoomControls(props: {
+  client?: AgentHqApiClient
+  openChat: () => void
+  restoreFocusRef?: () => HTMLElement | undefined
+}) {
   const [defaultClient] = createSignal(createApiClient())
   const client = () => props.client ?? defaultClient()
   const persistenceReady = useWorkspacePersistence()
@@ -209,6 +213,7 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
         roomBusy={updateRoomMutation.isPending}
         selectedChannelId={selectedChannelId()}
         readState={settledData(readState)?.readState ?? []}
+        restoreFocusRef={props.restoreFocusRef}
         status={sidebarStatus()}
         workspaceReady={Boolean(activeWorkspace())}
         workspaceName={activeWorkspace()?.name ?? 'Virtual'}
