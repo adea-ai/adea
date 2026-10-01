@@ -17,7 +17,6 @@ import {
   SideRailSection,
 } from '@adea-ai/ui/components/layout/side-rail'
 import {
-  Bell,
   BriefcaseBusiness,
   Code2,
   Home,
@@ -69,7 +68,6 @@ export function GlobalWorkspaceRail(props: {
   activeWorkspace?: WorkspaceSummary
   /** The visible view entries, already ordered and filtered by rail preferences. */
   views: readonly WorkspaceAppId[]
-  onOpenNotifications: () => void
   onOpenAbout: () => void
   onOpenPlugins: () => void
   onOpenAppLibrary: () => void
@@ -133,7 +131,7 @@ export function GlobalWorkspaceRail(props: {
 
   return (
     <SideRail collapsed class="global-rail" aria-label="Global navigation">
-      <SideRailHeader>
+      <SideRailHeader class="global-rail__header">
         <DropdownMenu modal={false} placement="right-start" gutter={4}>
           <DropdownMenuTrigger
             as={SideRailButton}
@@ -175,6 +173,7 @@ export function GlobalWorkspaceRail(props: {
             aria-label="Search workspace"
             shortcut="⌘K"
             keyshortcuts="Meta+K Control+K"
+            class="global-rail__search-item"
             onClick={props.onOpenSearch}
           >
             <Search aria-hidden="true" />
@@ -209,6 +208,9 @@ export function GlobalWorkspaceRail(props: {
               )
             }}
           </For>
+          {/* App Library is the gateway to installed apps, not a workspace view;
+              the divider keeps the two groups apart like the search separator. */}
+          <Separator class="my-1" />
           <SideRailItem
             as="button"
             type="button"
@@ -219,16 +221,6 @@ export function GlobalWorkspaceRail(props: {
             onClick={props.onOpenAppLibrary}
           >
             <LayoutGrid aria-hidden="true" />
-          </SideRailItem>
-          <SideRailItem
-            as="button"
-            type="button"
-            disabled
-            label="Notifications (coming soon)"
-            aria-label="Notifications (coming soon)"
-            onClick={props.onOpenNotifications}
-          >
-            <Bell aria-hidden="true" />
           </SideRailItem>
         </SideRailSection>
       </SideRailContent>

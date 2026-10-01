@@ -62,6 +62,37 @@
   min-width: 0;
 }
 
+/*
+ * The collapsed rail keeps one vertical rhythm. The header row is an item, not
+ * a title bar: at the shared topbar height its hover surface ran rail-edge to
+ * rail-edge and it pushed the search entry further down than the view entries
+ * sit apart.
+ */
+.global-rail[data-collapsed='true'] .global-rail__header {
+  height: var(--rail-item-height);
+  padding: 0;
+}
+.global-rail[data-collapsed='true'] .global-rail__workspace-trigger {
+  width: calc(100% - 1rem);
+}
+
+/*
+ * The search entry is the one rail row that advertises a chord, so the chord
+ * is drawn as a caption under its icon. The shared row hides the shortcut
+ * span while collapsed and shows it in the hover tip instead; Adea's rail is
+ * permanently collapsed, which made ⌘K undiscoverable.
+ */
+.global-rail[data-collapsed='true'] .global-rail__search-item {
+  height: auto;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-block: 0.5rem 0.4rem;
+}
+.global-rail[data-collapsed='true'] .global-rail__search-item > span[aria-hidden='true'] {
+  display: block;
+  opacity: 1;
+}
+
 .conventional-workspace,
 .conventional-dialog {
   --cw-bg: var(--background);
@@ -1698,6 +1729,16 @@
   height: var(--workspace-topbar-height);
   background: var(--card);
   color: var(--card-foreground);
+}
+/*
+ * Restate the shared TopBar's macOS inset as a host rule. The shared rule is a
+ * Tailwind utility, so it shares a layer (and a tie-break-by-order contest)
+ * with `px-3`; when a build ordered them the other way the traffic-light
+ * column collapsed and the back/forward controls rendered behind the macOS
+ * window buttons. Unlayered host CSS wins that contest for good.
+ */
+.workspace-topbar.window-inset-macos {
+  padding-inline-start: 84px;
 }
 .workspace-frame > .global-rail {
   grid-column: 1;
