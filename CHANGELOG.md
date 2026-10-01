@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.70.11](https://github.com/adea-ai/adea/compare/v0.70.10...v0.70.11) (2026-10-01)
+
+
+### Bug Fixes
+
+* **theme:** enforce published palette authority ([#869](https://github.com/adea-ai/adea/issues/869)) ([60940b4](https://github.com/adea-ai/adea/commit/60940b43f410ecdfc66f04ff6a61c0b345450ea7))
+* **ui:** enforce shared class and action contracts ([#854](https://github.com/adea-ai/adea/issues/854)) ([f0f9201](https://github.com/adea-ai/adea/commit/f0f9201f5ed9ca3576935878946a56724a6c4355))
+
+## [0.70.10](https://github.com/adea-ai/adea/compare/v0.70.9...v0.70.10) (2026-10-01)
+
+
+### Bug Fixes
+
+* **web:** preflight shared UI Lucide dev exports ([#862](https://github.com/adea-ai/adea/issues/862)) ([c554b9f](https://github.com/adea-ai/adea/commit/c554b9f966e9d9b30a2b09546dbe7d76e358f65e))
+
+## [0.70.9](https://github.com/adea-ai/adea/compare/v0.70.8...v0.70.9) (2026-10-01)
+
+
+### Maintenance
+
+* consume shared App Library controls and action tooltips ([#845](https://github.com/adea-ai/adea/issues/845)) ([ad2d316](https://github.com/adea-ai/adea/commit/ad2d31633eae31902b75b0d905a6168fd16158e2))
+
+## [0.70.8](https://github.com/adea-ai/adea/compare/v0.70.7...v0.70.8) (2026-10-01)
+
+
+### Maintenance
+
+* **workspace-ui:** adopt shared UI primitives ([#847](https://github.com/adea-ai/adea/issues/847)) ([31dcae1](https://github.com/adea-ai/adea/commit/31dcae166eb7a7d4da55635c1b213663ca555a99))
+
+## [0.70.7](https://github.com/adea-ai/adea/compare/v0.70.6...v0.70.7) (2026-10-01)
+
+
+### Maintenance
+
+* **deps:** update the design system to themes 0.8.6 and ui 0.89.2 ([#871](https://github.com/adea-ai/adea/issues/871)) ([21c8d4e](https://github.com/adea-ai/adea/commit/21c8d4e689336a5e0de5beeb878e0318567bc98a))
+
 ## [0.70.6](https://github.com/adea-ai/adea/compare/v0.70.5...v0.70.6) (2026-10-01)
 
 

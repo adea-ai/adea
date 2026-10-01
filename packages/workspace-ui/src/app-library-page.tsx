@@ -1,5 +1,4 @@
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
-import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { ListGroup, ListRow } from '@adea-ai/ui/components/composites/list-row'
@@ -49,25 +48,35 @@ function AppLibraryRow(props: {
         <Show
           when={props.enabled}
           fallback={
-            <Button
+            <ActionButton
               variant="outline"
               size="sm"
+              tooltip={`Add ${props.app.name} to your sidebar`}
               aria-label={`Enable ${props.app.name}`}
               onClick={() => props.onSetEnabled(props.app.id, true)}
             >
               Enable
-            </Button>
+            </ActionButton>
           }
         >
           <>
             <Badge variant="secondary">In sidebar</Badge>
-            <Button variant="ghost" size="sm" onClick={() => props.onOpen(props.app.id)}>
+            <ActionButton
+              variant="ghost"
+              size="sm"
+              tooltip={`Switch to ${props.app.name}`}
+              onClick={() => props.onOpen(props.app.id)}
+            >
               Open {props.app.name}
-            </Button>
+            </ActionButton>
             <ActionButton
               variant="ghost"
               size="icon-sm"
-              tooltip={`Move ${props.app.name} up`}
+              tooltip={
+                position() === 0
+                  ? `${props.app.name} is already first in your sidebar`
+                  : `Move ${props.app.name} earlier in your sidebar`
+              }
               aria-label={`Move ${props.app.name} up`}
               disabled={position() === 0}
               onClick={() => props.onReorder(props.app.id, 'up')}
@@ -77,21 +86,26 @@ function AppLibraryRow(props: {
             <ActionButton
               variant="ghost"
               size="icon-sm"
-              tooltip={`Move ${props.app.name} down`}
+              tooltip={
+                position() === props.enabledOrder.length - 1
+                  ? `${props.app.name} is already last in your sidebar`
+                  : `Move ${props.app.name} later in your sidebar`
+              }
               aria-label={`Move ${props.app.name} down`}
               disabled={position() === props.enabledOrder.length - 1}
               onClick={() => props.onReorder(props.app.id, 'down')}
             >
               <ChevronDown aria-hidden="true" />
             </ActionButton>
-            <Button
+            <ActionButton
               variant="ghost"
               size="sm"
               aria-label={`Disable ${props.app.name}`}
+              tooltip={`Remove ${props.app.name} from your sidebar`}
               onClick={() => props.onSetEnabled(props.app.id, false)}
             >
               Disable
-            </Button>
+            </ActionButton>
           </>
         </Show>
       }
@@ -155,14 +169,15 @@ export function AppLibraryPage(props: {
               onInput={(event) => setSearch(event.currentTarget.value)}
             />
           </InputGroup>
-          <Button
+          <ActionButton
             variant={enabledOnly() ? 'secondary' : 'outline'}
             size="sm"
             aria-pressed={enabledOnly()}
+            tooltip={enabledOnly() ? 'Show every available app' : 'Show only apps in your sidebar'}
             onClick={() => setEnabledOnly(!enabledOnly())}
           >
             Show enabled only
-          </Button>
+          </ActionButton>
         </div>
       </header>
       <div class="workspace-app-library__body">
@@ -207,9 +222,14 @@ export function AppLibraryPage(props: {
         </Show>
       </div>
       <footer class="workspace-app-library__footer">
-        <Button variant="ghost" size="sm" onClick={props.onReset}>
+        <ActionButton
+          variant="ghost"
+          size="sm"
+          tooltip="Restore the default apps and sidebar order"
+          onClick={props.onReset}
+        >
           Reset Navigation
-        </Button>
+        </ActionButton>
         <p>
           External plugins, skills and connectors are managed in Plugins. Larger installable apps
           will appear here when their installation is supported.

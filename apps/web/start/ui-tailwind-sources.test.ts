@@ -1,14 +1,35 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, extname, join, resolve } from 'node:path'
+import { dirname, extname, join, relative } from 'node:path'
 
 import tailwindcss from '@tailwindcss/postcss'
 import viteSolid from 'vite-plugin-solid'
-import { build as viteBuild } from 'vite'
+import {
+  build as viteBuild,
+  createServer as viteCreateServer,
+  type MinimalPluginContextWithoutEnvironment,
+  type Plugin,
+  type ResolvedConfig,
+} from 'vite'
 
-import { collectUiSourceFiles, formatUiSourceDirectives } from './ui-tailwind-sources'
+import {
+  assertLucideDevShimCoverage,
+  collectUiSourceFiles,
+  collectUiSourceGraph,
+  formatUiSourceDirectives,
+  missingLucideDevShimExports,
+  selectiveUiSourcePlugin,
+} from './ui-tailwind-sources'
 
 type Postcss = (plugins: unknown[]) => {
   process(css: string, options: { from: string }): Promise<{ css: string }>
@@ -52,8 +73,12 @@ function makeFixture(entrySource: string): Fixture {
 
   mkdirSync(dirname(linkedUiRoot), { recursive: true })
   symlinkSync(uiRoot, linkedUiRoot, 'dir')
+  // Resolve tailwindcss through the module graph rather than assuming it is
+  // hoisted into apps/web/node_modules. The workspace installs it at the repo
+  // root, so the fixed path is missing on CI and symlinkSync threw before the
+  // test did any work.
   symlinkSync(
-    resolve(dirname(import.meta.dir), 'node_modules/tailwindcss'),
+    dirname(createRequire(import.meta.url).resolve('tailwindcss/package.json')),
     linkedTailwindRoot,
     'dir'
   )
@@ -87,6 +112,11 @@ export function Button() { return <button class="bg-[#123456] size-8" data-size=
 `
   )
   write(uiRoot, 'src/lib/variants.ts', 'export const controlSize = "size-8"\n')
+  write(
+    root,
+    'node_modules/lucide-solid/index.ts',
+    'export const AppArrow = "AppArrow"\nexport const ArrowDownRight = "ArrowDownRight"\nexport const ArrowUpRight = "ArrowUpRight"\nexport const Calendar = "Calendar"\n'
+  )
 
   async function resolveId(specifier: string, importer: string) {
     if (specifier === '@adea-ai/ui/package.json') return join(uiRoot, 'package.json')
@@ -95,6 +125,8 @@ export function Button() { return <button class="bg-[#123456] size-8" data-size=
       return resolveFile(join(uiSourceRoot, specifier.slice('@adea-ai/ui/'.length)))
     if (specifier === '@vendor/engine')
       return resolveFile(join(root, 'node_modules/@vendor/engine/index.js'))
+    if (specifier === 'lucide-solid')
+      return resolveFile(join(root, 'node_modules/lucide-solid/index.ts'))
     if (specifier.startsWith('#lib/'))
       return resolveFile(join(uiSourceRoot, 'lib', specifier.slice(5)))
     if (specifier.startsWith('.')) return resolveFile(join(dirname(importer), specifier))
@@ -121,6 +153,23 @@ async function collect(fixture: Fixture) {
     uiSourceRoot: fixture.uiSourceRoot,
     resolveId: fixture.resolveId,
   })
+}
+
+async function resolvePluginConfig(
+  plugin: Plugin,
+  command: 'build' | 'serve',
+  resolveId: Fixture['resolveId']
+) {
+  const hook = plugin.configResolved
+  if (!hook) throw new Error('Expected the UI source plugin to register configResolved')
+  const handler = typeof hook === 'function' ? hook : hook.handler
+  const config = {
+    command,
+    createResolver: () => resolveId,
+  } as unknown as ResolvedConfig
+  // Rollup binds the plugin context as `this` when it runs a plugin hook. The
+  // hook never reads it, but its declared signature demands the full context.
+  await handler.call(plugin as unknown as MinimalPluginContextWithoutEnvironment, config)
 }
 
 function directives(fixture: Fixture, files: string[], stablePackagePath = fixture.linkedUiRoot) {
@@ -382,5 +431,265 @@ export const controls = Object.values(UI)
     const opaqueFiles = await collect(fixture)
     expect(opaqueFiles.some((file) => file.includes('/components/ui/button/button.tsx'))).toBe(true)
     expect(opaqueFiles.some((file) => file.includes('/components/ui/input/input.tsx'))).toBe(true)
+  })
+
+  test('separates ESM dev barrel links from selected-export CSS discovery', async () => {
+    const fixture = makeFixture(`import { AppArrow } from 'lucide-solid'
+import { PropertyList } from '@adea-ai/ui'
+export const appIcon = AppArrow
+export const details = PropertyList
+`)
+    write(
+      fixture.uiRoot,
+      'src/index.ts',
+      `export { Button } from './components/ui/button'
+export { Input } from './components/ui/input'
+export { PropertyList, Stat } from './components/composites/stat'
+`
+    )
+    write(
+      fixture.uiRoot,
+      'src/components/composites/stat/index.ts',
+      "export { PropertyList, Stat } from './stat'\n"
+    )
+    const statPath = realpathSync(
+      write(
+        fixture.uiRoot,
+        'src/components/composites/stat/stat.tsx',
+        `import { ArrowDownRight as Down, ArrowUpRight as Up } from 'lucide-solid'
+export function PropertyList() { return null }
+export function Stat() { return [Down, Up] }
+`
+      )
+    )
+    write(
+      fixture.uiRoot,
+      'src/components/ui/calendar/index.ts',
+      "export { Calendar } from './calendar'\n"
+    )
+    const calendarPath = realpathSync(
+      write(
+        fixture.uiRoot,
+        'src/components/ui/calendar/calendar.tsx',
+        `import { Calendar as CalendarIcon } from 'lucide-solid'
+export function Calendar() { return CalendarIcon }
+`
+      )
+    )
+
+    const before = await collectUiSourceGraph({
+      entrypoint: fixture.entrypoint,
+      repositoryRoot: fixture.root,
+      uiPackageRoot: fixture.uiRoot,
+      uiSourceRoot: fixture.uiSourceRoot,
+      resolveId: fixture.resolveId,
+    })
+    expect(before.uiSourceFiles).toContain(statPath)
+    expect(before.uiSourceFiles).not.toContain(calendarPath)
+    expect(before.devLucideImports.some(({ file }) => file === calendarPath)).toBe(false)
+    expect(before.devLucideImports).toEqual([
+      { file: statPath, names: ['ArrowDownRight', 'ArrowUpRight'] },
+    ])
+    expect(
+      missingLucideDevShimExports(
+        before.devLucideImports,
+        `export {
+  default as ArrowUpRight
+} from 'lucide-solid/icons/arrow-up-right'
+`
+      )
+    ).toEqual([{ file: statPath, names: ['ArrowDownRight'] }])
+    expect(() =>
+      assertLucideDevShimCoverage(
+        before.devLucideImports,
+        "export { default as ArrowUpRight } from 'lucide-solid/icons/arrow-up-right'\n",
+        realpathSync(fixture.root)
+      )
+    ).toThrow(/components\/composites\/stat\/stat\.tsx: ArrowDownRight/)
+
+    write(fixture.root, 'apps/web/src/start/client.tsx', 'export const clientReady = true\n')
+    write(
+      fixture.root,
+      'apps/web/src/start/router.tsx',
+      `import { PropertyList } from '@adea-ai/ui'
+export const route = PropertyList
+`
+    )
+    write(
+      fixture.root,
+      'apps/web/start/lucide-solid-dev-shim.jsx',
+      "export { default as ArrowUpRight } from 'lucide-solid/icons/arrow-up-right'\n"
+    )
+    const plugin = selectiveUiSourcePlugin(join(fixture.root, 'apps/web'), {
+      checkLucideDevShim: true,
+    })
+    await expect(resolvePluginConfig(plugin, 'serve', fixture.resolveId)).rejects.toThrow(
+      /components\/composites\/stat\/stat\.tsx: ArrowDownRight/
+    )
+    await resolvePluginConfig(plugin, 'build', fixture.resolveId)
+
+    write(
+      fixture.uiRoot,
+      'src/index.ts',
+      `export { Button } from './components/ui/button'
+export { Input } from './components/ui/input'
+export { PropertyList, Stat } from './components/composites/stat'
+export { Calendar } from './components/ui/calendar'
+`
+    )
+    const viteServer = await viteCreateServer({
+      configFile: false,
+      logLevel: 'silent',
+      root: fixture.root,
+      optimizeDeps: { exclude: ['@adea-ai/ui'], noDiscovery: true },
+      server: { middlewareMode: true },
+    })
+    try {
+      const uiRootUrl = `/${relative(fixture.root, join(fixture.uiSourceRoot, 'index.ts')).replaceAll('\\', '/')}`
+      const transformed = await viteServer.transformRequest(uiRootUrl)
+      expect(transformed?.code).toContain('components/ui/calendar')
+      const rootModule = await viteServer.moduleGraph.getModuleByUrl(uiRootUrl)
+      expect(
+        [...(rootModule?.importedModules ?? [])].some((module) => module.url.includes('/calendar/'))
+      ).toBe(true)
+    } finally {
+      await viteServer.close()
+    }
+
+    const after = await collectUiSourceGraph({
+      entrypoint: fixture.entrypoint,
+      repositoryRoot: fixture.root,
+      uiPackageRoot: fixture.uiRoot,
+      uiSourceRoot: fixture.uiSourceRoot,
+      resolveId: fixture.resolveId,
+    })
+    expect(after.uiSourceFiles).not.toContain(calendarPath)
+    expect(after.devLucideImports).toEqual([
+      { file: statPath, names: ['ArrowDownRight', 'ArrowUpRight'] },
+      { file: calendarPath, names: ['Calendar'] },
+    ])
+
+    write(
+      fixture.root,
+      'apps/web/start/lucide-solid-dev-shim.jsx',
+      `export { default as ArrowDownRight } from 'lucide-solid/icons/arrow-down-right'
+export { default as ArrowUpRight } from 'lucide-solid/icons/arrow-up-right'
+`
+    )
+    const calendarPlugin = selectiveUiSourcePlugin(join(fixture.root, 'apps/web'), {
+      checkLucideDevShim: true,
+    })
+    await expect(resolvePluginConfig(calendarPlugin, 'serve', fixture.resolveId)).rejects.toThrow(
+      /components\/ui\/calendar\/calendar\.tsx: Calendar/
+    )
+  })
+
+  test('fails closed when a reached shared UI module uses an opaque Lucide namespace', async () => {
+    const fixture = makeFixture(`import { Button } from '@adea-ai/ui'
+export const control = Button
+`)
+    write(
+      fixture.uiRoot,
+      'src/components/ui/button/button.tsx',
+      `import * as Icons from 'lucide-solid'
+export function Button() { return Object.values(Icons) }
+`
+    )
+
+    await expect(
+      collectUiSourceGraph({
+        entrypoint: fixture.entrypoint,
+        repositoryRoot: fixture.root,
+        uiPackageRoot: fixture.uiRoot,
+        uiSourceRoot: fixture.uiSourceRoot,
+        resolveId: fixture.resolveId,
+      })
+    ).rejects.toThrow(/opaque or namespace runtime import of 'lucide-solid'/)
+  })
+
+  test('preflights literal lazy shared UI imports without loading them', async () => {
+    const fixture = makeFixture("void import('@adea-ai/ui/components/ui/calendar')\n")
+    write(
+      fixture.uiRoot,
+      'src/components/ui/calendar/index.ts',
+      "export { Calendar } from './calendar'\n"
+    )
+    const calendarPath = realpathSync(
+      write(
+        fixture.uiRoot,
+        'src/components/ui/calendar/calendar.tsx',
+        [
+          "import { Calendar as CalendarIcon } from 'lucide-solid'",
+          'export function Calendar() { return CalendarIcon }',
+          '',
+        ].join('\n')
+      )
+    )
+
+    const graph = await collectUiSourceGraph({
+      entrypoint: fixture.entrypoint,
+      repositoryRoot: fixture.root,
+      uiPackageRoot: fixture.uiRoot,
+      uiSourceRoot: fixture.uiSourceRoot,
+      resolveId: fixture.resolveId,
+    })
+
+    expect(graph.uiSourceFiles).toContain(calendarPath)
+    expect(graph.devLucideImports).toEqual([{ file: calendarPath, names: ['Calendar'] }])
+  })
+
+  test('preflights Lucide icons from a lazy app import of shared PropertyList', async () => {
+    const fixture = makeFixture('export const clientReady = true\n')
+    write(
+      fixture.uiRoot,
+      'src/index.ts',
+      "export { PropertyList, Stat } from './components/composites/stat'\n"
+    )
+    write(
+      fixture.uiRoot,
+      'src/components/composites/stat/index.ts',
+      "export { PropertyList, Stat } from './stat'\n"
+    )
+    const statPath = realpathSync(
+      write(
+        fixture.uiRoot,
+        'src/components/composites/stat/stat.tsx',
+        [
+          "import { ArrowDownRight as Down, ArrowUpRight as Up } from 'lucide-solid'",
+          'export function PropertyList() { return null }',
+          'export function Stat() { return [Down, Up] }',
+          '',
+        ].join('\n')
+      )
+    )
+    const lazyEntry = write(
+      fixture.root,
+      'apps/web/src/start/client.tsx',
+      "void import('@adea-ai/ui').then(({ PropertyList }) => PropertyList)\n"
+    )
+    write(fixture.root, 'apps/web/src/start/router.tsx', 'export const routeReady = true\n')
+    write(
+      fixture.root,
+      'apps/web/start/lucide-solid-dev-shim.jsx',
+      "export { default as ArrowUpRight } from 'lucide-solid/icons/arrow-up-right'\n"
+    )
+
+    const graph = await collectUiSourceGraph({
+      entrypoint: lazyEntry,
+      repositoryRoot: fixture.root,
+      uiPackageRoot: fixture.uiRoot,
+      uiSourceRoot: fixture.uiSourceRoot,
+      resolveId: fixture.resolveId,
+    })
+    expect(graph.devLucideImports).toEqual([
+      { file: statPath, names: ['ArrowDownRight', 'ArrowUpRight'] },
+    ])
+
+    const plugin = selectiveUiSourcePlugin(join(fixture.root, 'apps/web'), {
+      checkLucideDevShim: true,
+    })
+    await expect(resolvePluginConfig(plugin, 'serve', fixture.resolveId)).rejects.toThrow(
+      /components\/composites\/stat\/stat\.tsx: ArrowDownRight/
+    )
   })
 })

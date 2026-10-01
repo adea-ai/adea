@@ -1,4 +1,4 @@
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Palette } from 'lucide-solid'
 import { createSignal, Show } from 'solid-js'
 import lazyComponent from './lazy-component'
@@ -10,15 +10,16 @@ const AppearanceControl = lazyComponent(
 
 function AppearanceLoading() {
   return (
-    <Button
+    <ActionButton
       variant="ghost"
       size="icon-sm"
+      tooltip="Loading appearance settings"
       aria-label="Appearance settings"
       aria-busy="true"
       disabled
     >
       <Palette aria-hidden="true" />
-    </Button>
+    </ActionButton>
   )
 }
 
@@ -30,9 +31,10 @@ export function WorkspaceAppearanceControl() {
     <Show
       when={accessed()}
       fallback={
-        <Button
+        <ActionButton
           variant="ghost"
           size="icon-sm"
+          tooltip="Open appearance settings"
           aria-label="Appearance settings"
           onClick={() => {
             setOpen(true)
@@ -40,7 +42,7 @@ export function WorkspaceAppearanceControl() {
           }}
         >
           <Palette aria-hidden="true" />
-        </Button>
+        </ActionButton>
       }
     >
       <AppearanceControl

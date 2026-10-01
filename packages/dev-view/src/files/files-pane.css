@@ -165,7 +165,7 @@
   flex-shrink: 0;
   padding: 0 0.3rem;
   border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--warning, #b45309) 22%, transparent);
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
   color: var(--foreground);
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 0.65rem;
@@ -189,8 +189,8 @@
 
 .dev-files__delete:hover,
 .dev-files__delete[aria-label^='Confirm delete'] {
-  background: color-mix(in srgb, var(--destructive, #b91c1c) 18%, transparent);
-  color: var(--destructive, #b91c1c);
+  background: color-mix(in srgb, var(--destructive) 18%, transparent);
+  color: var(--destructive);
   opacity: 1;
 }
 
@@ -269,11 +269,11 @@
 }
 
 .dev-sc__diff-line--add {
-  color: var(--dev-diff-add, #16a34a);
+  color: var(--diff-add-foreground);
 }
 
 .dev-sc__diff-line--delete {
-  color: var(--dev-diff-delete, #dc2626);
+  color: var(--diff-delete-foreground);
 }
 
 .dev-sc__diff-line--meta {
@@ -329,7 +329,7 @@
 }
 
 .dev-editor__banner--conflict {
-  background: color-mix(in srgb, var(--warning, #b45309) 16%, transparent);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
 }
 
 .dev-editor__surface {

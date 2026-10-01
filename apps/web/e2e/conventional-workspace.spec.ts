@@ -1568,11 +1568,15 @@ test('the live appearance popover previews the visible workspace at wide and nar
 }) => {
   await mockWorkspace(page)
   await page.goto('/?view=chat&scene=work')
-  await page.getByRole('button', { name: 'Appearance settings', exact: true }).click()
+  const appearanceControl = page.getByRole('button', { name: 'Appearance settings', exact: true })
+  // The control lazy-loads the appearance panel and renders a disabled
+  // placeholder until it resolves. Clicking before that lands on a page still
+  // navigating, so wait for it to become actionable rather than only extending
+  // the dialog budget after a click that went nowhere.
+  await expect(appearanceControl).toBeEnabled({ timeout: 60_000 })
+  await appearanceControl.click()
   const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
-  // The appearance panel is a lazy chunk fetched on this first open; the lane's
-  // cold dev server can take well past the default budget to serve it.
-  await expect(popup).toBeVisible({ timeout: 30_000 })
+  await expect(popup).toBeVisible()
   const modes = popup.getByRole('radiogroup', { name: 'Appearance mode' })
   await modes.getByText('Light', { exact: true }).click()
   await expect(page).toHaveScreenshot('workspace-appearance-popover-light.png', {

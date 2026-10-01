@@ -4,6 +4,7 @@ import adeaDark from '@adea-ai/themes/themes/adea-dark'
 import adeaLight from '@adea-ai/themes/themes/adea-light'
 
 import {
+  DEFAULT_CUSTOM_ACCENT,
   appearanceThemeForPreview,
   appearanceThemeRecords,
   normalizeCustomAccent,
@@ -65,9 +66,16 @@ describe('published AppearanceEditor theme adapter', () => {
 
   test('rejects raw invalid accents and normalizes accepted values', () => {
     expect(normalizeCustomAccent('not-a-color', '#ffffff')).toEqual({
-      error: '“not-a-color” is not a hex color such as #2563eb.',
+      error: `“not-a-color” is not a hex color such as ${DEFAULT_CUSTOM_ACCENT}.`,
     })
-    expect(normalizeCustomAccent('#2563eb', '#ffffff')).toEqual({ value: '#2563eb' })
+    expect(normalizeCustomAccent(DEFAULT_CUSTOM_ACCENT, '#ffffff')).toEqual({
+      value: DEFAULT_CUSTOM_ACCENT,
+    })
+  })
+
+  test('derives the default custom accent from the published blue preset', () => {
+    const publishedBlue = localAccentPresets.find((preset) => preset.id === 'blue')
+    expect(DEFAULT_CUSTOM_ACCENT).toBe(publishedBlue?.light ?? adeaLight.colors.accent)
   })
 
   test('keeps the app accent projection byte-for-byte aligned with the published catalogue', () => {
