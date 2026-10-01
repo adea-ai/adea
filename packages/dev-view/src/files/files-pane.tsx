@@ -720,12 +720,6 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
       scrollTop: scrollTop(),
       viewportHeight: viewportHeight(),
     })
-    if (typeof window !== 'undefined') {
-      const log =
-        ((window as unknown as Record<string, unknown>).__sliceLog as unknown[] | undefined) ?? []
-      log.push([slice.start, slice.end, pin, userFocusedRow(), scrollTop()])
-      ;(window as unknown as Record<string, unknown>).__sliceLog = log
-    }
     return slice
   })
   const windowedRows = createMemo(() => rows().slice(rowSlice().start, rowSlice().end))

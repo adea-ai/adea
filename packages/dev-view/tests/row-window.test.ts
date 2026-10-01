@@ -63,10 +63,12 @@ describe('row geometry', () => {
     expect(geometry.blockSizeAt(0)).toBe(48)
   })
 
-  test('keeps a distant active row from expanding the contiguous DOM window', () => {
+  test('keeps a user-focused row mounted however far the scroll moved', () => {
     const ids = Array.from({ length: 100_000 }, (_, index) => `row-${index}`)
     const geometry = measuredGeometry(ids, 32)
 
+    // The host only passes a pin for a row the user focused, and focus must
+    // never land on an unmounted row: the window extends to cover it.
     const window = rowWindow({
       geometry,
       pinIndex: 99_999,
@@ -74,9 +76,8 @@ describe('row geometry', () => {
       viewportHeight: 320,
     })
 
-    expect(window.start).toBe(0)
-    expect(window.end).toBeLessThan(100)
-    expect(window.end).toBeLessThan(99_999)
+    expect(window.end).toBe(100_000)
+    expect(window.start).toBeLessThanOrEqual(99_999 - 8)
   })
 
   test('keeps nearby pinned focus inside the normal overscan range', () => {
