@@ -1641,12 +1641,12 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .conventional-sidebar {
-    --sidebar-width: min(19rem, calc(100% - 7rem));
+    --sidebar-width: min(19rem, max(9rem, calc(100vw - var(--workspace-rail-width, 4rem))));
     position: fixed;
     z-index: 40;
     top: 0;
     bottom: 0;
-    left: 4rem;
+    left: max(0px, min(var(--workspace-rail-width, 4rem), calc(100vw - var(--sidebar-width))));
     height: auto;
     transform: translateX(-105%);
     transition: transform 0.18s ease;
@@ -1664,10 +1664,13 @@
   .conventional-sidebar-scrim {
     position: fixed;
     z-index: 39;
-    inset: 0 0 0 4rem;
+    inset: 0;
     display: block;
     border: 0;
     background: var(--cw-scrim);
+  }
+  .workspace-frame:has(.conventional-sidebar--open) > .global-rail {
+    z-index: auto;
   }
   .conventional-main {
     grid-column: 1;

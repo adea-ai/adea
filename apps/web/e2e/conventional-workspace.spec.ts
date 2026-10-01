@@ -2044,6 +2044,148 @@ test.describe('touch workspace sidebar actions', () => {
     await roomOptions.tap()
     await expect(sidebar.getByRole('menuitem', { name: 'Edit' })).toBeVisible()
   })
+
+  test('keeps Chat and Virtual navigation controls inside a 320px viewport at 200% root size', async ({
+    page,
+  }) => {
+    await mockConnectedWorkspace(page)
+    await page.setViewportSize({ width: 320, height: 800 })
+    await page.goto('/?view=chat')
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '200%'
+    })
+
+    const toolbar = page.getByLabel('Workspace toolbar')
+    const navigationToggle = toolbar.getByRole('button', {
+      name: 'Expand contextual sidebar',
+    })
+    await expect(navigationToggle).toBeVisible()
+    const toggleBounds = await navigationToggle.boundingBox()
+    expect(toggleBounds).not.toBeNull()
+    expect(toggleBounds!.x).toBeGreaterThanOrEqual(0)
+    expect(toggleBounds!.x + toggleBounds!.width).toBeLessThanOrEqual(320)
+
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+    const assertSidebarFits = async () => {
+      const layout = await sidebar.evaluate((element) => {
+        const panel = element.getBoundingClientRect()
+        const title = element.querySelector('h1')
+        const titleBounds = title?.getBoundingClientRect()
+        const close = element.querySelector('.conventional-sidebar__close')
+        const closeBounds = close?.getBoundingClientRect()
+        const actionButtons = Array.from(
+          element.querySelectorAll('[data-slot="sidebar-nav-row-actions"] button')
+        )
+        const labels = Array.from(
+          element.querySelectorAll('[data-slot="sidebar-nav-label"]')
+        ).filter((label) => label.closest('button'))
+        const withinPanel = (bounds: DOMRect) =>
+          bounds.left >= panel.left - 1 && bounds.right <= panel.right + 1
+
+        return {
+          actionBounds: actionButtons.map((button) => {
+            const bounds = button.getBoundingClientRect()
+            const hitTarget = document.elementFromPoint(
+              bounds.left + bounds.width / 2,
+              bounds.top + bounds.height / 2
+            )
+            return {
+              fits: withinPanel(bounds),
+              receivesHit: hitTarget === button || button.contains(hitTarget),
+            }
+          }),
+          closeFits: closeBounds ? withinPanel(closeBounds) : false,
+          titleFits: titleBounds ? withinPanel(titleBounds) : false,
+          labelBounds: labels.map((label) => {
+            const bounds = label.getBoundingClientRect()
+            const style = getComputedStyle(label)
+            return {
+              fits: withinPanel(bounds),
+              minWidth: style.minWidth,
+              textOverflow: style.textOverflow,
+              width: bounds.width,
+              whiteSpace: style.whiteSpace,
+            }
+          }),
+          panel: { left: panel.left, right: panel.right, width: panel.width },
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        }
+      })
+
+      expect(layout.documentWidth).toBe(layout.viewportWidth)
+      expect(layout.panel.left).toBeGreaterThanOrEqual(0)
+      expect(layout.panel.right).toBeLessThanOrEqual(layout.viewportWidth + 1)
+      expect(layout.closeFits).toBe(true)
+      expect(layout.titleFits).toBe(true)
+      expect(layout.actionBounds.length).toBeGreaterThan(0)
+      expect(layout.actionBounds.every(({ fits, receivesHit }) => fits && receivesHit)).toBe(true)
+      expect(layout.labelBounds.length).toBeGreaterThan(0)
+      expect(
+        layout.labelBounds.every(
+          ({ fits, minWidth, textOverflow, width, whiteSpace }) =>
+            fits &&
+            width > 0 &&
+            minWidth === '0px' &&
+            textOverflow === 'ellipsis' &&
+            whiteSpace === 'nowrap'
+        )
+      ).toBe(true)
+      return layout
+    }
+
+    await navigationToggle.tap()
+    await expect(sidebar).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: /^Product( |$)/ })).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Room options for Product' })).toBeVisible()
+    const chatLayout = await assertSidebarFits()
+
+    await sidebar.getByRole('button', { name: 'Close workspace navigation' }).tap()
+    await page
+      .getByRole('navigation', { name: 'Global navigation' })
+      .getByRole('button', { name: 'Virtual view', exact: true })
+      .tap()
+    const expandVirtualNavigation = toolbar.getByRole('button', {
+      name: 'Expand contextual sidebar',
+    })
+    await expect(expandVirtualNavigation).toBeVisible()
+    await expandVirtualNavigation.tap()
+    await expect(sidebar).toBeVisible()
+    const virtualLayout = await assertSidebarFits()
+    expect(virtualLayout.panel).toEqual(chatLayout.panel)
+    expect(virtualLayout.actionBounds.length).toBe(chatLayout.actionBounds.length)
+    expect(virtualLayout.labelBounds.map(({ width }) => width)).toEqual(
+      chatLayout.labelBounds.map(({ width }) => width)
+    )
+  })
+
+  test.fixme('mobile navigation traps focus, closes with Escape, and restores focus', async ({
+    page,
+  }) => {
+    await mockConnectedWorkspace(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/?view=chat')
+
+    const toolbar = page.getByLabel('Workspace toolbar')
+    const navigationToggle = toolbar.getByRole('button', {
+      name: 'Expand contextual sidebar',
+    })
+    await navigationToggle.tap()
+
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+    const sidebarButtons = sidebar.getByRole('button')
+    await expect(sidebar).toBeVisible()
+    await expect(sidebarButtons.first()).toBeFocused()
+
+    await page.keyboard.press('Shift+Tab')
+    await expect(sidebarButtons.last()).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(sidebarButtons.first()).toBeFocused()
+
+    await page.keyboard.press('Escape')
+    await expect(sidebar).not.toBeVisible()
+    await expect(navigationToggle).toBeFocused()
+  })
 })
 
 test('collapsed Chat navigation is absent from keyboard and accessibility navigation', async ({

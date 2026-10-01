@@ -20,6 +20,7 @@ export function SidebarToggleButton(props: {
     <ActionButton
       type="button"
       class="conventional-mobile-menu"
+      touchTarget="comfortable"
       tooltip={label()}
       aria-label={label()}
       aria-expanded={props.expanded}
