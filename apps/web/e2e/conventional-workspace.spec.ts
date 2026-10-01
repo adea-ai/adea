@@ -1571,36 +1571,33 @@ test('the live appearance popover previews the visible workspace at wide and nar
   page,
 }) => {
   await mockWorkspace(page)
-  await page.goto('/?view=chat&scene=work')
-  const appearanceControl = page.getByRole('button', { name: 'Appearance settings', exact: true })
-  // The control lazy-loads the appearance panel and renders a disabled
-  // placeholder until it resolves. Clicking before that lands on a page still
-  // navigating, so wait for it to become actionable rather than only extending
-  // the dialog budget after a click that went nowhere.
-  await expect(appearanceControl).toBeEnabled({ timeout: 60_000 })
-  await appearanceControl.click()
   const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
-  // The lazy import discovers dev-server dependencies the warm-up page never
-  // touched (the theme adapters the editor pulls in), and vite's re-optimization
-  // ends in a full page reload that resets the control before the popover
-  // mounts — the documented cold-server reload, one chunk further in. When the
-  // reload consumed the click, the control is back and enabled again, so click
-  // it once more instead of failing the preview assertions on infra timing.
+  const appearanceControl = page.getByRole('button', { name: 'Appearance settings', exact: true })
+  // The control lazy-loads the appearance panel, and the cold-server flake can
+  // strike at any point of that import: the SSR shell renders the same button
+  // enabled (a click there lands on no listener), and a dev-server reload
+  // drops a hydrated page back to the shell. Drive the open as a self-healing
+  // loop — re-navigate to a hydrated workspace whenever the shell regressed,
+  // then open through the trigger's own state.
   await expect(async () => {
-    // A dev-server reload can strike mid-test (the documented transport flake)
-    // and leave the SSR shell stuck; re-navigate and start the open over
-    // instead of asserting against a page that no longer holds the control.
-    if (!(await appearanceControl.isVisible().catch(() => false))) {
-      await page.goto('/?view=chat&scene=work')
-      await expect(appearanceControl).toBeEnabled({ timeout: 60_000 })
+    const hydrated = await page
+      .getByRole('complementary', { name: 'Workspace navigation' })
+      .isVisible()
+      .catch(() => false)
+    if (!hydrated) {
+      await page.goto('/?view=chat&scene=work', { timeout: 30_000 })
     }
+    await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible({
+      timeout: 30_000,
+    })
+    await expect(appearanceControl).toBeEnabled({ timeout: 30_000 })
     // Gate on the trigger's own state: isVisible lags the portal mount on a
     // loaded machine, and a blind re-click would toggle the popover closed.
     if ((await appearanceControl.getAttribute('aria-expanded')) !== 'true') {
       await appearanceControl.click()
     }
     await expect(popup).toBeVisible()
-  }).toPass({ timeout: 90_000 })
+  }).toPass({ timeout: 120_000 })
   const modes = popup.getByRole('radiogroup', { name: 'Appearance mode' })
   await modes.getByText('Light', { exact: true }).click()
   await expect(page).toHaveScreenshot('workspace-appearance-popover-light.png', {
