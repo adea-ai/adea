@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.71.6](https://github.com/adea-ai/adea/compare/v0.71.5...v0.71.6) (2026-10-01)
+
+
+### Maintenance
+
+* **ui:** enforce shared app-ui boundaries ([#863](https://github.com/adea-ai/adea/issues/863)) ([d63ecde](https://github.com/adea-ai/adea/commit/d63ecde52c40996d4da255a2ad9d272645873279))
+
 ## [0.71.5](https://github.com/adea-ai/adea/compare/v0.71.4...v0.71.5) (2026-10-01)
 
 
