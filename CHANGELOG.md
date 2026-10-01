@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.70.7](https://github.com/adea-ai/adea/compare/v0.70.6...v0.70.7) (2026-10-01)
+
+
+### Maintenance
+
+* **deps:** update the design system to themes 0.8.6 and ui 0.89.2 ([#871](https://github.com/adea-ai/adea/issues/871)) ([21c8d4e](https://github.com/adea-ai/adea/commit/21c8d4e689336a5e0de5beeb878e0318567bc98a))
+
+## [0.70.6](https://github.com/adea-ai/adea/compare/v0.70.5...v0.70.6) (2026-10-01)
+
+
+### Tests
+
+* realign the visual lane with the shared components from [#831](https://github.com/adea-ai/adea/issues/831) ([#873](https://github.com/adea-ai/adea/issues/873)) ([e06d6b3](https://github.com/adea-ai/adea/commit/e06d6b3bd589eb718fa59e95218a3c4a6dd3f0f7))
+
 ## [0.70.5](https://github.com/adea-ai/adea/compare/v0.70.4...v0.70.5) (2026-10-01)
 
 
