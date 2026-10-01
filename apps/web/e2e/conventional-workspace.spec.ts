@@ -1580,7 +1580,16 @@ test('the live appearance popover previews the visible workspace at wide and nar
   await expect(appearanceControl).toBeEnabled({ timeout: 60_000 })
   await appearanceControl.click()
   const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
-  await expect(popup).toBeVisible()
+  // The lazy import discovers dev-server dependencies the warm-up page never
+  // touched (the theme adapters the editor pulls in), and vite's re-optimization
+  // ends in a full page reload that resets the control before the popover
+  // mounts — the documented cold-server reload, one chunk further in. When the
+  // reload consumed the click, the control is back and enabled again, so click
+  // it once more instead of failing the preview assertions on infra timing.
+  await expect(async () => {
+    if (!(await popup.isVisible())) await appearanceControl.click()
+    await expect(popup).toBeVisible()
+  }).toPass({ timeout: 60_000 })
   const modes = popup.getByRole('radiogroup', { name: 'Appearance mode' })
   await modes.getByText('Light', { exact: true }).click()
   await expect(page).toHaveScreenshot('workspace-appearance-popover-light.png', {
