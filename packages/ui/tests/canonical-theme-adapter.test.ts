@@ -1,5 +1,6 @@
 import { themeById, themeCssVariables } from '@adea-ai/ui/lib/themes'
 import { describe, expect, test } from 'bun:test'
+import { createRequire } from 'node:module'
 
 import adeaDarkTheme from '@adea-ai/themes/themes/adea-dark'
 import adeaLightTheme from '@adea-ai/themes/themes/adea-light'
@@ -57,7 +58,12 @@ function cssBlock(css: string, selector: string): Record<string, string> {
 describe('published Adea theme adapter', () => {
   test('records the generated package provenance', () => {
     expect(CANONICAL_THEME_PACKAGE).toBe('@adea-ai/themes')
-    expect(CANONICAL_THEME_VERSION).toBe('0.8.1')
+    // Assert the recorded version against the package actually installed
+    // rather than a literal: a themes bump must regenerate the data, and a
+    // hardcoded copy of the version here goes stale on every one of them.
+    const installed = createRequire(import.meta.url)('@adea-ai/themes/package.json')
+      .version as string
+    expect(CANONICAL_THEME_VERSION).toBe(installed)
   })
 
   test('generates every saved theme ID from the published catalogue', () => {
