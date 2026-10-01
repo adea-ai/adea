@@ -1524,6 +1524,29 @@ test('workspace search keeps duplicate destination labels tied to their domain i
   expect(await input.getAttribute('aria-activedescendant')).toBe(await channel.getAttribute('id'))
 })
 
+test('shared sidebar reports a failed mark-all-read action in Chat', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.route('**/api/v1/workspaces/workspace-1/read-state', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({
+        contentType: 'application/json',
+        json: { error: 'temporary failure' },
+        status: 503,
+      })
+      return
+    }
+    await route.fallback()
+  })
+  await page.goto('/?view=chat')
+
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  await expect(sidebar.getByRole('button', { name: 'Mark all read' })).toBeEnabled()
+  await sidebar.getByRole('button', { name: 'Mark all read' }).click()
+  await expect(sidebar.getByRole('alert')).toContainText(
+    'Unread conversations could not be marked as read.'
+  )
+})
+
 test('global rail opens workspace search from Virtual and Dev', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/?view=virtual')
