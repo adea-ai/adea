@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.1](https://github.com/adea-ai/adea/compare/v0.70.0...v0.70.1) (2026-10-01)
+
+
+### Performance
+
+* **web:** scan imported shared UI sources selectively ([#846](https://github.com/adea-ai/adea/issues/846)) ([e67fee4](https://github.com/adea-ai/adea/commit/e67fee4e4d6508a3297ee31f53d2dad70d4152fd))
+
 ## [0.70.0](https://github.com/adea-ai/adea/compare/v0.69.10...v0.70.0) (2026-09-30)
 
 
