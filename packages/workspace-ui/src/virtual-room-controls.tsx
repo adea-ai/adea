@@ -97,8 +97,25 @@ export function VirtualRoomControls(props: {
 
   const routeToChat = (surface: 'agents' | 'conversation' | 'tasks') => {
     workspaceStore.getState().setActiveSurface(surface)
-    if (window.matchMedia('(max-width: 48rem)').matches)
+    if (window.matchMedia('(max-width: 48rem)').matches) {
+      const sheetWasOpen = sidebarOpen()
       workspaceStore.getState().setMobileSidebarOpen(false)
+      // Switching to Chat disposes the sheet before its close-time focus
+      // restoration can run, and the swapped-in view rebuilds the chrome, so
+      // re-hand focus to the stored opener until it sticks (bounded to two
+      // seconds so it never fights a later, intentional focus move).
+      if (sheetWasOpen) {
+        const restoreOpener = window.setInterval(() => {
+          const opener = props.restoreFocusRef?.()
+          if (opener && document.activeElement === opener) {
+            window.clearInterval(restoreOpener)
+            return
+          }
+          if (opener?.isConnected) opener.focus({ preventScroll: true })
+        }, 50)
+        window.setTimeout(() => window.clearInterval(restoreOpener), 2000)
+      }
+    }
     props.openChat()
   }
   const selectChannel = (channelId: string, roomId?: string) => {
