@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.5](https://github.com/adea-ai/adea/compare/v0.70.4...v0.70.5) (2026-10-01)
+
+
+### Maintenance
+
+* **dev-view:** use shared utility controls ([#848](https://github.com/adea-ai/adea/issues/848)) ([403ad68](https://github.com/adea-ai/adea/commit/403ad688bfb0ab1ff27a99465b82e33299233a59))
+
 ## [0.70.4](https://github.com/adea-ai/adea/compare/v0.70.3...v0.70.4) (2026-10-01)
 
 
