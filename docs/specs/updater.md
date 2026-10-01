@@ -8,9 +8,38 @@ page is the contract to read before touching `apps/desktop/shell/src/commands.ts
 > **Implementation note (2026-09-13):** the desktop shell is Electrobun
 > (Bun + CEF); see [ADR 0006](../decisions/0006-browser-lanes-and-desktop-shell.md).
 > The shell downloads, verifies, and installs newer releases in place and
-> relaunches. Apple code signing and notarization are still pending: the
-> build is unsigned upstream and locally signed with the machine's
-> `adea-local-codesign` identity.
+> relaunches. Apple code signing and notarization are still pending, and the
+> bundle is published and installed **unsigned** (ad-hoc) — see
+> [Install the bundle as shipped](#install-the-bundle-as-shipped) for why it
+> must not be re-signed.
+
+## Install the bundle as shipped
+
+The release archive's `.app` is **ad-hoc signed** (`flags=0x20002`), exactly as
+the release lane builds it, and the shell expects that. Re-signing the installed
+bundle with a local identity **breaks the app**, verified on the 0.71.3 release:
+
+- `codesign --force --deep --options runtime --sign <identity>` fails at
+  startup. Hardened runtime turns on library validation, and a local identity
+  carries no Team ID, so the launcher's `dlopen` of
+  `Contents/MacOS/libElectrobunCore.dylib` is refused: _mapping process and
+  mapped file (non-platform) have different Team IDs_.
+- `codesign --force --deep --sign <identity>` (no hardened runtime) starts
+  without error but hangs: the shell never binds its loopback port and the
+  window never serves.
+
+An untouched copy of the same archive boots and serves normally, so this is
+the signature, not the release.
+
+Two consequences, both intentional until notarization lands:
+
+- Because every install is ad-hoc, **each install is a fresh TCC identity**.
+  macOS permission grants do not survive an update; the app is a first-run app
+  for screen recording, camera, and microphone after every one. See
+  `apps/desktop/shell/scripts/packaged-computeruse-tcc.ts`, which already
+  observes the identity rather than assuming it.
+- Development builds that need a stable identity must pin the recipe that
+  works; re-signing a shipped bundle is not it.
 
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
@@ -46,9 +75,12 @@ manifest carries a `runtime.sha256` (the CEF framework, `MacOS/bun`, and
 signature over `adea-desktop-update-slim/v<version>/<slim sha256>`.
 
 When the installed bundle's runtime hash matches, the shell downloads and
-verifies the slim archive (~1MB) and overlays it onto the existing bundle, so
+verifies the slim archive and overlays it onto the existing bundle, so
 no launcher reinstall runs; any mismatch — including a Bun, launcher, or CEF
-bump — falls back to the full archive and full swap.
+bump — falls back to the full archive and full swap. The slim archive is
+smaller than the full one but not small: it carries the whole app layer, so
+budget tens of megabytes rather than the megabyte the lane originally
+targeted.
 
 The shell polls `https://github.com/adea-ai/adea/releases/latest/download/latest.json`
 from the shell process (never the webview). `version` is compared against the
@@ -68,14 +100,17 @@ GitHub-API availability check plus a releases-page handoff.
   signature before anything is extracted, and the extracted bundle must be a
   complete `Adea.app` (launcher + main-process entry) before anything is
   swapped. A hostile feed can at worst fail the install.
+- The bundle is installed byte-for-byte as the archive ships it, ad-hoc
+  signature included. It is never re-signed: see
+  [Install the bundle as shipped](#install-the-bundle-as-shipped).
 - The feed URL must be `https://github.com/adea-ai/adea/releases/download/…`;
   `ADEA_UPDATE_FEED`, `ADEA_UPDATE_ASSET_BASE`, and `ADEA_UPDATE_PUBLIC_KEY`
   re-point the channel for tests and staging — hash and signature checks are
   never skipped, so an override cannot install code we did not sign.
 - `ADEA_UPDATE_SKIP_APPLY=1` stops short of the real bundle swap (tests).
-- macOS builds are signed locally with the stable `adea-local-codesign`
-  identity so keychain grants survive rebuilds; release builds remain unsigned
-  upstream until notarization lands.
+- Release builds are unsigned (ad-hoc) until notarization lands. There is no
+  stable signing identity in this lane; see
+  [Install the bundle as shipped](#install-the-bundle-as-shipped).
 
 ## User-visible policy
 
@@ -93,6 +128,13 @@ GitHub-API availability check plus a releases-page handoff.
   the running `.app` (keeping no part of the old bundle), relaunches, and
   reports `installed` with `restart_required` while the swap script waits for
   the process to exit.
+- Staging is bounded. `<dataDir>/updates` holds only what one install needs:
+  the apply script deletes the extracted payload once it has been consumed,
+  and each install first prunes the `extracted-<version>` directories and
+  abandoned `.partial` downloads of strictly older versions. Without this the
+  directory retained one fully extracted bundle per update forever. The
+  failed-move branch of the apply script exits before the delete, so a
+  rolled-back install keeps its payload for diagnosis.
 - If the running process is not a packaged bundle (a repo run), install hands
   off to the releases page instead of swapping.
 - Network, checksum, and signature failures produce the explicit `failed`
