@@ -145,6 +145,23 @@ jobs:
                 await page.waitForTimeout(2_000)
               }
             }
+            // The appearance popover lazily imports the theme adapters, and
+            // that first import discovers dev-server dependencies the base
+            // graph never touches. The re-optimization reloads the page and
+            // aborts in-flight module loads (the same cold-server flake this
+            // warm-up exists for, one chunk deeper), so warm the popover here:
+            // after this, every spec's first click opens it without a reload.
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+              try {
+                await page.click('[aria-label="Appearance settings"]', { timeout: 5_000 })
+                await page.waitForSelector('[role="dialog"]', { timeout: 15_000 })
+                console.log(`appearance chunk warm after attempt ${attempt}`)
+                break
+              } catch (error) {
+                console.log(`appearance warm attempt ${attempt}: ${error.message}`)
+                await page.waitForTimeout(3_000)
+              }
+            }
             await browser.close()
           })().catch((error) => {
             console.error(error)
