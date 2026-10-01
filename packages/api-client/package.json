@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/api-client",
-  "version": "0.70.14",
+  "version": "0.71.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
