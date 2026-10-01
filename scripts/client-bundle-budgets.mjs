@@ -14,7 +14,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and
     // composition behaviour that used to be tree-shaken into the route.
-    chat: { rawBytes: 216 * 1024, gzipBytes: 65 * 1024 },
+    // Re-measured for the primitives migration (2026-10-01): 224,213 raw /
+    // 64,120 gzip — the settings dialog shares this route's entry, and the
+    // agent roster, artifact detail, and settings row now compose shared
+    // primitives there. Ratcheted to 224 KB rather than the measured value so
+    // the gate carries ~2% headroom instead of the 139 bytes this route had,
+    // which made every incidental change a budget failure.
+    chat: { rawBytes: 224 * 1024, gzipBytes: 66 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
