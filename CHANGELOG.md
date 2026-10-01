@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.4](https://github.com/adea-ai/adea/compare/v0.70.3...v0.70.4) (2026-10-01)
+
+
+### Maintenance
+
+* consume shared conversation and navigation components ([#831](https://github.com/adea-ai/adea/issues/831)) ([9e0cbc1](https://github.com/adea-ai/adea/commit/9e0cbc1c308ad046999d852fc791d83b916b0134))
+
 ## [0.70.3](https://github.com/adea-ai/adea/compare/v0.70.2...v0.70.3) (2026-10-01)
 
 
