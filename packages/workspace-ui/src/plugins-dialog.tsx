@@ -30,7 +30,6 @@ import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
 import { Blocks, Check, ChevronDown, ChevronUp, Filter, ShieldCheck } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
-import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { PluginLogo } from './plugin-logo'
 import type { WorkspaceAppActivation, WorkspacePlugin, WorkspacePluginsProvider } from './platform'
