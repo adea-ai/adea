@@ -19,20 +19,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // Re-measured for the shared accessible file tree (2026-10-01, #872): the
   // shared Tree/TreeRow composites add ~6.4 KB raw to the total. Kept at the
   // same rounding step rather than pinning to the build.
-<<<<<<< HEAD
   // Re-measured for the shared app-ui boundaries (2026-10-01, #863): the
   // module split around the shared components moved the total by ~74 bytes.
   // Kept at the same rounding step rather than pinning to the build.
   total: { rawBytes: 2_365_000, gzipBytes: 700 * 1024, fileCount: 93 },
-=======
-  // Re-measured for the workspace-wide runtime-resources control and the
-  // launchpad rail reorder (2026-10-01): 96 files / 2,358,705 raw / 703,875
-  // gzip. The resources sheet rides its own lazy chunk off the shared top bar
-  // (+1), and the rail reorder plus launchpad tiles split two more shared
-  // chunks. The cap keeps the same +2 headroom as above; every per-route and
-  // startup byte budget held without moving.
-  total: { rawBytes: 2_365_000, gzipBytes: 700 * 1024, fileCount: 98 },
->>>>>>> bbc0bab8 (feat(workspace): launchpad App Library with rail drag-and-drop reorder)
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     virtual: { rawBytes: 14 * 1024, gzipBytes: 6 * 1024 },
