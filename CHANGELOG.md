@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.2](https://github.com/adea-ai/adea/compare/v0.70.1...v0.70.2) (2026-10-01)
+
+
+### Bug Fixes
+
+* **audio:** declare the @adea-ai/ui dependency ([#860](https://github.com/adea-ai/adea/issues/860)) ([bd123da](https://github.com/adea-ai/adea/commit/bd123da02065ac1725bb812c674529a4781dd6d8))
+
 ## [0.70.1](https://github.com/adea-ai/adea/compare/v0.70.0...v0.70.1) (2026-10-01)
 
 
