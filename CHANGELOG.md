@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.13](https://github.com/adea-ai/adea/compare/v0.70.12...v0.70.13) (2026-10-01)
+
+
+### Bug Fixes
+
+* **workspace-ui:** wire search keys to cmdk's active-option contract ([39c0ae6](https://github.com/adea-ai/adea/commit/39c0ae6eb6f00e3b2e47cdc8bf697cc9d00d9a45))
+
 ## [0.70.12](https://github.com/adea-ai/adea/compare/v0.70.11...v0.70.12) (2026-10-01)
 
 
