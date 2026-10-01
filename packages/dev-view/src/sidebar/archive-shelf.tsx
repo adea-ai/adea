@@ -7,7 +7,7 @@
  * the dependency-owned archive authority.
  */
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
-import { ListRowControl } from '@adea-ai/ui/components/composites/list-row/list-row-control'
+import { ListRowControl } from '@adea-ai/ui/components/composites/list-row'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import {
   AlertDialog,
