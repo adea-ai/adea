@@ -2006,6 +2006,46 @@ test('Virtual sidebar actions create a room and group conversation through works
   await expect(page.getByText('Group conversation', { exact: true })).toBeVisible()
 })
 
+test.describe('touch workspace sidebar actions', () => {
+  test.use({
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  })
+
+  test('exposes row actions without hover and opens the room menu by touch', async ({ page }) => {
+    await mockConnectedWorkspace(page)
+    await page.goto('/?view=chat')
+
+    const openNavigation = page.getByRole('button', { name: 'Open workspace navigation' })
+    if (await openNavigation.isVisible()) await openNavigation.tap()
+
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+    const roomOptions = sidebar.getByRole('button', { name: 'Room options for Product' })
+    const conversationOptions = sidebar.getByRole('button', {
+      name: 'Conversation options for Research Agent',
+    })
+    await expect(roomOptions).toBeVisible()
+    await expect(conversationOptions).toBeVisible()
+
+    const roomActions = roomOptions.locator(
+      'xpath=ancestor::*[@data-slot="sidebar-nav-row-actions"]'
+    )
+    const conversationActions = conversationOptions.locator(
+      'xpath=ancestor::*[@data-slot="sidebar-nav-row-actions"]'
+    )
+    await expect
+      .poll(() => roomActions.evaluate((node) => getComputedStyle(node).opacity))
+      .toBe('1')
+    await expect
+      .poll(() => conversationActions.evaluate((node) => getComputedStyle(node).opacity))
+      .toBe('1')
+
+    await roomOptions.tap()
+    await expect(sidebar.getByRole('menuitem', { name: 'Edit' })).toBeVisible()
+  })
+})
+
 test('collapsed Chat navigation is absent from keyboard and accessibility navigation', async ({
   page,
 }) => {

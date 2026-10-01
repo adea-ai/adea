@@ -38,6 +38,7 @@ import {
   SidebarNavHeader,
   SidebarNavItem,
   SidebarNavResizeHandle,
+  SidebarNavRow,
   SidebarNavSection,
   SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
@@ -110,7 +111,47 @@ function ConversationChannelRow(props: {
   unread: JSX.Element
 }) {
   return (
-    <div class="conventional-sidebar__nav-row">
+    <SidebarNavRow
+      actions={
+        <>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              as={ActionButton}
+              variant="ghost"
+              size="icon-md"
+              tooltip={`Conversation options for ${props.label}`}
+              aria-label={`Conversation options for ${props.label}`}
+            >
+              <EllipsisVertical aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              hideArrow
+              placement="bottom-end"
+              gutter={4}
+              class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+            >
+              <DropdownMenuItem onSelect={() => props.onRename(props.channel)}>
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => props.onCopyLink(props.channel)}>
+                <Link2 aria-hidden="true" />
+                Copy link
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <ActionButton
+            type="button"
+            variant="destructive"
+            size="icon-md"
+            tooltip={`Delete ${props.label}`}
+            aria-label={`Delete ${props.label}`}
+            onClick={() => props.onArchive(props.channel)}
+          >
+            <X aria-hidden="true" />
+          </ActionButton>
+        </>
+      }
+    >
       <SidebarNavItem
         as="button"
         type="button"
@@ -124,44 +165,7 @@ function ConversationChannelRow(props: {
         {props.icon}
         <span>{props.label}</span>
       </SidebarNavItem>
-      <div class="conventional-sidebar__nav-actions">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            as={ActionButton}
-            variant="ghost"
-            size="icon-md"
-            tooltip={`Conversation options for ${props.label}`}
-            aria-label={`Conversation options for ${props.label}`}
-          >
-            <EllipsisVertical aria-hidden="true" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            hideArrow
-            placement="bottom-end"
-            gutter={4}
-            class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-          >
-            <DropdownMenuItem onSelect={() => props.onRename(props.channel)}>
-              Rename
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => props.onCopyLink(props.channel)}>
-              <Link2 aria-hidden="true" />
-              Copy link
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <ActionButton
-          type="button"
-          variant="destructive"
-          size="icon-md"
-          tooltip={`Delete ${props.label}`}
-          aria-label={`Delete ${props.label}`}
-          onClick={() => props.onArchive(props.channel)}
-        >
-          <X aria-hidden="true" />
-        </ActionButton>
-      </div>
-    </div>
+    </SidebarNavRow>
   )
 }
 
@@ -362,7 +366,7 @@ export function WorkspaceSidebar(props: Props) {
                 type="button"
                 variant="ghost"
                 size="icon-md"
-                tooltip="Create Room"
+                tooltip="Create a room"
                 aria-label="Create Room"
                 disabled={props.workspaceReady === false}
                 onClick={() => props.onCreateRoom()}
@@ -406,7 +410,57 @@ export function WorkspaceSidebar(props: Props) {
                   )
                   return (
                     <div class="conventional-sidebar__room">
-                      <div class="conventional-sidebar__nav-row">
+                      <SidebarNavRow
+                        actions={
+                          <>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                as={ActionButton}
+                                variant="ghost"
+                                size="icon-md"
+                                tooltip={`Room options for ${item().room.name}`}
+                                aria-label={`Room options for ${item().room.name}`}
+                              >
+                                <EllipsisVertical aria-hidden="true" />
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                hideArrow
+                                placement="bottom-end"
+                                gutter={4}
+                                class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+                              >
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setActionError(null)
+                                    setEditingRoom(item().room)
+                                  }}
+                                >
+                                  <Pencil aria-hidden="true" />
+                                  Edit
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <Show when={item().visibleChannels.length}>
+                              <ActionButton
+                                type="button"
+                                variant="ghost"
+                                size="icon-md"
+                                tooltip={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
+                                aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
+                                aria-expanded={!collapsed()}
+                                onClick={() => props.onToggleRoom(item().room.id)}
+                              >
+                                <Show
+                                  when={!collapsed()}
+                                  fallback={<ChevronRight aria-hidden="true" />}
+                                >
+                                  <ChevronDown aria-hidden="true" />
+                                </Show>
+                              </ActionButton>
+                            </Show>
+                          </>
+                        }
+                      >
                         <SidebarNavItem
                           as="button"
                           type="button"
@@ -438,54 +492,7 @@ export function WorkspaceSidebar(props: Props) {
                           <RoomIcon functionKey={item().room.functionKey} />
                           <span>{item().room.name}</span>
                         </SidebarNavItem>
-                        <div class="conventional-sidebar__nav-actions">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger
-                              as={ActionButton}
-                              variant="ghost"
-                              size="icon-md"
-                              tooltip={`Room options for ${item().room.name}`}
-                              aria-label={`Room options for ${item().room.name}`}
-                            >
-                              <EllipsisVertical aria-hidden="true" />
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              hideArrow
-                              placement="bottom-end"
-                              gutter={4}
-                              class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-                            >
-                              <DropdownMenuItem
-                                onSelect={() => {
-                                  setActionError(null)
-                                  setEditingRoom(item().room)
-                                }}
-                              >
-                                <Pencil aria-hidden="true" />
-                                Edit
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                          <Show when={item().visibleChannels.length}>
-                            <ActionButton
-                              type="button"
-                              variant="ghost"
-                              size="icon-md"
-                              tooltip={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
-                              aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
-                              aria-expanded={!collapsed()}
-                              onClick={() => props.onToggleRoom(item().room.id)}
-                            >
-                              <Show
-                                when={!collapsed()}
-                                fallback={<ChevronRight aria-hidden="true" />}
-                              >
-                                <ChevronDown aria-hidden="true" />
-                              </Show>
-                            </ActionButton>
-                          </Show>
-                        </div>
-                      </div>
+                      </SidebarNavRow>
                       <Show when={item().visibleChannels.length && !collapsed()}>
                         <div class="conventional-sidebar__nav-nested">
                           <For each={channelRows()}>
@@ -528,7 +535,7 @@ export function WorkspaceSidebar(props: Props) {
                 type="button"
                 variant="ghost"
                 size="icon-md"
-                tooltip="Create group conversation"
+                tooltip="Create a group conversation"
                 aria-label="Create group conversation"
                 disabled={props.workspaceReady === false}
                 onClick={() => props.onCreateGroup()}

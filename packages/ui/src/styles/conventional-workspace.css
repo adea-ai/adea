@@ -246,12 +246,6 @@
   flex-direction: column;
   gap: 0.125rem;
 }
-.conventional-sidebar__nav-row {
-  display: flex;
-  align-items: center;
-  gap: 0.125rem;
-  min-width: 0;
-}
 .conventional-sidebar__room {
   display: flex;
   min-width: 0;
@@ -273,17 +267,6 @@
   font-weight: 800;
   line-height: 1.1;
   text-align: center;
-}
-.conventional-sidebar__nav-actions {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 0.125rem;
-  opacity: 0;
-}
-.conventional-sidebar__nav-row:hover .conventional-sidebar__nav-actions,
-.conventional-sidebar__nav-row:focus-within .conventional-sidebar__nav-actions {
-  opacity: 1;
 }
 .conventional-sidebar__nav-nested {
   display: flex;
