@@ -165,11 +165,8 @@ export function EditRoomDialog(props: {
               pattern={'[a-z0-9\\-]+'}
               maxLength={80}
               value={props.initialFunctionKey}
-              list="edit-room-function-keys"
+              suggestions={roomFunctionKeySuggestions}
             />
-            <datalist id="edit-room-function-keys">
-              <For each={roomFunctionKeySuggestions}>{(key) => <option value={key} />}</For>
-            </datalist>
           </div>
         </div>
         <Show when={error()}>

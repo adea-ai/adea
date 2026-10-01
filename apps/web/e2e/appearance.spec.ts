@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 
 /**
  * The appearance editor lives in the settings dialog's Appearance section (the
- * global rail no longer carries its own entry, #425). It is reached the way a
+ * toolbar also offers a live popover, #425/#757). This preserves the settings path a
  * user reaches it — account menu, Settings, then the section — rather than by
  * hash: the section is read from the hash on mount, and the app normalizes the
  * URL, so a hash navigation from an already-loaded page is not a path the app
