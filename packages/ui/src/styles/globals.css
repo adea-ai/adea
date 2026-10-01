@@ -1,7 +1,8 @@
-/* Prebuilt sheet for consumers that want the full kit: Tailwind, the neutral
-   base layer, and the shared tokens/base styles from theme.css. Keep tokens in
-   theme.css only — this file must not duplicate them. */
+/* Prebuilt host sheet: shared structural styles/tokens plus Adea-specific
+   utilities, appearance hooks, and surface policy. */
 
 @import 'tailwindcss';
+@import '@adea-ai/ui/base.css';
+@import '@adea-ai/ui/theme.css';
 @import './base.css';
 @import './theme.css';

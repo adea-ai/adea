@@ -7,9 +7,15 @@ local primitive or a forwarding barrel here. Scene branding and Three.js runtime
 behavior stay in their owning packages. The Solid stack is recorded in
 [decision 0007](../../docs/decisions/0007-solid-tanstack-start.md).
 
+The branded `WorkspaceLogo` accepts only its layout class, image/presentation
+role, and decorative `aria-hidden` state. It does not forward activation
+handlers, tab stops, or arbitrary SVG props. Compose a shared control around
+the mark when an action needs branding.
+
 The unused local Toggle, ToggleGroup, RadioGroup, Tabs, Card, and Spinner copies
-and their private exports have been removed. Remaining local overlays and workspace controls are migration work: preserve their current focus,
-inertness, and placement contracts while replacing them with shared components.
+and their private exports have been removed. Workspace overlays and controls
+compose published shared components; this package keeps only host preference
+adapters, scene behavior, layout, branding, and surface policy.
 
 Workspace dividers and plugin loading placeholders now use published Separator
 and Skeleton directly. The persistent plugin count status reports loading and completion outside the
@@ -109,9 +115,10 @@ the selected catalogue palette with a hand-authored light/dark palette.
 A scanner regression rejects palette literals in consumer properties and
 direct overrides of shared color roles.
 
-The pre-paint script resolves the saved theme attribute without embedding
-palette data. V2 preference persistence, custom-theme recovery, native surface
-capability, and reduced transparency remain host adapters. Unknown or removed
+The mode selector uses the published controlled `ThemeModeToggle`; its selected
+mode still comes from the host's persisted preference provider. The pre-paint
+script resolves the saved theme attribute without embedding palette data. V2
+preference persistence, custom-theme recovery, native surface capability, and reduced transparency remain host adapters. Unknown or removed
 catalogue IDs resolve to the default of the same appearance and the original
 stored record is preserved. Run `bun run --cwd packages/ui themes:generate`
 after changing the published source; `bun run --cwd packages/ui themes:check`

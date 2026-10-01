@@ -303,7 +303,7 @@ describe('theme color contract', () => {
   test('every baseline entry states why and names a real file', async () => {
     expect(BASELINE.map(({ file, literals }) => [file, literals])).toEqual([
       ['apps/web/src/start/routes/__root.tsx', 2],
-      ['packages/ui/src/styles/base.css', 26],
+      ['packages/ui/src/styles/base.css', 2],
     ])
     for (const entry of BASELINE) {
       expect(entry.literals).toBeGreaterThan(0)

@@ -312,9 +312,10 @@ shadcn finding the same way you fix a type error.
   (invisible to the linter) or `` `base--${value}` `` templates. Genuine
   `props.class` forwarding (e.g. `ModalDialog`) gets a scoped
   `oxlint-disable-next-line` comment explaining why.
-- `packages/ui/src/components/**` is exempt from the restyle, arbitrary-value,
-  inline-style, and static-class rules — that is where the design system
-  defines itself.
+- `packages/ui/src/components/**` is private `@adea-ai/app-ui` host code, so it
+  follows the same restyle, arbitrary-value, inline-style, and static-class
+  rules as other consumers. Reusable components come from published
+  `@adea-ai/ui`; do not exempt app adapters as design-system source.
 - Lint is zero-warning: the `suspicious` category and every shadcn rule are
   errors. Newly injected `__DOUBLE_UNDERSCORE__` globals must be added to the
   `no-underscore-dangle` allow list in `.oxlintrc.json` — they are external

@@ -1,30 +1,19 @@
-/* Shared tokens and component styling. Consumers provide the Tailwind and
-   shadcn imports from their own app stylesheet. */
+/* Host-specific appearance and surface policy layered over published @adea-ai/ui. */
 
 @source "../";
 
 @custom-variant dark (&:is(.dark *));
 
-/* These named hooks keep scene-specific appearance on top of the shared
-   Button API. The controls are dark glass regardless of the active theme,
-   while the theme options retain their circular affordance. */
-.workspace-on-screen-controls-zoom-button {
-  border-width: 1px;
-  border-color: color-mix(in oklab, var(--scrim-edge) 25%, transparent);
-  background-color: color-mix(in oklab, var(--scrim) 65%, transparent);
-  color: var(--scrim-foreground);
-  box-shadow:
-    0 10px 15px -3px color-mix(in srgb, var(--scrim) 10%, transparent),
-    0 4px 6px -4px color-mix(in srgb, var(--scrim) 10%, transparent);
-  backdrop-filter: blur(0.5rem);
+/* Touch-only scene controls sit inside the safe area and suppress browser text
+   selection/callouts while preserving pointer capture for held movement keys. */
+.workspace-on-screen-controls {
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
-.workspace-on-screen-controls-zoom-button:hover {
-  background-color: color-mix(in oklab, var(--scrim) 80%, transparent);
-}
-
-.workspace-theme-toggle-option {
-  border-radius: 999px;
+.workspace-on-screen-controls,
+.workspace-on-screen-controls button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
 }
 
 .workspace-trigger-expanded:is([aria-expanded='true'], [data-expanded='true']) {
@@ -67,19 +56,6 @@
 }
 
 @layer base {
-  *,
-  *::before,
-  *::after {
-    border-color: var(--border);
-  }
-
-  /* Product expectation (see cursor-check.spec.ts): enabled buttons show the
-     pointer cursor regardless of preflight defaults. */
-  button:not(:disabled),
-  [role='button']:not([aria-disabled='true']) {
-    cursor: pointer;
-  }
-
   html,
   body {
     min-height: 100%;
@@ -87,9 +63,6 @@
 
   body {
     position: relative;
-    margin: 0;
-    background: var(--background);
-    color: var(--foreground);
   }
 }
 
