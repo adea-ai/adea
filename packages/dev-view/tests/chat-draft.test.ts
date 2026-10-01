@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { formatToken } from '@adea-ai/ui/components/conversation'
+import { formatToken } from '@adea-ai/ui/components/conversation/paste-tokens'
 import {
   chatDraftScopeKey,
   createChatSendRequests,
