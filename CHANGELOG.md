@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.71.7](https://github.com/adea-ai/adea/compare/v0.71.6...v0.71.7) (2026-10-01)
+
+
+### Bug Fixes
+
+* **web:** make the hosted worker self-sufficient and scope marketplace identities ([#902](https://github.com/adea-ai/adea/issues/902)) ([e55b543](https://github.com/adea-ai/adea/commit/e55b5430dbf8733b07925967c34dd6668ec514f9))
+
 ## [0.71.6](https://github.com/adea-ai/adea/compare/v0.71.5...v0.71.6) (2026-10-01)
 
 
