@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.10](https://github.com/adea-ai/adea/compare/v0.70.9...v0.70.10) (2026-10-01)
+
+
+### Bug Fixes
+
+* **web:** preflight shared UI Lucide dev exports ([#862](https://github.com/adea-ai/adea/issues/862)) ([c554b9f](https://github.com/adea-ai/adea/commit/c554b9f966e9d9b30a2b09546dbe7d76e358f65e))
+
 ## [0.70.9](https://github.com/adea-ai/adea/compare/v0.70.8...v0.70.9) (2026-10-01)
 
 
