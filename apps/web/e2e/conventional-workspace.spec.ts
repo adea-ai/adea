@@ -1998,7 +1998,9 @@ test('themed shell and Library remain usable across desktop and narrow layouts',
   const light = await toolbar.evaluate((element) => getComputedStyle(element).backgroundColor)
   await page.screenshot({ path: testInfo.outputPath('library-light-desktop.png') })
   await page.getByRole('button', { name: 'User settings', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+  // Not `exact`: the shared account item appends its `⌘,` chord glyph to the
+  // accessible name, which workspace-guest.spec.ts asserts is displayed.
+  await page.getByRole('menuitem', { name: 'Settings' }).click()
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
   await settings.getByRole('tab', { name: 'Appearance', exact: true }).click()
   const appearance = settings.getByRole('region', { name: 'Appearance', exact: true })
@@ -2038,7 +2040,7 @@ test('Chat conversation surface follows the shared light and dark theme backgrou
   await expect(surface).toBeVisible()
   for (const mode of ['Light', 'Dark']) {
     await page.getByRole('button', { name: 'User settings', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Settings' }).click()
     const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
     await settings.getByRole('tab', { name: 'Appearance', exact: true }).click()
     const appearance = settings.getByRole('region', { name: 'Appearance', exact: true })

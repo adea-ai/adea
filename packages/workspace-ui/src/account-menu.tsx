@@ -19,18 +19,12 @@ type AccountMenuProps = {
 }
 
 export function AccountMenu(props: AccountMenuProps) {
-  // No `shortcut` here: the shared menu item appends the chord glyph into the
-  // item's accessible name, so a `⌘,` hint turns "Settings" into
-  // "Settings ⌘," — which is not a chord a screen reader can parse. The
-  // app-local menu this replaced kept the same hint in an aria-hidden
-  // `DropdownMenuShortcut`. Until the shared item aria-hides its glyph (as
-  // SideRailItem already does) or accepts `aria-keyshortcuts`, omitting the
-  // glyph is what keeps the accessible name correct.
   const items = (): SharedAccountMenuItem[] =>
     accountMenuItemsForPlatform(props.platform).map((item) => ({
       id: item.id,
       label: item.label,
       disabled: item.disabled,
+      shortcut: item.id === 'settings' ? '⌘,' : undefined,
       onSelect:
         item.id === 'about'
           ? () => props.onOpenAbout()
