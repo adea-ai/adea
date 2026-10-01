@@ -440,9 +440,19 @@ export function stageUpdateSwap(input: {
   // A full archive replaces the bundle (one-move rollback window); a slim
   // archive overlays the app layer onto the existing bundle, keeping the CEF
   // framework and launcher so no multi-minute reinstall runs.
+  //
+  // The last step in both modes drops the extracted payload directory. This
+  // is the only place that knows the payload is spent: `full` moved the
+  // bundle out of it and `slim` copied from it, and the install path cannot
+  // clean up because it exits before the swap runs. Leaving it to the script
+  // is what stops each install from retaining a full extracted copy of
+  // itself. The failed-move branch exits above it, so a rolled-back install
+  // keeps its payload for diagnosis.
+  const payloadDir = dirname(input.newAppPath)
+  const dropPayload = [`rm -rf ${JSON.stringify(payloadDir)}`]
   const apply =
     mode === 'slim'
-      ? [`ditto ${JSON.stringify(input.newAppPath)} ${JSON.stringify(target)}`]
+      ? [`ditto ${JSON.stringify(input.newAppPath)} ${JSON.stringify(target)}`, ...dropPayload]
       : [
           `rm -rf ${JSON.stringify(previous)}`,
           `mv ${JSON.stringify(target)} ${JSON.stringify(previous)}`,
@@ -451,6 +461,7 @@ export function stageUpdateSwap(input: {
           '  exit 1',
           'fi',
           `rm -rf ${JSON.stringify(previous)}`,
+          ...dropPayload,
         ]
   writeFileSync(
     scriptPath,
