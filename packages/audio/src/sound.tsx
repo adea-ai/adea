@@ -13,7 +13,7 @@ import {
 import { soundController, type MusicOptions } from './controller'
 import { musicForScene } from './scene-music'
 import type { MusicId } from './config'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
 export type SoundContextValue = {
   controller: typeof soundController
@@ -88,8 +88,9 @@ export function useSceneMusic(sceneId: string | null | undefined): void {
 
 function MusicButton(props: { muted: boolean; onToggle: () => void }) {
   return (
-    <Button
+    <ActionButton
       type="button"
+      tooltip={props.muted ? 'Unmute music' : 'Mute music'}
       aria-label={props.muted ? 'Unmute music' : 'Mute music'}
       aria-pressed={props.muted}
       onClick={() => props.onToggle()}
@@ -101,7 +102,7 @@ function MusicButton(props: { muted: boolean; onToggle: () => void }) {
       ) : (
         <Music2 class="size-5" aria-hidden="true" />
       )}
-    </Button>
+    </ActionButton>
   )
 }
 

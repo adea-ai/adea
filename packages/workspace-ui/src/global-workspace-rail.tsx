@@ -181,7 +181,7 @@ export function GlobalWorkspaceRail(props: {
           </SideRailItem>
         </SideRailSection>
 
-        <Separator class="global-rail__separator" />
+        <Separator class="my-1" />
 
         <SideRailSection label="Workspace views" role="group" aria-label="Workspace views">
           <For each={props.views}>
@@ -243,8 +243,11 @@ export function GlobalWorkspaceRail(props: {
             as="button"
             type="button"
             disabled={!props.activeWorkspace}
-            label="Plugins"
+            label={props.activeWorkspace ? 'Plugins' : 'Plugins (select a workspace first)'}
             aria-label="Plugins"
+            aria-description={
+              !props.activeWorkspace ? 'Select a workspace to browse plugins.' : undefined
+            }
             onClick={props.onOpenPlugins}
           >
             <Plug aria-hidden="true" />

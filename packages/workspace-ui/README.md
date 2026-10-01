@@ -29,9 +29,32 @@ focus the App Library search when Chat is disabled. Workspace selection uses
 the published dropdown radio menu: arrow keys move between workspaces, Enter
 selects one, and Escape closes the menu and restores focus to its trigger.
 
+Workspace search composes the published `Command` primitives for combobox and
+listbox semantics, active-result selection, keyboard navigation, and focus
+management. Built-in command filtering stays disabled so local fuzzy ranking,
+authorized private results, and remote result ordering remain host-owned.
+
+The published shared UI `SideRail` family owns the rail's header, scrolling
+navigation, footer, active states, focus treatment, and destination tooltips.
+Adea supplies ordered/enabled destinations, shortcut dispatch, workspace
+selection, and prefetch callbacks. Host CSS supplies positioning, safe-area
+insets, and menu width; it does not redefine the component's icon or active
+styling. The account adapter maps platform-specific commands into the shared
+`AccountMenu` instead of composing a second menu.
+
 The account menu opens Updates after its menu focus cycle closes. It supplies
 the persistent rail button through the host adapter to the published dialog
 so closing Updates restores focus without retaining a removed menu item.
+
+## Plugin marketplace
+
+`PluginsDialog` composes the published
+`@adea-ai/ui/components/composites/catalog-browser` for Discover, Installed,
+search, category expansion, result details, and return focus. The workspace
+provider remains authoritative for the verified catalog, install requests,
+recovery state, permissions, and bundled app activation. Its Navigation tab is
+a host-rendered supplemental view; this plugin marketplace remains separate
+from the #757 App Library's core-view and rail-management flow.
 
 ## Loading state
 

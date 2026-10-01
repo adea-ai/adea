@@ -64,18 +64,6 @@ export function projectWorkspaceNavigation(
   })
 }
 
-export function searchKeyboardSelection(
-  key: string,
-  selectedIndex: number,
-  resultCount: number
-): Readonly<{ action: 'move' | 'open' | 'none'; index: number }> {
-  if (key === 'ArrowDown')
-    return { action: 'move', index: Math.min(selectedIndex + 1, Math.max(resultCount - 1, 0)) }
-  if (key === 'ArrowUp') return { action: 'move', index: Math.max(selectedIndex - 1, 0) }
-  if (key === 'Enter' && resultCount > 0) return { action: 'open', index: selectedIndex }
-  return { action: 'none', index: selectedIndex }
-}
-
 export function fuzzySearchMatch(candidate: string, query: string) {
   const target = candidate.toLocaleLowerCase()
   const needle = query.trim().toLocaleLowerCase()

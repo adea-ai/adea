@@ -59,39 +59,44 @@ Kobalte mode and product layout hooks. Shared background containment restores
 previous inert states after dismissal or asynchronous close. The copied
 workspace ModalDialog and its overlay/header appearance styles are removed.
 
-## Theming contract: CSS custom properties are the only color surface
+## Theming contract: the published palette is the color authority
 
-Components in this package never contain a color literal. Colors come from the
-published token layer (`@adea-ai/ui/theme.css` for structural tokens, the generated catalogue sheet for palette projections, `workspace-shell.css`
-for the HQ shell tokens, `auth-shell.css` for the auth shell), and a component
-that needs a new color adds a token instead of a value.
-
-A color literal is legal in exactly one place: the **declaration** of a custom
-property.
+Components and consumer styles use semantic color roles from the published
+`@adea-ai/ui/theme.css` and generated catalogue projections. Local shell and
+status styles may alias those roles or derive translucent colors from them;
+they do not declare color literals or override shared palette roles. The shell
+stylesheet owns layout and host surface policy, while theme selection and every
+light/dark palette come from the published `@adea-ai/themes` catalogue.
 
 ```css
-/* A new token, declared once. */
---hq-shell-notice: #d97706;
-
-/* Then used everywhere it is needed. */
+/* Alias a shared semantic role when the consumer needs a local name. */
 .notice {
-  color: var(--hq-shell-notice);
-  border-color: color-mix(in srgb, var(--hq-shell-notice) 45%, transparent);
+  --notice-color: var(--info);
+  color: var(--notice-color);
+  border-color: color-mix(in srgb, var(--notice-color) 45%, transparent);
 }
 ```
 
 `scripts/check-theme-colors.mjs` enforces the rule across `packages/ui`,
-`packages/workspace-ui` and `apps/web/src`;
-`scripts/theme-color-boundary.test.ts` runs the scan in the validation lane.
+`packages/workspace-ui`, `packages/dev-view`, and `apps/web/src`;
+`scripts/theme-color-boundary.test.ts` also checks that every source stylesheet
+under a `src` directory in `packages` or `apps` is covered by a configured scan root,
+including nested hosts such as `apps/desktop/shell/src`,
+and that each configured root still exists and contains eligible source. A new
+CSS-bearing package therefore fails closed until its source root is reviewed.
 
 The rule is a gate with a burn-down, not a rewrite:
 
 - Files in `BASELINE` may carry an exact number of literals, each entry with a
   reason. Adding a literal fails the build, and so does removing one without
   updating the count — so the list only shrinks.
-- `TOKEN_FILES` are the declared token layers, where a literal _is_ the theme.
-- Named colors (`white`, `transparent`) are out of scope; the gate targets
-  explicit literals.
+- `GENERATED_THEME_FILES` contains only exact outputs of
+  `packages/ui/scripts/generate-canonical-theme-data.ts`; the package's
+  `themes:check` command verifies those projections against the published
+  package. App-authored sheets are scanned normally.
+- CSS named colors are checked in color-bearing declaration values and custom
+  properties. CSS-wide/semantic keywords, quoted strings, URLs, comments, and
+  TS/TSX class-name strings are not treated as palette values.
 
 Why it is worth a gate: with it, restyling is a token swap and dark mode is a
 second set of declarations. Without it, every hardcoded value is a small rewrite
@@ -103,8 +108,12 @@ catalogue, led by the `adea-light`/`adea-dark` pair. Every theme passes the host
 published `@adea-ai/ui/lib/themes` framework projection plus the catalogue's
 terminal/editor adapters. The generated stylesheet includes default and named
 palettes, all sidebar/status/raised-surface roles, and renderer aliases. The
-app-authored theme sheet contains only host/branding hooks and surface policy;
-a regression test forbids it from redeclaring any published palette token.
+app-authored theme sheet contains host aliases, branding hooks, and surface
+policy. The logo asset uses the published scrim contrast pair, and the shell
+mark uses the selected palette's primary pair. The shell no longer replaces
+the selected catalogue palette with a hand-authored light/dark palette.
+A scanner regression rejects palette literals in consumer properties and
+direct overrides of shared color roles.
 
 The mode selector uses the published controlled `ThemeModeToggle`; its selected
 mode still comes from the host's persisted preference provider. The pre-paint

@@ -33,7 +33,18 @@ export interface SourceDiscoveryOptions {
   repositoryRoot: string
   uiPackageRoot: string
   uiSourceRoot: string
+  includeDevLucideImports?: boolean
   resolveId(specifier: string, importer: string): Promise<string | undefined>
+}
+
+export interface LucideImportRequirement {
+  file: string
+  names: string[]
+}
+
+export interface UiSourceGraph {
+  uiSourceFiles: string[]
+  devLucideImports: LucideImportRequirement[]
 }
 
 export interface SourceDirectiveOptions {
@@ -41,6 +52,65 @@ export interface SourceDirectiveOptions {
   uiPackageRoot: string
   stablePackagePath: string
   stylesheetPath: string
+}
+
+export function missingLucideDevShimExports(
+  imports: LucideImportRequirement[],
+  shimSource: string
+): LucideImportRequirement[] {
+  const shimExports = new Set<string>()
+  const shim = ts.createSourceFile(
+    'lucide-solid-dev-shim.jsx',
+    shimSource,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.JSX
+  )
+  for (const statement of shim.statements) {
+    if (
+      !ts.isExportDeclaration(statement) ||
+      statement.isTypeOnly ||
+      !statement.moduleSpecifier ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      !statement.moduleSpecifier.text.startsWith('lucide-solid/icons/') ||
+      !statement.exportClause ||
+      !ts.isNamedExports(statement.exportClause)
+    )
+      continue
+    for (const element of statement.exportClause.elements) {
+      if (!element.isTypeOnly) shimExports.add(moduleExportName(element.name))
+    }
+  }
+
+  return imports
+    .map(({ file, names }) => ({
+      file,
+      names: names.filter((name) => !shimExports.has(name)).toSorted(),
+    }))
+    .filter(({ names }) => names.length > 0)
+    .toSorted((left, right) => left.file.localeCompare(right.file))
+}
+
+export function assertLucideDevShimCoverage(
+  imports: LucideImportRequirement[],
+  shimSource: string,
+  repositoryRoot?: string
+): void {
+  const missing = missingLucideDevShimExports(imports, shimSource)
+  if (missing.length === 0) return
+
+  const details = missing
+    .map(({ file, names }) => {
+      const displayPath = repositoryRoot
+        ? relative(repositoryRoot, file).replaceAll('\\', '/')
+        : file
+      return `  ${displayPath}: ${names.join(', ')}`
+    })
+    .join('\n')
+  throw new Error(
+    `[adea-lucide-dev-shim] missing named exports from the dev shim:\n${details}\n` +
+      'Add direct icon exports to apps/web/start/lucide-solid-dev-shim.jsx.'
+  )
 }
 
 function modulePath(id: string): string {
@@ -317,6 +387,115 @@ function runtimeImports(parsed: ParsedModule): RuntimeImport[] {
   return imports
 }
 
+interface DevLucideCollectionOptions {
+  entrypoints: string[]
+  repositoryRoot: string
+  uiSourceRoot: string
+  resolveId(specifier: string, importer: string): Promise<string | undefined>
+  cache: Map<string, ParsedModule>
+}
+
+async function collectDevLucideImports(
+  options: DevLucideCollectionOptions
+): Promise<LucideImportRequirement[]> {
+  const visited = new Set<string>()
+  const imports = new Map<string, Set<string>>()
+
+  const record = (file: string, selection: Selection): void => {
+    if (!inside(file, options.uiSourceRoot)) return
+    if (selection.kind === 'all' || selection.kind === 'side-effect') {
+      const reason = selection.kind === 'all' ? 'opaque or namespace' : 'side-effect-only'
+      throw new Error(
+        `[adea-lucide-dev-shim] ${reason} runtime import of 'lucide-solid' in ${file}; use named icon imports so the dev shim can be checked without loading the full catalogue`
+      )
+    }
+    // Only a named import contributes icon names. An `execute` selection
+    // (a bare module import) records no names, so iterating `selection.names`
+    // here would have thrown on it at runtime.
+    if (selection.kind === 'named') {
+      const names = imports.get(file) ?? new Set<string>()
+      for (const name of selection.names) names.add(name)
+      imports.set(file, names)
+    }
+  }
+
+  const visit = async (path: string): Promise<void> => {
+    const file = modulePath(path)
+    const inUi = inside(file, options.uiSourceRoot)
+    if (
+      !isCodeFile(file) ||
+      (!inUi && !isWorkspaceSourceFile(file, options.repositoryRoot)) ||
+      visited.has(file)
+    )
+      return
+    visited.add(file)
+
+    const parsed = readModule(file, options.cache)
+    const visitDependency = async (specifier: string, isReexport = false): Promise<void> => {
+      if (specifier === 'lucide-solid') return
+      const resolved = await options.resolveId(specifier, file)
+      if (!resolved) {
+        const isPublishedUiImport =
+          specifier === '@adea-ai/ui' || specifier.startsWith('@adea-ai/ui/')
+        if (inUi || isPublishedUiImport) {
+          throw new Error(
+            `[adea-ui-tailwind-sources] unable to resolve ${isReexport ? 're-export' : 'runtime import'} '${specifier}' from ${file}`
+          )
+        }
+        return
+      }
+
+      const target = modulePath(resolved)
+      if (
+        isCodeFile(target) &&
+        (inside(target, options.uiSourceRoot) ||
+          isWorkspaceSourceFile(target, options.repositoryRoot))
+      )
+        await visit(target)
+    }
+
+    for (const dependency of runtimeImports(parsed)) {
+      if (dependency.specifier === 'lucide-solid') record(file, dependency.selection)
+      else await visitDependency(dependency.specifier)
+    }
+
+    for (const statement of parsed.sourceFile.statements) {
+      if (
+        !ts.isExportDeclaration(statement) ||
+        statement.isTypeOnly ||
+        !statement.moduleSpecifier ||
+        !ts.isStringLiteral(statement.moduleSpecifier)
+      )
+        continue
+      const specifier = statement.moduleSpecifier.text
+      if (specifier === 'lucide-solid') {
+        if (!statement.exportClause || ts.isNamespaceExport(statement.exportClause)) {
+          record(file, { kind: 'all' })
+        } else if (ts.isNamedExports(statement.exportClause)) {
+          record(file, {
+            kind: 'named',
+            names: statement.exportClause.elements
+              .filter((element) => !element.isTypeOnly)
+              .map((element) => moduleExportName(element.propertyName ?? element.name)),
+          })
+        }
+      } else {
+        await visitDependency(specifier, true)
+      }
+    }
+  }
+
+  // Vite serves the published package as native ESM. Static imports and
+  // re-exports are linked even when the consumer selects one root-barrel name.
+  // Literal dynamic imports are also preflighted without importing or executing
+  // them, so lazy features cannot fail later with a missing shim export.
+  for (const entrypoint of options.entrypoints) await visit(entrypoint)
+
+  return [...imports]
+    .map(([file, names]) => ({ file, names: [...names].toSorted() }))
+    .toSorted((left, right) => left.file.localeCompare(right.file))
+}
+
 function localRuntimeBinding(
   file: string,
   localName: string,
@@ -381,7 +560,9 @@ function modifierExport(file: string, name: string, cache: Map<string, ParsedMod
   )
 }
 
-export async function collectUiSourceFiles(options: SourceDiscoveryOptions): Promise<string[]> {
+export async function collectUiSourceGraph(
+  options: SourceDiscoveryOptions
+): Promise<UiSourceGraph> {
   const repositoryRoot = realpathSync(options.repositoryRoot)
   const uiSourceRoot = realpathSync(options.uiSourceRoot)
   const entrypoints = (
@@ -446,6 +627,10 @@ export async function collectUiSourceFiles(options: SourceDiscoveryOptions): Pro
 
       if (!statement.exportClause) {
         if (name === 'default') continue
+        if (specifier === 'lucide-solid') {
+          targets.push({ file, selection: { kind: 'execute' } })
+          continue
+        }
         const resolved = await options.resolveId(specifier, file)
         if (resolved)
           targets.push(...(await resolveExportTargets(modulePath(resolved), name, nextChain)))
@@ -455,6 +640,10 @@ export async function collectUiSourceFiles(options: SourceDiscoveryOptions): Pro
           )
       } else if (ts.isNamespaceExport(statement.exportClause)) {
         if (statement.exportClause.name.text === name) {
+          if (specifier === 'lucide-solid') {
+            targets.push({ file, selection: { kind: 'execute' } })
+            continue
+          }
           const resolved = await options.resolveId(specifier, file)
           if (resolved) targets.push({ file: modulePath(resolved), selection: { kind: 'all' } })
         }
@@ -462,6 +651,10 @@ export async function collectUiSourceFiles(options: SourceDiscoveryOptions): Pro
         for (const element of statement.exportClause.elements) {
           if (element.isTypeOnly || moduleExportName(element.name) !== name) continue
           const importedName = moduleExportName(element.propertyName ?? element.name)
+          if (specifier === 'lucide-solid') {
+            targets.push({ file, selection: { kind: 'execute' } })
+            continue
+          }
           const resolved = await options.resolveId(specifier, file)
           if (resolved)
             targets.push({
@@ -536,6 +729,9 @@ export async function collectUiSourceFiles(options: SourceDiscoveryOptions): Pro
         continue
       }
       if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+      if (statement.moduleSpecifier.text === 'lucide-solid' && !statement.exportClause) {
+        continue
+      }
       const resolved = await options.resolveId(statement.moduleSpecifier.text, file)
       if (!resolved) {
         if (inside(file, uiSourceRoot))
@@ -574,8 +770,9 @@ export async function collectUiSourceFiles(options: SourceDiscoveryOptions): Pro
     // Follow all runtime imports of every visited module. Even when a module
     // is reached through a side-effect import, its own imports may execute
     // setup code or register UI components needed by the consumer.
-    for (const dependency of moduleImports)
+    for (const dependency of moduleImports) {
       await resolveImport(dependency.specifier, file, dependency.selection)
+    }
 
     if (selection.kind === 'execute' || selection.kind === 'side-effect') return
     const names =
@@ -596,7 +793,23 @@ export async function collectUiSourceFiles(options: SourceDiscoveryOptions): Pro
     throw new Error(
       `[adea-ui-tailwind-sources] the client import graph resolved no shared UI source files from ${entrypoints.join(', ')}; package imports: ${publishedUiResolutions.slice(0, 8).join('; ') || '(none)'}`
     )
-  return [...files].toSorted()
+  return {
+    uiSourceFiles: [...files].toSorted(),
+    devLucideImports:
+      options.includeDevLucideImports === false
+        ? []
+        : await collectDevLucideImports({
+            entrypoints,
+            repositoryRoot,
+            uiSourceRoot,
+            resolveId: options.resolveId,
+            cache,
+          }),
+  }
+}
+
+export async function collectUiSourceFiles(options: SourceDiscoveryOptions): Promise<string[]> {
+  return (await collectUiSourceGraph({ ...options, includeDevLucideImports: false })).uiSourceFiles
 }
 
 function deduplicateTargets(targets: ExportTarget[]): ExportTarget[] {
@@ -656,8 +869,17 @@ function writeIfChanged(path: string, content: string) {
   writeFileSync(path, content)
 }
 
-function uiSourcePlugin(webRoot: string): Plugin {
+interface UiSourcePluginOptions {
+  checkLucideDevShim?: boolean
+}
+
+function uiSourcePlugin(webRoot: string, options: UiSourcePluginOptions): Plugin {
   let uiRoot = ''
+  let uiSourceRoot = ''
+  let repositoryRoot = ''
+  let stablePackagePath = ''
+  let shimPath = ''
+  let checkLucideDevShim = false
   let generatedFiles: string[] = []
 
   return {
@@ -670,14 +892,16 @@ function uiSourcePlugin(webRoot: string): Plugin {
         // is not a source import from client.tsx, so include its real app entry.
         resolve(webRoot, 'src/start/router.tsx'),
       ]
-      const repositoryRoot = realpathSync(resolve(webRoot, '../..'))
+      repositoryRoot = realpathSync(resolve(webRoot, '../..'))
+      checkLucideDevShim = options.checkLucideDevShim === true && config.command === 'serve'
       const resolver = config.createResolver()
       const manifest = await resolver('@adea-ai/ui/package.json', entrypoints[0], false, false)
       if (!manifest)
         throw new Error('[adea-ui-tailwind-sources] unable to resolve @adea-ai/ui/package.json')
       uiRoot = realpathSync(dirname(modulePath(manifest)))
-      const uiSourceRoot = realpathSync(resolve(uiRoot, 'src'))
-      const stablePackagePath = resolve(webRoot, 'node_modules/@adea-ai/ui')
+      uiSourceRoot = realpathSync(resolve(uiRoot, 'src'))
+      stablePackagePath = resolve(webRoot, 'node_modules/@adea-ai/ui')
+      shimPath = resolve(webRoot, 'start/lucide-solid-dev-shim.jsx')
       // A fresh hoisted install may not materialise apps/web/node_modules at
       // all, while the generated directives and Tailwind's scan reference the
       // package through this stable path — materialise the link instead of
@@ -693,13 +917,21 @@ function uiSourcePlugin(webRoot: string): Plugin {
 
       const stylesheetPath = resolve(webRoot, 'node_modules/.cache/adea-ui-tailwind-sources.css')
       const manifestPath = resolve(webRoot, 'node_modules/.cache/adea-ui-tailwind-sources.json')
-      generatedFiles = await collectUiSourceFiles({
+      const graph = await collectUiSourceGraph({
         entrypoint: entrypoints,
         repositoryRoot,
         uiPackageRoot: uiRoot,
         uiSourceRoot,
+        includeDevLucideImports: checkLucideDevShim,
         resolveId: (specifier, importer) => resolver(specifier, importer, false, false),
       })
+      generatedFiles = graph.uiSourceFiles
+      if (checkLucideDevShim)
+        assertLucideDevShimCoverage(
+          graph.devLucideImports,
+          readFileSync(shimPath, 'utf8'),
+          repositoryRoot
+        )
       const directives = formatUiSourceDirectives({
         files: generatedFiles,
         uiPackageRoot: uiRoot,
@@ -715,6 +947,7 @@ function uiSourcePlugin(webRoot: string): Plugin {
     configureServer(server) {
       server.watcher.add(resolve(webRoot, 'src'))
       server.watcher.add(resolve(webRoot, '../../packages'))
+      if (checkLucideDevShim) server.watcher.add(shimPath)
     },
     async handleHotUpdate({ file, server }) {
       if (!generatedFiles.length || !isCodeFile(file)) return
@@ -725,25 +958,31 @@ function uiSourcePlugin(webRoot: string): Plugin {
         resolve(webRoot, 'src/start/client.tsx'),
         resolve(webRoot, 'src/start/router.tsx'),
       ]
-      const repositoryRoot = realpathSync(resolve(webRoot, '../..'))
-      const uiSourceRoot = realpathSync(resolve(uiRoot, 'src'))
-      const next = await collectUiSourceFiles({
+      const graph = await collectUiSourceGraph({
         entrypoint,
         repositoryRoot,
         uiPackageRoot: uiRoot,
         uiSourceRoot,
+        includeDevLucideImports: checkLucideDevShim,
         resolveId: (specifier, importer) => resolver(specifier, importer, false, false),
       })
+      if (checkLucideDevShim)
+        assertLucideDevShimCoverage(
+          graph.devLucideImports,
+          readFileSync(shimPath, 'utf8'),
+          repositoryRoot
+        )
+      const next = graph.uiSourceFiles
       const previousSources = formatUiSourceDirectives({
         files: before,
         uiPackageRoot: uiRoot,
-        stablePackagePath: resolve(webRoot, 'node_modules/@adea-ai/ui'),
+        stablePackagePath,
         stylesheetPath: resolve(webRoot, 'node_modules/.cache/adea-ui-tailwind-sources.css'),
       })
       const nextSources = formatUiSourceDirectives({
         files: next,
         uiPackageRoot: uiRoot,
-        stablePackagePath: resolve(webRoot, 'node_modules/@adea-ai/ui'),
+        stablePackagePath,
         stylesheetPath: resolve(webRoot, 'node_modules/.cache/adea-ui-tailwind-sources.css'),
       })
       if (previousSources === nextSources) return
@@ -765,6 +1004,9 @@ function uiSourcePlugin(webRoot: string): Plugin {
   }
 }
 
-export function selectiveUiSourcePlugin(webRoot: string): Plugin {
-  return uiSourcePlugin(webRoot)
+export function selectiveUiSourcePlugin(
+  webRoot: string,
+  options: UiSourcePluginOptions = {}
+): Plugin {
+  return uiSourcePlugin(webRoot, options)
 }

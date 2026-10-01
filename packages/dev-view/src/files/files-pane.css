@@ -16,28 +16,16 @@
 /* Quick-open picker (#399 residue): a pane-local overlay anchored under the
  * toolbar, stacked on the named menu scale. */
 .dev-files__quickopen {
-  position: absolute;
-  inset-inline: 0.5rem;
-  top: 2.4rem;
-  z-index: var(--z-menu, 140);
   display: flex;
   max-height: 60%;
   flex-direction: column;
   gap: 0.25rem;
   padding: 0.25rem;
-  border: 1px solid var(--border);
-  border-radius: 0.35rem;
-  background: var(--background);
-  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim, #000) 32%, transparent);
 }
 
 .dev-files__quickopen-list {
   min-height: 0;
   overflow-y: auto;
-}
-
-.dev-files__quickopen-row--active {
-  background: color-mix(in srgb, var(--secondary) 72%, transparent);
 }
 
 .dev-files__quickopen-empty {
@@ -68,6 +56,15 @@
 .dev-files__filter:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
   outline-offset: 1px;
+}
+
+.dev-files__quickopen [data-slot='command-input-wrapper'] {
+  height: 1.75rem;
+}
+
+.dev-files__quickopen-input {
+  min-width: 0;
+  flex: 1;
 }
 
 .dev-files__actions {
@@ -168,7 +165,7 @@
   flex-shrink: 0;
   padding: 0 0.3rem;
   border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--warning, #b45309) 22%, transparent);
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
   color: var(--foreground);
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 0.65rem;
@@ -192,8 +189,8 @@
 
 .dev-files__delete:hover,
 .dev-files__delete[aria-label^='Confirm delete'] {
-  background: color-mix(in srgb, var(--destructive, #b91c1c) 18%, transparent);
-  color: var(--destructive, #b91c1c);
+  background: color-mix(in srgb, var(--destructive) 18%, transparent);
+  color: var(--destructive);
   opacity: 1;
 }
 
@@ -272,11 +269,11 @@
 }
 
 .dev-sc__diff-line--add {
-  color: var(--dev-diff-add, #16a34a);
+  color: var(--diff-add-foreground);
 }
 
 .dev-sc__diff-line--delete {
-  color: var(--dev-diff-delete, #dc2626);
+  color: var(--diff-delete-foreground);
 }
 
 .dev-sc__diff-line--meta {
@@ -332,7 +329,7 @@
 }
 
 .dev-editor__banner--conflict {
-  background: color-mix(in srgb, var(--warning, #b45309) 16%, transparent);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
 }
 
 .dev-editor__surface {

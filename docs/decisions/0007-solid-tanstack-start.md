@@ -38,9 +38,10 @@ work unchanged in shape.
 | Library build     | `tsc` emitting React JSX into `dist`               | Vite + `vite-plugin-solid` (`dist`) plus `tsc --emitDeclarationOnly` for types           |
 | Desktop single UI | web app's React SPA build                          | the same web app's Solid SPA build (`apps/web/vite.desktop.config.ts`, unchanged wiring) |
 
-The shared CSS never depended on the component runtime: the token layer
-(`theme.css`, `workspace-shell.css`, `auth-shell.css`) and the workspace
-stylesheets are unchanged. The Tailwind state variants and utilities the
+The shared CSS never depended on the component runtime. The published theme
+package owns palette values; the app's `theme.css`, `workspace-shell.css`, and
+`auth-shell.css` contain semantic aliases, host surface policy, and layout only.
+The Tailwind state variants and utilities the
 components rely on were previously imported from the `shadcn` CLI package; they
 are now vendored, framework-neutral, as `packages/ui/src/styles/base.css`.
 

@@ -31,6 +31,15 @@ Worker setup, secrets, and caching.
   Solid bindings plus the Solid workspace store), theme/audio providers,
   settings, plugins, conventional workspace, and optional spatial entry
   points. `src/components/lazy-component.tsx` keeps those entries deferred.
+- Web development startup checks named `lucide-solid` imports in reachable
+  published shared-UI modules against `start/lucide-solid-dev-shim.jsx` and fails
+  before serving modules if an export is missing. It follows static ESM imports
+  and re-exports: a root-barrel import links every statically re-exported
+  component even when the app selects one public name. Direct subpaths stay
+  narrow. Literal lazy imports are inspected for missing icon exports without
+  being loaded or executed. Tailwind source discovery still follows selected
+  exports, so unused barrel components do not expand the production CSS source
+  list.
 
 Tailwind source scanning for the published `@adea-ai/ui` package follows the
 web client entry's runtime imports, including nested component imports and
