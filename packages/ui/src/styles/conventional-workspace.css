@@ -125,6 +125,7 @@
 }
 
 .conventional-workspace,
+.workspace-shell--contextual,
 .conventional-dialog {
   --cw-bg: var(--background);
   --cw-surface: var(--card);
@@ -228,30 +229,13 @@
 .conventional-sidebar {
   --sidebar-width: var(--conventional-sidebar-width, 17rem);
   position: relative;
+  flex: none;
   grid-row: 1;
   min-width: 0;
   overflow: hidden;
 }
 .conventional-sidebar__resize {
-  position: absolute;
   z-index: 6;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 0.5rem;
-  padding: 0;
-  border: 0;
-  cursor: col-resize;
-  background: transparent;
-  touch-action: none;
-}
-.conventional-sidebar__resize:hover,
-.conventional-sidebar__resize:focus-visible {
-  background: var(--cw-accent-soft);
-}
-.conventional-sidebar__resize:focus-visible {
-  outline: 2px solid var(--cw-focus);
-  outline-offset: -2px;
 }
 .conventional-sidebar__close {
   display: none;
@@ -317,18 +301,9 @@
 }
 .conventional-sidebar-error {
   margin: 0 0.55rem 0.5rem;
-  padding: 0.5rem 0.6rem;
-  border-radius: 0.4rem;
-  background: color-mix(in srgb, var(--cw-danger) 10%, transparent);
-  color: var(--cw-danger);
-  font-size: 0.78rem;
-  line-height: 1.4;
 }
 .conventional-sidebar-empty {
   padding-inline: 0.75rem;
-  color: var(--muted-foreground);
-  font-size: 0.875rem;
-  line-height: 1.45;
 }
 .conventional-sidebar__read-actions {
   width: 100%;

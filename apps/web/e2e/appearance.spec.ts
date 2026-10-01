@@ -302,7 +302,7 @@ test.describe('App Library navigation', () => {
     await library.getByRole('button', { name: 'Disable Chat', exact: true }).click()
     await page.goto('/?view=chat')
     await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeVisible()
+    await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
     await rail.getByRole('button', { name: 'App Library', exact: true }).click()
     await library.getByRole('button', { name: 'Enable Chat', exact: true }).click()
     await library.getByRole('button', { name: 'Open Chat', exact: true }).click()
