@@ -72,7 +72,7 @@ light/dark palette come from the published `@adea-ai/themes` catalogue.
 ```
 
 `scripts/check-theme-colors.mjs` enforces the rule across `packages/ui`,
-`packages/workspace-ui` and `apps/web/src`;
+`packages/workspace-ui`, `packages/dev-view`, and `apps/web/src`;
 `scripts/theme-color-boundary.test.ts` runs the scan in the validation lane.
 
 The rule is a gate with a burn-down, not a rewrite:
@@ -84,8 +84,9 @@ The rule is a gate with a burn-down, not a rewrite:
   `packages/ui/scripts/generate-canonical-theme-data.ts`; the package's
   `themes:check` command verifies those projections against the published
   package. App-authored sheets are scanned normally.
-- Named colors (`white`, `transparent`) are out of scope; the gate targets
-  explicit literals.
+- CSS named colors are checked in color-bearing declaration values and custom
+  properties. CSS-wide/semantic keywords, quoted strings, URLs, comments, and
+  TS/TSX class-name strings are not treated as palette values.
 
 Why it is worth a gate: with it, restyling is a token swap and dark mode is a
 second set of declarations. Without it, every hardcoded value is a small rewrite

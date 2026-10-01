@@ -12,9 +12,14 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 
-/** Where components and app styles live. */
-const SCAN_ROOTS = ['packages/ui/src', 'packages/workspace-ui/src', 'apps/web/src']
 const SCAN_EXTENSIONS = ['.ts', '.tsx', '.css']
+/** Source surfaces to scan. */
+export const SCAN_ROOTS = [
+  { directory: 'packages/ui/src', extensions: SCAN_EXTENSIONS },
+  { directory: 'packages/workspace-ui/src', extensions: SCAN_EXTENSIONS },
+  { directory: 'packages/dev-view/src', extensions: SCAN_EXTENSIONS },
+  { directory: 'apps/web/src', extensions: SCAN_EXTENSIONS },
+]
 const SKIP_DIRECTORIES = new Set(['node_modules', 'dist', 'target', '.turbo'])
 
 /**
@@ -34,7 +39,7 @@ const CSS_NAMED_COLORS = new Set(
 
 /** Properties whose grammar accepts color values, plus every custom property. */
 const COLOR_PROPERTIES = new Set(
-  `accent-color background background-color background-image border border-bottom border-bottom-color border-color border-left border-left-color border-right border-right-color border-top border-top-color box-shadow caret-color color column-rule column-rule-color fill filter flood-color font lighting-color outline outline-color stroke text-decoration text-decoration-color text-emphasis text-emphasis-color text-fill-color text-shadow`.split(
+  `accent-color background background-color background-image border border-bottom border-bottom-color border-color border-left border-left-color border-right border-right-color border-top border-top-color box-shadow caret-color color column-rule column-rule-color fill filter flood-color font lighting-color outline outline-color scrollbar-color stop-color stroke tap-highlight-color text-decoration text-decoration-color text-emphasis text-emphasis-color text-fill-color text-shadow text-stroke text-stroke-color`.split(
     ' '
   )
 )
@@ -173,7 +178,9 @@ export const BASELINE = [
 export function scanSource(source, file) {
   if (GENERATED_THEME_FILES.includes(file)) return []
 
-  source = stripBlockComments(source)
+  source = file.endsWith('.css')
+    ? stripBlockComments(source)
+    : stripBlockComments(stripLineComments(source))
   if (file.endsWith('.css')) return scanCssSource(source, file)
 
   const violations = []
@@ -205,19 +212,24 @@ function scanCssSource(source, file) {
     for (const match of value.matchAll(COLOR_LITERALS)) {
       add(declaration.valueStart + match.index, match[0], null)
     }
-    if (!property.startsWith('--') && !COLOR_PROPERTIES.has(property)) continue
-    for (const match of value.matchAll(/[a-z]+/gi)) {
-      const name = match[0].toLowerCase()
-      const before = value[match.index - 1]
-      const after = value[match.index + name.length]
-      // A color name inside a custom-property identifier (for example --red)
-      // names a token; it is not a palette value.
-      if (CSS_NAMED_COLORS.has(name) && before !== '-' && after !== '-') {
+    if (!property.startsWith('--') && !isColorProperty(property)) continue
+    for (const match of value.matchAll(/[-_a-zA-Z][-_a-zA-Z0-9]*/g)) {
+      // Match whole CSS identifiers so names such as --shade_red and
+      // --shade2red are not mistaken for the color keyword `red`.
+      if (CSS_NAMED_COLORS.has(match[0].toLowerCase())) {
         add(declaration.valueStart + match.index, match[0], null)
       }
     }
   }
   return [...byLine.values()].toSorted((left, right) => left.line - right.line)
+}
+
+function isColorProperty(property) {
+  const unprefixed = property.replace(/^-(?:webkit|moz|ms|o)-/, '')
+  return (
+    COLOR_PROPERTIES.has(unprefixed) ||
+    /^border-(?:block|inline)(?:-(?:start|end))?(?:-color)?$/.test(unprefixed)
+  )
 }
 
 /** Extract declarations while honoring strings, comments, and function syntax. */
@@ -381,7 +393,64 @@ function stripBlockComments(source) {
   return result
 }
 
-async function* sourceFiles(directory) {
+/** Strip JavaScript line comments without treating quotes as comment starts. */
+function stripLineComments(source) {
+  let result = ''
+  let inComment = false
+  let inBlockComment = false
+  let quote = ''
+  let escaped = false
+  for (let index = 0; index < source.length; index += 1) {
+    const current = source[index]
+    const next = source[index + 1]
+    if (inComment) {
+      if (current === '\n') {
+        result += '\n'
+        inComment = false
+      } else {
+        result += ' '
+      }
+      continue
+    }
+    if (inBlockComment) {
+      result += current
+      if (current === '*' && next === '/') {
+        result += next
+        index += 1
+        inBlockComment = false
+      }
+      continue
+    }
+    if (quote) {
+      result += current
+      if (escaped) escaped = false
+      else if (current === '\\') escaped = true
+      else if (current === quote) quote = ''
+      continue
+    }
+    if (current === '"' || current === "'" || current === '`') {
+      quote = current
+      result += current
+      continue
+    }
+    if (current === '/' && next === '*') {
+      result += '/*'
+      index += 1
+      inBlockComment = true
+      continue
+    }
+    if (current === '/' && next === '/') {
+      result += '  '
+      index += 1
+      inComment = true
+      continue
+    }
+    result += current
+  }
+  return result
+}
+
+async function* sourceFiles(directory, extensions) {
   let entries
   try {
     entries = await readdir(directory, { withFileTypes: true })
@@ -392,10 +461,10 @@ async function* sourceFiles(directory) {
     const path = join(directory, entry.name)
     if (entry.isDirectory()) {
       if (SKIP_DIRECTORIES.has(entry.name)) continue
-      yield* sourceFiles(path)
+      yield* sourceFiles(path, extensions)
       continue
     }
-    if (entry.isFile() && SCAN_EXTENSIONS.some((extension) => entry.name.endsWith(extension))) {
+    if (entry.isFile() && extensions.some((extension) => entry.name.endsWith(extension))) {
       yield path
     }
   }
@@ -409,7 +478,7 @@ async function* sourceFiles(directory) {
 export async function scanThemeColors(root) {
   const counts = new Map()
   for (const scanRoot of SCAN_ROOTS) {
-    for await (const path of sourceFiles(join(root, scanRoot))) {
+    for await (const path of sourceFiles(join(root, scanRoot.directory), scanRoot.extensions)) {
       const file = relative(root, path).split(sep).join('/')
       const source = await readFile(path, 'utf8')
       const violations = scanSource(source, file)

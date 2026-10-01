@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import {
   BASELINE,
   GENERATED_THEME_FILES,
+  SCAN_ROOTS,
   scanSource,
   scanThemeColors,
 } from './check-theme-colors.mjs'
@@ -69,6 +70,55 @@ describe('theme color contract', () => {
     ])
   })
 
+  test('scans named colors in logical, scrollbar, and vendor paint properties', () => {
+    expect(
+      scanSource(
+        '.x { border-inline-color: red; border-inline-start: 1px solid cyan; border-block-end-color: RebeccaPurple; scrollbar-color: silver gray; stop-color: purple; -webkit-text-fill-color: blue; -webkit-text-stroke: white 1px; -webkit-text-stroke-color: orange; -webkit-tap-highlight-color: green; }',
+        'x.css'
+      )
+    ).toEqual([
+      {
+        file: 'x.css',
+        line: 1,
+        literals: [
+          'red',
+          'cyan',
+          'RebeccaPurple',
+          'silver',
+          'gray',
+          'purple',
+          'blue',
+          'white',
+          'orange',
+          'green',
+        ],
+        overriddenTokens: [],
+      },
+    ])
+    expect(
+      scanSource(
+        '.x { border-inline-color: var(--border); scrollbar-color: var(--muted) var(--background); -webkit-text-fill-color: var(--foreground); }',
+        'x.css'
+      )
+    ).toEqual([])
+  })
+
+  test('does not mistake color words inside custom-property identifiers for values', () => {
+    expect(
+      scanSource(
+        '.x { color: var(--shade_red); background: var(--shade2red); --private: var(--my_red_token); }',
+        'x.css'
+      )
+    ).toEqual([])
+  })
+
+  test('scans all Dev View UI source with the shared color boundary', () => {
+    expect(SCAN_ROOTS).toContainEqual({
+      directory: 'packages/dev-view/src',
+      extensions: ['.ts', '.tsx', '.css'],
+    })
+  })
+
   test('ignores CSS strings, URLs, comments, and semantic token aliases', () => {
     expect(
       scanSource(
@@ -119,6 +169,18 @@ describe('theme color contract', () => {
     ).toEqual([])
     expect(scanSource(`/* a\n b */\n.x { color: #123456; }`, 'x.css')).toEqual([
       { file: 'x.css', line: 3, literals: ['#123456'], overriddenTokens: [] },
+    ])
+    expect(scanSource(`// don't parse the following block comment\n/** #399 */\n`, 'x.ts')).toEqual(
+      []
+    )
+    expect(
+      scanSource(
+        `const url = "https://example.test/#123456"\nconst template = \`// #abcdef\``,
+        'x.ts'
+      )
+    ).toEqual([
+      { file: 'x.ts', line: 1, literals: ['#123456'], overriddenTokens: [] },
+      { file: 'x.ts', line: 2, literals: ['#abcdef'], overriddenTokens: [] },
     ])
   })
 
