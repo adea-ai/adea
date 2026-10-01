@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.14](https://github.com/adea-ai/adea/compare/v0.70.13...v0.70.14) (2026-10-01)
+
+
+### Maintenance
+
+* **workspace-ui:** consume shared rail and account menu ([#855](https://github.com/adea-ai/adea/issues/855)) ([e094afd](https://github.com/adea-ai/adea/commit/e094afd2558774a1e21f898552977ede1e8373fd))
+
 ## [0.70.13](https://github.com/adea-ai/adea/compare/v0.70.12...v0.70.13) (2026-10-01)
 
 
