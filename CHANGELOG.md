@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.6](https://github.com/adea-ai/adea/compare/v0.70.5...v0.70.6) (2026-10-01)
+
+
+### Tests
+
+* realign the visual lane with the shared components from [#831](https://github.com/adea-ai/adea/issues/831) ([#873](https://github.com/adea-ai/adea/issues/873)) ([e06d6b3](https://github.com/adea-ai/adea/commit/e06d6b3bd589eb718fa59e95218a3c4a6dd3f0f7))
+
 ## [0.70.5](https://github.com/adea-ai/adea/compare/v0.70.4...v0.70.5) (2026-10-01)
 
 
