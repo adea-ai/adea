@@ -1,7 +1,7 @@
 import { Monitor, Moon, Sun } from 'lucide-solid'
 import { For } from 'solid-js'
 
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { cn } from '#lib/utils'
 import { useTheme, type Theme } from './theme-provider'
 
@@ -29,9 +29,10 @@ export function ThemeToggle(props: { class?: string }) {
     >
       <For each={THEMES}>
         {(option) => (
-          <Button
+          <ActionButton
             type="button"
             role="radio"
+            tooltip={option.label}
             aria-checked={theme() === option.value}
             aria-label={option.label}
             variant={theme() === option.value ? 'default' : 'ghost'}
@@ -40,7 +41,7 @@ export function ThemeToggle(props: { class?: string }) {
             class="workspace-theme-toggle-option"
           >
             <option.icon class="size-4" aria-hidden="true" />
-          </Button>
+          </ActionButton>
         )}
       </For>
     </div>

@@ -105,6 +105,7 @@
     "shadcn/require-static-classes": "error",
     "adea/no-raw-interactive-elements": "error",
     "adea/no-primitive-library-imports": "error",
+    "adea/no-class-list": "error",
     "adea/no-interactive-wrappers": "error"
   },
   "overrides": [

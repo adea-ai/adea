@@ -172,8 +172,19 @@ window.desktopRuntimeChatHarness = {
   },
   selectFirst: () => workspaceStore.getState().setSelectedRuntimeSessionId(firstId),
   selectSecond: () => workspaceStore.getState().setSelectedRuntimeSessionId(secondId),
+  // setDraft drops the write unless the identity's scopeKey matches the host's
+  // scopeKey(scope) — the exact value chatDraftScopeKey builds in
+  // packages/dev-view/src/chat/draft.ts and the real composer passes.
   saveDraft: (draft: string) =>
-    host.setDraft(scope, { runtimeSessionId: firstId, generation: 3 }, draft),
+    host.setDraft(
+      scope,
+      {
+        runtimeSessionId: firstId,
+        generation: 3,
+        scopeKey: `${scope.accountId}\u0000${scope.workspaceId}\u0000${scope.runtimeNodeId}`,
+      },
+      draft
+    ),
   report: () => ({
     calls: [...calls],
     presentations: [...presentations],

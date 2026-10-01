@@ -159,3 +159,68 @@ test('focused tree rows stay mounted through keyboard open, and filter can clear
   await expect(tree.getByRole('treeitem').first()).toBeVisible()
   expect((await readReport(page)).listPageCalls).toHaveLength(3)
 })
+
+test('Quick Open keeps fuzzy ordering, Command keyboard selection, file identity, and focus return', async ({
+  page,
+}) => {
+  await mountFilesPane(page)
+  const opener = page.getByRole('button', { name: 'Quick open files' })
+
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: 'Quick open' })
+  const input = dialog.getByRole('combobox', { name: 'Quick open' })
+  const list = dialog.getByRole('listbox', { name: 'Matching files' })
+  await expect(dialog).toBeVisible()
+  await expect(input).toBeFocused()
+
+  await input.fill('file')
+  const options = list.getByRole('option')
+  await expect(options).toHaveCount(20)
+  const listId = await list.getAttribute('id')
+  const firstOptionId = await options.nth(0).getAttribute('id')
+  expect(listId).toBeTruthy()
+  expect(await input.getAttribute('aria-controls')).toBe(listId)
+  expect(await input.getAttribute('aria-activedescendant')).toBe(firstOptionId)
+  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true')
+
+  await input.press('ArrowDown')
+  await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true')
+  await input.press('ArrowUp')
+  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true')
+  await input.press('ArrowUp')
+  await expect(options.nth(19)).toHaveAttribute('aria-selected', 'true')
+
+  await input.fill('file-1199.txt')
+  const target = list.getByRole('option', { name: 'file-1199.txt' })
+  await expect(target).toHaveAttribute('aria-selected', 'true')
+  await input.press('Enter')
+  await expect(dialog).toBeHidden()
+  await expect
+    .poll(async () => (await readReport(page)).openedFile?.relativePath)
+    .toBe('file-1199.txt')
+  const openedFile = (await readReport(page)).openedFile
+  expect(openedFile).toMatchObject({
+    worktreeId: '00000000-0000-4000-8000-000000000004',
+    generation: 7,
+    relativePath: 'file-1199.txt',
+    identity: { inode: '1200', size: '1299' },
+    rootIdentity: {
+      device: 'fixture-device',
+      inode: 'fixture-root-inode',
+      mtimeNs: '1700000000000000000',
+      size: '4096',
+    },
+  })
+  await expect(opener).toBeFocused()
+
+  await opener.click()
+  const reopened = page.getByRole('dialog', { name: 'Quick open' })
+  const reopenedInput = reopened.getByRole('combobox', { name: 'Quick open' })
+  await reopenedInput.fill('no-loaded-file-matches')
+  await expect(reopened.getByRole('status')).toHaveText(
+    'No loaded file matches. Expand more of the tree, then search again.'
+  )
+  await reopenedInput.press('Escape')
+  await expect(reopened).toBeHidden()
+  await expect(opener).toBeFocused()
+})

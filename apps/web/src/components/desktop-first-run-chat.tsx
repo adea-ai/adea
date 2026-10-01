@@ -18,6 +18,7 @@ import '@adea-ai/app-ui/dev-view.css'
 
 import {
   createDesktopChatLifecycleFence,
+  createDesktopChatDraftChangeHandler,
   createFirstRunConversationHandler,
   type DesktopChatModelHost,
 } from '../lib/desktop-chat-host'
@@ -315,16 +316,13 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                         state().scope,
                         active().runtimeSessionId
                       )}
-                      onDraftChange={(draft, identity, expectedRevision) => {
-                        if (!lifecycle.isCurrent(request)) return
-                        const next = props.modelHost.setDraft(
-                          state().scope,
-                          identity,
-                          draft,
-                          expectedRevision
-                        )
-                        if (next) setConversation(next)
-                      }}
+                      onDraftChange={createDesktopChatDraftChangeHandler({
+                        scope: state().scope,
+                        modelHost: props.modelHost,
+                        lifecycle,
+                        request,
+                        onConversationChange: setConversation,
+                      })}
                     />
                   )}
                 </Show>

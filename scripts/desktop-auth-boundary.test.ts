@@ -439,8 +439,8 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(sharedStyles).toContain('.auth-panel')
     expect(sharedStyles).toContain('.auth-title')
     expect(sharedStyles).toContain('.auth-status')
-    expect(sharedStyles).toContain('--auth-accent: var(--hq-shell-accent)')
-    expect(sharedStyles).toContain('--auth-background: var(--hq-shell-background)')
+    expect(sharedStyles).toContain('--auth-accent: var(--primary)')
+    expect(sharedStyles).toContain('--auth-background: var(--background)')
   })
 
   test('provides cloud authorization, exchange, refresh, logout, and revocation handlers', async () => {

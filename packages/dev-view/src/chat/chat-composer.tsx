@@ -1,11 +1,20 @@
-import { createSignal, Show, type JSX } from 'solid-js'
-import { ChatComposer as SharedChatComposer } from '@adea-ai/ui/components/conversation'
+import { createEffect, createSignal, Show, type JSX } from 'solid-js'
+import { AtomicChatComposer } from '@adea-ai/ui/components/conversation/atomic'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 
 import type { ChatConversation } from './model'
+import type { ChatDraftValue } from './model'
+import type { ChatDraftIdentity as ScopedChatDraftIdentity } from './draft'
 import { chatComposerDisabledReason } from './composer-availability'
+import {
+  chatDraftScopeKey,
+  createChatSendRequests,
+  expandChatDraftForSend,
+  normalizeChatDraft,
+  submitChatDraftSnapshot,
+} from './draft'
 import {
   resolvedLocationLabel,
   resolveAndLaunchComposer,
@@ -18,7 +27,7 @@ import {
 
 export type ChatInputAuthority = 'chat' | 'dev' | 'none'
 
-export type ChatDraftIdentity = Readonly<Pick<ChatConversation, 'runtimeSessionId' | 'generation'>>
+export type ChatDraftIdentity = ScopedChatDraftIdentity
 
 /**
  * Updates the canonical session draft. `expectedRevision` is supplied only
@@ -26,7 +35,7 @@ export type ChatDraftIdentity = Readonly<Pick<ChatConversation, 'runtimeSessionI
  * composer has written a newer draft in the meantime.
  */
 export type ChatDraftChange = (
-  draft: string,
+  draft: ChatDraftValue,
   identity: ChatDraftIdentity,
   expectedRevision?: number
 ) => void
@@ -41,6 +50,7 @@ export type ChatComposerProps = Readonly<{
   onSteer?: (text: string) => void | Promise<void>
   onStop?: () => void | Promise<void>
   onDraftChange?: ChatDraftChange
+  createPasteBlockId: () => string
   draftRevision?: number
   mode?: ComposerMode
   agentProfile?: ComposerAgentProfile
@@ -59,14 +69,38 @@ export type ChatComposerProps = Readonly<{
 export { chatComposerDisabledReason } from './composer-availability'
 
 export function ChatComposer(props: ChatComposerProps): JSX.Element {
-  const [draft, setDraft] = createSignal(props.conversation.draft)
-  const [sending, setSending] = createSignal(false)
+  const [draft, setDraft] = createSignal<ChatDraftValue>(
+    normalizeChatDraft({ text: props.conversation.draft, blocks: props.conversation.draftBlocks })
+  )
+  const sendRequests = createChatSendRequests()
+  const [sendRevision, setSendRevision] = createSignal(0)
   const [mode, setMode] = createSignal<ComposerMode>(props.mode ?? 'auto')
   const [resolvedLocation, setResolvedLocation] = createSignal<string | undefined>(undefined)
   const [resolving, setResolving] = createSignal(false)
   const [resolutionStatus, setResolutionStatus] = createSignal<string>()
   let localDraftRevision = 0
+  const currentDraftKey = () =>
+    `${chatDraftScopeKey(props.conversation.scope)}:${props.conversation.runtimeSessionId}:${props.conversation.generation}`
+  createEffect(() => {
+    void currentDraftKey()
+    void props.draftRevision
+    setDraft(
+      normalizeChatDraft({ text: props.conversation.draft, blocks: props.conversation.draftBlocks })
+    )
+  })
   const authority = () => props.authority ?? 'chat'
+  const currentSendKey = () =>
+    [
+      props.conversation.scope.accountId,
+      props.conversation.scope.workspaceId,
+      props.conversation.scope.runtimeNodeId,
+      props.conversation.runtimeSessionId,
+      props.conversation.generation,
+    ].join('\u0000')
+  const sending = () => {
+    void sendRevision()
+    return sendRequests.isPending(currentSendKey())
+  }
   const connected = () => props.connected ?? true
   const disabledReason = () =>
     chatComposerDisabledReason({
@@ -84,8 +118,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     props.onModeChange?.(next)
   }
   const resolve = async () => {
-    const objective = draft().trim()
-    if (!props.decisionConsumer || !props.decisionRequest || objective.length === 0) {
+    if (!props.decisionConsumer || !props.decisionRequest || draft().text.trim().length === 0) {
       setResolutionStatus(
         'Decision layer is unavailable. Retry after the Control Plane is connected.'
       )
@@ -94,6 +127,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     setResolving(true)
     setResolutionStatus(undefined)
     try {
+      const objective = expandChatDraftForSend(draft())
       const explicitPins: DecisionPins =
         mode() === 'customize'
           ? {
@@ -123,56 +157,85 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
       setResolving(false)
     }
   }
-  const submit = async (input: { text: string; action: 'send' | 'steer' | 'queue' }) => {
+  const submit = async (input: {
+    text: string
+    blocks: ChatDraftValue['blocks']
+    action: 'send' | 'steer' | 'queue'
+  }) => {
     if (input.action === 'queue') return
     const submitMode = input.action
-    const text = input.text.trim()
+    const submittedDraft = normalizeChatDraft({ text: input.text, blocks: input.blocks })
     const deliver = submitMode === 'steer' ? props.onSteer : props.onSend
-    if (disabled() || text.length === 0 || !deliver) return
+    if (disabled() || submittedDraft.text.trim().length === 0 || !deliver) return
     const submittedIdentity: ChatDraftIdentity = {
       runtimeSessionId: props.conversation.runtimeSessionId,
       generation: props.conversation.generation,
+      scopeKey: chatDraftScopeKey(props.conversation.scope),
     }
     const submittedDraftRevision = props.draftRevision ?? 0
     const submittedLocalDraftRevision = localDraftRevision
-    setSending(true)
+    const finishSend = sendRequests.begin(currentSendKey())
+    setSendRevision((revision) => revision + 1)
+    const submitted = {
+      identity: submittedIdentity,
+      hostRevision: submittedDraftRevision,
+      localRevision: submittedLocalDraftRevision,
+    }
     try {
-      await deliver(text)
-      if (
-        props.conversation.runtimeSessionId === submittedIdentity.runtimeSessionId &&
-        props.conversation.generation === submittedIdentity.generation &&
-        localDraftRevision === submittedLocalDraftRevision &&
-        (props.draftRevision ?? 0) === submittedDraftRevision
-      ) {
-        setDraft('')
-        props.onDraftChange?.('', submittedIdentity, submittedDraftRevision)
-      }
+      await submitChatDraftSnapshot({
+        draft: submittedDraft,
+        submitted,
+        current: () => ({
+          identity: {
+            runtimeSessionId: props.conversation.runtimeSessionId,
+            generation: props.conversation.generation,
+            scopeKey: chatDraftScopeKey(props.conversation.scope),
+          },
+          hostRevision: props.draftRevision ?? 0,
+          localRevision: localDraftRevision,
+        }),
+        deliver,
+        clear: () => {
+          const empty: ChatDraftValue = { text: '', blocks: [] }
+          setDraft(empty)
+          props.onDraftChange?.(empty, submittedIdentity, submittedDraftRevision)
+        },
+      })
     } catch (error) {
       setResolutionStatus(error instanceof Error ? error.message : 'Message could not be sent.')
     } finally {
-      setSending(false)
+      finishSend()
+      setSendRevision((revision) => revision + 1)
     }
   }
 
   return (
     <section class="dev-chat__composer" aria-label="Chat composer">
-      <SharedChatComposer
-        value={draft()}
-        onValueChange={(nextDraft) => {
-          localDraftRevision += 1
-          setDraft(nextDraft)
-          props.onDraftChange?.(nextDraft, {
-            runtimeSessionId: props.conversation.runtimeSessionId,
-            generation: props.conversation.generation,
-          })
+      <AtomicChatComposer
+        value={draft().text}
+        pasteTokens={{
+          blocks: draft().blocks,
+          createBlockId: props.createPasteBlockId,
+          onChange: (nextDraft) => {
+            const normalized = normalizeChatDraft(nextDraft)
+            localDraftRevision += 1
+            setDraft(normalized)
+            props.onDraftChange?.(normalized, {
+              runtimeSessionId: props.conversation.runtimeSessionId,
+              generation: props.conversation.generation,
+              scopeKey: chatDraftScopeKey(props.conversation.scope),
+            })
+          },
         }}
         onSubmit={submit}
-        resetKey={`${props.conversation.runtimeSessionId}:${props.conversation.generation}`}
+        resetKey={currentDraftKey()}
         disabled={disabledReason() !== undefined}
         readOnly={sending()}
         inputLabel="Message runtime"
         placeholder="Send a message to the runtime"
-        sendableActions={{ send: typeof props.onSend === 'function' && draft().trim().length > 0 }}
+        sendableActions={{
+          send: typeof props.onSend === 'function' && draft().text.trim().length > 0,
+        }}
         context={
           <div>
             <div class="dev-chat__composer-controls" aria-label="Launch mode">
@@ -312,8 +375,10 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               type="button"
               variant="outline"
               size="sm"
-              disabled={disabled() || steerUnavailable() || draft().trim().length === 0}
-              onClick={() => void submit({ text: draft(), action: 'steer' })}
+              disabled={disabled() || steerUnavailable() || draft().text.trim().length === 0}
+              onClick={() =>
+                void submit({ text: draft().text, blocks: draft().blocks, action: 'steer' })
+              }
             >
               Steer
             </Button>

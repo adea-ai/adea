@@ -144,9 +144,15 @@ Acceptance criteria:
       authority, awaiting-approval holds, and disconnected sessions.
 - [ ] The typed composer draft writes to the canonical session model through
       the scoped desktop Chat host. Same-session Chat remounts and
-      resume-as-new-generation preserve it; account/workspace/runtime-node
-      changes isolate it; deferred send completion is fenced by session,
-      generation, and draft revision, preserving drafts after failures.
+      resume-as-new-generation preserve its in-memory text and paste-block
+      sidecar as one value; account/workspace/runtime-node changes isolate it.
+      The published AtomicChatComposer returns both fields atomically. The
+      existing text-only chat transport receives only the synchronously
+      expanded prompt, rejects unresolved paste markers, and applies the
+      65,536-character limit after expansion. Deferred completion is fenced by
+      session, generation, host revision, and local revision; failures and
+      newer edits preserve the paired draft. This does not add wire or durable
+      paste-block storage.
 - [ ] Chat's initial graph contains no xterm/CodeMirror/browser code
       (spec performance budget); the dev-view chunk ratchet stays green or is
       re-ratcheted with measurement in the same PR.

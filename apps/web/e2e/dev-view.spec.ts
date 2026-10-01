@@ -180,6 +180,17 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
     'page'
   )
 
+  const runtimeProject = page.getByRole('button', { name: /^Runtime tools/ })
+  const exampleProject = page.getByRole('button', { name: /^Example project/ })
+  await expect(runtimeProject).toHaveAttribute('aria-current', 'page')
+  await expect(exampleProject).not.toHaveAttribute('aria-current', 'page')
+  await runtimeProject.click()
+  await expect(runtimeProject).toHaveAttribute('aria-expanded', 'false')
+  await expect(runtimeProject).toHaveAttribute('aria-current', 'page')
+  await runtimeProject.click()
+  await expect(runtimeProject).toHaveAttribute('aria-expanded', 'true')
+  await expect(runtimeProject).toHaveAttribute('aria-current', 'page')
+
   const group = page.getByRole('button', { name: 'PRODUCT' })
   await group.click()
   await expect(group).toHaveAttribute('aria-expanded', 'false')
@@ -450,15 +461,17 @@ test('projects reorder by keyboard with a live announcement and stable focus', a
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
-  const projectRows = page.locator('.dev-tree-row--project')
+  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const projectRows = projectsSidebar
+    .getByRole('button')
+    .filter({ hasText: /Runtime tools|Example project/ })
   const target = projectRows.filter({ hasText: 'Runtime tools' })
   await target.focus()
   await page.keyboard.press('Alt+ArrowUp')
 
   await expect(projectRows.first()).toHaveText(/Runtime tools/)
   // The moved row keeps keyboard focus after the tree re-renders.
-  const movedRowSelector = `[data-row-id="${'project:fixture-product:fixture-tools'}"]`
-  await expect(page.locator(movedRowSelector)).toBeFocused()
+  await expect(target).toBeFocused()
   await expect(page.locator('main > [aria-live="polite"]')).toContainText(
     'Runtime tools moved to position 1 of 2'
   )
@@ -468,7 +481,10 @@ test('projects reorder by pointer drag inside their group', async ({ page }) => 
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
-  const projectRows = page.locator('.dev-tree-row--project')
+  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const projectRows = projectsSidebar
+    .getByRole('button')
+    .filter({ hasText: /Runtime tools|Example project/ })
   await expect(projectRows.filter({ hasText: 'Example project' })).toBeVisible()
   await projectRows
     .filter({ hasText: 'Runtime tools' })
@@ -483,19 +499,65 @@ test('the archive shelf restores losslessly and deletes only behind an explicit 
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
   await page.getByRole('button', { name: /Archived sessions/ }).click()
-  const item = page.locator('.dev-archive-shelf__item', { hasText: 'Archived discovery' })
+  const archiveList = page.getByRole('list', { name: 'Archived sessions', exact: true })
+  const item = archiveList.getByRole('listitem').filter({ hasText: 'Archived discovery' })
   await expect(item).toBeVisible()
+
+  // The shared row wraps its controls rather than clipping the label at the
+  // narrow viewport. Root-font enlargement is text reflow stress, not browser zoom.
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    if (width === 320) {
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = '200%'
+      })
+    }
+    const expand = page.getByRole('button', { name: 'Expand contextual sidebar', exact: true })
+    if (await expand.isVisible()) await expand.click()
+    await expect(item).toBeVisible()
+    const bounds = await item.evaluate((element) => {
+      const row = element.getBoundingClientRect()
+      const controls = [...element.querySelectorAll('button')].map((button) => {
+        const box = button.getBoundingClientRect()
+        return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }
+      })
+      const label = element.querySelector('[data-slot="list-row-label"]')!.getBoundingClientRect()
+      return {
+        left: row.left,
+        right: row.right,
+        width: window.innerWidth,
+        labelWidth: label.width,
+        controls,
+      }
+    })
+    expect(bounds.left).toBeGreaterThanOrEqual(0)
+    expect(bounds.right).toBeLessThanOrEqual(bounds.width)
+    expect(bounds.labelWidth).toBeGreaterThanOrEqual(80)
+    for (const control of bounds.controls) {
+      expect(control.left).toBeGreaterThanOrEqual(bounds.left)
+      expect(control.right).toBeLessThanOrEqual(bounds.right)
+    }
+  }
+  await page.evaluate(() => {
+    document.documentElement.style.removeProperty('font-size')
+  })
+  await page.setViewportSize({ width: 1280, height: 900 })
 
   // Delete is destructive: it stops at an explicit confirmation step.
   await item.getByRole('button', { name: 'Delete…' }).click()
-  const confirm = item.getByRole('alert')
+  const confirm = page.getByRole('alertdialog', { name: 'Delete this archived session?' })
   await expect(confirm).toContainText('Delete this archived session?')
+  await expect(confirm.getByRole('button', { name: 'Keep', exact: true })).toBeFocused()
   await confirm.getByRole('button', { name: 'Keep' }).click()
   await expect(item).toBeVisible()
+  await expect(item.getByRole('button', { name: 'Delete…' })).toBeFocused()
 
   // Restore is lossless and needs no confirmation.
-  await item.getByRole('button', { name: 'Restore' }).click()
-  await expect(page.locator('.dev-archive-shelf__item')).toHaveCount(0)
+  await page.keyboard.press('Shift+Tab')
+  await expect(item.getByRole('button', { name: 'Restore' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(archiveList.getByRole('listitem')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Archived sessions/ })).toBeFocused()
 
   // Re-archive by deep link, then delete: the commit reports the missing
   // dev.session.delete host contract instead of pretending to succeed.
@@ -504,12 +566,14 @@ test('the archive shelf restores losslessly and deletes only behind an explicit 
     timeout: 60_000,
   })
   await page.getByRole('button', { name: /Archived sessions/ }).click()
-  const again = page.locator('.dev-archive-shelf__item', { hasText: 'Archived discovery' })
+  const again = archiveList.getByRole('listitem').filter({ hasText: 'Archived discovery' })
   await again.getByRole('button', { name: 'Delete…' }).click()
-  await again.getByRole('alert').getByRole('button', { name: 'Delete', exact: true }).click()
-  await expect(page.locator('.dev-archive-shelf__handoff')).toContainText(
-    'dev.session.delete host contract'
-  )
+  await page
+    .getByRole('alertdialog', { name: 'Delete this archived session?' })
+    .getByRole('button', { name: 'Delete', exact: true })
+    .click()
+  await expect(again.getByRole('button', { name: 'Delete…' })).toBeFocused()
+  await expect(page.getByRole('note')).toContainText('dev.session.delete host contract')
 })
 
 test('the Dev shell stays keyboard-operable at 200% zoom with reduced motion', async ({ page }) => {

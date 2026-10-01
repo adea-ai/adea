@@ -4,6 +4,8 @@ import { devOperationDefinitions } from '../../../packages/types/src/dev-runtime
 
 import {
   archiveShelfReady,
+  archiveShelfError,
+  archiveTimeLabel,
   archiveShelfUnavailable,
   beginArchiveShelfLoad,
   cancelPendingDelete,
@@ -30,6 +32,26 @@ describe('archive shelf model', () => {
       reason: 'unavailable',
       items: [],
     })
+  })
+
+  test('provider errors preserve recoverable sessions and name the failure', () => {
+    expect(archiveShelfError('connection lost', ready)).toEqual({
+      ...ready,
+      status: 'error',
+      reason: 'connection lost',
+    })
+  })
+
+  test('archive timestamps are readable and missing timestamps never imply recency', () => {
+    const timestamp = items[0]!.archivedAt
+    expect(archiveTimeLabel(timestamp)).toBe(
+      new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+        new Date(timestamp)
+      )
+    )
+    for (const value of ['recently', '', '2026-99-01T00:00:00Z']) {
+      expect(archiveTimeLabel(value)).toBe('Archive time unavailable')
+    }
   })
 
   test('restore removes exactly the restored session', () => {

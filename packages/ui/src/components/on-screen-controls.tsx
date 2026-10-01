@@ -1,6 +1,7 @@
 import { ZoomIn, ZoomOut } from 'lucide-solid'
 import { onCleanup, Show, type JSX } from 'solid-js'
 
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { cn } from '#lib/utils'
 
@@ -114,28 +115,28 @@ export function OnScreenControls(props: OnScreenControlsProps) {
             role="group"
             aria-label="Camera zoom"
           >
-            <Button
+            <ActionButton
               type="button"
               variant="secondary"
               size="icon-lg"
+              tooltip="Zoom out"
               aria-label="Zoom out"
-              title="Zoom out"
               class="workspace-on-screen-controls-zoom-button"
               onClick={() => props.onZoomOut?.()}
             >
               <ZoomOut aria-hidden="true" />
-            </Button>
-            <Button
+            </ActionButton>
+            <ActionButton
               type="button"
               variant="secondary"
               size="icon-lg"
+              tooltip="Zoom in"
               aria-label="Zoom in"
-              title="Zoom in"
               class="workspace-on-screen-controls-zoom-button"
               onClick={() => props.onZoomIn?.()}
             >
               <ZoomIn aria-hidden="true" />
-            </Button>
+            </ActionButton>
           </div>
         </Show>
         <Show when={showJumpControl()}>

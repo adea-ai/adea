@@ -89,8 +89,8 @@ routed spec is missing, or a relative link between docs stops resolving.
 
 ## Shared UI enforcement (mandatory)
 
-The oxlint config loads `@adea-ai/ui/lint`, the design system's own plugin, and
-its two rules are errors:
+The root oxlint config loads `@adea-ai/ui/lint`, the published design system's
+plugin, and keeps these selected consumer rules enabled as errors:
 
 - `adea/no-raw-interactive-elements` — `button`, `input`, `textarea`, `select`,
   `option` and `label` are composed from the shared primitives
@@ -100,6 +100,12 @@ its two rules are errors:
   names — not to suppress the rule.
 - `adea/no-primitive-library-imports` — Kobalte and the other primitive libraries
   are the design system's internal affair. Import the exported component.
+- `adea/no-interactive-wrappers` — do not rebuild controls out of generic
+  elements with click handlers or interactive roles; use the shared primitive.
+- `adea/no-class-list` — Solid's `classList` prop hides conditional classes from
+  static design-system checks. Use `cn('base', { 'hook--on': condition })` so
+  class names stay visible to lint and styling tools. The rule implementation
+  belongs to `@adea-ai/ui/lint`; do not duplicate it in app-specific checks.
 
 Code that predates the rules is exempted **by path** in one override block in
 `.oxlintrc.json`. That block is a ratchet: it only shrinks. Adding a file to it
@@ -278,9 +284,13 @@ shadcn finding the same way you fix a type error.
   `workspace-*`, `visually-hidden` (defined in `packages/ui/src/styles/`).
   Add new hooks in those stylesheets rather than restyling a component
   inline.
-- Colors come from the tokens in `packages/ui/src/styles/theme.css`
-  (`bg-primary`, `text-muted-foreground`, `bg-scrim/*`, …). Declare a
-  `--color-*` token there before using a new color; never use raw palette
+- Colors come from the published semantic tokens (`bg-primary`,
+  `text-muted-foreground`, `bg-scrim/*`, …). Canonical palette roles and values
+  belong in `@adea-ai/themes`; shared structural tokens and UI projections
+  belong in `@adea-ai/ui`. Adea's private styles may define domain aliases
+  that reference those tokens, but must not declare a competing palette or
+  override published roles. Do not add a color literal to the private theme
+  sheet or a new literal-bearing scanner exemption. Never use raw palette
   classes such as `bg-slate-950` or `text-emerald-700`. Even the
   linter-accepted `white`/`black` should go through the scrim tokens
   (`bg-scrim/*`, `text-scrim-foreground`, `border-scrim-edge/*`) — they are

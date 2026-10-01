@@ -5,7 +5,12 @@ import { createUnavailableDevRuntimeService } from '@adea-ai/dev-view/platform'
 import {
   createDesktopChatModelHost,
   createDesktopChatLifecycleFence,
+  createDesktopChatDraftChangeHandler,
 } from '../src/lib/desktop-chat-host'
+import {
+  chatDraftScopeKey,
+  submitChatDraftSnapshot,
+} from '../../../packages/dev-view/src/chat/draft'
 
 const SCOPE: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -17,6 +22,7 @@ const OTHER_SCOPE: Scope = {
   ...SCOPE,
   accountId: '00000000-0000-4000-8000-000000000011',
 }
+const DRAFT_SCOPE_KEY = chatDraftScopeKey(SCOPE)
 
 const OTHER_WORKSPACE_SCOPE: Scope = {
   ...SCOPE,
@@ -74,6 +80,8 @@ describe('desktop chat host', () => {
       },
     }
     const host = createDesktopChatModelHost(runtime)
+    const lifecycle = createDesktopChatLifecycleFence()
+    const request = lifecycle.begin()
     const model = host.get(SCOPE)
     await model.list()
     const conversation = model.project().conversations[0]
@@ -81,26 +89,133 @@ describe('desktop chat host', () => {
     if (!conversation) return
 
     expect(host.get(SCOPE)).toBe(model)
-    expect(
-      host.setDraft(
-        SCOPE,
-        { runtimeSessionId: conversation.runtimeSessionId, generation: conversation.generation },
-        'unfinished draft'
-      )?.draft
-    ).toBe('unfinished draft')
+    const pasteBlock = {
+      id: 'paste-1',
+      seq: 1,
+      lines: 2,
+      content: 'private line one\nprivate line two',
+    }
+    let ownerProjection: typeof conversation | undefined
+    const onDraftChange = createDesktopChatDraftChangeHandler({
+      scope: SCOPE,
+      modelHost: host,
+      lifecycle,
+      request,
+      onConversationChange: (next) => {
+        ownerProjection = next
+      },
+    })
+    onDraftChange(
+      { text: 'unfinished [ Paste #1 · 2 lines ] draft', blocks: [pasteBlock] },
+      {
+        runtimeSessionId: conversation.runtimeSessionId,
+        generation: conversation.generation,
+        scopeKey: DRAFT_SCOPE_KEY,
+      }
+    )
     expect(host.draftRevision(SCOPE, conversation.runtimeSessionId)).toBe(1)
+    expect(ownerProjection?.draft).toBe('unfinished [ Paste #1 · 2 lines ] draft')
+    expect(ownerProjection).toMatchObject({
+      draft: 'unfinished [ Paste #1 · 2 lines ] draft',
+      draftBlocks: [pasteBlock],
+    })
+    onDraftChange(
+      { text: 'cross-scope [ Paste #1 · 2 lines ] write', blocks: [pasteBlock] },
+      {
+        runtimeSessionId: conversation.runtimeSessionId,
+        generation: conversation.generation,
+        scopeKey: chatDraftScopeKey(OTHER_SCOPE),
+      }
+    )
+    expect(host.draftRevision(SCOPE, conversation.runtimeSessionId)).toBe(1)
+    expect(ownerProjection?.draft).toBe('unfinished [ Paste #1 · 2 lines ] draft')
+
+    const identity = {
+      runtimeSessionId: conversation.runtimeSessionId,
+      generation: conversation.generation,
+      scopeKey: DRAFT_SCOPE_KEY,
+    }
+    const submittedDraft = {
+      text: 'unfinished [ Paste #1 · 2 lines ] draft',
+      blocks: [pasteBlock],
+    }
+    let localRevision = 0
+    let releaseDelivery!: () => void
+    const delivery = new Promise<void>((resolve) => {
+      releaseDelivery = resolve
+    })
+    const staleCompletion = submitChatDraftSnapshot({
+      draft: submittedDraft,
+      submitted: {
+        identity,
+        hostRevision: 1,
+        localRevision,
+      },
+      current: () => ({
+        identity: {
+          runtimeSessionId: ownerProjection!.runtimeSessionId,
+          generation: ownerProjection!.generation,
+          scopeKey: DRAFT_SCOPE_KEY,
+        },
+        hostRevision: host.draftRevision(SCOPE, conversation.runtimeSessionId),
+        localRevision,
+      }),
+      deliver: async (prompt) => {
+        expect(prompt).toContain('private line one\nprivate line two')
+        await delivery
+      },
+      clear: () => onDraftChange({ text: '', blocks: [] }, identity, 1),
+    })
+    localRevision += 1
+    onDraftChange({ text: 'newer [ Paste #1 · 2 lines ] edit', blocks: [pasteBlock] }, identity)
+    releaseDelivery()
+    await staleCompletion
+    expect(ownerProjection).toMatchObject({
+      draft: 'newer [ Paste #1 · 2 lines ] edit',
+      draftBlocks: [pasteBlock],
+    })
+
+    const failedDraft = ownerProjection!
+    await expect(
+      submitChatDraftSnapshot({
+        draft: { text: failedDraft.draft, blocks: failedDraft.draftBlocks },
+        submitted: {
+          identity,
+          hostRevision: host.draftRevision(SCOPE, conversation.runtimeSessionId),
+          localRevision,
+        },
+        current: () => ({
+          identity,
+          hostRevision: host.draftRevision(SCOPE, conversation.runtimeSessionId),
+          localRevision,
+        }),
+        deliver: async () => {
+          throw new Error('transport refused draft')
+        },
+        clear: () => onDraftChange({ text: '', blocks: [] }, identity),
+      })
+    ).rejects.toThrow('transport refused draft')
+    expect(ownerProjection).toMatchObject({
+      draft: 'newer [ Paste #1 · 2 lines ] edit',
+      draftBlocks: [pasteBlock],
+    })
 
     // A direct canonical model writer advances the same revision authority.
     expect(model.setDraft(conversation.runtimeSessionId, 'direct canonical draft')?.draft).toBe(
       'direct canonical draft'
     )
-    expect(host.draftRevision(SCOPE, conversation.runtimeSessionId)).toBe(2)
+    expect(model.project().conversations[0]?.draftBlocks).toEqual([])
+    expect(host.draftRevision(SCOPE, conversation.runtimeSessionId)).toBe(3)
 
     // A deferred send from the old composer cannot overwrite a newer draft.
     expect(
       host.setDraft(
         SCOPE,
-        { runtimeSessionId: conversation.runtimeSessionId, generation: conversation.generation },
+        {
+          runtimeSessionId: conversation.runtimeSessionId,
+          generation: conversation.generation,
+          scopeKey: DRAFT_SCOPE_KEY,
+        },
         'late clear',
         1
       )
@@ -112,6 +227,7 @@ describe('desktop chat host', () => {
         {
           runtimeSessionId: conversation.runtimeSessionId,
           generation: conversation.generation + 1,
+          scopeKey: DRAFT_SCOPE_KEY,
         },
         'late old-generation write'
       )
@@ -124,6 +240,7 @@ describe('desktop chat host', () => {
         {
           runtimeSessionId: conversation.runtimeSessionId,
           generation: conversation.generation,
+          scopeKey: DRAFT_SCOPE_KEY,
         },
         'late cross-account write'
       )

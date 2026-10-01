@@ -34,6 +34,7 @@ import { importCustomTheme } from './custom-theme-import'
 import {
   allThemeRecords,
   appearanceThemeForPreview,
+  DEFAULT_CUSTOM_ACCENT,
   normalizeCustomAccent,
 } from './theme-record-adapter'
 
@@ -233,7 +234,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     },
     accentOptions: appearanceAccentOptions,
     get customAccentValue() {
-      return customAccent() || '#2563eb'
+      return customAccent() || DEFAULT_CUSTOM_ACCENT
     },
     get customAccentError() {
       return accentStatus()

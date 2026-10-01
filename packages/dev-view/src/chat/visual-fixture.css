@@ -17,7 +17,7 @@
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   background: var(--background);
-  box-shadow: var(--hq-shell-shadow-popover);
+  box-shadow: var(--shadow-lg);
 }
 
 @media (max-width: 48rem) {

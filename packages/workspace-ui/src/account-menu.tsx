@@ -41,7 +41,7 @@ export function AccountMenu(props: AccountMenuProps) {
     <SharedAccountMenu
       authenticated={props.authenticated}
       busy={props.busy}
-      class="global-rail__button global-rail__account-trigger"
+      class="global-rail__account-trigger self-center"
       items={items()}
       label="User settings"
       onIntent={props.onIntent}

@@ -35,7 +35,9 @@ import type {
   ConversationCreateInput,
   ConversationModelOptions,
   ConversationRegistryInput,
+  ChatDraftValue,
 } from './types'
+import { normalizeChatDraft } from '../draft'
 
 export * from './commands'
 export * from './transcript'
@@ -205,7 +207,7 @@ export function projectChatConversations(
     if (!project) continue
     const events = [...(input.events?.get(session.id) ?? [])]
     const retentionEvents = events.toSorted(compareEvents)
-    const draft = input.drafts?.get(session.id) ?? ''
+    const draft = normalizeChatDraft(input.drafts?.get(session.id) ?? '')
     conversations.push({
       runtimeSessionId: session.id,
       scope: input.scope,
@@ -222,7 +224,8 @@ export function projectChatConversations(
       ...(session.activeHarnessRunId !== undefined
         ? { activeHarnessRunId: session.activeHarnessRunId }
         : {}),
-      draft,
+      draft: draft.text,
+      draftBlocks: draft.blocks,
       events,
       retention: {
         maxEvents: 1_000,
@@ -265,14 +268,15 @@ export type ChatConversationModel = Readonly<{
   }): Promise<readonly ChatConversation[]>
   remember(session: RuntimeSession, events?: readonly RuntimeEvent[]): ChatConversation
   project(): ChatConversationProjection
-  setDraft(runtimeSessionId: string, draft: string): ChatConversation
+  setDraft(runtimeSessionId: string, draft: string | ChatDraftValue): ChatConversation
   draftRevision(runtimeSessionId: string): number
   setDraftIfCurrent(
     runtimeSessionId: string,
     generation: number,
-    draft: string,
+    draft: string | ChatDraftValue,
     expectedRevision?: number
   ): ChatConversation | undefined
+  createPasteBlockId(runtimeSessionId: string, generation: number): string
   switchTo(runtimeSessionId: string): ChatConversation
   resume(runtimeSessionId: string, harnessRunId?: string): Promise<ChatConversation>
   cancel(runtimeSessionId: string, harnessRunId?: string): Promise<ChatConversation>
@@ -302,7 +306,7 @@ export function createChatConversationModel(
 ): ChatConversationModel {
   const sessions = new Map<string, RuntimeSession>()
   const events = new Map<string, RuntimeEvent[]>()
-  const drafts = new Map<string, string>()
+  const drafts = new Map<string, ChatDraftValue>()
   const draftRevisions = new Map<string, number>()
   const groups: Group[] = []
   const projects: Project[] = []
@@ -317,6 +321,7 @@ export function createChatConversationModel(
   const now = options.now ?? (() => new Date())
   const randomId = options.randomId ?? (() => crypto.randomUUID())
   let selectedRuntimeSessionId: string | undefined
+  let pasteBlockSequence = 0
 
   const registry = (): ChatConversationProjection =>
     projectChatConversations({
@@ -722,9 +727,9 @@ export function createChatConversationModel(
     }
   }
 
-  const setDraft = (runtimeSessionId: string, draft: string): ChatConversation => {
+  const setDraft = (runtimeSessionId: string, draft: string | ChatDraftValue): ChatConversation => {
     requireConversation(runtimeSessionId)
-    drafts.set(runtimeSessionId, draft)
+    drafts.set(runtimeSessionId, normalizeChatDraft(draft))
     draftRevisions.set(runtimeSessionId, (draftRevisions.get(runtimeSessionId) ?? 0) + 1)
     return requireConversation(runtimeSessionId)
   }
@@ -733,7 +738,7 @@ export function createChatConversationModel(
   const setDraftIfCurrent = (
     runtimeSessionId: string,
     generation: number,
-    draft: string,
+    draft: string | ChatDraftValue,
     expectedRevision?: number
   ): ChatConversation | undefined => {
     const current = registry().conversations.find(
@@ -744,6 +749,24 @@ export function createChatConversationModel(
     const revision = draftRevision(runtimeSessionId)
     if (expectedRevision !== undefined && expectedRevision !== revision) return undefined
     return setDraft(runtimeSessionId, draft)
+  }
+
+  const createPasteBlockId = (runtimeSessionId: string, generation: number): string => {
+    const current = requireConversation(runtimeSessionId)
+    if (current.generation !== generation)
+      throw new ChatRuntimeError({
+        code: 'invalid_state',
+        retryable: false,
+        message: 'Paste block identity does not belong to the current session generation.',
+      })
+    if (pasteBlockSequence >= Number.MAX_SAFE_INTEGER)
+      throw new ChatRuntimeError({
+        code: 'invalid_state',
+        retryable: false,
+        message: 'Paste block identity space is exhausted.',
+      })
+    pasteBlockSequence += 1
+    return `paste-${pasteBlockSequence.toString(36)}`
   }
 
   return {
@@ -787,6 +810,7 @@ export function createChatConversationModel(
     project: registry,
     setDraft,
     draftRevision,
+    createPasteBlockId,
     setDraftIfCurrent,
     switchTo(runtimeSessionId) {
       const conversation = requireConversation(runtimeSessionId)
