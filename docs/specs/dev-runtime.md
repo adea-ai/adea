@@ -1391,11 +1391,22 @@ Send, Steer and Stop are available only when the host supplies their authorized
 operation (or the model supplies send/cancel). Missing handlers cannot clear a
 draft or report delivery; unsupported Steer remains disabled with a visible
 reason. Authority, connectivity and approval gates apply to Stop as well.
-The runtime composer mounts the published `@adea-ai/ui` ChatComposer. Adea owns
-its canonical draft changes and async delivery fence; shared UI owns the input,
-IME handling, pending presentation and action-row composition. Agent/profile,
-Auto/Customize pins, resolved location and authorized Stop/Steer/launch controls
-are host slots. This host has no queue operation, so it does not advertise one.
+The runtime composer mounts the published `@adea-ai/ui` AtomicChatComposer.
+Adea's scoped desktop Chat host owns one in-memory `{ text, blocks }` draft per
+canonical session; the shared editor reports both fields in one synchronous
+change. Paste block IDs are allocated by the current model only for its current
+session generation. Before Chat's existing text-only `chat_user` transport,
+the host expands every backed paste marker to its original text, rejects an
+unresolved marker, and applies the existing 65,536-character prompt limit to
+the expanded value. The block sidecar is never added to a runtime command,
+event, local storage record, or new persistence authority. Same-session
+remounts and resume preserve the in-memory pair; failure, stale identity, or a
+newer revision cannot clear it. Async delivery captures the expanded text and
+paired blocks before awaiting and clears only the still-current matching draft.
+Shared UI owns input, IME handling, pending presentation, paste editing and
+action-row composition. Agent/profile, Auto/Customize pins, resolved location
+and authorized Stop/Steer/launch controls are host slots. This host has no
+queue operation, so it does not advertise one.
 Desktop Chat retains a bounded presentation-only reading-position snapshot per
 session and generation in the active authenticated model host. Scope replacement
 clears these snapshots and rejects late writes from the previous scope. A

@@ -1,5 +1,9 @@
 import { createChatConversationModel } from '@adea-ai/dev-view/chat/model'
-import type { ChatConversation, ChatConversationModel } from '@adea-ai/dev-view/chat/model'
+import type {
+  ChatConversation,
+  ChatConversationModel,
+  ChatDraftValue,
+} from '@adea-ai/dev-view/chat/model'
 import type { Scope } from '@adea-ai/types/dev-runtime'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
 
@@ -7,6 +11,10 @@ export type DesktopChatDraftIdentity = Readonly<{
   runtimeSessionId: string
   generation: number
 }>
+
+export type DesktopChatDraftWriteIdentity = Readonly<
+  DesktopChatDraftIdentity & { scopeKey: string }
+>
 
 export type DesktopChatReadingPosition = Readonly<{
   top: number
@@ -27,11 +35,31 @@ export type DesktopChatModelHost = Readonly<{
   draftRevision(scope: Scope, runtimeSessionId: string): number
   setDraft(
     scope: Scope,
-    identity: DesktopChatDraftIdentity,
-    draft: string,
+    identity: DesktopChatDraftWriteIdentity,
+    draft: string | ChatDraftValue,
     expectedRevision?: number
   ): ChatConversation | undefined
 }>
+
+export function createDesktopChatDraftChangeHandler(
+  input: Readonly<{
+    scope: Scope
+    modelHost: DesktopChatModelHost
+    lifecycle: DesktopChatLifecycleFence
+    request: number
+    onConversationChange: (conversation: ChatConversation) => void
+  }>
+): (
+  draft: string | ChatDraftValue,
+  identity: DesktopChatDraftWriteIdentity,
+  expectedRevision?: number
+) => void {
+  return (draft, identity, expectedRevision) => {
+    if (!input.lifecycle.isCurrent(input.request)) return
+    const next = input.modelHost.setDraft(input.scope, identity, draft, expectedRevision)
+    if (next) input.onConversationChange(next)
+  }
+}
 
 export type DesktopChatLifecycleFence = Readonly<{
   begin(): number
@@ -155,7 +183,8 @@ export function createDesktopChatModelHost(runtime: DevRuntimeService): DesktopC
       return model?.draftRevision(runtimeSessionId) ?? 0
     },
     setDraft(scope, identity, draft, expectedRevision) {
-      if (!model || activeKey !== scopeKey(scope)) return undefined
+      if (!model || activeKey !== scopeKey(scope) || identity.scopeKey !== scopeKey(scope))
+        return undefined
       return model.setDraftIfCurrent(
         identity.runtimeSessionId,
         identity.generation,
