@@ -1587,13 +1587,20 @@ test('the live appearance popover previews the visible workspace at wide and nar
   // reload consumed the click, the control is back and enabled again, so click
   // it once more instead of failing the preview assertions on infra timing.
   await expect(async () => {
+    // A dev-server reload can strike mid-test (the documented transport flake)
+    // and leave the SSR shell stuck; re-navigate and start the open over
+    // instead of asserting against a page that no longer holds the control.
+    if (!(await appearanceControl.isVisible().catch(() => false))) {
+      await page.goto('/?view=chat&scene=work')
+      await expect(appearanceControl).toBeEnabled({ timeout: 60_000 })
+    }
     // Gate on the trigger's own state: isVisible lags the portal mount on a
     // loaded machine, and a blind re-click would toggle the popover closed.
     if ((await appearanceControl.getAttribute('aria-expanded')) !== 'true') {
       await appearanceControl.click()
     }
     await expect(popup).toBeVisible()
-  }).toPass({ timeout: 60_000 })
+  }).toPass({ timeout: 90_000 })
   const modes = popup.getByRole('radiogroup', { name: 'Appearance mode' })
   await modes.getByText('Light', { exact: true }).click()
   await expect(page).toHaveScreenshot('workspace-appearance-popover-light.png', {

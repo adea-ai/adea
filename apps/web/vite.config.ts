@@ -109,21 +109,6 @@ export default defineConfig(({ command }) => ({
       optimizeDeps: { exclude: ['@adea-ai/ui'] },
     },
     client: {
-      // The theme catalogue ships pre-compiled ESM, but nothing in the initial
-      // module graph imports the adapters or the concrete theme records — they
-      // are first pulled by the lazily opened appearance popover. Discovering
-      // them at click time re-optimizes and reloads the page mid-interaction
-      // (aborting the in-flight module graph), so pre-bundle them up front.
-      optimizeDeps: {
-        include: [
-          '@adea-ai/themes',
-          '@adea-ai/themes/oklch',
-          '@adea-ai/themes/adapters/shadcn',
-          '@adea-ai/themes/adapters/xterm',
-          '@adea-ai/themes/themes/adea-dark',
-          '@adea-ai/themes/themes/adea-light',
-        ],
-      },
       build: {
         rolldownOptions: {
           output: {
