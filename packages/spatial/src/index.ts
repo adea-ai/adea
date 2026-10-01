@@ -1,4 +1,4 @@
-export type { SceneManifest, SceneStartPosition, SceneZone } from '@adea-ai/asset-manifests'
+export * from './asset-manifests'
 export {
   agentSimEngineManifestUrl,
   isLocalDevHost,

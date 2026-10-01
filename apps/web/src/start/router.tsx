@@ -1,5 +1,5 @@
 import { createRouter } from '@tanstack/solid-router'
-import { onRouterTransitionStart } from '@adea-ai/spatial-protocol'
+import { onRouterTransitionStart } from '@adea-ai/spatial'
 import { routeTree } from './routeTree.gen'
 import { parseWorkspaceSearch, stringifyWorkspaceSearch } from './search-codec.mjs'
 

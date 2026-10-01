@@ -4,7 +4,7 @@ import {
   isOfficialAgentSimWebOrigin,
   parseAgentSimEngineManifest,
   type AgentSimEngineManifest,
-} from '@adea-ai/spatial-protocol'
+} from '@adea-ai/spatial'
 
 /**
  * Entitlement outcome for the Agent Sim engine remote.
@@ -57,7 +57,7 @@ async function fetchEngineManifest(
 /**
  * Decide whether this deployment may load the Agent Sim engine, purely from
  * the packed manifest and the deployment origin. See
- * `@adea-ai/spatial-protocol` engine docs for the guard's threat model:
+ * `@adea-ai/spatial` engine docs for the guard's threat model:
  * forked websites are refused by host, forked builds by missing manifest.
  */
 export async function resolveAgentSimEngine(

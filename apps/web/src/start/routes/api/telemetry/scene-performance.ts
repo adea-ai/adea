@@ -5,7 +5,7 @@ import {
   MAX_SCENE_TELEMETRY_BYTES,
   parseScenePerformanceReport,
   SCENE_TELEMETRY_LOG_PREFIX,
-} from '@adea-ai/spatial-protocol'
+} from '@adea-ai/spatial'
 async function post(request: Request): Promise<Response> {
   const contentLength = Number(request.headers.get('content-length') ?? 0)
   if (contentLength > MAX_SCENE_TELEMETRY_BYTES)

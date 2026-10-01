@@ -4,7 +4,7 @@
 // client's entitlement gate renders the offline fallback. Pointing
 // `ADEA_AGENT_SIM_DIST` at a prepared engine pack lets a local or unpackaged
 // shell serve the same `/assets/agent-sim/*` surface from disk, so the same
-// gate (`packages/spatial-protocol/src/engine.ts`) resolves the engine.
+// gate (`packages/spatial/src/engine.ts`) resolves the engine.
 import { existsSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 
