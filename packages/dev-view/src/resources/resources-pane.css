@@ -3,10 +3,11 @@
  * theme.css via the same variables the shared dev-view hooks use.
  */
 
-/* The toolbar detail sheet overlay (z-index rides the shared dialog scale). */
-
+/* The detail sheet overlay anchors to the viewport just below the shared top
+   bar, wherever the host renders it (the trigger lives inside the top bar on
+   every view; z-index rides the shared dialog scale). */
 .dev-resources-sheet {
-  position: absolute;
+  position: fixed;
   inset-block-start: 3.25rem;
   inset-inline-end: 0.5rem;
   z-index: var(--z-dialog, 50);

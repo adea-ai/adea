@@ -29,18 +29,17 @@ import {
   devOperationMetadataFor_dev_session_unarchive,
 } from '@adea-ai/types/dev-runtime-operation-metadata'
 import '@adea-ai/app-ui/dev-view.css'
-// #424: the resources sheet rides the resources pane's scoped hooks.
-import './resources/resources-pane.css'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
   Columns2,
   Files,
-  Gauge,
   GitBranch,
   History,
   Laptop,
   Maximize2,
   MonitorSmartphone,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   TerminalSquare,
   Users,
@@ -161,6 +160,12 @@ export type DevWorkspaceEntryProps = Readonly<{
   groups?: readonly DevGroupFixture[]
   storage?: LayoutStorage
   toolbarMount?: HTMLElement
+  /**
+   * Mount for the bundled utility sidebar's top-bar toggle, placed after the
+   * host's own actions so the control is the top bar's trailing icon. Absent
+   * hosts render it inside the Dev toolbar instead.
+   */
+  sidebarActionMount?: HTMLElement
   appMode?: 'source-control'
 }>
 
@@ -321,12 +326,10 @@ const BrowserPane = lazy(() =>
 const DevicesPane = lazy(() =>
   import('./devices/devices-pane').then((module) => ({ default: module.DevicesPane }))
 )
-// #424: the Agents pane's Activity section and the toolbar resources sheet.
+// #424: the Agents pane's Activity section rides its own lazy chunk inside
+// the Dev boundary, exactly like the browser and device panes.
 const ActivityPane = lazy(() =>
   import('./resources/activity-pane').then((module) => ({ default: module.ActivityPane }))
-)
-const ResourcesPane = lazy(() =>
-  import('./resources/resources-pane').then((module) => ({ default: module.ResourcesPane }))
 )
 /*
  * #400: the Agents pane's harness status and the History pane's run history
@@ -524,9 +527,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
    */
   const [recoveryNotice, setRecoveryNotice] = createSignal('')
   const [archiveHandoff, setArchiveHandoff] = createSignal<string | undefined>()
-  // #424: the runtime-resources detail sheet (processes/ports/usage/retained
-  // data) opens from the toolbar; Escape always closes it.
-  const [resourcesSheetOpen, setResourcesSheetOpen] = createSignal(false)
+  // The right utility slot's panes share one bundled sidebar, so its single
+  // top-bar toggle reopens the pane that was visible before the collapse.
+  const [lastRightPane, setLastRightPane] = createSignal<DevUtilityPane>('browser')
   const [runtimeBindingReady, setRuntimeBindingReady] = createSignal(false)
   const runtimeState = createMemo(() => props.runtime.state())
   const fixtureMode = () => props.groups !== undefined
@@ -753,6 +756,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   }
   const showPane = (pane: DevUtilityPane) => {
     const side = utilityItemByPane.get(pane)!.side
+    if (side === 'right') setLastRightPane(pane)
     setUtilityPreferences((items) =>
       items.map((item) => (item.side === side ? { ...item, visible: item.pane === pane } : item))
     )
@@ -814,6 +818,21 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       return
     }
     showPane(panes.find((pane) => pane !== current.pane) ?? panes[0]!)
+  }
+  /**
+   * The bundled utility sidebar's single toggle: browser, devices, agents,
+   * and history share the right slot, so the control opens the last pane
+   * shown or collapses the slot — no per-group toolbar buttons.
+   */
+  const toggleRightUtilitySlot = () => {
+    const current = visiblePaneOf('right')
+    if (current) {
+      setLastRightPane(current.pane)
+      collapseSide('right')
+      return
+    }
+    showPane(lastRightPane())
+    setAnnouncement('Right utility slot opened')
   }
   const setPaneFullWidth = (pane: DevUtilityPane, fullWidth: boolean) => {
     setUtilityPreferences((items) =>
@@ -1158,6 +1177,28 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
 
   const leftFullWidth = () => visiblePaneOf('left')?.fullWidth ?? false
   const rightFullWidth = () => visiblePaneOf('right')?.fullWidth ?? false
+  // Full width is a per-panel state (restore lives in the panel's own
+  // heading), and source control pins its pane, so the sidebar toggle only
+  // exists for the regular right-slot layout.
+  const sidebarToggleAvailable = () => props.appMode !== 'source-control' && !rightFullWidth()
+  const sidebarToggleControl = () => {
+    const open = Boolean(visiblePaneOf('right'))
+    return (
+      <ActionButton
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        tooltip={open ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
+        aria-label={open ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
+        aria-expanded={open}
+        onClick={toggleRightUtilitySlot}
+      >
+        <Show when={open} fallback={<PanelRightOpen aria-hidden="true" />}>
+          <PanelRightClose aria-hidden="true" />
+        </Show>
+      </ActionButton>
+    )
+  }
 
   const utilityControls = () => (
     <div class="dev-toolbar__utilities">
@@ -1168,53 +1209,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           pressed={Boolean(visiblePaneOf('left'))}
           onClick={() => toggleUtilityGroup(['files', 'source_control'])}
         />
-      </Show>
-      <Show when={!rightFullWidth() && props.appMode !== 'source-control'}>
-        <UtilityToolbarToggle
-          label="Browser / Devices"
-          icon={Laptop}
-          pressed={
-            visiblePaneOf('right')?.pane === 'browser' || visiblePaneOf('right')?.pane === 'devices'
-          }
-          onClick={() => toggleUtilityGroup(['browser', 'devices'])}
-        />
-        <UtilityToolbarToggle
-          label="Agents / History"
-          icon={Users}
-          pressed={
-            visiblePaneOf('right')?.pane === 'agents' || visiblePaneOf('right')?.pane === 'history'
-          }
-          onClick={() => toggleUtilityGroup(['agents', 'history'])}
-        />
-        <ActionButton
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          tooltip={resourcesSheetOpen() ? 'Close runtime resources' : 'Open runtime resources'}
-          aria-label="Runtime resources"
-          aria-pressed={resourcesSheetOpen()}
-          onClick={() => setResourcesSheetOpen(!resourcesSheetOpen())}
-        >
-          <Gauge aria-hidden="true" />
-        </ActionButton>
-      </Show>
-      <Show when={props.appMode !== 'source-control'}>
-        <ActionButton
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          tooltip={focusMode() ? 'Exit focus mode' : 'Enter focus mode'}
-          aria-label={focusMode() ? 'Exit focus mode' : 'Enter focus mode'}
-          aria-pressed={focusMode()}
-          onClick={() => {
-            const next = !focusMode()
-            workspaceStore.getState().setDevFocusMode(next)
-            schedulePreferences()
-            setAnnouncement(next ? 'Focus mode enabled' : 'Focus mode disabled')
-          }}
-        >
-          <Maximize2 aria-hidden="true" />
-        </ActionButton>
       </Show>
     </div>
   )
@@ -1297,6 +1291,14 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           <Show when={props.toolbarMount} fallback={utilityControls()}>
             {(mount) => <Portal mount={mount()}>{utilityControls()}</Portal>}
           </Show>
+          {/* The bundled utility sidebar's toggle rides the host's trailing
+              top-bar mount when one exists; the fallback keeps other hosts
+              working inside the Dev toolbar. */}
+          <Show when={sidebarToggleAvailable()}>
+            <Show when={props.sidebarActionMount} fallback={sidebarToggleControl()}>
+              {(mount) => <Portal mount={mount()}>{sidebarToggleControl()}</Portal>}
+            </Show>
+          </Show>
         </div>
       </header>
 
@@ -1304,37 +1306,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         <p class="dev-recovery-banner" role="status">
           {recoveryMessage()}
         </p>
-      </Show>
-
-      <Show when={resourcesSheetOpen()}>
-        <div
-          class="dev-resources-sheet"
-          role="dialog"
-          aria-label="Runtime resources"
-          onKeyDown={(event: KeyboardEvent) => {
-            if (event.key === 'Escape') setResourcesSheetOpen(false)
-          }}
-        >
-          <div class="dev-resources-sheet__bar">
-            <span>Runtime resources</span>
-            <ActionButton
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              tooltip="Close runtime resources"
-              aria-label="Close runtime resources"
-              onClick={() => setResourcesSheetOpen(false)}
-            >
-              <X aria-hidden="true" />
-            </ActionButton>
-          </div>
-          <Suspense fallback={<p class="dev-resources__note">Loading…</p>}>
-            <ResourcesPane
-              runtime={props.runtime}
-              runtimeSessionId={selectedSession() || undefined}
-            />
-          </Suspense>
-        </div>
       </Show>
 
       <div class="dev-workspace__body">

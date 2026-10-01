@@ -34,6 +34,7 @@ import {
   type WorkspaceAppId,
 } from '@adea-ai/workspace-ui/workspace-apps'
 import { WorkspaceTopBar } from './workspace-top-bar'
+import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
@@ -55,6 +56,7 @@ const DevWorkspace = lazyComponent(
           fixture: boolean
           runtime?: WorkspacePlatformServices['devRuntime']
           toolbarMount?: HTMLElement
+          sidebarActionMount?: HTMLElement
           appMode?: 'source-control'
         }) => {
           const unavailable =
@@ -76,6 +78,7 @@ const DevWorkspace = lazyComponent(
               storage={typeof window === 'undefined' ? undefined : window.localStorage}
               runtime={runtime}
               toolbarMount={entryProps.toolbarMount}
+              sidebarActionMount={entryProps.sidebarActionMount}
               appMode={entryProps.appMode}
             />
           )
@@ -278,6 +281,7 @@ function railMoveAnnouncementFor(
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
+  const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
@@ -595,6 +599,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
         onOpenNotifications={() => openSettings('input-notifications')}
         actionsMount={setToolbarMount}
+        resources={<RuntimeResourcesControl runtime={props.services.devRuntime} />}
+        sidebarMount={setSidebarActionMount}
       />
       <GlobalWorkspaceRail
         account={{
@@ -677,6 +683,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                     }
                     runtime={props.services.devRuntime}
                     toolbarMount={mount()}
+                    sidebarActionMount={sidebarActionMount()}
                     appMode={activeAppId() === 'source-control' ? 'source-control' : undefined}
                   />
                 )}
