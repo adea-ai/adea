@@ -2194,7 +2194,13 @@ test('App Library description rows retain readable content and actions in narrow
           button.getBoundingClientRect()
         )
         return {
-          titleSeparatedFromLeading: !leading || !text || leading.right <= text.left + 1,
+          // A described row wraps its content below the leading icon when its
+          // own container query is active (row narrower than 28rem, which the
+          // 390px viewport hits at enlarged root font sizes), so the title can
+          // sit under the icon instead of beside it; the invariant is that the
+          // two never overlap.
+          titleSeparatedFromLeading:
+            !leading || !text || leading.right <= text.left + 1 || leading.bottom <= text.top + 1,
           controlsContained: controls.every(
             (control) =>
               control.left >= row.left - 1 &&
