@@ -33,6 +33,16 @@ The account menu opens Updates after its menu focus cycle closes. It supplies
 the persistent rail button through the host adapter to the published dialog
 so closing Updates restores focus without retaining a removed menu item.
 
+## Plugin marketplace
+
+`PluginsDialog` composes the published
+`@adea-ai/ui/components/composites/catalog-browser` for Discover, Installed,
+search, category expansion, result details, and return focus. The workspace
+provider remains authoritative for the verified catalog, install requests,
+recovery state, permissions, and bundled app activation. Its Navigation tab is
+a host-rendered supplemental view; this plugin marketplace remains separate
+from the #757 App Library's core-view and rail-management flow.
+
 ## Loading state
 
 `WorkspaceSkeleton` renders six published `Skeleton` controls with app-owned

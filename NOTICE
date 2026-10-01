@@ -70,6 +70,20 @@ Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 KiroCrew is licensed under the Apache License, Version 2.0, and includes
 software developed at Amazon.com, Inc. (https://www.amazon.com/).
 
+The shared catalog browser selected for issue #425 translates
+`website/src/pages/apps/DiscoverPage.tsx` and
+`website/src/components/appstore/CategoryRail.tsx` at revision
+`283e136c0f902e965a535a7c9548c57c7504fed0`; the nearest tests are
+`website/playwright/apps.spec.ts` and
+`website/src/test/appstoreCategories.test.ts`. Its public Solid presentation
+lives in `@adea-ai/ui/components/composites/catalog-browser`, and Adea's
+`plugins-dialog.tsx` injects the verified plugin catalog and install callbacks.
+KiroCrew's React/runtime, catalog transport, account/entitlement state, and
+installation/execution authority are excluded. Its `/apps/library` core-app
+launchpad is excluded as well; Adea's #757 App Library remains the separate
+core-view and rail-management flow. Adea retains catalog verification,
+permission decisions, installation, and activation authority.
+
 For the Zeron, t3code, and orca portions, permission is hereby granted, free of
 charge, to any
 person obtaining a copy of this software and associated documentation files
