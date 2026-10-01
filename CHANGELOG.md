@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.70.0](https://github.com/adea-ai/adea/compare/v0.69.10...v0.70.0) (2026-09-30)
+
+
+### Features
+
+* open shared appearance over the current workspace ([#843](https://github.com/adea-ai/adea/issues/843)) ([864989a](https://github.com/adea-ai/adea/commit/864989aeccd526eae04e27d571604edb59948b3f))
+* **packages:** consolidate asset-manifests and spatial-protocol into @adea-ai/spatial ([#851](https://github.com/adea-ai/adea/issues/851)) ([289194b](https://github.com/adea-ai/adea/commit/289194b9f856f64c54ea87ed0525cebf9d31ee3d))
+
+
+### Maintenance
+
+* **code-foundry:** upgrade runtime to v1.38.1 ([#850](https://github.com/adea-ai/adea/issues/850)) ([79c7155](https://github.com/adea-ai/adea/commit/79c7155108d3faa71c98c81966bec40923c0d986))
+
 ## [0.69.10](https://github.com/adea-ai/adea/compare/v0.69.9...v0.69.10) (2026-09-30)
 
 
