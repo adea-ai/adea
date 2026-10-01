@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.71.5](https://github.com/adea-ai/adea/compare/v0.71.4...v0.71.5) (2026-10-01)
+
+
+### Bug Fixes
+
+* **desktop-updater:** bound update staging and correct signing docs ([#899](https://github.com/adea-ai/adea/issues/899)) ([939f51d](https://github.com/adea-ai/adea/commit/939f51d9818ea27c1d656cbb2df4b473ada0cffb))
+
 ## [0.71.4](https://github.com/adea-ai/adea/compare/v0.71.3...v0.71.4) (2026-10-01)
 
 
