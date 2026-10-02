@@ -8,6 +8,8 @@ declare module 'electrobun/main' {
     title?: string
     /** Verified against the pinned 2.0.1 BrowserWindow API. */
     titleBarStyle?: 'default' | 'hiddenInset'
+    /** Nudges the native traffic lights from their hiddenInset position. */
+    trafficLightOffset?: { x: number; y: number }
     url?: string
     frame?: { width?: number; height?: number; x?: number; y?: number }
   }

@@ -547,6 +547,10 @@ const nativeWindow = new BrowserWindow({
   title: 'Adea',
   // The client draws themed chrome; native macOS controls remain native.
   titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+  // hiddenInset parks the lights at a ~20px center, 4px above the 48px top
+  // bar's control row; nudge them onto that row so the native buttons and the
+  // web toolbar share one horizontal axis.
+  trafficLightOffset: process.platform === 'darwin' ? { x: 0, y: 4 } : undefined,
   url: `http://127.0.0.1:${PORT}/`,
   frame: { width: 1280, height: 840, x: 120, y: 90 },
 })

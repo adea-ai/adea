@@ -90,34 +90,58 @@
 }
 
 /*
- * The collapsed rail keeps one vertical rhythm. The header row is an item, not
- * a title bar: at the shared topbar height its hover surface ran rail-edge to
- * rail-edge and it pushed the search entry further down than the view entries
- * sit apart.
+ * The collapsed rail keeps one vertical rhythm. The header carries the app
+ * mark with the same top gap the App Library divider uses, and the content
+ * starts one item gap below it, so every row sits on the same 2px rhythm.
  */
 .global-rail[data-collapsed='true'] .global-rail__header {
-  height: var(--rail-item-height);
-  padding: 0;
+  height: auto;
+  padding: 0.25rem 0 0;
+}
+.global-rail[data-collapsed='true'] .global-rail__content {
+  padding-block-start: 0.125rem;
 }
 .global-rail[data-collapsed='true'] .global-rail__workspace-trigger {
   width: calc(100% - 1rem);
 }
+.global-rail__workspace-trigger > span {
+  width: auto;
+  height: auto;
+}
+.global-rail__workspace-logo {
+  width: 2.25rem;
+  height: 2.25rem;
+}
 
 /*
- * The search entry is the one rail row that advertises a chord, so the chord
- * is drawn as a caption under its icon. The shared row hides the shortcut
- * span while collapsed and shows it in the hover tip instead; Adea's rail is
- * permanently collapsed, which made ⌘K undiscoverable.
+ * The search entry advertises its chord as outlined key caps under the icon
+ * (ShortcutKeys); the row above stays a standard rail item.
  */
-.global-rail[data-collapsed='true'] .global-rail__search-item {
-  height: auto;
+.global-rail__search-item {
+  display: flex;
+  min-width: 0;
   flex-direction: column;
-  gap: 0.2rem;
-  padding-block: 0.5rem 0.4rem;
+  gap: 0.125rem;
 }
-.global-rail[data-collapsed='true'] .global-rail__search-item > span[aria-hidden='true'] {
-  display: block;
-  opacity: 1;
+.global-rail__search-keys {
+  justify-content: center;
+  padding-block-end: 0.25rem;
+}
+
+/*
+ * A rail hover tip must never float above an open menu: the workspace and
+ * account menus open flush against the rail rows whose tips are showing, and
+ * at the shared scale (--z-tooltip 160) the tip painted over the menu. One
+ * step under the menu scale keeps every other stacking relationship intact.
+ */
+[data-slot='side-rail-tip'] {
+  z-index: calc(var(--z-menu) - 1);
+}
+
+/* The selected workspace radio dot reads as the accent, not as text. */
+.global-rail__workspace-menu [role='menuitemradio'] svg,
+.global-rail__account-menu [role='menuitemradio'] svg {
+  color: var(--primary);
 }
 
 .conventional-workspace,
@@ -1853,7 +1877,10 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 0.35rem;
-  margin-block-start: auto;
+  /* No bottom pin: stretching the footer away from the content left a large
+     unexplained void on short pages. It follows the content like every other
+     block; the page's remaining space stays at the page's end. */
+  margin-block-start: 1.25rem;
 }
 .workspace-app-library__footer p {
   margin: 0;
