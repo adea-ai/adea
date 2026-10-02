@@ -151,10 +151,11 @@ const recordById = new Map(appearanceThemeRecords.map((record) => [record.id, re
 
 function withAccent(theme: AdeaTheme, accent: string): AdeaTheme {
   if (accent === 'theme') return theme
-  const roles = deriveAccentRoles(
-    accent,
-    themeRegistry().find((variant) => variant.id === theme.id)!
-  )
+  const variant = themeRegistry().find((candidate) => candidate.id === theme.id)
+  // The 3:1 floor needs the variant's background. A record whose variant has
+  // vanished previews its own accent rather than throwing mid-interaction.
+  if (!variant) return theme
+  const roles = deriveAccentRoles(accent, variant)
   return {
     ...theme,
     colors: {
@@ -167,8 +168,10 @@ function withAccent(theme: AdeaTheme, accent: string): AdeaTheme {
 
 /** Resolve a selected local ID to the external editor's raw preview contract. */
 export function appearanceThemeForPreview(variant: ThemeVariant, accent: string): AdeaTheme {
-  const record = recordById.get(variant.id)
-  if (!record) return catalogueRecord(variant)
+  // Imported themes have no eagerly-built record; projecting them on the spot
+  // keeps every record on the same accent-overlay path — skipping the overlay
+  // here made preset accents silently dead for 3rd-party themes.
+  const record = recordById.get(variant.id) ?? catalogueRecord(variant)
   return withAccent(record, accent)
 }
 

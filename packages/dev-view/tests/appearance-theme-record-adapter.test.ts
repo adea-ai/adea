@@ -13,6 +13,8 @@ import {
   accentPresets as localAccentPresets,
   builtinThemeRegistry,
   deriveAccentRoles,
+  setCustomThemes,
+  type ThemeVariant,
 } from '@adea-ai/app-ui/components/appearance'
 
 describe('published AppearanceEditor theme adapter', () => {
@@ -62,6 +64,44 @@ describe('published AppearanceEditor theme adapter', () => {
     expect(adapted.colors.foreground).toBe(baseline.colors.foreground)
     expect(adapted.colors.surface).toBe(baseline.colors.surface)
     expect(adapted.colors.border).toBe(baseline.colors.border)
+  })
+
+  test('applies the accent to imported themes that have no eager record', () => {
+    // Imported variants live only in the runtime library, so they miss the
+    // eagerly-built recordById and are projected on the spot. The accent
+    // overlay used to run only on the record path, which made presets read
+    // as dead on exactly the 3rd-party themes the user just imported.
+    const nord = builtinThemeRegistry.find((theme) => theme.id === 'nord')!
+    const variant: ThemeVariant = { ...nord, id: 'custom-imported-preview-test' }
+    setCustomThemes(
+      [
+        {
+          id: 'custom-imported-preview-test',
+          name: 'Imported preview test',
+          appearance: 'dark',
+          importedAt: '2026-10-02T00:00:00.000Z',
+          variant,
+          flatTokens: {},
+          notes: [],
+        },
+      ],
+      undefined
+    )
+    try {
+      const accent = '#2563eb'
+      const roles = deriveAccentRoles(accent, variant)
+      const adapted = appearanceThemeForPreview(variant, accent)
+      expect(adapted.colors.accent).toBe(roles.primary)
+      expect(adapted.colors.accentForeground).toBe(roles.onPrimary)
+      // The overlay decorates the theme; its own baseline stays intact.
+      expect(adapted.colors.background).toBe(nord.colors.background)
+      expect(adapted.colors.border).toBe(nord.colors.border)
+      // The theme-default sentinel still previews the untouched record, whose
+      // accent role is the variant's own primary.
+      expect(appearanceThemeForPreview(variant, 'theme').colors.accent).toBe(nord.colors.primary)
+    } finally {
+      setCustomThemes([], undefined)
+    }
   })
 
   test('rejects raw invalid accents and normalizes accepted values', () => {

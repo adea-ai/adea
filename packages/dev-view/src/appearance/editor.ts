@@ -43,6 +43,7 @@ function samePreferences(left: AppearancePreferencesV2, right: AppearancePrefere
     left.mode === right.mode &&
     left.lightThemeId === right.lightThemeId &&
     left.darkThemeId === right.darkThemeId &&
+    left.terminalThemeId === right.terminalThemeId &&
     left.accent === right.accent &&
     left.surface === right.surface &&
     left.reduceTransparency === right.reduceTransparency

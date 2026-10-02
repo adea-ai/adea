@@ -18,10 +18,15 @@ async function openAppearance(page: Page) {
     // on screen, and the account menu sits behind the open dialog.
     if (await panel.isVisible().catch(() => false)) return
     if (!(await settings.isVisible().catch(() => false))) {
-      await page.getByRole('button', { name: 'User settings' }).click()
-      await page.getByRole('menuitem', { name: 'Settings' }).click()
+      // Bounded on purpose: a reload after Save keeps the settings hash, and
+      // the app re-opens the dialog from it ~600ms into the mount, closing the
+      // account menu mid-sequence. An unbounded click would hang until the
+      // toPass budget runs out; a bounded one throws and the next iteration
+      // finds the restored dialog instead.
+      await page.getByRole('button', { name: 'User settings' }).click({ timeout: 5_000 })
+      await page.getByRole('menuitem', { name: 'Settings' }).click({ timeout: 5_000 })
     }
-    await settings.getByRole('tab', { name: 'Appearance' }).click()
+    await settings.getByRole('tab', { name: 'Appearance' }).click({ timeout: 5_000 })
     await expect(panel).toBeVisible()
   }).toPass({ timeout: 30_000 })
   return panel
@@ -37,6 +42,14 @@ function modeGroup(panel: ReturnType<Page['getByRole']>) {
 
 function accentGroup(panel: ReturnType<Page['getByRole']>) {
   return editor(panel).getByRole('radiogroup', { name: 'Accent' })
+}
+
+/** The pinned terminal palette as an INLINE property: the stylesheet always
+ * resolves a computed value, so only the inline map proves a pin exists. */
+function inlineTerminalBackground(page: Page) {
+  return page.evaluate(() =>
+    document.documentElement.style.getPropertyValue('--terminal-background').trim()
+  )
 }
 
 test.describe('appearance', () => {
@@ -105,6 +118,45 @@ test.describe('appearance', () => {
     // The pre-paint script resolves the stored catalogue id and the generated
     // stylesheet paints it before hydration.
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'catppuccin-mocha')
+  })
+
+  test('the terminal row pins a palette separate from the interface theme', async ({ page }) => {
+    const panel = await openAppearance(page)
+    await modeGroup(panel).getByText('Dark', { exact: true }).click()
+    const terminal = editor(panel).getByRole('button', { name: 'Terminal', exact: true })
+
+    // Default: the terminal follows the interface theme, so no inline
+    // --terminal-* override exists on the root.
+    await expect(terminal).toHaveText('UI theme')
+    expect(await inlineTerminalBackground(page)).toBe('')
+
+    // The row offers UI theme plus the full catalogue behind its own menu.
+    await terminal.click()
+    await expect(page.getByRole('menuitemradio', { name: 'UI theme', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitemradio', { name: 'Nord', exact: true })).toBeVisible()
+    await expect(page.locator('[data-theme-menu-preview]').first()).toBeVisible()
+    await page.getByRole('menuitemradio', { name: 'Nord', exact: true }).click()
+    await expect(terminal).toHaveText('Nord')
+    // Nord's palette lands inline and overrides the interface theme's own
+    // terminal roles (adea-dark declares them in the stylesheet).
+    expect((await inlineTerminalBackground(page)).toLowerCase()).toBe('#2e3440')
+
+    await panel.getByRole('button', { name: 'Save' }).click()
+    await page.reload()
+    // The pin survives the reload through the mounted provider; the pre-paint
+    // script skips terminal paint on purpose (no terminal exists pre-mount).
+    const reloaded = editor(await openAppearance(page)).getByRole('button', {
+      name: 'Terminal',
+      exact: true,
+    })
+    await expect(reloaded).toHaveText('Nord')
+    await expect.poll(() => inlineTerminalBackground(page)).toBe('#2e3440')
+
+    // Dropping the pin hands the token names back to the interface theme.
+    await reloaded.click()
+    await page.getByRole('menuitemradio', { name: 'UI theme', exact: true }).click()
+    await expect(reloaded).toHaveText('UI theme')
+    await expect.poll(() => inlineTerminalBackground(page)).toBe('')
   })
 
   test('Light mode applies, saves, and survives a reload against a dark OS', async ({ page }) => {

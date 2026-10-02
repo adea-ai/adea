@@ -4096,6 +4096,8 @@ type AppearancePreferencesV2 = {
   mode: 'system' | 'light' | 'dark'
   lightThemeId: string
   darkThemeId: string
+  /** `'theme'` follows the interface theme; a theme id pins that palette. */
+  terminalThemeId: 'theme' | string
   accent: 'theme' | string
   surface: 'opaque' | 'frosted' | 'translucent'
   reduceTransparency: boolean
@@ -4104,9 +4106,24 @@ type AppearancePreferencesV2 = {
 
 Migrate the old `theme` key without flash or deletion. System mode follows the
 OS; pinned modes do not. Accent affects only semantic accent/interactive roles
-and must pass contrast validation. OS or user reduced transparency forces
+and must pass contrast validation; the accent override owns `--primary`,
+`--primary-foreground`, and `--ring`, so a non-default variant's own copy of
+those roles must never be written over an active override — otherwise presets
+silently revert to the theme's primary on every catalogue and imported theme
+while working only on the default pair. Accents are one global preset axis for
+every theme, not a per-theme list: "Theme default" selects the theme's own
+primary rather than a seventh preset. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
+The terminal palette follows the resolved interface theme unless
+`terminalThemeId` pins another registry theme: the pin resolves at apply time
+and its `--terminal-*` roles are written after every variant token, so it
+overlays inline variant maps and stylesheet-owned defaults alike; dropping the
+pin hands the names back to the interface variant (or the stylesheet on the
+default pair), and an unknown pinned id degrades to the interface palette,
+never a blank terminal. Terminals only exist after application JavaScript
+mounts, so the pre-paint script deliberately skips the pin — there is no
+pre-hydration terminal paint.
 The built-in registry is the published `@adea-ai/themes` catalogue adapted
 into this manifest's CSS, terminal, editor, and chart roles, led by the
 `adea-light`/`adea-dark` default pair; all published themes clear the editor

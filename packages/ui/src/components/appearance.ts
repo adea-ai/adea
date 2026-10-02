@@ -41,6 +41,11 @@ export type AppearancePreferencesV2 = Readonly<{
   mode: AppearanceMode
   lightThemeId: string
   darkThemeId: string
+  /**
+   * The terminal's palette: `'theme'` follows the resolved interface theme, a
+   * theme id pins that theme's terminal colours regardless of appearance.
+   */
+  terminalThemeId: 'theme' | string
   /** `'theme'`, a built-in preset id, or a validated `#rrggbb` color. */
   accent: 'theme' | string
   surface: 'opaque' | 'frosted' | 'translucent'
@@ -79,6 +84,7 @@ export const defaultAppearancePreferences: AppearancePreferencesV2 = Object.free
   mode: 'system',
   lightThemeId: 'adea-light',
   darkThemeId: 'adea-dark',
+  terminalThemeId: 'theme',
   accent: 'theme',
   surface: 'opaque',
   reduceTransparency: false,
@@ -702,6 +708,7 @@ export function normalizeAppearancePreferences(raw: unknown): NormalizedPreferen
         defaultAppearancePreferences.lightThemeId
       ),
       darkThemeId: normalizeThemeId(record.darkThemeId, defaultAppearancePreferences.darkThemeId),
+      terminalThemeId: normalizeThemeId(record.terminalThemeId, 'theme'),
       accent: normalizeAccent(record.accent),
       surface: normalizeSurface(record.surface),
       reduceTransparency: record.reduceTransparency === true,
@@ -805,6 +812,12 @@ export type ResolvedAppearanceState = Readonly<{
   resolvedMode: ResolvedAppearance
   variant: ThemeVariant
   accent: AccentRoles
+  /**
+   * The pinned terminal palette, or `undefined` when the terminal follows the
+   * interface theme. Resolved here so the apply order is explicit: the
+   * override is written after every variant token.
+   */
+  terminalOverride: ThemeTerminalPalette | undefined
   effectiveSurface: EffectiveSurface
   reduceTransparencyActive: boolean
 }>
@@ -825,6 +838,7 @@ export function resolveAppearanceState(
     resolvedMode,
     variant,
     accent: deriveAccentRoles(preferences.accent, variant),
+    terminalOverride: resolveTerminalOverride(preferences.terminalThemeId, registry),
     effectiveSurface: resolveSurface(preferences.surface, {
       osReducedTransparency: environment.osReducedTransparency,
       userReducedTransparency: preferences.reduceTransparency,
@@ -834,10 +848,45 @@ export function resolveAppearanceState(
   }
 }
 
+/**
+ * The pinned terminal palette, or `undefined` when the terminal follows the
+ * interface theme. An id that no longer resolves (deleted theme, corruption
+ * that slipped past normalize) also degrades to the interface palette — never
+ * to a blank or half-painted terminal.
+ */
+function resolveTerminalOverride(
+  terminalThemeId: string,
+  registry: readonly ThemeVariant[]
+): ThemeTerminalPalette | undefined {
+  if (terminalThemeId === 'theme') return undefined
+  return registry.find((variant) => variant.id === terminalThemeId)?.terminal
+}
+
 const SURFACE_BACKGROUND_ALPHA: Record<EffectiveSurface, string> = {
   opaque: '1',
   frosted: '0.92',
   translucent: '0.8',
+}
+
+/**
+ * The `--terminal-*` custom properties one terminal palette owns. The variant
+ * mapping (interface theme) and the pinned terminal override both spell their
+ * token names through this helper: a rename on either side would silently
+ * leave stale ANSI slots inline, beating the stylesheet forever.
+ */
+function terminalTokens(palette: ThemeTerminalPalette): Record<string, string> {
+  const tokens: Record<string, string> = {
+    '--terminal-background': palette.background,
+    '--terminal-foreground': palette.foreground,
+    '--terminal-cursor': palette.cursor,
+    '--terminal-selection': palette.selection,
+  }
+  const ansiNames = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
+  for (const [index, color] of palette.ansi.entries()) {
+    const name = ansiNames[index % 8]!
+    tokens[index < 8 ? `--terminal-ansi-${name}` : `--terminal-ansi-bright-${name}`] = color
+  }
+  return tokens
 }
 
 /**
@@ -852,16 +901,7 @@ export function flatVariantTokens(variant: ThemeVariant): Record<string, string>
   for (const [role, value] of Object.entries(variant.colors)) {
     tokens[`--${kebabCase(role)}`] = value
   }
-  const terminal = variant.terminal
-  tokens['--terminal-background'] = terminal.background
-  tokens['--terminal-foreground'] = terminal.foreground
-  tokens['--terminal-cursor'] = terminal.cursor
-  tokens['--terminal-selection'] = terminal.selection
-  const ansiNames = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
-  for (const [index, color] of terminal.ansi.entries()) {
-    const name = ansiNames[index % 8]!
-    tokens[index < 8 ? `--terminal-ansi-${name}` : `--terminal-ansi-bright-${name}`] = color
-  }
+  Object.assign(tokens, terminalTokens(variant.terminal))
   for (const [role, value] of Object.entries(variant.editor)) {
     tokens[`--editor-${kebabCase(role)}`] = value
   }
@@ -920,7 +960,15 @@ export function applyAppearanceToDocument(
   // the default. The accent branch above already handles this for the three
   // accent roles; the same removal is needed here for every variant token.
   const nextTokens = flatVariantTokens(state.variant)
-  for (const [name, value] of Object.entries(nextTokens)) setToken(name, value)
+  for (const [name, value] of Object.entries(nextTokens)) {
+    // The accent branch above owns these three roles. A non-default variant
+    // also declares them, and writing the variant's copy AFTER the accent
+    // override silently clobbered the accent for every catalogue theme — the
+    // preset only ever took effect on the default pair, whose tokens are
+    // stylesheet-owned and therefore never reach this loop.
+    if (state.accent.overrides && ACCENT_OWNED_TOKENS.has(name)) continue
+    setToken(name, value)
+  }
   for (const name of allVariantTokenNames()) {
     // The three accent roles are owned by the branch above, which already
     // sets them when an override is active and removes them when it is not.
@@ -928,6 +976,16 @@ export function applyAppearanceToDocument(
     // an accent override the caller had just applied.
     if (ACCENT_OWNED_TOKENS.has(name)) continue
     if (!(name in nextTokens)) style.removeProperty(name)
+  }
+  // The pinned terminal palette is written LAST: it overlays whatever the
+  // interface variant (or the default variant's stylesheet) contributed.
+  // Dropping the pin needs no removal here — with `terminalOverride` absent
+  // the variant loop rewrote the interface palette inline, or the removal
+  // sweep above handed those names back to the stylesheet.
+  if (state.terminalOverride) {
+    for (const [name, value] of Object.entries(terminalTokens(state.terminalOverride))) {
+      setToken(name, value)
+    }
   }
 }
 
@@ -956,6 +1014,8 @@ function allVariantTokenNames(): ReadonlySet<string> {
  * under its `data-theme` attribute, including the default pair, so a render-blocking stylesheet plus the resolved
  * attribute paint the right palette. Accent overrides land with the provider:
  * they decorate the resolved palette and cannot produce a wrong-palette flash.
+ * The pinned terminal palette lands there too — terminals only exist after
+ * application JavaScript mounts, so there is no pre-hydration terminal paint.
  */
 export function appearanceThemeScript(): string {
   const ids = JSON.stringify(
