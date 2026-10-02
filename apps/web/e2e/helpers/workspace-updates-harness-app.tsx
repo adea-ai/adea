@@ -13,22 +13,29 @@ function Harness() {
     <>
       <output id="updates-opener">{opener()?.getAttribute('aria-label') ?? 'missing'}</output>
       <Button onClick={() => setUpdatesEnabled(false)}>Disable updates handoff</Button>
-      <AccountMenu
-        authenticated
-        platform="desktop"
-        onOpenAbout={() => undefined}
-        onOpenSettings={() => undefined}
-        onOpenUpdates={
-          updatesEnabled()
-            ? (trigger) => {
-                setOpener(trigger)
-                setOpen(true)
-              }
-            : undefined
-        }
-        onSignIn={() => undefined}
-        onSignOut={() => undefined}
-      />
+      {/* The rail footer is what the real shell gives this trigger: a narrow
+          column with the row pushed down. Right-end placement needs that
+          context — against a full-viewport-width anchor the menu flips
+          off-screen instead of opening beside the icon. */}
+      <div class="w-14">
+        <div class="h-96" />
+        <AccountMenu
+          authenticated
+          platform="desktop"
+          onOpenAbout={() => undefined}
+          onOpenSettings={() => undefined}
+          onOpenUpdates={
+            updatesEnabled()
+              ? (trigger) => {
+                  setOpener(trigger)
+                  setOpen(true)
+                }
+              : undefined
+          }
+          onSignIn={() => undefined}
+          onSignOut={() => undefined}
+        />
+      </div>
       <Show when={open()}>
         <VersionDialog restoreFocusRef={opener} open={open()} onOpenChange={setOpen} />
       </Show>

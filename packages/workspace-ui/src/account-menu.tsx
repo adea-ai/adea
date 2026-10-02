@@ -107,6 +107,10 @@ export function AccountMenu(props: AccountMenuProps) {
         <UserRound aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent
+        // No arrow: Kobalte adds half the arrow height to the gutter, which
+        // would push the menu 19px off the button instead of the 4px corner
+        // alignment this right-end placement promises.
+        hideArrow
         class="global-rail__account-menu min-w-56 max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
         onCloseAutoFocus={(event) => {
           const selection = pendingAfterClose
