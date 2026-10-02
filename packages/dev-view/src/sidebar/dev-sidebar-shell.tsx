@@ -15,18 +15,49 @@ import {
   SidebarNavFooter,
   SidebarNavHeader,
   SidebarNavItem,
+  SidebarNavResizeHandle,
   SidebarNavSection,
   SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
-import { For, Show, children, type JSX } from 'solid-js'
+import { For, Show, children, createEffect, createMemo, createSignal, type JSX } from 'solid-js'
 
 import type { DevGroupFixture, DevProjectFixture } from '../dev-workspace-entry'
 import type { ArchiveShelfState } from './archive-shelf-model'
 import { sessionBadges } from './badges'
 import { ArchiveShelf } from './archive-shelf'
+
+/*
+ * The contextual sidebar shares one stored width with the chat/virtual
+ * navigation (packages/workspace-ui/src/workspace-sidebar.tsx owns the same
+ * key, bounds, and CSS variable). The constants are restated here because
+ * dev-view does not depend on workspace-ui; change them together.
+ */
+const SIDEBAR_WIDTH_STORAGE_KEY = 'adea:workspace-sidebar-width'
+const SIDEBAR_MIN_WIDTH = 208
+const SIDEBAR_MAX_WIDTH = 448
+const SIDEBAR_DEFAULT_WIDTH = 272
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)))
+}
+
+function devSidebarRootFor(sidebar: HTMLElement | null | undefined): HTMLElement | null {
+  // The width variable must reach the workspace frame: the Dev top-bar's
+  // section alignment and the sidebar itself both read it there. Hosts without
+  // a frame (direct integrations) fall back to the dev workspace root.
+  return (
+    sidebar?.closest<HTMLElement>('.workspace-frame, .workspace-shell--contextual') ??
+    sidebar?.closest<HTMLElement>('.dev-workspace') ??
+    null
+  )
+}
+
+function applyDevSidebarWidth(root: HTMLElement, width: number) {
+  root.style.setProperty('--conventional-sidebar-width', `${clampSidebarWidth(width)}px`)
+}
 
 export type SidebarReorderHandlers = {
   /** Keyboard move (Alt+Arrow) of a group. */
@@ -95,10 +126,59 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
   // footer condition and body share a single constructed instance.
   const resolvedChildren = children(() => props.children)
   let dragged: { kind: 'group' | 'project'; groupId: string; id: string } | undefined
+  const [sidebar, setSidebar] = createSignal<HTMLElement>()
+  const [sidebarWidth, setSidebarWidth] = createSignal(SIDEBAR_DEFAULT_WIDTH)
+  const [rootTick, setRootTick] = createSignal(0)
+  const layoutRoot = createMemo(() => {
+    const element = sidebar()
+    void rootTick()
+    return element?.isConnected ? devSidebarRootFor(element) : null
+  })
+
+  const updateSidebarWidth = (nextWidth: number) => {
+    const root = layoutRoot()
+    if (!root) return
+    const width = clampSidebarWidth(nextWidth)
+    applyDevSidebarWidth(root, width)
+    setSidebarWidth(width)
+  }
+
+  createEffect(() => {
+    // Restore the shared stored width as soon as the layout root exists — the
+    // same value the chat/virtual navigation applies, so one drag sets both.
+    const root = layoutRoot()
+    if (!root) return
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
+    if (!Number.isFinite(stored) || stored <= 0) return
+    applyDevSidebarWidth(root, stored)
+    setSidebarWidth(clampSidebarWidth(stored))
+  })
 
   return (
     <div class={cn('dev-sidebar', { 'dev-sidebar--open': props.compactOpen })}>
-      <SidebarNav as="aside" class="h-full w-full" aria-label="Projects and sessions">
+      <SidebarNav
+        as="aside"
+        class="h-full w-full"
+        aria-label="Projects and sessions"
+        ref={(element) => {
+          setSidebar(element)
+          // Solid refs run before insertion; the root memo needs one nudge
+          // once the aside is attached to observe its frame ancestor.
+          queueMicrotask(() => setRootTick((tick) => tick + 1))
+        }}
+      >
+        <SidebarNavResizeHandle
+          value={sidebarWidth()}
+          minimum={SIDEBAR_MIN_WIDTH}
+          maximum={SIDEBAR_MAX_WIDTH}
+          step={16}
+          label="Resize projects and sessions sidebar"
+          class="dev-sidebar__resize"
+          onChange={updateSidebarWidth}
+          onCommit={(width) => {
+            window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(width)))
+          }}
+        />
         <SidebarNavHeader>
           <SidebarNavTitle as="h2">Projects and sessions</SidebarNavTitle>
         </SidebarNavHeader>

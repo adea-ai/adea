@@ -44,8 +44,10 @@ const canonicalUtilitySides: Readonly<Record<DevUtilityPane, 'left' | 'right'>> 
   agents: 'right',
   history: 'right',
 }
-/** One shared default: every utility pane opens at the browser pane's width. */
-const defaultUtilitySize = 336
+/** Left panes (files/source control) open at the browser pane's width. */
+const defaultLeftUtilitySize = 336
+/** Right panes (browser/devices/agents/history) get the wider step. */
+const defaultRightUtilitySize = 384
 
 /**
  * Utility panes sharing an edge are one resizable surface: restoring a stored
@@ -58,8 +60,9 @@ function normalizeUtilitySizesPerSide(
 ): DevUtilityPreference[] {
   const anchorSize = (side: 'left' | 'right') => {
     const anchorPane = side === 'left' ? 'files' : 'browser'
+    const fallback = side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize
     const anchor = utility.find((entry) => entry.pane === anchorPane)
-    const size = anchor && anchor.size > 0 ? anchor.size : defaultUtilitySize
+    const size = anchor && anchor.size > 0 ? anchor.size : fallback
     return { size, lastNonzeroSize: anchor?.lastNonzeroSize ?? size }
   }
   const sizes = { left: anchorSize('left'), right: anchorSize('right') }
@@ -332,6 +335,8 @@ export function migrateLayoutPreferencesV1(value: DevLayoutPreferencesV1): DevLa
   const leafIds = new Set(listLeaves(value.center).map((leaf) => leaf.id))
   const firstLeafId = listLeaves(value.center)[0]!.id
   const utility = utilities.map((pane, order): DevUtilityPreference => {
+    const fallbackSize =
+      canonicalUtilitySides[pane] === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize
     const previous = value.utility.find((entry) => entry.pane === pane)
     if (!previous)
       return {
@@ -339,8 +344,8 @@ export function migrateLayoutPreferencesV1(value: DevLayoutPreferencesV1): DevLa
         side: canonicalUtilitySides[pane],
         order,
         visible: false,
-        size: defaultUtilitySize,
-        lastNonzeroSize: defaultUtilitySize,
+        size: fallbackSize,
+        lastNonzeroSize: fallbackSize,
         fullWidth: false,
       }
     const fullWidth = previous.size > legacyFullWidthSize
@@ -350,8 +355,8 @@ export function migrateLayoutPreferencesV1(value: DevLayoutPreferencesV1): DevLa
       side: previous.side,
       order,
       visible: previous.visible,
-      size: size > 0 ? size : defaultUtilitySize,
-      lastNonzeroSize: previous.lastNonzeroSize > 0 ? previous.lastNonzeroSize : defaultUtilitySize,
+      size: size > 0 ? size : fallbackSize,
+      lastNonzeroSize: previous.lastNonzeroSize > 0 ? previous.lastNonzeroSize : fallbackSize,
       fullWidth,
     }
   })

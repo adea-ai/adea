@@ -782,7 +782,8 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   await expect(
     page.locator('[data-slot="side-rail-tip"]').filter({ hasText: 'Browser' })
   ).toBeVisible()
-  await expect.poll(async () => (await rightUtilities.boundingBox())?.width ?? 0).toBe(336)
+  // The right utility slot seeds the wider 384 step by default.
+  await expect.poll(async () => (await rightUtilities.boundingBox())?.width ?? 0).toBe(384)
 
   await expect
     .poll(() =>
@@ -798,7 +799,7 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   })
   expect(
     savedLayout.value.utility.find((item: { pane: string }) => item.pane === 'browser').size
-  ).toBe(336)
+  ).toBe(384)
   await page.evaluate((key) => {
     const value = JSON.parse(localStorage.getItem(key) ?? '{}')
     value.utility = value.utility.map((item: { pane: string }) =>
