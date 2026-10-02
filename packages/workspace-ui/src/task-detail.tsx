@@ -22,6 +22,7 @@ import {
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
@@ -237,7 +238,10 @@ export function TaskDetail(props: Props) {
               <DrawerTitle class="sr-only">{props.task.title}</DrawerTitle>
             </div>
             <DrawerCloseButton
-              class="conventional-detail-panel__close"
+              as={ActionButton}
+              variant="ghost"
+              size="icon-sm"
+              tooltip="Close Task detail"
               aria-label="Close Task detail"
             >
               <X aria-hidden="true" />

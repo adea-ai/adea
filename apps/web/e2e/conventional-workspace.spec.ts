@@ -1250,6 +1250,8 @@ test('opens responsive Task detail and restores focus on dismissal', async ({ pa
   expect(
     await detail.evaluate((element) => Number.parseFloat(getComputedStyle(element).width))
   ).toBeCloseTo(29 * rootFontSize, 1)
+  await detail.getByRole('textbox', { name: 'Title', exact: true }).focus()
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
   await expect(page).toHaveScreenshot('workspace-task-detail.png', { animations: 'disabled' })
 
   await page.setViewportSize({ width: 390, height: 480 })
@@ -1272,7 +1274,10 @@ test('opens responsive Task detail and restores focus on dismissal', async ({ pa
   await page.setViewportSize({ width: 1280, height: 720 })
   await taskTrigger.click()
   const reopenedDetail = page.getByRole('dialog', { name: 'Launch planning', exact: true })
-  await reopenedDetail.getByRole('button', { name: 'Close Task detail' }).click()
+  const closeDetail = reopenedDetail.getByRole('button', { name: 'Close Task detail' })
+  await closeDetail.focus()
+  await expect(page.getByRole('tooltip')).toHaveText('Close Task detail')
+  await closeDetail.click()
   await expect(reopenedDetail).toHaveCount(0)
   await expect(taskTrigger).toBeFocused()
 })

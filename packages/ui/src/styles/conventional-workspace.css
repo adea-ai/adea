@@ -914,23 +914,6 @@
   padding-bottom: 0.8rem;
   border-bottom: 1px solid var(--cw-border);
 }
-.conventional-detail-panel__close {
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  flex: none;
-  place-items: center;
-  border-radius: 0.35rem;
-  color: var(--cw-muted);
-}
-.conventional-detail-panel__close:hover {
-  background: var(--cw-surface-muted);
-  color: var(--cw-text);
-}
-.conventional-detail-panel__close svg {
-  width: 1rem;
-  height: 1rem;
-}
 .conventional-detail-panel__divider {
   height: 1px;
   min-height: 1px;
@@ -938,22 +921,12 @@
   border: 0;
   background: var(--border, var(--cw-border));
 }
-.conventional-detail-panel input:focus-visible,
-.conventional-detail-panel textarea:focus-visible,
-.conventional-detail-panel select:focus-visible,
-.conventional-detail-panel button:focus-visible {
-  outline: 2px solid var(--cw-focus);
-  outline-offset: 1px;
-}
 .conventional-detail-panel label,
 .conventional-inline-form label,
 .conventional-dialog-form label {
   display: grid;
   gap: 0.35rem;
   margin-top: 1rem;
-  color: var(--cw-muted);
-  font-size: 0.78rem;
-  font-weight: 700;
 }
 .conventional-detail-panel fieldset {
   display: grid;
@@ -985,17 +958,6 @@
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.45rem;
-  font-weight: 400;
-  color: var(--cw-text);
-  font-size: 0.82rem;
-}
-.conventional-detail-panel input[type='checkbox'] {
-  width: 1rem;
-  height: 1rem;
-  min-height: 0;
-  flex: none;
-  padding: 0;
-  accent-color: var(--cw-accent-strong);
 }
 .conventional-detail-panel__field {
   display: grid;
@@ -1028,12 +990,6 @@
 .conventional-detail-panel textarea {
   width: 100%;
   min-height: 6rem;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid var(--border, var(--cw-border));
-  border-radius: 0.4rem;
-  background: var(--cw-surface);
-  color: var(--cw-text);
-  resize: vertical;
 }
 .conventional-detail-panel input:not([type='checkbox']),
 .conventional-inline-form input,
@@ -1041,12 +997,6 @@
 .conventional-inline-form select,
 .conventional-dialog-form input {
   width: 100%;
-  min-height: 2.75rem;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid var(--border, var(--cw-border));
-  border-radius: 0.4rem;
-  background: var(--cw-surface);
-  color: var(--cw-text);
 }
 .conventional-detail-panel__actions {
   display: flex;
@@ -1054,7 +1004,6 @@
   gap: 0.45rem;
   margin-top: 1rem;
 }
-.conventional-detail-panel__actions button,
 .conventional-detail-panel__status {
   min-height: 1.5rem;
   margin-top: 0.5rem;

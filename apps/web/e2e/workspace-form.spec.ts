@@ -24,6 +24,56 @@ test.beforeEach(async ({ page }) => {
   )
 })
 
+test('creation fields retain the published control appearance across themes and text sizes', async ({
+  page,
+}) => {
+  await page.getByRole('button', { name: 'Open room', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Create Room', exact: true })
+  const field = dialog.getByLabel('Room name', { exact: true })
+  const reference = page.getByRole('textbox', {
+    name: 'Shared input reference',
+    includeHidden: true,
+  })
+  const properties = [
+    'height',
+    'padding-inline-start',
+    'padding-inline-end',
+    'padding-block-start',
+    'padding-block-end',
+    'border-top-width',
+    'border-top-style',
+    'border-top-color',
+    'border-top-left-radius',
+    'background-color',
+    'font-size',
+    'font-weight',
+  ]
+
+  for (const mode of ['light', 'dark']) {
+    await page.evaluate((nextMode) => {
+      document.documentElement.classList.remove('light', 'dark')
+      document.documentElement.classList.add(nextMode)
+    }, mode)
+    for (const fontSize of ['100%', '200%']) {
+      await page.evaluate((size) => {
+        document.documentElement.style.fontSize = size
+      }, fontSize)
+      const appearance = async (control: typeof field) =>
+        control.evaluate(
+          (element, names) => names.map((name) => getComputedStyle(element).getPropertyValue(name)),
+          properties
+        )
+      await expect
+        .poll(async () => {
+          const actual = await appearance(field)
+          const expected = await appearance(reference)
+          return actual.every((value, index) => value === expected[index])
+        })
+        .toBe(true)
+    }
+  }
+})
+
 test('room form keeps native validation, submitted data, retry and async close cleanup', async ({
   page,
 }) => {
