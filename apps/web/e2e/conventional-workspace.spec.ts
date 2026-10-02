@@ -1922,12 +1922,14 @@ test('integrated chrome keeps the global rail while Virtual navigation collapses
   expect(bounds).toEqual({ sameWidth: true, below: true })
 })
 
-test('Virtual room designer keeps the contextual sidebar and global rail', async ({ page }) => {
+test('Virtual room designer runs full-bleed without the contextual sidebar', async ({ page }) => {
   await mockConnectedWorkspace(page)
   await page.goto('/?view=virtual&roomDesigner=1')
   const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })).toBeVisible()
-  await expect(sidebar).toBeVisible()
+  // Edit mode drops the contextual sidebar on purpose: the designer fills the
+  // viewport, and the top bar plus the designer's own close are the way back.
+  await expect(sidebar).toHaveCount(0)
   await expect(page.getByRole('main')).toHaveCount(1)
   const fallback = page.getByRole('status', { name: 'Virtual view unavailable' })
   expect(
@@ -1943,16 +1945,7 @@ test('Virtual room designer keeps the contextual sidebar and global rail', async
   expect(
     await fallback.evaluate((element) => element.getBoundingClientRect().height)
   ).toBeGreaterThan(600)
-  const toolbar = page.getByLabel('Workspace toolbar')
-  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
-  await expect(sidebar).toBeHidden()
   await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible()
-  await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
-  await sidebar.getByRole('button', { name: 'Product', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Chat view', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true'
-  )
 })
 
 test('Chat and Virtual use the same resizable sidebar and preserve selection and thread state', async ({
