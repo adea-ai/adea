@@ -2,6 +2,10 @@ version: 1
 profile: monorepo
 languages: typescript
 features: validation,release
+# Dependency updates are Renovate-only: grouped draft PRs from the org
+# runner in adea-ai/ui. The updater key stops sync from re-rendering
+# .github/dependabot.yml regardless of the features selection.
+dependency_updater: renovate
 # Public repository: Advanced Security features (CodeQL, Dependency Review)
 # are expected to be available; lanes degrade gracefully where they are not.
 codeql: auto
