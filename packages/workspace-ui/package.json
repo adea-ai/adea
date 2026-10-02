@@ -76,47 +76,6 @@
       "import": "./dist/conventional-workspace-shell.js",
       "default": "./dist/conventional-workspace-shell.js"
     },
-    "./global-workspace-rail": {
-      "types": "./dist/global-workspace-rail.d.ts",
-      "solid": "./src/global-workspace-rail.tsx",
-      "development": "./src/global-workspace-rail.tsx",
-      "import": "./dist/global-workspace-rail.js",
-      "default": "./dist/global-workspace-rail.js"
-    },
-    "./marketplace-catalog": {
-      "types": "./dist/marketplace-catalog.d.ts",
-      "solid": "./src/marketplace-catalog.ts",
-      "development": "./src/marketplace-catalog.ts",
-      "import": "./dist/marketplace-catalog.js",
-      "default": "./dist/marketplace-catalog.js"
-    },
-    "./platform": {
-      "types": "./dist/platform.d.ts",
-      "solid": "./src/platform.ts",
-      "development": "./src/platform.ts",
-      "import": "./dist/platform.js"
-    },
-    "./plugins": {
-      "types": "./dist/plugins.d.ts",
-      "solid": "./src/plugins.ts",
-      "development": "./src/plugins.ts",
-      "import": "./dist/plugins.js",
-      "default": "./dist/plugins.js"
-    },
-    "./plugins-dialog": {
-      "types": "./dist/plugins-dialog.d.ts",
-      "solid": "./src/plugins-dialog.tsx",
-      "development": "./src/plugins-dialog.tsx",
-      "import": "./dist/plugins-dialog.js",
-      "default": "./dist/plugins-dialog.js"
-    },
-    "./preferences": {
-      "types": "./dist/preferences.d.ts",
-      "solid": "./src/preferences.ts",
-      "development": "./src/preferences.ts",
-      "import": "./dist/preferences.js",
-      "default": "./dist/preferences.js"
-    },
     "./rail-preferences": {
       "types": "./dist/rail-preferences.d.ts",
       "solid": "./src/rail-preferences.ts",
@@ -131,12 +90,12 @@
       "import": "./dist/update-pending.js",
       "default": "./dist/update-pending.js"
     },
-    "./virtual-room-controls": {
-      "types": "./dist/virtual-room-controls.d.ts",
-      "solid": "./src/virtual-room-controls.tsx",
-      "development": "./src/virtual-room-controls.tsx",
-      "import": "./dist/virtual-room-controls.js",
-      "default": "./dist/virtual-room-controls.js"
+    "./workspace-view-toggle": {
+      "types": "./dist/workspace-view-toggle.d.ts",
+      "solid": "./src/workspace-view-toggle.tsx",
+      "development": "./src/workspace-view-toggle.tsx",
+      "import": "./dist/workspace-view-toggle.js",
+      "default": "./dist/workspace-view-toggle.js"
     },
     "./virtual-unavailable": {
       "types": "./dist/virtual-unavailable.d.ts",
@@ -152,12 +111,12 @@
       "import": "./dist/virtual-view.js",
       "default": "./dist/virtual-view.js"
     },
-    "./workspace-about-dialog": {
-      "types": "./dist/workspace-about-dialog.d.ts",
-      "solid": "./src/workspace-about-dialog.tsx",
-      "development": "./src/workspace-about-dialog.tsx",
-      "import": "./dist/workspace-about-dialog.js",
-      "default": "./dist/workspace-about-dialog.js"
+    "./virtual-room-controls": {
+      "types": "./dist/virtual-room-controls.d.ts",
+      "solid": "./src/virtual-room-controls.tsx",
+      "development": "./src/virtual-room-controls.tsx",
+      "import": "./dist/virtual-room-controls.js",
+      "default": "./dist/virtual-room-controls.js"
     },
     "./workspace-apps": {
       "types": "./dist/workspace-apps.d.ts",
@@ -166,19 +125,12 @@
       "import": "./dist/workspace-apps.js",
       "default": "./dist/workspace-apps.js"
     },
-    "./workspace-settings": {
-      "types": "./dist/workspace-settings.d.ts",
-      "solid": "./src/workspace-settings.tsx",
-      "development": "./src/workspace-settings.tsx",
-      "import": "./dist/workspace-settings.js",
-      "default": "./dist/workspace-settings.js"
-    },
-    "./workspace-view-toggle": {
-      "types": "./dist/workspace-view-toggle.d.ts",
-      "solid": "./src/workspace-view-toggle.tsx",
-      "development": "./src/workspace-view-toggle.tsx",
-      "import": "./dist/workspace-view-toggle.js",
-      "default": "./dist/workspace-view-toggle.js"
+    "./app-library-page": {
+      "types": "./dist/app-library-page.d.ts",
+      "solid": "./src/app-library-page.tsx",
+      "development": "./src/app-library-page.tsx",
+      "import": "./dist/app-library-page.js",
+      "default": "./dist/app-library-page.js"
     }
   },
   "scripts": {
