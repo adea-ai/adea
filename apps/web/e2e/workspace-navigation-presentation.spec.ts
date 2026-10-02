@@ -36,6 +36,11 @@ test('production WorkspaceNavigation reports its resolved Dev selection and clea
     'aria-description',
     'Notifications are not available yet.'
   )
+  await notifications.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('Notifications are not available yet.')
+  await notifications.focus()
+  await notifications.press('Enter')
+  await notifications.press('Space')
   const notificationBounds = await notifications.boundingBox()
   expect(notificationBounds).not.toBeNull()
   if (!notificationBounds) throw new Error('Notifications button has no visible bounds')
