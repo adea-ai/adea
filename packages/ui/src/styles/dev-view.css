@@ -12,6 +12,14 @@
   background: var(--background);
 }
 
+/* Pane actions can mount into the global top bar, leaving main without its
+   header row; the fixed 3rem track would then swallow the body (a 48px
+   workspace). With neither a header nor a recovery banner to fill row one,
+   collapse to a single full-height body row. */
+.dev-workspace:not(:has(.dev-toolbar, .dev-recovery-banner)) {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 /* Runtime Chat uses the same contextual hierarchy and semantic panel tokens. */
 .dev-workspace--chat {
   grid-template-rows: minmax(0, 1fr);
@@ -50,7 +58,6 @@
 }
 
 .dev-button,
-.dev-icon-button,
 .dev-tree-row {
   min-height: 2rem;
   border: 1px solid transparent;
@@ -69,27 +76,18 @@
 }
 
 .dev-button svg,
-.dev-icon-button svg,
 .dev-tree-row svg {
   width: 1rem;
   height: 1rem;
   flex: none;
 }
 
-.dev-icon-button {
-  display: inline-grid;
-  width: 2rem;
-  place-items: center;
-}
-
 .dev-button:not(:disabled):hover,
-.dev-icon-button:hover,
 .dev-tree-row:hover {
   background: color-mix(in srgb, var(--foreground) 8%, transparent);
 }
 
 .dev-button:focus-visible,
-.dev-icon-button:focus-visible,
 .dev-tree-row:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
@@ -370,10 +368,6 @@
   }
 }
 
-.dev-utility-panel__heading .dev-icon-button {
-  margin-inline-start: auto;
-}
-
 .dev-utility-panel h2 {
   margin: 0;
   font-size: 0.82rem;
@@ -484,7 +478,6 @@
 
 @media (pointer: coarse) {
   .dev-button,
-  .dev-icon-button,
   .dev-tree-row,
   .dev-utility__file-source-selector > button {
     min-width: 2.75rem;

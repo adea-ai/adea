@@ -871,7 +871,9 @@ test('Dev surfaces expose an aria snapshot and run under an eval-blocking CSP', 
   })
   await expectDevToolbarHost(page)
 
-  const snapshot = await page.locator('main').ariaSnapshot()
+  // The labelled pane-action host rides the global top bar, outside main, so
+  // snapshot the whole workspace frame to cover both mount points.
+  const snapshot = await page.locator('.workspace-frame').ariaSnapshot()
   expect(snapshot).toContain('Skip to workspace')
   expect(snapshot).toContain('Developer workspace actions')
   expect(snapshot).toContain('Projects and sessions')
