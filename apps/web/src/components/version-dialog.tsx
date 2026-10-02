@@ -29,6 +29,7 @@ export function VersionDialog(props: {
   return (
     <SharedVersionDialog
       adapter={desktopUpdateAdapter}
+      appIcon="/icon.svg"
       fallbackVersion={packageVersion}
       onOpenChange={props.onOpenChange}
       open={props.open}

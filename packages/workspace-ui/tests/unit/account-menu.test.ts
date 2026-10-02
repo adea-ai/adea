@@ -18,10 +18,10 @@ describe('account menu contract', () => {
     ])
     expect(accountMenuItems.filter(({ disabled }) => disabled).map(({ id }) => id)).toEqual([
       'mobile',
-      'help',
     ])
     expect(accountMenuItems.filter(({ disabled }) => !disabled).map(({ id }) => id)).toEqual([
       'about',
+      'help',
       'feedback',
       'updates',
       'settings',

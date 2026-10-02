@@ -116,9 +116,10 @@ test('a guest can use a workspace before opening the optional persistence flow',
     Math.abs(accountMenuPosition.menuBottom - accountMenuPosition.triggerBottom)
   ).toBeLessThanOrEqual(1)
   await expect(accountMenu.getByRole('menuitem', { name: 'Get Adea mobile' })).toBeDisabled()
-  await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeDisabled()
+  await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeEnabled()
   // Send Feedback is live: it opens the prefilled GitHub issue form
-  // (.github/ISSUE_TEMPLATE/feedback.yml). Help Center has no destination yet.
+  // (.github/ISSUE_TEMPLATE/feedback.yml). Help Center opens the shared
+  // shortcuts-and-resources dialog; both are available to guests.
   await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeEnabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Updates' })).toHaveCount(0)
   await expect(accountMenu.getByRole('menuitem', { name: 'Settings' })).toContainText('⌘,')
@@ -132,14 +133,25 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(about.getByText(/^Version \d+\.\d+\.\d+$/)).toBeVisible()
   await expect(about.getByRole('button', { name: 'Copy version info' })).toBeVisible()
   await expect(about.getByRole('button', { name: 'Close', exact: true })).toBeVisible()
-  await expect(about.locator('.conventional-about-dialog__brand svg')).toBeVisible()
-  await expect(about.locator('.conventional-about-dialog__brand span')).toHaveCount(0)
+  // The shared About dialog carries the real app icon.
+  await expect(about.locator('img[src="/icon.svg"]')).toBeAttached()
   await about.getByRole('button', { name: 'Close', exact: true }).click()
   // Let the dialog (and its inert overlay) fully detach before opening the
   // next one; without the scene's render load this races close animations.
   await expect(about).toBeHidden({ timeout: 20_000 })
   // Dismiss any lingering menu layer so its inert overlay cannot intercept
   // the next dialog's controls.
+  await page.keyboard.press('Escape')
+
+  await userMenu.click()
+  await accountMenu.getByRole('menuitem', { name: 'Help Center' }).click()
+  const help = page.getByRole('dialog', { name: 'Help Center' })
+  await expect(help).toBeVisible()
+  await expect(help.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible()
+  await expect(help.getByRole('heading', { name: 'Project links' })).toBeVisible()
+  await expect(help.getByRole('link', { name: 'GitHub project' })).toBeVisible()
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(help).toBeHidden({ timeout: 20_000 })
   await page.keyboard.press('Escape')
 
   await page.evaluate(() => {

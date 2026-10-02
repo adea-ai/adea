@@ -29,6 +29,7 @@ type AccountMenuProps = {
   /** Fires on hover/focus of the trigger — a chance to prefetch menu targets. */
   onIntent?: () => void
   onOpenUpdates?: (opener: HTMLButtonElement | undefined) => void
+  onOpenHelp?: (opener: HTMLButtonElement | undefined) => void
   onOpenFeedback: (opener: HTMLButtonElement | undefined) => void
   onOpenAbout: () => void
   onOpenSettings: () => void
@@ -57,7 +58,7 @@ export function AccountMenu(props: AccountMenuProps) {
     accountMenuItemsForPlatform(props.platform).map((item) => ({
       id: item.id,
       label: item.label,
-      disabled: item.disabled,
+      disabled: item.id === 'help' ? !props.onOpenHelp : item.disabled,
       shortcut: item.id === 'settings' ? '\u2318,' : undefined,
       icon: ITEM_ICONS[item.id],
       onSelect:
@@ -71,7 +72,9 @@ export function AccountMenu(props: AccountMenuProps) {
           ? (trigger: HTMLButtonElement | undefined) => props.onOpenUpdates?.(trigger)
           : item.id === 'feedback'
             ? (trigger: HTMLButtonElement | undefined) => props.onOpenFeedback(trigger)
-            : undefined,
+            : item.id === 'help' && props.onOpenHelp
+              ? (trigger: HTMLButtonElement | undefined) => props.onOpenHelp?.(trigger)
+              : undefined,
     }))
 
   let trigger: HTMLButtonElement | undefined

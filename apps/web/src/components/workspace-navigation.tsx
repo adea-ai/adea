@@ -127,8 +127,14 @@ const RoomDesignerWorkspace = lazyComponent(
 
 const WorkspaceAboutDialog = lazyComponent(
   () =>
-    import('@adea-ai/workspace-ui/workspace-about-dialog').then(
-      ({ WorkspaceAboutDialog: AboutDialog }) => AboutDialog
+    import('@adea-ai/ui/components/composites/about-dialog').then(({ AboutDialog }) => AboutDialog),
+  { ssr: false }
+)
+
+const WorkspaceHelpCenter = lazyComponent(
+  () =>
+    import('@adea-ai/workspace-ui/workspace-help-center').then(
+      ({ WorkspaceHelpCenter: HelpCenter }) => HelpCenter
     ),
   { ssr: false }
 )
@@ -172,15 +178,17 @@ function preloadView(nextView: WorkspaceView) {
 
 // Same trick for the overlay panels: hovering the rail button or the account
 // menu trigger downloads the dialog chunk before the click lands.
-function preloadPanel(panel: 'about' | 'plugins' | 'settings') {
+function preloadPanel(panel: 'about' | 'help' | 'plugins' | 'settings') {
   if (panel === 'plugins') {
     void import('@adea-ai/workspace-ui/plugins-dialog')
     // The dialog's catalog provider resolves through the same deferred import.
     void import('@adea-ai/workspace-ui/plugins')
   } else if (panel === 'settings') {
     void import('@adea-ai/workspace-ui/workspace-settings')
+  } else if (panel === 'help') {
+    void import('@adea-ai/workspace-ui/workspace-help-center')
   } else {
-    void import('@adea-ai/workspace-ui/workspace-about-dialog')
+    void import('@adea-ai/ui/components/composites/about-dialog')
   }
 }
 
@@ -662,6 +670,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                 },
               }
             : {}),
+          onOpenHelp: (opener: HTMLButtonElement | undefined) => {
+            void opener
+            workspaceStore.getState().setGlobalPanel('help')
+          },
           onOpenFeedback: openFeedback,
           platform: props.platform,
         }}
@@ -851,11 +863,23 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       </Show>
       <Show when={globalPanel() === 'about'}>
         <WorkspaceAboutDialog
-          appName={props.services.app?.name}
+          appName={props.services.app?.name ?? 'Adea'}
+          appIcon="/icon.svg"
+          copyright="Copyright © 2026 0xPlayerOne"
+          open
+          onOpenChange={(next) => {
+            if (!next) workspaceStore.getState().setGlobalPanel(null)
+          }}
+          platform={props.platform}
+          sourceUrl="https://github.com/adea-ai/adea"
+          version={props.services.app?.version}
+        />
+      </Show>
+      <Show when={globalPanel() === 'help'}>
+        <WorkspaceHelpCenter
+          appName={props.services.app?.name ?? 'Adea'}
           open
           onClose={() => workspaceStore.getState().setGlobalPanel(null)}
-          platform={props.platform}
-          version={props.services.app?.version}
         />
       </Show>
       <Show when={props.updates}>

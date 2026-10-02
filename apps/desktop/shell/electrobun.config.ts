@@ -16,6 +16,10 @@ export default {
     // bundled main process. Staged by apps/desktop/scripts/client.mjs.
     copy: {
       '../../web/dist-desktop/client': 'client',
+      // The installed changelog shown in the Version & updates dialog is the
+      // repository's full release history (matching Cortana's updater), read
+      // at runtime next to the bundled main process.
+      '../../../CHANGELOG.md': 'CHANGELOG.md',
       // The Dev Runtime terminal sidecar is a bundled supervised component
       // (M10 #185 / #396): the packaging lane bundles the entry into
       // build/sidecar-dist and stages it at

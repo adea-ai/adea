@@ -1,7 +1,9 @@
 export const accountMenuItems = [
   { id: 'mobile', label: 'Get Adea mobile', disabled: true },
   { id: 'about', label: 'About', disabled: false },
-  { id: 'help', label: 'Help Center', disabled: true },
+  // Disabled state is owned by the host: the item enables only when a help
+  // destination is wired (the same contract as the updates handler).
+  { id: 'help', label: 'Help Center', disabled: false },
   { id: 'feedback', label: 'Send Feedback', disabled: false },
   { id: 'updates', label: 'Updates', disabled: false, desktopOnly: true },
   { id: 'settings', label: 'Settings', disabled: false },

@@ -101,6 +101,7 @@ export function GlobalWorkspaceRail(props: {
     busy?: boolean
     label: string
     onOpenUpdates?: (opener: HTMLButtonElement | undefined) => void
+    onOpenHelp?: (opener: HTMLButtonElement | undefined) => void
     onOpenFeedback: (opener: HTMLButtonElement | undefined) => void
     onSignIn: () => void
     onSignOut: () => void
@@ -120,7 +121,7 @@ export function GlobalWorkspaceRail(props: {
   /** Fires when the user hovers or focuses a view button — prefetch the target. */
   onViewIntent?: (view: WorkspaceView) => void
   /** Fires on hover/focus of a panel's entry point — prefetch its dialog chunk. */
-  onPanelIntent?: (panel: 'about' | 'plugins' | 'settings') => void
+  onPanelIntent?: (panel: 'about' | 'help' | 'plugins' | 'settings') => void
   /** Present when the host persists rail order changes: drag and Alt+Arrow reorder. */
   reorder?: RailReorderHandlers
   view: WorkspaceAppId
@@ -359,12 +360,14 @@ export function GlobalWorkspaceRail(props: {
           authenticated={props.account.authenticated}
           busy={props.account.busy}
           onIntent={() => {
-            // The menu is the path to settings and about: warm both dialogs
-            // when the user reaches for it.
+            // The menu is the path to settings, about, and help: warm every
+            // dialog it can open when the user reaches for it.
             props.onPanelIntent?.('settings')
             props.onPanelIntent?.('about')
+            props.onPanelIntent?.('help')
           }}
           onOpenUpdates={props.account.onOpenUpdates}
+          onOpenHelp={props.account.onOpenHelp}
           onOpenFeedback={props.account.onOpenFeedback}
           onOpenAbout={props.onOpenAbout}
           onOpenSettings={props.onOpenSettings}

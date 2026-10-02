@@ -8,6 +8,8 @@ export type { SharedDesktopUpdate, VersionDialogAdapter } from '../internal/vers
 
 export function VersionDialog(props: {
   adapter: VersionDialogAdapter
+  /** The actual desktop application icon, shown instead of the generic glyph. */
+  appIcon?: string
   restoreFocusRef?: Accessor<HTMLElement | undefined>
   fallbackVersion?: string
   onOpenChange?: (open: boolean) => void
@@ -18,6 +20,7 @@ export function VersionDialog(props: {
   return (
     <UpdateDialog
       adapter={adapter}
+      appIcon={props.appIcon}
       appName="Adea"
       fallbackVersion={props.fallbackVersion}
       onOpenChange={props.onOpenChange}
