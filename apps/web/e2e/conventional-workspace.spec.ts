@@ -1752,39 +1752,55 @@ test('the settings dialog survives re-selecting its active tab and keeps its dis
   expect(pageErrors).toEqual([])
 })
 
-test('settings tabs keep horizontal keyboard focus and synchronize the selected section hash', async ({
-  page,
-}) => {
-  await mockWorkspace(page)
-  await page.goto('/#settings/account')
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await expect(settings).toBeVisible()
+for (const { width, fontSize } of [
+  { width: 320, fontSize: '100%' },
+  { width: 768, fontSize: '100%' },
+  { width: 1440, fontSize: '100%' },
+  { width: 320, fontSize: '200%' },
+]) {
+  test(`settings tabs keep shared vertical keyboard focus at ${width}px and ${fontSize}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await mockWorkspace(page)
+    await page.goto('/#settings/account')
+    const settings = page.getByRole('dialog', { name: 'Settings' })
+    await expect(settings).toBeVisible()
+    await page.evaluate((size) => {
+      document.documentElement.style.fontSize = size
+    }, fontSize)
 
-  const tablist = settings.getByRole('tablist', { name: 'Settings sections' })
-  const account = tablist.getByRole('tab', { name: 'Account & app', exact: true })
-  const appearance = tablist.getByRole('tab', { name: 'Appearance', exact: true })
-  const permissions = tablist.getByRole('tab', { name: 'Permissions', exact: true })
-  await expect(tablist).toHaveAttribute('aria-orientation', 'horizontal')
+    const tablist = settings.getByRole('tablist', { name: 'Settings sections' })
+    const account = tablist.getByRole('tab', { name: 'Account & app', exact: true })
+    const appearance = tablist.getByRole('tab', { name: 'Appearance', exact: true })
+    const permissions = tablist.getByRole('tab', { name: 'Permissions', exact: true })
+    await expect(tablist).toHaveAttribute('data-slot', 'settings-navigation')
+    await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
 
-  await account.focus()
-  await page.keyboard.press('ArrowRight')
-  await expect(appearance).toBeFocused()
-  await expect(appearance).toHaveAttribute('aria-selected', 'true')
-  await expect(page).toHaveURL(/#settings\/appearance$/)
+    await account.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(appearance).toBeFocused()
+    await expect(appearance).toHaveAttribute('aria-selected', 'true')
+    await expect(page).toHaveURL(/#settings\/appearance$/)
 
-  await page.keyboard.press('Home')
-  await expect(account).toBeFocused()
-  await expect(page).toHaveURL(/#settings\/account$/)
+    await page.keyboard.press('Home')
+    await expect(account).toBeFocused()
+    await expect(page).toHaveURL(/#settings\/account$/)
 
-  await page.keyboard.press('End')
-  await expect(permissions).toBeFocused()
-  await expect(page).toHaveURL(/#settings\/permissions$/)
+    await page.keyboard.press('End')
+    await expect(permissions).toBeFocused()
+    await expect(permissions).toBeInViewport({ ratio: 1 })
+    await expect(
+      settings.getByRole('heading', { name: 'Permissions', level: 3, exact: true })
+    ).toBeInViewport({ ratio: 1 })
+    await expect(page).toHaveURL(/#settings\/permissions$/)
 
-  await page.keyboard.press('ArrowRight')
-  await expect(account).toBeFocused()
-  await expect(account).toHaveAttribute('aria-selected', 'true')
-  await expect(page).toHaveURL(/#settings\/account$/)
-})
+    await page.keyboard.press('ArrowDown')
+    await expect(account).toBeFocused()
+    await expect(account).toHaveAttribute('aria-selected', 'true')
+    await expect(page).toHaveURL(/#settings\/account$/)
+  })
+}
 
 test('the appearance section keeps the ported Zeron composition', async ({ page }) => {
   await mockWorkspace(page)

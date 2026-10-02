@@ -69,3 +69,12 @@ content; the shared component owns the overlay, header, close action, and
 background containment. These controlled dialogs keep `modal={false}` for
 their existing Kobalte interaction mode while the shared modal manages inert
 background elements and restores their previous state on close or unmount.
+
+## Settings navigation
+
+Settings composes the published grouped `SettingsNavigation` inside controlled
+vertical Tabs. The shared component owns row styling, roving focus, Up/Down,
+Home/End, and revealing the selected row within scrollable ancestors. Adea owns
+section values, icons, hash synchronization, panel content, and reselection.
+Narrow layouts arrange the groups horizontally with scrolling; their tab
+sequence and vertical keyboard semantics remain the same.
