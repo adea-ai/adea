@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.72.0](https://github.com/adea-ai/adea/compare/v0.71.10...v0.72.0) (2026-10-02)
+
+
+### Features
+
+* **workspace:** launchpad App Library and shared top-bar controls ([#905](https://github.com/adea-ai/adea/issues/905)) ([504fd9c](https://github.com/adea-ai/adea/commit/504fd9c5a6c8a239852944285ce98d61f7c952ee))
+
 ## [0.71.10](https://github.com/adea-ai/adea/compare/v0.71.9...v0.71.10) (2026-10-02)
 
 

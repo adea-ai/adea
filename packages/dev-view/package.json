@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/dev-view",
-  "version": "0.71.10",
+  "version": "0.72.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
