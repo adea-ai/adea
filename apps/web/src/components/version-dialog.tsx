@@ -12,6 +12,7 @@ import {
   isDesktopRuntime,
   type DesktopUpdate,
 } from '../lib/desktop-update'
+import { withSyntheticDownloadProgress } from '../lib/desktop-update-progress'
 import packageJson from '../../package.json'
 
 const packageVersion = packageJson.version
@@ -48,10 +49,15 @@ function mirrorUpdatePending(adapter: VersionDialogAdapter): VersionDialogAdapte
 }
 
 const desktopUpdateAdapter: VersionDialogAdapter = mirrorUpdatePending({
-  check: checkDesktopUpdate,
-  getStatus: getDesktopUpdateStatus,
-  install: installDesktopUpdate,
+  ...withSyntheticDownloadProgress({
+    check: checkDesktopUpdate,
+    getStatus: getDesktopUpdateStatus,
+    install: installDesktopUpdate,
+  }),
   isDesktopRuntime,
+  // The dialog polls status during a native install; without a poll interval
+  // it never learns about progress between install start and end.
+  pollIntervalMs: 400,
 })
 
 export function VersionDialog(props: {

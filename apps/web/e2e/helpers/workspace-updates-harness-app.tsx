@@ -9,9 +9,14 @@ import { Button } from '@adea-ai/ui/components/ui/button'
  * A controllable stand-in for the shell's update family. The version dialog's
  * adapter is the only update-checker; answering its invocations here exercises
  * the real mirror into the shared update-pending state, so the badge tests
- * below cover the whole chain rather than a hand-set signal.
+ * below cover the whole chain rather than a hand-set signal. The install stays
+ * in flight (phase `downloading`, zero bytes — the real shell answers exactly
+ * this way for its fast downloads) until the harness settles it.
  */
-const updaterState = { phase: 'current' as string }
+const updaterState = {
+  phase: 'current' as string,
+  releaseInstall: undefined as (() => void) | undefined,
+}
 
 function updateSnapshot() {
   const available = updaterState.phase === 'available'
@@ -36,9 +41,32 @@ function updateSnapshot() {
     if (command === 'desktop_update_status' || command === 'desktop_update_check') {
       return updateSnapshot()
     }
+    if (command === 'desktop_update_install') {
+      updaterState.phase = 'downloading'
+      return new Promise((resolve) => {
+        updaterState.releaseInstall = () => {
+          updaterState.phase = 'installed'
+          resolve({
+            ...updateSnapshot(),
+            restart_required: true,
+          })
+        }
+      })
+    }
     return undefined
   },
   listen: async () => () => undefined,
+}
+
+// The modal update dialog blocks pointer events to the harness buttons, so
+// the spec settles an in-flight install through this hook instead (the same
+// route the shared dialog's own fixture uses).
+;(window as unknown as { updatesHarness?: unknown }).updatesHarness = {
+  settleInstall() {
+    const release = updaterState.releaseInstall
+    updaterState.releaseInstall = undefined
+    release?.()
+  },
 }
 
 function Harness() {

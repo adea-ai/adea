@@ -123,3 +123,46 @@ test('a pending update marks the account trigger and the Updates item', async ({
     0
   )
 })
+
+test('an in-flight download visibly progresses and completes without regressing', async ({
+  page,
+}) => {
+  const trigger = page.getByRole('button', { name: 'User settings', exact: true })
+  await page.getByRole('button', { name: 'Make update available' }).click()
+  await trigger.click()
+  await page.getByRole('menuitem', { name: 'Updates', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Version & updates', exact: true })
+  await expect(dialog.getByText('Version 9.9.9 is ready', { exact: true })).toBeVisible()
+
+  await dialog.getByRole('button', { name: 'Install and restart' }).click()
+  const progress = dialog.getByRole('progressbar', { name: 'Downloading update' })
+  await expect(progress).toBeVisible()
+
+  // The shell answers `downloading` with zero bytes for its fast downloads;
+  // the adapter's synthetic curve must visibly move the bar anyway, and never
+  // move it backwards between polls.
+  const readValue = () =>
+    page.evaluate(() => {
+      const bar = document.querySelector('[role="progressbar"][aria-label="Downloading update"]')
+      const raw = bar?.getAttribute('aria-valuenow')
+      return raw === null ? null : Number.parseInt(raw, 10)
+    })
+  await expect.poll(readValue, { timeout: 10_000, intervals: [500] }).toBeGreaterThan(0)
+  let previous = await readValue()
+  for (let sample = 0; sample < 3; sample += 1) {
+    await page.waitForTimeout(700)
+    const current = await readValue()
+    expect(current).toBeGreaterThanOrEqual(previous ?? 0)
+    previous = current
+  }
+
+  await page.evaluate(() => {
+    ;(
+      window as unknown as { updatesHarness?: { settleInstall(): void } }
+    ).updatesHarness?.settleInstall()
+  })
+  await expect(
+    dialog.getByText('Restart Adea to finish the update.', { exact: true })
+  ).toBeVisible()
+  await expect(progress).toHaveCount(0)
+})
