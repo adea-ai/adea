@@ -786,6 +786,7 @@ export function BrowserPane(props: BrowserPaneProps) {
           </Show>
 
           <p class="dev-browser__section-title">Lanes</p>
+          {/* oxlint-disable-next-line adea/no-interactive-wrappers -- lane selection awaits the shared Tabs adoption */}
           <div role="tablist" aria-label="Browser lanes">
             <For each={lanes()?.items ?? []}>
               {(lane) => (

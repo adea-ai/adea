@@ -5,7 +5,7 @@
     "": {
       "name": "adea",
       "devDependencies": {
-        "@adea-ai/ui": "0.95.2",
+        "@adea-ai/ui": "0.95.7",
         "@playwright/test": "^1.63.0",
         "@shadcn/lint": "^0.1.1",
         "@tailwindcss/postcss": "^4.3.3",
@@ -22,14 +22,14 @@
     },
     "apps/desktop": {
       "name": "@adea-ai/desktop",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/dev-view": "workspace:*",
       },
     },
     "apps/mobile": {
       "name": "@adea-ai/mobile",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@capacitor/android": "^8.5.0",
         "@capacitor/core": "^8.5.0",
@@ -42,7 +42,7 @@
     },
     "apps/web": {
       "name": "@adea-ai/web",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-core": "workspace:*",
@@ -55,7 +55,7 @@
         "@adea-ai/spatial": "workspace:*",
         "@adea-ai/state": "workspace:*",
         "@adea-ai/types": "workspace:*",
-        "@adea-ai/ui": "0.95.2",
+        "@adea-ai/ui": "0.95.7",
         "@adea-ai/workspace-ui": "workspace:*",
         "@neondatabase/auth": "0.5.0-beta",
         "@tanstack/solid-router": "1.170.33",
@@ -79,23 +79,23 @@
     },
     "packages/api-client": {
       "name": "@adea-ai/api-client",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/app-core": {
       "name": "@adea-ai/app-core",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/audio": {
       "name": "@adea-ai/audio",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
-        "@adea-ai/ui": "0.95.2",
+        "@adea-ai/ui": "0.95.7",
         "lucide-solid": "^1.45.0",
         "solid-js": "^1.9.15",
       },
@@ -106,7 +106,7 @@
     },
     "packages/auth": {
       "name": "@adea-ai/auth",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "@neondatabase/auth": "0.5.0-beta",
@@ -115,11 +115,11 @@
     },
     "packages/config": {
       "name": "@adea-ai/config",
-      "version": "0.71.4",
+      "version": "0.71.7",
     },
     "packages/data": {
       "name": "@adea-ai/data",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/state": "workspace:*",
@@ -134,7 +134,7 @@
     },
     "packages/db": {
       "name": "@adea-ai/db",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -147,13 +147,13 @@
     },
     "packages/dev-view": {
       "name": "@adea-ai/dev-view",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/state": "workspace:*",
         "@adea-ai/themes": "0.8.6",
         "@adea-ai/types": "workspace:*",
-        "@adea-ai/ui": "0.95.2",
+        "@adea-ai/ui": "0.95.7",
         "@codemirror/commands": "^6.8.1",
         "@codemirror/language": "^6.11.0",
         "@codemirror/search": "^6.5.11",
@@ -175,18 +175,18 @@
     },
     "packages/remote-content": {
       "name": "@adea-ai/remote-content",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@hpke/core": "1.9.0",
       },
     },
     "packages/spatial": {
       "name": "@adea-ai/spatial",
-      "version": "0.71.4",
+      "version": "0.71.7",
     },
     "packages/state": {
       "name": "@adea-ai/state",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "solid-js": "^1.9.15",
@@ -194,14 +194,14 @@
     },
     "packages/types": {
       "name": "@adea-ai/types",
-      "version": "0.71.4",
+      "version": "0.71.7",
     },
     "packages/ui": {
       "name": "@adea-ai/app-ui",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/themes": "0.8.6",
-        "@adea-ai/ui": "0.95.2",
+        "@adea-ai/ui": "0.95.7",
         "lucide-solid": "^1.45.0",
         "solid-js": "^1.9.15",
       },
@@ -212,7 +212,7 @@
     },
     "packages/workspace-ui": {
       "name": "@adea-ai/workspace-ui",
-      "version": "0.71.4",
+      "version": "0.71.7",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-ui": "workspace:*",
@@ -222,7 +222,7 @@
         "@adea-ai/spatial": "workspace:*",
         "@adea-ai/state": "workspace:*",
         "@adea-ai/types": "workspace:*",
-        "@adea-ai/ui": "0.95.2",
+        "@adea-ai/ui": "0.95.7",
         "lucide-solid": "^1.45.0",
         "solid-js": "^1.9.15",
       },
@@ -276,7 +276,7 @@
 
     "@adea-ai/types": ["@adea-ai/types@workspace:packages/types"],
 
-    "@adea-ai/ui": ["@adea-ai/ui@0.95.2", "", { "dependencies": { "@adea-ai/themes": "^0.8.0", "@corvu/calendar": "^0.1.2", "@corvu/drawer": "^0.2.4", "@corvu/otp-field": "^0.1.4", "@corvu/resizable": "^0.2.5", "@fontsource-variable/geist": "^5.3.0", "@fontsource-variable/geist-mono": "^5.3.0", "@fontsource-variable/jetbrains-mono": "^5.3.0", "@fontsource-variable/space-grotesk": "^5.3.0", "@kobalte/core": "^0.13.14", "class-variance-authority": "^0.7.1", "cmdk-solid": "^1.2.0", "cn": "^0.4.0", "lucide-solid": "^1.48.0", "solid-motionone": "^1.0.4", "tw-animate-css": "^1.4.0" }, "peerDependencies": { "chart.js": "^4.5.1", "embla-carousel": "^8.6.0", "embla-carousel-solid": "^8.6.0", "solid-chartjs": "^1.3.11", "solid-js": "^1.9.0" }, "optionalPeers": ["chart.js", "embla-carousel", "embla-carousel-solid", "solid-chartjs"] }, "sha512-zEcACf4UGu+CiD79BB6ieaXo2xBcJQHtNYufLaflA7BjXp/bgs/tU1l2l8VRIaVJpHFhsbwbK0F1eD8YA1GuLQ=="],
+    "@adea-ai/ui": ["@adea-ai/ui@0.95.7", "", { "dependencies": { "@adea-ai/themes": "^0.8.0", "@corvu/calendar": "^0.1.2", "@corvu/drawer": "^0.2.4", "@corvu/otp-field": "^0.1.4", "@corvu/resizable": "^0.2.5", "@fontsource-variable/geist": "^5.3.0", "@fontsource-variable/geist-mono": "^5.3.0", "@fontsource-variable/jetbrains-mono": "^5.3.0", "@fontsource-variable/space-grotesk": "^5.3.0", "@kobalte/core": "^0.13.14", "class-variance-authority": "^0.7.1", "cmdk-solid": "^1.2.0", "cn": "^0.4.0", "lucide-solid": "^1.48.0", "solid-motionone": "^1.0.4", "tw-animate-css": "^1.4.0" }, "peerDependencies": { "chart.js": "^4.5.1", "embla-carousel": "^8.6.0", "embla-carousel-solid": "^8.6.0", "solid-chartjs": "^1.3.11", "solid-js": "^1.9.0" }, "optionalPeers": ["chart.js", "embla-carousel", "embla-carousel-solid", "solid-chartjs"] }, "sha512-OxxgPvHD0WQ4PVc3TFRX6SxWXgshUXA4I8jV7h5orjl+CfBLS1tt8qonJpySTX/WOXQHe0yogggCMSMbot++Yw=="],
 
     "@adea-ai/web": ["@adea-ai/web@workspace:apps/web"],
 

@@ -1855,6 +1855,7 @@ function UtilitySlot(props: {
       })}
       aria-label={`Developer utilities (${sideLabel().toLowerCase()})`}
     >
+      {/* oxlint-disable-next-line adea/no-interactive-wrappers -- pane-closed state awaits the shared Tabs adoption */}
       <div class="dev-utility-tabs" role="tablist" aria-label={`${sideLabel()} utility panes`}>
         <For each={props.panes}>
           {(item) => {
@@ -1882,6 +1883,7 @@ function UtilitySlot(props: {
           }}
         </For>
       </div>
+      {/* oxlint-disable-next-line adea/no-interactive-wrappers -- pane-closed state awaits the shared Tabs adoption */}
       <div
         id={`dev-utility-panel-${props.side}`}
         role="tabpanel"
