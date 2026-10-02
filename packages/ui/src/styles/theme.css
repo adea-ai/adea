@@ -55,6 +55,31 @@
   backdrop-filter: blur(1.25rem) saturate(140%);
 }
 
+/* The workspace consumes the resolved surface where it actually paints: the
+   shell's own surface tokens are re-mixed at the resolved alpha, so the
+   canvas, the sidebar and every muted fill thin together instead of leaving
+   one solid pane standing on a translucent root. 'translucent' is alpha only —
+   on a desktop host the native vibrancy behind the window supplies the blur —
+   while 'frosted' adds the tokenized frost for hosts without a native
+   material. Opaque never matches these selectors, and both
+   reduced-transparency paths clamp --surface-alpha to 1, where the mixes are
+   the solid colors they replaced. */
+[data-surface='translucent'] .conventional-workspace,
+[data-surface='frosted'] .conventional-workspace {
+  --cw-bg: color-mix(in srgb, var(--background) calc(var(--surface-alpha) * 100%), transparent);
+  --cw-sidebar: color-mix(in srgb, var(--card) calc(var(--surface-alpha) * 100%), transparent);
+  --cw-surface: color-mix(in srgb, var(--card) calc(var(--surface-alpha) * 100%), transparent);
+  --cw-surface-muted: color-mix(
+    in srgb,
+    var(--muted) calc(var(--surface-alpha) * 100%),
+    transparent
+  );
+}
+
+[data-surface='frosted'] .conventional-workspace {
+  backdrop-filter: blur(1.25rem) saturate(140%);
+}
+
 @layer base {
   html,
   body {

@@ -241,6 +241,49 @@ test.describe('appearance', () => {
     await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
   })
 
+  test('the resolved surface thins the workspace canvas it paints', async ({ page }) => {
+    const canvas = page.locator('main.conventional-workspace')
+    await expect(canvas).toBeVisible()
+    const alpha = () =>
+      canvas.evaluate((element) => {
+        // Canvas normalizes CSS Color 4 — including the color-mix the resolved
+        // surface paints — into rendered sRGB channels. The regex it replaces
+        // read the blue channel of an opaque `rgb(19, 20, 24)`: an opaque color
+        // serializes without an alpha segment, so its last number is a channel,
+        // not an alpha.
+        const context = document.createElement('canvas').getContext('2d')!
+        context.fillStyle = getComputedStyle(element).backgroundColor
+        context.fillRect(0, 0, 1, 1)
+        return context.getImageData(0, 0, 1, 1).data[3]! / 255
+      })
+
+    const panel = await openAppearance(page)
+    await panel.getByText('Opaque', { exact: true }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-surface', 'opaque')
+    expect(await alpha()).toBe(1)
+
+    // The consumption is the point: the state flipping without the canvas
+    // following was the report — the preference promised a surface the
+    // stylesheet never painted.
+    await panel.getByText('Frosted', { exact: true }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
+    // The canvas pipeline is 8-bit: the compositor stores 0.92 as byte 235,
+    // so the rendered alpha is 235/255, not 0.92.
+    expect(await alpha()).toBe(235 / 255)
+    expect(await canvas.evaluate((element) => getComputedStyle(element).backdropFilter)).toContain(
+      'blur'
+    )
+
+    // 'Theme default' is also the accent row's name; the Glass radiogroup is
+    // the one this test is driving.
+    await panel
+      .getByRole('radiogroup', { name: 'Glass', exact: true })
+      .getByText('Theme default', { exact: true })
+      .click()
+    await expect(page.locator('html')).toHaveAttribute('data-surface', /translucent|frosted/)
+    await panel.getByRole('button', { name: 'Cancel' }).click()
+  })
+
   test('reduced transparency forces the opaque surface state', async ({ page }) => {
     const panel = await openAppearance(page)
     await panel.getByRole('switch', { name: 'Reduce transparency' }).press('Space')
