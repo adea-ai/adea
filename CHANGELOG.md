@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.75.0](https://github.com/adea-ai/adea/compare/v0.74.8...v0.75.0) (2026-10-02)
+
+
+### Features
+
+* terminal theme preference and accent ownership fixes ([#938](https://github.com/adea-ai/adea/issues/938)) ([ad98353](https://github.com/adea-ai/adea/commit/ad9835372146556772267c655e1b49865689574e))
+* **workspace-ui:** enable Send Feedback with a prefilled issue form ([#943](https://github.com/adea-ai/adea/issues/943)) ([813714d](https://github.com/adea-ai/adea/commit/813714d02702029ca193708d5571829a1e0b9746))
+* **workspace:** mount the Agent Sim designer surfaces ([#947](https://github.com/adea-ai/adea/issues/947)) ([d4c0274](https://github.com/adea-ai/adea/commit/d4c0274b6d02f07a0d7a93791f3009ce330b1634))
+
+
+### CI
+
+* batch Release Please to four windows per day ([#941](https://github.com/adea-ai/adea/issues/941)) ([741b3c1](https://github.com/adea-ai/adea/commit/741b3c18bd7f282d2feb09651d388e4a5baa946c))
+
+
+### Maintenance
+
+* **code-foundry:** upgrade runtime to v1.41.0 ([#945](https://github.com/adea-ai/adea/issues/945)) ([be317ce](https://github.com/adea-ai/adea/commit/be317ce3dca879a46d9022a8b0324d59709123e0))
+* **deps:** adopt @adea-ai/ui 0.97.7 ([#944](https://github.com/adea-ai/adea/issues/944)) ([bd30682](https://github.com/adea-ai/adea/commit/bd3068278212946318367c1c36c19609c1c99bc6))
+
 ## [0.74.8](https://github.com/adea-ai/adea/compare/v0.74.7...v0.74.8) (2026-10-02)
 
 
