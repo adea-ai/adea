@@ -290,6 +290,12 @@
   pointer-events: auto;
 }
 
+/* The shared grip rung is 1rem tall; the utility pane's resize affordance
+   triples it so the drag target is findable without pixel hunting. */
+.dev-utility-splitter__handle > div {
+  height: 3rem;
+}
+
 .dev-row-badge {
   /* A solid pill pairs the badge text with the workspace background instead
      of whatever row wash it sits on, so every status tone keeps 4.5:1 on

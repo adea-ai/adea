@@ -44,10 +44,27 @@ const canonicalUtilitySides: Readonly<Record<DevUtilityPane, 'left' | 'right'>> 
   agents: 'right',
   history: 'right',
 }
-const defaultUtilitySize = 288
-const defaultBrowserUtilitySize = 336
-const defaultUtilitySizeForPane = (pane: DevUtilityPane) =>
-  pane === 'browser' ? defaultBrowserUtilitySize : defaultUtilitySize
+/** One shared default: every utility pane opens at the browser pane's width. */
+const defaultUtilitySize = 336
+
+/**
+ * Utility panes sharing an edge are one resizable surface: restoring a stored
+ * document collapses any per-pane widths saved by older builds onto that
+ * side's anchor pane (files on the left, browser on the right), so switching
+ * tabs never changes the pane width.
+ */
+function normalizeUtilitySizesPerSide(
+  utility: readonly DevUtilityPreference[]
+): DevUtilityPreference[] {
+  const anchorSize = (side: 'left' | 'right') => {
+    const anchorPane = side === 'left' ? 'files' : 'browser'
+    const anchor = utility.find((entry) => entry.pane === anchorPane)
+    const size = anchor && anchor.size > 0 ? anchor.size : defaultUtilitySize
+    return { size, lastNonzeroSize: anchor?.lastNonzeroSize ?? size }
+  }
+  const sizes = { left: anchorSize('left'), right: anchorSize('right') }
+  return utility.map((entry) => ({ ...entry, ...sizes[entry.side] }))
+}
 // The #447 V1 envelope encoded full width by inflating `size` past this mark.
 const legacyFullWidthSize = 1000
 
@@ -298,7 +315,9 @@ function decodePreferencesV2(value: unknown): DevLayoutPreferencesV2 | undefined
     projectId: value.projectId,
     runtimeSessionId: value.runtimeSessionId,
     center: value.center,
-    utility: utility as unknown as DevLayoutPreferencesV2['utility'],
+    utility: normalizeUtilitySizesPerSide(
+      utility as unknown as DevLayoutPreferencesV2['utility']
+    ) as unknown as DevLayoutPreferencesV2['utility'],
     focusMode: value.focusMode,
     focusTargetId,
   }
@@ -320,8 +339,8 @@ export function migrateLayoutPreferencesV1(value: DevLayoutPreferencesV1): DevLa
         side: canonicalUtilitySides[pane],
         order,
         visible: false,
-        size: defaultUtilitySizeForPane(pane),
-        lastNonzeroSize: defaultUtilitySizeForPane(pane),
+        size: defaultUtilitySize,
+        lastNonzeroSize: defaultUtilitySize,
         fullWidth: false,
       }
     const fullWidth = previous.size > legacyFullWidthSize
@@ -349,7 +368,7 @@ export function migrateLayoutPreferencesV1(value: DevLayoutPreferencesV1): DevLa
     projectId: value.projectId,
     runtimeSessionId: value.runtimeSessionId,
     center: value.center,
-    utility: demoted as unknown as DevLayoutPreferencesV2['utility'],
+    utility: normalizeUtilitySizesPerSide(demoted) as unknown as DevLayoutPreferencesV2['utility'],
     focusMode: value.focusMode,
     focusTargetId:
       value.focusTargetId !== undefined && leafIds.has(value.focusTargetId)

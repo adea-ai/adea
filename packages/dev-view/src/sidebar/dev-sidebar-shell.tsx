@@ -20,16 +20,13 @@ import {
 } from '@adea-ai/ui/components/layout/sidebar-nav'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
 import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
-import { Search } from 'lucide-solid'
-import { For, Show, children, createMemo, createSignal, type JSX } from 'solid-js'
+import { For, Show, children, type JSX } from 'solid-js'
 
 import type { DevGroupFixture, DevProjectFixture } from '../dev-workspace-entry'
 import type { ArchiveShelfState } from './archive-shelf-model'
 import { sessionBadges } from './badges'
 import { ArchiveShelf } from './archive-shelf'
-import { filterDevNavigationGroups } from './navigation-filter'
 
 export type SidebarReorderHandlers = {
   /** Keyboard move (Alt+Arrow) of a group. */
@@ -94,15 +91,9 @@ type DevSidebarNavigationProps = {
 }
 
 export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
-  const [query, setQuery] = createSignal('')
   // Children arrive as an unmemoized JSX getter; resolve them once so the
   // footer condition and body share a single constructed instance.
   const resolvedChildren = children(() => props.children)
-  const isFiltering = () => query().trim().length > 0
-  const visibleGroups = createMemo(() => filterDevNavigationGroups(props.groups, query()))
-  const groupCollapsed = (groupId: string) => !isFiltering() && props.collapsedGroups.has(groupId)
-  const projectCollapsed = (projectId: string) =>
-    !isFiltering() && props.collapsedProjects.has(projectId)
   let dragged: { kind: 'group' | 'project'; groupId: string; id: string } | undefined
 
   return (
@@ -112,34 +103,16 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
           <SidebarNavTitle as="h2">Projects and sessions</SidebarNavTitle>
         </SidebarNavHeader>
         <SidebarNavContent>
-          <InputGroup>
-            <InputGroupAddon>
-              <Search aria-hidden="true" />
-            </InputGroupAddon>
-            <InputGroupInput
-              type="search"
-              value={query()}
-              aria-label="Filter projects and sessions"
-              placeholder="Filter projects"
-              onInput={(event) => setQuery(event.currentTarget.value)}
-            />
-          </InputGroup>
           <Show when={props.addProject}>{props.addProject}</Show>
           <Show when={props.repoRegistry}>{props.repoRegistry}</Show>
           <nav class="flex flex-col gap-1" aria-label={props.navigationLabel ?? 'Dev projects'}>
             <Show
-              when={visibleGroups().length > 0}
-              fallback={
-                <EmptyDescription>
-                  {isFiltering()
-                    ? 'No matching projects or sessions.'
-                    : 'No runtime projects available.'}
-                </EmptyDescription>
-              }
+              when={props.groups.length > 0}
+              fallback={<EmptyDescription>No runtime projects available.</EmptyDescription>}
             >
-              <For each={visibleGroups()}>
+              <For each={props.groups}>
                 {(group) => {
-                  const groupOpen = () => !groupCollapsed(group.id)
+                  const groupOpen = () => !props.collapsedGroups.has(group.id)
                   const groupRowId = `dev-sidebar-group-${group.id}`
                   const groupTriggerProps = props.reorder
                     ? {
@@ -147,9 +120,6 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                         'data-row-id': `group:${group.id}`,
                         'aria-description': SIDEBAR_REORDER_HINT,
                         draggable: true,
-                        onClick: (event: MouseEvent) => {
-                          if (isFiltering()) event.preventDefault()
-                        },
                         onReorder: (direction: 'up' | 'down') =>
                           reorderAndRestoreFocus(groupRowId, () =>
                             props.reorder?.onMoveGroup(group.id, direction)
@@ -166,9 +136,6 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                     : {
                         id: groupRowId,
                         'data-row-id': `group:${group.id}`,
-                        onClick: (event: MouseEvent) => {
-                          if (isFiltering()) event.preventDefault()
-                        },
                       }
 
                   return (
@@ -195,11 +162,10 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                     >
                       <For each={group.projects}>
                         {(project) => {
-                          const projectOpen = () => !projectCollapsed(project.id)
+                          const projectOpen = () => !props.collapsedProjects.has(project.id)
                           const projectRowId = `dev-sidebar-project-${group.id}-${project.id}`
-                          const onProjectClick = (event: MouseEvent) => {
+                          const onProjectClick = () => {
                             props.onProjectSelect(project.id)
-                            if (isFiltering()) event.preventDefault()
                           }
                           const projectTriggerProps = props.reorder
                             ? {

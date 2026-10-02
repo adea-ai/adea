@@ -122,9 +122,18 @@ function ConversationChannelRow(props: {
   unread: JSX.Element
   /** Row menus mount inside the mobile sheet so they stay in its a11y tree. */
   portalMount?: HTMLElement
+  /**
+   * The modal sheet omits row tooltips: a focus tooltip inside the sheet
+   * registers a top-most dismissable layer that swallows the next Escape and
+   * leaves the navigation stuck open. Accessible names carry the actions.
+   */
+  tooltips?: boolean
   /** The compact sheet drops the comfortable rung so row labels keep room. */
   touchTarget?: 'comfortable'
 }) {
+  const optionsTooltip = () =>
+    props.tooltips === false ? undefined : `Conversation options for ${props.label}`
+  const deleteTooltip = () => (props.tooltips === false ? undefined : `Delete ${props.label}`)
   return (
     <SidebarNavRow
       actions={
@@ -135,7 +144,7 @@ function ConversationChannelRow(props: {
               variant="ghost"
               size="icon-md"
               touchTarget={props.touchTarget}
-              tooltip={`Conversation options for ${props.label}`}
+              tooltip={optionsTooltip()}
               aria-label={`Conversation options for ${props.label}`}
             >
               <EllipsisVertical aria-hidden="true" />
@@ -161,7 +170,7 @@ function ConversationChannelRow(props: {
             variant="destructive"
             size="icon-md"
             touchTarget={props.touchTarget}
-            tooltip={`Delete ${props.label}`}
+            tooltip={deleteTooltip()}
             aria-label={`Delete ${props.label}`}
             onClick={() => props.onArchive(props.channel)}
           >
@@ -189,6 +198,12 @@ function ConversationChannelRow(props: {
 
 type Props = Readonly<{
   agents: readonly AgentSummary[]
+  /**
+   * The footer's archived-items affordance (the Dev archived-sessions shelf
+   * pattern). Views without an archived surface omit it, and the footer
+   * disappears with it.
+   */
+  archiveAction?: JSX.Element
   channelBusy: boolean
   collapsedRoomIds: readonly string[]
   mobileOpen: boolean
@@ -357,6 +372,9 @@ export function WorkspaceSidebar(props: Props) {
     // The sheet gives row actions a third of the width the inline panel has;
     // dropping the comfortable rung there keeps the labels legible.
     const rowTouchTarget = inSheet ? undefined : ('comfortable' as const)
+    // The sheet also drops action tooltips: their focus layer swallows the
+    // Escape that should dismiss the sheet itself.
+    const rowTooltips = !inSheet
 
     return (
       <SidebarNav
@@ -420,6 +438,16 @@ export function WorkspaceSidebar(props: Props) {
               <Bot aria-hidden="true" />
               Agents
             </SidebarNavButton>
+            <SidebarNavButton
+              type="button"
+              aria-label="Mark all read"
+              disabled={!hasUnread()}
+              onClick={markAllRead}
+            >
+              <MessageCircle aria-hidden="true" />
+              Mark all read
+              <kbd>⇧⌘A</kbd>
+            </SidebarNavButton>
           </div>
           <Show when={actionError()}>
             {(message) => (
@@ -440,7 +468,7 @@ export function WorkspaceSidebar(props: Props) {
                 variant="ghost"
                 size="icon-md"
                 touchTarget="comfortable"
-                tooltip="Create a room"
+                tooltip={rowTooltips ? 'Create a room' : undefined}
                 aria-label="Create Room"
                 disabled={props.workspaceReady === false}
                 onClick={() => props.onCreateRoom()}
@@ -493,7 +521,9 @@ export function WorkspaceSidebar(props: Props) {
                                 variant="ghost"
                                 size="icon-md"
                                 touchTarget={rowTouchTarget}
-                                tooltip={`Room options for ${item().room.name}`}
+                                tooltip={
+                                  rowTooltips ? `Room options for ${item().room.name}` : undefined
+                                }
                                 aria-label={`Room options for ${item().room.name}`}
                               >
                                 <EllipsisVertical aria-hidden="true" />
@@ -522,7 +552,11 @@ export function WorkspaceSidebar(props: Props) {
                                 variant="ghost"
                                 size="icon-md"
                                 touchTarget={rowTouchTarget}
-                                tooltip={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
+                                tooltip={
+                                  rowTooltips
+                                    ? `${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`
+                                    : undefined
+                                }
                                 aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
                                 aria-expanded={!collapsed()}
                                 onClick={() => props.onToggleRoom(item().room.id)}
@@ -612,7 +646,7 @@ export function WorkspaceSidebar(props: Props) {
                 variant="ghost"
                 size="icon-md"
                 touchTarget="comfortable"
-                tooltip="Create a group conversation"
+                tooltip={rowTooltips ? 'Create a group conversation' : undefined}
                 aria-label="Create group conversation"
                 disabled={props.workspaceReady === false}
                 onClick={() => props.onCreateGroup()}
@@ -640,6 +674,7 @@ export function WorkspaceSidebar(props: Props) {
                     selected={entry.item().id === props.selectedChannelId}
                     unread={unreadBadge(entry.item().id)}
                     portalMount={menuMount()}
+                    tooltips={rowTooltips}
                     touchTarget={rowTouchTarget}
                   />
                 )}
@@ -658,6 +693,7 @@ export function WorkspaceSidebar(props: Props) {
                     selected={entry.item().id === props.selectedChannelId}
                     unread={unreadBadge(entry.item().id)}
                     portalMount={menuMount()}
+                    tooltips={rowTooltips}
                     touchTarget={rowTouchTarget}
                   />
                 )}
@@ -676,18 +712,11 @@ export function WorkspaceSidebar(props: Props) {
             </Show>
           </SidebarNavSection>
         </SidebarNavContent>
-        <SidebarNavFooter class="conventional-sidebar__read-actions">
-          <SidebarNavButton
-            type="button"
-            aria-label="Mark all read"
-            disabled={!hasUnread()}
-            onClick={markAllRead}
-          >
-            <MessageCircle aria-hidden="true" />
-            Mark all read
-            <kbd>⇧⌘A</kbd>
-          </SidebarNavButton>
-        </SidebarNavFooter>
+        <Show when={props.archiveAction}>
+          <SidebarNavFooter class="conventional-sidebar__footer-action">
+            {props.archiveAction}
+          </SidebarNavFooter>
+        </Show>
       </SidebarNav>
     )
   }

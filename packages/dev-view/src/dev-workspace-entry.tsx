@@ -282,8 +282,8 @@ const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {
 
 const utilityItemByPane = new Map(utilityItems.map((item) => [item.pane, item]))
 const utilitySizeSteps = [240, 288, 336, 384] as const
-const defaultUtilitySize = 288
-const defaultBrowserUtilitySize = 336
+/** Every pane opens at one shared width — no custom width per tab type. */
+const defaultUtilitySize = 336
 
 const defaultUtilityPreferences = (): DevUtilityPreference[] =>
   utilityItems.map((item, order) => ({
@@ -291,8 +291,8 @@ const defaultUtilityPreferences = (): DevUtilityPreference[] =>
     side: item.side,
     order,
     visible: item.pane === 'files',
-    size: item.pane === 'browser' ? defaultBrowserUtilitySize : defaultUtilitySize,
-    lastNonzeroSize: item.pane === 'browser' ? defaultBrowserUtilitySize : defaultUtilitySize,
+    size: defaultUtilitySize,
+    lastNonzeroSize: defaultUtilitySize,
     fullWidth: false,
   }))
 
@@ -852,9 +852,12 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   }
   const setPaneSize = (pane: DevUtilityPane, size: number) => {
     const snapped = snapUtilitySize(size)
+    // Panes share one width per side: resizing any tab resizes them all, so
+    // switching tabs never changes the edge's width.
+    const side = utilityItemByPane.get(pane)!.side
     setUtilityPreferences((items) =>
       items.map((item) =>
-        item.pane === pane ? { ...item, size: snapped, lastNonzeroSize: snapped } : item
+        item.side === side ? { ...item, size: snapped, lastNonzeroSize: snapped } : item
       )
     )
     schedulePreferences()

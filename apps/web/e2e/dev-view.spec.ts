@@ -833,7 +833,9 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   const rightSeparator = page.getByRole('separator', { name: 'Resize right utility pane' })
   await expect(leftSeparator).toBeVisible()
   await expect(rightSeparator).toBeVisible()
-  await dragAt(leftSeparator, 'top', 64)
+  // The left pane opens at the shared 336 default, one 64px drag from the 384
+  // cap: shrink first so both drags land on a movable step.
+  await dragAt(leftSeparator, 'top', -64)
   await dragAt(leftSeparator, 'bottom', 64)
   await leftSeparator.focus()
   const leftBeforeKeyboard = Number(await leftSeparator.getAttribute('aria-valuenow'))
