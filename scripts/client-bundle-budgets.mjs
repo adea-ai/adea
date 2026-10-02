@@ -22,7 +22,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // Re-measured for the shared app-ui boundaries (2026-10-01, #863): the
   // module split around the shared components moved the total by ~74 bytes.
   // Kept at the same rounding step rather than pinning to the build.
-  total: { rawBytes: 2_365_000, gzipBytes: 700 * 1024, fileCount: 93 },
+  // Re-measured for the workspace-wide runtime-resources control under the
+  // shared-ui 0.95.0 bump (2026-10-01): 96 files / 2,365,399 raw / 706,018
+  // gzip. The resources sheet rides its own lazy chunk off the shared top
+  // bar (+1) and the ui bump's style/module split adds two more; the same
+  // ~2% headroom as above, and every per-route and startup budget held.
+  total: { rawBytes: 2_410_000, gzipBytes: 700 * 1024, fileCount: 98 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     virtual: { rawBytes: 14 * 1024, gzipBytes: 6 * 1024 },
