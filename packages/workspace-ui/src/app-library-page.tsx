@@ -50,7 +50,7 @@ function AppLibraryTile(props: {
   onDrop(event: DragEvent): void
   onDragStart(id: WorkspaceAppId): void
   onDragEnd(): void
-  onMove(direction: 'left' | 'right'): void
+  onMove(direction: 'left' | 'right', control: HTMLButtonElement): void
   onOpen(id: WorkspaceAppId): void
   onSetEnabled(id: WorkspaceAppId, enabled: boolean): void
 }) {
@@ -111,7 +111,7 @@ function AppLibraryTile(props: {
           aria-label={`Move ${props.app.name} left`}
           tooltip={`Move ${props.app.name} left`}
           disabled={!props.canMoveLeft}
-          onClick={() => props.onMove('left')}
+          onClick={(event) => props.onMove('left', event.currentTarget)}
         >
           <ArrowLeft aria-hidden="true" />
         </ActionButton>
@@ -138,7 +138,7 @@ function AppLibraryTile(props: {
           aria-label={`Move ${props.app.name} right`}
           tooltip={`Move ${props.app.name} right`}
           disabled={!props.canMoveRight}
-          onClick={() => props.onMove('right')}
+          onClick={(event) => props.onMove('right', event.currentTarget)}
         >
           <ArrowRight aria-hidden="true" />
         </ActionButton>
@@ -187,12 +187,18 @@ export function AppLibraryPage(props: {
     orderedWorkspaceApps(props.preferences).filter(
       (app) => (!enabledOnly() || enabledIds().has(app.id)) && matches(app)
     )
-  const move = (id: WorkspaceAppId, direction: 'left' | 'right') => {
+  const move = (id: WorkspaceAppId, direction: 'left' | 'right', control: HTMLButtonElement) => {
+    const restoreFocus = document.activeElement === control
     const apps = tiles()
     const index = apps.findIndex((app) => app.id === id)
     const target = apps[index + (direction === 'left' ? -1 : 1)]
     if (!target) return
     setAnnouncement(props.onReorder(id, target.id, direction === 'left' ? 'before' : 'after'))
+    if (restoreFocus) {
+      queueMicrotask(() => {
+        if (control.isConnected) control.focus()
+      })
+    }
   }
   const dragOver = (event: DragEvent, id: WorkspaceAppId) => {
     const dragged = draggingId()
@@ -273,7 +279,7 @@ export function AppLibraryPage(props: {
                   onDrop={(event) => drop(event, app.id)}
                   onDragStart={setDraggingId}
                   onDragEnd={clearDrag}
-                  onMove={(direction) => move(app.id, direction)}
+                  onMove={(direction, control) => move(app.id, direction, control)}
                   onOpen={props.onOpen}
                   onSetEnabled={props.onSetEnabled}
                 />
