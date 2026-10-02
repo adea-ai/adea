@@ -59,13 +59,18 @@ export async function agentSimResponse(urlPath: string, packRoot: string): Promi
         }
       }
     }
-    return Response.json({
-      engine: {
-        entryUrl: `${AGENT_SIM_MOUNT}${ENTRY_BASENAME}`,
-        version,
-        ...(Object.keys(surfaces).length > 0 ? { surfaces } : {}),
+    return Response.json(
+      {
+        engine: {
+          entryUrl: `${AGENT_SIM_MOUNT}${ENTRY_BASENAME}`,
+          version,
+          ...(Object.keys(surfaces).length > 0 ? { surfaces } : {}),
+        },
       },
-    })
+      // The pack changes with every app update while its URLs stay constant;
+      // a cached manifest would point the entitlement gate at stale entries.
+      { headers: { 'cache-control': 'no-store' } }
+    )
   }
   const rel = normalize(decodeURIComponent(urlPath.slice(AGENT_SIM_MOUNT.length))).replace(
     /^(\.\.[/\\])+/,
@@ -75,6 +80,11 @@ export async function agentSimResponse(urlPath: string, packRoot: string): Promi
   if (!filePath.startsWith(packRoot)) return new Response(null, { status: 403 })
   if (!existsSync(filePath)) return new Response(null, { status: 404 })
   return new Response(await Bun.file(filePath).arrayBuffer(), {
-    headers: { 'content-type': MIME[extname(filePath)] ?? 'application/octet-stream' },
+    headers: {
+      'content-type': MIME[extname(filePath)] ?? 'application/octet-stream',
+      // Engine bundles keep stable URLs across app updates; never let the
+      // webview's HTTP cache replay a pack that is no longer on disk.
+      'cache-control': 'no-store',
+    },
   })
 }

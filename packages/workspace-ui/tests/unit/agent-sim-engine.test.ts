@@ -52,7 +52,7 @@ describe('loadAgentSimEngine', () => {
     )
     fake.emit('load')
     expect(await pending).toBeFunction()
-    expect(scriptUrls).toEqual([`${ORIGIN}/assets/agent-sim/engine.js`])
+    expect(scriptUrls).toEqual([`${ORIGIN}/assets/agent-sim/engine.js?v=0.13.2`])
   })
 
   test('loads a designer surface from the manifest and its registry global', async () => {
@@ -70,7 +70,7 @@ describe('loadAgentSimEngine', () => {
     )
     fake.emit('load')
     expect(await pending).toBeFunction()
-    expect(scriptUrls).toEqual([`${ORIGIN}/assets/agent-sim/room-designer.js`])
+    expect(scriptUrls).toEqual([`${ORIGIN}/assets/agent-sim/room-designer.js?v=0.13.2`])
   })
 
   test('rejects surfaces the pack does not ship', async () => {
