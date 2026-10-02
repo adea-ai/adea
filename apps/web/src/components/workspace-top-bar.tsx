@@ -2,7 +2,15 @@ import { useRouter } from '@tanstack/solid-router'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { TopBar, TopBarSection, TopBarTitle } from '@adea-ai/ui/components/layout/top-bar'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
-import { ArrowLeft, ArrowRight, Bell, PanelLeftClose, PanelLeftOpen } from 'lucide-solid'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bell,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from 'lucide-solid'
 import type { JSX } from 'solid-js'
 import { createSignal, onCleanup, onMount, Show } from 'solid-js'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
@@ -127,7 +135,7 @@ export function WorkspaceTopBar(props: {
             variant="outline"
             size="icon-sm"
             tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
-            class="workspace-topbar__control"
+            class="workspace-topbar__control workspace-topbar__context-toggle"
             aria-label={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
             aria-expanded={sidebarOpen()}
             onClick={() => workspaceStore.getState().setMobileSidebarOpen(!sidebarOpen())}
@@ -168,12 +176,27 @@ export function WorkspaceTopBar(props: {
         >
           <Bell aria-hidden="true" />
         </ActionButton>
-        {/* The view-provided sidebar toggle is the trailing icon; the divider
-            separates it from the workspace actions. Both hide while no view
-            supplies a toggle. */}
+        {/* The view-provided sidebar toggle rides the trailing mount: a standard
+            icon button after the workspace actions, separated by a vertical
+            divider. While the active view supplies no toggle, a default one
+            keeps the slot present on every view and owns the contextual
+            sidebar; the leading contextual toggle stands down (CSS below). */}
         <div class="workspace-topbar__sidebar">
           <Separator orientation="vertical" class="workspace-topbar__sidebar-divider" />
           <div class="workspace-topbar__sidebar-mount" ref={props.sidebarMount} />
+          <ActionButton
+            variant="outline"
+            size="icon-sm"
+            tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
+            class="workspace-topbar__control workspace-topbar__sidebar-default"
+            aria-label={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
+            aria-expanded={sidebarOpen()}
+            onClick={() => workspaceStore.getState().setMobileSidebarOpen(!sidebarOpen())}
+          >
+            <Show when={sidebarOpen()} fallback={<PanelRightOpen aria-hidden="true" />}>
+              <PanelRightClose aria-hidden="true" />
+            </Show>
+          </ActionButton>
         </div>
       </TopBarSection>
     </TopBar>

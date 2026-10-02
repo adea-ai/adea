@@ -1407,11 +1407,14 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(navigation).toBeVisible()
   // The modal sheet marks the frame aria-hidden, so the toolbar toggle is
-  // unreachable for role queries; match it through the DOM instead.
-  await expect(page.locator('[aria-label="Collapse contextual sidebar"]')).toHaveAttribute(
-    'aria-expanded',
-    'true'
-  )
+  // unreachable for role queries; match it through the DOM instead. The DOM
+  // query must be scoped: the default trailing toggle also carries the
+  // contextual-sidebar label while its group is display:none below 48rem.
+  await expect(
+    page
+      .locator('.workspace-topbar__navigation-controls')
+      .locator('[aria-label="Collapse contextual sidebar"]')
+  ).toHaveAttribute('aria-expanded', 'true')
   await expect(navigation.getByRole('heading', { level: 1 })).toBeVisible()
   await expect(navigation.getByRole('region', { name: 'Rooms' })).toBeVisible()
   await expect(navigation.getByRole('region', { name: 'Conversations' })).toBeVisible()

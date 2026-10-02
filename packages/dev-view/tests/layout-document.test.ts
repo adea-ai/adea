@@ -208,7 +208,7 @@ describe('V1 to V2 layout migration', () => {
     expect(migrated.utility[1]).toMatchObject({ visible: false, fullWidth: false })
   })
 
-  test('uses the wider Browser default only when its saved width is absent', () => {
+  test('seeds the shared default when a width is absent and collapses per-side widths onto the anchor', () => {
     const migrated = migrateLayoutPreferencesV1({
       ...v1,
       utility: v1.utility.filter((entry) => entry.pane !== 'browser'),
@@ -217,11 +217,48 @@ describe('V1 to V2 layout migration', () => {
       size: 336,
       lastNonzeroSize: 336,
     })
-    expect(
-      migrateLayoutPreferencesV1(v1).utility.find((entry) => entry.pane === 'browser')
-    ).toMatchObject({
+    expect(migrated.utility.find((entry) => entry.pane === 'devices')).toMatchObject({
+      size: 336,
+      lastNonzeroSize: 336,
+    })
+
+    const collapsed = migrateLayoutPreferencesV1(v1)
+    expect(collapsed.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
       size: 320,
       lastNonzeroSize: 320,
+    })
+    for (const pane of ['devices', 'agents', 'history'] as const)
+      expect(collapsed.utility.find((entry) => entry.pane === pane)).toMatchObject({
+        size: 320,
+        lastNonzeroSize: 320,
+      })
+    // The left side collapses onto the files pane's width the same way.
+    expect(collapsed.utility.find((entry) => entry.pane === 'source_control')).toMatchObject({
+      size: 280,
+      lastNonzeroSize: 280,
+    })
+  })
+
+  test('collapses stored per-pane widths onto one width per side when decoding', () => {
+    const divergent = preferences()
+    const resized = divergent.utility.map((entry) =>
+      entry.pane === 'browser'
+        ? { ...entry, size: 336, lastNonzeroSize: 336 }
+        : entry.pane === 'history'
+          ? { ...entry, size: 288, lastNonzeroSize: 288 }
+          : entry
+    )
+    const decoded = decodeLayoutDocument(JSON.stringify({ ...divergent, utility: resized }))
+    expect(decoded).toMatchObject({ state: 'ready' })
+    if (decoded.state !== 'ready') throw new Error('expected a ready decode')
+    for (const pane of ['devices', 'agents', 'history'] as const)
+      expect(decoded.value.utility.find((entry) => entry.pane === pane)).toMatchObject({
+        size: 336,
+        lastNonzeroSize: 336,
+      })
+    expect(decoded.value.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
+      size: 336,
+      lastNonzeroSize: 336,
     })
   })
 

@@ -189,6 +189,12 @@ function ConversationChannelRow(props: {
 
 type Props = Readonly<{
   agents: readonly AgentSummary[]
+  /**
+   * The footer's archived-items affordance (the Dev archived-sessions shelf
+   * pattern). Views without an archived surface omit it, and the footer
+   * disappears with it.
+   */
+  archiveAction?: JSX.Element
   channelBusy: boolean
   collapsedRoomIds: readonly string[]
   mobileOpen: boolean
@@ -419,6 +425,16 @@ export function WorkspaceSidebar(props: Props) {
             <SidebarNavButton type="button" onClick={() => props.onOpenAgents()}>
               <Bot aria-hidden="true" />
               Agents
+            </SidebarNavButton>
+            <SidebarNavButton
+              type="button"
+              aria-label="Mark all read"
+              disabled={!hasUnread()}
+              onClick={markAllRead}
+            >
+              <MessageCircle aria-hidden="true" />
+              Mark all read
+              <kbd>⇧⌘A</kbd>
             </SidebarNavButton>
           </div>
           <Show when={actionError()}>
@@ -676,18 +692,11 @@ export function WorkspaceSidebar(props: Props) {
             </Show>
           </SidebarNavSection>
         </SidebarNavContent>
-        <SidebarNavFooter class="conventional-sidebar__read-actions">
-          <SidebarNavButton
-            type="button"
-            aria-label="Mark all read"
-            disabled={!hasUnread()}
-            onClick={markAllRead}
-          >
-            <MessageCircle aria-hidden="true" />
-            Mark all read
-            <kbd>⇧⌘A</kbd>
-          </SidebarNavButton>
-        </SidebarNavFooter>
+        <Show when={props.archiveAction}>
+          <SidebarNavFooter class="conventional-sidebar__footer-action">
+            {props.archiveAction}
+          </SidebarNavFooter>
+        </Show>
       </SidebarNav>
     )
   }

@@ -62,6 +62,13 @@ function AppLibraryTile(props: {
       data-enabled={props.enabled ? 'true' : 'false'}
       data-drop-target={props.dropTargetId === props.app.id || undefined}
       data-drop-position={props.dropTargetId === props.app.id ? props.dropPosition : undefined}
+      draggable={props.reorderable}
+      onDragStart={(event) => {
+        props.onDragStart(props.app.id)
+        event.dataTransfer?.setData('text/plain', props.app.id)
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragEnd={props.onDragEnd}
       onDragOver={props.onDragOver}
       onDrop={props.onDrop}
     >
@@ -119,16 +126,9 @@ function AppLibraryTile(props: {
           variant="ghost"
           size="icon-xs"
           aria-label={`Drag ${props.app.name} to reorder`}
-          aria-description="Drag this handle to reorder the app. Use the Move left and Move right buttons to reorder without dragging."
+          aria-description="Drag the app to reorder it. Use the Move left and Move right buttons to reorder without dragging."
           tooltip={`Drag ${props.app.name} to reorder`}
-          draggable={props.reorderable}
           disabled={!props.reorderable}
-          onDragStart={(event) => {
-            props.onDragStart(props.app.id)
-            event.dataTransfer?.setData('text/plain', props.app.id)
-            if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-          }}
-          onDragEnd={props.onDragEnd}
         >
           <GripVertical aria-hidden="true" />
         </ActionButton>
@@ -253,6 +253,14 @@ export function AppLibraryPage(props: {
           >
             Show enabled only
           </ActionButton>
+          <ActionButton
+            variant="outline"
+            size="sm"
+            tooltip="Restore the default apps and sidebar order"
+            onClick={props.onReset}
+          >
+            Reset Navigation
+          </ActionButton>
         </div>
       </header>
       <div class="workspace-app-library__body">
@@ -289,16 +297,7 @@ export function AppLibraryPage(props: {
         </Show>
       </div>
       <footer class="workspace-app-library__footer">
-        <ActionButton
-          variant="ghost"
-          size="sm"
-          class="workspace-app-library__reset"
-          tooltip="Restore the default apps and sidebar order"
-          onClick={props.onReset}
-        >
-          Reset Navigation
-        </ActionButton>
-        <p>Drag the reorder handle, or use the Move left and Move right buttons.</p>
+        <p>Drag an app to reorder it, or use the Move left and Move right buttons.</p>
         <p class="visually-hidden" role="status" aria-live="polite">
           {announcement()}
         </p>
