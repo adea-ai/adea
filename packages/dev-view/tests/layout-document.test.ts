@@ -227,8 +227,8 @@ describe('V1 to V2 layout migration', () => {
       size: 320,
       lastNonzeroSize: 320,
     })
-    for (const pane of ['devices', 'agents', 'history'] as const)
-      expect(collapsed.utility.find((entry) => entry.pane === pane)).toMatchObject({
+    for (const paneName of ['devices', 'agents', 'history'] as const)
+      expect(collapsed.utility.find((entry) => entry.pane === paneName)).toMatchObject({
         size: 320,
         lastNonzeroSize: 320,
       })
@@ -251,8 +251,8 @@ describe('V1 to V2 layout migration', () => {
     const decoded = decodeLayoutDocument(JSON.stringify({ ...divergent, utility: resized }))
     expect(decoded).toMatchObject({ state: 'ready' })
     if (decoded.state !== 'ready') throw new Error('expected a ready decode')
-    for (const pane of ['devices', 'agents', 'history'] as const)
-      expect(decoded.value.utility.find((entry) => entry.pane === pane)).toMatchObject({
+    for (const paneName of ['devices', 'agents', 'history'] as const)
+      expect(decoded.value.utility.find((entry) => entry.pane === paneName)).toMatchObject({
         size: 336,
         lastNonzeroSize: 336,
       })
