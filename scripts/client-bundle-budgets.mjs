@@ -26,8 +26,9 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // the runtime-resources control and the rail drag-and-drop work: Chat and
   // Virtual compose one WorkspaceSidebar, the sidebar's shared Sheet adds raw
   // while the sidebar modules move into chunks both views import, and the
-  // resources sheet rides its own lazy chunk. The aggregate lands at 2,328,901
-  // raw / 702,590 gzip across 93 files, so raw and file count ratchet while
+  // resources sheet rides its own lazy chunk. The aggregate lands at 2,341,306
+  // raw / 705,668 gzip across 93 files once main rides along (Dev-pane top-bar
+  // controls), so raw and file count ratchet while
   // gzip keeps the same 700 KiB step (~2% headroom) the ceiling has held.
   total: { rawBytes: 2_410_000, gzipBytes: 700 * 1024, fileCount: 98 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
@@ -35,8 +36,8 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar instead of its own
     // room markup, so the route delta carries the sidebar and sidebar-nav
-    // composites plus the shared Sheet: 77,544 raw / 26,026 gzip across 10
-    // files. Ratcheted past the measured value so the gate keeps ~3%
+    // composites plus the shared Sheet: 77,771 raw / 26,357 gzip across 11
+    // files (merged with main). Ratcheted past the measured value so the gate keeps ~3%
     // headroom instead of pinning to the build.
     virtual: { rawBytes: 80 * 1024, gzipBytes: 27 * 1024 },
     // The chat route composes the shared conversation surface and composer
@@ -52,7 +53,7 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // sidebar opens in the shared Sheet below 48rem, so this route now also
     // carries the sheet module graph plus the rail drag-and-drop reorder and
-    // launchpad additions: 235,295 raw / 71,603 gzip measured. Ratcheted to
+    // launchpad additions: 235,489 raw / 71,808 gzip measured after merging main. Ratcheted to
     // the next rounding step rather than pinning to the build.
     chat: { rawBytes: 240 * 1024, gzipBytes: 74 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
