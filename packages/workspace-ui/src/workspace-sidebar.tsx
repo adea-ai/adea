@@ -54,6 +54,7 @@ import {
   SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
 import { cn } from '@adea-ai/app-ui/lib/utils'
+import { ShortcutKeys } from '@adea-ai/app-ui/components/shortcut-keys'
 
 import { keyedRows } from './keyed-rows'
 import type { WorkspaceNavigation } from './workspace-model'
@@ -441,12 +442,13 @@ export function WorkspaceSidebar(props: Props) {
             <SidebarNavButton
               type="button"
               aria-label="Mark all read"
+              aria-keyshortcuts="Meta+Shift+A"
               disabled={!hasUnread()}
               onClick={markAllRead}
             >
               <MessageCircle aria-hidden="true" />
               Mark all read
-              <kbd>⇧⌘A</kbd>
+              <ShortcutKeys keys="⇧⌘A" class="ml-auto" />
             </SidebarNavButton>
           </div>
           <Show when={actionError()}>

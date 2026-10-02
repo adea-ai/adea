@@ -77,7 +77,7 @@ function AppLibraryTile(props: {
           <Icon />
         </span>
         <ActionButton
-          variant={props.enabled ? 'secondary' : 'outline'}
+          variant={props.enabled ? 'default' : 'outline'}
           size="icon-xs"
           class="workspace-app-library__tile-toggle"
           aria-label={`${props.enabled ? 'Disable' : 'Enable'} ${props.app.name}`}
@@ -125,6 +125,7 @@ function AppLibraryTile(props: {
         <ActionButton
           variant="ghost"
           size="icon-xs"
+          class="workspace-app-library__tile-grip"
           aria-label={`Drag ${props.app.name} to reorder`}
           aria-description="Drag the app to reorder it. Use the Move left and Move right buttons to reorder without dragging."
           tooltip={`Drag ${props.app.name} to reorder`}
