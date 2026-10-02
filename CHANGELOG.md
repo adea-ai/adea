@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.74.6](https://github.com/adea-ai/adea/compare/v0.74.5...v0.74.6) (2026-10-02)
+
+
+### Bug Fixes
+
+* **workspace:** preserve shared form control styling ([#931](https://github.com/adea-ai/adea/issues/931)) ([c92e90f](https://github.com/adea-ai/adea/commit/c92e90fcfc7d9c63d08a560563b02e690ef3b045))
+
+
+### Maintenance
+
+* **visual:** refresh linux baselines for the shared settings dialog ([#934](https://github.com/adea-ai/adea/issues/934)) ([88d8bbc](https://github.com/adea-ai/adea/commit/88d8bbc839a1f992d94f8c6f13199fceb3d4acc8))
+
 ## [0.74.5](https://github.com/adea-ai/adea/compare/v0.74.4...v0.74.5) (2026-10-02)
 
 
