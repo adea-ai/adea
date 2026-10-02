@@ -41,9 +41,7 @@ const popularNames = [
   'notion',
   'slack',
 ] as const
-export const popularWorkspacePluginIds = Object.freeze(
-  popularNames.map((name) => `plugin:openai-official:${name}`)
-)
+export const popularWorkspaceProductKeys = Object.freeze(popularNames)
 
 export type WorkspacePluginFilter = Readonly<{
   ownership: 'all' | WorkspacePlugin['ownership']
@@ -511,9 +509,20 @@ export function groupWorkspacePlugins(plugins: readonly WorkspacePlugin[]) {
 }
 
 export function getPopularWorkspacePlugins(plugins: readonly WorkspacePlugin[]) {
-  const byId = new Map(plugins.map((plugin) => [plugin.id, plugin]))
-  return popularWorkspacePluginIds.flatMap((id) => {
-    const plugin = byId.get(id)
+  // Publishers rename and re-source products (openai-official entries now ship
+  // as claude-official and cursor-official), so popular picks by the catalog's
+  // source-independent product key and never by a source-qualified id.
+  const popular = new Set<string>(popularWorkspaceProductKeys)
+  const byKey = new Map(
+    plugins
+      .filter(
+        (plugin): plugin is WorkspacePlugin & { productGroupingKey: string } =>
+          plugin.productGroupingKey !== undefined && popular.has(plugin.productGroupingKey)
+      )
+      .map((plugin) => [plugin.productGroupingKey, plugin])
+  )
+  return popularWorkspaceProductKeys.flatMap((key) => {
+    const plugin = byKey.get(key)
     return plugin ? [plugin] : []
   })
 }

@@ -20,7 +20,7 @@ export {
   filterWorkspacePlugins,
   getPopularWorkspacePlugins,
   groupWorkspacePlugins,
-  popularWorkspacePluginIds,
+  popularWorkspaceProductKeys,
   workspacePluginCategoryOrder,
 } from './plugins'
 export {

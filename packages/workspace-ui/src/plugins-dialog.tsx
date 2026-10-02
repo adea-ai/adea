@@ -628,7 +628,6 @@ export function PluginsDialog(props: {
         backLabel="Back to plugins"
         detailRegionLabel="Plugin details"
         installedLabel="Installed"
-        publishedByLabel={(publisher) => `Published by ${publisher}`}
         showMoreLabel={(hidden) => {
           const names = hidden.slice(0, 2).map((entry) => entry.name)
           return `See ${names.join(', ')}${hidden.length > 2 ? ' and more' : ''}`
