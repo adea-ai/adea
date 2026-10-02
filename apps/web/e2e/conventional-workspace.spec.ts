@@ -2070,12 +2070,14 @@ test('App Library drag and keyboard ordering shares rail placements and persists
 
   // Drag the optional, currently hidden app before Virtual. Reordering keeps
   // it hidden until the explicit Enable action and retains the remaining apps.
-  await library
-    .locator('[data-app-id="kanban"]')
-    .getByRole('button', { name: 'Drag Kanban to reorder', exact: true })
-    .dragTo(library.locator('[data-app-id="virtual"]'), {
-      targetPosition: { x: 1, y: 24 },
-    })
+  const kanbanTile = library.locator('[data-app-id="kanban"]')
+  const kanbanGrip = kanbanTile.getByRole('button', { name: 'Drag Kanban to reorder', exact: true })
+  await kanbanTile.hover()
+  await expect(kanbanGrip).toBeVisible()
+  await kanbanGrip.click({ trial: true })
+  await kanbanGrip.dragTo(library.locator('[data-app-id="virtual"]'), {
+    targetPosition: { x: 1, y: 24 },
+  })
   await expect.poll(appOrder).toEqual(['kanban', 'virtual', 'dev', 'chat', 'source-control'])
   await expect(library.getByRole('button', { name: 'Enable Kanban', exact: true })).toBeVisible()
   await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat'])
@@ -2097,6 +2099,43 @@ test('App Library drag and keyboard ordering shares rail placements and persists
       enabledApps: ['kanban', 'virtual', 'dev', 'chat'],
       rail: ['kanban', 'virtual', 'dev', 'chat'],
     })
+})
+
+test('App Library reorder actions are visible and operable on touch devices', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  })
+
+  try {
+    const page = await context.newPage()
+    await mockConnectedWorkspace(page)
+    await page.goto('/?view=chat&app=library')
+    const library = page.getByRole('main', { name: 'App Library' })
+    expect(
+      await page.evaluate(
+        () => matchMedia('(hover: none)').matches || matchMedia('(pointer: coarse)').matches
+      )
+    ).toBe(true)
+    const appOrder = () =>
+      library
+        .locator('.workspace-app-library__grid > [data-app-id]')
+        .evaluateAll((tiles) => tiles.map((tile) => tile.getAttribute('data-app-id')))
+
+    const devTile = library.locator('[data-app-id="dev"]')
+    const moveDevLeft = devTile.getByRole('button', { name: 'Move Dev left', exact: true })
+    await expect(moveDevLeft).toBeVisible()
+    await expect(moveDevLeft).toHaveCSS('pointer-events', 'auto')
+    await expect.poll(appOrder).toEqual(['virtual', 'chat', 'dev', 'kanban', 'source-control'])
+
+    await moveDevLeft.tap()
+    await expect.poll(appOrder).toEqual(['virtual', 'dev', 'chat', 'kanban', 'source-control'])
+  } finally {
+    await context.close()
+  }
 })
 
 test('Rail drag-and-drop reorders views across disabled apps and persists after reload', async ({

@@ -1894,6 +1894,12 @@
   opacity: 1;
   pointer-events: auto;
 }
+@media (hover: none), (pointer: coarse) {
+  .workspace-app-library__reorder-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
 .workspace-app-library__tile-media {
   position: relative;
 }
