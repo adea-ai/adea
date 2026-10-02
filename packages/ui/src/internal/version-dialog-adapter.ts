@@ -28,6 +28,9 @@ export type VersionDialogAdapter = Readonly<{
   getStatus(): Promise<SharedDesktopUpdate>
   install(expectedVersion: string): Promise<SharedDesktopUpdate>
   isDesktopRuntime(): boolean
+  /** Enable dialog status polling during native work; omit for push-driven
+   * adapters. Passthrough of the shared `UpdateAdapter` field. */
+  pollIntervalMs?: number
 }>
 
 function toUpdateState(update: SharedDesktopUpdate): UpdateState {
@@ -56,5 +59,6 @@ export function createUpdateDialogAdapter(
     install: async (expectedVersion) =>
       toUpdateState(await getNativeAdapter().install(expectedVersion)),
     isDesktopRuntime: () => getNativeAdapter().isDesktopRuntime(),
+    pollIntervalMs: getNativeAdapter().pollIntervalMs,
   }
 }

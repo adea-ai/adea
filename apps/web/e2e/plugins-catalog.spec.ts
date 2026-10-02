@@ -84,6 +84,22 @@ test('packed Plugins catalog keeps touch, failure, focus, and activation states 
   await expect(
     dialog.getByText(/Activation unavailable: this catalog entry has no bundled first-party/)
   ).toBeVisible()
+  // The narrow dialog stacks the detail fields: no side-by-side columns, and
+  // no leftover card or divider chrome from the wide layout.
+  const stacked = await page.evaluate(() => {
+    const sections = [...document.querySelectorAll('.plugins-detail-columns > section')]
+    const rects = sections.map((section) => section.getBoundingClientRect())
+    return {
+      count: sections.length,
+      stackedVertically: rects.every(
+        (rect, index) => index === 0 || rect.top > rects[index - 1]!.top
+      ),
+      sharedLeft: new Set(rects.map((rect) => Math.round(rect.left))).size === 1,
+      noDividers: sections.every((section) => getComputedStyle(section).borderLeftWidth === '0px'),
+    }
+  })
+  expect(stacked.count).toBeGreaterThanOrEqual(4)
+  expect(stacked).toMatchObject({ stackedVertically: true, sharedLeft: true, noDividers: true })
 
   const axe = await page.evaluate(async () => {
     const pluginDialogElement = document.querySelector('[role="dialog"]')
@@ -100,6 +116,67 @@ test('packed Plugins catalog keeps touch, failure, focus, and activation states 
     }))
   })
   expect(axe).toEqual([])
+})
+
+test.describe('desktop detail layout', () => {
+  test.use({ hasTouch: false, isMobile: false, viewport: { width: 1440, height: 900 } })
+
+  test('plugin detail fields share one row of columns split by vertical dividers', async ({
+    page,
+  }) => {
+    const path = '/__plugins-catalog'
+    await page.route('**' + path, (route) =>
+      route.fulfill({
+        contentType: 'text/html',
+        body: '<html><body><div id="harness-root"></div></body></html>',
+      })
+    )
+    await page.goto(path)
+    await page.evaluate(
+      async (url) => {
+        await import(url)
+      },
+      '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/plugins-catalog-harness-app.tsx')
+    )
+    const dialog = page.getByRole('dialog', { name: 'Plugins', exact: true })
+    const app = dialog.locator('[data-catalog-entry-id]').filter({ hasText: 'Catalog-only app' })
+    await app.click()
+    await expect(
+      dialog.getByRole('heading', { name: 'Catalog-only app', exact: true })
+    ).toBeVisible()
+
+    const layout = await page.evaluate(() => {
+      const columns = document.querySelector('.plugins-detail-columns')
+      if (!columns) return null
+      const sections = [...columns.querySelectorAll<HTMLElement>(':scope > section')]
+      const rects = sections.map((section) => section.getBoundingClientRect())
+      return {
+        count: sections.length,
+        titles: sections.map((section) => section.querySelector('h3')?.textContent ?? ''),
+        oneRow: rects.every((rect) => Math.abs(rect.top - rects[0]!.top) < 1),
+        leftsIncrease: rects.every(
+          (rect, index) => index === 0 || rect.left > rects[index - 1]!.left
+        ),
+        dividersBetween: sections.every((section, index) =>
+          index === 0
+            ? getComputedStyle(section).borderLeftWidth === '0px'
+            : getComputedStyle(section).borderLeftWidth === '1px'
+        ),
+        noCardRadius: sections.every(
+          (section) => getComputedStyle(section).borderTopLeftRadius === '0px'
+        ),
+        columnsFillRow: Math.abs(rects.at(-1)!.right - columns!.getBoundingClientRect().right) < 2,
+      }
+    })
+    expect(layout).not.toBeNull()
+    expect(layout!.count).toBeGreaterThanOrEqual(4)
+    expect(layout!.titles).toEqual(['Capabilities', 'Connection', 'Bundle', 'App', 'Activation'])
+    expect(layout!.oneRow).toBe(true)
+    expect(layout!.leftsIncrease).toBe(true)
+    expect(layout!.dividersBetween).toBe(true)
+    expect(layout!.noCardRadius).toBe(true)
+    expect(layout!.columnsFillRow).toBe(true)
+  })
 })
 
 type AxeViolations = Readonly<{

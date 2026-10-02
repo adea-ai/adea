@@ -22,6 +22,7 @@ import {
 import { For, Show, onCleanup, type JSX } from 'solid-js'
 
 import { accountMenuItemsForPlatform } from './account-menu-model'
+import { updatePending } from './update-pending'
 
 type AccountMenuProps = {
   authenticated: boolean
@@ -107,10 +108,14 @@ export function AccountMenu(props: AccountMenuProps) {
         as={SideRailButton}
         label="User settings"
         class="global-rail__account-trigger"
+        aria-label={updatePending() ? 'User settings, update available' : undefined}
         onPointerEnter={() => props.onIntent?.()}
         onFocus={() => props.onIntent?.()}
       >
         <UserRound aria-hidden="true" />
+        <Show when={updatePending()}>
+          <span class="global-rail__update-dot" aria-hidden="true" />
+        </Show>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         // No arrow: Kobalte adds half the arrow height to the gutter, which
@@ -137,6 +142,9 @@ export function AccountMenu(props: AccountMenuProps) {
             {(item) => (
               <DropdownMenuItem
                 disabled={item.disabled}
+                aria-label={
+                  item.id === 'updates' && updatePending() ? 'Updates, update available' : undefined
+                }
                 onSelect={() => {
                   pendingAfterClose = item.onSelectAfterClose
                     ? { callback: item.onSelectAfterClose }
@@ -146,6 +154,9 @@ export function AccountMenu(props: AccountMenuProps) {
               >
                 {item.icon}
                 <span>{item.label}</span>
+                <Show when={item.id === 'updates' && updatePending()}>
+                  <span class="global-rail__update-dot" aria-hidden="true" />
+                </Show>
                 <Show when={item.shortcut}>
                   <DropdownMenuShortcut>{item.shortcut}</DropdownMenuShortcut>
                 </Show>

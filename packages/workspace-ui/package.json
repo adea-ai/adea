@@ -83,6 +83,13 @@
       "import": "./dist/rail-preferences.js",
       "default": "./dist/rail-preferences.js"
     },
+    "./update-pending": {
+      "types": "./dist/update-pending.d.ts",
+      "solid": "./src/update-pending.ts",
+      "development": "./src/update-pending.ts",
+      "import": "./dist/update-pending.js",
+      "default": "./dist/update-pending.js"
+    },
     "./workspace-view-toggle": {
       "types": "./dist/workspace-view-toggle.d.ts",
       "solid": "./src/workspace-view-toggle.tsx",

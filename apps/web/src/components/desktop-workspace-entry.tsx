@@ -3,7 +3,7 @@
 // shell session bootstrap (guest credential, PKCE sign-in) and the start
 // surface; the workspace itself renders through the shared
 // `WorkspaceNavigation`.
-import { createEffect, createMemo, createSignal, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onMount, Show } from 'solid-js'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { DesktopSession } from '@adea-ai/auth/desktop'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
@@ -11,6 +11,7 @@ import type {
   WorkspacePlatformServices,
   UpdateChannelSetting,
 } from '@adea-ai/workspace-ui/platform'
+import { noteUpdatePhase } from '@adea-ai/workspace-ui/update-pending'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { invoke, listen } from '../lib/desktop-bridge'
 import { createDesktopDevRuntimeService } from '../lib/desktop-dev-runtime'
@@ -64,6 +65,15 @@ export function DesktopWorkspaceEntry(props: {
   const [session, setSession] = createSignal<DesktopSession | undefined>()
   const [appVersion, setAppVersion] = createSignal('0.0.0')
   const [updatesOpen, setUpdatesOpen] = createSignal(false)
+  // Seed the update-pending badge from the shell's own updater state once per
+  // desktop session. `desktop_update_status` answers from (or lazily starts)
+  // the same check the version dialog drives — no second update-checker — so
+  // the rail dot lights before the user ever opens the dialog.
+  onMount(() => {
+    void invoke<{ phase: string }>('desktop_update_status')
+      .then((snapshot) => noteUpdatePhase(snapshot.phase))
+      .catch(() => noteUpdatePhase(undefined))
+  })
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
   let temporaryCredential: string | null = null
   let clientRef: AgentHqApiClient | undefined

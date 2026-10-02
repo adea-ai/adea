@@ -72,6 +72,18 @@ export function useSound(): SoundContextValue {
   return value
 }
 
+/**
+ * The sound context when one exists, `null` otherwise. Hosts that render
+ * shared components outside a `<SoundProvider>` (tests, alternate shells, a
+ * dialog tree mounted before the app providers) read this instead of letting
+ * `useSound`'s guard throw during render and tear down the whole host tree —
+ * the settings dialog's soundtrack row white-screened the app that way when
+ * the "Input & notifications" section mounted `<MusicToggle />` unprovided.
+ */
+export function useOptionalSound(): SoundContextValue | null {
+  return useContext(SoundContext)
+}
+
 export function useSceneMusic(sceneId: string | null | undefined): void {
   createEffect(
     on(
@@ -107,6 +119,18 @@ function MusicButton(props: { muted: boolean; onToggle: () => void }) {
 }
 
 export function MusicToggle() {
-  const { musicMuted, toggleMusicMute } = useSound()
-  return <MusicButton muted={musicMuted} onToggle={toggleMusicMute} />
+  const context = useOptionalSound()
+  if (context) {
+    return <MusicButton muted={context.musicMuted} onToggle={context.toggleMusicMute} />
+  }
+  // No provider: drive the singleton controller directly so the control stays
+  // honest and operable instead of throwing during render. The mute state
+  // lives on the controller, so the button only needs to mirror it.
+  const [unprovidedMuted, setUnprovidedMuted] = createSignal(soundController.musicMuted)
+  return (
+    <MusicButton
+      muted={unprovidedMuted()}
+      onToggle={() => setUnprovidedMuted(soundController.toggleMusicMute())}
+    />
+  )
 }

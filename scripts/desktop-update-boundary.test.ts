@@ -515,7 +515,8 @@ describe('signed update flow', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-updates-state-'))
     const original = globalThis.fetch
     try {
-      // A feed 404 with the GitHub API answering behind it.
+      // A feed 404 with the GitHub API answering behind it, carrying the
+      // platform archive the lane attaches once packaging finishes.
       globalThis.fetch = (async (input: string | URL | Request) => {
         const url = String(input instanceof Request ? input.url : input)
         if (url.includes('latest.json')) return new Response(null, { status: 404 })
@@ -523,6 +524,7 @@ describe('signed update flow', () => {
           return Response.json({
             tag_name: 'v99.1.0',
             html_url: 'https://github.com/adea-ai/adea/releases/tag/v99.1.0',
+            assets: [{ name: 'Adea-v99.1.0-macos-arm64.app.tar.zst' }],
           })
         }
         return new Response(null, { status: 404 })
@@ -535,6 +537,41 @@ describe('signed update flow', () => {
       expect(checked.value).toMatchObject({
         phase: 'available',
         available_version: '99.1.0',
+      })
+    } finally {
+      globalThis.fetch = original
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
+  test('stays quiet about a release whose installable archive is not attached', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-updates-state-'))
+    const original = globalThis.fetch
+    try {
+      // The premature-notification window: the tag exists, but the release
+      // lane has not attached the platform archive (and its signed feed) yet.
+      // The shell must not announce an update it cannot install.
+      globalThis.fetch = (async (input: string | URL | Request) => {
+        const url = String(input instanceof Request ? input.url : input)
+        if (url.includes('latest.json')) return new Response(null, { status: 404 })
+        if (url === 'https://api.github.com/repos/adea-ai/adea/releases/latest') {
+          return Response.json({
+            tag_name: 'v99.1.0',
+            html_url: 'https://github.com/adea-ai/adea/releases/tag/v99.1.0',
+            assets: [{ name: 'Adea-v99.1.0-macos-arm64.dmg' }],
+          })
+        }
+        return new Response(null, { status: 404 })
+      }) as typeof fetch
+      const invoke = createUpdateInvoke(dataDir)
+      const checked = (await invoke('desktop_update_check')) as {
+        ok: true
+        value: Record<string, unknown>
+      }
+      expect(checked.value).toMatchObject({
+        phase: 'current',
+        available_version: null,
+        github_url: 'https://github.com/adea-ai/adea/releases/tag/v99.1.0',
       })
     } finally {
       globalThis.fetch = original
