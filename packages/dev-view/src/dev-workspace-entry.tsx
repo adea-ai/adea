@@ -41,6 +41,7 @@ import {
   MonitorSmartphone,
   PanelRightClose,
   PanelRightOpen,
+  SquareX,
   Undo2,
   Users,
   X,
@@ -68,8 +69,10 @@ import {
   listLeaves,
   neighborLeaf,
   normalizeLayout,
+  preferredSplitDirection,
   resizeSplit,
   splitPane,
+  splitPaneEvenly,
   undoClosePane,
   movePane,
   type DevLayoutState,
@@ -1242,8 +1245,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           updateLayout((state) => {
             const focused = listLeaves(state.center).find((leaf) => leaf.id === state.focusedLeafId)
             if (!focused) return state
-            return splitPane(state, state.focusedLeafId, {
-              direction: 'row',
+            return splitPaneEvenly(state, state.focusedLeafId, {
+              direction: preferredSplitDirection(state.center),
               placement: 'after',
               leaf: {
                 kind: 'leaf',
@@ -1259,6 +1262,31 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         }}
       >
         <Columns2 aria-hidden="true" />
+      </ActionButton>
+      <ActionButton
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        class="workspace-topbar__control"
+        tooltip="Close all panes"
+        aria-label="Close all panes"
+        disabled={countLeaves(layout().center) <= 1}
+        onClick={() => {
+          let nextFocusId = layout().focusedLeafId
+          updateLayout((state) => {
+            let next = state
+            for (const leaf of listLeaves(next.center)) {
+              next = closePane(next, leaf.id, () => `dev-placeholder-${++nextPaneId}`)
+            }
+            nextFocusId = next.focusedLeafId
+            return next
+          })
+          setActiveEditorFile(undefined)
+          focusPaneElement(nextFocusId)
+          setAnnouncement('All panes closed')
+        }}
+      >
+        <SquareX aria-hidden="true" />
       </ActionButton>
       <ActionButton
         type="button"

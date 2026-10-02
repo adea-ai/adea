@@ -9,8 +9,11 @@ import {
   neighborLeaf,
   normalizeLayout,
   focusPane,
+  paneGrid,
+  preferredSplitDirection,
   resizeSplit,
   splitPane,
+  splitPaneEvenly,
   swapPanes,
   undoClosePane,
 } from '../src/layout/operations'
@@ -239,5 +242,164 @@ describe('layout normalization and neighbors', () => {
     expect(listLeaves(moved.center).map((item) => item.id)).toEqual(['c', 'a', 'b'])
     expect(moved.focusedLeafId).toBe('c')
     expect(countLeaves(moved.center)).toBe(3)
+  })
+})
+
+describe('split direction toward two rows of four columns', () => {
+  test('a single pane opens a second column', () => {
+    expect(preferredSplitDirection(leaf('one'))).toBe('row')
+  })
+
+  test('a layout that is still one band starts the second row', () => {
+    const row = splitPane(createLayoutState(leaf('one')), 'one', {
+      direction: 'row',
+      placement: 'after',
+      leaf: leaf('two'),
+      splitId: 'row-split',
+    })
+    expect(paneGrid(row.center)).toEqual({ rows: 1, columns: 2 })
+    expect(preferredSplitDirection(row.center)).toBe('column')
+  })
+
+  test('once two bands exist the split widens a row', () => {
+    const stacked = splitPane(createLayoutState(leaf('one')), 'one', {
+      direction: 'column',
+      placement: 'after',
+      leaf: leaf('two'),
+      splitId: 'column-split',
+    })
+    expect(paneGrid(stacked.center)).toEqual({ rows: 2, columns: 1 })
+    expect(preferredSplitDirection(stacked.center)).toBe('row')
+  })
+
+  test('splitting the focused pane to the cap stays within two bands', () => {
+    let state = createLayoutState(leaf('pane-1'))
+    for (let index = 2; index <= 8; index += 1) {
+      state = splitPaneEvenly(state, state.focusedLeafId, {
+        direction: preferredSplitDirection(state.center),
+        placement: 'after',
+        leaf: leaf(`pane-${index}`),
+        splitId: `split-${index}`,
+      })
+      expect(paneGrid(state.center).rows).toBeLessThanOrEqual(2)
+    }
+    expect(countLeaves(state.center)).toBe(8)
+    expect(paneGrid(state.center).rows).toBe(2)
+  })
+})
+
+describe('splitPaneEvenly', () => {
+  test('a fresh band keeps an even half-and-half split', () => {
+    const split = splitPaneEvenly(createLayoutState(leaf('one')), 'one', {
+      direction: 'row',
+      placement: 'after',
+      leaf: leaf('two'),
+      splitId: 'split',
+    })
+    const root = split.center
+    if (root.kind !== 'split') throw new Error('expected split root')
+    expect(root.ratio).toBe(0.5)
+  })
+
+  test('a row grown past two panes equalizes every leaf in the band', () => {
+    let state = splitPaneEvenly(createLayoutState(leaf('one')), 'one', {
+      direction: 'row',
+      placement: 'after',
+      leaf: leaf('two'),
+      splitId: 'row-1',
+    })
+    state = splitPaneEvenly(state, 'two', {
+      direction: 'column',
+      placement: 'after',
+      leaf: leaf('three'),
+      splitId: 'column-1',
+    })
+    state = splitPaneEvenly(state, 'three', {
+      direction: 'row',
+      placement: 'after',
+      leaf: leaf('four'),
+      splitId: 'row-2',
+    })
+    state = splitPaneEvenly(state, 'four', {
+      direction: 'row',
+      placement: 'after',
+      leaf: leaf('five'),
+      splitId: 'row-3',
+    })
+    // The bottom band grew one pane at a time; its chain of row splits takes
+    // the 1/3, then 1/4, ratios instead of halving into a sliver.
+    const root = state.center
+    if (root.kind !== 'split') throw new Error('expected row root')
+    const column = root.children[1]
+    if (column.kind !== 'split' || column.direction !== 'column')
+      throw new Error('expected column split')
+    expect(root.ratio).toBe(0.5)
+    expect(column.ratio).toBe(0.5)
+    const band = column.children[1]
+    if (band.kind !== 'split' || band.direction !== 'row') throw new Error('expected row band')
+    expect(band.ratio).toBeCloseTo(1 / 3)
+    const inner = band.children[1]
+    if (inner.kind !== 'split') throw new Error('expected inner row split')
+    expect(inner.ratio).toBe(0.5)
+  })
+
+  test('ratios outside the joined band are untouched', () => {
+    let state = splitPaneEvenly(createLayoutState(leaf('one')), 'one', {
+      direction: 'row',
+      placement: 'after',
+      leaf: leaf('two'),
+      splitId: 'row-1',
+    })
+    state = splitPane(state, 'two', {
+      direction: 'column',
+      placement: 'after',
+      leaf: leaf('three'),
+      splitId: 'column-1',
+    })
+    state = resizeSplit(state, 'row-1', 0.7)
+    state = splitPaneEvenly(state, 'three', {
+      direction: 'column',
+      placement: 'after',
+      leaf: leaf('four'),
+      splitId: 'column-2',
+    })
+    const root = state.center
+    if (root.kind !== 'split') throw new Error('expected row root')
+    const column = root.children[1]
+    if (column.kind !== 'split') throw new Error('expected column split')
+    // The column band evened — L2 takes a third, the new pair two thirds —
+    // while the user's 0.7 resize of the row split outside it stands.
+    expect(root.ratio).toBe(0.7)
+    expect(column.ratio).toBeCloseTo(1 / 3)
+  })
+})
+
+describe('closing every pane', () => {
+  test('leaves one fresh terminal placeholder and walks back through the undo stack', () => {
+    let state = splitPane(createLayoutState(leaf('one')), 'one', {
+      direction: 'row',
+      placement: 'after',
+      leaf: leaf('two'),
+      splitId: 'row-1',
+    })
+    state = splitPane(state, 'two', {
+      direction: 'column',
+      placement: 'after',
+      leaf: leaf('three', 'editor'),
+      splitId: 'column-1',
+    })
+    let suffix = 0
+    for (const item of listLeaves(state.center)) {
+      state = closePane(state, item.id, () => `placeholder-${++suffix}`)
+    }
+    expect(countLeaves(state.center)).toBe(1)
+    // Only the final close needed the placeholder, and focus lands on it.
+    expect(listLeaves(state.center)[0]).toEqual(leaf('placeholder-1'))
+    expect(state.focusedLeafId).toBe('placeholder-1')
+
+    // Each close pushed its undo point, so the first reopen steps back to the
+    // layout just before the last pane closed.
+    const reopened = undoClosePane(state)
+    expect(listLeaves(reopened.center)).toEqual([leaf('three', 'editor')])
   })
 })
