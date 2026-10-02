@@ -35,6 +35,8 @@ export type AgentSimRuntimeGlobal = {
     engine: AgentSimEngineManifest
     /** Character id or serialized configuration decorating the mounted surface. */
     character?: string
+    /** The surface's close affordance was activated; the host exits the surface. */
+    onClose?: () => void
   }): Promise<AgentSimMount>
 }
 
