@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.74.2](https://github.com/adea-ai/adea/compare/v0.74.1...v0.74.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* enforce shared UI styling and icon tooltips ([#927](https://github.com/adea-ai/adea/issues/927)) ([d1f2cc1](https://github.com/adea-ai/adea/commit/d1f2cc1aabaf79af0dbfcdbf48ff66be4b5e82d7))
+
 ## [0.74.1](https://github.com/adea-ai/adea/compare/v0.74.0...v0.74.1) (2026-10-02)
 
 
