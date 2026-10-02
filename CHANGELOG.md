@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.74.8](https://github.com/adea-ai/adea/compare/v0.74.7...v0.74.8) (2026-10-02)
+
+
+### Maintenance
+
+* **workspace:** share navigation sidebar across Chat and Virtual ([#861](https://github.com/adea-ai/adea/issues/861)) ([540f17a](https://github.com/adea-ai/adea/commit/540f17add7bca533b19ded3bac2cdac778784092))
+
 ## [0.74.7](https://github.com/adea-ai/adea/compare/v0.74.6...v0.74.7) (2026-10-02)
 
 
