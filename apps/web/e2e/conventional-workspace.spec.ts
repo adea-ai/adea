@@ -1497,33 +1497,6 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
   expect((await unreadRequest).postDataJSON()).toEqual({ action: 'unread' })
 })
 
-test('workspace search keeps duplicate destination labels tied to their domain identity', async ({
-  page,
-}) => {
-  await mockWorkspace(page)
-  await page.goto('/')
-  // Control+k pressed during the first paint lands before the workspace
-  // installs its shortcut listener, so anchor on loaded chrome first.
-  await expect(page.getByLabel(/unread in Product/)).toBeVisible({ timeout: 15_000 })
-  await page.keyboard.press('Control+k')
-
-  const dialog = page.getByRole('dialog', { name: 'Search workspace' })
-  const input = dialog.getByRole('combobox', { name: 'Search workspace' })
-  const results = dialog.getByRole('listbox', { name: 'Search results' })
-  const room = results.getByRole('option', { name: 'Support Room', exact: true })
-  const channel = results.getByRole('option', { name: 'Support Room conversation', exact: true })
-  await expect(results.getByRole('option')).toHaveCount(13)
-
-  const channelPrefetch = page.waitForRequest((request) =>
-    request.url().includes('/channels/channel-support/messages')
-  )
-  await channel.hover()
-  await channelPrefetch
-  await expect(channel).toHaveAttribute('aria-selected', 'true')
-  await expect(room).toHaveAttribute('aria-selected', 'false')
-  expect(await input.getAttribute('aria-activedescendant')).toBe(await channel.getAttribute('id'))
-})
-
 test('shared sidebar reports failed mark-all-read actions and preserves Virtual status', async ({
   page,
 }) => {
@@ -1573,6 +1546,33 @@ test('shared sidebar reports failed mark-all-read actions and preserves Virtual 
   await expect(virtualSidebar.getByRole('alert')).toContainText(
     'Unread conversations could not be marked as read.'
   )
+})
+
+test('workspace search keeps duplicate destination labels tied to their domain identity', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  await page.goto('/')
+  // Control+k pressed during the first paint lands before the workspace
+  // installs its shortcut listener, so anchor on loaded chrome first.
+  await expect(page.getByLabel(/unread in Product/)).toBeVisible({ timeout: 15_000 })
+  await page.keyboard.press('Control+k')
+
+  const dialog = page.getByRole('dialog', { name: 'Search workspace' })
+  const input = dialog.getByRole('combobox', { name: 'Search workspace' })
+  const results = dialog.getByRole('listbox', { name: 'Search results' })
+  const room = results.getByRole('option', { name: 'Support Room', exact: true })
+  const channel = results.getByRole('option', { name: 'Support Room conversation', exact: true })
+  await expect(results.getByRole('option')).toHaveCount(13)
+
+  const channelPrefetch = page.waitForRequest((request) =>
+    request.url().includes('/channels/channel-support/messages')
+  )
+  await channel.hover()
+  await channelPrefetch
+  await expect(channel).toHaveAttribute('aria-selected', 'true')
+  await expect(room).toHaveAttribute('aria-selected', 'false')
+  expect(await input.getAttribute('aria-activedescendant')).toBe(await channel.getAttribute('id'))
 })
 
 test('global rail opens workspace search from Virtual and Dev', async ({ page }) => {

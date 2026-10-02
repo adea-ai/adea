@@ -279,6 +279,9 @@
 }
 .conventional-sidebar-empty {
   padding-inline: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.45;
 }
 .conventional-sidebar__read-actions {
   width: 100%;
