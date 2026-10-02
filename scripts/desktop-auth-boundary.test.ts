@@ -258,6 +258,10 @@ describe('desktop packaging and single-UI client boundary', () => {
       join(root, 'packages/workspace-ui/src/global-workspace-rail.tsx'),
       'utf8'
     )
+    const topBar = await readFile(
+      join(root, 'apps/web/src/components/workspace-top-bar.tsx'),
+      'utf8'
+    )
     const bootstrapRoute = await readFile(
       join(root, 'apps/web/src/start/routes/api/workspaces/bootstrap.ts'),
       'utf8'
@@ -268,7 +272,11 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(desktop).toContain('onSignOut:')
     expect(navigation).toContain("openSettings('account')")
     expect(rail).toContain('<AccountMenu')
-    expect(rail).toContain('label="Notifications (coming soon)"')
+    // Notifications lives in the top bar now; the rail must not grow a second
+    // disabled entry for it.
+    expect(rail).not.toContain('Notifications (coming soon)')
+    expect(topBar).toContain('aria-label="Notifications"')
+    expect(navigation).toContain("openSettings('input-notifications')")
     expect(bootstrapRoute).toContain('getUserDisplayName')
   })
 

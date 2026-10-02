@@ -949,9 +949,11 @@ test('toggles chat and virtual Room views without losing shared selection or dra
     'aria-keyshortcuts',
     'Meta+K Control+K'
   )
+  // Notifications lives in the top bar now, not on the global rail.
+  await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
   await expect(
     globalNavigation.getByRole('button', { name: 'Notifications (coming soon)' })
-  ).toBeDisabled()
+  ).toHaveCount(0)
   await expect(
     globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' })
   ).toBeVisible()
@@ -1906,10 +1908,9 @@ test('App Library enables views separately from Plugins and remains reachable wi
   await expect(rail.getByRole('button', { name: 'Virtual view', exact: true })).toHaveCount(0)
   await page.reload()
   await expect(library).toBeVisible()
-  await page
-    .getByLabel('Workspace toolbar')
-    .getByRole('button', { name: 'Search workspace', exact: true })
-    .click()
+  // Search left the toolbar for the rail; the rail entry still routes to the
+  // Library's app search when every app is disabled.
+  await rail.getByRole('button', { name: 'Search workspace', exact: true }).click()
   await expect(library.getByRole('searchbox', { name: 'Search apps', exact: true })).toBeFocused()
   await library.getByRole('button', { name: 'Enable Chat', exact: true }).click()
   await library.getByRole('button', { name: 'Open Chat', exact: true }).click()
