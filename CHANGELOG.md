@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.76.0](https://github.com/adea-ai/adea/compare/v0.75.3...v0.76.0) (2026-10-02)
+
+
+### Features
+
+* **e2e:** shard the E2E lane across two runners ([#958](https://github.com/adea-ai/adea/issues/958)) ([bf26f44](https://github.com/adea-ai/adea/commit/bf26f441ebd54480ad0b3cade836df6753f8eb15))
+
 ## [0.75.3](https://github.com/adea-ai/adea/compare/v0.75.2...v0.75.3) (2026-10-02)
 
 
