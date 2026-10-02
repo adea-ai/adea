@@ -273,8 +273,10 @@ export function WorkspaceSidebar(props: Props) {
   const unreadBadge = (channelId: string) => {
     const state = readStateByChannel().get(channelId)
     const count = (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
+    // aria-hidden: the row button's accessible name stays the channel name;
+    // unread counts are surfaced by the row's own unread state.
     return count || state?.manuallyUnread ? (
-      <span class="conventional-unread-badge" aria-label={`${count || 1} unread`}>
+      <span class="conventional-unread-badge" aria-hidden="true">
         {count > 99 ? '99+' : count || '•'}
       </span>
     ) : null
@@ -534,12 +536,11 @@ export function WorkspaceSidebar(props: Props) {
                           as="button"
                           type="button"
                           active={selected()}
+                          // aria-hidden: keep the row button's accessible
+                          // name exactly the room name.
                           trailing={
                             roomUnread() ? (
-                              <span
-                                class="conventional-unread-badge"
-                                aria-label={`${roomUnread()} unread in ${item().room.name}`}
-                              >
+                              <span class="conventional-unread-badge" aria-hidden="true">
                                 {roomUnread() > 99 ? '99+' : roomUnread()}
                               </span>
                             ) : null
