@@ -1853,12 +1853,18 @@ for (const { width, fontSize } of [
 
     const tablist = settings.getByRole('tablist', { name: 'Settings sections' })
     const account = tablist.getByRole('tab', { name: 'Account & app', exact: true })
+    const updates = tablist.getByRole('tab', { name: 'Updates', exact: true })
     const appearance = tablist.getByRole('tab', { name: 'Appearance', exact: true })
     const permissions = tablist.getByRole('tab', { name: 'Permissions', exact: true })
     await expect(tablist).toHaveAttribute('data-slot', 'settings-navigation')
     await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
 
     await account.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(updates).toBeFocused()
+    await expect(updates).toHaveAttribute('aria-selected', 'true')
+    await expect(page).toHaveURL(/#settings\/updates$/)
+
     await page.keyboard.press('ArrowDown')
     await expect(appearance).toBeFocused()
     await expect(appearance).toHaveAttribute('aria-selected', 'true')
