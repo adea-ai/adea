@@ -1267,7 +1267,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         type="button"
         variant="ghost"
         size="icon-sm"
-        class="workspace-topbar__control"
+        class="workspace-topbar__control dev-toolbar__close-all"
         tooltip="Close all panes"
         aria-label="Close all panes"
         disabled={countLeaves(layout().center) <= 1}

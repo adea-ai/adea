@@ -57,6 +57,15 @@
   margin-inline-start: auto;
 }
 
+/* The narrow shell has no room for a fourth pane action: below the shared
+   48rem breakpoint the close-all convenience hides, and the per-pane close
+   carries the work. */
+@media (max-width: 48rem) {
+  .dev-toolbar__close-all {
+    display: none;
+  }
+}
+
 .dev-button,
 .dev-tree-row {
   min-height: 2rem;
