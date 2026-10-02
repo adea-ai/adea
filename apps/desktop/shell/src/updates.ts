@@ -173,6 +173,25 @@ function releaseTagUrl(version: string): string {
   return `https://github.com/adea-ai/adea/releases/tag/v${version}`
 }
 
+/**
+ * The release lane attaches this platform's installable archive to the
+ * release (`Adea-<tag>-macos-arm64.app.tar.zst`, tag with its `v`). The
+ * GitHub API fallback cannot see the signed feed, so it must use the asset
+ * list as its installability signal: a freshly published release exists
+ * before its archives and feed are attached, and releases older than the
+ * lane never carry them. Without this gate the shell announced "update
+ * available" the moment the tag existed, and the install click could only
+ * hand off to the releases page.
+ */
+function releaseHasInstallableAsset(
+  tag: string,
+  assets: ReadonlyArray<{ name?: unknown } | undefined> | undefined
+): boolean {
+  if (!Array.isArray(assets)) return false
+  const expected = `Adea-${tag}-macos-arm64.app.tar.zst`
+  return assets.some((asset) => asset?.name === expected)
+}
+
 /** Staging entry names this module owns inside `<dataDir>/updates`. */
 const EXTRACTED_PREFIX = 'extracted-'
 
@@ -291,10 +310,16 @@ export function createUpdateManager(input: {
         published_at?: string
         draft?: boolean
         prerelease?: boolean
+        assets?: ReadonlyArray<{ name?: unknown } | undefined>
       }
       const tag = String(release.tag_name ?? '')
       const availableVersion = tag.replace(/^v/, '')
-      const available = versionLessThan(appVersion, availableVersion)
+      // Only announce an update this shell could actually install: a newer
+      // release without the platform archive (not published yet, or older
+      // than the lane) stays quiet. The release page stays reachable through
+      // the dialog's "View releases" handoff either way.
+      const installable = releaseHasInstallableAsset(tag, release.assets)
+      const available = installable && versionLessThan(appVersion, availableVersion)
       return snapshot({
         phase: available ? 'available' : 'current',
         available_version: available ? availableVersion : null,

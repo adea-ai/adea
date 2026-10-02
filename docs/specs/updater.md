@@ -87,7 +87,14 @@ from the shell process (never the webview). `version` is compared against the
 running version, which comes from `apps/desktop/package.json` — the version
 Release Please bumps — with an `ADEA_APP_VERSION` override for local runs.
 Releases without a feed (forks, releases older than the lane) fall back to a
-GitHub-API availability check plus a releases-page handoff.
+GitHub-API availability check plus a releases-page handoff. That fallback can
+only announce an update when the release actually carries this platform's
+installable archive (`Adea-<tag>-macos-arm64.app.tar.zst` in the release's
+asset list): a freshly published tag exists before the lane attaches its
+archives and signed feed, and announcing in that window reported "update
+available" for an update that could only end in the releases-page handoff. A
+newer release without the archive stays quiet (`current`); the dialog keeps
+its "View releases" button either way.
 
 ## Update channels
 
