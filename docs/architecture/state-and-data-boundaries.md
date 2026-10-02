@@ -40,11 +40,11 @@ Six storage keys lived in four modules with **three different disciplines**:
 | `adea:workspace-sidebar-width`   | bare `Number(...)` with an `isFinite` guard                                                                   | unchanged: a numeric key, already tolerant; named here so the boundary is not mistaken for "all storage must be JSON"                                    |
 | URL hash for the settings dialog | router-owned, repaired in #601                                                                                | unchanged                                                                                                                                                |
 
-The concrete hazard the audit found: `restoreConventionalState` merges its
-argument into the store unvalidated, so before this change a localStorage blob
-with `selectedRoomId: 42` or `drafts: "text"` — valid JSON, wrong types — was
-written into the workspace store. The validator now rejects such a blob, and
-its rejection rules are pinned by tests rather than by reading the store.
+The audit found a concrete hazard: `restoreConventionalState` merges its
+argument into the store without validation. Before this change, a localStorage
+blob such as `selectedRoomId: 42` or `drafts: "text"` could pass JSON parsing
+but still contain the wrong field types, then be written into the workspace
+store. The validator now rejects that input, and tests pin its rejection rules.
 
 ## Measured effect
 
@@ -60,11 +60,11 @@ its rejection rules are pinned by tests rather than by reading the store.
 
 ## Regression coverage
 
-- `packages/state/tests/persisted-storage.test.ts` — the boundary's semantics:
+- `packages/state/tests/persisted-storage.test.ts`: the boundary's semantics:
   quarantine is byte-for-byte and non-destructive, a rejected shape is not
   quarantined, a throwing validator fails closed, and storage that throws on
   read/write degrades to "nothing persisted".
-- `packages/workspace-ui/tests/unit/persistence-boundary.test.ts` — the
+- `packages/workspace-ui/tests/unit/persistence-boundary.test.ts`: the
   conventional-workspace validator: full blob, legacy partial blob, and every
   wrong-typed field class that would previously have reached the store.
 

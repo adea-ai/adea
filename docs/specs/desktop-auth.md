@@ -23,6 +23,22 @@ the contract to read before touching the desktop flows in
 > for the `adea://` auth callback is not yet carried by the shell;
 > release-pipeline registration is still release-lane work.
 
+## Current storage boundary
+
+The Electrobun command registry uses AES-GCM files in `desktop-state` for the
+user session, pending authorization attempt, and temporary workspace credential.
+It keeps their shared encryption key in the local `device.key` file. This is
+separate from the Dev Runtime vault and does not establish OS credential-store
+protection for these three values. The legacy vault requirements below describe
+the target contract, not the current shell's storage implementation.
+
+`local_content_rotate_key` currently deletes the shared key file without
+re-encrypting the saved values. The next key access creates a new key, and old values
+cannot be read through that key. This command is not evidence of safe credential
+or content rotation. Callback URL-scheme registration also remains release-lane
+work. Cloud broker and client validation tests do not establish either native
+storage protection or packaged callback registration.
+
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
@@ -51,12 +67,12 @@ there are no credentials and no fragment, and the query carries exactly seven
 parameters: `client=desktop`, `code_challenge_method=S256`,
 `redirect_uri=adea://auth/callback`, `response_type=code`, and bounded
 `code_challenge`, `nonce`, and `state`. Any of `access_token`, `id_token`,
-`refresh_token`, `session_token`, or `token` is rejected outright — a URL that
+`refresh_token`, `session_token`, or `token` is rejected outright. A URL that
 carries a credential never reaches the browser.
 
 ## The callback
 
-The shell registers the `adea://` scheme and accepts a callback only when its
+The target shell contract registers the `adea://` scheme and accepts a callback only when its
 `scheme://host/path` is exactly `adea://auth/callback`, with no credentials and
 no fragment, carrying exactly `code`, `nonce`, and `state`. A valid callback is
 queued **once** (`DesktopAuthState::take`) and the main window is revealed and
@@ -72,7 +88,7 @@ credential.
 
 ## Vault entries
 
-All three live in the operating-system credential store under the service
+The target keeps all three in the operating-system credential store under the service
 `com.adea.desktop`:
 
 | Keychain user                   | Holds                                             | Validation on read and write                                                                                                                            |
@@ -102,7 +118,7 @@ verification.
   when one is issued. The provider email is recorded on the authorization code
   and carried onto the session, so tightening the allowlist stops already-issued
   device sessions immediately instead of leaving them working for their full 30
-  days. A session whose email is absent — one issued before the column existed —
+  days. A session whose email is absent, including one issued before the column existed,
   is **denied** while an allowlist is configured, so an old record is never a
   way past the allowlist. With no allowlist configured the check is a no-op.
 
@@ -127,15 +143,15 @@ trusted browser fetch metadata, so a header-less local process cannot
 retrieve it from the served HTML. The bulk-stream relay family
 `desktop_file_stream_open`, `desktop_file_stream_frame`, and
 `desktop_file_stream_close` (Dev Runtime #399) composes in the shell entry
-alongside the identity family — it needs the channel authority and gateway,
-not the `commands.ts` registry — and re-proves the channel binding on every
+alongside the identity family. It needs the channel authority and gateway
+instead of the `commands.ts` registry, and re-proves the channel binding on every
 operation: `open` consumes the attach through the authority's real
 `attachStream` (single-use, 60 s, caller-channel-bound, attach proof signed by
 the bridge under its channel secret inside its closure), and `frame`/`close`
 are refused unless they present the exact channel identity the stream was
 attached under. `desktop_auth_start` additionally refuses
 to open any URL that is not a credential-free authorize URL on the canonical
-cloud origin — the client still owns the full `validate_authorization_url`
+cloud origin. The client still owns the full `validate_authorization_url`
 check. The registered command set and the commands the client actually
 invokes must match exactly: `scripts/desktop-ipc-boundary.test.ts` fails the
 build otherwise, and `apps/desktop/tests/shell-commands.test.ts` exercises
