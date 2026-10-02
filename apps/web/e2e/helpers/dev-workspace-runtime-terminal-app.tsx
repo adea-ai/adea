@@ -41,11 +41,17 @@ type RecordedCommand = Readonly<{
   terminalId?: string
   generation?: number
   direction?: string
+  fromSequence?: string
 }>
 
 const state = {
   commands: [] as RecordedCommand[],
-  attachments: [] as Array<{ terminalId: string; direction: string; generation: number }>,
+  attachments: [] as Array<{
+    terminalId: string
+    direction: string
+    generation: number
+    fromSequence: string
+  }>,
   primaryListHeld: false,
   releasePrimaryList: undefined as (() => void) | undefined,
   nextGrant: 0,
@@ -181,6 +187,7 @@ const runtime: DevRuntimeService = {
           ? body.expectedGeneration
           : command.resource?.generation,
       direction: typeof body.direction === 'string' ? body.direction : undefined,
+      fromSequence: typeof body.fromSequence === 'string' ? body.fromSequence : undefined,
     })
 
     if (command.operation === 'dev.session.list') return success(command, pageForSession(''))
@@ -236,6 +243,7 @@ const runtime: DevRuntimeService = {
         terminalId: grant.resource.id,
         direction: grant.direction,
         generation: grant.resource.generation,
+        fromSequence: grant.fromSequence,
       })
       let open = true
       const socket = {

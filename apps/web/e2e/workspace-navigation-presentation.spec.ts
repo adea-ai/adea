@@ -22,8 +22,9 @@ test('production WorkspaceNavigation reports its resolved Dev selection and clea
   await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + app}'` })
 
   const calls = () => page.evaluate(() => window.workspaceNavigationPresentationHarness.report())
+  const runtimeSession = page.getByRole('button', { name: /Runtime contracts/ })
   try {
-    await expect(page.getByText('Development fixtures · E2E only')).toBeVisible()
+    await expect(runtimeSession).toBeVisible()
   } catch (error) {
     throw new Error(
       `Production navigation failed to mount: ${pageErrors.join('\n') || 'no pageerror'}`,
@@ -34,7 +35,7 @@ test('production WorkspaceNavigation reports its resolved Dev selection and clea
     .poll(async () => (await calls()).at(-1))
     .toEqual({ command: 'desktop_chat_presentation', sessionId: 'fixture-shell' })
 
-  await page.getByRole('button', { name: /Runtime contracts/ }).click()
+  await runtimeSession.click()
   await expect
     .poll(async () => (await calls()).at(-1))
     .toEqual({ command: 'desktop_chat_presentation', sessionId: 'fixture-runtime' })
