@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.71.9](https://github.com/adea-ai/adea/compare/v0.71.8...v0.71.9) (2026-10-02)
+
+
+### Bug Fixes
+
+* **workspace:** rail rhythm, top-bar notifications, and macOS inset resilience ([#907](https://github.com/adea-ai/adea/issues/907)) ([d6e423d](https://github.com/adea-ai/adea/commit/d6e423d2a56376930ecd22d8c37d21e8ec546146))
+
 ## [0.71.8](https://github.com/adea-ai/adea/compare/v0.71.7...v0.71.8) (2026-10-02)
 
 
