@@ -1311,6 +1311,26 @@
   color: var(--cw-muted);
   font-size: 0.78rem;
 }
+/* The plugin detail fields share one row: the shared catalog sections stand
+   side by side and trade their card chrome for vertical dividers between
+   columns, so the detail pane's width is actually used. */
+.plugins-detail-columns {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+.plugins-detail-columns > section {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 0.9rem;
+  border: 0;
+  border-left: 1px solid var(--cw-border);
+  border-radius: 0;
+}
+.plugins-detail-columns > section:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
 .plugin-logo {
   display: flex;
   width: 2.75rem;
@@ -1467,6 +1487,15 @@
   .plugins-dialog {
     width: calc(100% - 3rem);
     height: calc(100svh - 1rem);
+  }
+  .plugins-detail-columns {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .plugins-detail-columns > section,
+  .plugins-detail-columns > section:first-child {
+    padding: 0;
+    border: 0;
   }
   .plugin-logo {
     width: 2.5rem;

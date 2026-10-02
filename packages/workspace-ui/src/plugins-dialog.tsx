@@ -277,59 +277,65 @@ function PluginDetail(props: {
         </div>
       }
     >
-      <CatalogDetailSection title="Capabilities">
-        <ul class="grid gap-2 text-sm">
-          <For each={props.plugin.capabilities}>
-            {(capability) => (
-              <li>
-                <Check aria-hidden="true" /> {capability}
-              </li>
-            )}
-          </For>
-        </ul>
-      </CatalogDetailSection>
-      <CatalogDetailSection title="Connection">
-        <p>
-          <ShieldCheck aria-hidden="true" />{' '}
-          {props.plugin.auth === 'oauth'
-            ? 'OAuth provider'
-            : props.plugin.auth === 'api-key'
-              ? 'API credential provider'
-              : 'Managed by this workspace'}
-        </p>
-        <p class="text-muted-foreground text-sm">
-          Adding enables this provider in Adea. Account authorization and runtime execution stay
-          within the authoritative Control Plane connection.
-        </p>
-      </CatalogDetailSection>
-      <CatalogDetailSection title="Bundle">
-        <p>{props.plugin.surfaces.map((surface) => surface.toLocaleUpperCase()).join(' · ')}</p>
-        <p class="text-muted-foreground text-sm">
-          {props.plugin.sourceUrl
-            ? `Source: ${props.plugin.sourceUrl}.`
-            : `Source: ${props.plugin.sourceId ?? props.plugin.source}.`}
-          {props.plugin.sourceRevision ? ` Commit: ${props.plugin.sourceRevision}.` : ''}
-          {props.plugin.license ? ` License: ${props.plugin.license}.` : ''}
-          {props.plugin.contentResolution === 'metadata-only' ? ' Content is metadata-only.' : ''}
-        </p>
-      </CatalogDetailSection>
-      <Show when={props.plugin.appSurface}>
-        {(app) => (
-          <CatalogDetailSection title="App">
-            <p class="text-muted-foreground text-sm">
-              Platforms: {app().supportedPlatforms.join(', ') || 'unspecified'}.
-              {app().requestedPermissions.length > 0
-                ? ` Requests: ${app().requestedPermissions.join(', ')}.`
-                : ' Requests no additional permissions.'}
-              {app().version ? ` Version ${app().version}.` : ''}
-              {app().digest ? ` Digest ${app().digest}.` : ''}
-            </p>
-          </CatalogDetailSection>
-        )}
-      </Show>
-      <Show when={props.plugin.appSurface}>
-        <AppActivationSection activation={activation()} />
-      </Show>
+      {/* The detail fields read as one row of columns: the shared sections
+          side by side with vertical dividers instead of stacked cards that
+          each use a fraction of the pane. The hook restyles the sections'
+          card chrome in conventional-workspace.css. */}
+      <div class="plugins-detail-columns">
+        <CatalogDetailSection title="Capabilities">
+          <ul class="grid gap-2 text-sm">
+            <For each={props.plugin.capabilities}>
+              {(capability) => (
+                <li>
+                  <Check aria-hidden="true" /> {capability}
+                </li>
+              )}
+            </For>
+          </ul>
+        </CatalogDetailSection>
+        <CatalogDetailSection title="Connection">
+          <p>
+            <ShieldCheck aria-hidden="true" />{' '}
+            {props.plugin.auth === 'oauth'
+              ? 'OAuth provider'
+              : props.plugin.auth === 'api-key'
+                ? 'API credential provider'
+                : 'Managed by this workspace'}
+          </p>
+          <p class="text-muted-foreground text-sm">
+            Adding enables this provider in Adea. Account authorization and runtime execution stay
+            within the authoritative Control Plane connection.
+          </p>
+        </CatalogDetailSection>
+        <CatalogDetailSection title="Bundle">
+          <p>{props.plugin.surfaces.map((surface) => surface.toLocaleUpperCase()).join(' · ')}</p>
+          <p class="text-muted-foreground text-sm">
+            {props.plugin.sourceUrl
+              ? `Source: ${props.plugin.sourceUrl}.`
+              : `Source: ${props.plugin.sourceId ?? props.plugin.source}.`}
+            {props.plugin.sourceRevision ? ` Commit: ${props.plugin.sourceRevision}.` : ''}
+            {props.plugin.license ? ` License: ${props.plugin.license}.` : ''}
+            {props.plugin.contentResolution === 'metadata-only' ? ' Content is metadata-only.' : ''}
+          </p>
+        </CatalogDetailSection>
+        <Show when={props.plugin.appSurface}>
+          {(app) => (
+            <CatalogDetailSection title="App">
+              <p class="text-muted-foreground text-sm">
+                Platforms: {app().supportedPlatforms.join(', ') || 'unspecified'}.
+                {app().requestedPermissions.length > 0
+                  ? ` Requests: ${app().requestedPermissions.join(', ')}.`
+                  : ' Requests no additional permissions.'}
+                {app().version ? ` Version ${app().version}.` : ''}
+                {app().digest ? ` Digest ${app().digest}.` : ''}
+              </p>
+            </CatalogDetailSection>
+          )}
+        </Show>
+        <Show when={props.plugin.appSurface}>
+          <AppActivationSection activation={activation()} />
+        </Show>
+      </div>
     </CatalogDetail>
   )
 }
