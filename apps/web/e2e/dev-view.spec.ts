@@ -34,6 +34,11 @@ function devToolbarControl(page: Page, name: string) {
   return page.locator('.workspace-topbar__view-actions').getByRole('button', { name, exact: true })
 }
 
+/** The bundled utility sidebar's toggle rides the top bar's trailing mount. */
+function devSidebarControl(page: Page, name: string) {
+  return page.locator('.workspace-topbar__sidebar').getByRole('button', { name, exact: true })
+}
+
 async function expectPointerHitsButton(page: Page, button: Locator, name: string) {
   const buttonBounds = await button.boundingBox()
   expect(buttonBounds).not.toBeNull()
@@ -81,7 +86,9 @@ async function expectPointerHitsButton(page: Page, button: Locator, name: string
         workspace: describe(document.querySelector('.dev-workspace')),
         devToolbar: describe(document.querySelector('.dev-toolbar')),
         devActions: describe(document.querySelector('.dev-toolbar__actions')),
-        browserButton: describe(document.querySelector('button[aria-label="Browser / Devices"]')),
+        browserButton: describe(
+          document.querySelector('button[aria-label="Expand utility sidebar"]')
+        ),
         hitStack: document.elementsFromPoint(x, y).slice(0, 8).map(describe),
       }
     },
@@ -96,9 +103,25 @@ async function expectPointerHitsButton(page: Page, button: Locator, name: string
 async function expectDevToolbarHost(page: Page) {
   const host = page.locator('.workspace-topbar__view-actions')
   await expect(host).toBeVisible()
-  await expect(devToolbarControl(page, 'Enter focus mode')).toBeVisible()
+  await expect(devToolbarControl(page, 'Files / SC')).toBeVisible()
+  // Runtime resources lives in the top bar on every view; the Dev entry no
+  // longer carries its own copy, and the expand control is per panel. The
+  // sidebar toggle's label tracks the restored slot state, so either name is
+  // a mounted toggle.
+  await expect(page.getByRole('button', { name: 'Runtime resources', exact: true })).toHaveCount(1)
+  await expect(
+    devSidebarControl(page, 'Expand utility sidebar').or(
+      devSidebarControl(page, 'Collapse utility sidebar')
+    )
+  ).toBeVisible()
   const fallbackActions = page.locator('.dev-toolbar__actions')
-  for (const name of ['Files / SC', 'Browser / Devices', 'Agents / History', 'Enter focus mode']) {
+  for (const name of [
+    'Files / SC',
+    'Browser / Devices',
+    'Agents / History',
+    'Enter focus mode',
+    'Runtime resources',
+  ]) {
     await expect(fallbackActions.getByRole('button', { name, exact: true })).toHaveCount(0)
   }
 }
@@ -119,7 +142,7 @@ for (const width of [320, 768, 1280, 1920]) {
 
     if (width <= 768) {
       await exerciseContextualSidebarToggle(page)
-      const utilitiesToggle = devToolbarControl(page, 'Agents / History')
+      const utilitiesToggle = devSidebarControl(page, 'Expand utility sidebar')
       await utilitiesToggle.click()
       await expect(
         page.getByRole('complementary', { name: 'Developer utilities (right)' })
@@ -226,24 +249,20 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(projectsSidebar).toBeVisible()
   await expect(leftUtilities).toBeVisible()
 
-  await devToolbarControl(page, 'Enter focus mode').click()
-  const exitFocusMode = devToolbarControl(page, 'Exit focus mode')
-  await expect(exitFocusMode).toHaveAttribute('aria-pressed', 'true')
-  await expect(exitFocusMode).toBeFocused()
+  // Focus mode has no top-bar control — expanding is a per-panel concern —
+  // so the keyboard chord is the surface under test here.
+  await page.keyboard.press('ControlOrMeta+Shift+F')
   await expect(globalNavigation).toBeVisible()
   await expect(projectsSidebar).toBeHidden()
   await expect(leftUtilities).toBeHidden()
-  await exitFocusMode.click()
-  const enterFocusMode = devToolbarControl(page, 'Enter focus mode')
-  await expect(enterFocusMode).toHaveAttribute('aria-pressed', 'false')
-  await expect(enterFocusMode).toBeFocused()
+  await page.keyboard.press('ControlOrMeta+Shift+F')
   await expect(globalNavigation).toBeVisible()
   await expect(projectsSidebar).toBeVisible()
   await expect(leftUtilities).toBeVisible()
 
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
-  await devToolbarControl(page, 'Agents / History').click()
-  await expect(rightUtilities.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  await devSidebarControl(page, 'Expand utility sidebar').click()
+  await expect(rightUtilities.getByRole('heading', { name: 'Browser' })).toBeVisible()
   await rightUtilities.getByRole('tab', { name: 'Agents' }).focus()
   await page.keyboard.press('ArrowRight')
   await expect(rightUtilities.getByRole('tab', { name: 'History' })).toBeFocused()
@@ -336,7 +355,7 @@ test('the Dev shell restores the session layout document after a reload', async 
   await page.keyboard.press('ArrowRight')
   await expect(separator).toHaveAttribute('aria-valuenow', '55')
 
-  await devToolbarControl(page, 'Agents / History').click()
+  await devSidebarControl(page, 'Expand utility sidebar').click()
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
   await expect(rightUtilities).toBeVisible()
 
@@ -375,12 +394,18 @@ test('each utility toggle reveals its pane and the sidebar fills the workspace h
   await devToolbarControl(page, 'Files / SC').click()
   await expect(leftUtilities.getByRole('tab', { name: 'Source control' })).toBeVisible()
 
-  await devToolbarControl(page, 'Browser / Devices').click()
+  await devSidebarControl(page, 'Expand utility sidebar').click()
   await expect(rightUtilities).toBeVisible()
   await expect(rightUtilities.getByRole('tab', { name: 'Browser' })).toBeVisible()
   await expect(rightUtilities.getByRole('tab', { name: 'Devices' })).toBeVisible()
 
-  await devToolbarControl(page, 'Agents / History').click()
+  // The bundled sidebar keeps one pane at a time; switching to Agents and
+  // collapsing reopens Agents, not the slot's default pane.
+  await rightUtilities.getByRole('tab', { name: 'Agents' }).click()
+  await expect(rightUtilities.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  await devSidebarControl(page, 'Collapse utility sidebar').click()
+  await expect(rightUtilities).toBeHidden()
+  await devSidebarControl(page, 'Expand utility sidebar').click()
   await expect(rightUtilities.getByRole('heading', { name: 'Agents' })).toBeVisible()
 
   // The contextual sidebar is a sibling of the center panes and owns the full
@@ -399,7 +424,7 @@ test('each utility toggle reveals its pane and the sidebar fills the workspace h
 test('Dev shell reports when the E2E fixture has no browser read capability', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page, '/?view=dev&devE2e=preserved')
-  await devToolbarControl(page, 'Browser / Devices').click()
+  await devSidebarControl(page, 'Expand utility sidebar').click()
 
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
   await rightUtilities.getByRole('tab', { name: 'Browser' }).click()
@@ -591,9 +616,9 @@ test('the Dev shell stays keyboard-operable at 200% zoom with reduced motion', a
   // Keyboard-only path: the skip link is focusable and utility tab arrows land.
   await page.getByRole('link', { name: 'Skip to workspace' }).focus()
   await expect(page.getByRole('link', { name: 'Skip to workspace' })).toBeFocused()
-  await devToolbarControl(page, 'Agents / History').click()
+  await devSidebarControl(page, 'Expand utility sidebar').click()
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
-  await expect(rightUtilities.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  await expect(rightUtilities.getByRole('heading', { name: 'Browser' })).toBeVisible()
   await rightUtilities.getByRole('tab', { name: 'Agents' }).focus()
   await page.keyboard.press('ArrowRight')
   await expect(rightUtilities.getByRole('tab', { name: 'History' })).toBeFocused()

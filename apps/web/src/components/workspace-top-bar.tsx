@@ -1,7 +1,9 @@
 import { useRouter } from '@tanstack/solid-router'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { TopBar, TopBarSection, TopBarTitle } from '@adea-ai/ui/components/layout/top-bar'
+import { Separator } from '@adea-ai/ui/components/ui/separator'
 import { ArrowLeft, ArrowRight, Bell, PanelLeftClose, PanelLeftOpen } from 'lucide-solid'
+import type { JSX } from 'solid-js'
 import { createSignal, onCleanup, onMount, Show } from 'solid-js'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { workspaceHistoryPosition } from '../lib/workspace-history'
@@ -15,6 +17,13 @@ export function WorkspaceTopBar(props: {
   title: string
   onOpenNotifications(): void
   actionsMount(element: HTMLDivElement): void
+  /** Workspace-wide actions rendered before the appearance control. */
+  resources?: JSX.Element
+  /**
+   * Mount for the active view's sidebar toggle: the top bar's trailing icon,
+   * separated from the workspace actions by a divider.
+   */
+  sidebarMount(element: HTMLDivElement): void
 }) {
   const router = useRouter()
   const sidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
@@ -122,6 +131,7 @@ export function WorkspaceTopBar(props: {
       <TopBarTitle class="workspace-topbar__title">{props.title}</TopBarTitle>
       <TopBarSection align="end" class="workspace-topbar__actions">
         <div class="workspace-topbar__view-actions" ref={props.actionsMount} />
+        {props.resources}
         <WorkspaceAppearanceControl />
         <ActionButton
           variant="ghost"
@@ -133,6 +143,13 @@ export function WorkspaceTopBar(props: {
         >
           <Bell aria-hidden="true" />
         </ActionButton>
+        {/* The view-provided sidebar toggle is the trailing icon; the divider
+            separates it from the workspace actions. Both hide while no view
+            supplies a toggle. */}
+        <div class="workspace-topbar__sidebar">
+          <Separator orientation="vertical" class="workspace-topbar__sidebar-divider" />
+          <div class="workspace-topbar__sidebar-mount" ref={props.sidebarMount} />
+        </div>
       </TopBarSection>
     </TopBar>
   )

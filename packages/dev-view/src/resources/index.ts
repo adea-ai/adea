@@ -1,4 +1,5 @@
 export { ResourcesPane, type ResourcesPaneProps } from './resources-pane'
+export { ResourcesSheet, type ResourcesSheetProps } from './resources-sheet'
 export { ActivityPane, type ActivityPaneProps } from './activity-pane'
 export {
   formatBytes,

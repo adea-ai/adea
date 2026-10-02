@@ -26,8 +26,9 @@ import {
   MessageSquareText,
   Plug,
   Search,
+  SquareKanban,
 } from 'lucide-solid'
-import { createEffect, For, onCleanup } from 'solid-js'
+import { createEffect, createSignal, For, onCleanup } from 'solid-js'
 
 import { AccountMenu } from './account-menu'
 import { keyedRows } from './keyed-rows'
@@ -38,7 +39,7 @@ const VIEW_ICONS: Record<string, typeof Home> = {
   virtual: Map,
   chat: MessageSquareText,
   dev: Code2,
-  kanban: LayoutGrid,
+  kanban: SquareKanban,
   'source-control': GitBranch,
 }
 
@@ -48,6 +49,43 @@ const VIEW_LABELS: Record<string, string> = {
   dev: 'Dev view',
   kanban: 'Kanban',
   'source-control': 'Source control',
+}
+
+/**
+ * The rail reorder contract: pointer drag-and-drop plus Alt+Arrow keyboard
+ * moves. Both handlers return the live-region announcement so the rail keeps
+ * a single owner of rail preferences (the host) and only owns the a11y
+ * surface. The host funnels both through the same preference record, so a
+ * pointer reorder and a keyboard reorder produce byte-identical orders.
+ */
+export type RailReorderHandlers = {
+  /** Pointer drop: place `id` directly before or after `targetId`. */
+  onDrop(id: WorkspaceAppId, targetId: WorkspaceAppId, position: 'after' | 'before'): string
+  /** Keyboard move (Alt+Arrow) of one view by one slot. */
+  onMove(id: WorkspaceAppId, direction: 'down' | 'up'): string
+}
+
+/**
+ * The keyboard reorder contract, documented to assistive technology through
+ * the row's description.
+ */
+export const RAIL_REORDER_HINT = 'Press Alt with Arrow Up or Arrow Down to move this view.'
+
+/** Alt+Arrow moves the focused rail view; every other chord keeps its default. */
+function railReorderKeyDown(
+  event: KeyboardEvent,
+  rowId: string,
+  move: (direction: 'down' | 'up') => void
+): void {
+  if (!event.altKey) return
+  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+  event.preventDefault()
+  event.stopPropagation()
+  move(event.key === 'ArrowUp' ? 'up' : 'down')
+  // A reorder re-renders the section; put focus back on the moved row.
+  requestAnimationFrame(() => {
+    document.querySelector<HTMLElement>(`[data-row-id="${rowId}"]`)?.focus()
+  })
 }
 
 function WorkspaceMark(props: { workspace?: WorkspaceSummary }) {
@@ -80,6 +118,8 @@ export function GlobalWorkspaceRail(props: {
   onViewIntent?: (view: WorkspaceView) => void
   /** Fires on hover/focus of a panel's entry point — prefetch its dialog chunk. */
   onPanelIntent?: (panel: 'about' | 'plugins' | 'settings') => void
+  /** Present when the host persists rail order changes: drag and Alt+Arrow reorder. */
+  reorder?: RailReorderHandlers
   view: WorkspaceAppId
   workspaces: readonly WorkspaceSummary[]
 }) {
@@ -88,6 +128,13 @@ export function GlobalWorkspaceRail(props: {
     () => props.workspaces,
     (workspace) => workspace.id
   )
+  // Drag state lives only for the drop indicator; the drop itself reports the
+  // pointer side of the target row (upper half before, lower half after).
+  const [draggingId, setDraggingId] = createSignal<WorkspaceAppId>()
+  const [dropTargetId, setDropTargetId] = createSignal<WorkspaceAppId>()
+  const [dropPosition, setDropPosition] = createSignal<'after' | 'before'>()
+  const [announcement, setAnnouncement] = createSignal('')
+  const reorderable = () => Boolean(props.reorder) && props.views.length > 1
 
   createEffect(() => {
     const openSearchWithShortcut = (event: KeyboardEvent) => {
@@ -182,7 +229,12 @@ export function GlobalWorkspaceRail(props: {
 
         <Separator class="my-1" />
 
-        <SideRailSection label="Workspace views" role="group" aria-label="Workspace views">
+        <SideRailSection
+          label="Workspace views"
+          role="group"
+          aria-label="Workspace views"
+          data-reordering={draggingId() !== undefined || undefined}
+        >
           <For each={props.views}>
             {(view) => {
               const Icon = VIEW_ICONS[view] ?? Map
@@ -191,8 +243,34 @@ export function GlobalWorkspaceRail(props: {
                 if (view === 'virtual' || view === 'chat' || view === 'dev')
                   props.onViewIntent?.(view)
               }
+              const rowId = `rail-view:${view}`
               return (
-                <div class="global-rail__intent" onPointerEnter={onIntent} onFocusIn={onIntent}>
+                <div
+                  class="global-rail__intent global-rail__slot"
+                  data-drop-position={dropTargetId() === view ? dropPosition() : undefined}
+                  data-drop-target={dropTargetId() === view || undefined}
+                  onPointerEnter={onIntent}
+                  onFocusIn={onIntent}
+                  onDragOver={(event) => {
+                    if (draggingId() === undefined || draggingId() === view) return
+                    event.preventDefault()
+                    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+                    setDropTargetId(view)
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    setDropPosition(event.clientY < rect.top + rect.height / 2 ? 'before' : 'after')
+                  }}
+                  onDrop={(event) => {
+                    const dragged = draggingId()
+                    if (dragged === undefined || dragged === view || !props.reorder) return
+                    event.preventDefault()
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+                    setAnnouncement(props.reorder.onDrop(dragged, view, position))
+                    setDraggingId(undefined)
+                    setDropTargetId(undefined)
+                    setDropPosition(undefined)
+                  }}
+                >
                   <SideRailItem
                     as="button"
                     type="button"
@@ -200,7 +278,28 @@ export function GlobalWorkspaceRail(props: {
                     aria-pressed={active() || undefined}
                     label={VIEW_LABELS[view] ?? view}
                     aria-label={VIEW_LABELS[view] ?? view}
+                    aria-description={reorderable() ? RAIL_REORDER_HINT : undefined}
+                    data-row-id={rowId}
+                    draggable={reorderable()}
                     onClick={() => props.onViewChange(view)}
+                    onKeyDown={(event) =>
+                      props.reorder &&
+                      railReorderKeyDown(event, rowId, (direction) =>
+                        setAnnouncement(props.reorder!.onMove(view, direction))
+                      )
+                    }
+                    onDragStart={(event) => {
+                      setDraggingId(view)
+                      setDropTargetId(undefined)
+                      setDropPosition(undefined)
+                      event.dataTransfer?.setData('text/plain', VIEW_LABELS[view] ?? view)
+                      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragEnd={() => {
+                      setDraggingId(undefined)
+                      setDropTargetId(undefined)
+                      setDropPosition(undefined)
+                    }}
                   >
                     <Icon aria-hidden="true" />
                   </SideRailItem>
@@ -262,6 +361,9 @@ export function GlobalWorkspaceRail(props: {
           platform={props.account.platform}
         />
       </SideRailFooter>
+      <p class="sr-only" role="status" aria-live="polite">
+        {announcement()}
+      </p>
     </SideRail>
   )
 }

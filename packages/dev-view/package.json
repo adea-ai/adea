@@ -125,6 +125,12 @@
       "solid": "./src/files/file-stream.ts",
       "development": "./src/files/file-stream.ts",
       "import": "./dist/files/file-stream.js"
+    },
+    "./resources/sheet": {
+      "types": "./dist/resources/resources-sheet.d.ts",
+      "solid": "./src/resources/resources-sheet.tsx",
+      "development": "./src/resources/resources-sheet.tsx",
+      "import": "./dist/resources/resources-sheet.js"
     }
   },
   "scripts": {

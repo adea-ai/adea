@@ -17,8 +17,10 @@ import type { RegistryPluginsProviderOptions } from '@adea-ai/workspace-ui/plugi
 import type { RailPreferencesV1 } from '@adea-ai/workspace-ui/rail-preferences'
 import {
   defaultRailPreferences,
+  railMoveAnnouncement,
   readRailPreferences,
   reorderRailItems,
+  reorderRailItemsRelativeTo,
   writeRailPreferences,
 } from '@adea-ai/workspace-ui/rail-preferences'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
@@ -28,9 +30,11 @@ import {
   enabledWorkspaceApps,
   resolveWorkspaceApp,
   setWorkspaceAppEnabled,
+  workspaceApps,
   type WorkspaceAppId,
 } from '@adea-ai/workspace-ui/workspace-apps'
 import { WorkspaceTopBar } from './workspace-top-bar'
+import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
@@ -52,6 +56,7 @@ const DevWorkspace = lazyComponent(
           fixture: boolean
           runtime?: WorkspacePlatformServices['devRuntime']
           toolbarMount?: HTMLElement
+          sidebarActionMount?: HTMLElement
           appMode?: 'source-control'
         }) => {
           const unavailable =
@@ -73,6 +78,7 @@ const DevWorkspace = lazyComponent(
               storage={typeof window === 'undefined' ? undefined : window.localStorage}
               runtime={runtime}
               toolbarMount={entryProps.toolbarMount}
+              sidebarActionMount={entryProps.sidebarActionMount}
               appMode={entryProps.appMode}
             />
           )
@@ -253,12 +259,29 @@ export type WorkspaceNavigationProps = Readonly<{
   workspaces: readonly WorkspaceSummary[]
 }>
 
+/** The rail's live-region announcement for one applied move of `id`. */
+function railMoveAnnouncementFor(
+  id: WorkspaceAppId,
+  previous: RailPreferencesV1,
+  next: RailPreferencesV1
+): string {
+  const position = enabledWorkspaceApps(next).findIndex((app) => app.id === id) + 1
+  const moved = position !== enabledWorkspaceApps(previous).findIndex((app) => app.id === id) + 1
+  return railMoveAnnouncement(
+    workspaceApps.find((app) => app.id === id)?.name ?? id,
+    position,
+    enabledWorkspaceApps(next).length,
+    moved
+  )
+}
+
 // Rail customization applies the versioned order/hidden preference, keeping
 // the active view visible even when it is hidden. Unknown ids preserved by
 // the preference (contributions from other builds) never reach the rail.
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
+  const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
@@ -576,6 +599,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
         onOpenNotifications={() => openSettings('input-notifications')}
         actionsMount={setToolbarMount}
+        resources={<RuntimeResourcesControl runtime={props.services.devRuntime} />}
+        sidebarMount={setSidebarActionMount}
       />
       <GlobalWorkspaceRail
         account={{
@@ -605,6 +630,20 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         onViewChange={(id) => changeApp(id)}
         onViewIntent={preloadView}
         onPanelIntent={preloadPanel}
+        reorder={{
+          onDrop: (id, targetId, position) => {
+            const previous = railPreferences()
+            const next = reorderRailItemsRelativeTo(previous, id, targetId, position)
+            persistRailPreferences(next)
+            return railMoveAnnouncementFor(id, previous, next)
+          },
+          onMove: (id, direction) => {
+            const previous = railPreferences()
+            const next = reorderRailItems(previous, id, direction, orderedViews())
+            persistRailPreferences(next)
+            return railMoveAnnouncementFor(id, previous, next)
+          },
+        }}
         view={activeAppId()}
         views={orderedViews()}
         workspaces={props.workspaces}
@@ -629,11 +668,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                 persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
               }
               onOpen={(id) => changeApp(id)}
-              onReorder={(id, direction) =>
-                persistRailPreferences(
-                  reorderRailItems(railPreferences(), id, direction, orderedViews())
-                )
-              }
               onReset={() => persistRailPreferences(defaultRailPreferences)}
             />
           }
@@ -649,6 +683,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                     }
                     runtime={props.services.devRuntime}
                     toolbarMount={mount()}
+                    sidebarActionMount={sidebarActionMount()}
                     appMode={activeAppId() === 'source-control' ? 'source-control' : undefined}
                   />
                 )}

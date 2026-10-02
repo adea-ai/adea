@@ -61,6 +61,33 @@
   display: flex;
   min-width: 0;
 }
+/* Drag-and-drop reorder slots. The insertion indicator is a 3px bar that
+   shows above or below the hovered row, following the pointer side. */
+.global-rail__slot {
+  position: relative;
+  border-radius: 0.375rem;
+}
+.global-rail__slot::before {
+  content: '';
+  position: absolute;
+  inset-inline: 0.25rem;
+  top: -0.1875rem;
+  height: 0.1875rem;
+  border-radius: 999px;
+  background: var(--primary);
+  opacity: 0;
+  pointer-events: none;
+}
+.global-rail__slot[data-drop-position='after']::before {
+  top: auto;
+  bottom: -0.1875rem;
+}
+.global-rail__slot[data-drop-target]::before {
+  opacity: 1;
+}
+.global-rail__slot[data-drop-target] {
+  background: color-mix(in oklab, var(--sidebar-accent) 60%, transparent);
+}
 
 /*
  * The collapsed rail keeps one vertical rhythm. The header row is an item, not
@@ -1765,6 +1792,22 @@
 .workspace-topbar__view-actions .dev-button--toggle span {
   display: none;
 }
+/* The view-provided sidebar toggle rides the trailing mount: a standard icon
+   button after the workspace actions, separated by a vertical divider. The
+   whole group hides while the active view supplies no toggle. */
+.workspace-topbar__sidebar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.workspace-topbar__sidebar:has(.workspace-topbar__sidebar-mount:empty) {
+  display: none;
+}
+.workspace-topbar__sidebar .workspace-topbar__sidebar-divider[data-orientation='vertical'] {
+  height: 1.25rem;
+}
 .workspace-frame .conventional-mobile-menu {
   display: none;
 }
@@ -1796,9 +1839,84 @@
   gap: 0.6rem;
 }
 .workspace-app-library__body {
+  max-width: 56rem;
+}
+/* The launchpad grid (KiroCrew library pattern): icon tiles with the sidebar
+   toggle on the mark's corner, the name, and a status caption. */
+.workspace-app-library__grid {
   display: grid;
-  max-width: 52rem;
-  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.25rem;
+}
+.workspace-app-library__empty {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+.workspace-app-library__tile {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.875rem 0.375rem 0.625rem;
+  border-radius: 0.75rem;
+}
+.workspace-app-library__tile:hover,
+.workspace-app-library__tile:focus-within {
+  background: var(--muted);
+}
+.workspace-app-library__tile-media {
+  position: relative;
+}
+.workspace-app-library__tile-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  background: var(--card);
+  box-shadow: var(--shadow-2xs);
+}
+.workspace-app-library__tile-icon svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--foreground);
+}
+/* Apps outside the sidebar read as dormant: greyscale mark, quiet name. */
+.workspace-app-library__tile[data-enabled='false'] .workspace-app-library__tile-icon {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+.workspace-app-library__tile[data-enabled='false'] .workspace-app-library__tile-name {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+.workspace-app-library__tile-toggle {
+  position: absolute;
+  top: -0.375rem;
+  inset-inline-end: -0.375rem;
+  box-shadow: var(--shadow-xs);
+}
+.workspace-app-library__tile-name {
+  display: flex;
+  min-height: 1.75rem;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-app-library__tile-caption {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  line-height: 1;
 }
 .workspace-app-library__footer {
   display: flex;
@@ -1812,6 +1930,11 @@
   margin: 0;
   color: var(--muted-foreground);
   font-size: 0.75rem;
+}
+/* Pull the reset button's own padding back to the shared left margin so its
+   label aligns with the hint lines below it. */
+.workspace-app-library__reset {
+  margin-inline-start: -0.625rem;
 }
 @media (max-width: 48rem) {
   .workspace-app-library {
