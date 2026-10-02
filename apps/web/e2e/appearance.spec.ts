@@ -274,12 +274,12 @@ test.describe('appearance', () => {
       'blur'
     )
 
-    // 'Theme default' is also the accent row's swatch name; the glass row is
+    // 'Theme default' is also the accent row's name; the Glass radiogroup is
     // the one this test is driving.
-    const glassRow = panel.locator('section').filter({
-      has: panel.getByRole('heading', { name: 'Glass', exact: true }),
-    })
-    await glassRow.getByText('Theme default', { exact: true }).click()
+    await panel
+      .getByRole('radiogroup', { name: 'Glass', exact: true })
+      .getByText('Theme default', { exact: true })
+      .click()
     await expect(page.locator('html')).toHaveAttribute('data-surface', /translucent|frosted/)
     await panel.getByRole('button', { name: 'Cancel' }).click()
   })
