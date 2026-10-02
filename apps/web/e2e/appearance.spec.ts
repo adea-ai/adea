@@ -241,6 +241,41 @@ test.describe('appearance', () => {
     await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
   })
 
+  test('the resolved surface thins the workspace canvas it paints', async ({ page }) => {
+    const canvas = page.locator('main.conventional-workspace')
+    await expect(canvas).toBeVisible()
+    const alpha = () =>
+      canvas.evaluate((element) => {
+        const value = getComputedStyle(element).backgroundColor
+        const match = /(?:rgba?\([^)]*,|\/)\s*([\d.]+)\s*\)?$/.exec(value.trim())
+        return match ? Number(match[1]) : 1
+      })
+
+    const panel = await openAppearance(page)
+    await panel.getByText('Opaque', { exact: true }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-surface', 'opaque')
+    expect(await alpha()).toBe(1)
+
+    // The consumption is the point: the state flipping without the canvas
+    // following was the report — the preference promised a surface the
+    // stylesheet never painted.
+    await panel.getByText('Frosted', { exact: true }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
+    expect(await alpha()).toBeCloseTo(0.92, 5)
+    expect(await canvas.evaluate((element) => getComputedStyle(element).backdropFilter)).toContain(
+      'blur'
+    )
+
+    // 'Theme default' is also the accent row's swatch name; the glass row is
+    // the one this test is driving.
+    const glassRow = panel.locator('section').filter({
+      has: panel.getByRole('heading', { name: 'Glass', exact: true }),
+    })
+    await glassRow.getByText('Theme default', { exact: true }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-surface', /translucent|frosted/)
+    await panel.getByRole('button', { name: 'Cancel' }).click()
+  })
+
   test('reduced transparency forces the opaque surface state', async ({ page }) => {
     const panel = await openAppearance(page)
     await panel.getByRole('switch', { name: 'Reduce transparency' }).press('Space')
