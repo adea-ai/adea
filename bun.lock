@@ -5,7 +5,7 @@
     "": {
       "name": "adea",
       "devDependencies": {
-        "@adea-ai/ui": "0.97.4",
+        "@adea-ai/ui": "0.99.0",
         "@playwright/test": "^1.63.0",
         "@shadcn/lint": "^0.1.1",
         "@tailwindcss/postcss": "^4.3.3",
@@ -153,7 +153,7 @@
         "@adea-ai/state": "workspace:*",
         "@adea-ai/themes": "0.8.8",
         "@adea-ai/types": "workspace:*",
-        "@adea-ai/ui": "0.97.4",
+        "@adea-ai/ui": "0.99.0",
         "@codemirror/commands": "^6.8.1",
         "@codemirror/language": "^6.11.0",
         "@codemirror/search": "^6.5.11",
@@ -276,7 +276,7 @@
 
     "@adea-ai/types": ["@adea-ai/types@workspace:packages/types"],
 
-    "@adea-ai/ui": ["@adea-ai/ui@0.97.4", "", { "dependencies": { "@adea-ai/themes": "^0.8.0", "@corvu/calendar": "^0.1.2", "@corvu/drawer": "^0.2.4", "@corvu/otp-field": "^0.1.4", "@corvu/resizable": "^0.2.5", "@fontsource-variable/geist": "^5.3.0", "@fontsource-variable/geist-mono": "^5.3.0", "@fontsource-variable/jetbrains-mono": "^5.3.0", "@fontsource-variable/space-grotesk": "^5.3.0", "@kobalte/core": "^0.13.14", "class-variance-authority": "^0.7.1", "cmdk-solid": "^1.2.0", "cn": "^0.4.0", "lucide-solid": "^1.48.0", "solid-motionone": "^1.0.4", "tw-animate-css": "^1.4.0" }, "peerDependencies": { "chart.js": "^4.5.1", "embla-carousel": "^8.6.0", "embla-carousel-solid": "^8.6.0", "solid-chartjs": "^1.3.11", "solid-js": "^1.9.0" }, "optionalPeers": ["chart.js", "embla-carousel", "embla-carousel-solid", "solid-chartjs"] }, "sha512-bqxWwL9I8U7qn1LKdWI/AGsK0tNoZFMBrI2FNGdFVQuoO75ugxNPyq4YvFVu849QarVWM+1ajGQE4FFPlr5V6Q=="],
+    "@adea-ai/ui": ["@adea-ai/ui@0.99.0", "", { "dependencies": { "@adea-ai/themes": "^0.8.0", "@corvu/calendar": "^0.1.2", "@corvu/drawer": "^0.2.4", "@corvu/otp-field": "^0.1.4", "@corvu/resizable": "^0.2.5", "@fontsource-variable/geist": "^5.3.0", "@fontsource-variable/geist-mono": "^5.3.0", "@fontsource-variable/jetbrains-mono": "^5.3.0", "@fontsource-variable/space-grotesk": "^5.3.0", "@kobalte/core": "^0.13.14", "class-variance-authority": "^0.7.1", "cmdk-solid": "^1.2.0", "cn": "^0.4.0", "lucide-solid": "^1.48.0", "solid-motionone": "^1.0.4", "tw-animate-css": "^1.4.0" }, "peerDependencies": { "chart.js": "^4.5.1", "embla-carousel": "^8.6.0", "embla-carousel-solid": "^8.6.0", "solid-chartjs": "^1.3.11", "solid-js": "^1.9.0" }, "optionalPeers": ["chart.js", "embla-carousel", "embla-carousel-solid", "solid-chartjs"] }, "sha512-ZZpZWMo44acJPAis1lT6toKv8EzMjoDBv2c9PUvBip4ZZcWeP6xB1DUw51eEP5qPaH1q9rEbIQmbxZpdiCuwlg=="],
 
     "@adea-ai/web": ["@adea-ai/web@workspace:apps/web"],
 
@@ -2033,6 +2033,14 @@
     "youch-core": ["youch-core@0.3.3", "", { "dependencies": { "@poppinss/exception": "^1.2.2", "error-stack-parser-es": "^1.0.5" } }, "sha512-ho7XuGjLaJ2hWHoK8yFnsUGy2Y5uDpqSTq1FkHLK4/oqKtyUU1AFbOOxY4IpC9f0fTLjwYbslUz0Po5BpD1wrA=="],
 
     "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+
+    "@adea-ai/app-ui/@adea-ai/ui": ["@adea-ai/ui@0.97.4", "", { "dependencies": { "@adea-ai/themes": "^0.8.0", "@corvu/calendar": "^0.1.2", "@corvu/drawer": "^0.2.4", "@corvu/otp-field": "^0.1.4", "@corvu/resizable": "^0.2.5", "@fontsource-variable/geist": "^5.3.0", "@fontsource-variable/geist-mono": "^5.3.0", "@fontsource-variable/jetbrains-mono": "^5.3.0", "@fontsource-variable/space-grotesk": "^5.3.0", "@kobalte/core": "^0.13.14", "class-variance-authority": "^0.7.1", "cmdk-solid": "^1.2.0", "cn": "^0.4.0", "lucide-solid": "^1.48.0", "solid-motionone": "^1.0.4", "tw-animate-css": "^1.4.0" }, "peerDependencies": { "chart.js": "^4.5.1", "embla-carousel": "^8.6.0", "embla-carousel-solid": "^8.6.0", "solid-chartjs": "^1.3.11", "solid-js": "^1.9.0" }, "optionalPeers": ["chart.js", "embla-carousel", "embla-carousel-solid", "solid-chartjs"] }, "sha512-bqxWwL9I8U7qn1LKdWI/AGsK0tNoZFMBrI2FNGdFVQuoO75ugxNPyq4YvFVu849QarVWM+1ajGQE4FFPlr5V6Q=="],
+
+    "@adea-ai/audio/@adea-ai/ui": ["@adea-ai/ui@0.97.4", "", { "dependencies": { "@adea-ai/themes": "^0.8.0", "@corvu/calendar": "^0.1.2", "@corvu/drawer": "^0.2.4", "@corvu/otp-field": "^0.1.4", "@corvu/resizable": "^0.2.5", "@fontsource-variable/geist": "^5.3.0", "@fontsource-variable/geist-mono": "^5.3.0", "@fontsource-variable/jetbrains-mono": "^5.3.0", "@fontsource-variable/space-grotesk": "^5.3.0", "@kobalte/core": "^0.13.14", "class-variance-authority": "^0.7.1", "cmdk-solid": "^1.2.0", "cn": "^0.4.0", "lucide-solid": "^1.48.0", "solid-motionone": "^1.0.4", "tw-animate-css": "^1.4.0" }, "peerDependencies": { "chart.js": "^4.5.1", "embla-carousel": "^8.6.0", "embla-carousel-solid": "^8.6.0", "solid-chartjs": "^1.3.11", "solid-js": "^1.9.0" }, "optionalPeers": ["chart.js", "embla-carousel", "embla-carousel-solid", "solid-chartjs"] }, "sha512-bqxWwL9I8U7qn1LKdWI/AGsK0tNoZFMBrI2FNGdFVQuoO75ugxNPyq4YvFVu849QarVWM+1ajGQE4FFPlr5V6Q=="],
+
+    "@adea-ai/web/@adea-ai/ui": ["@adea-ai/ui@0.97.4", "", { "dependencies": { "@adea-ai/themes": "^0.8.0", "@corvu/calendar": "^0.1.2", "@corvu/drawer": "^0.2.4", "@corvu/otp-field": "^0.1.4", "@corvu/resizable": "^0.2.5", "@fontsource-variable/geist": "^5.3.0", "@fontsource-variable/geist-mono": "^5.3.0", "@fontsource-variable/jetbrains-mono": "^5.3.0", "@fontsource-variable/space-grotesk": "^5.3.0", "@kobalte/core": "^0.13.14", "class-variance-authority": "^0.7.1", "cmdk-solid": "^1.2.0", "cn": "^0.4.0", "lucide-solid": "^1.48.0", "solid-motionone": "^1.0.4", "tw-animate-css": "^1.4.0" }, "peerDependencies": { "chart.js": "^4.5.1", "embla-carousel": "^8.6.0", "embla-carousel-solid": "^8.6.0", "solid-chartjs": "^1.3.11", "solid-js": "^1.9.0" }, "optionalPeers": ["chart.js", "embla-carousel", "embla-carousel-solid", "solid-chartjs"] }, "sha512-bqxWwL9I8U7qn1LKdWI/AGsK0tNoZFMBrI2FNGdFVQuoO75ugxNPyq4YvFVu849QarVWM+1ajGQE4FFPlr5V6Q=="],
+
+    "@adea-ai/workspace-ui/@adea-ai/ui": ["@adea-ai/ui@0.97.4", "", { "dependencies": { "@adea-ai/themes": "^0.8.0", "@corvu/calendar": "^0.1.2", "@corvu/drawer": "^0.2.4", "@corvu/otp-field": "^0.1.4", "@corvu/resizable": "^0.2.5", "@fontsource-variable/geist": "^5.3.0", "@fontsource-variable/geist-mono": "^5.3.0", "@fontsource-variable/jetbrains-mono": "^5.3.0", "@fontsource-variable/space-grotesk": "^5.3.0", "@kobalte/core": "^0.13.14", "class-variance-authority": "^0.7.1", "cmdk-solid": "^1.2.0", "cn": "^0.4.0", "lucide-solid": "^1.48.0", "solid-motionone": "^1.0.4", "tw-animate-css": "^1.4.0" }, "peerDependencies": { "chart.js": "^4.5.1", "embla-carousel": "^8.6.0", "embla-carousel-solid": "^8.6.0", "solid-chartjs": "^1.3.11", "solid-js": "^1.9.0" }, "optionalPeers": ["chart.js", "embla-carousel", "embla-carousel-solid", "solid-chartjs"] }, "sha512-bqxWwL9I8U7qn1LKdWI/AGsK0tNoZFMBrI2FNGdFVQuoO75ugxNPyq4YvFVu849QarVWM+1ajGQE4FFPlr5V6Q=="],
 
     "@babel/core/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
