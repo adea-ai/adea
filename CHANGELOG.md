@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.71.10](https://github.com/adea-ai/adea/compare/v0.71.9...v0.71.10) (2026-10-02)
+
+
+### Maintenance
+
+* **visual:** regenerate -linux baselines for the rail rhythm change ([#909](https://github.com/adea-ai/adea/issues/909)) ([c980d00](https://github.com/adea-ai/adea/commit/c980d00a812b02542e0b35fccab0a2779b1a465d))
+
 ## [0.71.9](https://github.com/adea-ai/adea/compare/v0.71.8...v0.71.9) (2026-10-02)
 
 
