@@ -163,33 +163,47 @@
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Inside the frame the surface already starts below the top bar, so a full
+   viewport height would push the grid's bottom — the composer and the
+   sidebar footer — past the clipped edge. The calc tracks the frame's own
+   inset rather than a percentage so it still holds through hosts that wrap
+   the workspace in an auto-height element. */
+.workspace-frame__surface .conventional-workspace {
+  height: calc(100svh - var(--workspace-topbar-height));
+}
+
 .conventional-workspace *,
 .conventional-workspace *::before,
 .conventional-workspace *::after {
   box-sizing: border-box;
 }
-.conventional-workspace button,
-.conventional-workspace input,
-.conventional-workspace select,
-.conventional-workspace textarea {
+/* These resets tame the workspace's own raw markup. The shared sidebar is a
+   design-system component with its own typography, icon sizing, cursors and
+   focus rings, and it also mounts outside this container (the virtual view),
+   so applying the resets to it would make the same component render
+   differently per view — hence the `.conventional-sidebar` exclusions. */
+.conventional-workspace button:not(.conventional-sidebar *),
+.conventional-workspace input:not(.conventional-sidebar *),
+.conventional-workspace select:not(.conventional-sidebar *),
+.conventional-workspace textarea:not(.conventional-sidebar *) {
   font: inherit;
 }
-.conventional-workspace button:not([data-slot]) {
+.conventional-workspace button:not([data-slot]):not(.conventional-sidebar *) {
   color: inherit;
 }
-.conventional-workspace button:not(:disabled),
-.conventional-workspace select:not(:disabled) {
+.conventional-workspace button:not(:disabled):not(.conventional-sidebar *),
+.conventional-workspace select:not(:disabled):not(.conventional-sidebar *) {
   cursor: pointer;
 }
-.conventional-workspace button:disabled {
+.conventional-workspace button:disabled:not(.conventional-sidebar *) {
   cursor: not-allowed;
   opacity: 0.55;
 }
-.conventional-workspace :focus-visible {
+.conventional-workspace :focus-visible:not(.conventional-sidebar *) {
   outline: 3px solid var(--cw-focus);
   outline-offset: 2px;
 }
-.conventional-workspace svg {
+.conventional-workspace svg:not(.conventional-sidebar *) {
   width: 1.1rem;
   height: 1.1rem;
   flex: none;
@@ -221,6 +235,10 @@
   grid-row: 1;
   min-width: 0;
   overflow: hidden;
+  /* The sidebar is app chrome: everywhere else it inherits the shell's
+     --font-sans, but inside this container the conversation's Inter would
+     win the cascade and retypeface the same component per view. */
+  font-family: var(--font-sans);
 }
 /* The shared ruler is pointer-events-none except for its handle, and cursor
    inherits, so this covers the whole drag affordance without touching the

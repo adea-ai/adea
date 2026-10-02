@@ -313,13 +313,17 @@ export function WorkspaceSidebar(props: Props) {
     const media = window.matchMedia('(max-width: 48rem)')
     const updateViewport = () => {
       const wasNarrow = isNarrowViewport()
-      setIsNarrowViewport(media.matches)
       // The store seeds the open flag from the viewport at load: a
       // desktop-loaded workspace starts with the inline navigation expanded.
       // Keep that contract across live resizes — crossing below 48rem closes
       // the navigation instead of letting the desktop-expanded state pop the
       // shared Sheet open over the content.
+      // The close must land before the narrow signal flips: each set flushes
+      // synchronously, so the reverse order renders the Sheet open for a
+      // frame, whose focus scope moves focus out of any open dialog (closing
+      // it via focus-outside) before the close takes effect.
       if (media.matches && !wasNarrow) props.onToggleMobile(false)
+      setIsNarrowViewport(media.matches)
     }
     updateViewport()
     media.addEventListener('change', updateViewport)

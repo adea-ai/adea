@@ -426,6 +426,14 @@ export function ConversationSurface(props: {
             resetKey={channel().id}
             initialReadingPosition={transcriptCache.get(channel().id)?.readingPosition}
             onReadingPositionChange={(position) => {
+              // The engine's identity reset re-pins the outgoing transcript to
+              // the bottom and reports that synthesized position before this
+              // component's channel-switch effect has saved the reader's place.
+              // Reports that arrive while the channel prop has already moved on
+              // are internal repositioning, not reader intent — drop them or
+              // the switch-away save captures a bottom pin instead of where
+              // the reader actually was.
+              if (props.channel?.id !== loadedChannelId) return
               liveReadingPosition = position
             }}
             aria-label={`${channel().title} message history`}
