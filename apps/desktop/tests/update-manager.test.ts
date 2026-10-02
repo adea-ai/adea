@@ -146,6 +146,23 @@ describe('update manager', () => {
     expect(status.phase).toBe('current')
     expect(status.available_version).toBeNull()
   })
+
+  test('the update surface carries the full installed changelog', async () => {
+    installFetchMock()
+    fetchHandler = async () => VALID_MANIFEST()
+    const manager = createUpdateManager({
+      appVersion: '0.65.2',
+      dataDir: '/tmp/adea-update-manager-test',
+      checkTimeoutMs: 30,
+    })
+    const status = await manager.status()
+    // The dialog's installed-changelog section shows the repository's whole
+    // release history — every version heading — not just the offered
+    // release's notes.
+    expect(status.changelog).toMatch(/## \[\d+\.\d+\.\d+\]/)
+    expect(status.changelog.match(/## \[\d+\.\d+\.\d+\]/g)?.length).toBeGreaterThan(1)
+    expect(status.changelog.length).toBeGreaterThan((status.release_notes ?? '').length)
+  })
 })
 
 describe('update version ordering', () => {

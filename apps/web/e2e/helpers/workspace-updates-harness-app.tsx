@@ -23,6 +23,7 @@ function Harness() {
           authenticated
           platform="desktop"
           onOpenAbout={() => undefined}
+          onOpenHelp={() => undefined}
           onOpenSettings={() => undefined}
           onOpenUpdates={
             updatesEnabled()

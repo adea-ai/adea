@@ -1,7 +1,7 @@
 // The desktop update family: feed polling, in-place install, and the manual
 // fallback. Lives outside `commands.ts` so the whole flow is testable without
 // the full command registry (scripts/desktop-update-boundary.test.ts).
-import { readdirSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   downloadUpdateArchive,
@@ -49,6 +49,33 @@ const CHECK_TIMEOUT_MS = 10_000
 const DOWNLOAD_STALL_MS = 20_000
 /** Hard cap for one download attempt, however slow-but-alive the stream is. */
 const DOWNLOAD_MAX_MS = 15 * 60_000
+
+/**
+ * The installed changelog: the repository's full release history, staged next
+ * to the bundled main process by `electrobun.config.ts` (running from the
+ * repository reads the workspace root instead). Read once and cached; a
+ * missing file degrades to an empty changelog rather than failing the update
+ * surface.
+ */
+let installedChangelogCache: string | null = null
+function installedChangelog(): string {
+  if (installedChangelogCache !== null) return installedChangelogCache
+  for (const candidate of [
+    join(import.meta.dir, '../CHANGELOG.md'),
+    join(import.meta.dir, '../../../../CHANGELOG.md'),
+  ]) {
+    try {
+      if (existsSync(candidate)) {
+        installedChangelogCache = readFileSync(candidate, 'utf8')
+        return installedChangelogCache
+      }
+    } catch {
+      // Try the next candidate; an unreadable changelog is not fatal.
+    }
+  }
+  installedChangelogCache = ''
+  return installedChangelogCache
+}
 
 /** The update channel an installation follows. */
 export type UpdateChannel = 'stable' | 'pre-release' | 'dev'
@@ -218,7 +245,7 @@ export function createUpdateManager(input: {
     available_version: null,
     release_date: null,
     release_notes: null,
-    changelog: '',
+    changelog: installedChangelog(),
     github_url: 'https://github.com/adea-ai/adea/releases',
     phase: 'idle',
     downloaded_bytes: 0,
@@ -273,7 +300,6 @@ export function createUpdateManager(input: {
         available_version: available ? availableVersion : null,
         release_date: release.published_at ?? null,
         release_notes: release.body ?? null,
-        changelog: release.body ?? '',
         github_url: release.html_url ?? 'https://github.com/adea-ai/adea/releases',
         error: null,
         restart_required: false,
@@ -314,7 +340,6 @@ export function createUpdateManager(input: {
           available_version: null,
           release_date: manifest.publishedAt,
           release_notes: manifest.notes,
-          changelog: manifest.notes ?? '',
           github_url: releaseTagUrl(manifest.version),
           restart_required: false,
         })
@@ -325,7 +350,6 @@ export function createUpdateManager(input: {
         available_version: manifest.version,
         release_date: manifest.publishedAt,
         release_notes: manifest.notes,
-        changelog: manifest.notes ?? '',
         github_url: releaseTagUrl(manifest.version),
         error: null,
         restart_required: false,

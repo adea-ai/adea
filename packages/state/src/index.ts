@@ -22,7 +22,7 @@ export type WorkspaceState = {
   devFocusMode: boolean
   drafts: Readonly<Record<string, string>>
   mobileSidebarOpen: boolean
-  globalPanel: 'about' | 'plugins' | 'search' | 'settings' | null
+  globalPanel: 'about' | 'help' | 'plugins' | 'search' | 'settings' | null
   setSelectedScene: (scene: WorkspaceSceneId) => void
   setCameraViewMode: (mode: WorkspaceViewMode) => void
   setSelectedWorkspaceId: (workspaceId: string | null) => void

@@ -55,12 +55,12 @@
       "import": "./dist/global-workspace-rail.js",
       "default": "./dist/global-workspace-rail.js"
     },
-    "./workspace-about-dialog": {
-      "types": "./dist/workspace-about-dialog.d.ts",
-      "solid": "./src/workspace-about-dialog.tsx",
-      "development": "./src/workspace-about-dialog.tsx",
-      "import": "./dist/workspace-about-dialog.js",
-      "default": "./dist/workspace-about-dialog.js"
+    "./workspace-help-center": {
+      "types": "./dist/workspace-help-center.d.ts",
+      "solid": "./src/workspace-help-center.tsx",
+      "development": "./src/workspace-help-center.tsx",
+      "import": "./dist/workspace-help-center.js",
+      "default": "./dist/workspace-help-center.js"
     },
     "./workspace-settings": {
       "types": "./dist/workspace-settings.d.ts",

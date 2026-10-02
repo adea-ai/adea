@@ -228,22 +228,21 @@ test('edit, rename and group forms retain initial values and native label associ
   )
 })
 
-test('about dialog preserves its accessible name and product identity with a shared hidden header', async ({
+test('about dialog keeps its accessible name and product identity on the shared composite', async ({
   page,
 }) => {
   await page.getByRole('button', { name: 'Open about', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'About Adea', exact: true })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('heading', { name: 'Adea', exact: true })).toBeVisible()
+  await expect(dialog.locator('img[src="/icon.svg"]')).toBeAttached()
   await expect(dialog.getByText('Version 0.61.7', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('Copyright © 2026 0xPlayerOne')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Copy version info' })).toBeVisible()
   await expect(dialog.getByRole('link', { name: 'View source' })).toHaveAttribute(
     'href',
     'https://github.com/adea-ai/adea'
   )
-  const header = dialog.locator('[data-slot="dialog-header"]')
-  await expect(header).toHaveCSS('position', 'absolute')
-  await expect(header).toHaveCSS('width', '1px')
-  await expect(header).toHaveCSS('height', '1px')
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('inert', '')

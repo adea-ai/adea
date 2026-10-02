@@ -12,7 +12,7 @@ export {
 export { VirtualView } from './virtual-view'
 export { VirtualUnavailable } from './virtual-unavailable'
 export { GlobalWorkspaceRail } from './global-workspace-rail'
-export { WorkspaceAboutDialog } from './workspace-about-dialog'
+export { WorkspaceHelpCenter } from './workspace-help-center'
 export { PluginsDialog } from './plugins-dialog'
 export {
   createRegistryPluginsProvider,
