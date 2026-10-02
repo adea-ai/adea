@@ -1077,6 +1077,13 @@
   max-height: calc(100svh - 2rem);
   overflow: auto;
 }
+.conventional-settings-logo {
+  display: block;
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+}
 .conventional-dialog-form {
   display: grid;
 }

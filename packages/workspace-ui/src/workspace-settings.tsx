@@ -1,5 +1,6 @@
 import type { AgentSummary, WorkspaceSummary } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
+import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import {
@@ -233,6 +234,9 @@ export function WorkspaceSettingsDialog(props: {
       class="conventional-settings-dialog"
       open={props.open}
       onClose={close}
+      headerLeading={
+        <WorkspaceLogo aria-hidden="true" class="conventional-settings-logo" role="presentation" />
+      }
       title="Settings"
     >
       <Tabs
