@@ -2649,6 +2649,9 @@ The terminal ships a styled default profile using theme tokens for font,
 cursor, padding, opacity, and colors; a "system terminal" opt-out leaves the
 host terminal untouched.
 
+The mounted terminal surface uses the full width of its split-layout pane;
+the surface wrapper adds no horizontal inset around xterm.
+
 The mounted xterm renderer reads the canonical `--terminal-*` roles, including
 all sixteen ANSI slots, from its surface. Palette changes update the existing
 renderer and search decorations without reattaching its stream or replacing
@@ -2968,6 +2971,18 @@ the viewport, bounded overscan, and the initial measurement slice. Do not assume
 a fixed row height: text sizing and zoom may change shared row measurements, and
 scroll anchoring must preserve the current item or end position while those
 measurements update.
+
+The left utility keeps Files and Source Control as independent panes; their
+shared button-group selector is pinned below the pane content rather than
+repeating those two destinations in a vertical rail. Browser, Devices, Agents,
+and History use the published collapsed SideRail, including its selected
+accent and hover/focus labels. Utility separators use the shared resizable
+handle with a full-height pointer target and centered grip; their ruler maps
+the persisted 240–384 CSS-pixel pane range and remains keyboard operable.
+An empty layout defaults other utility panes to 288 CSS pixels and Browser to
+336 CSS pixels to fit its lane and viewport controls. This default fills missing
+preferences only; saved widths continue through the existing migration and
+snap rules.
 
 Every operation carries scope, live worktree ID/generation, authorized root,
 canonical relative path, and expected file identity where relevant.

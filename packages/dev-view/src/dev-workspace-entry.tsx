@@ -33,6 +33,7 @@ import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
   Columns2,
   Files,
+  FolderTree,
   GitBranch,
   History,
   Laptop,
@@ -104,6 +105,18 @@ import {
 } from './sidebar/reorder'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { ButtonGroup } from '@adea-ai/ui/components/ui/button-group'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@adea-ai/ui/components/ui/resizable'
+import {
+  SideRail,
+  SideRailContent,
+  SideRailItem,
+  SideRailSection,
+} from '@adea-ai/ui/components/layout/side-rail'
 
 // Keep the sidebar and runtime controls independent of the central split
 // renderer. Its resize dependency is loaded when the panes actually mount.
@@ -271,6 +284,7 @@ const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {
 const utilityItemByPane = new Map(utilityItems.map((item) => [item.pane, item]))
 const utilitySizeSteps = [240, 288, 336, 384] as const
 const defaultUtilitySize = 288
+const defaultBrowserUtilitySize = 336
 
 const defaultUtilityPreferences = (): DevUtilityPreference[] =>
   utilityItems.map((item, order) => ({
@@ -278,8 +292,8 @@ const defaultUtilityPreferences = (): DevUtilityPreference[] =>
     side: item.side,
     order,
     visible: item.pane === 'files',
-    size: defaultUtilitySize,
-    lastNonzeroSize: defaultUtilitySize,
+    size: item.pane === 'browser' ? defaultBrowserUtilitySize : defaultUtilitySize,
+    lastNonzeroSize: item.pane === 'browser' ? defaultBrowserUtilitySize : defaultUtilitySize,
     fullWidth: false,
   }))
 
@@ -1387,14 +1401,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             onOpenFile={openFileInEditorLeaf}
           />
         </Show>
-        <Show when={visiblePaneOf('left') && !leftFullWidth()}>
-          <UtilitySplitter
-            side="left"
-            size={visiblePaneOf('left')!.size}
-            onResize={(size) => setPaneSize(visiblePaneOf('left')!.pane, size)}
-          />
-        </Show>
-
         <section
           class="dev-center"
           id="dev-center"
@@ -1512,13 +1518,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           </Suspense>
         </section>
 
-        <Show when={visiblePaneOf('right') && !rightFullWidth()}>
-          <UtilitySplitter
-            side="right"
-            size={visiblePaneOf('right')!.size}
-            onResize={(size) => setPaneSize(visiblePaneOf('right')!.pane, size)}
-          />
-        </Show>
         <Show when={visiblePaneOf('right')}>
           <UtilitySlot
             side="right"
@@ -1568,52 +1567,52 @@ function UtilityToolbarToggle(props: {
   )
 }
 
-function UtilitySplitter(props: {
+function UtilityResizeHandle(props: {
   side: 'left' | 'right'
   size: number
   onResize(size: number): void
 }) {
-  const resizeFromPointer = (startX: number, startSize: number) => (event: PointerEvent) => {
-    const delta = props.side === 'right' ? startX - event.clientX : event.clientX - startX
-    props.onResize(startSize + delta)
-  }
+  const max = utilitySizeSteps[utilitySizeSteps.length - 1]
+  const sizeRatio = () => props.size / max
+  const rulerSizes = () =>
+    props.side === 'left' ? [sizeRatio(), 1 - sizeRatio()] : [1 - sizeRatio(), sizeRatio()]
+  const resizedSize = (sizes: readonly number[]) =>
+    Math.round((props.side === 'left' ? (sizes[0] ?? 0) : 1 - (sizes[0] ?? 1)) * max)
+
   return (
-    <Button
-      type="button"
+    <ResizablePanelGroup
+      orientation="horizontal"
+      sizes={rulerSizes()}
+      keyboardDelta="48px"
       class={cn('dev-utility-splitter', {
         'dev-utility-splitter--left': props.side === 'left',
         'dev-utility-splitter--right': props.side === 'right',
       })}
-      role="separator"
-      aria-label={`Resize ${props.side} utility pane`}
-      aria-orientation="vertical"
-      aria-valuemin={utilitySizeSteps[0]}
-      aria-valuemax={utilitySizeSteps[utilitySizeSteps.length - 1]}
-      aria-valuenow={props.size}
-      onPointerDown={(event) => {
-        event.currentTarget.setPointerCapture(event.pointerId)
-        const startX = event.clientX
-        const startSize = props.size
-        const move = resizeFromPointer(startX, startSize)
-        const done = () => {
-          window.removeEventListener('pointermove', move)
-          window.removeEventListener('pointerup', done)
-          window.removeEventListener('pointercancel', done)
-        }
-        window.addEventListener('pointermove', move)
-        window.addEventListener('pointerup', done, { once: true })
-        window.addEventListener('pointercancel', done, { once: true })
+      onSizesChange={(sizes) => {
+        const nextSize = snapUtilitySize(resizedSize(sizes))
+        if (nextSize !== props.size) props.onResize(nextSize)
       }}
-      onKeyDown={(event) => {
-        const grows = props.side === 'left' ? event.key === 'ArrowRight' : event.key === 'ArrowLeft'
-        const shrinks =
-          props.side === 'left' ? event.key === 'ArrowLeft' : event.key === 'ArrowRight'
-        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') return
-        if (!grows && !shrinks) return
-        event.preventDefault()
-        props.onResize(props.size + (grows ? 48 : -48))
-      }}
-    />
+    >
+      <ResizablePanel
+        minSize={props.side === 'left' ? utilitySizeSteps[0] / max : 0}
+        maxSize={props.side === 'left' ? 1 : (max - utilitySizeSteps[0]) / max}
+        aria-hidden="true"
+      />
+      <ResizableHandle
+        withHandle
+        label={`Resize ${props.side} utility pane`}
+        aria-controls={`dev-utility-panel-${props.side}`}
+        aria-valuemin={utilitySizeSteps[0]}
+        aria-valuemax={max}
+        aria-valuenow={props.size}
+        class="dev-utility-splitter__handle"
+      />
+      <ResizablePanel
+        minSize={props.side === 'left' ? 0 : utilitySizeSteps[0] / max}
+        maxSize={1}
+        aria-hidden="true"
+      />
+    </ResizablePanelGroup>
   )
 }
 
@@ -1685,26 +1684,15 @@ function UtilitySlot(props: {
   const sideLabel = () => (props.side === 'left' ? 'Left' : 'Right')
   const visibleItem = () =>
     props.visiblePane ? utilityItemByPane.get(props.visiblePane.pane) : undefined
-  const runtimeReady = () => props.runtime.state().status === 'ready'
-  const tabKeyDown = (event: KeyboardEvent, currentPane: DevUtilityPane) => {
-    const panes = props.panes.map((entry) => entry.pane)
-    const current = panes.indexOf(currentPane)
-    const next =
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? panes.length - 1
-          : event.key === 'ArrowUp' || event.key === 'ArrowLeft'
-            ? (current - 1 + panes.length) % panes.length
-            : event.key === 'ArrowDown' || event.key === 'ArrowRight'
-              ? (current + 1) % panes.length
-              : -1
-    if (next < 0) return
-    event.preventDefault()
-    const nextPane = panes[next]!
-    props.onShow(nextPane)
-    document.getElementById(`dev-utility-tab-${props.side}-${nextPane}`)?.focus()
+  const resizablePane = () => {
+    const pane = props.visiblePane
+    return pane && !pane.fullWidth ? pane : undefined
   }
+  const runtimeReady = () => props.runtime.state().status === 'ready'
+  const isFileSourceControlSlot = () =>
+    props.side === 'left' &&
+    props.panes.some((item) => item.pane === 'files') &&
+    props.panes.some((item) => item.pane === 'source_control')
   const paneBody = (pane: DevUtilityPane) => {
     if (pane === 'browser') {
       return runtimeReady() ? (
@@ -1824,49 +1812,47 @@ function UtilitySlot(props: {
         'dev-utility--size-336': props.visiblePane?.size === 336,
         'dev-utility--size-384': props.visiblePane?.size === 384,
       })}
+      id={`dev-utility-${props.side}`}
       aria-label={`Developer utilities (${sideLabel().toLowerCase()})`}
     >
-      {/* oxlint-disable-next-line adea/no-interactive-wrappers -- pane-closed state awaits the shared Tabs adoption */}
-      <div class="dev-utility-tabs" role="tablist" aria-label={`${sideLabel()} utility panes`}>
-        <For each={props.panes}>
-          {(item) => {
-            const meta = utilityItemByPane.get(item.pane)!
-            const selected = () => props.visiblePane?.pane === item.pane
-            return (
-              <Button
-                type="button"
-                id={`dev-utility-tab-${props.side}-${item.pane}`}
-                role="tab"
-                aria-selected={selected()}
-                aria-controls={`dev-utility-panel-${props.side}`}
-                tabIndex={selected() ? 0 : -1}
-                title={meta.title}
-                class={cn('dev-utility-tab', {
-                  'dev-utility-tab--selected': selected(),
-                })}
-                onClick={() => props.onShow(item.pane)}
-                onKeyDown={(event) => tabKeyDown(event, item.pane)}
-              >
-                <meta.icon aria-hidden="true" />
-                <span>{meta.label}</span>
-              </Button>
-            )
-          }}
-        </For>
-      </div>
-      {/* oxlint-disable-next-line adea/no-interactive-wrappers -- pane-closed state awaits the shared Tabs adoption */}
-      <div
+      <Show when={props.side === 'right'}>
+        <SideRail collapsed aria-label="Right utility panes">
+          <SideRailContent>
+            <SideRailSection label="Utilities">
+              <For each={props.panes}>
+                {(item) => {
+                  const meta = utilityItemByPane.get(item.pane)!
+                  const selected = () => props.visiblePane?.pane === item.pane
+                  return (
+                    <SideRailItem
+                      as="button"
+                      type="button"
+                      label={meta.title}
+                      aria-label={meta.title}
+                      aria-controls={`dev-utility-panel-${props.side}`}
+                      active={selected()}
+                      onClick={() => props.onShow(item.pane)}
+                    >
+                      <meta.icon aria-hidden="true" />
+                    </SideRailItem>
+                  )
+                }}
+              </For>
+            </SideRailSection>
+          </SideRailContent>
+        </SideRail>
+      </Show>
+      <section
         id={`dev-utility-panel-${props.side}`}
-        role="tabpanel"
-        aria-labelledby={`dev-utility-tab-${props.side}-${props.visiblePane?.pane ?? ''}`}
+        aria-labelledby={`dev-utility-heading-${props.side}`}
         class="dev-utility-panel"
       >
         <div class="dev-utility-panel__heading">
-          <h2>{visibleItem()?.title}</h2>
+          <h2 id={`dev-utility-heading-${props.side}`}>{visibleItem()?.title}</h2>
           <Show when={!props.fixedPane}>
             <ActionButton
               type="button"
-              variant="outline"
+              variant="ghost"
               size="icon-sm"
               tooltip={
                 props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
@@ -1883,7 +1869,7 @@ function UtilitySlot(props: {
             </ActionButton>
             <ActionButton
               type="button"
-              variant="outline"
+              variant="ghost"
               size="icon-sm"
               tooltip={`Collapse ${sideLabel().toLowerCase()} utility slot`}
               aria-label={`Collapse ${sideLabel().toLowerCase()} utility slot`}
@@ -1893,10 +1879,50 @@ function UtilitySlot(props: {
             </ActionButton>
           </Show>
         </div>
-        <Suspense fallback={<p class="dev-pane-state__line">Loading pane…</p>}>
-          {paneBody(props.visiblePane!.pane)}
-        </Suspense>
-      </div>
+        <div class="dev-utility-panel__content">
+          <Suspense fallback={<p class="dev-pane-state__line">Loading pane…</p>}>
+            {paneBody(props.visiblePane!.pane)}
+          </Suspense>
+        </div>
+        <Show when={isFileSourceControlSlot() && !props.fixedPane}>
+          <ButtonGroup
+            class="dev-utility__file-source-selector w-full"
+            label="Files and Source Control"
+          >
+            <Button
+              type="button"
+              variant={props.visiblePane?.pane === 'files' ? 'secondary' : 'outline'}
+              size="sm"
+              aria-label="Files"
+              aria-pressed={props.visiblePane?.pane === 'files'}
+              onClick={() => props.onShow('files')}
+            >
+              <FolderTree aria-hidden="true" />
+              <span class="dev-utility__selector-label">Files</span>
+            </Button>
+            <Button
+              type="button"
+              variant={props.visiblePane?.pane === 'source_control' ? 'secondary' : 'outline'}
+              size="sm"
+              aria-label="Source control"
+              aria-pressed={props.visiblePane?.pane === 'source_control'}
+              onClick={() => props.onShow('source_control')}
+            >
+              <GitBranch aria-hidden="true" />
+              <span class="dev-utility__selector-label">Source control</span>
+            </Button>
+          </ButtonGroup>
+        </Show>
+      </section>
+      <Show when={resizablePane()}>
+        {(pane) => (
+          <UtilityResizeHandle
+            side={props.side}
+            size={pane().size}
+            onResize={(size) => props.onResize(pane().pane, size)}
+          />
+        )}
+      </Show>
     </aside>
   )
 }

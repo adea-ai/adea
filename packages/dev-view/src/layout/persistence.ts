@@ -45,6 +45,9 @@ const canonicalUtilitySides: Readonly<Record<DevUtilityPane, 'left' | 'right'>> 
   history: 'right',
 }
 const defaultUtilitySize = 288
+const defaultBrowserUtilitySize = 336
+const defaultUtilitySizeForPane = (pane: DevUtilityPane) =>
+  pane === 'browser' ? defaultBrowserUtilitySize : defaultUtilitySize
 // The #447 V1 envelope encoded full width by inflating `size` past this mark.
 const legacyFullWidthSize = 1000
 
@@ -317,8 +320,8 @@ export function migrateLayoutPreferencesV1(value: DevLayoutPreferencesV1): DevLa
         side: canonicalUtilitySides[pane],
         order,
         visible: false,
-        size: defaultUtilitySize,
-        lastNonzeroSize: defaultUtilitySize,
+        size: defaultUtilitySizeForPane(pane),
+        lastNonzeroSize: defaultUtilitySizeForPane(pane),
         fullWidth: false,
       }
     const fullWidth = previous.size > legacyFullWidthSize
