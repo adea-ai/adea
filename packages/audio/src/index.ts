@@ -6,6 +6,7 @@ export { musicForScene, sceneMusicTracks } from './scene-music'
 export {
   MusicToggle,
   SoundProvider,
+  useOptionalSound,
   useSceneMusic,
   useSound,
   type SoundContextValue,
