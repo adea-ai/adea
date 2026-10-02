@@ -170,6 +170,34 @@
   color: var(--primary);
 }
 
+/*
+ * The pending-update dot: one accent indicator shared by the account trigger
+ * and the Updates menu item. The dot carries no text on purpose — the host
+ * controls extend their accessible names ("update available") so the state is
+ * announced, and the dialog itself remains the source of truth.
+ */
+.global-rail__account-trigger {
+  position: relative;
+}
+.global-rail__account-trigger .global-rail__update-dot {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.6rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--primary);
+  pointer-events: none;
+}
+.global-rail__account-menu .global-rail__update-dot {
+  flex: none;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-inline-start: auto;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
 .conventional-workspace,
 .workspace-shell--contextual,
 .conventional-dialog {
