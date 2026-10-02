@@ -267,7 +267,9 @@ test.describe('appearance', () => {
     // stylesheet never painted.
     await panel.getByText('Frosted', { exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
-    expect(await alpha()).toBeCloseTo(0.92, 5)
+    // The canvas pipeline is 8-bit: the compositor stores 0.92 as byte 235,
+    // so the rendered alpha is 235/255, not 0.92.
+    expect(await alpha()).toBe(235 / 255)
     expect(await canvas.evaluate((element) => getComputedStyle(element).backdropFilter)).toContain(
       'blur'
     )
