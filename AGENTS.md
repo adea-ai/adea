@@ -112,6 +112,9 @@ plugin, and keeps these selected consumer rules enabled as errors:
 - `adea/require-action-button-tooltip` — icon-size actions use shared
   `ActionButton` with a nonblank explanatory tooltip and an accessible name.
   Labelled text buttons may use the shared `Button` directly.
+  The published rule checks static tooltip omissions and blank literals;
+  dynamic tooltip content and accessible names still require browser checks.
+  A passing lint result does not waive either requirement.
 
 Code that predates the rules is exempted **by path** in one override block in
 `.oxlintrc.json`. That block is a ratchet: it only shrinks. Adding a file to it

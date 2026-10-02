@@ -13,6 +13,8 @@ and `aria-label` for icon-size actions; labelled text buttons may use `Button`.
 Use component variants and documented layout hooks instead of inline style
 props, literal style spreads, or style elements. The real Oxlint CLI regression
 in `scripts/shared-ui-lint-config.test.ts` checks that these rules remain active.
+The tooltip rule cannot prove dynamic tooltip content or an accessible name;
+verify both in browser coverage rather than treating lint as an exception.
 
 The branded `WorkspaceLogo` accepts only its layout class, image/presentation
 role, and decorative `aria-hidden` state. It does not forward activation
