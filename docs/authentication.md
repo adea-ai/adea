@@ -1,6 +1,6 @@
 # Authentication boundary
 
-`@agent-hq/auth` is the only application-facing authentication provider boundary. It wraps Neon
+`@adea-ai/auth` is the application-facing authentication provider boundary. It wraps Neon
 Auth's managed Better Auth service today, but its public result contains only a provider name,
 provider subject, non-authoritative profile hints, and session metadata. The provider subject is
 an `AuthIdentity` input; it is never an Adea `User.id` and never grants workspace access.
@@ -8,7 +8,7 @@ an `AuthIdentity` input; it is never an Adea `User.id` and never grants workspac
 Authentication is optional for using Adea. A first web or desktop launch provisions a
 temporary canonical `User`, owner membership, and default Home and Work workspaces transactionally. The browser
 stores its opaque temporary credential in an HTTP-only cookie; the desktop app stores a distinct
-credential in the operating-system keychain. Temporary credentials expire after 30 days and are
+credential in the shell's file-backed encrypted state directory. Temporary credentials expire after 30 days and are
 stored in PostgreSQL only as SHA-256 digests.
 
 Signing in or creating an account claims the temporary workspaces. A new account promotes the
@@ -39,7 +39,8 @@ Development enables Neon's localhost setting.
 
 Neon accepts only HTTP(S) trusted domains. Desktop OAuth therefore returns to the stable HTTPS web
 callback, which verifies state and nonce before handing off to the allowlisted
-`adea://auth/callback` URI. The desktop shell registers that exact scheme, opens only the fixed
+`adea://auth/callback` URI. The callback contract requires that exact scheme; registration is still
+release-lane work. The desktop shell opens only the fixed
 cloud authorization endpoint in the system browser, and rejects custom-scheme callbacks containing
 tokens or session credentials. A provider must never redirect directly to an unregistered custom
 scheme.
@@ -87,9 +88,9 @@ Server modules and Neon Auth SDK code are excluded from the client dependency gr
 
 ## Adapter use
 
-Server code imports `createNeonServerAdapter` from `@agent-hq/auth/server`. Client components import
-`createNeonClientAdapter` from `@agent-hq/auth/client`. All other application packages consume the
-provider-neutral types from `@agent-hq/auth`; no other package may import `@neondatabase/auth`.
+Server code imports `createNeonServerAdapter` from `@adea-ai/auth/server`. Client components import
+`createNeonClientAdapter` from `@adea-ai/auth/client`. All other application packages consume the
+provider-neutral types from `@adea-ai/auth`; no other package may import `@neondatabase/auth`.
 
 Refresh bypasses Neon Auth's signed session-data cache. Logout clears the current provider session.
 Explicit revocation accepts the normalized session ID, resolves the provider token inside the
@@ -100,8 +101,16 @@ loaded and the broker refreshes the user session before cloud authorization proc
 failure is reported as an explicit offline state; invalid, expired, or revoked sessions are cleared.
 Logout and user-session revocation clear only the user session vault. RuntimeNode device credentials
 use a separate vault and lifecycle and are never reused as user credentials or implicitly unpaired.
-The packaged shell implements the user-session vault with the operating system credential store;
-provider cookies and RuntimeNode device credentials are never copied into it.
+The current Electrobun shell stores user sessions, pending authorization attempts,
+and temporary workspace credentials as AES-GCM files under `desktop-state`. Its
+`device.key` is a local file used by that transitional store, not an OS credential-store
+entry. These values do not use the separate Dev Runtime vault. The current
+`local_content_rotate_key` command removes this shared key file without re-encrypting
+the saved values; source inspection does not establish a safe rotation contract.
+See [desktop authentication](specs/desktop-auth.md) and
+[local content](specs/local-content.md) for current implementation limits and target
+requirements. Provider cookies and RuntimeNode device credentials are not copied
+into the user-session store.
 
 ## Workspace authorization
 
@@ -113,8 +122,8 @@ are written to the authorization audit table.
 
 To introduce a permission:
 
-1. Add its stable identifier to `workspacePermissions` in `@agent-hq/types`.
-2. Add it only to the reviewed role bundles in `@agent-hq/auth/authorization`.
+1. Add its stable identifier to `workspacePermissions` in `@adea-ai/types`.
+2. Add it only to the reviewed role bundles in `@adea-ai/auth/authorization`.
 3. Require it at each affected server route or service before repository access.
 4. Add allow, deny, cross-workspace, non-user-principal, and audit tests.
 
@@ -124,12 +133,12 @@ require a new role-name branch in a route.
 
 ## Provider migration
 
-Neon Auth stores Better Auth data in `neon_auth`; `@agent-hq/db` must not query or migrate that
+Neon Auth stores Better Auth data in `neon_auth`; `@adea-ai/db` must not query or migrate that
 schema. To move to another managed or self-hosted Better Auth deployment:
 
 1. Export/migrate the provider-owned Better Auth tables using that provider's supported process.
 2. Implement `AuthDriver` for the replacement SDK and retain the provider/subject identity key.
-3. Replace only the `@agent-hq/auth/client` and `@agent-hq/auth/server` constructors.
+3. Replace only the `@adea-ai/auth/client` and `@adea-ai/auth/server` constructors.
 4. Rotate cookie secrets, update exact trusted origins/callbacks, and invalidate old sessions.
 5. Run invalid/expired/revoked/wrong-origin, refresh, logout, and identity-mapping tests before
    switching traffic.
@@ -141,7 +150,7 @@ user ID during migration.
 
 ```text
 Neon Auth session
-  -> @agent-hq/auth provider credential validation
+  -> @adea-ai/auth provider credential validation
   -> AuthIdentity(provider, subject)
   -> User(id)
   -> User PrincipalRef { kind: "user", userId }

@@ -27,11 +27,12 @@ and `cf-wrangler build --mode preview`.
 The production `wrangler.jsonc` keeps `main` pointed at the source entry
 (`src/start/worker.ts`) because the Cloudflare Vite plugin requires that file
 to exist while bundling. The plugin then writes the deploy-time manifest to
-`dist/server/wrangler.json` — carrying the same Worker name, account, bindings,
-and asset settings, with `main` rewritten to the built `index.js` — plus a
-`.wrangler/deploy/config.json` redirect. The legacy `wrangler deploy` and
-`wrangler versions upload` (run from `apps/web`) still use the built output
-automatically, and no step rewrites `wrangler.jsonc`.
+`dist/server/wrangler.json`. It carries the same Worker name, account, bindings,
+and asset settings, with `main` rewritten to the built `index.js`. The plugin
+also writes a `.wrangler/deploy/config.json` redirect. The legacy
+`wrangler deploy` and `wrangler versions upload` commands (run from
+`apps/web`) still use the built output automatically, and no step rewrites
+`wrangler.jsonc`.
 
 ## One-time setup (Worker + GitHub Actions)
 
@@ -41,7 +42,7 @@ automatically, and no step rewrites `wrangler.jsonc`.
 2. **GitHub Actions deployment.** The repository-owned
    `.github/workflows/cloudflare-preview.yml` and
    `.github/workflows/cloudflare-production.yml` call the shared Code Foundry
-   Cloudflare workflow at `v1.37.2`. This release packages the production Build
+   Cloudflare workflow at `v1.39.3`. This release packages the production Build
    Output before the prebuilt upload; `v1.36.4` omitted that step and failed
    with "no root config found" despite a successful Vite build. Configure these
    repository secrets:
@@ -59,11 +60,19 @@ automatically, and no step rewrites `wrangler.jsonc`.
      not stage the workspace dependencies), and do NOT add a `build` block to
      `wrangler.jsonc` (`no_bundle` is set because Vite already produced a
      bundled entry).
-3. **Hyperdrive (Neon pooling).** ✅ Done: `adea-db` (id in
-   `wrangler.jsonc`) points at the standalone Neon project (`us-east-2`)
-   via its **direct/unpooled** origin as `neondb_owner` — Hyperdrive pools
-   itself, so never use the `-pooler` host here. There is no hosted-integration shortcut; if you
-   ever need to recreate it:
+3. **Hyperdrive (Neon pooling).** `adea-db` (id in `wrangler.jsonc`) should
+   point at the standalone Neon project (`us-east-2`) through its
+   **direct/unpooled** host. Hyperdrive provides the pooling, so do not use the
+   `-pooler` host. The previous setup note named `neondb_owner` as the
+   production principal. Treat that as a historical claim: the intended
+   runtime role follows the `_app` naming convention and has no schema or
+   database `CREATE` privileges or elevated attributes. The repository's
+   `database-health.mjs` check validates those rules; application startup does
+   not. Repository files cannot confirm which principal or grants are
+   currently configured in Cloudflare, so verify the deployed binding through
+   the approved operations process before claiming it meets this contract. If
+   the binding must be recreated, use the direct URL for the target
+   environment's `_app` role:
    ```bash
    wrangler hyperdrive create adea-db \
      --connection-string="$DATABASE_URL_UNPOOLED"
@@ -143,8 +152,8 @@ shell mounts it only for entitled deployments
   configured; local development can point `ADEA_AGENT_SIM_DIST` at a local
   agent-sim checkout to exercise the mounted view.
 - **Everything else:** plain checkouts, forks, and previews stay
-  manifests-only and render the offline fallback — no engine fetch, no
-  credentials.
+  manifests-only and render the offline fallback. They do not fetch engine
+  code or require credentials.
 
 `scripts/sync-assets.mjs` stages the tracked protocol manifests
 (`packages/spatial/data`) into the app's public assets directory, so
@@ -169,12 +178,15 @@ subscribes to the router history in `src/start/router.tsx`.
 ## Database migrations
 
 - **Cloudflare:** `.github/workflows/cloudflare-db-migrate.yml` runs
-  `bun run db:verify` (same idempotent verifier) on pushes to `main` that
-  touch `packages/db/drizzle/**`. It needs the `DATABASE_MIGRATION_URL`
-  repository secret (unpooled migration role, `sslmode=require`).
-- Keep migrations backward-compatible: the Worker deploys from the same
-  push in parallel with the migrate job, so additive schema first, code
-  that depends on it second.
+  `bun run db:verify` on pushes to `main` that change
+  `packages/db/drizzle/**`, the verifier, or the workflow. It also supports
+  manual runs and uses the `DATABASE_MIGRATION_URL` repository secret (an
+  unpooled migration role with `sslmode=require`).
+- Migration and production deployment run as independent workflows. The
+  production workflow runs on every push to `main`; it does not wait for the
+  migration workflow, and a migration failure does not automatically fail the
+  deployment. Keep schema changes backward-compatible, and confirm a required
+  migration has completed before relying on code that depends on it.
 - Migrations run ONLY as the migration role (owner first-runs poison object
   ownership and break later migrator runs on `ALTER`). New branches need
   `GRANT CREATE ON DATABASE` for their migration role.
