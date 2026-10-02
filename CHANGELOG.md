@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.74.5](https://github.com/adea-ai/adea/compare/v0.74.4...v0.74.5) (2026-10-02)
+
+
+### Bug Fixes
+
+* **settings:** adopt shared navigation and dialog sizing ([#921](https://github.com/adea-ai/adea/issues/921)) ([4b80ba6](https://github.com/adea-ai/adea/commit/4b80ba6828fcd09c715c24d2108dea3af663e8b7))
+
 ## [0.74.4](https://github.com/adea-ai/adea/compare/v0.74.3...v0.74.4) (2026-10-02)
 
 
