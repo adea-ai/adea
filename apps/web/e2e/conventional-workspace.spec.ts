@@ -858,12 +858,16 @@ test('centers creation dialogs in the viewport', async ({ page }) => {
     { width: 1280, height: 720 },
   ]) {
     await page.setViewportSize(viewport)
-    const openNavigation = page.getByRole('button', { name: 'Open workspace navigation' })
-    if (await openNavigation.isVisible()) await openNavigation.click()
-    await page
-      .getByRole('complementary', { name: 'Workspace navigation' })
-      .getByRole('button', { name: 'Create Room', exact: true })
-      .click()
+    const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
+    if (!(await navigation.isVisible())) {
+      // Crossing below 48rem closed the shared navigation and the frame-only
+      // opener is display:none in that layout, so reopen through the top-bar
+      // toggle that survives the narrow breakpoint.
+      const toggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
+      if (await toggle.isVisible()) await toggle.click()
+    }
+    await expect(navigation).toBeVisible()
+    await navigation.getByRole('button', { name: 'Create Room', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Create Room' })
     const box = await dialog.boundingBox()
     expect(box).not.toBeNull()
@@ -1003,9 +1007,14 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   const virtualRoom = page.getByRole('region', { name: 'Virtual Room' })
   const engineFallback = page.getByRole('status', { name: 'Virtual view unavailable' })
   await expect(virtualRoom.or(engineFallback)).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toHaveCount(0)
+  // Virtual view renders the same shared contextual sidebar as chat (main gave
+  // it a separate "Virtual navigation" aside, which is why this used to assert
+  // absence); the shared sidebar stays put across the view switch.
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
   if (await virtualRoom.count()) {
-    await expect(page.getByRole('button', { name: 'Product', exact: true })).toHaveAttribute(
+    // Scope to the room region: the shared sidebar also carries a "Product"
+    // button, which would make a page-wide locator ambiguous.
+    await expect(virtualRoom.getByRole('button', { name: 'Product', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true'
     )
@@ -1392,7 +1401,9 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
   const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(navigation).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Collapse contextual sidebar' })).toHaveAttribute(
+  // The modal sheet marks the frame aria-hidden, so the toolbar toggle is
+  // unreachable for role queries; match it through the DOM instead.
+  await expect(page.locator('[aria-label="Collapse contextual sidebar"]')).toHaveAttribute(
     'aria-expanded',
     'true'
   )
@@ -1441,7 +1452,11 @@ test('keeps contextual section actions visible on touch devices', async ({ brows
 test('operates unread actions and deep-linked search entirely by keyboard', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')
-  await expect(page.getByLabel(/unread in Product/)).toBeVisible({ timeout: 15_000 })
+  // The row button keeps the channel name as its accessible name; the unread
+  // count is an aria-hidden badge inside the row, so anchor on that.
+  await expect(
+    page.getByRole('button', { name: 'Product', exact: true }).locator('.conventional-unread-badge')
+  ).toBeVisible({ timeout: 15_000 })
 
   await page.keyboard.press('Control+k')
   const globalSearch = page.getByRole('dialog', { name: 'Search workspace' })
@@ -1555,7 +1570,11 @@ test('workspace search keeps duplicate destination labels tied to their domain i
   await page.goto('/')
   // Control+k pressed during the first paint lands before the workspace
   // installs its shortcut listener, so anchor on loaded chrome first.
-  await expect(page.getByLabel(/unread in Product/)).toBeVisible({ timeout: 15_000 })
+  // The row button keeps the channel name as its accessible name; the unread
+  // count is an aria-hidden badge inside the row, so anchor on that.
+  await expect(
+    page.getByRole('button', { name: 'Product', exact: true }).locator('.conventional-unread-badge')
+  ).toBeVisible({ timeout: 15_000 })
   await page.keyboard.press('Control+k')
 
   const dialog = page.getByRole('dialog', { name: 'Search workspace' })
@@ -1709,6 +1728,9 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   })
   await expect(page).toHaveScreenshot('workspace-settings-dark.png', { animations: 'disabled' })
   await page.setViewportSize({ width: 390, height: 844 })
+  // Crossing below 48rem closes the shared navigation; that path must not
+  // dismiss the dialog the test is capturing.
+  await expect(reloadedSettings).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-settings-narrow.png', { animations: 'disabled' })
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth === window.innerWidth)
@@ -1923,7 +1945,11 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
     chatSidebar.getByRole('button', { name: 'Research Agent', exact: true })
   ).toBeVisible()
   await expect(chatSidebar.getByRole('button', { name: 'Launch group', exact: true })).toBeVisible()
-  await expect(chatSidebar.getByLabel(/unread in Product/)).toBeVisible()
+  await expect(
+    chatSidebar
+      .getByRole('button', { name: 'Product', exact: true })
+      .locator('.conventional-unread-badge')
+  ).toBeVisible()
 
   await chatSidebar.getByRole('button', { name: 'Research Agent', exact: true }).click()
   await expect(page.getByText('Direct Conversation', { exact: true })).toBeVisible()
@@ -1939,8 +1965,14 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   const resizedWidth = await chatSidebar.evaluate(
     (element) => element.getBoundingClientRect().width
   )
-  const wideChatSidebar = await chatSidebar.screenshot({ animations: 'disabled' })
 
+  // The keyboard resize leaves :focus-visible on the handle, which is
+  // interaction state rather than rendering identity; drop it so the capture
+  // compares the sidebar itself.
+  await resizeHandle.evaluate((element) => element.blur())
+  // Capture each sidebar immediately after its own view switch: a freshly
+  // mounted view rasterizes identically, while capturing chat straight after
+  // the keyboard reflow can round the unread pill's antialiasing differently.
   await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
   const virtualSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(virtualSidebar).toBeVisible()
@@ -1950,29 +1982,64 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   expect(await virtualSidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(
     resizedWidth
   )
-  expect(await virtualSidebar.screenshot({ animations: 'disabled' })).toEqual(wideChatSidebar)
+  // The pointer is still parked on whichever control the previous step clicked,
+  // and hover paint — row highlights, rail tooltips that overhang the sidebar's
+  // edge — is interaction state rather than rendering identity. Park it on the
+  // non-interactive top-bar title before every capture.
+  await page.mouse.move(600, 24)
+  await page.waitForTimeout(250)
+  const virtualSidebarShot = await virtualSidebar.screenshot({ animations: 'disabled' })
 
   await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
   await expect(page.getByText('Direct Conversation', { exact: true })).toBeVisible()
+  expect(await chatSidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(
+    resizedWidth
+  )
+  await page.mouse.move(600, 24)
+  await page.waitForTimeout(250)
+  const wideChatSidebar = await chatSidebar.screenshot({ animations: 'disabled' })
+  expect(virtualSidebarShot).toEqual(wideChatSidebar)
+
   await page.getByRole('button', { name: /^Product( |$)/ }).click()
   await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
-  await expect(page.getByRole('heading', { name: 'Thread' })).toBeVisible()
+  // The shared thread panel titles itself through the aside's accessible name
+  // ("Thread: <label>"); its visible "Thread" caption is a span, not a heading.
+  await expect(
+    page.getByRole('complementary', { name: 'Thread: Focused discussion' })
+  ).toBeVisible()
   await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
   await expect(virtualSidebar.getByRole('button', { name: /^Product( |$)/ })).toHaveAttribute(
     'aria-current',
     'page'
   )
   await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Thread' })).toBeVisible()
+  await expect(
+    page.getByRole('complementary', { name: 'Thread: Focused discussion' })
+  ).toBeVisible()
 
   await page.setViewportSize({ width: 390, height: 840 })
-  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+  // Narrow layouts start with the contextual sidebar collapsed, so the collapse
+  // control is already gone; only click it if the sidebar survived the resize.
+  if (await chatSidebar.isVisible()) {
+    await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+  }
   await expect(chatSidebar).toBeHidden()
   await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
   await expect(chatSidebar).toBeVisible()
+  await page.mouse.move(600, 24)
+  await page.waitForTimeout(250)
   const narrowChatSidebar = await chatSidebar.screenshot({ animations: 'disabled' })
+  // At this width the expanded sidebar is a modal sheet that hides the rest of
+  // the app (aria-hidden), so dismiss it before touching the rail.
+  await page.keyboard.press('Escape')
+  await expect(chatSidebar).toBeHidden()
   await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
+  if (!(await virtualSidebar.isVisible())) {
+    await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+  }
   await expect(virtualSidebar).toBeVisible()
+  await page.mouse.move(600, 24)
+  await page.waitForTimeout(250)
   expect(await virtualSidebar.screenshot({ animations: 'disabled' })).toEqual(narrowChatSidebar)
 })
 
@@ -2017,7 +2084,9 @@ test.describe('touch workspace sidebar actions', () => {
     await mockConnectedWorkspace(page)
     await page.goto('/?view=chat')
 
-    const openNavigation = page.getByRole('button', { name: 'Open workspace navigation' })
+    // The frame-only opener is display:none in this layout, so open the
+    // navigation through the top-bar toggle instead.
+    const openNavigation = page.getByRole('button', { name: 'Expand contextual sidebar' })
     await expect(openNavigation).toBeVisible()
     await openNavigation.tap()
 
@@ -2316,20 +2385,31 @@ test('collapsed Chat navigation is absent from keyboard and accessibility naviga
     await page.setViewportSize({ width, height: 840 })
     const toolbar = page.getByLabel('Workspace toolbar')
     const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
-    await expect(sidebar).toBeVisible()
-    await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+    const toggle = toolbar.getByRole('button', { name: /^(Expand|Collapse) contextual sidebar$/ })
+    if (width < 768) {
+      // Crossing below 48rem closes the sheet-backed navigation, so settle
+      // that contract, reopen it, then collapse through the dialog's own
+      // dismissal — the modal sheet hides the toolbar from role queries.
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      await toggle.click()
+      await expect(sidebar).toBeVisible()
+      await page.keyboard.press('Escape')
+    } else {
+      await expect(sidebar).toBeVisible()
+      await toggle.click()
+    }
     await expect(sidebar).toBeHidden()
     await expect(sidebar).toHaveCount(0)
     // A zero-width grid column alone clips pixels but leaves its controls in
-    // the focus order and native accessibility tree.
+    // the focus order and native accessibility tree. Below 48rem the panel
+    // unmounts entirely; both cases must leave nothing focusable behind.
     expect(
-      await page
-        .locator('.conventional-sidebar button')
-        .first()
-        .evaluate((button) => {
-          button.focus()
-          return button === document.activeElement
-        })
+      await page.evaluate(() => {
+        const button = document.querySelector<HTMLButtonElement>('.conventional-sidebar button')
+        if (!button) return false
+        button.focus()
+        return button === document.activeElement
+      })
     ).toBe(false)
     await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
     await expect(sidebar).toBeVisible()
@@ -2545,8 +2625,13 @@ test('themed shell and Library remain usable across desktop and narrow layouts',
     .getByRole('navigation', { name: 'Global navigation' })
     .getByRole('button', { name: 'Virtual view', exact: true })
     .click()
+  // The shared navigation stays closed across view switches below 48rem —
+  // reopen it through the top-bar toggle, then check the modal dismissal
+  // contract before measuring the horizontal overflow.
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeHidden()
+  await toolbar.getByRole('button', { name: 'Expand contextual sidebar', exact: true }).click()
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
-  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar', exact: true }).click()
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeHidden()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true
