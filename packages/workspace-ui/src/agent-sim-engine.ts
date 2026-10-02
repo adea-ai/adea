@@ -109,10 +109,14 @@ export function loadAgentSimEngine(
       new Error(`Agent Sim pack does not ship the ${surface ?? 'engine'} surface`)
     )
   }
+  // Cache-bust by pack version: the entry URL is identical across app
+  // updates, and a WebView HTTP cache that saw the old pack must not replay
+  // it against the new manifest.
+  const versionQuery = manifest.version ? `?v=${encodeURIComponent(manifest.version)}` : ''
   return new Promise((resolve, reject) => {
     const script = targetWindow.document.createElement('script')
     script.type = 'module'
-    script.src = entryUrl
+    script.src = entryUrl + versionQuery
     script.addEventListener('error', () =>
       reject(new Error('Agent Sim engine entry failed to load'))
     )
