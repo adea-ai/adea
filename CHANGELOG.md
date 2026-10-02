@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.74.4](https://github.com/adea-ai/adea/compare/v0.74.3...v0.74.4) (2026-10-02)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adea-ai/ui to v0.97.1 ([#926](https://github.com/adea-ai/adea/issues/926)) ([c1e47e9](https://github.com/adea-ai/adea/commit/c1e47e99687013591eb33124ab5ce61dba9a997c))
+
 ## [0.74.3](https://github.com/adea-ai/adea/compare/v0.74.2...v0.74.3) (2026-10-02)
 
 
