@@ -227,7 +227,14 @@ export function WorkspaceSettingsDialog(props: {
   })
 
   return (
-    <ModalDialog modal={false} size="settings" open={props.open} onClose={close} title="Settings">
+    <ModalDialog
+      modal={false}
+      size="settings"
+      class="conventional-settings-dialog"
+      open={props.open}
+      onClose={close}
+      title="Settings"
+    >
       <Tabs
         id="settings-tabs"
         class="conventional-settings-shell"
