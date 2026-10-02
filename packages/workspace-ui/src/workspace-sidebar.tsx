@@ -392,14 +392,12 @@ export function WorkspaceSidebar(props: Props) {
         </Show>
         <SidebarNavHeader>
           <SidebarNavTitle as="h1">{props.workspaceName}</SidebarNavTitle>
-          {/* No tooltip: a focus tooltip would register a top-most dismissable
-              layer inside the sheet and swallow the next Escape. The sheet
-              itself is the affordance; the button keeps its accessible name. */}
           <ActionButton
             type="button"
             variant="ghost"
             size="icon-md"
             touchTarget="comfortable"
+            tooltip="Close workspace navigation"
             aria-label="Close workspace navigation"
             class="conventional-sidebar__close"
             onClick={() => props.onToggleMobile(false)}

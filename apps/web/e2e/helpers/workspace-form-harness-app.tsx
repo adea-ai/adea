@@ -9,6 +9,7 @@ import {
   RenameConversationDialog,
 } from '../../../../packages/workspace-ui/src/create-workspace-dialogs'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
 
 function Harness() {
   const [kind, setKind] = createSignal('')
@@ -26,6 +27,7 @@ function Harness() {
       <Button onClick={() => setKind('rename')}>Open rename</Button>
       <Button onClick={() => setKind('group')}>Open group</Button>
       <Button onClick={() => setKind('about')}>Open about</Button>
+      <Input aria-label="Shared input reference" value="Reference" />
       <output aria-label="Requests">{JSON.stringify(calls())}</output>
       <Show when={kind() === 'room'}>
         <CreateRoomDialog open busy={false} template="home" onClose={close} onCreate={save} />

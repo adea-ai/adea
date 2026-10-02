@@ -22,19 +22,39 @@ test('production WorkspaceNavigation reports its resolved Dev selection and clea
   await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + app}'` })
 
   const calls = () => page.evaluate(() => window.workspaceNavigationPresentationHarness.report())
+  const runtimeSession = page.getByRole('button', { name: /Runtime contracts/ })
   try {
-    await expect(page.getByText('Development fixtures · E2E only')).toBeVisible()
+    await expect(runtimeSession).toBeVisible()
   } catch (error) {
     throw new Error(
       `Production navigation failed to mount: ${pageErrors.join('\n') || 'no pageerror'}`,
       { cause: error }
     )
   }
+  const notifications = page.getByRole('button', { name: 'Notifications', exact: true })
+  await expect(notifications).toBeDisabled()
+  await expect(notifications).toHaveAttribute(
+    'aria-description',
+    'Notifications are not available yet.'
+  )
+  await notifications.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('Notifications are not available yet.')
+  await notifications.focus()
+  await notifications.press('Enter')
+  await notifications.press('Space')
+  const notificationBounds = await notifications.boundingBox()
+  expect(notificationBounds).not.toBeNull()
+  if (!notificationBounds) throw new Error('Notifications button has no visible bounds')
+  await page.mouse.click(
+    notificationBounds.x + notificationBounds.width / 2,
+    notificationBounds.y + notificationBounds.height / 2
+  )
+  await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toHaveCount(0)
   await expect
     .poll(async () => (await calls()).at(-1))
     .toEqual({ command: 'desktop_chat_presentation', sessionId: 'fixture-shell' })
 
-  await page.getByRole('button', { name: /Runtime contracts/ }).click()
+  await runtimeSession.click()
   await expect
     .poll(async () => (await calls()).at(-1))
     .toEqual({ command: 'desktop_chat_presentation', sessionId: 'fixture-runtime' })

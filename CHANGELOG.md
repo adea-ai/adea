@@ -1,5 +1,83 @@
 # Changelog
 
+## [0.74.7](https://github.com/adea-ai/adea/compare/v0.74.6...v0.74.7) (2026-10-02)
+
+
+### Maintenance
+
+* **visual:** refresh the linux task-detail baseline ([#936](https://github.com/adea-ai/adea/issues/936)) ([48714ed](https://github.com/adea-ai/adea/commit/48714ed8ad7a92b98cefb5f5fbc4159159e2b35f))
+
+## [0.74.6](https://github.com/adea-ai/adea/compare/v0.74.5...v0.74.6) (2026-10-02)
+
+
+### Bug Fixes
+
+* **workspace:** preserve shared form control styling ([#931](https://github.com/adea-ai/adea/issues/931)) ([c92e90f](https://github.com/adea-ai/adea/commit/c92e90fcfc7d9c63d08a560563b02e690ef3b045))
+
+
+### Maintenance
+
+* **visual:** refresh linux baselines for the shared settings dialog ([#934](https://github.com/adea-ai/adea/issues/934)) ([88d8bbc](https://github.com/adea-ai/adea/commit/88d8bbc839a1f992d94f8c6f13199fceb3d4acc8))
+
+## [0.74.5](https://github.com/adea-ai/adea/compare/v0.74.4...v0.74.5) (2026-10-02)
+
+
+### Bug Fixes
+
+* **settings:** adopt shared navigation and dialog sizing ([#921](https://github.com/adea-ai/adea/issues/921)) ([4b80ba6](https://github.com/adea-ai/adea/commit/4b80ba6828fcd09c715c24d2108dea3af663e8b7))
+
+## [0.74.4](https://github.com/adea-ai/adea/compare/v0.74.3...v0.74.4) (2026-10-02)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adea-ai/ui to v0.97.1 ([#926](https://github.com/adea-ai/adea/issues/926)) ([c1e47e9](https://github.com/adea-ai/adea/commit/c1e47e99687013591eb33124ab5ce61dba9a997c))
+
+## [0.74.3](https://github.com/adea-ai/adea/compare/v0.74.2...v0.74.3) (2026-10-02)
+
+
+### Bug Fixes
+
+* **workspace:** disable pending notifications control ([#914](https://github.com/adea-ai/adea/issues/914)) ([9bc0644](https://github.com/adea-ai/adea/commit/9bc0644270e5ad69272d664f062028b69394f11b))
+
+
+### Maintenance
+
+* declare Renovate as the managed dependency updater ([#925](https://github.com/adea-ai/adea/issues/925)) ([002ab36](https://github.com/adea-ai/adea/commit/002ab36c832c11851cf8d0218452014a72e6b172))
+
+## [0.74.2](https://github.com/adea-ai/adea/compare/v0.74.1...v0.74.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* enforce shared UI styling and icon tooltips ([#927](https://github.com/adea-ai/adea/issues/927)) ([d1f2cc1](https://github.com/adea-ai/adea/commit/d1f2cc1aabaf79af0dbfcdbf48ff66be4b5e82d7))
+
+## [0.74.1](https://github.com/adea-ai/adea/compare/v0.74.0...v0.74.1) (2026-10-02)
+
+
+### Documentation
+
+* **bundles:** correct the chat route's stated headroom ([#920](https://github.com/adea-ai/adea/issues/920)) ([7c3496a](https://github.com/adea-ai/adea/commit/7c3496a0309d1940283bb47aec725946008c9a3f))
+
+
+### Maintenance
+
+* **visual:** regenerate -linux baselines for the shell polish round 2 rail change ([#922](https://github.com/adea-ai/adea/issues/922)) ([ebb106d](https://github.com/adea-ai/adea/commit/ebb106dc6a4ee880ab67ab6a236ac1f0c563eb51))
+
+## [0.74.0](https://github.com/adea-ai/adea/compare/v0.73.1...v0.74.0) (2026-10-02)
+
+
+### Features
+
+* **workspace-ui:** synchronize App Library ordering with rail ([#916](https://github.com/adea-ai/adea/issues/916)) ([d9c4ce6](https://github.com/adea-ai/adea/commit/d9c4ce61537ba54d320d22be88cab71f0aa57f03))
+
+## [0.73.1](https://github.com/adea-ai/adea/compare/v0.73.0...v0.73.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **web:** shell polish round 2 - rail, menus, and settings scroll guard ([#915](https://github.com/adea-ai/adea/issues/915)) ([8fd7c90](https://github.com/adea-ai/adea/commit/8fd7c90eb68f73a3c0f80bf6eb7ddc87029c76f4))
+
 ## [0.73.0](https://github.com/adea-ai/adea/compare/v0.72.0...v0.73.0) (2026-10-02)
 
 

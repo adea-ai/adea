@@ -1259,6 +1259,8 @@ test('opens responsive Task detail and restores focus on dismissal', async ({ pa
   expect(
     await detail.evaluate((element) => Number.parseFloat(getComputedStyle(element).width))
   ).toBeCloseTo(29 * rootFontSize, 1)
+  await detail.getByRole('textbox', { name: 'Title', exact: true }).focus()
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
   await expect(page).toHaveScreenshot('workspace-task-detail.png', { animations: 'disabled' })
 
   await page.setViewportSize({ width: 390, height: 480 })
@@ -1281,7 +1283,10 @@ test('opens responsive Task detail and restores focus on dismissal', async ({ pa
   await page.setViewportSize({ width: 1280, height: 720 })
   await taskTrigger.click()
   const reopenedDetail = page.getByRole('dialog', { name: 'Launch planning', exact: true })
-  await reopenedDetail.getByRole('button', { name: 'Close Task detail' }).click()
+  const closeDetail = reopenedDetail.getByRole('button', { name: 'Close Task detail' })
+  await closeDetail.focus()
+  await expect(page.getByRole('tooltip')).toHaveText('Close Task detail')
+  await closeDetail.click()
   await expect(reopenedDetail).toHaveCount(0)
   await expect(taskTrigger).toBeFocused()
 })
@@ -1825,39 +1830,55 @@ test('the settings dialog survives re-selecting its active tab and keeps its dis
   expect(pageErrors).toEqual([])
 })
 
-test('settings tabs keep horizontal keyboard focus and synchronize the selected section hash', async ({
-  page,
-}) => {
-  await mockWorkspace(page)
-  await page.goto('/#settings/account')
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await expect(settings).toBeVisible()
+for (const { width, fontSize } of [
+  { width: 320, fontSize: '100%' },
+  { width: 768, fontSize: '100%' },
+  { width: 1440, fontSize: '100%' },
+  { width: 320, fontSize: '200%' },
+]) {
+  test(`settings tabs keep shared vertical keyboard focus at ${width}px and ${fontSize}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await mockWorkspace(page)
+    await page.goto('/#settings/account')
+    const settings = page.getByRole('dialog', { name: 'Settings' })
+    await expect(settings).toBeVisible()
+    await page.evaluate((size) => {
+      document.documentElement.style.fontSize = size
+    }, fontSize)
 
-  const tablist = settings.getByRole('tablist', { name: 'Settings sections' })
-  const account = tablist.getByRole('tab', { name: 'Account & app', exact: true })
-  const appearance = tablist.getByRole('tab', { name: 'Appearance', exact: true })
-  const permissions = tablist.getByRole('tab', { name: 'Permissions', exact: true })
-  await expect(tablist).toHaveAttribute('aria-orientation', 'horizontal')
+    const tablist = settings.getByRole('tablist', { name: 'Settings sections' })
+    const account = tablist.getByRole('tab', { name: 'Account & app', exact: true })
+    const appearance = tablist.getByRole('tab', { name: 'Appearance', exact: true })
+    const permissions = tablist.getByRole('tab', { name: 'Permissions', exact: true })
+    await expect(tablist).toHaveAttribute('data-slot', 'settings-navigation')
+    await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
 
-  await account.focus()
-  await page.keyboard.press('ArrowRight')
-  await expect(appearance).toBeFocused()
-  await expect(appearance).toHaveAttribute('aria-selected', 'true')
-  await expect(page).toHaveURL(/#settings\/appearance$/)
+    await account.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(appearance).toBeFocused()
+    await expect(appearance).toHaveAttribute('aria-selected', 'true')
+    await expect(page).toHaveURL(/#settings\/appearance$/)
 
-  await page.keyboard.press('Home')
-  await expect(account).toBeFocused()
-  await expect(page).toHaveURL(/#settings\/account$/)
+    await page.keyboard.press('Home')
+    await expect(account).toBeFocused()
+    await expect(page).toHaveURL(/#settings\/account$/)
 
-  await page.keyboard.press('End')
-  await expect(permissions).toBeFocused()
-  await expect(page).toHaveURL(/#settings\/permissions$/)
+    await page.keyboard.press('End')
+    await expect(permissions).toBeFocused()
+    await expect(permissions).toBeInViewport({ ratio: 1 })
+    await expect(
+      settings.getByRole('heading', { name: 'Permissions', level: 3, exact: true })
+    ).toBeInViewport({ ratio: 1 })
+    await expect(page).toHaveURL(/#settings\/permissions$/)
 
-  await page.keyboard.press('ArrowRight')
-  await expect(account).toBeFocused()
-  await expect(account).toHaveAttribute('aria-selected', 'true')
-  await expect(page).toHaveURL(/#settings\/account$/)
-})
+    await page.keyboard.press('ArrowDown')
+    await expect(account).toBeFocused()
+    await expect(account).toHaveAttribute('aria-selected', 'true')
+    await expect(page).toHaveURL(/#settings\/account$/)
+  })
+}
 
 test('the appearance section keeps the ported Zeron composition', async ({ page }) => {
   await mockWorkspace(page)
@@ -2556,6 +2577,117 @@ test('Kanban leaves the prior Chat surface intact and rail keyboard reorders per
   await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(0)
 })
 
+test('App Library drag and keyboard ordering shares rail placements and persists hidden apps', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat&app=library')
+  const library = page.getByRole('main', { name: 'App Library' })
+  const views = page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('group', { name: 'Workspace views' })
+
+  const appOrder = () =>
+    library
+      .locator('.workspace-app-library__grid > [data-app-id]')
+      .evaluateAll((tiles) => tiles.map((tile) => tile.getAttribute('data-app-id')))
+  const railOrder = () =>
+    views.locator('[data-row-id]').evaluateAll((items) =>
+      items
+        .map((item) => item.getAttribute('data-row-id'))
+        .filter((rowId): rowId is string => rowId?.startsWith('rail-view:') === true)
+        .map((rowId) => rowId.replace('rail-view:', ''))
+    )
+  const enabledAppOrder = () =>
+    library
+      .locator('.workspace-app-library__grid > [data-app-id][data-enabled="true"]')
+      .evaluateAll((tiles) => tiles.map((tile) => tile.getAttribute('data-app-id')))
+
+  await expect.poll(appOrder).toEqual(['virtual', 'chat', 'dev', 'kanban', 'source-control'])
+  // An enabled-only filter must not replace the canonical order with its
+  // partial list. Move Dev with a keyboard-activated shared ActionButton.
+  await library.getByRole('button', { name: 'Show enabled only', exact: true }).click()
+  await expect.poll(appOrder).toEqual(['virtual', 'chat', 'dev'])
+  const moveDevLeft = library.getByRole('button', { name: 'Move Dev left', exact: true })
+  await moveDevLeft.focus()
+  await page.keyboard.press('Enter')
+  await expect.poll(appOrder).toEqual(['virtual', 'dev', 'chat'])
+  await expect(library.getByRole('button', { name: 'Move Dev left', exact: true })).toBeFocused()
+  await expect(library.getByRole('status')).toHaveText('Dev moved to position 2 of 5')
+  await library.getByRole('button', { name: 'Show enabled only', exact: true }).click()
+  await expect.poll(appOrder).toEqual(['virtual', 'dev', 'chat', 'kanban', 'source-control'])
+  await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat'])
+
+  // Drag the optional, currently hidden app before Virtual. Reordering keeps
+  // it hidden until the explicit Enable action and retains the remaining apps.
+  const kanbanTile = library.locator('[data-app-id="kanban"]')
+  const kanbanGrip = kanbanTile.getByRole('button', { name: 'Drag Kanban to reorder', exact: true })
+  await kanbanTile.hover()
+  await expect(kanbanGrip).toBeVisible()
+  await kanbanGrip.click({ trial: true })
+  await kanbanGrip.dragTo(library.locator('[data-app-id="virtual"]'), {
+    targetPosition: { x: 1, y: 24 },
+  })
+  await expect.poll(appOrder).toEqual(['kanban', 'virtual', 'dev', 'chat', 'source-control'])
+  await expect(library.getByRole('button', { name: 'Enable Kanban', exact: true })).toBeVisible()
+  await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat'])
+
+  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
+  await expect
+    .poll(async () => ({ enabledApps: await enabledAppOrder(), rail: await railOrder() }))
+    .toEqual({
+      enabledApps: ['kanban', 'virtual', 'dev', 'chat'],
+      rail: ['kanban', 'virtual', 'dev', 'chat'],
+    })
+  await page.reload()
+  await expect(library).toBeVisible()
+  await expect.poll(appOrder).toEqual(['kanban', 'virtual', 'dev', 'chat', 'source-control'])
+  await expect(library.getByRole('button', { name: 'Disable Kanban', exact: true })).toBeVisible()
+  await expect
+    .poll(async () => ({ enabledApps: await enabledAppOrder(), rail: await railOrder() }))
+    .toEqual({
+      enabledApps: ['kanban', 'virtual', 'dev', 'chat'],
+      rail: ['kanban', 'virtual', 'dev', 'chat'],
+    })
+})
+
+test('App Library reorder actions are visible and operable on touch devices', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  })
+
+  try {
+    const page = await context.newPage()
+    await mockConnectedWorkspace(page)
+    await page.goto('/?view=chat&app=library')
+    const library = page.getByRole('main', { name: 'App Library' })
+    expect(
+      await page.evaluate(
+        () => matchMedia('(hover: none)').matches || matchMedia('(pointer: coarse)').matches
+      )
+    ).toBe(true)
+    const appOrder = () =>
+      library
+        .locator('.workspace-app-library__grid > [data-app-id]')
+        .evaluateAll((tiles) => tiles.map((tile) => tile.getAttribute('data-app-id')))
+
+    const devTile = library.locator('[data-app-id="dev"]')
+    const moveDevLeft = devTile.getByRole('button', { name: 'Move Dev left', exact: true })
+    await expect(moveDevLeft).toBeVisible()
+    await expect(moveDevLeft).toHaveCSS('pointer-events', 'auto')
+    await expect.poll(appOrder).toEqual(['virtual', 'chat', 'dev', 'kanban', 'source-control'])
+
+    await moveDevLeft.tap()
+    await expect.poll(appOrder).toEqual(['virtual', 'dev', 'chat', 'kanban', 'source-control'])
+  } finally {
+    await context.close()
+  }
+})
+
 test('Rail drag-and-drop reorders views across disabled apps and persists after reload', async ({
   page,
 }) => {
@@ -2565,8 +2697,9 @@ test('Rail drag-and-drop reorders views across disabled apps and persists after 
   const views = page
     .getByRole('navigation', { name: 'Global navigation' })
     .getByRole('group', { name: 'Workspace views' })
-  // Reordering is a rail concern now; the library carries no move controls.
-  await expect(library.getByRole('button', { name: /^Move / })).toHaveCount(0)
+  await expect(
+    library.getByRole('button', { name: 'Move Virtual left', exact: true })
+  ).toBeVisible()
   await library.getByRole('button', { name: 'Disable Chat', exact: true }).click()
   // Dropping on the upper half of a row inserts before it, the lower half after.
   await views

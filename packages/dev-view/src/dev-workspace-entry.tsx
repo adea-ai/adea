@@ -33,6 +33,7 @@ import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
   Columns2,
   Files,
+  FolderTree,
   GitBranch,
   History,
   Laptop,
@@ -40,8 +41,7 @@ import {
   MonitorSmartphone,
   PanelRightClose,
   PanelRightOpen,
-  Plus,
-  TerminalSquare,
+  Undo2,
   Users,
   X,
 } from 'lucide-solid'
@@ -104,6 +104,18 @@ import {
 } from './sidebar/reorder'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { ButtonGroup } from '@adea-ai/ui/components/ui/button-group'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@adea-ai/ui/components/ui/resizable'
+import {
+  SideRail,
+  SideRailContent,
+  SideRailItem,
+  SideRailSection,
+} from '@adea-ai/ui/components/layout/side-rail'
 
 // Keep the sidebar and runtime controls independent of the central split
 // renderer. Its resize dependency is loaded when the panes actually mount.
@@ -271,6 +283,7 @@ const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {
 const utilityItemByPane = new Map(utilityItems.map((item) => [item.pane, item]))
 const utilitySizeSteps = [240, 288, 336, 384] as const
 const defaultUtilitySize = 288
+const defaultBrowserUtilitySize = 336
 
 const defaultUtilityPreferences = (): DevUtilityPreference[] =>
   utilityItems.map((item, order) => ({
@@ -278,8 +291,8 @@ const defaultUtilityPreferences = (): DevUtilityPreference[] =>
     side: item.side,
     order,
     visible: item.pane === 'files',
-    size: defaultUtilitySize,
-    lastNonzeroSize: defaultUtilitySize,
+    size: item.pane === 'browser' ? defaultBrowserUtilitySize : defaultUtilitySize,
+    lastNonzeroSize: item.pane === 'browser' ? defaultBrowserUtilitySize : defaultUtilitySize,
     fullWidth: false,
   }))
 
@@ -458,9 +471,6 @@ function createFixtureTerminalObservations() {
   }
 }
 
-const setCompactSidebarOpen = (open: boolean) =>
-  workspaceStore.getState().setMobileSidebarOpen(open)
-
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
   const fixtureTerminalObservations = import.meta.env.DEV
@@ -492,9 +502,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // readonly E2E input and never mutates.
   const [fixtureGroups, setFixtureGroups] = createSignal<readonly DevGroupFixture[] | undefined>()
   const [projection, setProjection] = createSignal<DevWorkspaceProjection | undefined>()
-  const [projectionStatus, setProjectionStatus] = createSignal<'loading' | 'ready' | 'unavailable'>(
-    'loading'
-  )
   const groups = () => fixtureGroups() ?? props.groups ?? projectedGroups()
   const selectedProjectState = useWorkspaceState((state) => state.selectedDevProjectId)
   const selectedSessionState = useWorkspaceState((state) => state.selectedRuntimeSessionId)
@@ -541,7 +548,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     if (props.groups !== undefined) return
     const scope = activeScope()
     if (!scope || !props.runtime.projection) {
-      setProjectionStatus('unavailable')
       setArchiveShelf(archiveShelfUnavailable('channel_unauthenticated'))
       return
     }
@@ -549,11 +555,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       const next = await props.runtime.projection(scope)
       setProjection(next)
       setProjectedGroups(toDevGroups(next))
-      setProjectionStatus('ready')
       void loadArchivedSessions()
     } catch {
       setProjectedGroups([])
-      setProjectionStatus('unavailable')
       setArchiveShelf(archiveShelfUnavailable('unavailable'))
     }
   }
@@ -561,7 +565,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   onMount(() => {
     if (props.groups !== undefined) {
       setFixtureGroups(props.groups)
-      setProjectionStatus('ready')
       setArchiveShelf(
         archiveShelfReady(
           props.groups.flatMap((group) =>
@@ -796,13 +799,15 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     )
     focusPaneElement(`dev-editor-${suffix}`)
   }
-  const collapseSide = (side: 'left' | 'right') => {
+  const collapseSide = (side: 'left' | 'right', options: { focusCenter?: boolean } = {}) => {
     setUtilityPreferences((items) =>
       items.map((item) => (item.side === side ? { ...item, visible: false } : item))
     )
     schedulePreferences()
     setAnnouncement(`${side === 'left' ? 'Left' : 'Right'} utility slot collapsed`)
-    requestAnimationFrame(() => document.getElementById('dev-center')?.focus())
+    if (options.focusCenter !== false) {
+      requestAnimationFrame(() => document.getElementById('dev-center')?.focus())
+    }
   }
   /** One-click toolbar toggle: opens the group, switches to it, or collapses. */
   const toggleUtilityGroup = (panes: readonly DevUtilityPane[]) => {
@@ -814,7 +819,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       return
     }
     if (panes.includes(current.pane)) {
-      collapseSide(side)
+      collapseSide(side, { focusCenter: false })
       return
     }
     showPane(panes.find((pane) => pane !== current.pane) ?? panes[0]!)
@@ -828,7 +833,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     const current = visiblePaneOf('right')
     if (current) {
       setLastRightPane(current.pane)
-      collapseSide('right')
+      collapseSide('right', { focusCenter: false })
       return
     }
     showPane(lastRightPane())
@@ -1177,40 +1182,94 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
 
   const leftFullWidth = () => visiblePaneOf('left')?.fullWidth ?? false
   const rightFullWidth = () => visiblePaneOf('right')?.fullWidth ?? false
-  // Full width is a per-panel state (restore lives in the panel's own
-  // heading), and source control pins its pane, so the sidebar toggle only
-  // exists for the regular right-slot layout.
-  const sidebarToggleAvailable = () => props.appMode !== 'source-control' && !rightFullWidth()
+  // The right collapse control remains available when its pane is full width;
+  // the pane's own heading owns the separate restore-width action.
+  const sidebarToggleAvailable = () => props.appMode !== 'source-control'
   const sidebarToggleControl = () => {
-    const open = Boolean(visiblePaneOf('right'))
+    const open = () => Boolean(visiblePaneOf('right'))
     return (
       <ActionButton
         type="button"
         variant="outline"
         size="icon-sm"
-        tooltip={open ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
-        aria-label={open ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
-        aria-expanded={open}
+        class="workspace-topbar__control"
+        tooltip={open() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
+        aria-label={open() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
+        aria-expanded={open()}
         onClick={toggleRightUtilitySlot}
       >
-        <Show when={open} fallback={<PanelRightOpen aria-hidden="true" />}>
+        <Show when={open()} fallback={<PanelRightOpen aria-hidden="true" />}>
           <PanelRightClose aria-hidden="true" />
         </Show>
       </ActionButton>
     )
   }
 
-  const utilityControls = () => (
-    <div class="dev-toolbar__utilities">
-      <Show when={!leftFullWidth() && props.appMode !== 'source-control'}>
-        <UtilityToolbarToggle
-          label="Files / SC"
-          icon={Files}
-          pressed={Boolean(visiblePaneOf('left'))}
-          onClick={() => toggleUtilityGroup(['files', 'source_control'])}
-        />
-      </Show>
-    </div>
+  const leftUtilityToggleControl = () => {
+    const open = () => Boolean(visiblePaneOf('left'))
+    return (
+      <ActionButton
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        class="workspace-topbar__control"
+        tooltip={open() ? 'Collapse left utility sidebar' : 'Expand left utility sidebar'}
+        aria-label={open() ? 'Collapse left utility sidebar' : 'Expand left utility sidebar'}
+        aria-expanded={open()}
+        onClick={() => toggleUtilityGroup(['files', 'source_control'])}
+      >
+        <FolderTree aria-hidden="true" />
+      </ActionButton>
+    )
+  }
+
+  const devPaneActions = () => (
+    <Show when={props.appMode !== 'source-control'}>
+      {leftUtilityToggleControl()}
+      <ActionButton
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        class="workspace-topbar__control"
+        tooltip="Split pane"
+        aria-label="Split pane"
+        disabled={countLeaves(layout().center) >= 8}
+        onClick={() => {
+          const suffix = ++nextPaneId
+          updateLayout((state) => {
+            const focused = listLeaves(state.center).find((leaf) => leaf.id === state.focusedLeafId)
+            if (!focused) return state
+            return splitPane(state, state.focusedLeafId, {
+              direction: 'row',
+              placement: 'after',
+              leaf: {
+                kind: 'leaf',
+                id: `dev-pane-${suffix}`,
+                pane: focused.pane,
+                ...(focused.pane === 'editor' && focused.resourceId !== undefined
+                  ? { resourceId: focused.resourceId }
+                  : {}),
+              },
+              splitId: `dev-split-${suffix}`,
+            })
+          })
+        }}
+      >
+        <Columns2 aria-hidden="true" />
+      </ActionButton>
+      <ActionButton
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        class="workspace-topbar__control"
+        tooltip="Reopen the last closed pane in this window"
+        aria-label="Reopen closed pane"
+        disabled={layout().closed.length === 0}
+        onClick={() => updateLayout(undoClosePane)}
+      >
+        <Undo2 aria-hidden="true" />
+      </ActionButton>
+    </Show>
   )
 
   return (
@@ -1225,82 +1284,30 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       <a class="dev-skip-link" href="#dev-center">
         Skip to workspace
       </a>
-      <header class="dev-toolbar">
-        <Button
-          class="dev-icon-button dev-sidebar-toggle"
-          type="button"
-          aria-label="Toggle projects sidebar"
-          aria-expanded={compactSidebarOpen()}
-          onClick={() => setCompactSidebarOpen(!compactSidebarOpen())}
-        >
-          <Columns2 aria-hidden="true" />
-        </Button>
-        <div class="dev-toolbar__identity">
-          <strong>Dev</strong>
-          <span>
-            {fixtureMode()
-              ? 'Development fixtures · E2E only'
-              : projectionStatus() === 'loading'
-                ? 'Loading runtime projects…'
-                : projectionStatus() === 'unavailable'
-                  ? 'Runtime unavailable'
-                  : 'Runtime projects'}
-          </span>
-        </div>
-        <div class="dev-toolbar__actions" role="toolbar" aria-label="Developer workspace actions">
-          <Button type="button" class="dev-button dev-button--secondary" disabled>
-            <Plus aria-hidden="true" /> <span>New session</span>
-          </Button>
-          <Button
-            type="button"
-            class="dev-button dev-button--secondary"
-            disabled={countLeaves(layout().center) >= 8}
-            onClick={() => {
-              const suffix = ++nextPaneId
-              updateLayout((state) => {
-                const focused = listLeaves(state.center).find(
-                  (leaf) => leaf.id === state.focusedLeafId
-                )
-                if (!focused) return state
-                return splitPane(state, state.focusedLeafId, {
-                  direction: 'row',
-                  placement: 'after',
-                  leaf: {
-                    kind: 'leaf',
-                    id: `dev-pane-${suffix}`,
-                    pane: focused.pane,
-                    ...(focused.pane === 'editor' && focused.resourceId !== undefined
-                      ? { resourceId: focused.resourceId }
-                      : {}),
-                  },
-                  splitId: `dev-split-${suffix}`,
-                })
-              })
-            }}
-          >
-            <TerminalSquare aria-hidden="true" /> <span>Split pane</span>
-          </Button>
-          <Button
-            type="button"
-            class="dev-button dev-button--secondary"
-            disabled={layout().closed.length === 0}
-            onClick={() => updateLayout(undoClosePane)}
-          >
-            <span>Undo close</span>
-          </Button>
-          <Show when={props.toolbarMount} fallback={utilityControls()}>
-            {(mount) => <Portal mount={mount()}>{utilityControls()}</Portal>}
-          </Show>
-          {/* The bundled utility sidebar's toggle rides the host's trailing
-              top-bar mount when one exists; the fallback keeps other hosts
-              working inside the Dev toolbar. */}
-          <Show when={sidebarToggleAvailable()}>
-            <Show when={props.sidebarActionMount} fallback={sidebarToggleControl()}>
-              {(mount) => <Portal mount={mount()}>{sidebarToggleControl()}</Portal>}
-            </Show>
-          </Show>
-        </div>
-      </header>
+      <Show
+        when={props.toolbarMount}
+        fallback={
+          <header class="dev-toolbar">
+            <div
+              class="dev-toolbar__actions"
+              role="toolbar"
+              aria-label="Developer workspace actions"
+            >
+              {devPaneActions()}
+              <Show when={sidebarToggleAvailable() && !props.sidebarActionMount}>
+                {sidebarToggleControl()}
+              </Show>
+            </div>
+          </header>
+        }
+      >
+        {(mount) => <Portal mount={mount()}>{devPaneActions()}</Portal>}
+      </Show>
+      {/* The right utility collapse action stays in the trailing global slot;
+          direct hosts keep a local fallback for the runtime integration harness. */}
+      <Show when={sidebarToggleAvailable() && props.sidebarActionMount}>
+        {(mount) => <Portal mount={mount()}>{sidebarToggleControl()}</Portal>}
+      </Show>
 
       <Show when={recoveryMessage()}>
         <p class="dev-recovery-banner" role="status">
@@ -1387,14 +1394,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             onOpenFile={openFileInEditorLeaf}
           />
         </Show>
-        <Show when={visiblePaneOf('left') && !leftFullWidth()}>
-          <UtilitySplitter
-            side="left"
-            size={visiblePaneOf('left')!.size}
-            onResize={(size) => setPaneSize(visiblePaneOf('left')!.pane, size)}
-          />
-        </Show>
-
         <section
           class="dev-center"
           id="dev-center"
@@ -1512,13 +1511,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           </Suspense>
         </section>
 
-        <Show when={visiblePaneOf('right') && !rightFullWidth()}>
-          <UtilitySplitter
-            side="right"
-            size={visiblePaneOf('right')!.size}
-            onResize={(size) => setPaneSize(visiblePaneOf('right')!.pane, size)}
-          />
-        </Show>
         <Show when={visiblePaneOf('right')}>
           <UtilitySlot
             side="right"
@@ -1548,72 +1540,52 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   )
 }
 
-function UtilityToolbarToggle(props: {
-  label: string
-  icon: typeof Files
-  pressed: boolean
-  onClick(): void
-}) {
-  return (
-    <Button
-      type="button"
-      class="dev-button dev-button--toggle"
-      aria-label={props.label}
-      title={props.label}
-      aria-pressed={props.pressed}
-      onClick={props.onClick}
-    >
-      <props.icon aria-hidden="true" /> <span>{props.label}</span>
-    </Button>
-  )
-}
-
-function UtilitySplitter(props: {
+function UtilityResizeHandle(props: {
   side: 'left' | 'right'
   size: number
   onResize(size: number): void
 }) {
-  const resizeFromPointer = (startX: number, startSize: number) => (event: PointerEvent) => {
-    const delta = props.side === 'right' ? startX - event.clientX : event.clientX - startX
-    props.onResize(startSize + delta)
-  }
+  const max = utilitySizeSteps[utilitySizeSteps.length - 1]
+  const sizeRatio = () => props.size / max
+  const rulerSizes = () =>
+    props.side === 'left' ? [sizeRatio(), 1 - sizeRatio()] : [1 - sizeRatio(), sizeRatio()]
+  const resizedSize = (sizes: readonly number[]) =>
+    Math.round((props.side === 'left' ? (sizes[0] ?? 0) : 1 - (sizes[0] ?? 1)) * max)
+
   return (
-    <Button
-      type="button"
+    <ResizablePanelGroup
+      orientation="horizontal"
+      sizes={rulerSizes()}
+      keyboardDelta="48px"
       class={cn('dev-utility-splitter', {
         'dev-utility-splitter--left': props.side === 'left',
         'dev-utility-splitter--right': props.side === 'right',
       })}
-      role="separator"
-      aria-label={`Resize ${props.side} utility pane`}
-      aria-orientation="vertical"
-      aria-valuemin={utilitySizeSteps[0]}
-      aria-valuemax={utilitySizeSteps[utilitySizeSteps.length - 1]}
-      aria-valuenow={props.size}
-      onPointerDown={(event) => {
-        event.currentTarget.setPointerCapture(event.pointerId)
-        const startX = event.clientX
-        const startSize = props.size
-        const move = resizeFromPointer(startX, startSize)
-        const done = () => {
-          window.removeEventListener('pointermove', move)
-          window.removeEventListener('pointerup', done)
-          window.removeEventListener('pointercancel', done)
-        }
-        window.addEventListener('pointermove', move)
-        window.addEventListener('pointerup', done, { once: true })
-        window.addEventListener('pointercancel', done, { once: true })
+      onSizesChange={(sizes) => {
+        const nextSize = snapUtilitySize(resizedSize(sizes))
+        if (nextSize !== props.size) props.onResize(nextSize)
       }}
-      onKeyDown={(event) => {
-        const grows = props.side === 'left' ? event.key === 'ArrowRight' : event.key === 'ArrowLeft'
-        const shrinks =
-          props.side === 'left' ? event.key === 'ArrowLeft' : event.key === 'ArrowRight'
-        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') return
-        if (!grows && !shrinks) return
-        event.preventDefault()
-        props.onResize(props.size + (grows ? 48 : -48))
-      }}
-    />
+    >
+      <ResizablePanel
+        minSize={props.side === 'left' ? utilitySizeSteps[0] / max : 0}
+        maxSize={props.side === 'left' ? 1 : (max - utilitySizeSteps[0]) / max}
+        aria-hidden="true"
+      />
+      <ResizableHandle
+        withHandle
+        label={`Resize ${props.side} utility pane`}
+        aria-controls={`dev-utility-panel-${props.side}`}
+        aria-valuemin={utilitySizeSteps[0]}
+        aria-valuemax={max}
+        aria-valuenow={props.size}
+        class="dev-utility-splitter__handle"
+      />
+      <ResizablePanel
+        minSize={props.side === 'left' ? 0 : utilitySizeSteps[0] / max}
+        maxSize={1}
+        aria-hidden="true"
+      />
+    </ResizablePanelGroup>
   )
 }
 
@@ -1685,26 +1657,15 @@ function UtilitySlot(props: {
   const sideLabel = () => (props.side === 'left' ? 'Left' : 'Right')
   const visibleItem = () =>
     props.visiblePane ? utilityItemByPane.get(props.visiblePane.pane) : undefined
-  const runtimeReady = () => props.runtime.state().status === 'ready'
-  const tabKeyDown = (event: KeyboardEvent, currentPane: DevUtilityPane) => {
-    const panes = props.panes.map((entry) => entry.pane)
-    const current = panes.indexOf(currentPane)
-    const next =
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? panes.length - 1
-          : event.key === 'ArrowUp' || event.key === 'ArrowLeft'
-            ? (current - 1 + panes.length) % panes.length
-            : event.key === 'ArrowDown' || event.key === 'ArrowRight'
-              ? (current + 1) % panes.length
-              : -1
-    if (next < 0) return
-    event.preventDefault()
-    const nextPane = panes[next]!
-    props.onShow(nextPane)
-    document.getElementById(`dev-utility-tab-${props.side}-${nextPane}`)?.focus()
+  const resizablePane = () => {
+    const pane = props.visiblePane
+    return pane && !pane.fullWidth ? pane : undefined
   }
+  const runtimeReady = () => props.runtime.state().status === 'ready'
+  const isFileSourceControlSlot = () =>
+    props.side === 'left' &&
+    props.panes.some((item) => item.pane === 'files') &&
+    props.panes.some((item) => item.pane === 'source_control')
   const paneBody = (pane: DevUtilityPane) => {
     if (pane === 'browser') {
       return runtimeReady() ? (
@@ -1824,49 +1785,47 @@ function UtilitySlot(props: {
         'dev-utility--size-336': props.visiblePane?.size === 336,
         'dev-utility--size-384': props.visiblePane?.size === 384,
       })}
+      id={`dev-utility-${props.side}`}
       aria-label={`Developer utilities (${sideLabel().toLowerCase()})`}
     >
-      {/* oxlint-disable-next-line adea/no-interactive-wrappers -- pane-closed state awaits the shared Tabs adoption */}
-      <div class="dev-utility-tabs" role="tablist" aria-label={`${sideLabel()} utility panes`}>
-        <For each={props.panes}>
-          {(item) => {
-            const meta = utilityItemByPane.get(item.pane)!
-            const selected = () => props.visiblePane?.pane === item.pane
-            return (
-              <Button
-                type="button"
-                id={`dev-utility-tab-${props.side}-${item.pane}`}
-                role="tab"
-                aria-selected={selected()}
-                aria-controls={`dev-utility-panel-${props.side}`}
-                tabIndex={selected() ? 0 : -1}
-                title={meta.title}
-                class={cn('dev-utility-tab', {
-                  'dev-utility-tab--selected': selected(),
-                })}
-                onClick={() => props.onShow(item.pane)}
-                onKeyDown={(event) => tabKeyDown(event, item.pane)}
-              >
-                <meta.icon aria-hidden="true" />
-                <span>{meta.label}</span>
-              </Button>
-            )
-          }}
-        </For>
-      </div>
-      {/* oxlint-disable-next-line adea/no-interactive-wrappers -- pane-closed state awaits the shared Tabs adoption */}
-      <div
+      <Show when={props.side === 'right'}>
+        <SideRail collapsed aria-label="Right utility panes">
+          <SideRailContent>
+            <SideRailSection label="Utilities">
+              <For each={props.panes}>
+                {(item) => {
+                  const meta = utilityItemByPane.get(item.pane)!
+                  const selected = () => props.visiblePane?.pane === item.pane
+                  return (
+                    <SideRailItem
+                      as="button"
+                      type="button"
+                      label={meta.title}
+                      aria-label={meta.title}
+                      aria-controls={`dev-utility-panel-${props.side}`}
+                      active={selected()}
+                      onClick={() => props.onShow(item.pane)}
+                    >
+                      <meta.icon aria-hidden="true" />
+                    </SideRailItem>
+                  )
+                }}
+              </For>
+            </SideRailSection>
+          </SideRailContent>
+        </SideRail>
+      </Show>
+      <section
         id={`dev-utility-panel-${props.side}`}
-        role="tabpanel"
-        aria-labelledby={`dev-utility-tab-${props.side}-${props.visiblePane?.pane ?? ''}`}
+        aria-labelledby={`dev-utility-heading-${props.side}`}
         class="dev-utility-panel"
       >
         <div class="dev-utility-panel__heading">
-          <h2>{visibleItem()?.title}</h2>
+          <h2 id={`dev-utility-heading-${props.side}`}>{visibleItem()?.title}</h2>
           <Show when={!props.fixedPane}>
             <ActionButton
               type="button"
-              variant="outline"
+              variant="ghost"
               size="icon-sm"
               tooltip={
                 props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
@@ -1883,7 +1842,7 @@ function UtilitySlot(props: {
             </ActionButton>
             <ActionButton
               type="button"
-              variant="outline"
+              variant="ghost"
               size="icon-sm"
               tooltip={`Collapse ${sideLabel().toLowerCase()} utility slot`}
               aria-label={`Collapse ${sideLabel().toLowerCase()} utility slot`}
@@ -1893,10 +1852,51 @@ function UtilitySlot(props: {
             </ActionButton>
           </Show>
         </div>
-        <Suspense fallback={<p class="dev-pane-state__line">Loading pane…</p>}>
-          {paneBody(props.visiblePane!.pane)}
-        </Suspense>
-      </div>
+        <div class="dev-utility-panel__content">
+          <Suspense fallback={<p class="dev-pane-state__line">Loading pane…</p>}>
+            {paneBody(props.visiblePane!.pane)}
+          </Suspense>
+        </div>
+        <Show when={isFileSourceControlSlot() && !props.fixedPane}>
+          <ButtonGroup
+            class="dev-utility__file-source-selector w-full"
+            label="Files and Source Control"
+          >
+            <Button
+              type="button"
+              variant={props.visiblePane?.pane === 'files' ? 'secondary' : 'outline'}
+              size="sm"
+              aria-label="Files"
+              aria-pressed={props.visiblePane?.pane === 'files'}
+              onClick={() => props.onShow('files')}
+            >
+              <FolderTree aria-hidden="true" />
+              <span class="dev-utility__selector-label">Files</span>
+            </Button>
+            <Button
+              type="button"
+              variant={props.visiblePane?.pane === 'source_control' ? 'secondary' : 'outline'}
+              size="sm"
+              aria-label="Source control"
+              aria-pressed={props.visiblePane?.pane === 'source_control'}
+              onClick={() => props.onShow('source_control')}
+            >
+              <GitBranch aria-hidden="true" />
+              <span class="dev-utility__selector-label">Source control</span>
+            </Button>
+          </ButtonGroup>
+        </Show>
+      </section>
+      <Show when={Boolean(resizablePane())}>
+        <UtilityResizeHandle
+          side={props.side}
+          size={resizablePane()?.size ?? defaultUtilitySize}
+          onResize={(size) => {
+            const pane = resizablePane()
+            if (pane) props.onResize(pane.pane, size)
+          }}
+        />
+      </Show>
     </aside>
   )
 }

@@ -3,8 +3,11 @@ import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
-import { SettingsRow as SharedSettingsRow } from '@adea-ai/ui/components/composites/settings'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
+import {
+  SettingsNavigation,
+  SettingsRow as SharedSettingsRow,
+} from '@adea-ai/ui/components/composites/settings'
+import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
 import {
   Bell,
   Bot,
@@ -16,7 +19,7 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-solid'
-import { createEffect, createSignal, For, lazy, onCleanup, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, For, lazy, onCleanup, onMount, Show, type JSX } from 'solid-js'
 
 import { CapabilityList } from './capability-card'
 import { keyedRows } from './keyed-rows'
@@ -65,6 +68,13 @@ function SettingsRow(props: { children?: JSX.Element; detail: string; title: str
   )
 }
 
+// True while an appearance theme dropdown is mounted inside the settings
+// dialog. Read at scroll-time rather than tracked so it always reflects the
+// DOM, whichever side of the open/close race a scroll event lands on.
+function appearanceMenuOpen() {
+  return Boolean(document.querySelector('[data-appearance-editor] [role="menu"]'))
+}
+
 export function WorkspaceSettingsDialog(props: {
   accountAuthenticated: boolean
   accountLabel: string
@@ -101,7 +111,6 @@ export function WorkspaceSettingsDialog(props: {
   )
   const [capabilities, setCapabilities] = createSignal<CapabilitySnapshot | undefined>()
   const [capabilitiesBusy, setCapabilitiesBusy] = createSignal(false)
-  const navigationRefs = new Map<SettingsSection, HTMLButtonElement>()
   const topAgentRows = keyedRows(
     () => props.agents.slice(0, 5),
     (agent) => agent.id
@@ -149,16 +158,6 @@ export function WorkspaceSettingsDialog(props: {
     })
   })
 
-  createEffect(() => {
-    if (!props.open) return
-    const current = section()
-    const revealSelected = () =>
-      navigationRefs.get(current)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    revealSelected()
-    window.addEventListener('resize', revealSelected)
-    onCleanup(() => window.removeEventListener('resize', revealSelected))
-  })
-
   const selectSection = (next: SettingsSection) => {
     setSection(next)
     // Re-writing an already-current hash makes the router re-resolve the route,
@@ -188,61 +187,82 @@ export function WorkspaceSettingsDialog(props: {
   const toggle = (key: 'notifyMentions' | 'notifyTasks' | 'privateNotificationPreviews') =>
     void save({ ...preferences(), [key]: !preferences()[key] })
 
+  // The appearance theme menus mount their popper inside the section panel
+  // (the shared theme row keeps the mount in-dialog for focus containment),
+  // and the menu's open-focus pass drags the dialog and the panel to the
+  // menu's untransformed position: the whole view jumps and the menu lands
+  // detached from its trigger. While an appearance menu is open, hold the
+  // dialog and panel at their last menu-free scroll offsets — the menu is
+  // positioned against the dialog, so restoring the offsets keeps it glued
+  // to its trigger and the drag is never visible. Offsets are sampled on an
+  // interval (never while a menu is open, so a drag can never poison them)
+  // and restored on the scroll events the drag fires, which fire after it
+  // regardless of how the open sequence is ordered internally.
+  onMount(() => {
+    let stableDialog = 0
+    let stablePanel = 0
+    const sample = () => {
+      if (appearanceMenuOpen()) return
+      stableDialog = document.querySelector('.conventional-settings-dialog')?.scrollTop ?? 0
+      stablePanel = document.querySelector('#settings-panel-appearance')?.scrollTop ?? 0
+    }
+    const onScroll = (event: Event) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (!target.closest('.conventional-settings-dialog')) return
+      if (!appearanceMenuOpen()) {
+        sample()
+        return
+      }
+      const dialog = document.querySelector('.conventional-settings-dialog')
+      if (dialog && dialog.scrollTop !== stableDialog) dialog.scrollTop = stableDialog
+      const panel = document.querySelector('#settings-panel-appearance')
+      if (panel && panel.scrollTop !== stablePanel) panel.scrollTop = stablePanel
+    }
+    const sampler = setInterval(sample, 200)
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    onCleanup(() => {
+      clearInterval(sampler)
+      document.removeEventListener('scroll', onScroll, true)
+    })
+  })
+
   return (
     <ModalDialog
       modal={false}
-      class="conventional-dialog conventional-settings-dialog"
+      size="settings"
+      class="conventional-settings-dialog"
       open={props.open}
       onClose={close}
       headerLeading={
         <WorkspaceLogo aria-hidden="true" class="conventional-settings-logo" role="presentation" />
       }
       title="Settings"
-      description="Product preferences and boundaries for this Adea workspace."
     >
       <Tabs
         id="settings-tabs"
         class="conventional-settings-shell"
-        orientation="horizontal"
+        orientation="vertical"
         value={section()}
         onChange={(value) => selectSection(value as SettingsSection)}
       >
-        <TabsList
-          class="conventional-settings-nav w-full max-md:flex-wrap"
-          appearance="segmented"
+        <SettingsNavigation
+          class="conventional-settings-nav w-full"
           aria-label="Settings sections"
-        >
-          <For each={settingsSectionGroups}>
-            {(group) => (
-              <div role="none" class="conventional-settings-nav__group">
-                <p role="none" class="conventional-settings-nav__label">
-                  {group.label}
-                </p>
-                <For each={group.items}>
-                  {(item) => {
-                    const Icon = sectionIcons[item]
-                    return (
-                      <TabsTrigger
-                        ref={(element: HTMLButtonElement | undefined) => {
-                          if (element) navigationRefs.set(item, element)
-                          else navigationRefs.delete(item)
-                        }}
-                        id={`settings-tab-${item}`}
-                        value={item}
-                        onClick={() => {
-                          if (section() === item) selectSection(item)
-                        }}
-                      >
-                        <Icon aria-hidden="true" />
-                        <span>{settingsSectionLabels[item]}</span>
-                      </TabsTrigger>
-                    )
-                  }}
-                </For>
-              </div>
-            )}
-          </For>
-        </TabsList>
+          value={section()}
+          onReselect={(value) => selectSection(value as SettingsSection)}
+          groups={settingsSectionGroups.map((group) => ({
+            label: group.label,
+            items: group.items.map((item) => {
+              const Icon = sectionIcons[item]
+              return {
+                value: item,
+                label: settingsSectionLabels[item],
+                icon: <Icon aria-hidden="true" />,
+              }
+            }),
+          }))}
+        />
         <TabsContent
           value="account"
           id="settings-panel-account"

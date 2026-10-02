@@ -28,6 +28,8 @@ import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail
 import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import {
   enabledWorkspaceApps,
+  orderedWorkspaceApps,
+  reorderWorkspaceAppsRelativeTo,
   resolveWorkspaceApp,
   setWorkspaceAppEnabled,
   workspaceApps,
@@ -272,6 +274,23 @@ function railMoveAnnouncementFor(
     position,
     enabledWorkspaceApps(next).length,
     moved
+  )
+}
+
+/** The Library announcement follows every built-in tile, including hidden apps. */
+function appLibraryMoveAnnouncementFor(
+  id: WorkspaceAppId,
+  previous: RailPreferencesV1,
+  next: RailPreferencesV1
+): string {
+  const previousPosition = orderedWorkspaceApps(previous).findIndex((app) => app.id === id) + 1
+  const ordered = orderedWorkspaceApps(next)
+  const position = ordered.findIndex((app) => app.id === id) + 1
+  return railMoveAnnouncement(
+    workspaceApps.find((app) => app.id === id)?.name ?? id,
+    position,
+    ordered.length,
+    position !== previousPosition
   )
 }
 
@@ -600,6 +619,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
         onOpenNotifications={() => openSettings('input-notifications')}
         actionsMount={setToolbarMount}
+        showDevActions={activeAppId() === 'dev'}
         resources={<RuntimeResourcesControl runtime={props.services.devRuntime} />}
         sidebarMount={setSidebarActionMount}
         sidebarToggleRef={setSidebarOpener}
@@ -666,6 +686,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                 setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
               }
               preferences={railPreferences()}
+              onReorder={(id, targetId, position) => {
+                const previous = railPreferences()
+                const next = reorderWorkspaceAppsRelativeTo(previous, id, targetId, position)
+                if (next !== previous) persistRailPreferences(next)
+                return appLibraryMoveAnnouncementFor(id, previous, next)
+              }}
               onSetEnabled={(id, enabled) =>
                 persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
               }

@@ -7,10 +7,10 @@ review the same way you would a type error.
 
 ## Lists keep their DOM across refetches
 
-Server-backed lists (TanStack Query results, projections over them) produce
+Server-backed lists (TanStack Query results and projections over them) produce
 fresh object identities on every fetch. `<For>` keys rows by reference, so a
-refetch remounts every row — open menus close, focus and hover state drop,
-images reload, and the whole subtree's DOM is rebuilt.
+refetch remounts every row. Open menus close, focus and hover state drop, images
+reload, and the whole subtree's DOM is rebuilt.
 
 - Use `keyedRows` (`packages/workspace-ui/src/keyed-rows.ts`) for any list whose
   items arrive from the server: the transcript, thread replies, the room and
@@ -18,8 +18,9 @@ images reload, and the whole subtree's DOM is rebuilt.
 - Pass an `equals` comparator over the item's `version`/`updatedAt` stamps so
   unchanged rows skip downstream updates entirely. Every `*Summary` type carries
   these fields; do not invent deep-equality, compare the stamps.
-- Read the row through `entry.item()` inside JSX expressions — never
-  `const x = entry.item()` (a snapshot that never updates).
+- Read the row through `entry.item()` inside JSX expressions. Do not assign it
+  to a local variable such as `const x = entry.item()`, because that snapshot
+  will not update.
 - `.map()` in JSX is for static, render-once data (menu items, column
   definitions). Anything that can change after mount belongs in `<For>`
   (identity-keyed), `<Index>` (position-stable primitives), or `keyedRows`.
@@ -40,22 +41,22 @@ step between the source and the reader.
   dependencies that happens to run once.
 - Event listeners for the life of the component register once (`onMount` +
   `onCleanup`). An effect that re-runs per data change and re-registers
-  listeners inside it pays setup/teardown on every update — keep the listener
-  and let it call a closure that reads the latest signals.
+  listeners pays setup and teardown on every update. Keep the listener and let
+  it call a closure that reads the latest signals.
 - Async loads keyed on a reactive input are fine as effects; keep the
   `active`/`disposed` flag and `onCleanup` so stale completions cannot write.
 
 ## Code splitting is only real when the split is respected
 
 `lazyComponent` starts its import on mount. An always-mounted lazy component
-fetches its chunk at startup — the code split exists on paper only.
+fetches its chunk at startup, so the code split exists only on paper.
 
 - Gate optional surfaces behind `<Show when={...}>` so the chunk arrives with
   the intent (dialogs, settings overlays, secondary views).
 - Warm the predicted path at module scope with `void import('<specifier>')`
-  matching the lazy boundary's specifier — the module map deduplicates it, so
-  the chunk downloads in parallel with the chunk that would have requested it
-  instead of a render cycle later (see `workspace-entry.tsx`).
+  using the lazy boundary's specifier. The module map deduplicates the import,
+  so the chunk downloads in parallel instead of waiting for another render
+  cycle (see `workspace-entry.tsx`).
 - Prefetch on intent: `onViewIntent` on rail buttons fires the target view's
   chunk on hover/focus so the click renders from cache. New lazy surfaces
   should offer an intent hook, not just an `onClick`.
@@ -65,17 +66,17 @@ fetches its chunk at startup — the code split exists on paper only.
 
 ## Network work is budgeted per event, not per refetch
 
-- The workspace event stream coalesces cache invalidations per chunk —
+- The workspace event stream coalesces cache invalidations per chunk.
   `refresh()` in `packages/data/src/events.ts` deduplicates query keys before
-  flushing. Do not add per-event invalidations elsewhere; queue into the same
-  path.
+  flushing. Do not add per-event invalidations elsewhere; queue them into the
+  same path.
 - Authoritative mutation responses update local state immediately (the message
   composer merges the created message into the transcript before the
   invalidation refetch lands). Waiting a round trip for confirmed data is
   visible latency, not correctness.
 - Revisiting a channel restores the last-known transcript and scroll position
-  while the refetch merges fresh pages — stale-while-revalidate beats a
-  skeleton on every revisit.
+  while the refetch merges fresh pages. Keeping current content visible during
+  refresh avoids showing a skeleton on every revisit.
 
 ## Cheap work stays cheap at scale
 
@@ -89,7 +90,7 @@ fetches its chunk at startup — the code split exists on paper only.
 ## Guardrails
 
 - `scripts/react-artifacts-boundary.test.ts` fails the build if a `'use client'`
-  directive or a React/Next import returns. The directive is meaningless in
-  Solid/TanStack Start — do not re-add it.
+  directive or a React/Next import returns. The directive has no meaning in
+  Solid/TanStack Start, so do not re-add it.
 - `PERF.md` is the ledger: performance claims use the recorded method, and a
   change that does not beat the baseline beyond noise does not land.

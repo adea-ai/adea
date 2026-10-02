@@ -1214,9 +1214,15 @@ archive:    archived → restoring → restored
 
 Lease expiry/suspect, process `unknown`, and port `stale` grant no destructive
 authority. Pane state is ephemeral and never alters resource ownership. Closing
-a pane is undoable in the window; closing a terminal process is a separate
-privileged command. The center layout is a strict binary tree with a hard M12
-cap of 8 leaves and depth 8; split/duplicate refuses with `limit_exceeded`
+a pane records its leaf in a window-local reopen stack; reopening restores that
+pane's layout and binding while the stack exists. This stack is not persisted,
+and reopening after a reload or session change is not promised. Closing or
+reopening a terminal pane only disposes or recreates its local renderer and
+stream attachment. It does not stop, archive, or recreate the native terminal
+or runtime session; a reopened pane may attach to the same selected live
+terminal and replay whatever history the runtime retains. Closing a terminal
+process is a separate privileged command. The center layout is a strict binary
+tree with a hard M12 cap of 8 leaves and depth 8; split/duplicate refuses with `limit_exceeded`
 when either cap would be exceeded. Ratios are finite and clamp to `[0.1, 0.9]`.
 Leaf IDs are unique, utility panes do not count as center leaves, and closing the
 last leaf restores one terminal placeholder. The center model and stable ID-keyed
@@ -2649,6 +2655,9 @@ The terminal ships a styled default profile using theme tokens for font,
 cursor, padding, opacity, and colors; a "system terminal" opt-out leaves the
 host terminal untouched.
 
+The mounted terminal surface uses the full width of its split-layout pane;
+the surface wrapper adds no horizontal inset around xterm.
+
 The mounted xterm renderer reads the canonical `--terminal-*` roles, including
 all sixteen ANSI slots, from its surface. Palette changes update the existing
 renderer and search decorations without reattaching its stream or replacing
@@ -2968,6 +2977,18 @@ the viewport, bounded overscan, and the initial measurement slice. Do not assume
 a fixed row height: text sizing and zoom may change shared row measurements, and
 scroll anchoring must preserve the current item or end position while those
 measurements update.
+
+The left utility keeps Files and Source Control as independent panes; their
+shared button-group selector is pinned below the pane content rather than
+repeating those two destinations in a vertical rail. Browser, Devices, Agents,
+and History use the published collapsed SideRail, including its selected
+accent and hover/focus labels. Utility separators use the shared resizable
+handle with a full-height pointer target and centered grip; their ruler maps
+the persisted 240–384 CSS-pixel pane range and remains keyboard operable.
+An empty layout defaults other utility panes to 288 CSS pixels and Browser to
+336 CSS pixels to fit its lane and viewport controls. This default fills missing
+preferences only; saved widths continue through the existing migration and
+snap rules.
 
 Every operation carries scope, live worktree ID/generation, authorized root,
 canonical relative path, and expected file identity where relevant.
@@ -4142,14 +4163,27 @@ Interactive controls opt out of the drag region. Back/Forward use the host
 router's guarded history and only advertise proven router positions; a push
 truncates the Forward branch. A tab-local watermark survives reloads but is
 collapsed after an external or BFCache return. The left cluster controls the
-contextual sidebar. The right cluster mounts Dev's Files/SC toggle and hosts
-the workspace-wide runtime-resources action, available by default on every
-view; the active view's bundled utility sidebar toggle — one control for the
-right slot's browser/devices/agents/history panes, reopening the pane last
-shown — rides the trailing mount after the workspace actions, separated by a
-vertical divider, and both hide while no view supplies it. Expanding is a
-per-panel concern: the full-width control lives in each utility pane's
-heading, and focus mode stays on its keyboard chord with no top-bar control.
+contextual sidebar. In the Dev view, its pane-action group begins at a vertical
+divider aligned to the contextual sidebar's right edge while that sidebar is
+visible, or to the later of the outer rail edge and leading history/context
+controls when the sidebar is collapsed or hidden. At phone widths, the
+contextual sidebar is an overlay below the top bar and Dev actions remain in
+flow after the contextual controls. The group contains the left utility
+slot collapse/reopen control, split-pane action, and window-local reopen-closed-
+pane action. Files versus Source Control is selected inside the left utility
+slot; its top-bar control only opens or collapses that slot. The workspace-wide
+runtime-resources action remains available by default on every view. The
+active view's bundled utility sidebar toggle — one control for the right
+slot's browser/devices/agents/history panes, reopening the pane last shown —
+rides the trailing mount after the workspace actions, separated by a vertical
+divider, and both hide while no view supplies it. Dev keeps this collapse
+control available while a utility pane is full width. Dev pane actions
+mount only while Dev owns the active surface. The shell-owned Browser sidebar
+must also be available from Chat, Dev, and Virtual; that cross-view host is a
+separate pending integration and is not established by the Dev mount described
+here. Expanding is a per-panel concern: the full-width control lives in each
+utility pane's heading, and focus mode stays on its keyboard chord with no
+top-bar control.
 The outer rail remains visible in every view, including focus mode. Virtual
 has its own contextual room navigation, independent of engine entitlement.
 The room-designer entry retains that navigation and its common toolbar controls

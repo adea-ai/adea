@@ -12,6 +12,14 @@
   background: var(--background);
 }
 
+/* Pane actions can mount into the global top bar, leaving main without its
+   header row; the fixed 3rem track would then swallow the body (a 48px
+   workspace). With neither a header nor a recovery banner to fill row one,
+   collapse to a single full-height body row. */
+.dev-workspace:not(:has(.dev-toolbar, .dev-recovery-banner)) {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 /* Runtime Chat uses the same contextual hierarchy and semantic panel tokens. */
 .dev-workspace--chat {
   grid-template-rows: minmax(0, 1fr);
@@ -42,25 +50,6 @@
   background: var(--dev-panel);
 }
 
-.dev-toolbar__identity {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 0.65rem;
-}
-
-.dev-toolbar__identity span {
-  overflow: hidden;
-  color: var(--dev-muted);
-  font:
-    500 0.75rem/1.2 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .dev-toolbar__actions {
   display: flex;
   align-items: center;
@@ -69,9 +58,7 @@
 }
 
 .dev-button,
-.dev-icon-button,
-.dev-tree-row,
-.dev-utility-tabs button {
+.dev-tree-row {
   min-height: 2rem;
   border: 1px solid transparent;
   border-radius: 0.35rem;
@@ -89,32 +76,19 @@
 }
 
 .dev-button svg,
-.dev-icon-button svg,
-.dev-tree-row svg,
-.dev-utility-tabs svg {
+.dev-tree-row svg {
   width: 1rem;
   height: 1rem;
   flex: none;
 }
 
-.dev-icon-button {
-  display: inline-grid;
-  width: 2rem;
-  place-items: center;
-}
-
 .dev-button:not(:disabled):hover,
-.dev-icon-button:hover,
-.dev-tree-row:hover,
-.dev-utility-tab:hover,
-.dev-utility-tab--selected {
+.dev-tree-row:hover {
   background: color-mix(in srgb, var(--foreground) 8%, transparent);
 }
 
 .dev-button:focus-visible,
-.dev-icon-button:focus-visible,
-.dev-tree-row:focus-visible,
-.dev-utility-tabs button:focus-visible {
+.dev-tree-row:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
@@ -140,7 +114,7 @@
 .dev-sidebar {
   min-width: 0;
   flex: none;
-  width: clamp(13rem, 16vw, 17rem);
+  width: var(--dev-context-sidebar-width, clamp(13rem, 16vw, 17rem));
   background: var(--dev-panel);
 }
 
@@ -264,10 +238,12 @@
 }
 
 .dev-utility {
+  position: relative;
   display: grid;
   flex: none;
   width: var(--dev-utility-size, 18rem);
   min-height: 0;
+  overflow: visible;
 }
 
 .dev-utility--size-240 {
@@ -283,39 +259,35 @@
 }
 
 .dev-utility--right {
-  grid-template-columns: 2.75rem minmax(0, 1fr);
+  grid-template-columns: var(--rail-width, 3.5rem) minmax(0, 1fr);
   border-inline-start: 1px solid var(--dev-border);
 }
 
 .dev-utility--left {
-  grid-template-columns: minmax(0, 1fr) 2.75rem;
+  grid-template-columns: minmax(0, 1fr);
   border-inline-end: 1px solid var(--dev-border);
 }
 
-.dev-utility--left .dev-utility-tabs {
-  order: 2;
-  border-inline-end: 0;
-  border-inline-start: 1px solid var(--dev-border);
+.dev-utility > .dev-utility-splitter {
+  position: absolute;
+  z-index: var(--z-docked);
+  inset-block: 0;
+  width: 24rem;
+  pointer-events: none;
 }
 
-.dev-utility-splitter {
-  flex: none;
-  width: 0.45rem;
-  padding: 0;
-  border: 0;
-  border-inline: 1px solid var(--dev-border);
-  background: color-mix(in srgb, var(--foreground) 3%, transparent);
-  cursor: col-resize;
+.dev-utility-splitter--left {
+  inset-inline-start: 0;
 }
 
-.dev-utility-splitter:hover,
-.dev-utility-splitter:focus-visible {
-  background: color-mix(in srgb, var(--primary) 35%, transparent);
+.dev-utility-splitter--right {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
 }
 
-.dev-utility-splitter:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
+.dev-utility-splitter__handle {
+  z-index: var(--z-docked);
+  pointer-events: auto;
 }
 
 .dev-row-badge {
@@ -353,43 +325,47 @@
   white-space: nowrap;
 }
 
-.dev-utility-tabs {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.45rem 0.35rem;
-  border-inline-end: 1px solid var(--dev-border);
-}
-
-.dev-utility-tabs button {
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  place-items: center;
-}
-
-.dev-utility-tabs button span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-}
-
 .dev-utility-panel {
+  display: flex;
+  min-height: 0;
   min-width: 0;
-  padding: 0.85rem;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .dev-utility-panel__heading {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-block-end: 1px solid var(--dev-border);
 }
 
-.dev-utility-panel__heading .dev-icon-button {
-  margin-inline-start: auto;
+.dev-utility-panel__content {
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.dev-utility__file-source-selector {
+  width: 100%;
+  flex: none;
+  padding: 0.5rem;
+  border-block-start: 1px solid var(--dev-border);
+}
+
+.dev-utility__file-source-selector > button {
+  min-width: 0;
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+@media (max-width: 24rem) {
+  .dev-utility__selector-label {
+    display: none;
+  }
 }
 
 .dev-utility-panel h2 {
@@ -433,20 +409,16 @@
   border-inline-start: 0;
 }
 
-.dev-sidebar-toggle {
-  display: none;
-}
-
 @media (max-width: 70rem) {
   .dev-sidebar {
-    width: clamp(12rem, 30vw, 15rem);
+    width: var(--dev-context-sidebar-width, clamp(12rem, 30vw, 15rem));
   }
 
   .dev-utility {
     position: absolute;
-    z-index: 4;
+    z-index: var(--z-docked);
     inset-block: 0;
-    width: min(19rem, 78vw);
+    width: min(19rem, 78vw, calc(100vw - var(--workspace-rail-width, 0px)));
     visibility: hidden;
     transition:
       transform 160ms ease,
@@ -477,30 +449,6 @@
 }
 
 @media (max-width: 48rem) {
-  .dev-sidebar-toggle {
-    display: inline-grid;
-  }
-
-  .dev-toolbar__actions .dev-button--secondary {
-    display: none;
-  }
-
-  .dev-toolbar__actions .dev-button--toggle {
-    display: inline-grid;
-    width: 2rem;
-    padding: 0;
-    place-items: center;
-  }
-
-  .dev-toolbar__actions .dev-button--toggle span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-  }
-
   .dev-sidebar {
     position: absolute;
     z-index: var(--z-drawer);
@@ -510,7 +458,10 @@
        edge, so it must also end there: without the rail term the shelf row
        lands at rail-width + row-width and overflows a narrow viewport (seen
        as 399.8 > 320 at 320px with a 200% root font). */
-    width: min(17rem, 84vw, calc(100vw - var(--workspace-rail-width, 0px)));
+    width: var(
+      --dev-context-sidebar-width,
+      min(17rem, 84vw, calc(100vw - var(--workspace-rail-width, 0px)))
+    );
     visibility: hidden;
     transform: translateX(-105%);
     transition:
@@ -527,9 +478,8 @@
 
 @media (pointer: coarse) {
   .dev-button,
-  .dev-icon-button,
   .dev-tree-row,
-  .dev-utility-tabs button {
+  .dev-utility__file-source-selector > button {
     min-width: 2.75rem;
     min-height: 2.75rem;
   }
@@ -605,10 +555,6 @@
     display: none;
   }
 }
-.workspace-frame .dev-sidebar-toggle {
-  display: none;
-}
-
 /* Dedicated Source control retains the common contextual project sidebar. */
 .dev-workspace--source-control-app .dev-sidebar.dev-sidebar--open {
   display: flex;

@@ -7,6 +7,15 @@ local primitive or a forwarding barrel here. Scene branding and Three.js runtime
 behavior stay in their owning packages. The Solid stack is recorded in
 [decision 0007](../../docs/decisions/0007-solid-tanstack-start.md).
 
+The root lint configuration also enforces the published consumer rules for
+inline CSS and icon actions. Use shared `ActionButton` with a nonblank tooltip
+and `aria-label` for icon-size actions; labelled text buttons may use `Button`.
+Use component variants and documented layout hooks instead of inline style
+props, literal style spreads, or style elements. The real Oxlint CLI regression
+in `scripts/shared-ui-lint-config.test.ts` checks that these rules remain active.
+The tooltip rule cannot prove dynamic tooltip content or an accessible name;
+verify both in browser coverage rather than treating lint as an exception.
+
 The branded `WorkspaceLogo` accepts only its layout class, image/presentation
 role, and decorative `aria-hidden` state. It does not forward activation
 handlers, tab stops, or arbitrary SVG props. Compose a shared control around
@@ -89,7 +98,7 @@ The rule is a gate with a burn-down, not a rewrite:
 
 - Files in `BASELINE` may carry an exact number of literals, each entry with a
   reason. Adding a literal fails the build, and so does removing one without
-  updating the count — so the list only shrinks.
+  updating the count, so the list only shrinks.
 - `GENERATED_THEME_FILES` contains only exact outputs of
   `packages/ui/scripts/generate-canonical-theme-data.ts`; the package's
   `themes:check` command verifies those projections against the published

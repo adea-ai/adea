@@ -1,3 +1,4 @@
+import '../../src/start/globals.css'
 import { AgentHqQueryProvider } from '@adea-ai/data/provider'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
 import { workspaceStore } from '@adea-ai/state'

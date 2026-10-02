@@ -106,6 +106,15 @@ plugin, and keeps these selected consumer rules enabled as errors:
   static design-system checks. Use `cn('base', { 'hook--on': condition })` so
   class names stay visible to lint and styling tools. The rule implementation
   belongs to `@adea-ai/ui/lint`; do not duplicate it in app-specific checks.
+- `adea/no-inline-styles` — consumer markup, literal spread props, and style
+  elements must not bypass shared styling through inline CSS. Use shared
+  variants or the documented layout hooks.
+- `adea/require-action-button-tooltip` — icon-size actions use shared
+  `ActionButton` with a nonblank explanatory tooltip and an accessible name.
+  Labelled text buttons may use the shared `Button` directly.
+  The published rule checks static tooltip omissions and blank literals;
+  dynamic tooltip content and accessible names still require browser checks.
+  A passing lint result does not waive either requirement.
 
 Code that predates the rules is exempted **by path** in one override block in
 `.oxlintrc.json`. That block is a ratchet: it only shrinks. Adding a file to it
