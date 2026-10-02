@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.74.1](https://github.com/adea-ai/adea/compare/v0.74.0...v0.74.1) (2026-10-02)
+
+
+### Documentation
+
+* **bundles:** correct the chat route's stated headroom ([#920](https://github.com/adea-ai/adea/issues/920)) ([7c3496a](https://github.com/adea-ai/adea/commit/7c3496a0309d1940283bb47aec725946008c9a3f))
+
+
+### Maintenance
+
+* **visual:** regenerate -linux baselines for the shell polish round 2 rail change ([#922](https://github.com/adea-ai/adea/issues/922)) ([ebb106d](https://github.com/adea-ai/adea/commit/ebb106dc6a4ee880ab67ab6a236ac1f0c563eb51))
+
 ## [0.74.0](https://github.com/adea-ai/adea/compare/v0.73.1...v0.74.0) (2026-10-02)
 
 
