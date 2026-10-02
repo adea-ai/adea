@@ -8,7 +8,14 @@ export function CharacterDesignerEntry(props: { initialCharacter: string }) {
   return (
     <VirtualView
       surface="character-designer"
-      mountOptions={{ character: props.initialCharacter }}
+      mountOptions={{
+        character: props.initialCharacter,
+        onClose: () => {
+          const url = new URL(window.location.href)
+          url.searchParams.delete('characterDesigner')
+          window.location.assign(url)
+        },
+      }}
       fallback={<VirtualUnavailable sceneLabel="Character designer" />}
     />
   )

@@ -24,8 +24,8 @@ type VirtualViewPhase = 'checking' | 'unavailable' | 'mounting' | 'mounted'
 export function VirtualView(props: {
   fallback: JSX.Element
   surface?: AgentSimEngineSurface
-  /** Extra mount options forwarded to the engine entry (e.g. `character`). */
-  mountOptions?: { character?: string }
+  /** Extra mount options forwarded to the engine entry (`character`, `onClose`). */
+  mountOptions?: { character?: string; onClose?: () => void }
 }) {
   const [container, setContainer] = createSignal<HTMLDivElement>()
   const [phase, setPhase] = createSignal<VirtualViewPhase>('checking')
@@ -50,6 +50,7 @@ export function VirtualView(props: {
           container: container()!,
           engine: entitlement.manifest,
           character: props.mountOptions?.character,
+          onClose: props.mountOptions?.onClose,
         })
         if (cancelled) {
           mounted.unmount()
