@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.73.1](https://github.com/adea-ai/adea/compare/v0.73.0...v0.73.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **web:** shell polish round 2 - rail, menus, and settings scroll guard ([#915](https://github.com/adea-ai/adea/issues/915)) ([8fd7c90](https://github.com/adea-ai/adea/commit/8fd7c90eb68f73a3c0f80bf6eb7ddc87029c76f4))
+
 ## [0.73.0](https://github.com/adea-ai/adea/compare/v0.72.0...v0.73.0) (2026-10-02)
 
 
