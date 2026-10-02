@@ -183,11 +183,14 @@ jobs:
 
       - name: Regenerate -linux baselines
         if: github.event_name == 'workflow_dispatch' && inputs['update-snapshots']
+        # Snapshot writes happen per test, so a single functional failure must
+        # not abort the step before the upload below runs — the point of a
+        # refresh dispatch is the regenerated files, and the lane step above
+        # already reports the failures this tolerates.
         run: |
-          set -euo pipefail
           bunx playwright test --config=playwright.config.ts \
             apps/web/e2e/conventional-workspace.spec.ts \
-            apps/web/e2e/chat-view-visual.spec.ts --update-snapshots
+            apps/web/e2e/chat-view-visual.spec.ts --update-snapshots || true
 
       - name: Upload regenerated baselines
         if: github.event_name == 'workflow_dispatch' && inputs['update-snapshots']
