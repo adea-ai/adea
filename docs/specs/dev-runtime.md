@@ -4157,14 +4157,16 @@ Interactive controls opt out of the drag region. Back/Forward use the host
 router's guarded history and only advertise proven router positions; a push
 truncates the Forward branch. A tab-local watermark survives reloads but is
 collapsed after an external or BFCache return. The left cluster controls the
-contextual sidebar. The right cluster mounts Dev's Files/SC toggle and hosts
-the workspace-wide runtime-resources action, available by default on every
-view; the active view's bundled utility sidebar toggle — one control for the
-right slot's browser/devices/agents/history panes, reopening the pane last
-shown — rides the trailing mount after the workspace actions, separated by a
-vertical divider, and both hide while no view supplies it. Expanding is a
-per-panel concern: the full-width control lives in each utility pane's
-heading, and focus mode stays on its keyboard chord with no top-bar control.
+contextual sidebar. The right cluster mounts Dev's left utility sidebar
+collapse/reopen action; Files versus Source Control is selected inside that
+pane. It also hosts the workspace-wide runtime-resources action, available by
+default on every view. The active view's bundled utility sidebar toggle — one
+control for the right slot's browser/devices/agents/history panes, reopening
+the pane last shown — rides the trailing mount after the workspace actions,
+separated by a vertical divider, and both hide while no view supplies it.
+Expanding is a per-panel concern: the full-width control lives in each utility
+pane's heading, and focus mode stays on its keyboard chord with no top-bar
+control.
 The outer rail remains visible in every view, including focus mode. Virtual
 has its own contextual room navigation, independent of engine entitlement.
 The room-designer entry retains that navigation and its common toolbar controls

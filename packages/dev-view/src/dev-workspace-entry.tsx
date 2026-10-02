@@ -810,13 +810,15 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     )
     focusPaneElement(`dev-editor-${suffix}`)
   }
-  const collapseSide = (side: 'left' | 'right') => {
+  const collapseSide = (side: 'left' | 'right', options: { focusCenter?: boolean } = {}) => {
     setUtilityPreferences((items) =>
       items.map((item) => (item.side === side ? { ...item, visible: false } : item))
     )
     schedulePreferences()
     setAnnouncement(`${side === 'left' ? 'Left' : 'Right'} utility slot collapsed`)
-    requestAnimationFrame(() => document.getElementById('dev-center')?.focus())
+    if (options.focusCenter !== false) {
+      requestAnimationFrame(() => document.getElementById('dev-center')?.focus())
+    }
   }
   /** One-click toolbar toggle: opens the group, switches to it, or collapses. */
   const toggleUtilityGroup = (panes: readonly DevUtilityPane[]) => {
@@ -828,7 +830,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       return
     }
     if (panes.includes(current.pane)) {
-      collapseSide(side)
+      collapseSide(side, { focusCenter: false })
       return
     }
     showPane(panes.find((pane) => pane !== current.pane) ?? panes[0]!)
@@ -842,7 +844,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     const current = visiblePaneOf('right')
     if (current) {
       setLastRightPane(current.pane)
-      collapseSide('right')
+      collapseSide('right', { focusCenter: false })
       return
     }
     showPane(lastRightPane())
@@ -1214,15 +1216,27 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     )
   }
 
+  const leftUtilityToggleControl = () => {
+    const open = () => Boolean(visiblePaneOf('left'))
+    return (
+      <ActionButton
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        tooltip={open() ? 'Collapse left utility sidebar' : 'Expand left utility sidebar'}
+        aria-label={open() ? 'Collapse left utility sidebar' : 'Expand left utility sidebar'}
+        aria-expanded={open()}
+        onClick={() => toggleUtilityGroup(['files', 'source_control'])}
+      >
+        <FolderTree aria-hidden="true" />
+      </ActionButton>
+    )
+  }
+
   const utilityControls = () => (
     <div class="dev-toolbar__utilities">
       <Show when={!leftFullWidth() && props.appMode !== 'source-control'}>
-        <UtilityToolbarToggle
-          label="Files / SC"
-          icon={Files}
-          pressed={Boolean(visiblePaneOf('left'))}
-          onClick={() => toggleUtilityGroup(['files', 'source_control'])}
-        />
+        {leftUtilityToggleControl()}
       </Show>
     </div>
   )
@@ -1544,26 +1558,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         {announcement()}
       </p>
     </main>
-  )
-}
-
-function UtilityToolbarToggle(props: {
-  label: string
-  icon: typeof Files
-  pressed: boolean
-  onClick(): void
-}) {
-  return (
-    <Button
-      type="button"
-      class="dev-button dev-button--toggle"
-      aria-label={props.label}
-      title={props.label}
-      aria-pressed={props.pressed}
-      onClick={props.onClick}
-    >
-      <props.icon aria-hidden="true" /> <span>{props.label}</span>
-    </Button>
   )
 }
 
@@ -1914,14 +1908,15 @@ function UtilitySlot(props: {
           </ButtonGroup>
         </Show>
       </section>
-      <Show when={resizablePane()}>
-        {(pane) => (
-          <UtilityResizeHandle
-            side={props.side}
-            size={pane().size}
-            onResize={(size) => props.onResize(pane().pane, size)}
-          />
-        )}
+      <Show when={Boolean(resizablePane())}>
+        <UtilityResizeHandle
+          side={props.side}
+          size={resizablePane()?.size ?? defaultUtilitySize}
+          onResize={(size) => {
+            const pane = resizablePane()
+            if (pane) props.onResize(pane.pane, size)
+          }}
+        />
       </Show>
     </aside>
   )

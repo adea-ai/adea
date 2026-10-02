@@ -103,7 +103,11 @@ async function expectPointerHitsButton(page: Page, button: Locator, name: string
 async function expectDevToolbarHost(page: Page) {
   const host = page.locator('.workspace-topbar__view-actions')
   await expect(host).toBeVisible()
-  await expect(devToolbarControl(page, 'Files / SC')).toBeVisible()
+  await expect(
+    devToolbarControl(page, 'Collapse left utility sidebar').or(
+      devToolbarControl(page, 'Expand left utility sidebar')
+    )
+  ).toBeVisible()
   // Runtime resources lives in the top bar on every view; the Dev entry no
   // longer carries its own copy, and the expand control is per panel. The
   // sidebar toggle's label tracks the restored slot state, so either name is
@@ -116,7 +120,8 @@ async function expectDevToolbarHost(page: Page) {
   ).toBeVisible()
   const fallbackActions = page.locator('.dev-toolbar__actions')
   for (const name of [
-    'Files / SC',
+    'Collapse left utility sidebar',
+    'Expand left utility sidebar',
     'Browser / Devices',
     'Agents / History',
     'Enter focus mode',
@@ -193,6 +198,8 @@ test('production unavailable state does not fabricate projects or sessions', asy
 test('Dev rail history, hierarchy, separator, focus, and utility controls are deterministic', async ({
   page,
 }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved&sentinel=keep')
   await expectDevToolbarHost(page)
@@ -274,12 +281,24 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
 
   // Both slots stay independent: collapsing the left side never hides the
   // right side and the reverse holds after reopening.
-  await devToolbarControl(page, 'Collapse left utility sidebar').click()
+  const leftUtilityToggle = devToolbarControl(page, 'Collapse left utility sidebar').or(
+    devToolbarControl(page, 'Expand left utility sidebar')
+  )
+  const collapseLeftUtility = devToolbarControl(page, 'Collapse left utility sidebar')
+  await expect(collapseLeftUtility).toHaveAttribute('aria-expanded', 'true')
+  await collapseLeftUtility.click()
+  expect(pageErrors).toEqual([])
   await expect(leftUtilities).toBeHidden()
+  const expandLeftUtility = devToolbarControl(page, 'Expand left utility sidebar')
+  await expect(expandLeftUtility).toHaveAttribute('aria-expanded', 'false')
+  await expect(leftUtilityToggle).toBeFocused()
   await expect(rightUtilities).toBeVisible()
   await expect(historyUtility).toHaveAttribute('aria-current', 'page')
-  await devToolbarControl(page, 'Expand left utility sidebar').click()
+  await expandLeftUtility.click()
   await expect(leftUtilities).toBeVisible()
+  const reopenedLeftUtility = devToolbarControl(page, 'Collapse left utility sidebar')
+  await expect(reopenedLeftUtility).toHaveAttribute('aria-expanded', 'true')
+  await expect(leftUtilityToggle).toBeFocused()
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
 
   await rightUtilities.getByRole('button', { name: 'Expand utility pane' }).click()
