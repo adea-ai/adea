@@ -2649,6 +2649,9 @@ The terminal ships a styled default profile using theme tokens for font,
 cursor, padding, opacity, and colors; a "system terminal" opt-out leaves the
 host terminal untouched.
 
+The mounted terminal surface uses the full width of its split-layout pane;
+the surface wrapper adds no horizontal inset around xterm.
+
 The mounted xterm renderer reads the canonical `--terminal-*` roles, including
 all sixteen ANSI slots, from its surface. Palette changes update the existing
 renderer and search decorations without reattaching its stream or replacing
@@ -2968,6 +2971,18 @@ the viewport, bounded overscan, and the initial measurement slice. Do not assume
 a fixed row height: text sizing and zoom may change shared row measurements, and
 scroll anchoring must preserve the current item or end position while those
 measurements update.
+
+The left utility keeps Files and Source Control as independent panes; their
+shared button-group selector is pinned below the pane content rather than
+repeating those two destinations in a vertical rail. Browser, Devices, Agents,
+and History use the published collapsed SideRail, including its selected
+accent and hover/focus labels. Utility separators use the shared resizable
+handle with a full-height pointer target and centered grip; their ruler maps
+the persisted 240–384 CSS-pixel pane range and remains keyboard operable.
+An empty layout defaults other utility panes to 288 CSS pixels and Browser to
+336 CSS pixels to fit its lane and viewport controls. This default fills missing
+preferences only; saved widths continue through the existing migration and
+snap rules.
 
 Every operation carries scope, live worktree ID/generation, authorized root,
 canonical relative path, and expected file identity where relevant.
@@ -4142,14 +4157,16 @@ Interactive controls opt out of the drag region. Back/Forward use the host
 router's guarded history and only advertise proven router positions; a push
 truncates the Forward branch. A tab-local watermark survives reloads but is
 collapsed after an external or BFCache return. The left cluster controls the
-contextual sidebar. The right cluster mounts Dev's Files/SC toggle and hosts
-the workspace-wide runtime-resources action, available by default on every
-view; the active view's bundled utility sidebar toggle — one control for the
-right slot's browser/devices/agents/history panes, reopening the pane last
-shown — rides the trailing mount after the workspace actions, separated by a
-vertical divider, and both hide while no view supplies it. Expanding is a
-per-panel concern: the full-width control lives in each utility pane's
-heading, and focus mode stays on its keyboard chord with no top-bar control.
+contextual sidebar. The right cluster mounts Dev's left utility sidebar
+collapse/reopen action; Files versus Source Control is selected inside that
+pane. It also hosts the workspace-wide runtime-resources action, available by
+default on every view. The active view's bundled utility sidebar toggle — one
+control for the right slot's browser/devices/agents/history panes, reopening
+the pane last shown — rides the trailing mount after the workspace actions,
+separated by a vertical divider, and both hide while no view supplies it.
+Expanding is a per-panel concern: the full-width control lives in each utility
+pane's heading, and focus mode stays on its keyboard chord with no top-bar
+control.
 The outer rail remains visible in every view, including focus mode. Virtual
 has its own contextual room navigation, independent of engine entitlement.
 The room-designer entry retains that navigation and its common toolbar controls

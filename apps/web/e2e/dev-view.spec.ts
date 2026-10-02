@@ -103,7 +103,11 @@ async function expectPointerHitsButton(page: Page, button: Locator, name: string
 async function expectDevToolbarHost(page: Page) {
   const host = page.locator('.workspace-topbar__view-actions')
   await expect(host).toBeVisible()
-  await expect(devToolbarControl(page, 'Files / SC')).toBeVisible()
+  await expect(
+    devToolbarControl(page, 'Collapse left utility sidebar').or(
+      devToolbarControl(page, 'Expand left utility sidebar')
+    )
+  ).toBeVisible()
   // Runtime resources lives in the top bar on every view; the Dev entry no
   // longer carries its own copy, and the expand control is per panel. The
   // sidebar toggle's label tracks the restored slot state, so either name is
@@ -116,7 +120,8 @@ async function expectDevToolbarHost(page: Page) {
   ).toBeVisible()
   const fallbackActions = page.locator('.dev-toolbar__actions')
   for (const name of [
-    'Files / SC',
+    'Collapse left utility sidebar',
+    'Expand left utility sidebar',
     'Browser / Devices',
     'Agents / History',
     'Enter focus mode',
@@ -193,6 +198,8 @@ test('production unavailable state does not fabricate projects or sessions', asy
 test('Dev rail history, hierarchy, separator, focus, and utility controls are deterministic', async ({
   page,
 }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved&sentinel=keep')
   await expectDevToolbarHost(page)
@@ -263,22 +270,35 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
   await devSidebarControl(page, 'Expand utility sidebar').click()
   await expect(rightUtilities.getByRole('heading', { name: 'Browser' })).toBeVisible()
-  await rightUtilities.getByRole('tab', { name: 'Agents' }).focus()
-  await page.keyboard.press('ArrowRight')
-  await expect(rightUtilities.getByRole('tab', { name: 'History' })).toBeFocused()
+  const agentsUtility = rightUtilities.getByRole('button', { name: 'Agents' })
+  await agentsUtility.focus()
+  await expect(agentsUtility).toBeFocused()
+  await agentsUtility.click()
+  const historyUtility = rightUtilities.getByRole('button', { name: 'History' })
+  await historyUtility.click()
+  await expect(historyUtility).toHaveAttribute('aria-current', 'page')
   await expect(rightUtilities.getByRole('heading', { name: 'History' })).toBeVisible()
 
   // Both slots stay independent: collapsing the left side never hides the
   // right side and the reverse holds after reopening.
-  await devToolbarControl(page, 'Files / SC').click()
-  await expect(leftUtilities).toBeHidden()
-  await expect(rightUtilities).toBeVisible()
-  await expect(rightUtilities.getByRole('tab', { name: 'History' })).toHaveAttribute(
-    'aria-selected',
-    'true'
+  const leftUtilityToggle = devToolbarControl(page, 'Collapse left utility sidebar').or(
+    devToolbarControl(page, 'Expand left utility sidebar')
   )
-  await devToolbarControl(page, 'Files / SC').click()
+  const collapseLeftUtility = devToolbarControl(page, 'Collapse left utility sidebar')
+  await expect(collapseLeftUtility).toHaveAttribute('aria-expanded', 'true')
+  await collapseLeftUtility.click()
+  expect(pageErrors).toEqual([])
+  await expect(leftUtilities).toBeHidden()
+  const expandLeftUtility = devToolbarControl(page, 'Expand left utility sidebar')
+  await expect(expandLeftUtility).toHaveAttribute('aria-expanded', 'false')
+  await expect(leftUtilityToggle).toBeFocused()
+  await expect(rightUtilities).toBeVisible()
+  await expect(historyUtility).toHaveAttribute('aria-current', 'page')
+  await expandLeftUtility.click()
   await expect(leftUtilities).toBeVisible()
+  const reopenedLeftUtility = devToolbarControl(page, 'Collapse left utility sidebar')
+  await expect(reopenedLeftUtility).toHaveAttribute('aria-expanded', 'true')
+  await expect(leftUtilityToggle).toBeFocused()
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
 
   await rightUtilities.getByRole('button', { name: 'Expand utility pane' }).click()
@@ -289,10 +309,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(page).toHaveURL(/sentinel=keep/)
   await page.getByRole('button', { name: 'Dev view' }).click()
   await expect(page).toHaveURL(/view=dev/)
-  await expect(rightUtilities.getByRole('tab', { name: 'History' })).toHaveAttribute(
-    'aria-selected',
-    'true'
-  )
+  await expect(historyUtility).toHaveAttribute('aria-current', 'page')
   await expect(rightUtilities.getByRole('button', { name: 'Restore utility pane' })).toBeVisible()
   await rightUtilities.getByRole('button', { name: 'Restore utility pane' }).click()
   await expect(group).toHaveAttribute('aria-expanded', 'false')
@@ -379,7 +396,7 @@ test('the Dev shell restores the session layout document after a reload', async 
   ).toBeVisible()
 })
 
-test('each utility toggle reveals its pane and the sidebar fills the workspace height', async ({
+test('the utility selector reveals its pane and the sidebar fills the workspace height', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -389,19 +406,25 @@ test('each utility toggle reveals its pane and the sidebar fills the workspace h
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
 
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
-  await devToolbarControl(page, 'Files / SC').click()
+  await devToolbarControl(page, 'Collapse left utility sidebar').click()
   await expect(leftUtilities).toBeHidden()
-  await devToolbarControl(page, 'Files / SC').click()
-  await expect(leftUtilities.getByRole('tab', { name: 'Source control' })).toBeVisible()
+  await devToolbarControl(page, 'Expand left utility sidebar').click()
+  const sourceControlButton = leftUtilities
+    .getByRole('group', { name: 'Files and Source Control' })
+    .getByRole('button', { name: 'Source control' })
+  await expect(sourceControlButton).toBeVisible()
+  await sourceControlButton.click()
+  await expect(sourceControlButton).toHaveAttribute('aria-pressed', 'true')
+  await expect(leftUtilities.getByRole('heading', { name: 'Source Control' })).toBeVisible()
 
   await devSidebarControl(page, 'Expand utility sidebar').click()
   await expect(rightUtilities).toBeVisible()
-  await expect(rightUtilities.getByRole('tab', { name: 'Browser' })).toBeVisible()
-  await expect(rightUtilities.getByRole('tab', { name: 'Devices' })).toBeVisible()
+  await expect(rightUtilities.getByRole('button', { name: 'Browser' })).toBeVisible()
+  await expect(rightUtilities.getByRole('button', { name: 'Devices' })).toBeVisible()
 
   // The bundled sidebar keeps one pane at a time; switching to Agents and
   // collapsing reopens Agents, not the slot's default pane.
-  await rightUtilities.getByRole('tab', { name: 'Agents' }).click()
+  await rightUtilities.getByRole('button', { name: 'Agents' }).click()
   await expect(rightUtilities.getByRole('heading', { name: 'Agents' })).toBeVisible()
   await devSidebarControl(page, 'Collapse utility sidebar').click()
   await expect(rightUtilities).toBeHidden()
@@ -427,7 +450,7 @@ test('Dev shell reports when the E2E fixture has no browser read capability', as
   await devSidebarControl(page, 'Expand utility sidebar').click()
 
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
-  await rightUtilities.getByRole('tab', { name: 'Browser' }).click()
+  await rightUtilities.getByRole('button', { name: 'Browser' }).click()
   await expect(rightUtilities).toContainText(
     'Requires dev.browser.read, which has not been reported by this provider yet.'
   )
@@ -613,15 +636,128 @@ test('the Dev shell stays keyboard-operable at 200% zoom with reduced motion', a
   )
   await exerciseContextualSidebarToggle(page)
 
-  // Keyboard-only path: the skip link is focusable and utility tab arrows land.
+  // Keyboard-only path: the skip link and utility rail buttons are focusable.
   await page.getByRole('link', { name: 'Skip to workspace' }).focus()
   await expect(page.getByRole('link', { name: 'Skip to workspace' })).toBeFocused()
   await devSidebarControl(page, 'Expand utility sidebar').click()
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
   await expect(rightUtilities.getByRole('heading', { name: 'Browser' })).toBeVisible()
-  await rightUtilities.getByRole('tab', { name: 'Agents' }).focus()
+  await rightUtilities.getByRole('button', { name: 'Agents' }).focus()
+  await expect(rightUtilities.getByRole('button', { name: 'Agents' })).toBeFocused()
+})
+
+test('utility rails, footer selector, persisted widths, and full-height splitters stay operable', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openDevView(page, '/?view=dev&devE2e=preserved')
+
+  const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const selector = leftUtilities.getByRole('group', { name: 'Files and Source Control' })
+  const filesButton = selector.getByRole('button', { name: 'Files' })
+  const sourceControlButton = selector.getByRole('button', { name: 'Source control' })
+  await expect(filesButton).toHaveAttribute('aria-pressed', 'true')
+  await sourceControlButton.click()
+  await expect(sourceControlButton).toHaveAttribute('aria-pressed', 'true')
+  await expect(filesButton).toHaveAttribute('aria-pressed', 'false')
+  await expect(leftUtilities.getByRole('heading', { name: 'Source Control' })).toBeVisible()
+  await filesButton.click()
+  await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
+
+  await devSidebarControl(page, 'Expand utility sidebar').click()
+  const browserRailItem = rightUtilities.getByRole('button', { name: 'Browser' })
+  await expect(browserRailItem).toHaveAttribute('aria-current', 'page')
+  await browserRailItem.hover()
+  await expect(
+    page.locator('[data-slot="side-rail-tip"]').filter({ hasText: 'Browser' })
+  ).toBeVisible()
+  await expect.poll(async () => (await rightUtilities.boundingBox())?.width ?? 0).toBe(336)
+
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.keys(localStorage).some((item) => item.startsWith('adea.dev-layout.v2:'))
+      )
+    )
+    .toBe(true)
+  const savedLayout = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((item) => item.startsWith('adea.dev-layout.v2:'))
+    if (!key) throw new Error('Dev layout was not persisted')
+    return { key, value: JSON.parse(localStorage.getItem(key) ?? '{}') }
+  })
+  expect(
+    savedLayout.value.utility.find((item: { pane: string }) => item.pane === 'browser').size
+  ).toBe(336)
+  await page.evaluate((key) => {
+    const value = JSON.parse(localStorage.getItem(key) ?? '{}')
+    value.utility = value.utility.map((item: { pane: string }) =>
+      item.pane === 'browser' ? { ...item, size: 288, lastNonzeroSize: 288 } : item
+    )
+    localStorage.setItem(key, JSON.stringify(value))
+  }, savedLayout.key)
+  await page.reload()
+  await expect(rightUtilities).toBeVisible()
+  await expect.poll(async () => (await rightUtilities.boundingBox())?.width ?? 0).toBe(288)
+
+  const dragAt = async (
+    separator: Locator,
+    vertical: 'top' | 'bottom',
+    horizontalDelta: number
+  ) => {
+    const bounds = await separator.boundingBox()
+    expect(bounds).not.toBeNull()
+    const before = Number(await separator.getAttribute('aria-valuenow'))
+    const x = bounds!.x + bounds!.width / 2
+    const y = vertical === 'top' ? bounds!.y + 3 : bounds!.y + bounds!.height - 3
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x + horizontalDelta, y)
+    await page.mouse.up()
+    await expect
+      .poll(async () => Number(await separator.getAttribute('aria-valuenow')))
+      .not.toBe(before)
+  }
+
+  const leftSeparator = page.getByRole('separator', { name: 'Resize left utility pane' })
+  const rightSeparator = page.getByRole('separator', { name: 'Resize right utility pane' })
+  await expect(leftSeparator).toBeVisible()
+  await expect(rightSeparator).toBeVisible()
+  await dragAt(leftSeparator, 'top', 64)
+  await dragAt(leftSeparator, 'bottom', 64)
+  await leftSeparator.focus()
+  const leftBeforeKeyboard = Number(await leftSeparator.getAttribute('aria-valuenow'))
+  await page.keyboard.press('ArrowLeft')
+  await expect
+    .poll(async () => Number(await leftSeparator.getAttribute('aria-valuenow')))
+    .toBeLessThan(leftBeforeKeyboard)
+
+  await dragAt(rightSeparator, 'top', -64)
+  await dragAt(rightSeparator, 'bottom', -64)
+  await rightSeparator.focus()
+  const rightBeforeKeyboard = Number(await rightSeparator.getAttribute('aria-valuenow'))
   await page.keyboard.press('ArrowRight')
-  await expect(rightUtilities.getByRole('tab', { name: 'History' })).toBeFocused()
+  await expect
+    .poll(async () => Number(await rightSeparator.getAttribute('aria-valuenow')))
+    .toBeLessThan(rightBeforeKeyboard)
+
+  await page.setViewportSize({ width: 320, height: 900 })
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%'
+  })
+  await expect(filesButton).toBeVisible()
+  const narrowSelector = await selector.evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
+    return {
+      left: bounds.left,
+      right: bounds.right,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }
+  })
+  expect(narrowSelector.left).toBeGreaterThanOrEqual(0)
+  expect(narrowSelector.right).toBeLessThanOrEqual(320)
+  expect(narrowSelector.scrollWidth).toBeLessThanOrEqual(narrowSelector.clientWidth)
 })
 
 test('Dev surfaces expose an aria snapshot and run under an eval-blocking CSP', async ({
@@ -653,7 +789,7 @@ test('Dev surfaces expose an aria snapshot and run under an eval-blocking CSP', 
 
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await devToolbarControl(page, 'Files / SC').click()
-  await devToolbarControl(page, 'Files / SC').click()
+  await devToolbarControl(page, 'Collapse left utility sidebar').click()
+  await devToolbarControl(page, 'Expand left utility sidebar').click()
   expect(errors).toEqual([])
 })
