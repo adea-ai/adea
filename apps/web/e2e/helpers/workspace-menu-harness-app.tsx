@@ -18,6 +18,7 @@ function Harness() {
           onOpenAbout={() => setAction('about')}
           onOpenSettings={() => setAction('settings')}
           onOpenUpdates={() => setAction('updates')}
+          onOpenFeedback={() => setAction('feedback')}
           onSignIn={() => setAction('sign-in')}
           onSignOut={() => setAction('sign-out')}
         />

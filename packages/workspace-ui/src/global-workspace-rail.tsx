@@ -101,6 +101,7 @@ export function GlobalWorkspaceRail(props: {
     busy?: boolean
     label: string
     onOpenUpdates?: (opener: HTMLButtonElement | undefined) => void
+    onOpenFeedback: (opener: HTMLButtonElement | undefined) => void
     onSignIn: () => void
     onSignOut: () => void
     platform: 'desktop' | 'web'
@@ -364,6 +365,7 @@ export function GlobalWorkspaceRail(props: {
             props.onPanelIntent?.('about')
           }}
           onOpenUpdates={props.account.onOpenUpdates}
+          onOpenFeedback={props.account.onOpenFeedback}
           onOpenAbout={props.onOpenAbout}
           onOpenSettings={props.onOpenSettings}
           onSignIn={props.account.onSignIn}

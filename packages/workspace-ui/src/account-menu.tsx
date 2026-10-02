@@ -29,6 +29,7 @@ type AccountMenuProps = {
   /** Fires on hover/focus of the trigger — a chance to prefetch menu targets. */
   onIntent?: () => void
   onOpenUpdates?: (opener: HTMLButtonElement | undefined) => void
+  onOpenFeedback: (opener: HTMLButtonElement | undefined) => void
   onOpenAbout: () => void
   onOpenSettings: () => void
   onSignIn: () => void
@@ -68,7 +69,9 @@ export function AccountMenu(props: AccountMenuProps) {
       onSelectAfterClose:
         item.id === 'updates' && props.onOpenUpdates
           ? (trigger: HTMLButtonElement | undefined) => props.onOpenUpdates?.(trigger)
-          : undefined,
+          : item.id === 'feedback'
+            ? (trigger: HTMLButtonElement | undefined) => props.onOpenFeedback(trigger)
+            : undefined,
     }))
 
   let trigger: HTMLButtonElement | undefined

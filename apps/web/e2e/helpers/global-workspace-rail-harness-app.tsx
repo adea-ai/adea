@@ -63,6 +63,7 @@ function Harness() {
           label: 'Sign in',
           onSignIn: () => {},
           onSignOut: () => {},
+          onOpenFeedback: () => {},
           platform: 'web',
         }}
         activeWorkspace={activeWorkspace()}

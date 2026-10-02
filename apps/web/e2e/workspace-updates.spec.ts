@@ -32,6 +32,11 @@ for (const selection of ['pointer', 'keyboard'] as const) {
         else {
           await expect(page.getByRole('menuitem', { name: 'About', exact: true })).toBeFocused()
           await page.keyboard.press('ArrowDown')
+          // Send Feedback sits between About and Updates in the enabled chain.
+          await expect(
+            page.getByRole('menuitem', { name: 'Send Feedback', exact: true })
+          ).toBeFocused()
+          await page.keyboard.press('ArrowDown')
           await expect(item).toBeFocused()
           await page.keyboard.press('Enter')
         }

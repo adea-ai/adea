@@ -117,7 +117,9 @@ test('a guest can use a workspace before opening the optional persistence flow',
   ).toBeLessThanOrEqual(1)
   await expect(accountMenu.getByRole('menuitem', { name: 'Get Adea mobile' })).toBeDisabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeDisabled()
-  await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeDisabled()
+  // Send Feedback is live: it opens the prefilled GitHub issue form
+  // (.github/ISSUE_TEMPLATE/feedback.yml). Help Center has no destination yet.
+  await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeEnabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Updates' })).toHaveCount(0)
   await expect(accountMenu.getByRole('menuitem', { name: 'Settings' })).toContainText('⌘,')
   await accountMenu.getByRole('menuitem', { name: 'About' }).click()
