@@ -106,6 +106,8 @@
     "adea/no-raw-interactive-elements": "error",
     "adea/no-primitive-library-imports": "error",
     "adea/no-class-list": "error",
+    "adea/no-inline-styles": "error",
+    "adea/require-action-button-tooltip": "error",
     "adea/no-interactive-wrappers": "error"
   },
   "overrides": [
