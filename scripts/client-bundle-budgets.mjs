@@ -42,10 +42,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the gate carries ~2% headroom instead of the 139 bytes this route had,
     // which made every incidental change a budget failure.
     // Re-measured for the rail drag-and-drop reorder and the launchpad App
-    // Library (2026-10-01): 227,192 raw / 67,944 gzip — the SquareKanban icon
+    // Library (2026-10-01): 227,096 raw / 68,170 gzip — the SquareKanban icon
     // and the rail's pointer/keyboard reorder + live region ride the shared
-    // workspace-navigation entry this route composes. Ratcheted to 68 KiB for
-    // the same ~2% headroom reason as above.
+    // workspace-navigation entry this route composes. The raw budget keeps
+    // ~1% headroom here (gzip ~2%): the route grew again after the last
+    // ratchet, so raw is the first ceiling to trip. Raise it deliberately
+    // rather than expecting incidental growth to be free.
     chat: { rawBytes: 224 * 1024, gzipBytes: 68 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
