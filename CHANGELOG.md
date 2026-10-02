@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.73.0](https://github.com/adea-ai/adea/compare/v0.72.0...v0.73.0) (2026-10-02)
+
+
+### Features
+
+* **workspace-ui:** popular plugins by product key; polish marketplace chrome ([#912](https://github.com/adea-ai/adea/issues/912)) ([84a96d5](https://github.com/adea-ai/adea/commit/84a96d58bc0cbe46029df2fd8d63e8ebd5e32ac8))
+
 ## [0.72.0](https://github.com/adea-ai/adea/compare/v0.71.10...v0.72.0) (2026-10-02)
 
 
