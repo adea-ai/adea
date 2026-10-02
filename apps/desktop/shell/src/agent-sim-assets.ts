@@ -32,23 +32,39 @@ export const AGENT_SIM_MOUNT = '/assets/agent-sim/'
 export async function agentSimResponse(urlPath: string, packRoot: string): Promise<Response> {
   if (urlPath === `${AGENT_SIM_MOUNT}${MANIFEST_BASENAME}`) {
     // The pack lane writes the wrapped `{ engine: { entryUrl, version } }`
-    // shape; the agent-sim repo's raw export carries `{ version }` only. Both
-    // resolve to the same same-origin manifest the entitlement gate parses.
+    // shape; the agent-sim repo's raw export carries `{ version, surfaces }`
+    // with pack-relative basenames. Both resolve to the same same-origin
+    // manifest the entitlement gate parses, with surfaces absolutized so
+    // designer cold entries mount next to the HQ entry.
     let version: unknown
+    let rawSurfaces: unknown
     try {
       const raw = JSON.parse(await Bun.file(join(packRoot, MANIFEST_BASENAME)).text())
       version =
         typeof (raw as { version?: unknown })?.version === 'string'
           ? (raw as { version: string }).version
           : (raw as { engine?: { version?: unknown } })?.engine?.version
+      rawSurfaces = (raw as { surfaces?: unknown })?.surfaces
     } catch {
       version = undefined
     }
     if (typeof version !== 'string' || version.length === 0) {
       return new Response(null, { status: 404 })
     }
+    const surfaces: Record<string, string> = {}
+    if (typeof rawSurfaces === 'object' && rawSurfaces !== null) {
+      for (const [name, file] of Object.entries(rawSurfaces as Record<string, unknown>)) {
+        if (typeof file === 'string' && file.endsWith('.js') && !file.includes('/')) {
+          surfaces[name] = `${AGENT_SIM_MOUNT}${file}`
+        }
+      }
+    }
     return Response.json({
-      engine: { entryUrl: `${AGENT_SIM_MOUNT}${ENTRY_BASENAME}`, version },
+      engine: {
+        entryUrl: `${AGENT_SIM_MOUNT}${ENTRY_BASENAME}`,
+        version,
+        ...(Object.keys(surfaces).length > 0 ? { surfaces } : {}),
+      },
     })
   }
   const rel = normalize(decodeURIComponent(urlPath.slice(AGENT_SIM_MOUNT.length))).replace(

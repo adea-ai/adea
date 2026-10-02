@@ -6,6 +6,7 @@ export {
   parseAgentSimEngineManifest,
   OFFICIAL_AGENT_SIM_WEB_HOSTS,
   type AgentSimEngineManifest,
+  type AgentSimEngineSurface,
 } from './engine'
 export { hqHomeManifest, hqWorkManifest } from './manifests'
 export {

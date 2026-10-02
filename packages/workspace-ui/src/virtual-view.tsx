@@ -1,5 +1,6 @@
 import { createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js'
 
+import type { AgentSimEngineSurface } from '@adea-ai/spatial'
 import {
   isDesktopRuntime,
   loadAgentSimEngine,
@@ -15,8 +16,17 @@ type VirtualViewPhase = 'checking' | 'unavailable' | 'mounting' | 'mounted'
  * Entitlement is the public repo's guard: only official web domains and
  * builds that pack the private engine get the sim; everything else renders
  * the offline fallback without fetching engine bytes.
+ *
+ * `surface` selects one of the pack's cold designer entries instead of the
+ * HQ entry. It rides the exact same entitlement check; a pack without the
+ * surface renders `fallback` like any other unavailable deployment.
  */
-export function VirtualView(props: { fallback: JSX.Element }) {
+export function VirtualView(props: {
+  fallback: JSX.Element
+  surface?: AgentSimEngineSurface
+  /** Extra mount options forwarded to the engine entry (e.g. `character`). */
+  mountOptions?: { character?: string }
+}) {
   const [container, setContainer] = createSignal<HTMLDivElement>()
   const [phase, setPhase] = createSignal<VirtualViewPhase>('checking')
 
@@ -34,9 +44,13 @@ export function VirtualView(props: { fallback: JSX.Element }) {
       }
       setPhase('mounting')
       try {
-        const mount = await loadAgentSimEngine(entitlement.manifest)
+        const mount = await loadAgentSimEngine(entitlement.manifest, { surface: props.surface })
         if (cancelled || !container()) return
-        mounted = await mount({ container: container()!, engine: entitlement.manifest })
+        mounted = await mount({
+          container: container()!,
+          engine: entitlement.manifest,
+          character: props.mountOptions?.character,
+        })
         if (cancelled) {
           mounted.unmount()
           return

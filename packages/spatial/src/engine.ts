@@ -25,6 +25,14 @@ const OFFICIAL_LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]']
 
 export type AgentSimWebPlatform = 'web' | 'desktop'
 
+/**
+ * Designer surfaces the pack may expose as separate cold entries alongside
+ * the HQ entry. Each surface mounts through the same entitlement gate as
+ * the standard virtual view; a pack without the surface simply reports it
+ * unavailable and the host renders its offline fallback.
+ */
+export type AgentSimEngineSurface = 'character-designer' | 'room-designer'
+
 export type AgentSimEngineManifest = {
   /**
    * Same-origin ES module URL of the engine entry. The entry must register
@@ -34,6 +42,13 @@ export type AgentSimEngineManifest = {
   entryUrl: string
   /** Engine pack version (agent-sim repo release). Diagnostics only. */
   version: string
+  /**
+   * Same-origin cold-entry URLs for the designer surfaces (agent-sim
+   * v0.13.2+ packs). A designer entry registers its mount under
+   * `window.adeaAgentSimSurfaces[surface]`. Absent on older packs — the
+   * host then renders the surface's offline fallback.
+   */
+  surfaces?: Partial<Record<AgentSimEngineSurface, string>>
 }
 
 /** Well-known same-origin URL the official pack lane writes the manifest to. */
@@ -63,7 +78,28 @@ export function parseAgentSimEngineManifest(
   }
   if (resolved.origin !== new URL(origin).origin) return { ok: false }
   if (!resolved.pathname.endsWith('.js')) return { ok: false }
-  return { ok: true, manifest: { entryUrl: resolved.toString(), version } }
+
+  // Surfaces are optional and individually validated: anything that is not a
+  // same-origin .js URL is dropped rather than failing the whole manifest, so
+  // a partially-written pack degrades to the fallback instead of breaking HQ.
+  const rawSurfaces = (value as { engine?: { surfaces?: unknown } }).engine?.surfaces
+  let surfaces: AgentSimEngineManifest['surfaces']
+  if (typeof rawSurfaces === 'object' && rawSurfaces !== null) {
+    for (const [name, url] of Object.entries(rawSurfaces as Record<string, unknown>)) {
+      if (typeof url !== 'string' || url.length === 0) continue
+      try {
+        const surfaceUrl = new URL(url, origin)
+        if (surfaceUrl.origin !== new URL(origin).origin) continue
+        if (!surfaceUrl.pathname.endsWith('.js')) continue
+        surfaces ??= {}
+        surfaces[name as keyof NonNullable<typeof surfaces>] = surfaceUrl.toString()
+      } catch {
+        continue
+      }
+    }
+  }
+
+  return { ok: true, manifest: { entryUrl: resolved.toString(), version, surfaces } }
 }
 
 /**

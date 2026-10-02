@@ -38,7 +38,17 @@ async function assertEnginePack(dist) {
   if (!entryStat?.isFile()) {
     throw new Error(`Agent Sim pack at ${dist} must contain ${ENTRY_BASENAME}`)
   }
-  return version
+  // Cold designer surface bundles, as pack-relative basenames. Only .js
+  // basenames pass — the wrap below mounts them same-origin next to engine.js.
+  const surfaces = {}
+  if (manifest?.surfaces && typeof manifest.surfaces === 'object') {
+    for (const [name, file] of Object.entries(manifest.surfaces)) {
+      if (typeof file === 'string' && file.endsWith('.js') && !file.includes('/')) {
+        surfaces[name] = `/assets/agent-sim/${file}`
+      }
+    }
+  }
+  return { version, surfaces }
 }
 
 /**
@@ -47,15 +57,22 @@ async function assertEnginePack(dist) {
  * without the sim they promised.
  */
 export async function stageAgentSimPack({ dist, log = console.log } = {}) {
-  const version = await assertEnginePack(dist)
+  const { version, surfaces } = await assertEnginePack(dist)
   await rm(targetRoot, { recursive: true, force: true })
   await mkdir(targetRoot, { recursive: true })
   await cp(dist, targetRoot, { recursive: true })
   await writeFile(
     resolve(targetRoot, 'engine.json'),
-    JSON.stringify({ engine: { entryUrl: `/assets/agent-sim/${ENTRY_BASENAME}`, version } })
+    JSON.stringify({
+      engine: { entryUrl: `/assets/agent-sim/${ENTRY_BASENAME}`, version, surfaces },
+    })
   )
-  log(`Staged Agent Sim engine pack ${version} into ${targetRoot}`)
+  log(
+    `Staged Agent Sim engine pack ${version} into ${targetRoot}` +
+      (Object.keys(surfaces).length > 0
+        ? ` (surfaces: ${Object.keys(surfaces).toSorted().join(', ')})`
+        : '')
+  )
 }
 
 export async function packFromEnv({ log = console.log } = {}) {

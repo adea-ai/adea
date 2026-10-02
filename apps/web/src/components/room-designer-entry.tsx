@@ -1,5 +1,6 @@
 import { VirtualUnavailable } from '@adea-ai/workspace-ui/virtual-unavailable'
 import { VirtualRoomControls } from '@adea-ai/workspace-ui/virtual-room-controls'
+import { VirtualView } from '@adea-ai/workspace-ui/virtual-view'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 
 export function RoomDesignerEntry(props: {
@@ -18,10 +19,20 @@ export function RoomDesignerEntry(props: {
         restoreFocusRef={props.restoreFocusRef}
       />
       <div class="workspace-scene-viewport">
-        <VirtualUnavailable
-          contained
-          sceneLabel={props.initialScene === 'work' ? 'Work room designer' : 'Home room designer'}
-          onOpenChat={props.onClose}
+        {/* The pack's cold room-designer surface, behind the same entitlement
+            gate as the standard virtual view. Falls back to the offline card
+            on packs without the surface or unentitled deployments. */}
+        <VirtualView
+          surface="room-designer"
+          fallback={
+            <VirtualUnavailable
+              contained
+              sceneLabel={
+                props.initialScene === 'work' ? 'Work room designer' : 'Home room designer'
+              }
+              onOpenChat={props.onClose}
+            />
+          }
         />
       </div>
     </main>

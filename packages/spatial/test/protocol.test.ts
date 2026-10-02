@@ -76,4 +76,36 @@ describe('spatial protocol', () => {
     expect(parseAgentSimEngineManifest({ engine: { version: '1' } }, origin).ok).toBe(false)
     expect(parseAgentSimEngineManifest(null, origin).ok).toBe(false)
   })
+
+  test('keeps only same-origin .js designer surfaces from the manifest', () => {
+    const origin = 'https://adea.dev'
+    const parsed = parseAgentSimEngineManifest(
+      {
+        engine: {
+          entryUrl: '/assets/agent-sim/engine.js',
+          version: '0.13.2',
+          surfaces: {
+            'room-designer': '/assets/agent-sim/room-designer.js',
+            'character-designer': 'https://cdn.evil.example/studio.js',
+            'not-a-module': '/assets/agent-sim/room-designer.json',
+            broken: 'not a url',
+          },
+        },
+      },
+      origin
+    )
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) {
+      expect(parsed.manifest.surfaces).toEqual({
+        'room-designer': 'https://adea.dev/assets/agent-sim/room-designer.js',
+      })
+    }
+
+    // Older packs carry no surfaces at all.
+    const bare = parseAgentSimEngineManifest(
+      { engine: { entryUrl: '/assets/agent-sim/engine.js', version: '0.13.1' } },
+      origin
+    )
+    expect(bare.ok && bare.manifest.surfaces).toBeUndefined()
+  })
 })
