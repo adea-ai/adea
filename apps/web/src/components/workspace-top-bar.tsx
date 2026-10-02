@@ -136,10 +136,11 @@ export function WorkspaceTopBar(props: {
         <ActionButton
           variant="ghost"
           size="icon-sm"
-          tooltip="Notifications"
+          tooltip="Notifications are not available yet."
           class="workspace-topbar__control"
           aria-label="Notifications"
-          onClick={props.onOpenNotifications}
+          aria-description="Notifications are not available yet."
+          disabled
         >
           <Bell aria-hidden="true" />
         </ActionButton>
