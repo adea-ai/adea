@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.74.7](https://github.com/adea-ai/adea/compare/v0.74.6...v0.74.7) (2026-10-02)
+
+
+### Maintenance
+
+* **visual:** refresh the linux task-detail baseline ([#936](https://github.com/adea-ai/adea/issues/936)) ([48714ed](https://github.com/adea-ai/adea/commit/48714ed8ad7a92b98cefb5f5fbc4159159e2b35f))
+
 ## [0.74.6](https://github.com/adea-ai/adea/compare/v0.74.5...v0.74.6) (2026-10-02)
 
 
