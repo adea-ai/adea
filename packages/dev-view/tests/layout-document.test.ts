@@ -208,6 +208,23 @@ describe('V1 to V2 layout migration', () => {
     expect(migrated.utility[1]).toMatchObject({ visible: false, fullWidth: false })
   })
 
+  test('uses the wider Browser default only when its saved width is absent', () => {
+    const migrated = migrateLayoutPreferencesV1({
+      ...v1,
+      utility: v1.utility.filter((entry) => entry.pane !== 'browser'),
+    })
+    expect(migrated.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
+      size: 336,
+      lastNonzeroSize: 336,
+    })
+    expect(
+      migrateLayoutPreferencesV1(v1).utility.find((entry) => entry.pane === 'browser')
+    ).toMatchObject({
+      size: 320,
+      lastNonzeroSize: 320,
+    })
+  })
+
   test('demotes extra visible panes per side instead of deleting them', () => {
     const migrated = migrateLayoutPreferencesV1({
       ...v1,
