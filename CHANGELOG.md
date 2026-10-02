@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.77.0](https://github.com/adea-ai/adea/compare/v0.76.0...v0.77.0) (2026-10-02)
+
+
+### Features
+
+* update channels — stable, pre-release, and dev ([#955](https://github.com/adea-ai/adea/issues/955)) ([8abc0d7](https://github.com/adea-ai/adea/commit/8abc0d74946e6a0fb72a6e3e4d6add713a2fd7ca))
+* **workspace:** close affordances and full-bleed designer views ([#962](https://github.com/adea-ai/adea/issues/962)) ([bd7256f](https://github.com/adea-ai/adea/commit/bd7256f88aee5cbfe50cb457c69fc4ab03173338))
+
 ## [0.76.0](https://github.com/adea-ai/adea/compare/v0.75.3...v0.76.0) (2026-10-02)
 
 
