@@ -401,10 +401,12 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(globalRail).not.toContain('label="Appearance"')
     expect(globalRail).toContain('label="App Library"')
     expect(settings).toContain('appearancePanel')
-    // The shared AccountMenu composite receives the accessible label through
-    // its `label` prop, which it renders as the trigger's aria-label.
+    // The account trigger is a SideRailButton that receives the accessible
+    // label through its `label` prop, rendered as the trigger's aria-label.
     expect(accountMenu).toContain('label="User settings"')
-    expect(accountMenu).toContain('Updates')
+    // The updates item stays reachable: the menu owns the after-close
+    // handoff that reopens the updates dialog from its trigger.
+    expect(accountMenu).toContain("item.id === 'updates'")
     expect(desktopEntry).toContain('onOpenUpdates: () => props.onUpdatesOpenChange(true)')
     expect(webStyles).toContain('env(safe-area-inset-top)')
     expect(webStyles).toContain('max-width: calc(100% - 2.5rem)')

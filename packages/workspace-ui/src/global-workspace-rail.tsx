@@ -16,6 +16,8 @@ import {
   SideRailItem,
   SideRailSection,
 } from '@adea-ai/ui/components/layout/side-rail'
+import { ShortcutKeys } from '@adea-ai/app-ui/components/shortcut-keys'
+import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import {
   BriefcaseBusiness,
   Code2,
@@ -185,7 +187,10 @@ export function GlobalWorkspaceRail(props: {
             label={`Switch workspace, current ${activeWorkspaceLabel()}`}
             class="global-rail__workspace-trigger"
           >
-            <WorkspaceMark workspace={props.activeWorkspace} />
+            {/* The app mark, not a view glyph: this row opens the workspace
+                switcher, so it carries the product logo at the hover tile's
+                size and radius to read as distinct from the view buttons. */}
+            <WorkspaceLogo aria-hidden="true" class="global-rail__workspace-logo" />
           </DropdownMenuTrigger>
           <DropdownMenuContent
             hideArrow
@@ -211,20 +216,25 @@ export function GlobalWorkspaceRail(props: {
         </DropdownMenu>
       </SideRailHeader>
 
-      <SideRailContent>
+      <SideRailContent class="global-rail__content">
         <SideRailSection label="Search">
-          <SideRailItem
-            as="button"
-            type="button"
-            label="Search workspace"
-            aria-label="Search workspace"
-            shortcut="⌘K"
-            keyshortcuts="Meta+K Control+K"
-            class="global-rail__search-item"
-            onClick={props.onOpenSearch}
-          >
-            <Search aria-hidden="true" />
-          </SideRailItem>
+          {/* The chord is drawn as outlined key caps under the icon — the one
+              row that advertises a shortcut — while the accessible chord stays
+              on the row itself through aria-keyshortcuts. */}
+          <div class="global-rail__search-item">
+            <SideRailItem
+              as="button"
+              type="button"
+              label="Search workspace"
+              aria-label="Search workspace"
+              shortcut="⌘K"
+              keyshortcuts="Meta+K Control+K"
+              onClick={props.onOpenSearch}
+            >
+              <Search aria-hidden="true" />
+            </SideRailItem>
+            <ShortcutKeys keys="⌘K" class="global-rail__search-keys" />
+          </div>
         </SideRailSection>
 
         <Separator class="my-1" />
