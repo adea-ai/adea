@@ -202,6 +202,10 @@ describe('preference normalization and migration', () => {
       mode: 'dark',
       lightThemeId: 'nord-light',
       darkThemeId: 'nord',
+      // A pin (not just the `'theme'` sentinel) must survive normalization:
+      // normalizeThemeId keeps any non-empty string, so a terminal palette
+      // selection is never silently reset to the interface theme.
+      terminalThemeId: 'dracula',
       accent: 'blue',
       surface: 'frosted',
       reduceTransparency: true,
@@ -230,6 +234,7 @@ describe('preference normalization and migration', () => {
       mode: 'sepia',
       lightThemeId: '',
       darkThemeId: 42,
+      terminalThemeId: 42,
       accent: '#zzzzzz',
       surface: 'glass',
       reduceTransparency: 'yes',
@@ -332,6 +337,7 @@ describe('storage-level read-modify-write with a recovery envelope', () => {
       mode: 'light',
       lightThemeId: 'adea-light-high-contrast',
       darkThemeId: 'adea-dark-high-contrast',
+      terminalThemeId: 'theme',
       accent: '#112233',
       surface: 'translucent',
       reduceTransparency: true,
@@ -444,6 +450,106 @@ describe('document application', () => {
     expect(style['--primary']).toBe(state.accent.primary)
     expect(style['--ring']).toBe(state.accent.ring)
     expect(style['--background']).toBeUndefined()
+  })
+
+  test('an accent override survives a catalogue variant palette', () => {
+    // A non-default variant declares its own --primary/--ring, and the variant
+    // loop runs AFTER the accent branch: writing them back silently clobbered
+    // the preset. Only the default pair escaped, because its flat token map is
+    // empty — which is why the bug read as "accents don't work on 3rd-party
+    // themes". The loop must skip the accent-owned roles while a preset is on.
+    const state = resolveAppearanceState(
+      { ...defaultAppearancePreferences, darkThemeId: 'nord', accent: 'blue' },
+      { systemAppearance: 'dark', osReducedTransparency: false, nativeTranslucency: false }
+    )
+    expect(state.accent.overrides).toBe(true)
+    // Precondition: nord's own primary differs from the blue preset, so a
+    // clobber would be visible in the assertions below.
+    expect(state.variant.colors.primary).not.toBe(state.accent.primary)
+
+    const { document, style, dataset } = fakeDocument()
+    applyAppearanceToDocument(document as unknown as Document, state)
+    expect(dataset.theme).toBe('nord')
+    expect(style['--primary']).toBe(state.accent.primary)
+    expect(style['--primary-foreground']).toBe(state.accent.onPrimary)
+    expect(style['--ring']).toBe(state.accent.ring)
+    // The rest of the catalogue palette still applies around the accent.
+    expect(style['--background']).toBe(state.variant.colors.background)
+  })
+
+  test('a pinned terminal palette overlays the interface variant on the same document', () => {
+    const environment = {
+      systemAppearance: 'dark' as const,
+      osReducedTransparency: false,
+      nativeTranslucency: false,
+    }
+    const { document, style } = fakeDocument()
+
+    const pinned = resolveAppearanceState(
+      { ...defaultAppearancePreferences, darkThemeId: 'nord', terminalThemeId: 'dracula' },
+      environment
+    )
+    expect(pinned.terminalOverride).toBeDefined()
+    expect(pinned.terminalOverride!.background).not.toBe(pinned.variant.terminal.background)
+    applyAppearanceToDocument(document as unknown as Document, pinned)
+    // The overlay is written last, so it wins over nord's inline terminal map.
+    expect(style['--terminal-background']).toBe(pinned.terminalOverride!.background)
+    expect(style['--terminal-ansi-red']).toBe(pinned.terminalOverride!.ansi[1])
+    expect(style['--terminal-background']).not.toBe(pinned.variant.terminal.background)
+
+    // Dropping the pin back to `theme` must repaint the terminal with the
+    // interface variant on the SAME document — a stale dracula overlay would
+    // beat the stylesheet forever.
+    const followTheme = resolveAppearanceState(
+      { ...defaultAppearancePreferences, darkThemeId: 'nord' },
+      environment
+    )
+    expect(followTheme.terminalOverride).toBeUndefined()
+    applyAppearanceToDocument(document as unknown as Document, followTheme)
+    expect(style['--terminal-background']).toBe(followTheme.variant.terminal.background)
+    expect(style['--terminal-ansi-red']).toBe(followTheme.variant.terminal.ansi[1])
+  })
+
+  test('a terminal pin on the default pair drops back to the stylesheet', () => {
+    const environment = {
+      systemAppearance: 'dark' as const,
+      osReducedTransparency: false,
+      nativeTranslucency: false,
+    }
+    const { document, style } = fakeDocument()
+
+    const pinned = resolveAppearanceState(
+      { ...defaultAppearancePreferences, terminalThemeId: 'dracula' },
+      environment
+    )
+    applyAppearanceToDocument(document as unknown as Document, pinned)
+    expect(style['--terminal-background']).toBe(pinned.terminalOverride!.background)
+
+    // The default variant owns no tokens inline, so dropping the pin hands
+    // every --terminal-* name back to `styles/canonical-themes.css` via the
+    // removal sweep; leaving the overlay inline would pin dracula's palette
+    // while dataset.theme claimed adea-dark.
+    applyAppearanceToDocument(
+      document as unknown as Document,
+      resolveAppearanceState(defaultAppearancePreferences, environment)
+    )
+    expect(style['--terminal-background']).toBeUndefined()
+    expect(style['--terminal-ansi-red']).toBeUndefined()
+  })
+
+  test('an unresolvable terminal id degrades to the interface palette', () => {
+    const environment = {
+      systemAppearance: 'dark' as const,
+      osReducedTransparency: false,
+      nativeTranslucency: false,
+    }
+    // Corruption that slips past normalize, or a theme deleted after it was
+    // pinned, must never resolve to a blank or half-painted terminal.
+    const deleted = resolveAppearanceState(
+      { ...defaultAppearancePreferences, terminalThemeId: 'deleted-theme' },
+      environment
+    )
+    expect(deleted.terminalOverride).toBeUndefined()
   })
 
   test('returning to the theme accent removes the override it replaced', () => {

@@ -11,6 +11,7 @@ const committed: AppearancePreferencesV2 = {
   mode: 'dark',
   lightThemeId: 'adea-light',
   darkThemeId: 'adea-dark',
+  terminalThemeId: 'theme',
   accent: 'theme',
   surface: 'frosted',
   reduceTransparency: false,
@@ -39,6 +40,25 @@ describe('appearance editor (Zeron setter semantics with the save/revert contrac
     const before = editor.draft()
     editor.set({ mode: 'dark' })
     expect(editor.draft()).toBe(before)
+  })
+
+  test('the terminal theme participates in the dirty delta both ways', () => {
+    const editor = createAppearanceEditor(committed)
+    editor.open(committed)
+    // samePreferences must compare terminalThemeId: without that clause this
+    // set() would no-op, the draft would stay clean, and the terminal row
+    // would never surface an unsaved change or a Save button.
+    const before = editor.draft()
+    editor.set({ terminalThemeId: 'theme' })
+    expect(editor.draft()).toBe(before)
+    expect(editor.dirty()).toBe(false)
+
+    const pinned = editor.draft()
+    editor.set({ terminalThemeId: 'dracula' })
+    expect(editor.draft()).not.toBe(pinned)
+    expect(editor.draft().terminalThemeId).toBe('dracula')
+    expect(editor.dirty()).toBe(true)
+    expect(editor.differsFromDefaults()).toBe(true)
   })
 
   test('reset targets the shipped defaults but stays reversible', () => {

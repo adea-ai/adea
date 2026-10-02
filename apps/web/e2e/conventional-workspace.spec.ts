@@ -2272,8 +2272,12 @@ test.describe('touch workspace sidebar actions', () => {
     const navigationToggle = toolbar.getByRole('button', {
       name: /^(Expand|Collapse) contextual sidebar$/,
     })
-    await navigationToggle.focus()
-    await page.keyboard.press('Enter')
+    // Keyboard activation through the locator, not focus + a raw keypress:
+    // the toolbar re-renders as boot responses land, a focus captured earlier
+    // can be dropped before the keypress fires, and on loaded runners the
+    // Enter then hits nothing and the sheet never opens. press() resolves the
+    // button again under actionability right before pressing.
+    await navigationToggle.press('Enter')
 
     const navigationDialog = page.getByRole('dialog')
     const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
@@ -2293,8 +2297,7 @@ test.describe('touch workspace sidebar actions', () => {
     await expect(sidebar).not.toBeVisible()
     await expect(navigationToggle).toBeFocused()
 
-    await navigationToggle.focus()
-    await page.keyboard.press('Enter')
+    await navigationToggle.press('Enter')
     await expect(sidebar).toBeVisible()
 
     const createRoom = sidebar.getByRole('button', { name: 'Create Room' })
@@ -2355,8 +2358,7 @@ test.describe('touch workspace sidebar actions', () => {
       const navigationToggle = toolbar.getByRole('button', {
         name: /^(Expand|Collapse) contextual sidebar$/,
       })
-      await navigationToggle.focus()
-      await page.keyboard.press('Enter')
+      await navigationToggle.press('Enter')
 
       const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
       await expect(sidebar).toBeVisible()
@@ -2381,8 +2383,7 @@ test.describe('touch workspace sidebar actions', () => {
     const navigationToggle = toolbar.getByRole('button', {
       name: /^(Expand|Collapse) contextual sidebar$/,
     })
-    await navigationToggle.focus()
-    await page.keyboard.press('Enter')
+    await navigationToggle.press('Enter')
     const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
     await expect(sidebar).toBeVisible()
 
