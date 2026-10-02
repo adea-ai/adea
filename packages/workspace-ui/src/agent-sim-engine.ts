@@ -4,6 +4,7 @@ import {
   isOfficialAgentSimWebOrigin,
   parseAgentSimEngineManifest,
   type AgentSimEngineManifest,
+  type AgentSimEngineSurface,
 } from '@adea-ai/spatial'
 
 /**
@@ -29,7 +30,12 @@ export type AgentSimMount = { unmount(): void }
 
 /** Mount API the private engine entry must register on `window.__adeaAgentSim`. */
 export type AgentSimRuntimeGlobal = {
-  mount(options: { container: HTMLElement; engine: AgentSimEngineManifest }): Promise<AgentSimMount>
+  mount(options: {
+    container: HTMLElement
+    engine: AgentSimEngineManifest
+    /** Character id or serialized configuration decorating the mounted surface. */
+    character?: string
+  }): Promise<AgentSimMount>
 }
 
 export function isDesktopRuntime(): boolean {
@@ -81,21 +87,42 @@ export async function resolveAgentSimEngine(
   return { state: 'entitled', manifest }
 }
 
-/** Inject the engine entry module and resolve once it has registered itself. */
+/**
+ * Inject an engine entry module and resolve once it has registered itself.
+ *
+ * Without a `surface`, the HQ entry loads and must register
+ * `window.__adeaAgentSim`. With a surface, the pack's cold entry for that
+ * surface loads instead and must register
+ * `window.adeaAgentSimSurfaces[surface]`; packs that don't ship the surface
+ * reject here, and the caller renders its offline fallback.
+ */
 export function loadAgentSimEngine(
   manifest: AgentSimEngineManifest,
-  targetWindow: Pick<Window, 'document'> = window
+  options: { surface?: AgentSimEngineSurface; targetWindow?: Pick<Window, 'document'> } = {}
 ): Promise<AgentSimRuntimeGlobal['mount']> {
+  const { surface, targetWindow = window } = options
+  const entryUrl = surface ? manifest.surfaces?.[surface] : manifest.entryUrl
+  if (!entryUrl) {
+    return Promise.reject(
+      new Error(`Agent Sim pack does not ship the ${surface ?? 'engine'} surface`)
+    )
+  }
   return new Promise((resolve, reject) => {
     const script = targetWindow.document.createElement('script')
     script.type = 'module'
-    script.src = manifest.entryUrl
+    script.src = entryUrl
     script.addEventListener('error', () =>
       reject(new Error('Agent Sim engine entry failed to load'))
     )
     script.addEventListener('load', () => {
-      const runtime = (window as typeof window & { __adeaAgentSim?: AgentSimRuntimeGlobal })
-        .__adeaAgentSim
+      // The registry lives on the same window the script was injected into.
+      const globalWindow = targetWindow as typeof window & {
+        __adeaAgentSim?: AgentSimRuntimeGlobal
+        adeaAgentSimSurfaces?: Partial<Record<AgentSimEngineSurface, AgentSimRuntimeGlobal>>
+      }
+      const runtime = surface
+        ? globalWindow.adeaAgentSimSurfaces?.[surface]
+        : globalWindow.__adeaAgentSim
       if (typeof runtime?.mount !== 'function') {
         reject(new Error('Agent Sim engine entry did not register a mount API'))
         return
