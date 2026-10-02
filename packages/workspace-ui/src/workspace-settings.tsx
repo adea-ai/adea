@@ -18,7 +18,7 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-solid'
-import { createEffect, createSignal, For, lazy, onCleanup, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, For, lazy, onCleanup, onMount, Show, type JSX } from 'solid-js'
 
 import { CapabilityList } from './capability-card'
 import { keyedRows } from './keyed-rows'
@@ -65,6 +65,13 @@ function SettingsRow(props: { children?: JSX.Element; detail: string; title: str
       {props.children}
     </SharedSettingsRow>
   )
+}
+
+// True while an appearance theme dropdown is mounted inside the settings
+// dialog. Read at scroll-time rather than tracked so it always reflects the
+// DOM, whichever side of the open/close race a scroll event lands on.
+function appearanceMenuOpen() {
+  return Boolean(document.querySelector('[data-appearance-editor] [role="menu"]'))
 }
 
 export function WorkspaceSettingsDialog(props: {
@@ -178,6 +185,46 @@ export function WorkspaceSettingsDialog(props: {
   }
   const toggle = (key: 'notifyMentions' | 'notifyTasks' | 'privateNotificationPreviews') =>
     void save({ ...preferences(), [key]: !preferences()[key] })
+
+  // The appearance theme menus mount their popper inside the section panel
+  // (the shared theme row keeps the mount in-dialog for focus containment),
+  // and the menu's open-focus pass drags the dialog and the panel to the
+  // menu's untransformed position: the whole view jumps and the menu lands
+  // detached from its trigger. While an appearance menu is open, hold the
+  // dialog and panel at their last menu-free scroll offsets — the menu is
+  // positioned against the dialog, so restoring the offsets keeps it glued
+  // to its trigger and the drag is never visible. Offsets are sampled on an
+  // interval (never while a menu is open, so a drag can never poison them)
+  // and restored on the scroll events the drag fires, which fire after it
+  // regardless of how the open sequence is ordered internally.
+  onMount(() => {
+    let stableDialog = 0
+    let stablePanel = 0
+    const sample = () => {
+      if (appearanceMenuOpen()) return
+      stableDialog = document.querySelector('.conventional-settings-dialog')?.scrollTop ?? 0
+      stablePanel = document.querySelector('#settings-panel-appearance')?.scrollTop ?? 0
+    }
+    const onScroll = (event: Event) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (!target.closest('.conventional-settings-dialog')) return
+      if (!appearanceMenuOpen()) {
+        sample()
+        return
+      }
+      const dialog = document.querySelector('.conventional-settings-dialog')
+      if (dialog && dialog.scrollTop !== stableDialog) dialog.scrollTop = stableDialog
+      const panel = document.querySelector('#settings-panel-appearance')
+      if (panel && panel.scrollTop !== stablePanel) panel.scrollTop = stablePanel
+    }
+    const sampler = setInterval(sample, 200)
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    onCleanup(() => {
+      clearInterval(sampler)
+      document.removeEventListener('scroll', onScroll, true)
+    })
+  })
 
   return (
     <ModalDialog modal={false} size="settings" open={props.open} onClose={close} title="Settings">
