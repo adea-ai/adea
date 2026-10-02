@@ -18,7 +18,7 @@ import {
   filterWorkspacePlugins,
   getPopularWorkspacePlugins,
   groupWorkspacePlugins,
-  popularWorkspacePluginIds,
+  popularWorkspaceProductKeys,
   workspacePluginCategoryOrder,
 } from '../../src/plugins'
 import type { RegistryArtifactBundle, RegistryCatalog } from '../../src/marketplace-catalog'
@@ -376,10 +376,13 @@ describe('registry marketplace catalog', () => {
   test('keeps Popular first and retains grouped previews for dynamic catalog categories', async () => {
     const fixture = await fixtureArtifacts()
     const plugins = mapRegistryCatalog(fixture.catalog, [])
-    expect(getPopularWorkspacePlugins(plugins).map(({ id }) => id)).toEqual([
-      'plugin:openai-official:gmail',
-    ])
-    expect(popularWorkspacePluginIds[0]).toBe('plugin:openai-official:gmail')
+    // Popular picks by the source-independent product key: the fixture's
+    // gmail entry ships from openai-official while the live catalog sources
+    // the same product from cursor-official and claude-official.
+    expect(
+      getPopularWorkspacePlugins(plugins).map(({ productGroupingKey }) => productGroupingKey)
+    ).toEqual(['gmail'])
+    expect(popularWorkspaceProductKeys[0]).toBe('gmail')
     expect(groupWorkspacePlugins(plugins).map(({ category }) => category)).toEqual(['Productivity'])
     expect(workspacePluginCategoryOrder).toContain('Productivity')
     expect(
