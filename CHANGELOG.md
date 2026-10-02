@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.75.3](https://github.com/adea-ai/adea/compare/v0.75.2...v0.75.3) (2026-10-02)
+
+
+### Maintenance
+
+* **deps:** adopt @adea-ai/ui 0.99.0 ([#954](https://github.com/adea-ai/adea/issues/954)) ([d91e3f2](https://github.com/adea-ai/adea/commit/d91e3f2214e73dde40976f7d05963c027be559a1))
+
 ## [0.75.2](https://github.com/adea-ai/adea/compare/v0.75.1...v0.75.2) (2026-10-02)
 
 
