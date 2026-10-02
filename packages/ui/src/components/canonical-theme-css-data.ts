@@ -1,4 +1,4 @@
-/** Generated from the isolated @adea-ai/themes 0.8.8 records. */
+/** Generated from the isolated @adea-ai/themes 0.8.9 records. */
 export const CANONICAL_THEME_CSS_DATA = {
   'adea-light': {
     '--background': '#ffffff',
