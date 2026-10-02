@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.74.0](https://github.com/adea-ai/adea/compare/v0.73.1...v0.74.0) (2026-10-02)
+
+
+### Features
+
+* **workspace-ui:** synchronize App Library ordering with rail ([#916](https://github.com/adea-ai/adea/issues/916)) ([d9c4ce6](https://github.com/adea-ai/adea/commit/d9c4ce61537ba54d320d22be88cab71f0aa57f03))
+
+## [0.73.1](https://github.com/adea-ai/adea/compare/v0.73.0...v0.73.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **web:** shell polish round 2 - rail, menus, and settings scroll guard ([#915](https://github.com/adea-ai/adea/issues/915)) ([8fd7c90](https://github.com/adea-ai/adea/commit/8fd7c90eb68f73a3c0f80bf6eb7ddc87029c76f4))
+
 ## [0.73.0](https://github.com/adea-ai/adea/compare/v0.72.0...v0.73.0) (2026-10-02)
 
 

@@ -6,6 +6,8 @@ import {
 } from '../../src/rail-preferences'
 import {
   enabledWorkspaceApps,
+  orderedWorkspaceApps,
+  reorderWorkspaceAppsRelativeTo,
   resolveWorkspaceApp,
   setWorkspaceAppEnabled,
 } from '../../src/workspace-apps'
@@ -25,6 +27,36 @@ test('built-in apps start enabled; optional destinations require explicit enable
   ])
   expect(resolveWorkspaceApp(next, 'kanban')?.view).toBe('chat')
   expect(defaultRailPreferences.order).toEqual(['virtual', 'chat', 'dev'])
+})
+
+test('App Library order shares rail placements and retains filtered, hidden, and unknown ids', () => {
+  const source = {
+    version: 1 as const,
+    order: ['virtual', 'app:future', 'chat', 'dev'],
+    hidden: ['chat', 'app:future'],
+  }
+
+  expect(orderedWorkspaceApps(source).map((app) => app.id)).toEqual([
+    'virtual',
+    'chat',
+    'dev',
+    'kanban',
+    'source-control',
+  ])
+
+  const moved = reorderWorkspaceAppsRelativeTo(source, 'kanban', 'dev', 'before')
+  expect(moved.order).toEqual(['virtual', 'app:future', 'chat', 'kanban', 'dev', 'source-control'])
+  expect(moved.hidden).toEqual(['chat', 'app:future', 'kanban', 'source-control'])
+  expect(enabledWorkspaceApps(moved).map((app) => app.id)).toEqual(['virtual', 'dev'])
+
+  const enabled = setWorkspaceAppEnabled(moved, 'kanban', true)
+  expect(enabledWorkspaceApps(enabled).map((app) => app.id)).toEqual(['virtual', 'kanban', 'dev'])
+})
+
+test('App Library no-op moves leave the canonical record unchanged', () => {
+  expect(reorderWorkspaceAppsRelativeTo(defaultRailPreferences, 'virtual', 'chat', 'before')).toBe(
+    defaultRailPreferences
+  )
 })
 
 test('disabling an active app selects an enabled destination, or Library when all are off', () => {
