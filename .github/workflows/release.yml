@@ -3,6 +3,16 @@ name: Code Foundry Release
 on:
   push:
     branches: [main]
+  schedule:
+    # Batch Release Please to four windows per day, offset from cortana's
+    # windows so the shared automation token's hourly budget never sees both
+    # repos' bursts at once. Every push to main used to update the version
+    # pull request immediately and the configured automation token merged it
+    # on sight, so each merge became its own release with a full
+    # release-assets build behind it (~58 asset jobs/day). Scheduled runs let
+    # one window's merges accumulate into a single version pull request; a
+    # window with nothing unreleased is a cheap no-op.
+    - cron: '53 */6 * * *'
   workflow_dispatch:
     inputs:
       release-while-paused:
@@ -26,7 +36,9 @@ jobs:
     # qualification below only executes when a release (or a stuck draft) needs
     # it. Version pull requests keep flowing even when the candidate is broken;
     # publication stays gated on qualification success in the stage job.
-    if: vars.CI_BILLING_PAUSED != 'true' || (github.event_name == 'workflow_dispatch' && inputs['release-while-paused'] == true)
+    if: >-
+      (vars.CI_BILLING_PAUSED != 'true' || (github.event_name == 'workflow_dispatch' && inputs['release-while-paused'] == true)) &&
+      (github.event_name != 'push' || startsWith(github.event.head_commit.message, 'chore(main): release '))
     uses: 0xPlayerOne/code-foundry/.github/workflows/release.yml@v1.39.3
     with:
       billing-pause-bypass: ${{ github.event_name == 'workflow_dispatch' && inputs['release-while-paused'] == true }}
