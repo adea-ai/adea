@@ -6,7 +6,12 @@
 // checks share one flight.
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 
-import { createUpdateManager } from '../shell/src/updates'
+import {
+  createUpdateManager,
+  isUpdateChannel,
+  resolveChannelFeedUrl,
+  versionLessThan,
+} from '../shell/src/updates'
 
 type FetchCall = { url: string }
 
@@ -140,5 +145,124 @@ describe('update manager', () => {
     const status = await manager.check()
     expect(status.phase).toBe('current')
     expect(status.available_version).toBeNull()
+  })
+})
+
+describe('update version ordering', () => {
+  test('a dev build sorts below its own release and above earlier dev builds', () => {
+    expect(versionLessThan('0.75.0-dev.1', '0.75.0')).toBe(true)
+    expect(versionLessThan('0.75.0-dev.9', '0.75.0-dev.10')).toBe(true)
+    expect(versionLessThan('0.75.0-dev.10', '0.75.0-dev.10')).toBe(false)
+    // The next stable always wins over the dev line anchored at its
+    // predecessor, so a dev install is never stuck on the anchor.
+    expect(versionLessThan('0.75.0-dev.99', '0.75.1')).toBe(true)
+    expect(versionLessThan('0.75.1', '0.75.0-dev.99')).toBe(false)
+    // A dev build of the new stable supersedes the previous stable release.
+    expect(versionLessThan('0.75.0', '0.75.1-dev.1')).toBe(true)
+    // v prefixes and the release ordering fall out of the same compare.
+    expect(versionLessThan('v0.75.0-dev.1', 'v0.75.0')).toBe(true)
+    expect(versionLessThan('0.74.9', '0.75.0-dev.1')).toBe(true)
+  })
+
+  test('unparseable versions keep the historic fallback instead of wedging', () => {
+    expect(versionLessThan('0.65.2', 'not-a-version')).toBe(false)
+    expect(versionLessThan('0.65.2', '99.0.0')).toBe(true)
+  })
+
+  test('the channel guard accepts exactly the three channels', () => {
+    expect(isUpdateChannel('stable')).toBe(true)
+    expect(isUpdateChannel('pre-release')).toBe(true)
+    expect(isUpdateChannel('dev')).toBe(true)
+    expect(isUpdateChannel('beta')).toBe(false)
+    expect(isUpdateChannel(undefined)).toBe(false)
+  })
+})
+
+// A releases-API listing that exercises every selector: dev builds and
+// stables are skipped, drafts are skipped, the newest survivor wins.
+const RELEASES = () =>
+  Response.json([
+    { tag_name: 'v0.76.0-dev.7', draft: false, prerelease: true },
+    { tag_name: 'v0.76.0-dev.6', draft: false, prerelease: true },
+    { tag_name: 'v0.75.3', draft: false, prerelease: true },
+    { tag_name: 'v0.75.2', draft: true, prerelease: true },
+    { tag_name: 'v0.75.1', draft: false, prerelease: false },
+  ])
+
+describe('update channels', () => {
+  test('the pre-release channel resolves the newest non-dev pre-release', async () => {
+    installFetchMock()
+    fetchHandler = async (url) =>
+      url.includes('/releases?') ? RELEASES() : new Response('{}', { status: 404 })
+    expect(await resolveChannelFeedUrl('pre-release')).toBe(
+      'https://github.com/adea-ai/adea/releases/download/v0.75.3/latest.json'
+    )
+  })
+
+  test('the dev channel resolves the newest dev build and skips drafts and stables', async () => {
+    installFetchMock()
+    fetchHandler = async (url) =>
+      url.includes('/releases?') ? RELEASES() : new Response('{}', { status: 404 })
+    expect(await resolveChannelFeedUrl('dev')).toBe(
+      'https://github.com/adea-ai/adea/releases/download/v0.76.0-dev.7/latest.json'
+    )
+  })
+
+  test('an empty channel reports a typed failure instead of a URL', async () => {
+    installFetchMock()
+    fetchHandler = async () => Response.json([])
+    await expect(resolveChannelFeedUrl('pre-release')).rejects.toThrow(
+      'no pre-release release is published yet'
+    )
+  })
+
+  test('the pre-release channel checks the resolved manifest, not the stable feed', async () => {
+    installFetchMock()
+    fetchHandler = async (url) => {
+      if (url.includes('/releases?')) return RELEASES()
+      if (url === 'https://github.com/adea-ai/adea/releases/download/v0.75.3/latest.json') {
+        return Response.json({
+          version: '0.75.3',
+          platform: process.platform,
+          arch: process.arch,
+          url: `https://github.com/adea-ai/adea/releases/download/v0.75.3/Adea-v0.75.3-${process.platform}-${process.arch}.app.tar.zst`,
+          sha256: 'a'.repeat(64),
+          signature: 'sig',
+          notes: 'the daily build',
+        })
+      }
+      return new Response('{}', { status: 404 })
+    }
+    const manager = createUpdateManager({
+      appVersion: '0.75.0',
+      dataDir: '/tmp/adea-update-manager-test',
+      checkTimeoutMs: 1_000,
+      channel: () => 'pre-release',
+    })
+    const status = await manager.check()
+    expect(status.phase).toBe('available')
+    expect(status.available_version).toBe('0.75.3')
+    // The stable moving feed was never consulted.
+    expect(fetchCalls.some((call) => call.url.includes('releases/latest/download'))).toBe(false)
+  })
+
+  test('an opt-in channel with an unreachable API fails instead of falling back to stable', async () => {
+    installFetchMock()
+    fetchHandler = async (url) =>
+      url.includes('/releases?') ? new Response('{}', { status: 502 }) : HANG
+    const manager = createUpdateManager({
+      appVersion: '0.75.0-dev.4',
+      dataDir: '/tmp/adea-update-manager-test',
+      checkTimeoutMs: 50,
+      channel: () => 'dev',
+    })
+    const status = await manager.check()
+    expect(status.phase).toBe('failed')
+    // The stable fallback (the releases/latest API and its handoff) never ran.
+    expect(
+      fetchCalls.filter(
+        (call) => call.url === 'https://api.github.com/repos/adea-ai/adea/releases/latest'
+      )
+    ).toHaveLength(0)
   })
 })

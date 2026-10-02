@@ -89,6 +89,65 @@ Release Please bumps — with an `ADEA_APP_VERSION` override for local runs.
 Releases without a feed (forks, releases older than the lane) fall back to a
 GitHub-API availability check plus a releases-page handoff.
 
+## Update channels
+
+An installation follows exactly one channel, persisted in the shell's
+file-backed state (`<dataDir>/desktop-state/update-channel.json`) and read per
+check, so a settings change takes effect without a restart. The setting lives
+shell-side, never in the web client's preferences: the page cannot carry it
+past a sign-out, and the shell is the process that polls. `desktop_update_channel`
+reads it; `desktop_update_channel_save` validates against the three values and
+persists. An `ADEA_UPDATE_FEED` override (tests, staging) wins over the
+channel.
+
+- **Stable** (default): the moving `releases/latest` manifest. A release
+  reaches this feed only through promotion — see the promotion policy below.
+- **Pre-release**: the newest non-draft, non-dev pre-release. GitHub has no
+  `releases/latest` equivalent that tracks pre-releases, so the shell lists
+  releases through the GitHub API, picks the newest match, and reads that
+  release's `…/releases/download/<tag>/latest.json`. The API only discovers
+  the tag; the manifest comes from the same guarded release-download path and
+  every signature check applies as on stable.
+- **Dev**: the same discovery against dev builds (`vX.Y.Z-dev.N`).
+
+Opt-in channels never fall back to the stable releases-page check: an install
+that chose dev must not be silently offered stable releases when its channel
+is unreachable — it reports the failure instead.
+
+### Version grammar
+
+`x.y.z` (stable and pre-release — visibility is the GitHub flag, not the
+version) and `x.y.z-dev.N` (dev builds of main, anchored at the newest
+promoted stable with a per-workflow-run counter). A dev build sorts below its
+own release (`0.75.0-dev.1 < 0.75.0`), so the next stable always wins over the
+dev line anchored at its predecessor, and successive dev builds order by their
+counter. The update is always strictly-newer-only; nothing downgrades.
+
+### Release lanes and promotion policy
+
+- One release window per day (12:00 UTC). Ordinary merges to main wait for it;
+  only the `chore(main): release …` version-PR squash publishes on push, which
+  is also the out-of-band path — merging the pending version PR by hand
+  publishes immediately.
+- The window's release is flagged as a GitHub pre-release right after it is
+  created (`release.yml`'s `mark-prerelease`), so only the pre-release channel
+  offers it. A hand-dispatched release run — the hotfix path — has no head
+  commit to parse and therefore stays stable immediately.
+- `promote-stable.yml` promotes by batch soak: everything published after the
+  last stable is the candidate batch; when its **oldest** member has been
+  public for 96 hours, the **newest** member (the tip, carrying every
+  mid-soak hotfix) flips to stable and the intermediates are skipped —
+  releases are cumulative, so stable users miss nothing. The stitched release
+  notes cover the whole batch. A repository variable
+  (`STABLE_PROMOTION_HELD`) halts scheduled promotion for a bad batch;
+  workflow_dispatch inputs promote a named version or force the tip past the
+  soak.
+- Dev builds (`dev-build.yml`) publish on every push to main (concurrency-
+  cancelled, so a burst ships only the newest commit), reusing the release-
+  assets lane verbatim — same bundle, same signing, same manifest shape, only
+  the version and visibility differ. They are never promoted: the promoter's
+  batch selector only matches the plain tag shape. The newest ten are kept.
+
 ## Trust chain
 
 - `signature` is Ed25519 over `adea-desktop-update/v<version>/<sha256>` made
@@ -150,12 +209,18 @@ GitHub-API availability check plus a releases-page handoff.
 ## Pinned by
 
 - `scripts/desktop-update-boundary.test.ts`: manifest validation (platform,
-  host, digest), Ed25519 signature verification and tampering (full and slim),
-  the full check → download → verify → extract → staged-install flow against a
-  local signed feed, slim-vs-full runtime-hash selection, install guards
-  (approval, expected version), and the releases-page fallback.
-- `apps/desktop/tests/shell-commands.test.ts`: feed availability phases and
-  the packaged-version reporting.
+  host, digest, the `x.y.z-dev.N` grammar), Ed25519 signature verification and
+  tampering (full and slim), the full check → download → verify → extract →
+  staged-install flow against a local signed feed, slim-vs-full runtime-hash
+  selection, install guards (approval, expected version), and the
+  releases-page fallback.
+- `apps/desktop/tests/update-manager.test.ts`: version ordering across the
+  grammar (dev line vs its release), per-channel feed resolution (stable moves
+  with an override, opt-in channels resolve through the releases API), and the
+  no-stable-fallback rule for opt-in channels.
+- `apps/desktop/tests/shell-commands.test.ts`: feed availability phases, the
+  packaged-version reporting, and the `desktop_update_channel*` surface
+  (default stable, save validation).
 - `scripts/desktop-ipc-boundary.test.ts`: the `desktop_update_*` command
   surface and its grant.
 - `scripts/desktop-origin-boundary.test.ts` and

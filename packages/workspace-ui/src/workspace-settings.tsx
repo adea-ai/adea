@@ -8,6 +8,7 @@ import {
   SettingsRow as SharedSettingsRow,
 } from '@adea-ai/ui/components/composites/settings'
 import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
+import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 import {
   Bell,
   Bot,
@@ -16,6 +17,7 @@ import {
   Link2,
   Mic,
   MonitorCog,
+  RefreshCw,
   ShieldCheck,
   UserRound,
 } from 'lucide-solid'
@@ -27,6 +29,7 @@ import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import {
   defaultWorkspacePreferences,
   type CapabilitySnapshot,
+  type UpdateChannelSetting,
   type WorkspacePlatformServices,
   type WorkspacePreferences,
 } from './platform'
@@ -49,6 +52,7 @@ const sectionIcons = {
   'privacy-data': EyeOff,
   integrations: Link2,
   permissions: ShieldCheck,
+  updates: RefreshCw,
 } satisfies Record<SettingsSection, typeof UserRound>
 
 // Lazy: the permissions pane (and its dev-view chunk) loads only when the
@@ -111,6 +115,46 @@ export function WorkspaceSettingsDialog(props: {
   )
   const [capabilities, setCapabilities] = createSignal<CapabilitySnapshot | undefined>()
   const [capabilitiesBusy, setCapabilitiesBusy] = createSignal(false)
+
+  // The update channel: loaded once when the dialog mounts, saved through the
+  // platform service (the shell persists it and reads it per update check).
+  const [updateChannel, setUpdateChannel] = createSignal<UpdateChannelSetting>('stable')
+  const [updateChannelState, setUpdateChannelState] = createSignal<'error' | 'idle' | 'saving'>(
+    'idle'
+  )
+  const [updateChannelError, setUpdateChannelError] = createSignal<string | null>(null)
+  onMount(() => {
+    void props.services?.updates
+      ?.channel()
+      .then((channel) => setUpdateChannel(channel))
+      .catch(() => setUpdateChannelError('The current channel could not be read.'))
+  })
+  const saveUpdateChannel = async (value: string) => {
+    const updates = props.services?.updates
+    if (!updates || updateChannelState() === 'saving') return
+    setUpdateChannelState('saving')
+    setUpdateChannelError(null)
+    try {
+      setUpdateChannel(await updates.setChannel(value as UpdateChannelSetting))
+      setUpdateChannelState('idle')
+    } catch (error) {
+      setUpdateChannelState('error')
+      setUpdateChannelError(
+        error instanceof Error ? error.message : 'The channel could not be saved.'
+      )
+    }
+  }
+  const updateChannelDetail = () => {
+    switch (updateChannel()) {
+      case 'pre-release':
+        return 'Follows the daily pre-release builds as soon as they publish — new features early, rough edges included.'
+      case 'dev':
+        return 'Follows every build of main. Unqualified by definition; for development machines only.'
+      default:
+        return 'Soaked releases only: a build ships here after its batch has spent about four days on the pre-release channel.'
+    }
+  }
+
   const topAgentRows = keyedRows(
     () => props.agents.slice(0, 5),
     (agent) => agent.id
@@ -301,6 +345,51 @@ export function WorkspaceSettingsDialog(props: {
           >
             <a href="/?view=virtual">Open preview</a>
           </SettingsRow>
+        </TabsContent>
+        <TabsContent
+          value="updates"
+          id="settings-panel-updates"
+          class="conventional-settings-panel"
+        >
+          <header>
+            <RefreshCw aria-hidden="true" />
+            <div>
+              <h3>{settingsSectionLabels.updates}</h3>
+              <p>Which builds this installation follows.</p>
+            </div>
+          </header>
+          <Show
+            when={props.services?.updates}
+            fallback={
+              <SettingsRow
+                title="Update channel"
+                detail="Updates install in the desktop application; this surface has no update service."
+              />
+            }
+          >
+            <SettingsRow title="Update channel" detail={updateChannelDetail()}>
+              <NativeSelect
+                aria-label="Update channel"
+                disabled={updateChannelState() === 'saving'}
+                value={updateChannel()}
+                onChange={(event) => void saveUpdateChannel(event.currentTarget.value)}
+                options={[
+                  { value: 'stable', label: 'Stable' },
+                  { value: 'pre-release', label: 'Pre-release' },
+                  { value: 'dev', label: 'Dev' },
+                ]}
+              />
+            </SettingsRow>
+            <Show when={updateChannelError()}>
+              <p class="conventional-settings-note" role="alert">
+                <RefreshCw aria-hidden="true" /> {updateChannelError()}
+              </p>
+            </Show>
+            <p class="conventional-settings-note">
+              <RefreshCw aria-hidden="true" /> A channel change takes effect at the next update
+              check; installs always verify the build's signature before swapping.
+            </p>
+          </Show>
         </TabsContent>
         <TabsContent
           value="appearance"

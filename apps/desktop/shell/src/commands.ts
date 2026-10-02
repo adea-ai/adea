@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { version as packagedVersion } from '../../package.json'
 import { resolveCloudOrigin } from './cloud-proxy'
 import { createMacPermissionService, type MacPermissionService } from './desktop-permissions'
-import { createUpdateManager } from './updates'
+import { createUpdateManager, isUpdateChannel, type UpdateChannel } from './updates'
 
 // Update flow: compare this build against the signed `latest.json` feed the
 // release lane publishes on GitHub Releases and install newer releases in
@@ -75,7 +75,20 @@ export function createCommandSurface(
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
   mkdirSync(contentDir, { recursive: true, mode: 0o700 })
 
-  const updates = createUpdateManager({ appVersion: APP_VERSION, dataDir })
+  const updates = createUpdateManager({
+    appVersion: APP_VERSION,
+    dataDir,
+    channel: readUpdateChannel,
+  })
+
+  // The update channel persists in the shell's file-backed state (never the
+  // web client's preferences): the update manager reads it from the shell
+  // process at each check, so a settings change takes effect without a
+  // restart and without trusting the page to pass it through.
+  function readUpdateChannel(): UpdateChannel {
+    const stored = readJson('update-channel.json') as { channel?: unknown } | null
+    return isUpdateChannel(stored?.channel) ? stored.channel : 'stable'
+  }
   // macOS permission probes (issue #471). Injected in tests; production
   // measures the real host through fixed-argv commands (see
   // desktop-permissions.ts).
@@ -287,6 +300,12 @@ export function createCommandSurface(
     desktop_update_check: () => updates.check(),
     desktop_update_status: () => updates.status(),
     desktop_update_install: (args) => updates.install(args),
+    desktop_update_channel: () => readUpdateChannel(),
+    desktop_update_channel_save: (args) => {
+      if (!isUpdateChannel(args?.channel)) throw new Error('unknown update channel')
+      writeJson('update-channel.json', { channel: args.channel })
+      return args.channel
+    },
     desktop_transcription_permission: () => 'denied',
     desktop_transcription_start: () => {
       throw new Error('transcription is not available in this shell yet')

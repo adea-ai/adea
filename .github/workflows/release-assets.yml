@@ -71,6 +71,7 @@ jobs:
     outputs:
       desktop_release: ${{ steps.parse.outputs.desktop_release }}
       release_version: ${{ steps.parse.outputs.release_version }}
+      is_dev: ${{ steps.parse.outputs.is_dev }}
     steps:
       - name: Validate published release
         env:
@@ -82,20 +83,28 @@ jobs:
             --json tagName \
             --jq '.tagName' | grep -Fx "$RELEASE_TAG"
 
-      - name: Parse Release Please tag
+      - name: Parse the release tag
         id: parse
         run: |
           set -euo pipefail
-          if [[ "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            version="${BASH_REMATCH[1]}"
+          # Stable releases are the plain shape; dev builds carry a -dev.N
+          # counter (dev-build.yml) and package through this same lane, so a
+          # dev build and a stable run identical build, sign, and verify
+          # steps. The manifest version keeps the suffix — that is what the
+          # shell's update grammar orders.
+          if [[ "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-dev\.[0-9]+)?$ ]]; then
+            version="${BASH_REMATCH[1]}${BASH_REMATCH[2]:-}"
           else
-            echo "Release tag must be an exact semantic version such as v0.2.0: $RELEASE_TAG" >&2
+            echo "Release tag must be vX.Y.Z or vX.Y.Z-dev.N: $RELEASE_TAG" >&2
             exit 1
           fi
+          is_dev=false
+          [[ "$version" == *-dev.* ]] && is_dev=true
 
           {
             echo "desktop_release=true"
             echo "release_version=$version"
+            echo "is_dev=$is_dev"
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout release metadata
@@ -107,8 +116,14 @@ jobs:
       - name: Validate release notes
         env:
           RELEASE_VERSION: ${{ steps.parse.outputs.release_version }}
+          IS_DEV: ${{ steps.parse.outputs.is_dev }}
         run: |
           set -euo pipefail
+          # A dev release has no Release Please changelog entry to validate.
+          if [[ "$IS_DEV" == "true" ]]; then
+            echo "Dev build: skipping the Release Please notes validation."
+            exit 0
+          fi
           node scripts/release-notes.mjs "$RELEASE_VERSION" >/dev/null
 
   desktop:
@@ -297,6 +312,8 @@ jobs:
         working-directory: apps/desktop/shell
         env:
           DESKTOP_UPDATE_SIGNING_KEY: ${{ secrets.DESKTOP_UPDATE_SIGNING_KEY }}
+          DEV_RELEASE: ${{ needs.validate-release.outputs.is_dev }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -360,7 +377,13 @@ jobs:
             )
             NOTES_FILE="$RUNNER_TEMP/notes/notes.txt"
             mkdir -p "$RUNNER_TEMP/notes"
-            if [[ -f "$REPO_ROOT/CHANGELOG.md" ]]; then
+            if [[ "$DEV_RELEASE" == "true" ]]; then
+              # A dev release has no Release Please changelog entry; the
+              # manifest notes are the release body (the build's provenance).
+              gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+                --json body --jq .body > "$NOTES_FILE"
+              SIGN_ARGS+=(--notes-file "$NOTES_FILE")
+            elif [[ -f "$REPO_ROOT/CHANGELOG.md" ]]; then
               awk '/^## /{if (seen) exit; seen=1} seen{print}' "$REPO_ROOT/CHANGELOG.md" | sed '1d' > "$NOTES_FILE"
               if [[ -s "$NOTES_FILE" ]]; then
                 SIGN_ARGS+=(--notes-file "$NOTES_FILE")
@@ -395,7 +418,9 @@ jobs:
   publish-release-notes:
     name: Publish release notes
     needs: [validate-release, desktop]
-    if: ${{ (github.event.release.tag_name || inputs.tag) != '' && needs.desktop.result == 'success' }}
+    # Dev builds keep their own provenance notes; there is no Release Please
+    # entry to publish.
+    if: ${{ (github.event.release.tag_name || inputs.tag) != '' && needs.desktop.result == 'success' && needs.validate-release.outputs.is_dev != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -421,7 +446,7 @@ jobs:
   verify-assets:
     name: Verify desktop assets
     needs: [validate-release, desktop, publish-release-notes]
-    if: ${{ (github.event.release.tag_name || inputs.tag) != '' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
+    if: ${{ (github.event.release.tag_name || inputs.tag) != '' && needs.desktop.result == 'success' && (needs.publish-release-notes.result == 'success' || needs.publish-release-notes.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
