@@ -1161,26 +1161,6 @@
   color: var(--cw-muted);
 }
 
-.conventional-settings-dialog {
-  /* The settings surface packs sections rather than one form, so it opens
-     wider by default (72rem) and taller (52rem); the calc guards keep both
-     responsive on small windows. The dialog is a fixed-height grid: the
-     header row stays put, and the section body is the only scroller. */
-  width: min(72rem, calc(100% - 4rem));
-  max-width: min(72rem, calc(100% - 4rem));
-  height: min(52rem, calc(100svh - 2rem));
-  max-height: min(52rem, calc(100svh - 2rem));
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 0;
-  padding: 0;
-  overflow: hidden;
-}
-.conventional-settings-dialog > [data-slot='dialog-header'] {
-  gap: 0.35rem;
-  padding: 1rem 1.25rem 0.9rem;
-  border-bottom: 1px solid var(--cw-border);
-}
-
 .conventional-about-dialog {
   width: min(22.5rem, calc(100% - 4rem));
 }
@@ -1411,54 +1391,8 @@
   height: 100%;
   min-height: 0;
   grid-template-columns: 13rem minmax(0, 1fr);
-  padding: 0 !important;
-}
-.conventional-settings-nav {
-  display: grid;
-  align-content: start;
-  gap: 0.2rem;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0.8rem;
-  border-right: 1px solid var(--cw-border);
-  background: var(--cw-surface-muted);
-}
-.conventional-settings-nav__group {
-  display: grid;
-  gap: 0.15rem;
-}
-.conventional-settings-nav__label {
-  margin: 0.45rem 0.7rem 0.2rem;
-  color: var(--cw-muted);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.conventional-settings-nav button {
-  min-height: 2.5rem;
-  padding: 0.55rem 0.7rem;
-  border: 0;
-  border-radius: 0.4rem;
-  background: transparent;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  text-align: left;
-}
-.conventional-settings-nav button svg {
-  width: 1.05rem;
-  height: 1.05rem;
-  color: var(--cw-muted);
-}
-.conventional-settings-nav button:hover,
-.conventional-settings-nav button[aria-selected='true'] {
-  background: var(--cw-surface);
-  color: var(--cw-accent-strong);
-  font-weight: 700;
-}
-.conventional-settings-nav button[aria-selected='true'] svg {
-  color: var(--cw-accent-strong);
+  width: 100%;
+  min-width: 0;
 }
 .conventional-settings-panel {
   min-width: 0;
@@ -1472,6 +1406,10 @@
   align-items: flex-start;
   gap: 0.7rem;
   margin-bottom: 1rem;
+}
+.conventional-settings-panel > header > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .conventional-settings-panel > header > svg,
 .conventional-settings-section-header > svg {
@@ -1590,24 +1528,18 @@
     flex-basis: 2.5rem;
   }
   .conventional-settings-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
   }
   .conventional-settings-nav {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    min-height: 0;
+    flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
-    border-right: 0;
-    border-bottom: 1px solid var(--cw-border);
   }
-  .conventional-settings-nav__group {
-    min-width: max-content;
-  }
-  .conventional-settings-panel {
-    min-height: 27rem;
+  .conventional-settings-nav [data-slot='settings-navigation-group'] {
+    flex: none;
+    width: max-content;
+    max-width: 100%;
   }
   .conventional-form-grid {
     grid-template-columns: 1fr;
