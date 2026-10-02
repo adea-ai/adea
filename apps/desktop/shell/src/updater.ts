@@ -102,7 +102,9 @@ export function parseUpdateManifest(
   if (typeof value !== 'object' || value === null) return { ok: false, reason: 'not an object' }
   const candidate = value as Record<string, unknown>
   const version = candidate.version
-  if (typeof version !== 'string' || !/^v?\d+\.\d+\.\d+$/.test(version)) {
+  // The grammar: plain `x.y.z` (stable and pre-release — visibility is the
+  // GitHub flag, not the version) and `x.y.z-dev.N` (dev builds of main).
+  if (typeof version !== 'string' || !/^v?\d+\.\d+\.\d+(-dev\.\d+)?$/.test(version)) {
     return { ok: false, reason: 'version' }
   }
   const url = candidate.url

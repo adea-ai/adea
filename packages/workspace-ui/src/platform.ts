@@ -241,4 +241,18 @@ export type WorkspacePlatformServices = Readonly<{
   plugins?: WorkspacePluginsProvider
   settings?: WorkspaceSettingsProvider
   transcription?: TranscriptionProvider
+  /** The desktop update channel; omitted on surfaces with no update service
+   * (the web app updates by refresh, not by channel). */
+  updates?: UpdatesService
+}>
+
+/** The update channel an installation follows. 'stable' is the batch-soaked
+ * feed, 'pre-release' the daily builds, 'dev' every build of main. Kept as a
+ * local literal union: the shell owns the authoritative type and this package
+ * does not import from the shell. */
+export type UpdateChannelSetting = 'stable' | 'pre-release' | 'dev'
+
+export type UpdatesService = Readonly<{
+  channel(): Promise<UpdateChannelSetting>
+  setChannel(channel: UpdateChannelSetting): Promise<UpdateChannelSetting>
 }>

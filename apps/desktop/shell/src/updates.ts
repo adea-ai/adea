@@ -50,17 +50,94 @@ const DOWNLOAD_STALL_MS = 20_000
 /** Hard cap for one download attempt, however slow-but-alive the stream is. */
 const DOWNLOAD_MAX_MS = 15 * 60_000
 
+/** The update channel an installation follows. */
+export type UpdateChannel = 'stable' | 'pre-release' | 'dev'
+
+export function isUpdateChannel(value: unknown): value is UpdateChannel {
+  return value === 'stable' || value === 'pre-release' || value === 'dev'
+}
+
+const RELEASES_API_URL = 'https://api.github.com/repos/adea-ai/adea/releases?per_page=30'
+/** Daily pre-releases keep the plain tag shape; dev builds are never promoted. */
+const PRE_RELEASE_TAG = /^v\d+\.\d+\.\d+$/
+const DEV_TAG = /^v\d+\.\d+\.\d+-dev\.\d+$/
+
+/**
+ * The manifest URL for an opt-in channel. GitHub has no `releases/latest`
+ * equivalent that tracks pre-releases, so the channel resolves the newest
+ * matching release through the API and reads that release's signed manifest.
+ * The API only discovers the tag: the manifest itself comes from the same
+ * release-download path the parser guards, and every signature check applies
+ * exactly as it does on the stable feed.
+ */
+export async function resolveChannelFeedUrl(
+  channel: Exclude<UpdateChannel, 'stable'>,
+  fetchImpl: typeof fetch = fetch
+): Promise<string> {
+  const response = await fetchImpl(RELEASES_API_URL, {
+    headers: { accept: 'application/vnd.github+json' },
+  })
+  if (!response.ok) throw new Error(`github releases ${response.status}`)
+  const releases = (await response.json()) as Array<{
+    tag_name?: unknown
+    draft?: unknown
+    prerelease?: unknown
+  }>
+  const tagPattern = channel === 'dev' ? DEV_TAG : PRE_RELEASE_TAG
+  for (const release of releases) {
+    const tag = String(release.tag_name ?? '')
+    if (release.draft === false && release.prerelease === true && tagPattern.test(tag)) {
+      return `https://github.com/adea-ai/adea/releases/download/${tag}/latest.json`
+    }
+  }
+  throw new Error(`no ${channel} release is published yet`)
+}
+
+/**
+ * Parse a version in the update grammar into `[major, minor, patch, dev]`,
+ * where a release carries no dev counter and sorts after every dev build of
+ * its own triple (Infinity makes that ordering fall out of the tuple compare).
+ * Unparseable versions return null so the caller can fall back.
+ */
+function parseUpdateVersion(version: string): [number, number, number, number] | null {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?$/.exec(version.trim())
+  if (!match) return null
+  return [
+    Number(match[1]),
+    Number(match[2]),
+    Number(match[3]),
+    match[4] === undefined ? Infinity : Number(match[4]),
+  ]
+}
+
+/**
+ * Semver ordering for everything the update grammar produces: `x.y.z` and the
+ * dev builds `x.y.z-dev.N`. A dev build sorts below its own release
+ * (`0.75.0-dev.1 < 0.75.0`) and above every earlier build of its anchor, so
+ * the next stable always wins over the dev line anchored at its predecessor.
+ * Unparseable versions fall back to the historic numeric-triple comparison —
+ * a malformed version must never wedge the state machine.
+ */
 export function versionLessThan(a: string, b: string): boolean {
-  const pa = a
+  const pa = parseUpdateVersion(a)
+  const pb = parseUpdateVersion(b)
+  if (pa && pb) {
+    for (let i = 0; i < 4; i++) {
+      if (pa[i] !== pb[i]) return pa[i]! < pb[i]!
+    }
+    return false
+  }
+  const fallbackA = a
     .replace(/^v/, '')
     .split('.')
     .map((n) => parseInt(n, 10) || 0)
-  const pb = b
+  const fallbackB = b
     .replace(/^v/, '')
     .split('.')
     .map((n) => parseInt(n, 10) || 0)
   for (let i = 0; i < 3; i++) {
-    if ((pb[i] ?? 0) !== (pa[i] ?? 0)) return (pb[i] ?? 0) > (pa[i] ?? 0)
+    if ((fallbackB[i] ?? 0) !== (fallbackA[i] ?? 0))
+      return (fallbackB[i] ?? 0) > (fallbackA[i] ?? 0)
   }
   return false
 }
@@ -128,6 +205,9 @@ export function createUpdateManager(input: {
   runtimeSha256?: string
   /** Test seam: bounds each availability request (default 10s). */
   checkTimeoutMs?: number
+  /** The channel this installation follows; read per check so a settings
+   * change takes effect without a restart. Defaults to stable. */
+  channel?: () => UpdateChannel
 }) {
   const { appVersion, dataDir } = input
   const checkTimeoutMs = input.checkTimeoutMs ?? CHECK_TIMEOUT_MS
@@ -213,8 +293,13 @@ export function createUpdateManager(input: {
 
   async function runCheck(): Promise<UpdateStatus> {
     snapshot({ phase: 'checking', error: null })
+    const channel = input.channel?.() ?? 'stable'
     try {
-      const res = await fetch(updateFeedUrl(), {
+      // An explicit feed override (tests, staging) wins over the channel; the
+      // stable channel reads the moving `releases/latest` manifest, the opt-in
+      // channels resolve their newest release first.
+      const feedUrl = channel === 'stable' ? updateFeedUrl() : await resolveChannelFeedUrl(channel)
+      const res = await fetch(feedUrl, {
         headers: { accept: 'application/json' },
         signal: AbortSignal.timeout(checkTimeoutMs),
       })
@@ -245,9 +330,13 @@ export function createUpdateManager(input: {
         error: null,
         restart_required: false,
       })
-    } catch {
-      // No usable signed feed (forks, releases older than the lane): report
-      // availability from the GitHub API and keep the manual handoff.
+    } catch (error) {
+      // No usable signed feed (forks, releases older than the lane): the
+      // stable channel reports availability from the GitHub API and keeps the
+      // manual handoff. Opt-in channels must never fall back to the stable
+      // feed — an install that chose dev would be offered stable releases,
+      // silently leaving the channel it opted into.
+      if (channel !== 'stable') return failed(error)
       update = await checkForUpdateViaReleasesPage()
       return update
     }

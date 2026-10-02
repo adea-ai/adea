@@ -16,6 +16,39 @@ import {
 } from '../shell/src/updater'
 
 describe('desktop shell command surface', () => {
+  test('the update channel family reads, validates, and persists shell-side', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
+    try {
+      const invoke = createCommandSurface(dataDir)
+      // Default stable: the file does not exist yet.
+      expect(invoke('desktop_update_channel')).toEqual({ ok: true, value: 'stable' })
+      expect(existsSync(join(dataDir, 'desktop-state', 'update-channel.json'))).toBe(false)
+
+      expect(invoke('desktop_update_channel_save', { channel: 'pre-release' })).toEqual({
+        ok: true,
+        value: 'pre-release',
+      })
+      expect(invoke('desktop_update_channel')).toEqual({ ok: true, value: 'pre-release' })
+      expect(
+        JSON.parse(readFileSync(join(dataDir, 'desktop-state', 'update-channel.json'), 'utf8'))
+      ).toEqual({ channel: 'pre-release' })
+
+      // A corrupted or hostile stored value degrades to stable rather than
+      // poisoning the update manager's channel accessor.
+      writeFileSync(join(dataDir, 'desktop-state', 'update-channel.json'), '{"channel":"beta"}')
+      expect(invoke('desktop_update_channel')).toEqual({ ok: true, value: 'stable' })
+
+      const rejected = invoke('desktop_update_channel_save', { channel: 'beta' })
+      expect(rejected).toEqual({ ok: false, error: 'unknown update channel' })
+      expect(invoke('desktop_update_channel_save', {})).toEqual({
+        ok: false,
+        error: 'unknown update channel',
+      })
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
   test('accepts only the ephemeral Chat presentation hint through the guarded command surface', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
     const updates: Array<string | undefined> = []

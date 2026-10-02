@@ -7,7 +7,10 @@ import { createEffect, createMemo, createSignal, Show } from 'solid-js'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { DesktopSession } from '@adea-ai/auth/desktop'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
-import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
+import type {
+  WorkspacePlatformServices,
+  UpdateChannelSetting,
+} from '@adea-ai/workspace-ui/platform'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { invoke, listen } from '../lib/desktop-bridge'
 import { createDesktopDevRuntimeService } from '../lib/desktop-dev-runtime'
@@ -302,6 +305,11 @@ function DesktopWorkspace(props: {
     plugins: props.plugins,
     settings: desktopSettingsProvider,
     transcription: systemTranscriptionProvider,
+    updates: {
+      channel: () => invoke<UpdateChannelSetting>('desktop_update_channel'),
+      setChannel: (channel) =>
+        invoke<UpdateChannelSetting>('desktop_update_channel_save', { channel }),
+    },
   })
 
   return (
