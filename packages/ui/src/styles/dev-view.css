@@ -42,25 +42,6 @@
   background: var(--dev-panel);
 }
 
-.dev-toolbar__identity {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 0.65rem;
-}
-
-.dev-toolbar__identity span {
-  overflow: hidden;
-  color: var(--dev-muted);
-  font:
-    500 0.75rem/1.2 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .dev-toolbar__actions {
   display: flex;
   align-items: center;
@@ -135,7 +116,7 @@
 .dev-sidebar {
   min-width: 0;
   flex: none;
-  width: clamp(13rem, 16vw, 17rem);
+  width: var(--dev-context-sidebar-width, clamp(13rem, 16vw, 17rem));
   background: var(--dev-panel);
 }
 
@@ -434,13 +415,9 @@
   border-inline-start: 0;
 }
 
-.dev-sidebar-toggle {
-  display: none;
-}
-
 @media (max-width: 70rem) {
   .dev-sidebar {
-    width: clamp(12rem, 30vw, 15rem);
+    width: var(--dev-context-sidebar-width, clamp(12rem, 30vw, 15rem));
   }
 
   .dev-utility {
@@ -478,30 +455,6 @@
 }
 
 @media (max-width: 48rem) {
-  .dev-sidebar-toggle {
-    display: inline-grid;
-  }
-
-  .dev-toolbar__actions .dev-button--secondary {
-    display: none;
-  }
-
-  .dev-toolbar__actions .dev-button--toggle {
-    display: inline-grid;
-    width: 2rem;
-    padding: 0;
-    place-items: center;
-  }
-
-  .dev-toolbar__actions .dev-button--toggle span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-  }
-
   .dev-sidebar {
     position: absolute;
     z-index: var(--z-drawer);
@@ -511,7 +464,10 @@
        edge, so it must also end there: without the rail term the shelf row
        lands at rail-width + row-width and overflows a narrow viewport (seen
        as 399.8 > 320 at 320px with a 200% root font). */
-    width: min(17rem, 84vw, calc(100vw - var(--workspace-rail-width, 0px)));
+    width: var(
+      --dev-context-sidebar-width,
+      min(17rem, 84vw, calc(100vw - var(--workspace-rail-width, 0px)))
+    );
     visibility: hidden;
     transform: translateX(-105%);
     transition:
@@ -606,10 +562,6 @@
     display: none;
   }
 }
-.workspace-frame .dev-sidebar-toggle {
-  display: none;
-}
-
 /* Dedicated Source control retains the common contextual project sidebar. */
 .dev-workspace--source-control-app .dev-sidebar.dev-sidebar--open {
   display: flex;

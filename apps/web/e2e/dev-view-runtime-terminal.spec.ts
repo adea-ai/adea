@@ -23,8 +23,14 @@ declare global {
           terminalId?: string
           generation?: number
           direction?: string
+          fromSequence?: string
         }>
-        attachments: Array<{ terminalId: string; direction: string; generation: number }>
+        attachments: Array<{
+          terminalId: string
+          direction: string
+          generation: number
+          fromSequence: string
+        }>
         primaryListHeld: boolean
       }>
       releasePrimaryList(): Promise<void>
@@ -141,6 +147,61 @@ test('later unbound terminal splits do not duplicate the primary terminal', asyn
     '33333333-3333-4333-8333-333333333333',
     '33333333-3333-4333-8333-333333333333',
   ])
+})
+
+test('reopening a closed terminal pane reattaches the same live terminal in this window', async ({
+  page,
+}) => {
+  await openHarness(page, 'primary')
+  const originalPane = page.locator('[data-pane-id="dev-terminal"]')
+  const originalTerminal = originalPane.locator('.dev-terminal-pane')
+  await expect(originalTerminal.locator('.dev-terminal-pane-status')).toHaveAttribute(
+    'data-state',
+    'open',
+    { timeout: 30_000 }
+  )
+  await expect(originalTerminal.locator('.xterm-rows')).toContainText('selected terminal 33333333')
+
+  await page.getByRole('button', { name: 'Split pane', exact: true }).click()
+  await originalPane.getByRole('button', { name: 'Close terminal pane' }).click()
+  await expect(originalPane).toHaveCount(0)
+  await page.getByRole('button', { name: 'Reopen closed pane', exact: true }).click()
+
+  const reopenedPane = page.locator('[data-pane-id="dev-terminal"]')
+  const reopenedTerminal = reopenedPane.locator('.dev-terminal-pane')
+  await expect(reopenedTerminal.locator('.dev-terminal-pane-status')).toHaveAttribute(
+    'data-state',
+    'open',
+    { timeout: 30_000 }
+  )
+  await expect(reopenedTerminal).toHaveAttribute('data-attach-from', '0')
+  await expect(reopenedTerminal.locator('.xterm-rows')).toContainText('selected terminal 33333333')
+
+  const state = await report(page)
+  const attachCommands = state.commands.filter((item) => item.operation === 'dev.terminal.attach')
+  expect(attachCommands.map(({ terminalId, fromSequence }) => [terminalId, fromSequence])).toEqual([
+    ['33333333-3333-4333-8333-333333333333', '0'],
+    ['33333333-3333-4333-8333-333333333333', '0'],
+  ])
+  expect(
+    state.attachments
+      .filter(
+        ({ terminalId, direction }) =>
+          terminalId === '33333333-3333-4333-8333-333333333333' && direction === 'read'
+      )
+      .map(({ fromSequence }) => fromSequence)
+  ).toEqual(['0', '0'])
+  expect(
+    state.commands.filter((item) =>
+      [
+        'dev.session.create',
+        'dev.session.archive',
+        'dev.session.cancelHarness',
+        'dev.terminal.create',
+        'dev.terminal.stop',
+      ].includes(item.operation)
+    )
+  ).toEqual([])
 })
 
 test('retry re-runs terminal verification without creating a terminal', async ({ page }) => {

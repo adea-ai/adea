@@ -17,6 +17,8 @@ export function WorkspaceTopBar(props: {
   title: string
   onOpenNotifications(): void
   actionsMount(element: HTMLDivElement): void
+  /** Mount Dev pane controls only while Dev owns the active surface. */
+  showDevActions: boolean
   /** Workspace-wide actions rendered before the appearance control. */
   resources?: JSX.Element
   /**
@@ -87,50 +89,70 @@ export function WorkspaceTopBar(props: {
   return (
     <TopBar
       class="workspace-topbar"
+      data-dev-actions={props.showDevActions ? '' : undefined}
       draggable={props.platform === 'desktop'}
       macosInset={macos()}
       aria-label="Workspace toolbar"
     >
-      <TopBarSection class="workspace-topbar__navigation">
-        <ActionButton
-          variant="ghost"
-          size="icon-sm"
-          tooltip="Back"
-          class="workspace-topbar__control"
-          aria-label="Back"
-          disabled={!position().canGoBack}
-          onClick={() => router.history.back()}
-        >
-          <ArrowLeft aria-hidden="true" />
-        </ActionButton>
-        <ActionButton
-          variant="ghost"
-          size="icon-sm"
-          tooltip="Forward"
-          class="workspace-topbar__control"
-          aria-label="Forward"
-          disabled={!position().canGoForward}
-          onClick={() => router.history.forward()}
-        >
-          <ArrowRight aria-hidden="true" />
-        </ActionButton>
-        <ActionButton
-          variant="ghost"
-          size="icon-sm"
-          tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
-          class="workspace-topbar__control"
-          aria-label={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
-          aria-expanded={sidebarOpen()}
-          onClick={() => workspaceStore.getState().setMobileSidebarOpen(!sidebarOpen())}
-        >
-          <Show when={sidebarOpen()} fallback={<PanelLeftOpen aria-hidden="true" />}>
-            <PanelLeftClose aria-hidden="true" />
+      <TopBarSection
+        class="workspace-topbar__navigation"
+        data-dev-actions={props.showDevActions ? '' : undefined}
+      >
+        <div class="workspace-topbar__navigation-controls">
+          <ActionButton
+            variant="ghost"
+            size="icon-sm"
+            tooltip="Back"
+            class="workspace-topbar__control"
+            aria-label="Back"
+            disabled={!position().canGoBack}
+            onClick={() => router.history.back()}
+          >
+            <ArrowLeft aria-hidden="true" />
+          </ActionButton>
+          <ActionButton
+            variant="ghost"
+            size="icon-sm"
+            tooltip="Forward"
+            class="workspace-topbar__control"
+            aria-label="Forward"
+            disabled={!position().canGoForward}
+            onClick={() => router.history.forward()}
+          >
+            <ArrowRight aria-hidden="true" />
+          </ActionButton>
+          <ActionButton
+            variant="outline"
+            size="icon-sm"
+            tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
+            class="workspace-topbar__control"
+            aria-label={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
+            aria-expanded={sidebarOpen()}
+            onClick={() => workspaceStore.getState().setMobileSidebarOpen(!sidebarOpen())}
+          >
+            <Show when={sidebarOpen()} fallback={<PanelLeftOpen aria-hidden="true" />}>
+              <PanelLeftClose aria-hidden="true" />
+            </Show>
+          </ActionButton>
+        </div>
+        <div class="workspace-topbar__view-action-group">
+          <Show when={props.showDevActions}>
+            <Separator
+              orientation="vertical"
+              class="workspace-topbar__view-divider"
+              aria-hidden="true"
+            />
           </Show>
-        </ActionButton>
+          <div
+            class="workspace-topbar__view-actions"
+            ref={props.actionsMount}
+            role={props.showDevActions ? 'toolbar' : undefined}
+            aria-label={props.showDevActions ? 'Developer workspace actions' : undefined}
+          />
+        </div>
       </TopBarSection>
       <TopBarTitle class="workspace-topbar__title">{props.title}</TopBarTitle>
       <TopBarSection align="end" class="workspace-topbar__actions">
-        <div class="workspace-topbar__view-actions" ref={props.actionsMount} />
         {props.resources}
         <WorkspaceAppearanceControl />
         <ActionButton
