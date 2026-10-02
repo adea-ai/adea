@@ -101,26 +101,20 @@ test('a guest can use a workspace before opening the optional persistence flow',
     return {
       menuLeft: menuBox.left,
       menuBottom: menuBox.bottom,
-      triggerLeft: triggerBox.left,
-      triggerTop: triggerBox.top,
+      triggerRight: triggerBox.right,
+      triggerBottom: triggerBox.bottom,
     }
   })
-  // The shared AccountMenu composite opens upward with its own popper gutter,
-  // so the menu bottom no longer touches the trigger top pixel-for-pixel the
-  // way the app-local menu did.
-  //
-  // The left edge also cannot stay exactly aligned: floating-ui's arrow
-  // middleware shifts an aligned popper sideways by
-  // (arrowWidth + 2*arrowPadding - anchorWidth) / 2 = (32 + 8 - 36) / 2 = 2
-  // so the 32px arrow plus its 4px padding fits when the anchor (36px) is
-  // narrower than them combined, and Kobalte then rounds the offset — leaving
-  // the menu at round(triggerLeft - 2), observed as 1.5px.
+  // The AccountMenu composite opens right-end with a 4px gutter: the menu
+  // sits beside the rail icon and the two boxes share a bottom edge, so its
+  // bottom-left corner lands at the button's bottom-right. Allow sub-pixel
+  // differences between renderers while checking the intended placement.
   expect(
-    Math.abs(accountMenuPosition.menuLeft - accountMenuPosition.triggerLeft)
-  ).toBeLessThanOrEqual(2.5)
+    Math.abs(accountMenuPosition.menuLeft - accountMenuPosition.triggerRight - 4)
+  ).toBeLessThanOrEqual(1)
   expect(
-    Math.abs(accountMenuPosition.menuBottom - accountMenuPosition.triggerTop)
-  ).toBeLessThanOrEqual(16)
+    Math.abs(accountMenuPosition.menuBottom - accountMenuPosition.triggerBottom)
+  ).toBeLessThanOrEqual(1)
   await expect(accountMenu.getByRole('menuitem', { name: 'Get Adea mobile' })).toBeDisabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeDisabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeDisabled()
