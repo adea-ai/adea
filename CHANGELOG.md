@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.78.0](https://github.com/adea-ai/adea/compare/v0.77.0...v0.78.0) (2026-10-02)
+
+
+### Features
+
+* **desktop:** adopt the shared app support surfaces ([#966](https://github.com/adea-ai/adea/issues/966)) ([12e3c4c](https://github.com/adea-ai/adea/commit/12e3c4c73c8d9268806975091c173b6bb7e543dc))
+
+
+### Bug Fixes
+
+* **ui:** consume the resolved surface where the workspace paints it ([#961](https://github.com/adea-ai/adea/issues/961)) ([3e12db6](https://github.com/adea-ai/adea/commit/3e12db680df344ec59c3c258f13c748f4c24a5c2))
+* **web:** polish round 4 — topbar parity, shared sidebar width, accent states ([#963](https://github.com/adea-ai/adea/issues/963)) ([f0648d0](https://github.com/adea-ai/adea/commit/f0648d01bcbac2291909d757ac6b403157b3a412))
+
+
+### Maintenance
+
+* **code-foundry:** upgrade runtime to v1.42.0 ([#964](https://github.com/adea-ai/adea/issues/964)) ([930b065](https://github.com/adea-ai/adea/commit/930b065cfe0798f0b6ecdd49c3b8f4c04bf91592))
+
 ## [0.77.0](https://github.com/adea-ai/adea/compare/v0.76.0...v0.77.0) (2026-10-02)
 
 
