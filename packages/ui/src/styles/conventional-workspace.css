@@ -1894,6 +1894,36 @@
 .workspace-app-library__tile:focus-within {
   background: var(--muted);
 }
+.workspace-app-library__tile[data-drop-target]::before {
+  content: '';
+  position: absolute;
+  inset-block: 0.5rem;
+  width: 0.1875rem;
+  border-radius: 999px;
+  background: var(--primary);
+  pointer-events: none;
+}
+.workspace-app-library__tile[data-drop-position='before']::before {
+  inset-inline-start: 0;
+}
+.workspace-app-library__tile[data-drop-position='after']::before {
+  inset-inline-end: 0;
+}
+.workspace-app-library__reorder-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+.workspace-app-library__tile:hover .workspace-app-library__reorder-actions,
+.workspace-app-library__tile:focus-within .workspace-app-library__reorder-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none), (pointer: coarse) {
+  .workspace-app-library__reorder-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
 .workspace-app-library__tile-media {
   position: relative;
 }
