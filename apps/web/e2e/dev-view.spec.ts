@@ -117,12 +117,16 @@ async function requireBounds(locator: Locator, name: string) {
   return bounds
 }
 
-async function expectDevToolbarHost(page: Page) {
+async function expectDevToolbarHost(page: Page, width: number) {
   const host = page.locator('.workspace-topbar__view-actions')
   await expect(host).toBeVisible()
   await expect(devLeftUtilityToggle(page)).toBeVisible()
   await expect(devToolbarControl(page, 'Split pane')).toBeVisible()
   await expect(devToolbarControl(page, 'Reopen closed pane')).toBeVisible()
+  // Close-all is a wide-shell convenience: below the shared 48rem breakpoint
+  // the top bar has no room for a fourth pane action, and the per-pane close
+  // carries the work.
+  await expect(devToolbarControl(page, 'Close all panes')).toHaveCount(width > 768 ? 1 : 0)
   // Runtime resources lives in the top bar on every view; the Dev entry no
   // longer carries its own copy, and the expand control is per panel. The
   // sidebar toggle's label tracks the restored slot state, so either name is
@@ -148,7 +152,7 @@ for (const width of [320, 768, 1280, 1920]) {
     )
     await expect(page.getByRole('main')).toBeVisible()
     await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible()
-    await expectDevToolbarHost(page)
+    await expectDevToolbarHost(page, width)
     await expect(page).toHaveURL(/devE2e=preserved/)
 
     if (width <= 768) {
@@ -224,7 +228,7 @@ for (const width of [768, 1024, 1440]) {
   test(`Dev top-bar actions avoid title and utility overlap at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/?view=dev&devE2e=preserved')
-    await expectDevToolbarHost(page)
+    await expectDevToolbarHost(page, width)
     await exerciseContextualSidebarToggle(page)
     await expectDevTopbarBoundary(page, width)
   })
@@ -234,7 +238,7 @@ test('Dev top-bar actions preserve clear boundaries with 200% text sizing', asyn
   const width = 1280
   await page.setViewportSize({ width, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved')
-  await expectDevToolbarHost(page)
+  await expectDevToolbarHost(page, width)
   await exerciseContextualSidebarToggle(page)
   await page.addStyleTag({ content: 'html { font-size: 200%; }' })
   await expectDevTopbarBoundary(page, width)
@@ -252,7 +256,8 @@ test('Dev shell stays usable while its central layout loads', async ({ page }) =
   try {
     await page.goto('/?view=dev&devE2e=preserved')
     await expect(page.getByText('Loading workspace panes…', { exact: true })).toBeVisible()
-    await expectDevToolbarHost(page)
+    // The harness viewport is Playwright's 1280×720 default, so close-all shows.
+    await expectDevToolbarHost(page, 1280)
     const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
     const originalSidebar = await sidebar.elementHandle()
     const session = page.getByRole('button', { name: 'Other project session' })
@@ -284,7 +289,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved&sentinel=keep')
-  await expectDevToolbarHost(page)
+  await expectDevToolbarHost(page, 1280)
 
   await page.getByRole('button', { name: 'Other project session' }).click()
   await expect(page.getByRole('button', { name: 'Other project session' })).toHaveAttribute(
@@ -495,7 +500,7 @@ test('the Dev shell restores the session layout document after a reload', async 
   await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
     timeout: 60_000,
   })
-  await expectDevToolbarHost(page)
+  await expectDevToolbarHost(page, 1280)
   await expect(
     page
       .getByRole('separator', { name: 'Resize workspace panes' })
@@ -578,7 +583,7 @@ async function openDevView(page: import('@playwright/test').Page, url: string) {
   await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
     timeout: 60_000,
   })
-  await expectDevToolbarHost(page)
+  await expectDevToolbarHost(page, 1280)
 }
 
 test('a deep link with a missing session recovers visibly and the URL converges', async ({
@@ -893,7 +898,7 @@ test('Dev surfaces expose an aria snapshot and run under an eval-blocking CSP', 
   await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
     timeout: 60_000,
   })
-  await expectDevToolbarHost(page)
+  await expectDevToolbarHost(page, 1280)
 
   // The labelled pane-action host rides the global top bar, outside main, so
   // snapshot the whole workspace frame to cover both mount points.
