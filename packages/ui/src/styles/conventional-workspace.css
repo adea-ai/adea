@@ -52,6 +52,15 @@
   pointer-events: none;
 }
 
+/* Overlay for the feedback failure banner: it floats over the surface so the
+   error never shifts the workspace underneath it. */
+.workspace-feedback-error {
+  position: absolute;
+  inset-block-start: 1rem;
+  inset-inline: 1rem;
+  z-index: var(--z-menu);
+}
+
 .global-rail {
   position: relative;
   z-index: var(--z-sticky);

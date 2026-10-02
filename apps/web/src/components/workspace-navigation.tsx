@@ -8,6 +8,7 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useAgentListQuery } from '@adea-ai/data'
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import type {
   WorkspacePlatformServices,
@@ -41,6 +42,7 @@ import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
 import { isDesktopRuntime } from '../lib/desktop-bridge'
+import { adeaFeedbackUrl } from '../lib/feedback'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -300,6 +302,27 @@ function appLibraryMoveAnnouncementFor(
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
+  const [feedbackError, setFeedbackError] = createSignal('')
+  // Send Feedback opens GitHub's prefilled issue form in a new window. The
+  // browser gives no success signal (noopener returns null even on success),
+  // so only a thrown error surfaces the banner below.
+  const openFeedback = (opener: HTMLButtonElement | undefined) => {
+    void opener
+    try {
+      window.open(
+        adeaFeedbackUrl(props.services.app?.version, props.platform),
+        '_blank',
+        'noopener,noreferrer'
+      )
+      setFeedbackError('')
+    } catch (caught: unknown) {
+      setFeedbackError(
+        caught instanceof Error
+          ? `Could not open the Adea feedback form: ${caught.message}. Please try again.`
+          : 'Could not open the Adea feedback form. Please try again.'
+      )
+    }
+  }
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
@@ -639,6 +662,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                 },
               }
             : {}),
+          onOpenFeedback: openFeedback,
           platform: props.platform,
         }}
         onOpenAbout={() => workspaceStore.getState().setGlobalPanel('about')}
@@ -671,6 +695,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         workspaces={props.workspaces}
       />
       <div class="workspace-frame__surface" aria-busy={switchingWorkspaceId() ? true : undefined}>
+        <Show when={feedbackError()}>
+          {(message) => (
+            <div class="workspace-feedback-error">
+              <Alert variant="destructive" role="alert">
+                <AlertDescription>{message()}</AlertDescription>
+              </Alert>
+            </div>
+          )}
+        </Show>
         <Show when={switchingWorkspaceId()}>
           <p class="workspace-switching" role="status">
             Switching workspace…

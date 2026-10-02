@@ -32,6 +32,7 @@ function Harness() {
                 }
               : undefined
           }
+          onOpenFeedback={() => undefined}
           onSignIn={() => undefined}
           onSignOut={() => undefined}
         />
