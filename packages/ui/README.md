@@ -98,7 +98,7 @@ The rule is a gate with a burn-down, not a rewrite:
 
 - Files in `BASELINE` may carry an exact number of literals, each entry with a
   reason. Adding a literal fails the build, and so does removing one without
-  updating the count — so the list only shrinks.
+  updating the count, so the list only shrinks.
 - `GENERATED_THEME_FILES` contains only exact outputs of
   `packages/ui/scripts/generate-canonical-theme-data.ts`; the package's
   `themes:check` command verifies those projections against the published

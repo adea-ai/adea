@@ -2,9 +2,15 @@
 
 Workspace presentation layer: conventional (chat) workspace shell, roster,
 conversation surface, task board, marketplace and plugin dialogs, global rail,
-settings, and the `VirtualUnavailable` fallback rendered wherever the private
-engine view mounts. Consumes `@adea-ai/data` and `@adea-ai/state`; never
+settings, and the loader and `VirtualUnavailable` fallback for the optional
+private engine. Consumes `@adea-ai/data` and `@adea-ai/state`; never
 imports engine packages directly.
+
+The loader uses the public `@adea-ai/spatial` manifest contract. A same-origin
+engine module must register `window.__adeaAgentSim.mount({ container, engine })`
+and return a promise containing `unmount()`. The loader checks the callable
+entry point, not engine version compatibility or payload hashes. Source-level
+API agreement does not certify a distributed engine pack.
 
 Private message bodies and task objectives use the host's private-content
 resolver. Resolved plaintext is shown only while its resolver, workspace, and
@@ -75,3 +81,12 @@ Published `Label`, `Input`, and `Textarea` own their typography, borders, paddin
 shape, and focus treatment; host selectors must not replace those appearances.
 The task drawer closes through the shared `ActionButton` composition, preserving
 drawer dismissal and focus restoration while adding the standard tooltip.
+
+## Settings navigation
+
+Settings composes the published grouped `SettingsNavigation` inside controlled
+vertical Tabs. The shared component owns row styling, roving focus, Up/Down,
+Home/End, and revealing the selected row within scrollable ancestors. Adea owns
+section values, icons, hash synchronization, panel content, and reselection.
+Narrow layouts arrange the groups horizontally with scrolling; their tab
+sequence and vertical keyboard semantics remain the same.

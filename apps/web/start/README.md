@@ -128,8 +128,8 @@ stays reproducible. A UI change that moves pixels refreshes both sets with
 
 ### Hosted acceptance
 
-Automated hosted checks run against a production-built Worker deployed under a
-distinct name with secrets scoped to an isolated Neon branch — never the
+Automated hosted checks run against a production-built Worker with a distinct
+name and secrets scoped to an isolated Neon branch. They never use the
 production Worker, database, or DNS:
 
 ```sh
@@ -153,9 +153,9 @@ bun run --cwd apps/web start:compare \
 ```
 
 It records browser-observed DOM readiness, loaded JavaScript bytes, resource
-transfer, request counts, and automation-observed view switches, and fails on
-browser exceptions or failed workspace API responses. It is an unthrottled
-desktop lab measurement — not field INP or production LCP.
+transfer, request counts, and automation-observed view switches. It fails on
+browser exceptions or failed workspace API responses. This is an unthrottled
+desktop lab measurement, not field INP or production LCP.
 
 ## Rollback
 
@@ -168,4 +168,4 @@ cleanup is required. Do not reset or delete user data.
 - [TanStack Start](https://tanstack.com/start/latest/docs/framework/solid/overview)
 - [TanStack Solid Router search params](https://tanstack.com/router/latest/docs/framework/solid/guide/search-params)
 - [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/)
-- [Decision 0007: SolidJS on TanStack Start](../../docs/decisions/0007-solid-tanstack-start.md)
+- [Decision 0007: SolidJS on TanStack Start](../../../docs/decisions/0007-solid-tanstack-start.md)

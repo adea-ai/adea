@@ -1198,18 +1198,18 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // exists for the regular right-slot layout.
   const sidebarToggleAvailable = () => props.appMode !== 'source-control' && !rightFullWidth()
   const sidebarToggleControl = () => {
-    const open = Boolean(visiblePaneOf('right'))
+    const open = () => Boolean(visiblePaneOf('right'))
     return (
       <ActionButton
         type="button"
         variant="outline"
         size="icon-sm"
-        tooltip={open ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
-        aria-label={open ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
-        aria-expanded={open}
+        tooltip={open() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
+        aria-label={open() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
+        aria-expanded={open()}
         onClick={toggleRightUtilitySlot}
       >
-        <Show when={open} fallback={<PanelRightOpen aria-hidden="true" />}>
+        <Show when={open()} fallback={<PanelRightOpen aria-hidden="true" />}>
           <PanelRightClose aria-hidden="true" />
         </Show>
       </ActionButton>

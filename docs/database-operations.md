@@ -4,22 +4,56 @@ Adea uses standard PostgreSQL as its application contract. Neon supplies hosted 
 
 ## Environment topology
 
-| Application target | Neon branch                       | Runtime role                                                                                  | Migration role                 |
-| ------------------ | --------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------ |
-| Production         | production                        | `neondb_owner` (Cloudflare Worker via Hyperdrive; dedicated `agent_hq_prod_app` role removed) | `adea_prod_migration`          |
-| Preview/staging    | `staging`                         | `agent_hq_staging_app`                                                                        | `agent_hq_staging_migration`   |
-| Development        | `development`                     | `adea_dev_app`                                                                                | `adea_dev_migration`           |
-| Pull request CI    | `preview/pr-*` from `development` | inherited `adea_dev_app`                                                                      | inherited `adea_dev_migration` |
+| Target          | Neon branch                       | Runtime role                                       | Migration role                 |
+| --------------- | --------------------------------- | -------------------------------------------------- | ------------------------------ |
+| Production      | production                        | Dedicated role ending in `_app` (confirm its name) | `adea_prod_migration`          |
+| Preview/staging | `staging`                         | `agent_hq_staging_app`                             | `agent_hq_staging_migration`   |
+| Development     | `development`                     | `adea_dev_app`                                     | `adea_dev_migration`           |
+| Pull request CI | `preview/pr-*` from `development` | inherited `adea_dev_app`                           | inherited `adea_dev_migration` |
 
-The Cloudflare Secret Store holds the hosted `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, and `DATABASE_MIGRATION_URL` records for Production, Preview, and Development (the migration URL doubles as a GitHub secret for the CI migrate workflow). Production and Preview values are sensitive. Environment selection is deployment configuration; request data must never select a branch, connection string, or role.
+The intended runtime-role contract is a role name ending in `_app`, without
+schema or database `CREATE` privileges or elevated role attributes.
+`scripts/database-health.mjs` checks this contract before local integration
+tests; its configuration helper checks the `_app` suffix, and its database
+queries check grants and role attributes. Application startup only parses the
+database URL and does not enforce the suffix or privilege checks. Older
+deployment notes identify `neondb_owner` as the production Hyperdrive
+principal and say a dedicated `agent_hq_prod_app` role was removed. The
+`neondb_owner` name does not follow the `_app` convention, but repository files
+do not establish its current use or privileges. Confirm production
+configuration through the approved operations process before claiming it
+passes the intended contract; this guide does not verify live credentials.
 
-`DATABASE_URL` uses the pooled Neon endpoint and the application role. `DATABASE_URL_UNPOOLED` uses the same application role for operations that cannot use transaction pooling. `DATABASE_MIGRATION_URL` is unpooled and uses the migration role. Administrative owner credentials are not stored in the Worker application secrets.
+The deployment setup expects Cloudflare Secret Store records for hosted
+`DATABASE_URL`, `DATABASE_URL_UNPOOLED`, and `DATABASE_MIGRATION_URL` in
+Production, Preview, and Development. The production migration workflow reads
+`DATABASE_MIGRATION_URL` from GitHub Secrets. This guide records the intended
+configuration; it does not verify whether a secret is configured or inspect
+its value. Production and Preview values are sensitive. Environment selection
+belongs to deployment configuration; request data must never select a branch,
+connection string, or role.
 
-The application roles have data access granted by migrations but cannot create schemas or database objects. Migration roles own the `app` schema and can create database objects, but they are not superusers and cannot create roles, create databases, replicate, or bypass row-level security.
+By contract, `DATABASE_URL` uses the pooled Neon endpoint and the runtime
+`_app` role. `DATABASE_URL_UNPOOLED` uses the same role for operations that
+cannot use transaction pooling. `DATABASE_MIGRATION_URL` is unpooled and uses
+the migration role. Keep administrative owner credentials out of Worker
+application secrets.
+
+The intended application-role privileges allow data access granted by
+migrations but not schema or database object creation. Migration roles own the
+`app` schema and can create database objects, but are not superusers and cannot
+create roles, create databases, replicate, or bypass row-level security.
 
 Neon's management API cannot return a password for a role created directly in PostgreSQL. Pull-request CI therefore stores only the rotated development role passwords in the `NEON_CI_APP_PASSWORD` and `NEON_CI_MIGRATION_PASSWORD` GitHub secrets, obtains the isolated branch hostnames from the Neon action, and constructs the URLs inside the masked job environment. It never uses the action's owner URL for database commands.
 
-The current Neon plan does not support protected branches or IP allowlisting. Production therefore cannot yet receive Neon's deletion/reset protection or automatic child-branch password rotation. Compensating controls are separate environment roles/passwords, no owner credential in the Worker application secrets, pull-request branches rooted at `development`, TLS-only hosted URLs, and short expiry on temporary branches. Upgrade to a paid Neon plan before treating branch protection as closed.
+The previous operations record reported that the Neon plan lacked protected
+branches and IP allowlisting. That account-specific status has not been checked
+in this documentation pass. Confirm the plan and project settings before
+relying on that limitation or claiming those protections are enabled. The
+recorded compensating controls were separate environment roles and passwords,
+no owner credential in Worker application secrets, pull-request branches rooted
+at `development`, TLS-only hosted URLs, and short expiry for temporary
+branches. Recheck these controls before treating branch protection as closed.
 
 ## Local PostgreSQL
 
@@ -59,8 +93,14 @@ It fails when credentials are client-prefixed, hosted TLS is disabled, environme
 - Review committed SQL before applying it.
 - Run migrations with `DATABASE_MIGRATION_URL`; ordinary requests use `DATABASE_URL`.
 - Apply migrations once per deployment before application traffic depends on them.
-- CI applies the committed migration history before every Worker deployment and fails the deployment if
-  the restricted migration credential is absent or a migration is not deterministic.
+- The production migration workflow runs on pushes to `main` that change
+  `packages/db/drizzle/**`, the migration verifier, or that workflow, and it can
+  also be started manually. It runs separately from the Worker deployment, so
+  it does not gate or fail that deployment. The workflow runs `db:verify` and
+  fails if the migration credential is missing or verification fails.
+- Keep schema changes backward-compatible and deploy them before code that
+  depends on them. Confirm the migration workflow has completed before relying
+  on a newly added schema object.
 - Never edit an applied migration. Add a forward fix.
 - Prefer expand/migrate/contract changes. Roll back application code independently while the expanded schema remains compatible.
 - Use point-in-time restore only for data-loss recovery, not as the normal schema rollback mechanism.

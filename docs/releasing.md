@@ -8,9 +8,9 @@ feature branch -> pull request -> main -> Release Please pull request -> GitHub 
 
 Feature pull requests target `main` and use squash merges. The release workflow
 opens a separate Release Please version pull request after changes reach
-`main`; release pull requests use the configured rebase strategy. With no
-private-repository automation token configured, that version PR is left for
-manual readiness and merge. Feature PRs are likewise opened manually; the Code
+`main`; release pull requests also use squash merges. The version PR requires
+manual readiness and merge when private-repository automation is unavailable.
+Feature PRs are likewise opened manually; the Code
 Foundry draft-PR caller is intentionally disabled because this repository's
 Actions policy does not permit the workflow token to create PRs.
 
@@ -29,8 +29,8 @@ and the Electrobun (Bun + CEF) shell in stable mode
 (`electrobun build --env=stable`) on a hosted `macos-14` runner. A stable build
 stages the distributables under `apps/desktop/shell/artifacts/`: a macOS disk
 image (`*-Adea.dmg`) and the self-contained app archive
-(`*-Adea.app.tar.zst`) whose payload carries the full bundle — the shell
-binaries, the bundled CEF framework, and the packaged single-UI client. The
+(`*-Adea.app.tar.zst`) whose payload carries the full bundle: the shell
+binaries, bundled CEF framework, and packaged single-UI client. The
 lane uploads both to the release, then verifies their structure. The lane can
 also run without a tag via `workflow_dispatch`: pass an existing release tag to
 package it, or leave the tag empty and set a ref to attach the artifacts to the
@@ -41,10 +41,10 @@ CI-verified installer story yet and stays out of the lane until it does. The
 Electrobun shell is still unsigned, so Apple code signing and notarization
 remain follow-ups. The signed auto-update lane _is_ wired: this lane generates
 `latest.json` and publishes it beside the archives. The verify-assets gate
-therefore rejects a release without a complete macOS bundle, and rejects one
-whose bundle payload carries an updater manifest — the stable build's own
-unsigned `*-update.json` included. That unsigned manifest is not the update
-channel; `latest.json` is.
+rejects a release without a complete macOS bundle. It also rejects a bundle
+payload that includes an updater manifest, including the stable build's
+unsigned `*-update.json`. That unsigned manifest is not the update channel;
+`latest.json` is.
 
 The mobile shells remain covered by the repository build gate. Android and iOS
 store distribution should be added as a separate release lane once signing,

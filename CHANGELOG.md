@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.74.4](https://github.com/adea-ai/adea/compare/v0.74.3...v0.74.4) (2026-10-02)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adea-ai/ui to v0.97.1 ([#926](https://github.com/adea-ai/adea/issues/926)) ([c1e47e9](https://github.com/adea-ai/adea/commit/c1e47e99687013591eb33124ab5ce61dba9a997c))
+
+## [0.74.3](https://github.com/adea-ai/adea/compare/v0.74.2...v0.74.3) (2026-10-02)
+
+
+### Bug Fixes
+
+* **workspace:** disable pending notifications control ([#914](https://github.com/adea-ai/adea/issues/914)) ([9bc0644](https://github.com/adea-ai/adea/commit/9bc0644270e5ad69272d664f062028b69394f11b))
+
+
+### Maintenance
+
+* declare Renovate as the managed dependency updater ([#925](https://github.com/adea-ai/adea/issues/925)) ([002ab36](https://github.com/adea-ai/adea/commit/002ab36c832c11851cf8d0218452014a72e6b172))
+
 ## [0.74.2](https://github.com/adea-ai/adea/compare/v0.74.1...v0.74.2) (2026-10-02)
 
 

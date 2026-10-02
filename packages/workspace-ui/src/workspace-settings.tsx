@@ -3,8 +3,11 @@ import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
-import { SettingsRow as SharedSettingsRow } from '@adea-ai/ui/components/composites/settings'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
+import {
+  SettingsNavigation,
+  SettingsRow as SharedSettingsRow,
+} from '@adea-ai/ui/components/composites/settings'
+import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
 import {
   Bell,
   Bot,
@@ -108,7 +111,6 @@ export function WorkspaceSettingsDialog(props: {
   )
   const [capabilities, setCapabilities] = createSignal<CapabilitySnapshot | undefined>()
   const [capabilitiesBusy, setCapabilitiesBusy] = createSignal(false)
-  const navigationRefs = new Map<SettingsSection, HTMLButtonElement>()
   const topAgentRows = keyedRows(
     () => props.agents.slice(0, 5),
     (agent) => agent.id
@@ -154,16 +156,6 @@ export function WorkspaceSettingsDialog(props: {
     onCleanup(() => {
       active = false
     })
-  })
-
-  createEffect(() => {
-    if (!props.open) return
-    const current = section()
-    const revealSelected = () =>
-      navigationRefs.get(current)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    revealSelected()
-    window.addEventListener('resize', revealSelected)
-    onCleanup(() => window.removeEventListener('resize', revealSelected))
   })
 
   const selectSection = (next: SettingsSection) => {
@@ -238,58 +230,39 @@ export function WorkspaceSettingsDialog(props: {
   return (
     <ModalDialog
       modal={false}
-      class="conventional-dialog conventional-settings-dialog"
+      size="settings"
+      class="conventional-settings-dialog"
       open={props.open}
       onClose={close}
       headerLeading={
         <WorkspaceLogo aria-hidden="true" class="conventional-settings-logo" role="presentation" />
       }
       title="Settings"
-      description="Product preferences and boundaries for this Adea workspace."
     >
       <Tabs
         id="settings-tabs"
         class="conventional-settings-shell"
-        orientation="horizontal"
+        orientation="vertical"
         value={section()}
         onChange={(value) => selectSection(value as SettingsSection)}
       >
-        <TabsList
-          class="conventional-settings-nav w-full max-md:flex-wrap"
-          appearance="segmented"
+        <SettingsNavigation
+          class="conventional-settings-nav w-full"
           aria-label="Settings sections"
-        >
-          <For each={settingsSectionGroups}>
-            {(group) => (
-              <div role="none" class="conventional-settings-nav__group">
-                <p role="none" class="conventional-settings-nav__label">
-                  {group.label}
-                </p>
-                <For each={group.items}>
-                  {(item) => {
-                    const Icon = sectionIcons[item]
-                    return (
-                      <TabsTrigger
-                        ref={(element: HTMLButtonElement | undefined) => {
-                          if (element) navigationRefs.set(item, element)
-                          else navigationRefs.delete(item)
-                        }}
-                        id={`settings-tab-${item}`}
-                        value={item}
-                        onClick={() => {
-                          if (section() === item) selectSection(item)
-                        }}
-                      >
-                        <Icon aria-hidden="true" />
-                        <span>{settingsSectionLabels[item]}</span>
-                      </TabsTrigger>
-                    )
-                  }}
-                </For>
-              </div>
-            )}
-          </For>
-        </TabsList>
+          value={section()}
+          onReselect={(value) => selectSection(value as SettingsSection)}
+          groups={settingsSectionGroups.map((group) => ({
+            label: group.label,
+            items: group.items.map((item) => {
+              const Icon = sectionIcons[item]
+              return {
+                value: item,
+                label: settingsSectionLabels[item],
+                icon: <Icon aria-hidden="true" />,
+              }
+            }),
+          }))}
+        />
         <TabsContent
           value="account"
           id="settings-panel-account"
