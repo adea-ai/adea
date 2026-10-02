@@ -32,6 +32,7 @@ const sceneById = Object.fromEntries(sceneOptions.map((option) => [option.id, op
 
 export type WorkspaceShellProps = {
   apiClient?: AgentHqApiClient
+  restoreFocusRef?: () => HTMLElement | undefined
   initialScene: HqSceneId
   initialCharacter: string
   startPosition?: SceneStartPosition
@@ -65,6 +66,7 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
     <main class="workspace-shell workspace-shell--contextual">
       <VirtualRoomControls
         client={apiClient()}
+        restoreFocusRef={props.restoreFocusRef}
         openChat={() => props.onWorkspaceViewChange?.('chat')}
       />
       <div class="workspace-scene-viewport">

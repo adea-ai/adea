@@ -39,7 +39,7 @@ import {
 } from '@adea-ai/data'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
-import { projectWorkspaceNavigation } from './workspace-model'
+import { projectWorkspaceNavigation, reconcileWorkspaceChannelSelection } from './workspace-model'
 import { useWorkspacePersistence } from './use-workspace-persistence'
 import { createClientRequestId } from './request-id'
 
@@ -115,25 +115,19 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
 
   let explicitSelection: string | null = null
   createEffect(() => {
-    const channelList = settledData(channels)
-    if (!channelList?.length || channelList.some(({ id }) => id === selectedChannelId())) {
-      if (explicitSelection && channelList?.some(({ id }) => id === selectedChannelId()))
-        explicitSelection = null
+    const decision = reconcileWorkspaceChannelSelection({
+      channels: settledData(channels),
+      explicitSelection,
+      navigation: navigation(),
+      selectedChannelId: selectedChannelId(),
+    })
+    if (decision.action === 'preserve') {
+      if (decision.clearExplicitSelection) explicitSelection = null
       return
     }
-    // An explicit selection (freshly created channel, sidebar click) wins over the
-    // auto-default while the channel list refetch catches up. Stale persisted ids
-    // never pass through selectChannel, so they still fall back below.
-    if (selectedChannelId() && selectedChannelId() === explicitSelection) return
-    const firstRoom = navigation().rooms.find(({ selectionChannelId }) => selectionChannelId)
-    const firstChannel =
-      firstRoom?.selectionChannelId ??
-      navigation().directAgentChannels[0]?.id ??
-      navigation().groupChannels[0]?.id
-    if (firstChannel) {
-      workspaceStore.getState().setSelectedRoomId(firstRoom?.room.id ?? null)
-      workspaceStore.getState().setSelectedChannelId(firstChannel)
-    }
+    if (decision.action !== 'select') return
+    workspaceStore.getState().setSelectedRoomId(decision.roomId)
+    workspaceStore.getState().setSelectedChannelId(decision.channelId)
   })
 
   const selectWorkspace = (nextWorkspaceId: string) => {

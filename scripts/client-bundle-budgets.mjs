@@ -22,15 +22,24 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // Re-measured for the shared app-ui boundaries (2026-10-01, #863): the
   // module split around the shared components moved the total by ~74 bytes.
   // Kept at the same rounding step rather than pinning to the build.
-  // Re-measured for the workspace-wide runtime-resources control under the
-  // shared-ui 0.95.0 bump (2026-10-01): 96 files / 2,365,399 raw / 706,018
-  // gzip. The resources sheet rides its own lazy chunk off the shared top
-  // bar (+1) and the ui bump's style/module split adds two more; the same
-  // ~2% headroom as above, and every per-route and startup budget held.
+  // Re-measured for the shared workspace sidebar (2026-10-01, #861) on top of
+  // the runtime-resources control and the rail drag-and-drop work: Chat and
+  // Virtual compose one WorkspaceSidebar, the sidebar's shared Sheet adds raw
+  // while the sidebar modules move into chunks both views import, and the
+  // resources sheet rides its own lazy chunk. The aggregate lands at 2,341,306
+  // raw / 705,668 gzip across 93 files once main rides along (Dev-pane top-bar
+  // controls), so raw and file count ratchet while
+  // gzip keeps the same 700 KiB step (~2% headroom) the ceiling has held.
   total: { rawBytes: 2_410_000, gzipBytes: 700 * 1024, fileCount: 98 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
-    virtual: { rawBytes: 14 * 1024, gzipBytes: 6 * 1024 },
+    // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
+    // Virtual view composes the shared WorkspaceSidebar instead of its own
+    // room markup, so the route delta carries the sidebar and sidebar-nav
+    // composites plus the shared Sheet: 77,771 raw / 26,357 gzip across 11
+    // files (merged with main). Ratcheted past the measured value so the gate keeps ~3%
+    // headroom instead of pinning to the build.
+    virtual: { rawBytes: 80 * 1024, gzipBytes: 27 * 1024 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and
@@ -41,14 +50,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // primitives there. Ratcheted to 224 KB rather than the measured value so
     // the gate carries ~2% headroom instead of the 139 bytes this route had,
     // which made every incidental change a budget failure.
-    // Re-measured for the rail drag-and-drop reorder and the launchpad App
-    // Library (2026-10-01): 227,096 raw / 68,170 gzip — the SquareKanban icon
-    // and the rail's pointer/keyboard reorder + live region ride the shared
-    // workspace-navigation entry this route composes. The raw budget keeps
-    // ~1% headroom here (gzip ~2%): the route grew again after the last
-    // ratchet, so raw is the first ceiling to trip. Raise it deliberately
-    // rather than expecting incidental growth to be free.
-    chat: { rawBytes: 224 * 1024, gzipBytes: 68 * 1024 },
+    // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
+    // sidebar opens in the shared Sheet below 48rem, so this route now also
+    // carries the sheet module graph plus the rail drag-and-drop reorder and
+    // launchpad additions: 235,489 raw / 71,808 gzip measured after merging main. Ratcheted to
+    // the next rounding step rather than pinning to the build.
+    chat: { rawBytes: 240 * 1024, gzipBytes: 74 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the

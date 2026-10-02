@@ -5,13 +5,18 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 export function RoomDesignerEntry(props: {
   initialCharacter: string
   initialScene: 'home' | 'work'
+  restoreFocusRef?: () => HTMLElement | undefined
   onClose: () => void
   client: AgentHqApiClient
   onOpenChat: () => void
 }) {
   return (
     <main class="workspace-shell workspace-shell--contextual">
-      <VirtualRoomControls client={props.client} openChat={props.onOpenChat} />
+      <VirtualRoomControls
+        client={props.client}
+        openChat={props.onOpenChat}
+        restoreFocusRef={props.restoreFocusRef}
+      />
       <div class="workspace-scene-viewport">
         <VirtualUnavailable
           contained

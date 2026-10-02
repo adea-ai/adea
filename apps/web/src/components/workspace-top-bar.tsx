@@ -19,6 +19,7 @@ export function WorkspaceTopBar(props: {
   actionsMount(element: HTMLDivElement): void
   /** Mount Dev pane controls only while Dev owns the active surface. */
   showDevActions: boolean
+  sidebarToggleRef?: (element: HTMLButtonElement | undefined) => void
   /** Workspace-wide actions rendered before the appearance control. */
   resources?: JSX.Element
   /**
@@ -122,6 +123,7 @@ export function WorkspaceTopBar(props: {
             <ArrowRight aria-hidden="true" />
           </ActionButton>
           <ActionButton
+            ref={props.sidebarToggleRef}
             variant="outline"
             size="icon-sm"
             tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}

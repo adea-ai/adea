@@ -19,9 +19,21 @@ import {
   Users,
   X,
 } from 'lucide-solid'
-import { createMemo, createSignal, For, lazy, onMount, Show, type JSX } from 'solid-js'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  lazy,
+  onCleanup,
+  onMount,
+  Show,
+  type JSX,
+} from 'solid-js'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
+import { Sheet, SheetContent, SheetTitle } from '@adea-ai/ui/components/ui/sheet'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,7 +47,9 @@ import {
   SidebarNavFooter,
   SidebarNavHeader,
   SidebarNavItem,
+  SidebarNavLabel,
   SidebarNavResizeHandle,
+  SidebarNavRow,
   SidebarNavSection,
   SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
@@ -70,7 +84,9 @@ function clampSidebarWidth(width: number): number {
 }
 
 function workspaceRootFor(sidebar: HTMLElement | null | undefined): HTMLElement | null {
-  return sidebar?.closest<HTMLElement>('.conventional-workspace') ?? null
+  return (
+    sidebar?.closest<HTMLElement>('.conventional-workspace, .workspace-shell--contextual') ?? null
+  )
 }
 
 function applySidebarWidth(root: HTMLElement, width: number) {
@@ -104,9 +120,56 @@ function ConversationChannelRow(props: {
   onSelect: () => void
   selected: boolean
   unread: JSX.Element
+  /** Row menus mount inside the mobile sheet so they stay in its a11y tree. */
+  portalMount?: HTMLElement
+  /** The compact sheet drops the comfortable rung so row labels keep room. */
+  touchTarget?: 'comfortable'
 }) {
   return (
-    <div class="conventional-sidebar__nav-row">
+    <SidebarNavRow
+      actions={
+        <>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              as={ActionButton}
+              variant="ghost"
+              size="icon-md"
+              touchTarget={props.touchTarget}
+              tooltip={`Conversation options for ${props.label}`}
+              aria-label={`Conversation options for ${props.label}`}
+            >
+              <EllipsisVertical aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              hideArrow
+              placement="bottom-end"
+              gutter={4}
+              portalMount={props.portalMount}
+              class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+            >
+              <DropdownMenuItem onSelect={() => props.onRename(props.channel)}>
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => props.onCopyLink(props.channel)}>
+                <Link2 aria-hidden="true" />
+                Copy link
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <ActionButton
+            type="button"
+            variant="destructive"
+            size="icon-md"
+            touchTarget={props.touchTarget}
+            tooltip={`Delete ${props.label}`}
+            aria-label={`Delete ${props.label}`}
+            onClick={() => props.onArchive(props.channel)}
+          >
+            <X aria-hidden="true" />
+          </ActionButton>
+        </>
+      }
+    >
       <SidebarNavItem
         as="button"
         type="button"
@@ -118,46 +181,9 @@ function ConversationChannelRow(props: {
         onFocus={() => props.onIntent?.()}
       >
         {props.icon}
-        <span>{props.label}</span>
+        <SidebarNavLabel>{props.label}</SidebarNavLabel>
       </SidebarNavItem>
-      <div class="conventional-sidebar__nav-actions">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            as={ActionButton}
-            variant="ghost"
-            size="icon-md"
-            tooltip={`Conversation options for ${props.label}`}
-            aria-label={`Conversation options for ${props.label}`}
-          >
-            <EllipsisVertical aria-hidden="true" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            hideArrow
-            placement="bottom-end"
-            gutter={4}
-            class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-          >
-            <DropdownMenuItem onSelect={() => props.onRename(props.channel)}>
-              Rename
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => props.onCopyLink(props.channel)}>
-              <Link2 aria-hidden="true" />
-              Copy link
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <ActionButton
-          type="button"
-          variant="destructive"
-          size="icon-md"
-          tooltip={`Delete ${props.label}`}
-          aria-label={`Delete ${props.label}`}
-          onClick={() => props.onArchive(props.channel)}
-        >
-          <X aria-hidden="true" />
-        </ActionButton>
-      </div>
-    </div>
+    </SidebarNavRow>
   )
 }
 
@@ -167,12 +193,13 @@ type Props = Readonly<{
   collapsedRoomIds: readonly string[]
   mobileOpen: boolean
   navigation: WorkspaceNavigation
+  restoreFocusRef?: () => HTMLElement | undefined
   onArchiveChannel: (channel: ChannelSummary) => Promise<void>
   onCreateGroup: () => void
   onCreateRoom: () => void
+  onMarkAllRead: () => void | Promise<void>
   onOpenAgents: () => void
   onOpenTasks: () => void
-  onMarkAllRead: () => void
   /** Fires on hover/focus of a channel affordance — prefetch before click. */
   onChannelIntent?: (channelId: string) => void
   onRenameChannel: (channel: ChannelSummary, title: string) => Promise<void>
@@ -186,15 +213,31 @@ type Props = Readonly<{
   roomBusy: boolean
   selectedChannelId: string | null
   readState: readonly ChannelReadStateSummary[]
+  status?: JSX.Element
+  workspaceReady?: boolean
   workspaceName: string
 }>
 
 export function WorkspaceSidebar(props: Props) {
   const [sidebar, setSidebar] = createSignal<HTMLElement>()
+  const [sheetNav, setSheetNav] = createSignal<HTMLElement>()
   const [sidebarWidth, setSidebarWidth] = createSignal(SIDEBAR_DEFAULT_WIDTH)
+  const [isNarrowViewport, setIsNarrowViewport] = createSignal(false)
   const [editingRoom, setEditingRoom] = createSignal<RoomSummary | null>(null)
   const [renamingChannel, setRenamingChannel] = createSignal<ChannelSummary | null>(null)
   const [actionError, setActionError] = createSignal<string | null>(null)
+  // The inline panel is unmounted below 48rem, so the host root only becomes
+  // observable once the desktop aside mounts (or after a narrow-to-wide
+  // reparent). Deriving it keeps resize and restore working across that swap;
+  // the first paint at a narrow viewport mounts and immediately detaches the
+  // inline aside before the media query resolves, so only a connected node
+  // names the root.
+  const [rootTick, setRootTick] = createSignal(0)
+  const workspaceRoot = createMemo(() => {
+    const element = sidebar()
+    void rootTick()
+    return element?.isConnected ? workspaceRootFor(element) : null
+  })
   const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
   const readStateByChannel = createMemo(
     () => new Map(props.readState.map((state) => [state.channelId, state]))
@@ -230,8 +273,10 @@ export function WorkspaceSidebar(props: Props) {
   const unreadBadge = (channelId: string) => {
     const state = readStateByChannel().get(channelId)
     const count = (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
+    // aria-hidden: the row button's accessible name stays the channel name;
+    // unread counts are surfaced by the row's own unread state.
     return count || state?.manuallyUnread ? (
-      <span class="conventional-unread-badge" aria-label={`${count || 1} unread`}>
+      <span class="conventional-unread-badge" aria-hidden="true">
         {count > 99 ? '99+' : count || '•'}
       </span>
     ) : null
@@ -252,63 +297,111 @@ export function WorkspaceSidebar(props: Props) {
       .catch(() => setActionError('Conversation link could not be copied.'))
   }
 
-  // Restore the persisted sidebar width before first paint of the layout.
-  onMount(() => {
+  // Restore the persisted sidebar width as soon as the layout root exists —
+  // including after a mobile-to-desktop reparent, when the inline panel mounts
+  // for the first time.
+  createEffect(() => {
+    const root = workspaceRoot()
+    if (!root) return
     const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
     if (!Number.isFinite(stored) || stored <= 0) return
-    const root = workspaceRootFor(sidebar())
-    if (!root) return
     applySidebarWidth(root, stored)
     setSidebarWidth(clampSidebarWidth(stored))
   })
 
-  const changeSidebarWidth = (value: number) => {
-    const root = workspaceRootFor(sidebar())
+  onMount(() => {
+    const media = window.matchMedia('(max-width: 48rem)')
+    const updateViewport = () => {
+      const wasNarrow = isNarrowViewport()
+      // The store seeds the open flag from the viewport at load: a
+      // desktop-loaded workspace starts with the inline navigation expanded.
+      // Keep that contract across live resizes — crossing below 48rem closes
+      // the navigation instead of letting the desktop-expanded state pop the
+      // shared Sheet open over the content.
+      // The close must land before the narrow signal flips: each set flushes
+      // synchronously, so the reverse order renders the Sheet open for a
+      // frame, whose focus scope moves focus out of any open dialog (closing
+      // it via focus-outside) before the close takes effect.
+      if (media.matches && !wasNarrow) props.onToggleMobile(false)
+      setIsNarrowViewport(media.matches)
+    }
+    updateViewport()
+    media.addEventListener('change', updateViewport)
+    onCleanup(() => media.removeEventListener('change', updateViewport))
+  })
+
+  const updateSidebarWidth = (nextWidth: number) => {
+    const root = workspaceRoot()
     if (!root) return
-    const width = clampSidebarWidth(value)
+    const width = clampSidebarWidth(nextWidth)
     applySidebarWidth(root, width)
     setSidebarWidth(width)
   }
 
-  return (
-    <>
-      <SidebarToggleButton expanded={props.mobileOpen} onToggle={props.onToggleMobile} />
-      <Show when={props.mobileOpen}>
-        <Button
-          type="button"
-          class="conventional-sidebar-scrim"
-          aria-label="Close workspace navigation"
-          onClick={() => props.onToggleMobile(false)}
-        />
-      </Show>
+  const persistSidebarWidth = (nextWidth: number) => {
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(nextWidth)))
+  }
+
+  const markAllRead = () => {
+    setActionError(null)
+    void Promise.resolve()
+      .then(() => props.onMarkAllRead())
+      .catch(() => setActionError('Unread conversations could not be marked as read.'))
+  }
+
+  const renderSidebar = (inSheet: boolean) => {
+    const navigationId = inSheet ? 'workspace-navigation-mobile' : 'workspace-navigation'
+    // Modal dialogs hide everything outside their content from the
+    // accessibility tree, so the sheet's row menus must mount under it.
+    const menuMount = () => (inSheet ? sheetNav() : undefined)
+    // The sheet gives row actions a third of the width the inline panel has;
+    // dropping the comfortable rung there keeps the labels legible.
+    const rowTouchTarget = inSheet ? undefined : ('comfortable' as const)
+
+    return (
       <SidebarNav
-        id="workspace-navigation"
+        id={navigationId}
         as="aside"
-        ref={setSidebar}
+        ref={(element) => {
+          ;(inSheet ? setSheetNav : setSidebar)(element)
+          // Solid refs run before the element is inserted into the document,
+          // so the host-root memo needs one nudge once the aside is attached.
+          queueMicrotask(() => setRootTick((tick) => tick + 1))
+        }}
         class={cn('conventional-sidebar', {
-          'conventional-sidebar--open': props.mobileOpen,
+          'conventional-sidebar--inline': !inSheet,
+          'conventional-sidebar--sheet': inSheet,
+          'conventional-sidebar--open': !inSheet && props.mobileOpen,
         })}
         aria-label="Workspace navigation"
       >
-        <SidebarNavResizeHandle
-          class="conventional-sidebar__resize"
-          label="Resize workspace navigation"
-          controls="workspace-navigation"
-          minimum={SIDEBAR_MIN_WIDTH}
-          maximum={SIDEBAR_MAX_WIDTH}
-          value={sidebarWidth()}
-          onChange={changeSidebarWidth}
-          onCommit={(width) =>
-            window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
-          }
-        />
+        <Show when={!inSheet}>
+          {/* Resize stays on the inline panel; the portaled sheet is not in
+              the workspace grid and therefore must not own its geometry. */}
+          <SidebarNavResizeHandle
+            value={sidebarWidth()}
+            minimum={SIDEBAR_MIN_WIDTH}
+            maximum={SIDEBAR_MAX_WIDTH}
+            step={16}
+            label="Resize workspace navigation"
+            controls={navigationId}
+            class="conventional-sidebar__resize"
+            onChange={updateSidebarWidth}
+            onCommit={persistSidebarWidth}
+          />
+        </Show>
         <SidebarNavHeader>
           <SidebarNavTitle as="h1">{props.workspaceName}</SidebarNavTitle>
+          {/* No tooltip: a focus tooltip would register a top-most dismissable
+              layer inside the sheet and swallow the next Escape, leaving the
+              modal navigation open. The sheet itself is the affordance; the
+              button keeps its accessible name. */}
+          {/* oxlint-disable-next-line adea/require-action-button-tooltip */}
           <ActionButton
             type="button"
             variant="ghost"
             size="icon-md"
-            tooltip="Close workspace navigation"
+            touchTarget="comfortable"
             aria-label="Close workspace navigation"
             class="conventional-sidebar__close"
             onClick={() => props.onToggleMobile(false)}
@@ -330,11 +423,12 @@ export function WorkspaceSidebar(props: Props) {
           </div>
           <Show when={actionError()}>
             {(message) => (
-              <p role="alert" class="conventional-sidebar-error">
-                {message()}
-              </p>
+              <Alert variant="destructive" class="conventional-sidebar-error">
+                <AlertDescription>{message()}</AlertDescription>
+              </Alert>
             )}
           </Show>
+          <Show when={props.status}>{props.status}</Show>
           <SidebarNavSection
             label="Rooms"
             headingAs="h2"
@@ -345,8 +439,10 @@ export function WorkspaceSidebar(props: Props) {
                 type="button"
                 variant="ghost"
                 size="icon-md"
-                tooltip="Create Room"
+                touchTarget="comfortable"
+                tooltip="Create a room"
                 aria-label="Create Room"
+                disabled={props.workspaceReady === false}
                 onClick={() => props.onCreateRoom()}
               >
                 <Plus aria-hidden="true" />
@@ -356,7 +452,9 @@ export function WorkspaceSidebar(props: Props) {
             <Show
               when={props.navigation.rooms.length}
               fallback={
-                <p class="conventional-sidebar-empty">Create a Room to organize the work.</p>
+                <EmptyDescription class="conventional-sidebar-empty">
+                  Create a Room to organize the work.
+                </EmptyDescription>
               }
             >
               <For each={roomRows()}>
@@ -386,17 +484,69 @@ export function WorkspaceSidebar(props: Props) {
                   )
                   return (
                     <div class="conventional-sidebar__room">
-                      <div class="conventional-sidebar__nav-row">
+                      <SidebarNavRow
+                        actions={
+                          <>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                as={ActionButton}
+                                variant="ghost"
+                                size="icon-md"
+                                touchTarget={rowTouchTarget}
+                                tooltip={`Room options for ${item().room.name}`}
+                                aria-label={`Room options for ${item().room.name}`}
+                              >
+                                <EllipsisVertical aria-hidden="true" />
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                hideArrow
+                                placement="bottom-end"
+                                gutter={4}
+                                portalMount={menuMount()}
+                                class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+                              >
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setActionError(null)
+                                    setEditingRoom(item().room)
+                                  }}
+                                >
+                                  <Pencil aria-hidden="true" />
+                                  Edit
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <Show when={item().visibleChannels.length}>
+                              <ActionButton
+                                type="button"
+                                variant="ghost"
+                                size="icon-md"
+                                touchTarget={rowTouchTarget}
+                                tooltip={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
+                                aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
+                                aria-expanded={!collapsed()}
+                                onClick={() => props.onToggleRoom(item().room.id)}
+                              >
+                                <Show
+                                  when={!collapsed()}
+                                  fallback={<ChevronRight aria-hidden="true" />}
+                                >
+                                  <ChevronDown aria-hidden="true" />
+                                </Show>
+                              </ActionButton>
+                            </Show>
+                          </>
+                        }
+                      >
                         <SidebarNavItem
                           as="button"
                           type="button"
                           active={selected()}
+                          // aria-hidden: keep the row button's accessible
+                          // name exactly the room name.
                           trailing={
                             roomUnread() ? (
-                              <span
-                                class="conventional-unread-badge"
-                                aria-label={`${roomUnread()} unread in ${item().room.name}`}
-                              >
+                              <span class="conventional-unread-badge" aria-hidden="true">
                                 {roomUnread() > 99 ? '99+' : roomUnread()}
                               </span>
                             ) : null
@@ -416,56 +566,9 @@ export function WorkspaceSidebar(props: Props) {
                           }
                         >
                           <RoomIcon functionKey={item().room.functionKey} />
-                          <span>{item().room.name}</span>
+                          <SidebarNavLabel>{item().room.name}</SidebarNavLabel>
                         </SidebarNavItem>
-                        <div class="conventional-sidebar__nav-actions">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger
-                              as={ActionButton}
-                              variant="ghost"
-                              size="icon-md"
-                              tooltip={`Room options for ${item().room.name}`}
-                              aria-label={`Room options for ${item().room.name}`}
-                            >
-                              <EllipsisVertical aria-hidden="true" />
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              hideArrow
-                              placement="bottom-end"
-                              gutter={4}
-                              class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-                            >
-                              <DropdownMenuItem
-                                onSelect={() => {
-                                  setActionError(null)
-                                  setEditingRoom(item().room)
-                                }}
-                              >
-                                <Pencil aria-hidden="true" />
-                                Edit
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                          <Show when={item().visibleChannels.length}>
-                            <ActionButton
-                              type="button"
-                              variant="ghost"
-                              size="icon-md"
-                              tooltip={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
-                              aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
-                              aria-expanded={!collapsed()}
-                              onClick={() => props.onToggleRoom(item().room.id)}
-                            >
-                              <Show
-                                when={!collapsed()}
-                                fallback={<ChevronRight aria-hidden="true" />}
-                              >
-                                <ChevronDown aria-hidden="true" />
-                              </Show>
-                            </ActionButton>
-                          </Show>
-                        </div>
-                      </div>
+                      </SidebarNavRow>
                       <Show when={item().visibleChannels.length && !collapsed()}>
                         <div class="conventional-sidebar__nav-nested">
                           <For each={channelRows()}>
@@ -485,7 +588,7 @@ export function WorkspaceSidebar(props: Props) {
                                 onFocus={() => props.onChannelIntent?.(channelEntry.item().id)}
                               >
                                 <Hash aria-hidden="true" />
-                                <span>{channelEntry.item().title}</span>
+                                <SidebarNavLabel>{channelEntry.item().title}</SidebarNavLabel>
                               </SidebarNavItem>
                             )}
                           </For>
@@ -508,8 +611,10 @@ export function WorkspaceSidebar(props: Props) {
                 type="button"
                 variant="ghost"
                 size="icon-md"
-                tooltip="Create group conversation"
+                touchTarget="comfortable"
+                tooltip="Create a group conversation"
                 aria-label="Create group conversation"
+                disabled={props.workspaceReady === false}
                 onClick={() => props.onCreateGroup()}
               >
                 <Plus aria-hidden="true" />
@@ -534,6 +639,8 @@ export function WorkspaceSidebar(props: Props) {
                     onSelect={() => props.onSelectChannel(entry.item().id)}
                     selected={entry.item().id === props.selectedChannelId}
                     unread={unreadBadge(entry.item().id)}
+                    portalMount={menuMount()}
+                    touchTarget={rowTouchTarget}
                   />
                 )}
               </For>
@@ -550,6 +657,8 @@ export function WorkspaceSidebar(props: Props) {
                     onSelect={() => props.onSelectChannel(entry.item().id)}
                     selected={entry.item().id === props.selectedChannelId}
                     unread={unreadBadge(entry.item().id)}
+                    portalMount={menuMount()}
+                    touchTarget={rowTouchTarget}
                   />
                 )}
               </For>
@@ -572,7 +681,7 @@ export function WorkspaceSidebar(props: Props) {
             type="button"
             aria-label="Mark all read"
             disabled={!hasUnread()}
-            onClick={() => props.onMarkAllRead()}
+            onClick={markAllRead}
           >
             <MessageCircle aria-hidden="true" />
             Mark all read
@@ -580,6 +689,34 @@ export function WorkspaceSidebar(props: Props) {
           </SidebarNavButton>
         </SidebarNavFooter>
       </SidebarNav>
+    )
+  }
+
+  return (
+    <>
+      <Sheet
+        open={isNarrowViewport() && props.mobileOpen}
+        onOpenChange={(open) => props.onToggleMobile(open)}
+      >
+        <Show when={isNarrowViewport()}>
+          <SidebarToggleButton
+            expanded={props.mobileOpen}
+            onOpen={() => props.onToggleMobile(true)}
+          />
+        </Show>
+        <Show when={!isNarrowViewport()}>{renderSidebar(false)}</Show>
+        <Show when={isNarrowViewport()}>
+          <SheetContent
+            side="start"
+            class="conventional-sidebar-sheet"
+            closeButton={false}
+            restoreFocusRef={props.restoreFocusRef}
+          >
+            <SheetTitle class="sr-only">{props.workspaceName} navigation</SheetTitle>
+            {renderSidebar(true)}
+          </SheetContent>
+        </Show>
+      </Sheet>
       <Show when={editingRoom()}>
         {(room) => (
           <EditRoomDialog
