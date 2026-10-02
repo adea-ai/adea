@@ -1,7 +1,7 @@
 # Marketplace consumer contract
 
 Adea uses the plugin registry maintained in
-[`adea-ai/plugins`](https://github.com/adea-ai/plugins). Discovery is
+[`adea-ai/plugins`](https://github.com/adea-ai/plugins). Core catalog discovery is
 server-side through Control Plane:
 
 - Registry latest pointer:
@@ -16,22 +16,41 @@ immutable by construction: a build that produced different bytes has a different
 mutable path, and it is byte-identical to the `catalog.v1.json` of the snapshot
 it names.
 
-Adea does not request those GitHub URLs from a browser or desktop client.
-The same-origin `/api/marketplace/catalog` route calls the authenticated
-Control Plane catalog proxy. Control Plane fetches the registry and returns
-sanitized artifact metadata only. The Plugins action remains unavailable until
+Adea retrieves the core catalog through the same-origin
+`/api/marketplace/catalog` route, which calls the authenticated Control Plane
+catalog proxy. Control Plane fetches and verifies the registry, then returns
+catalog artifacts and sanitized installation state. The browser may fetch the
+optional public `catalog-index.v1.json` URL declared by the verified categories
+artifact. It accepts the browsing index only when its canonical digest and
+catalog ID match the verified catalog; otherwise it renders from the full
+catalog. Display icons may load directly from upstream icon URLs, compiled
+publication marks, or third-party favicon and brand services. These display
+requests carry no plugin installation or execution authority.
+An index freshness probe may also read only the catalog ID to decide whether to
+retain an already verified cache. Probe contents are not used as new catalog
+entries without verification.
+
+The Plugins action remains unavailable until
 workspace bootstrap resolves, so provider loading never races workspace identity.
 Configure the proxy with:
 
-- `CONTROL_PLANE_ORIGIN` — HTTPS Control Plane origin in production;
-- `CONTROL_PLANE_SERVICE_TOKEN` — server-only scoped service credential;
-- `CONTROL_PLANE_SCOPE_WORKSPACE_ID` — server-side service scope.
+- `CONTROL_PLANE_ORIGIN`: HTTPS Control Plane origin in production;
+- `CONTROL_PLANE_SERVICE_TOKEN`: server-only scoped service credential;
+- `CONTROL_PLANE_SCOPE_WORKSPACE_ID`: server-side service scope.
+
+The proxy uses the configured service scope for the top-level request
+`workspaceId` and the Adea workspace identity for the nested value. Current
+Control Plane catalog and install routes require those IDs to match; the
+advisory plan route permits separate namespaces. A successful plan therefore
+does not prove that catalog or install requests with distinct IDs will work.
+This is a current integration constraint, not a client authorization grant.
 
 Before accepting a catalog, the shared provider validates `schemaVersion: 1`,
-the `catalogId` body digest, all five integrity-listed artifact digests, and
+the `catalogId` body digest, required integrity-listed artifact digests, and
 that `catalog-latest.v1.json` is byte-identical to `catalog.v1.json`. Canonical
 JSON sorts object keys, preserves array order, and uses the registry's
 `sha256:...` digest format. The provider keeps no copied catalog source tree.
+The optional browsing index must also have a declared digest when present.
 
 The following values are opaque and must be preserved exactly:
 
@@ -64,10 +83,14 @@ is idempotent. Adea may display canonical Agent Plugins status (`portable`,
 `partial`, or `unavailable`) but never treats it as authorization. It may
 also display states returned by Control Plane such as
 `pending-authorization`, `unavailable`, `rejected-by-policy`, `installed`, and
-`superseded`, but it must not mark an item installed from local storage.
+`superseded`, but it must not mark an item installed from local storage. The
+current install endpoint verifies the request and persists state and exact
+pins. Its `installed` response does not establish filesystem materialization
+or harness activation.
 
-Adea never downloads or executes upstream plugin content. Control Plane
-must fetch immutable releases server-side, re-verify content digests, enforce
-revocation/supersession and workspace policy, resolve connectors and
-credentials, and persist exact release pins in installation and execution
-records. A metadata-only or quarantined plugin is not executable content.
+Adea does not download or execute upstream plugin source. Control Plane
+verifies immutable releases server-side, rechecks content digests, applies
+revocation, supersession, workspace policy, and connector/credential checks,
+and persists exact installation pins. Actual materialization and activation
+remain separate runtime work with their own authorization checks. A
+metadata-only or quarantined plugin is not executable content.

@@ -2,7 +2,7 @@
 
 The encrypted local store for private Task and Message content. This page is the
 contract to read before touching
-`apps/desktop/src-tauri/src/local_content.rs`; the decision behind it is
+`apps/desktop/shell/src/commands.ts`; the decision behind it is
 [ADR 0003](../decisions/0003-local-private-content-authority.md).
 
 > **Implementation note (2026-09-12):** the desktop shell is now Electrobun
@@ -13,21 +13,43 @@ contract to read before touching
 > `apps/web/src/lib/desktop-bridge.ts` (module
 > `apps/web/src/lib/desktop-local-content.ts`).
 
+## Current implementation and target limits
+
+The current command registry stores an `index.json` and individually sealed
+content files under `local-content`. It uses the shared `desktop-state/device.key`
+file for AES-GCM encryption. It does not implement the SQLite tables, OS keyring
+master keys, or resumable rotation described in the target sections below.
+
+The signed shell channel checks the calling window. In this command registry,
+`local_content_authorize_workspace` is a no-op, and reads, updates, and deletes
+look up the content ID without a workspace-membership check. Content ID
+validation is present, but it is not proof of workspace authorization. Record
+creation currently leaves `digestSha256` empty, and `local_content_health`
+returns a constant successful result rather than checking the repository and key.
+
+`local_content_rotate_key` deletes the shared key file without re-encrypting
+existing content, user sessions, pending auth attempts, or temporary workspace
+credentials. The next key access creates a new key. Existing ciphertext then fails
+to open under it. These are source-level implementation gaps; the target
+requirements below must not be treated as verified current behavior.
+
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
 ## What is stored
 
+This section describes the target contract, subject to the current limits above.
+
 `local-content.sqlite3` in the app data directory, opened with WAL and foreign
 keys. Three tables:
 
-- `local_content_records` — one row per content item: `content_id`,
+- `local_content_records`: one row per content item: `content_id`,
   `workspace_id`, `content_type`, optional `task_id`/`message_id`, `revision`,
   `digest_sha256`, the product metadata (`sensitivity`, `storage_policy`,
   `synchronization_policy`, `availability`), `schema_version`, `key_version`,
   `nonce`, `ciphertext`, timestamps, and `deleted_at` for tombstones.
-- `local_content_metadata` — schema and current key version.
-- `local_content_rotation` — the resumable rotation row (old/new version, last
+- `local_content_metadata`: schema and current key version.
+- `local_content_rotation`: the resumable rotation row (old/new version, last
   migrated content ID, start time).
 
 Content types are `message_body`, `task_objective`, `task_input`, and
@@ -35,17 +57,21 @@ Content types are `message_body`, `task_objective`, `task_input`, and
 
 ## Encryption
 
+This section describes the target contract, subject to the current limits above.
+
 Each record is encrypted independently with AES-256-GCM under a random 256-bit
 master key. The 96-bit nonce is per write and never reused. Authenticated
 associated data binds `schemaVersion || keyVersion || workspaceId || contentId ||
 contentType`, so ciphertext cannot be moved between records or workspaces.
 
-Master keys live in the operating-system credential store only — service
-`com.adea.desktop.local-content`, entry `master-key-v{version}` — and are never
+Target master keys live only in the operating-system credential store under service
+`com.adea.desktop.local-content`, entry `master-key-v{version}`, and are never
 written to SQLite, returned to the renderer, or logged. A missing or unreadable
 key is an explicit unavailable state, never a fabricated plaintext.
 
 ## Key rotation
+
+This section describes the target contract, subject to the current limits above.
 
 Rotation is resumable and bounded to 500 records per batch. A durable row records
 the old and new versions; each batch commits ciphertext and progress atomically;
@@ -64,15 +90,17 @@ offline.
 
 ## Who may call it
 
+This section describes the target contract, subject to the current limits above.
+
 Two independent checks, both required:
 
-1. **Trusted window** — the call must come from the app's own window. In the
+1. **Trusted window**: the call must come from the app's own window. In the
    Electrobun shell this is the M10 channel gate
    (`apps/desktop/shell/src/dev-runtime/channel/`): the window authenticates
    with a single-use launch bootstrap at `dev.runtime.handshake.v1` and signs
    every request, so loopback presence, a rebinding host, or a cross-origin
    page never reaches a handler.
-2. **Authorized workspace** — the renderer first calls
+2. **Authorized workspace**: the renderer first calls
    `local_content_authorize_workspace` with the workspace ID that bootstrap just
    authorized. The store holds a single active workspace: authorizing another
    clears the previous one, and every other command re-checks membership.
@@ -88,6 +116,8 @@ carry no plaintext, key material, or cryptographic detail.
 
 ## Health
 
+This section describes the target contract, subject to the current limits above.
+
 `LocalContentState::store_health()` is the single answer to "is the store
 usable": an open repository whose key is readable. The `local_content_health`
 command reports it for an authorized workspace, and the capability snapshot
@@ -95,6 +125,10 @@ reports the same flag as the `localContent` capability, so the two views cannot
 disagree.
 
 ## Pinned by
+
+The Rust tests below describe historical evidence for the target contract.
+Current shell channel and command-boundary tests cover their stated boundaries;
+they do not establish the missing SQLite, workspace, health, or rotation behavior.
 
 - `local_content.rs` unit tests: ciphertext-at-rest with cross-workspace and
   AAD substitution attempts, workspace scoping, search bounds and no plaintext

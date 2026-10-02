@@ -1186,19 +1186,19 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // the pane's own heading owns the separate restore-width action.
   const sidebarToggleAvailable = () => props.appMode !== 'source-control'
   const sidebarToggleControl = () => {
-    const open = Boolean(visiblePaneOf('right'))
+    const open = () => Boolean(visiblePaneOf('right'))
     return (
       <ActionButton
         type="button"
         variant="outline"
         size="icon-sm"
         class="workspace-topbar__control"
-        tooltip={open ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
-        aria-label={open ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
-        aria-expanded={open}
+        tooltip={open() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
+        aria-label={open() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
+        aria-expanded={open()}
         onClick={toggleRightUtilitySlot}
       >
-        <Show when={open} fallback={<PanelRightOpen aria-hidden="true" />}>
+        <Show when={open()} fallback={<PanelRightOpen aria-hidden="true" />}>
           <PanelRightClose aria-hidden="true" />
         </Show>
       </ActionButton>

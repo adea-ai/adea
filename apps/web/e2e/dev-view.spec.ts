@@ -383,6 +383,27 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(leftUtilityToggle).toBeFocused()
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
 
+  const rightUtilityToggle = devSidebarControl(page, 'Collapse utility sidebar').or(
+    devSidebarControl(page, 'Expand utility sidebar')
+  )
+  const originalRightUtilityToggle = await rightUtilityToggle.elementHandle()
+  if (!originalRightUtilityToggle) throw new Error('Right utility toggle did not mount')
+  await rightUtilityToggle.focus()
+  await expect(rightUtilityToggle).toHaveAttribute('aria-expanded', 'true')
+  await page.keyboard.press('Enter')
+  await expect(rightUtilityToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(rightUtilities).toBeHidden()
+  expect(
+    await originalRightUtilityToggle.evaluate((element) => element === document.activeElement)
+  ).toBe(true)
+  await page.keyboard.press('Space')
+  await expect(rightUtilityToggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(rightUtilities).toBeVisible()
+  expect(
+    await originalRightUtilityToggle.evaluate((element) => element === document.activeElement)
+  ).toBe(true)
+  expect(pageErrors).toEqual([])
+
   await rightUtilities.getByRole('button', { name: 'Expand utility pane' }).click()
   await expect(rightUtilities.getByRole('button', { name: 'Restore utility pane' })).toBeVisible()
   await expect(devSidebarControl(page, 'Collapse utility sidebar')).toBeVisible()

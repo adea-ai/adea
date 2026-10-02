@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/audio",
-  "version": "0.74.2",
+  "version": "0.74.4",
   "description": "Optional, lazy music controller and Solid bindings for Adea. Audio is non-blocking so scene loading never waits on sound assets.",
   "keywords": [
     "audio",
@@ -39,7 +39,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@adea-ai/ui": "0.96.0",
+    "@adea-ai/ui": "0.97.1",
     "lucide-solid": "^1.45.0",
     "solid-js": "^1.9.15"
   },
