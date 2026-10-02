@@ -246,9 +246,15 @@ test.describe('appearance', () => {
     await expect(canvas).toBeVisible()
     const alpha = () =>
       canvas.evaluate((element) => {
-        const value = getComputedStyle(element).backgroundColor
-        const match = /(?:rgba?\([^)]*,|\/)\s*([\d.]+)\s*\)?$/.exec(value.trim())
-        return match ? Number(match[1]) : 1
+        // Canvas normalizes CSS Color 4 — including the color-mix the resolved
+        // surface paints — into rendered sRGB channels. The regex it replaces
+        // read the blue channel of an opaque `rgb(19, 20, 24)`: an opaque color
+        // serializes without an alpha segment, so its last number is a channel,
+        // not an alpha.
+        const context = document.createElement('canvas').getContext('2d')!
+        context.fillStyle = getComputedStyle(element).backgroundColor
+        context.fillRect(0, 0, 1, 1)
+        return context.getImageData(0, 0, 1, 1).data[3]! / 255
       })
 
     const panel = await openAppearance(page)
