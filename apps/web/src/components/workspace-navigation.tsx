@@ -599,6 +599,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
         onOpenNotifications={() => openSettings('input-notifications')}
         actionsMount={setToolbarMount}
+        showDevActions={activeAppId() === 'dev'}
         resources={<RuntimeResourcesControl runtime={props.services.devRuntime} />}
         sidebarMount={setSidebarActionMount}
       />

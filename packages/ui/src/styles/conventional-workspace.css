@@ -1,6 +1,7 @@
 .workspace-frame {
   --workspace-rail-width: var(--rail-width);
   --workspace-topbar-height: 3rem;
+  --dev-context-sidebar-width: clamp(13rem, 16vw, 17rem);
   position: fixed;
   inset: 0;
   display: grid;
@@ -11,6 +12,18 @@
   overflow: clip;
   background: var(--background);
   color: var(--foreground);
+}
+
+@media (max-width: 70rem) {
+  .workspace-frame {
+    --dev-context-sidebar-width: clamp(12rem, 30vw, 15rem);
+  }
+}
+
+@media (max-width: 48rem) {
+  .workspace-frame {
+    --dev-context-sidebar-width: min(17rem, 84vw, calc(100vw - var(--workspace-rail-width, 0px)));
+  }
 }
 
 .workspace-frame__surface {
@@ -1749,6 +1762,7 @@
 
 /* The common header is above every view and its collapsed outer rail. */
 .workspace-topbar {
+  --workspace-topbar-inline-start-inset: 0.75rem;
   grid-column: 1 / -1;
   grid-row: 1;
   display: grid;
@@ -1761,6 +1775,35 @@
   background: var(--card);
   color: var(--card-foreground);
 }
+.workspace-topbar[data-dev-actions] {
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+}
+.workspace-topbar__navigation-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+.workspace-topbar__navigation[data-dev-actions] {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  gap: 0.5rem;
+  overflow: visible;
+}
+.workspace-topbar__view-action-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.workspace-topbar__view-action-group:has(.workspace-topbar__view-actions:empty) {
+  display: none;
+}
+.workspace-topbar__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /*
  * Restate the shared TopBar's macOS inset as a host rule. The shared rule is a
  * Tailwind utility, so it shares a layer (and a tie-break-by-order contest)
@@ -1769,6 +1812,7 @@
  * window buttons. Unlayered host CSS wins that contest for good.
  */
 .workspace-topbar.window-inset-macos {
+  --workspace-topbar-inline-start-inset: 84px;
   padding-inline-start: 84px;
 }
 .workspace-frame > .global-rail {
@@ -1780,21 +1824,31 @@
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
-.workspace-topbar__view-actions,
-.dev-toolbar__utilities {
+.workspace-topbar__view-actions {
   display: flex;
   align-items: center;
   gap: 0.35rem;
 }
+.workspace-topbar__view-divider[data-orientation='vertical'] {
+  height: 1.25rem;
+}
+@media (min-width: 48.001rem) {
+  .workspace-frame:has(
+      .dev-workspace:not(.dev-workspace--focus):not(.dev-workspace--left-full):not(
+          .dev-workspace--right-full
+        )
+        .dev-sidebar.dev-sidebar--open
+    )
+    .workspace-topbar__navigation[data-dev-actions] {
+    grid-template-columns: calc(
+        var(--workspace-rail-width) + var(--dev-context-sidebar-width) -
+          var(--workspace-topbar-inline-start-inset)
+      ) max-content;
+    column-gap: 0;
+  }
+}
 .workspace-topbar__title {
   text-align: center;
-}
-.workspace-topbar__view-actions .dev-button--toggle {
-  width: 2rem;
-  padding: 0;
-}
-.workspace-topbar__view-actions .dev-button--toggle span {
-  display: none;
 }
 /* The view-provided sidebar toggle rides the trailing mount: a standard icon
    button after the workspace actions, separated by a vertical divider. The
@@ -1809,7 +1863,7 @@
 .workspace-topbar__sidebar:has(.workspace-topbar__sidebar-mount:empty) {
   display: none;
 }
-.workspace-topbar__sidebar .workspace-topbar__sidebar-divider[data-orientation='vertical'] {
+.workspace-topbar__sidebar-divider[data-orientation='vertical'] {
   height: 1.25rem;
 }
 .workspace-frame .conventional-mobile-menu {
@@ -1956,6 +2010,9 @@
   .workspace-topbar {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
+  .workspace-topbar[data-dev-actions] {
+    grid-template-columns: minmax(0, 1fr) 0 auto;
+  }
   .workspace-topbar__title {
     display: none;
   }
@@ -1969,8 +2026,14 @@
   .workspace-topbar__actions {
     gap: 0.25rem;
   }
-  .workspace-topbar__view-actions:empty {
-    display: none;
+  .workspace-topbar__navigation[data-dev-actions] {
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .workspace-topbar__navigation-controls,
+  .workspace-topbar__view-action-group {
+    gap: 0.25rem;
   }
   .workspace-frame .conventional-sidebar {
     top: var(--workspace-topbar-height);

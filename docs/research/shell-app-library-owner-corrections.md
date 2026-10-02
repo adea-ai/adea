@@ -79,3 +79,40 @@ ancestors and restores prior collapse state; its browser regression preserves
 selected identity and the runtime operation log. Both regressions pass headlessly.
 The combined filter/rail/docs focused suite passes 30 tests (86 assertions).
 Independent MAX review finds no blocker in either correction.
+
+## Owner amendment — 2026-10-01
+
+This amendment supersedes only the 2026-09-26 bullet that placed utility/panel
+actions on the far right. The earlier screenshot notes and implementation
+checkpoints above remain historical evidence for their recorded source states;
+they are not rewritten or promoted to evidence for this amendment.
+
+- While Dev owns the active surface, its left-slot collapse/reopen, split-pane,
+  and reopen-closed-pane actions begin after a divider aligned with the actual
+  contextual sidebar edge. When that sidebar is collapsed or hidden, the
+  divider follows the later of the rail edge and the leading history/context
+  controls, so the two action groups never overlap. At phone widths the
+  contextual sidebar is an overlay below the top bar, so Dev actions remain in
+  top-bar flow after the contextual controls.
+- The Files/Source Control choice belongs inside the left utility pane. Its
+  top-bar action only collapses or reopens that slot. The right utility
+  collapse/reopen control remains trailing and available while its pane is
+  full width. Both slot toggles and the contextual sidebar control use the
+  published outline icon-button treatment; the Files toggle uses FolderTree.
+  Split and reopen use published ghost icon buttons, and the disabled New
+  session placeholder is removed.
+- These are Dev-owned controls. The user has separately confirmed that the
+  Browser sidebar must be available from Chat, Dev, and Virtual. A shell-owned
+  cross-view utility mount is a follow-up; this Dev-scoped implementation does
+  not establish that requirement as complete. Preserve the trailing toggle
+  mount contract for that integration.
+
+Local source evidence for pane reopen: close and undo mutate the window's
+published split-layout model; the closed-pane stack is not serialized with
+session layout preferences. Closing a terminal pane disposes its local renderer
+and stream attachment but does not call session archive/cancel or terminal
+stop/create operations. Reopening a bound leaf can attach the same selected
+live terminal from sequence zero, subject to runtime history retention. These
+source findings are not packaged/native acceptance. A focused production-entry
+Playwright regression is authored for the same-terminal/no-stop behavior, but
+was not run in this worker lane; integration browser evidence remains pending.

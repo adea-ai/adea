@@ -33,6 +33,7 @@ import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
   Columns2,
   Files,
+  FolderTree,
   GitBranch,
   History,
   Laptop,
@@ -40,8 +41,7 @@ import {
   MonitorSmartphone,
   PanelRightClose,
   PanelRightOpen,
-  Plus,
-  TerminalSquare,
+  Undo2,
   Users,
   X,
 } from 'lucide-solid'
@@ -458,9 +458,6 @@ function createFixtureTerminalObservations() {
   }
 }
 
-const setCompactSidebarOpen = (open: boolean) =>
-  workspaceStore.getState().setMobileSidebarOpen(open)
-
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
   const fixtureTerminalObservations = import.meta.env.DEV
@@ -492,9 +489,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // readonly E2E input and never mutates.
   const [fixtureGroups, setFixtureGroups] = createSignal<readonly DevGroupFixture[] | undefined>()
   const [projection, setProjection] = createSignal<DevWorkspaceProjection | undefined>()
-  const [projectionStatus, setProjectionStatus] = createSignal<'loading' | 'ready' | 'unavailable'>(
-    'loading'
-  )
   const groups = () => fixtureGroups() ?? props.groups ?? projectedGroups()
   const selectedProjectState = useWorkspaceState((state) => state.selectedDevProjectId)
   const selectedSessionState = useWorkspaceState((state) => state.selectedRuntimeSessionId)
@@ -541,7 +535,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     if (props.groups !== undefined) return
     const scope = activeScope()
     if (!scope || !props.runtime.projection) {
-      setProjectionStatus('unavailable')
       setArchiveShelf(archiveShelfUnavailable('channel_unauthenticated'))
       return
     }
@@ -549,11 +542,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       const next = await props.runtime.projection(scope)
       setProjection(next)
       setProjectedGroups(toDevGroups(next))
-      setProjectionStatus('ready')
       void loadArchivedSessions()
     } catch {
       setProjectedGroups([])
-      setProjectionStatus('unavailable')
       setArchiveShelf(archiveShelfUnavailable('unavailable'))
     }
   }
@@ -561,7 +552,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   onMount(() => {
     if (props.groups !== undefined) {
       setFixtureGroups(props.groups)
-      setProjectionStatus('ready')
       setArchiveShelf(
         archiveShelfReady(
           props.groups.flatMap((group) =>
@@ -1177,10 +1167,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
 
   const leftFullWidth = () => visiblePaneOf('left')?.fullWidth ?? false
   const rightFullWidth = () => visiblePaneOf('right')?.fullWidth ?? false
-  // Full width is a per-panel state (restore lives in the panel's own
-  // heading), and source control pins its pane, so the sidebar toggle only
-  // exists for the regular right-slot layout.
-  const sidebarToggleAvailable = () => props.appMode !== 'source-control' && !rightFullWidth()
+  // The right collapse control remains available when its pane is full width;
+  // the pane's own heading owns the separate restore-width action.
+  const sidebarToggleAvailable = () => props.appMode !== 'source-control'
   const sidebarToggleControl = () => {
     const open = Boolean(visiblePaneOf('right'))
     return (
@@ -1188,6 +1177,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         type="button"
         variant="outline"
         size="icon-sm"
+        class="workspace-topbar__control"
         tooltip={open ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
         aria-label={open ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
         aria-expanded={open}
@@ -1200,17 +1190,71 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     )
   }
 
-  const utilityControls = () => (
-    <div class="dev-toolbar__utilities">
-      <Show when={!leftFullWidth() && props.appMode !== 'source-control'}>
-        <UtilityToolbarToggle
-          label="Files / SC"
-          icon={Files}
-          pressed={Boolean(visiblePaneOf('left'))}
-          onClick={() => toggleUtilityGroup(['files', 'source_control'])}
-        />
-      </Show>
-    </div>
+  const leftUtilityToggleControl = () => {
+    const open = Boolean(visiblePaneOf('left'))
+    return (
+      <ActionButton
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        class="workspace-topbar__control"
+        tooltip={open ? 'Collapse left utility sidebar' : 'Expand left utility sidebar'}
+        aria-label={open ? 'Collapse left utility sidebar' : 'Expand left utility sidebar'}
+        aria-expanded={open}
+        onClick={() => toggleUtilityGroup(['files', 'source_control'])}
+      >
+        <FolderTree aria-hidden="true" />
+      </ActionButton>
+    )
+  }
+
+  const devPaneActions = () => (
+    <Show when={props.appMode !== 'source-control'}>
+      {leftUtilityToggleControl()}
+      <ActionButton
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        class="workspace-topbar__control"
+        tooltip="Split pane"
+        aria-label="Split pane"
+        disabled={countLeaves(layout().center) >= 8}
+        onClick={() => {
+          const suffix = ++nextPaneId
+          updateLayout((state) => {
+            const focused = listLeaves(state.center).find((leaf) => leaf.id === state.focusedLeafId)
+            if (!focused) return state
+            return splitPane(state, state.focusedLeafId, {
+              direction: 'row',
+              placement: 'after',
+              leaf: {
+                kind: 'leaf',
+                id: `dev-pane-${suffix}`,
+                pane: focused.pane,
+                ...(focused.pane === 'editor' && focused.resourceId !== undefined
+                  ? { resourceId: focused.resourceId }
+                  : {}),
+              },
+              splitId: `dev-split-${suffix}`,
+            })
+          })
+        }}
+      >
+        <Columns2 aria-hidden="true" />
+      </ActionButton>
+      <ActionButton
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        class="workspace-topbar__control"
+        tooltip="Reopen the last closed pane in this window"
+        aria-label="Reopen closed pane"
+        disabled={layout().closed.length === 0}
+        onClick={() => updateLayout(undoClosePane)}
+      >
+        <Undo2 aria-hidden="true" />
+      </ActionButton>
+    </Show>
   )
 
   return (
@@ -1225,82 +1269,30 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       <a class="dev-skip-link" href="#dev-center">
         Skip to workspace
       </a>
-      <header class="dev-toolbar">
-        <Button
-          class="dev-icon-button dev-sidebar-toggle"
-          type="button"
-          aria-label="Toggle projects sidebar"
-          aria-expanded={compactSidebarOpen()}
-          onClick={() => setCompactSidebarOpen(!compactSidebarOpen())}
-        >
-          <Columns2 aria-hidden="true" />
-        </Button>
-        <div class="dev-toolbar__identity">
-          <strong>Dev</strong>
-          <span>
-            {fixtureMode()
-              ? 'Development fixtures · E2E only'
-              : projectionStatus() === 'loading'
-                ? 'Loading runtime projects…'
-                : projectionStatus() === 'unavailable'
-                  ? 'Runtime unavailable'
-                  : 'Runtime projects'}
-          </span>
-        </div>
-        <div class="dev-toolbar__actions" role="toolbar" aria-label="Developer workspace actions">
-          <Button type="button" class="dev-button dev-button--secondary" disabled>
-            <Plus aria-hidden="true" /> <span>New session</span>
-          </Button>
-          <Button
-            type="button"
-            class="dev-button dev-button--secondary"
-            disabled={countLeaves(layout().center) >= 8}
-            onClick={() => {
-              const suffix = ++nextPaneId
-              updateLayout((state) => {
-                const focused = listLeaves(state.center).find(
-                  (leaf) => leaf.id === state.focusedLeafId
-                )
-                if (!focused) return state
-                return splitPane(state, state.focusedLeafId, {
-                  direction: 'row',
-                  placement: 'after',
-                  leaf: {
-                    kind: 'leaf',
-                    id: `dev-pane-${suffix}`,
-                    pane: focused.pane,
-                    ...(focused.pane === 'editor' && focused.resourceId !== undefined
-                      ? { resourceId: focused.resourceId }
-                      : {}),
-                  },
-                  splitId: `dev-split-${suffix}`,
-                })
-              })
-            }}
-          >
-            <TerminalSquare aria-hidden="true" /> <span>Split pane</span>
-          </Button>
-          <Button
-            type="button"
-            class="dev-button dev-button--secondary"
-            disabled={layout().closed.length === 0}
-            onClick={() => updateLayout(undoClosePane)}
-          >
-            <span>Undo close</span>
-          </Button>
-          <Show when={props.toolbarMount} fallback={utilityControls()}>
-            {(mount) => <Portal mount={mount()}>{utilityControls()}</Portal>}
-          </Show>
-          {/* The bundled utility sidebar's toggle rides the host's trailing
-              top-bar mount when one exists; the fallback keeps other hosts
-              working inside the Dev toolbar. */}
-          <Show when={sidebarToggleAvailable()}>
-            <Show when={props.sidebarActionMount} fallback={sidebarToggleControl()}>
-              {(mount) => <Portal mount={mount()}>{sidebarToggleControl()}</Portal>}
-            </Show>
-          </Show>
-        </div>
-      </header>
+      <Show
+        when={props.toolbarMount}
+        fallback={
+          <header class="dev-toolbar">
+            <div
+              class="dev-toolbar__actions"
+              role="toolbar"
+              aria-label="Developer workspace actions"
+            >
+              {devPaneActions()}
+              <Show when={sidebarToggleAvailable() && !props.sidebarActionMount}>
+                {sidebarToggleControl()}
+              </Show>
+            </div>
+          </header>
+        }
+      >
+        {(mount) => <Portal mount={mount()}>{devPaneActions()}</Portal>}
+      </Show>
+      {/* The right utility collapse action stays in the trailing global slot;
+          direct hosts keep a local fallback for the runtime integration harness. */}
+      <Show when={sidebarToggleAvailable() && props.sidebarActionMount}>
+        {(mount) => <Portal mount={mount()}>{sidebarToggleControl()}</Portal>}
+      </Show>
 
       <Show when={recoveryMessage()}>
         <p class="dev-recovery-banner" role="status">
@@ -1545,26 +1537,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         {announcement()}
       </p>
     </main>
-  )
-}
-
-function UtilityToolbarToggle(props: {
-  label: string
-  icon: typeof Files
-  pressed: boolean
-  onClick(): void
-}) {
-  return (
-    <Button
-      type="button"
-      class="dev-button dev-button--toggle"
-      aria-label={props.label}
-      title={props.label}
-      aria-pressed={props.pressed}
-      onClick={props.onClick}
-    >
-      <props.icon aria-hidden="true" /> <span>{props.label}</span>
-    </Button>
   )
 }
 

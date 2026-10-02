@@ -34,6 +34,16 @@ function devToolbarControl(page: Page, name: string) {
   return page.locator('.workspace-topbar__view-actions').getByRole('button', { name, exact: true })
 }
 
+function devLeftUtilityToggle(page: Page) {
+  return devToolbarControl(page, 'Collapse left utility sidebar').or(
+    devToolbarControl(page, 'Expand left utility sidebar')
+  )
+}
+
+async function toggleDevLeftUtility(page: Page) {
+  await devLeftUtilityToggle(page).click()
+}
+
 /** The bundled utility sidebar's toggle rides the top bar's trailing mount. */
 function devSidebarControl(page: Page, name: string) {
   return page.locator('.workspace-topbar__sidebar').getByRole('button', { name, exact: true })
@@ -100,10 +110,19 @@ async function expectPointerHitsButton(page: Page, button: Locator, name: string
   expect(hitTest.hitName, JSON.stringify(hitTest)).toBe(name)
 }
 
+async function requireBounds(locator: Locator, name: string) {
+  const bounds = await locator.boundingBox()
+  expect(bounds, `${name} should have a visible bounding box`).not.toBeNull()
+  if (bounds === null) throw new Error(`${name} has no bounding box`)
+  return bounds
+}
+
 async function expectDevToolbarHost(page: Page) {
   const host = page.locator('.workspace-topbar__view-actions')
   await expect(host).toBeVisible()
-  await expect(devToolbarControl(page, 'Files / SC')).toBeVisible()
+  await expect(devLeftUtilityToggle(page)).toBeVisible()
+  await expect(devToolbarControl(page, 'Split pane')).toBeVisible()
+  await expect(devToolbarControl(page, 'Reopen closed pane')).toBeVisible()
   // Runtime resources lives in the top bar on every view; the Dev entry no
   // longer carries its own copy, and the expand control is per panel. The
   // sidebar toggle's label tracks the restored slot state, so either name is
@@ -114,16 +133,8 @@ async function expectDevToolbarHost(page: Page) {
       devSidebarControl(page, 'Collapse utility sidebar')
     )
   ).toBeVisible()
-  const fallbackActions = page.locator('.dev-toolbar__actions')
-  for (const name of [
-    'Files / SC',
-    'Browser / Devices',
-    'Agents / History',
-    'Enter focus mode',
-    'Runtime resources',
-  ]) {
-    await expect(fallbackActions.getByRole('button', { name, exact: true })).toHaveCount(0)
-  }
+  await expect(page.locator('.dev-toolbar')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'New session', exact: true })).toHaveCount(0)
 }
 
 for (const width of [320, 768, 1280, 1920]) {
@@ -152,6 +163,82 @@ for (const width of [320, 768, 1280, 1920]) {
     }
   })
 }
+
+async function expectDevTopbarBoundary(page: Page, width: number) {
+  const navigation = page.locator('.workspace-topbar__navigation')
+  const divider = navigation.locator('.workspace-topbar__view-divider')
+  const actionGroup = devToolbarControl(page, 'Split pane').locator('..').locator('..')
+  const rightUtilityToggle = devSidebarControl(page, 'Expand utility sidebar')
+  const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const rail = page.locator('.global-rail')
+
+  const assertBoundary = async (boundary: Locator) => {
+    const leadingControls = [
+      navigation.getByRole('button', { name: 'Back', exact: true }),
+      navigation.getByRole('button', { name: 'Forward', exact: true }),
+      navigation.getByRole('button', { name: /^(Collapse|Expand) contextual sidebar$/ }),
+    ]
+    const [dividerBounds, boundaryBounds, actionBounds, rightBounds, ...controlBounds] =
+      await Promise.all([
+        requireBounds(divider, 'Dev action divider'),
+        requireBounds(boundary, 'Sidebar boundary'),
+        requireBounds(actionGroup, 'Dev action group'),
+        requireBounds(rightUtilityToggle, 'Trailing utility toggle'),
+        ...leadingControls.map((control, index) =>
+          requireBounds(control, `Leading navigation control ${index + 1}`)
+        ),
+      ])
+    const leadingControlsEnd = Math.max(...controlBounds.map((bounds) => bounds.x + bounds.width))
+    const sidebarEdge = boundaryBounds.x + boundaryBounds.width
+
+    if (width > 768 && (await sidebar.isVisible())) {
+      expect(Math.abs(dividerBounds.x - sidebarEdge)).toBeLessThanOrEqual(1)
+    } else {
+      // With the contextual sidebar collapsed or presented as a phone drawer,
+      // Dev actions stay in flow after the leading controls and outer rail.
+      expect(dividerBounds.x).toBeGreaterThanOrEqual(Math.max(sidebarEdge, leadingControlsEnd))
+    }
+
+    const titleBounds = await title.boundingBox()
+    if (titleBounds) {
+      expect(actionBounds.x + actionBounds.width).toBeLessThanOrEqual(titleBounds.x)
+      expect(rightBounds.x).toBeGreaterThanOrEqual(titleBounds.x + titleBounds.width)
+    } else {
+      expect(actionBounds.x + actionBounds.width).toBeLessThanOrEqual(rightBounds.x)
+    }
+  }
+
+  const title = page.locator('.workspace-topbar__title')
+  await title.evaluate((element) => {
+    element.textContent =
+      'A workspace name long enough to test title clipping without hiding toolbar actions'
+  })
+  await expect(sidebar).toBeVisible()
+  await assertBoundary(width > 768 ? sidebar : rail)
+  await page.getByRole('button', { name: 'Collapse contextual sidebar', exact: true }).click()
+  await expect(sidebar).toBeHidden()
+  await assertBoundary(rail)
+}
+
+for (const width of [768, 1024, 1440]) {
+  test(`Dev top-bar actions avoid title and utility overlap at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/?view=dev&devE2e=preserved')
+    await expectDevToolbarHost(page)
+    await exerciseContextualSidebarToggle(page)
+    await expectDevTopbarBoundary(page, width)
+  })
+}
+
+test('Dev top-bar actions preserve clear boundaries with 200% text sizing', async ({ page }) => {
+  const width = 1280
+  await page.setViewportSize({ width, height: 900 })
+  await page.goto('/?view=dev&devE2e=preserved')
+  await expectDevToolbarHost(page)
+  await exerciseContextualSidebarToggle(page)
+  await page.addStyleTag({ content: 'html { font-size: 200%; }' })
+  await expectDevTopbarBoundary(page, width)
+})
 
 test('Dev shell stays usable while its central layout loads', async ({ page }) => {
   let release!: () => void
@@ -238,8 +325,8 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(page.locator('[data-pane-id]')).toHaveCount(2)
   // Closing the trailing pane returns focus to the surviving neighbour.
   await expect(page.locator('[data-pane-id="dev-pane-1"]')).toBeFocused()
-  await expect(page.getByRole('button', { name: 'Undo close' })).toBeEnabled()
-  await page.getByRole('button', { name: 'Undo close' }).click()
+  await expect(page.getByRole('button', { name: 'Reopen closed pane' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Reopen closed pane' }).click()
   await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
 
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
@@ -270,23 +357,30 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
 
   // Both slots stay independent: collapsing the left side never hides the
   // right side and the reverse holds after reopening.
-  await devToolbarControl(page, 'Files / SC').click()
+  await toggleDevLeftUtility(page)
   await expect(leftUtilities).toBeHidden()
   await expect(rightUtilities).toBeVisible()
   await expect(rightUtilities.getByRole('tab', { name: 'History' })).toHaveAttribute(
     'aria-selected',
     'true'
   )
-  await devToolbarControl(page, 'Files / SC').click()
+  await toggleDevLeftUtility(page)
   await expect(leftUtilities).toBeVisible()
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
 
   await rightUtilities.getByRole('button', { name: 'Expand utility pane' }).click()
   await expect(rightUtilities.getByRole('button', { name: 'Restore utility pane' })).toBeVisible()
+  await expect(devSidebarControl(page, 'Collapse utility sidebar')).toBeVisible()
+  await devSidebarControl(page, 'Collapse utility sidebar').click()
+  await expect(rightUtilities).toBeHidden()
+  await devSidebarControl(page, 'Expand utility sidebar').click()
+  await expect(rightUtilities.getByRole('button', { name: 'Restore utility pane' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Chat view' }).click()
   await expect(page).toHaveURL(/view=chat/)
   await expect(page).toHaveURL(/sentinel=keep/)
+  await expect(page.getByRole('button', { name: 'Split pane', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Collapse left utility sidebar' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Dev view' }).click()
   await expect(page).toHaveURL(/view=dev/)
   await expect(rightUtilities.getByRole('tab', { name: 'History' })).toHaveAttribute(
@@ -338,7 +432,7 @@ test('center panes move by keyboard while keeping one primary session', async ({
   await page.keyboard.press('ControlOrMeta+Alt+ArrowLeft')
   await expect(panes.first()).toHaveAttribute('data-pane-id', 'dev-terminal')
 
-  await expect(page.getByRole('button', { name: 'New session' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'New session' })).toHaveCount(0)
 })
 
 test('the Dev shell restores the session layout document after a reload', async ({ page }) => {
@@ -389,9 +483,9 @@ test('each utility toggle reveals its pane and the sidebar fills the workspace h
   const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
 
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
-  await devToolbarControl(page, 'Files / SC').click()
+  await toggleDevLeftUtility(page)
   await expect(leftUtilities).toBeHidden()
-  await devToolbarControl(page, 'Files / SC').click()
+  await toggleDevLeftUtility(page)
   await expect(leftUtilities.getByRole('tab', { name: 'Source control' })).toBeVisible()
 
   await devSidebarControl(page, 'Expand utility sidebar').click()
@@ -653,7 +747,7 @@ test('Dev surfaces expose an aria snapshot and run under an eval-blocking CSP', 
 
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await devToolbarControl(page, 'Files / SC').click()
-  await devToolbarControl(page, 'Files / SC').click()
+  await toggleDevLeftUtility(page)
+  await toggleDevLeftUtility(page)
   expect(errors).toEqual([])
 })
