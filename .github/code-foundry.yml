@@ -17,6 +17,9 @@ runner: ubuntu-latest
 ci_runner: ubuntu-latest
 test_runner: ubuntu-latest
 unit_runner: ubuntu-latest
+# Two E2E shards: the lane serial-runs Playwright at workers: 1, so the
+# matrix halves the required-path wall; each shard owns a runner-local DB.
+e2e_shards: 2
 security_runner: ubuntu-latest
 codeql_runner: ubuntu-latest
 pr_runner: ubuntu-latest
