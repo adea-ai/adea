@@ -1789,13 +1789,6 @@
 .workspace-topbar__title {
   text-align: center;
 }
-.workspace-topbar__view-actions .dev-button--toggle {
-  width: 2rem;
-  padding: 0;
-}
-.workspace-topbar__view-actions .dev-button--toggle span {
-  display: none;
-}
 /* The view-provided sidebar toggle rides the trailing mount: a standard icon
    button after the workspace actions, separated by a vertical divider. The
    whole group hides while the active view supplies no toggle. */

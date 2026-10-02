@@ -486,22 +486,6 @@
     display: none;
   }
 
-  .dev-toolbar__actions .dev-button--toggle {
-    display: inline-grid;
-    width: 2rem;
-    padding: 0;
-    place-items: center;
-  }
-
-  .dev-toolbar__actions .dev-button--toggle span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-  }
-
   .dev-sidebar {
     position: absolute;
     z-index: var(--z-drawer);
