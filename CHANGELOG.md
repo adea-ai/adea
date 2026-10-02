@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.75.1](https://github.com/adea-ai/adea/compare/v0.75.0...v0.75.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **web:** polish round 3 — pane widths, sidebar parity, app library, search ([#946](https://github.com/adea-ai/adea/issues/946)) ([afdc7c5](https://github.com/adea-ai/adea/commit/afdc7c50c4d43638e705ddb33469e480ce79d19b))
+
 ## [0.75.0](https://github.com/adea-ai/adea/compare/v0.74.8...v0.75.0) (2026-10-02)
 
 
