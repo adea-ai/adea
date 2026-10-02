@@ -289,7 +289,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved&sentinel=keep')
-  await expectDevToolbarHost(page)
+  await expectDevToolbarHost(page, 1280)
 
   await page.getByRole('button', { name: 'Other project session' }).click()
   await expect(page.getByRole('button', { name: 'Other project session' })).toHaveAttribute(
@@ -500,7 +500,7 @@ test('the Dev shell restores the session layout document after a reload', async 
   await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
     timeout: 60_000,
   })
-  await expectDevToolbarHost(page)
+  await expectDevToolbarHost(page, 1280)
   await expect(
     page
       .getByRole('separator', { name: 'Resize workspace panes' })
@@ -583,7 +583,7 @@ async function openDevView(page: import('@playwright/test').Page, url: string) {
   await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
     timeout: 60_000,
   })
-  await expectDevToolbarHost(page)
+  await expectDevToolbarHost(page, 1280)
 }
 
 test('a deep link with a missing session recovers visibly and the URL converges', async ({
@@ -897,7 +897,7 @@ test('Dev surfaces expose an aria snapshot and run under an eval-blocking CSP', 
   await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
     timeout: 60_000,
   })
-  await expectDevToolbarHost(page)
+  await expectDevToolbarHost(page, 1280)
 
   // The labelled pane-action host rides the global top bar, outside main, so
   // snapshot the whole workspace frame to cover both mount points.
