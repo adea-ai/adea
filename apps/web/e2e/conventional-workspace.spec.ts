@@ -1951,7 +1951,8 @@ test('Virtual room designer runs full-bleed without the contextual sidebar', asy
   expect(
     await fallback.evaluate((element) => element.getBoundingClientRect().height)
   ).toBeGreaterThan(600)
-  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible()
+  // The global rail is part of the hidden chrome in edit mode.
+  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toHaveCount(0)
 })
 
 test('Chat and Virtual use the same resizable sidebar and preserve selection and thread state', async ({
