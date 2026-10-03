@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.78.1](https://github.com/adea-ai/adea/compare/v0.78.0...v0.78.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* round-4 product-owner reports — settings crash, plugin detail layout, update dialog, and update badges ([#968](https://github.com/adea-ai/adea/issues/968)) ([99ef591](https://github.com/adea-ai/adea/commit/99ef5919e360dfbb638db9355b7567f717d51657))
+* **workspace:** cache-bust the Agent Sim engine entry by pack version ([#970](https://github.com/adea-ai/adea/issues/970)) ([3d8d514](https://github.com/adea-ai/adea/commit/3d8d5142f7eb8909ef2ce0e16da35aeaf5eb1579))
+
 ## [0.78.0](https://github.com/adea-ai/adea/compare/v0.77.0...v0.78.0) (2026-10-02)
 
 
