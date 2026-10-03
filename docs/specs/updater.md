@@ -132,23 +132,29 @@ counter. The update is always strictly-newer-only; nothing downgrades.
 
 ### Release lanes and promotion policy
 
-- One release window per day (12:00 UTC). Ordinary merges to main wait for it;
+- One release window per day (12:23 UTC). Ordinary merges to main wait for it;
   only the `chore(main): release …` version-PR squash publishes on push, which
   is also the out-of-band path — merging the pending version PR by hand
   publishes immediately.
-- The window's release is flagged as a GitHub pre-release right after it is
-  created (`release.yml`'s `mark-prerelease`), so only the pre-release channel
-  offers it. A hand-dispatched release run — the hotfix path — has no head
-  commit to parse and therefore stays stable immediately.
+- The window's release is created privately as a draft, then the shared
+  release producer publishes it with prerelease visibility in one update.
+  Stable clients cannot see it between creation and flagging. A manually
+  dispatched run that cuts the release publishes it as stable; dispatching
+  before the version PR merges prepares that PR. Once its squash has cut
+  a prerelease, promote the published version by name for a stable hotfix.
 - `promote-stable.yml` promotes by batch soak: everything published after the
   last stable is the candidate batch; when its **oldest** member has been
   public for 96 hours, the **newest** member (the tip, carrying every
   mid-soak hotfix) flips to stable and the intermediates are skipped —
   releases are cumulative, so stable users miss nothing. The stitched release
   notes cover the whole batch. A repository variable
-  (`STABLE_PROMOTION_HELD`) halts scheduled promotion for a bad batch;
+  (`STABLE_PROMOTION_HELD`) halts scheduled and manual promotion for a bad batch;
   workflow_dispatch inputs promote a named version or force the tip past the
-  soak.
+  soak or hold. Set or clear the hold in repository Actions variables.
+- Stable promotion requires the latest release-event run of `release-assets.yml`
+  for the candidate tag’s exact source commit to succeed. Missing, running, failed,
+  or cancelled asset builds hold promotion. Named and forced promotions obey this
+  qualification; `force` only overrides the soak and hold.
 - Dev builds (`dev-build.yml`) publish on every push to main (concurrency-
   cancelled, so a burst ships only the newest commit), reusing the release-
   assets lane verbatim — same bundle, same signing, same manifest shape, only
