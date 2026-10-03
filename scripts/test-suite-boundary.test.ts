@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -6,6 +7,9 @@ const root = resolve(import.meta.dir, '..')
 const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
   scripts: Record<string, string>
 }
+const desktopPackageJson = JSON.parse(
+  readFileSync(resolve(root, 'apps/desktop/package.json'), 'utf8')
+) as { version: string }
 
 describe('test suite boundaries', () => {
   test('exposes Code Foundry entry points for every test category', () => {
@@ -235,6 +239,47 @@ describe('test suite boundaries', () => {
     // manifest or platform archive instead of treating the tag as complete.
     expect(workflow).toContain('latest.json')
     expect(workflow).toContain('Adea-${tag}-macos-arm64.app.tar.zst')
+  })
+
+  test('anchors dev release versions to the checked-out desktop source', () => {
+    const workflow = readFileSync(resolve(root, '.github/workflows/dev-build.yml'), 'utf8')
+    const checkout = workflow.indexOf('name: Check out the source version')
+    const publish = workflow.indexOf('name: Publish the dev pre-release')
+
+    expect(checkout).toBeGreaterThanOrEqual(0)
+    expect(publish).toBeGreaterThan(checkout)
+    expect(workflow).toContain('ref: ${{ github.sha }}')
+    expect(workflow).toContain('apps/desktop/package.json')
+    expect(workflow).toContain('tag="v${base}-dev.${RUN_NUMBER}"')
+    expect(workflow).not.toContain('repos/$repo/releases/latest')
+    expect(workflow).not.toContain('cat apps/desktop/package.json')
+
+    const versionAssignment = workflow.match(
+      /base="\$\(\s*jq -er '([\s\S]*?)'\s+apps\/desktop\/package\.json\s*\)"/
+    )
+    expect(versionAssignment).not.toBeNull()
+    const versionFilter = versionAssignment![1]
+    const fromFixture = (version: unknown) =>
+      execFileSync('jq', ['-er', versionFilter], {
+        input: JSON.stringify({ version }),
+        encoding: 'utf8',
+      }).trim()
+
+    expect(fromFixture('0.66.1')).toBe('0.66.1')
+    expect(fromFixture('0.80.0')).toBe('0.80.0')
+    for (const invalidVersion of ['0.80.0-dev.33', 'not-semver', '0.0.0', 17]) {
+      expect(() => fromFixture(invalidVersion)).toThrow()
+    }
+
+    const extractedVersion = execFileSync(
+      'jq',
+      ['-er', versionFilter, resolve(root, 'apps/desktop/package.json')],
+      { encoding: 'utf8' }
+    ).trim()
+    expect(extractedVersion).toBe(desktopPackageJson.version)
+    expect(extractedVersion).toMatch(/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/)
+    expect(extractedVersion).not.toBe('0.0.0')
+    expect(`v${extractedVersion}-dev.17`).toMatch(/^v[0-9]+\.[0-9]+\.[0-9]+-dev\.17$/)
   })
 
   test('keeps the Electrobun icon source the release lane builds from', () => {
