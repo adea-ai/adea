@@ -811,21 +811,32 @@ describe('dev runtime composition', () => {
     }
   })
 
-  test('an unauthenticated local caller cannot bind, dispatch, or reuse credentials', async () => {
+  test('a signed-out shell serves the device-local guest scope; foreign scopes still fail', async () => {
     const shell = await boot({ unbound: true })
     try {
-      // No binding exists: the gate refuses before capability checks or
-      // provider dispatch, and the refusal is the unauthenticated code.
+      // No cloud binding exists, but the shell owns a device-local guest
+      // scope minted at first boot: the Dev Runtime is fully live with no
+      // account, and dispatch under the guest scope succeeds.
+      expect(shell.identity.identityKind()).toBe('guest')
+      const guestScope = shell.identity.currentScope()
       const channel = await shell.openChannel()
-      const refused = await channel.execute(commandFor('dev.project.list', SCOPE_A, { limit: 10 }))
-      expect(refused).toMatchObject({ ok: false, error: { code: 'unauthenticated' } })
+      const served = await channel.execute(
+        commandFor('dev.project.list', guestScope, { limit: 10 })
+      )
+      expect(served.ok).toBe(true)
+
+      // The renderer can never self-assert a scope: anything but the exact
+      // active scope is refused before capability checks or dispatch.
+      const foreign = await channel.execute(commandFor('dev.project.list', SCOPE_A, {}))
+      expect(foreign).toMatchObject({ ok: false, error: { code: 'channel_unauthorized' } })
 
       // The trust gate refuses a handshake from a foreign origin before the
       // bootstrap token is examined: loopback presence is not authority.
       expect(() => shell.authority.handshake({}, { trusted: false })).toThrow(
         'untrusted client origin'
       )
-      // Binding with a credential the cloud refuses fails closed.
+      // Binding with a credential the cloud refuses fails closed, and the
+      // guest scope stays the active identity.
       const refusedVerifier = fakeCloudVerifier({ unreachable: true })
       const strict = createDesktopIdentityAuthority({
         dataDir: shell.dataDir + '-2',
@@ -834,8 +845,27 @@ describe('dev runtime composition', () => {
       await expect(strict.bind({ session: SESSION, claimed: SCOPE_A })).rejects.toMatchObject({
         code: 'runtime_node_unavailable',
       })
+      expect(strict.identityKind()).toBe('guest')
+
+      // The device-local identity persists: a fresh authority over the same
+      // data directory reads the same scope, so projects and history keyed
+      // to it survive restarts. A different data directory mints a different
+      // one.
+      const reopened = createDesktopIdentityAuthority({
+        dataDir: shell.dataDir,
+        verifier: refusedVerifier,
+      })
+      expect(reopened.currentScope()).toEqual(guestScope)
+      expect(
+        createDesktopIdentityAuthority({
+          dataDir: shell.dataDir + '-3',
+          verifier: refusedVerifier,
+        }).currentScope().accountId
+      ).not.toBe(guestScope.accountId)
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
+      rmSync(shell.dataDir + '-2', { recursive: true, force: true })
+      rmSync(shell.dataDir + '-3', { recursive: true, force: true })
     }
   })
 
@@ -973,16 +1003,32 @@ describe('dev runtime composition', () => {
     }
   })
 
-  test('unbind (sign-out) fails the surface closed', async () => {
-    const shell = await boot()
+  test('sign-out returns to the same device-local guest scope and revokes cloud channels', async () => {
+    // Boot signed-out first so the pre-bind guest scope is observable: the
+    // identity the surface falls back to must be the very scope the user's
+    // signed-out work was keyed to.
+    const shell = await boot({ unbound: true })
     try {
-      const channel = await shell.openChannel()
+      const guestScope = shell.identity.currentScope()
+      await shell.bind(SCOPE_A)
+      expect(shell.identity.identityKind()).toBe('cloud')
+
+      const cloudChannel = await shell.openChannel()
       await shell.identity.unbind('owner sign-out')
-      // The composition revoked every channel on unbind: reconnects fail
-      // closed instead of inheriting the old authority.
-      const refused = await channel.execute(commandFor('dev.project.list', SCOPE_A, {}))
-      expect(refused).toMatchObject({ ok: false, error: { code: 'channel_unauthenticated' } })
-      expect(shell.identity.currentScope()).toBeUndefined()
+      // The composition revoked every channel minted under the cloud
+      // binding: reconnects re-handshake instead of inheriting the old
+      // authority.
+      const stale = await cloudChannel.execute(commandFor('dev.project.list', SCOPE_A, {}))
+      expect(stale).toMatchObject({ ok: false, error: { code: 'channel_unauthenticated' } })
+      // The active identity is the SAME guest scope as before sign-in — the
+      // signed-out surface is alive, not stranded.
+      expect(shell.identity.identityKind()).toBe('guest')
+      expect(shell.identity.currentScope()).toEqual(guestScope)
+      const guestChannel = await shell.openChannel()
+      const served = await guestChannel.execute(
+        commandFor('dev.project.list', guestScope, { limit: 10 })
+      )
+      expect(served.ok).toBe(true)
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }

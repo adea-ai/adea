@@ -1815,7 +1815,21 @@ The only control-plane transport method names are
 channel), `dev.runtime.execute.v1` (one `AuthorizedDevFrame`/`DevReply`),
 `dev.runtime.events.v1` (cursor-resumable event stream), and
 `dev.runtime.stream.attach.v1` (terminal/browser/device/computer-use bulk
-stream negotiated from an authorized execute reply). The normative
+stream negotiated from an authorized execute reply).
+
+Scope admission is identity-first and account-optional: the shell mints a
+durable device-local identity on first boot (a guest scope triple persisted
+owner-only; see [desktop authentication](./desktop-auth.md)), so the whole
+catalog serves a signed-out, offline machine with no prompt. A cloud bind
+supersedes the guest scope until sign-out returns to the same device-local
+identity; the renderer can never self-assert either. `dev.capability.snapshot`
+projects the ACTIVE identity's availability surface: the shell's own window —
+guest or cloud-bound — holds the machine's FULL capability catalog, because
+the real authorization lives in scope admission and the command providers
+(path containment, owner approvals, generation fences), not in this
+projection; `unavailable` is empty for the local owner. Scoped capability
+subsets arrive with remote callers (M14 runtime nodes), which authenticate as
+a different identity class than this trusted local channel. The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
 all 148 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code

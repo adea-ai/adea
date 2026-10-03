@@ -18,6 +18,7 @@ import {
   devStreamAttachProofMessage,
   type CapabilitySnapshot,
   type DevChannelHandshakeReply,
+  type DevCapability,
   type DevCommand,
   type DevError,
   type DevErrorCode,
@@ -853,18 +854,27 @@ export function createChannelAuthority(options?: {
 
   function capabilitySnapshot(scope: Scope, identity?: ChannelIdentity): CapabilitySnapshot {
     const channel = identity ? channels.get(identity.channelId) : undefined
-    const granted = (['dev.appearance.read', 'dev.appLibrary.manage'] as const).toSorted()
-    const clientOnlyGrants = new Set<string>(granted)
-    const unavailable = Object.values(devOperationDefinitions)
-      .flatMap((definition) => definition.capabilities)
-      .filter((capability) => !clientOnlyGrants.has(capability))
+    // The shell's own window — the device-local guest or the cloud-bound
+    // account — holds the machine's full capability catalog. This projection
+    // is the UI's availability surface, not the authorization itself: the
+    // real gates live in the command providers (path containment, owner
+    // approvals, generation fences) and the scope admission above. Scoped
+    // capability subsets arrive with remote callers (M14 runtime nodes),
+    // which will authenticate as a different identity class than this
+    // trusted local channel.
+    const granted = [
+      ...new Set([
+        // Client-only surfaces with no operation behind them still belong to
+        // the local owner's catalog.
+        'dev.appearance.read',
+        'dev.appLibrary.manage',
+        ...Object.values(devOperationDefinitions).flatMap((definition) => definition.capabilities),
+      ] as DevCapability[]),
+    ].toSorted()
     return {
       scope,
       granted,
-      unavailable: [...new Set(unavailable)].toSorted().map((capability) => ({
-        capability,
-        reason: 'capability_unavailable' as const,
-      })),
+      unavailable: [],
       channelGeneration: channel?.generation ?? 0,
       observedAt: iso(now()),
     }

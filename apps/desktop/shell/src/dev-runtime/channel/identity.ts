@@ -1,20 +1,28 @@
-// The authenticated Dev Runtime scope authority (M10 #33/#34 consumption).
+// The Dev Runtime scope authority (M10 #33/#34 consumption).
 //
 // The scope triple (account, workspace, runtime node) is never accepted from
-// the renderer as a global injection. The app's own window binds it once per
-// authentication over the signed legacy channel (`desktop_identity_bind`):
-// the shell verifies the presented desktop session credential against the
-// cloud (`GET /api/workspaces` proves liveness and workspace membership),
-// proves the runtime node is paired and unrevoked in that workspace, and only
-// then persists the binding. Every privileged command is checked against this
-// verified binding BEFORE capability checks and dispatch, node eligibility is
-// re-proven on a bounded TTL, and a re-bind, unbind, session expiry, or
-// workspace switch drops the binding and every channel created under it.
+// the renderer as a global injection. The shell mints a DEVICE-LOCAL identity
+// on first boot — a durable guest scope the renderer can only learn by asking
+// — so the whole Dev Runtime works signed-out, offline, with no account and
+// no prompt: the app is the machine owner's tool first. The app's own window
+// may additionally bind a cloud identity over the signed legacy channel
+// (`desktop_identity_bind`): the shell verifies the presented desktop session
+// credential against the cloud (`GET /api/workspaces` proves liveness and
+// workspace membership), proves the runtime node is paired and unrevoked in
+// that workspace, and only then persists the binding. The cloud binding
+// supersedes the guest scope until sign-out, which always returns to the same
+// device-local identity — signing out never strands the surface. Every
+// privileged command is checked against the ACTIVE binding (guest or cloud)
+// BEFORE capability checks and dispatch; node eligibility is re-proven
+// against the cloud only for the cloud binding (the device-local node is the
+// shell's own machine, where the shell is the eligibility authority), and a
+// re-bind, unbind, session expiry, or workspace switch drops every channel
+// created under the superseded scope.
 //
 // The session credential itself stays in the client's sealed session vault
 // (`desktop_user_session_save`, same sealing scheme as the transitional
 // command surface); this module reads it only to re-verify eligibility.
-import { createDecipheriv } from 'node:crypto'
+import { createDecipheriv, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -57,28 +65,55 @@ type BindingRecord = Readonly<{
   sessionExpiresAt: string
 }>
 
+/** The device-local identity: minted once per data directory, never rotated
+ *  and never deleted, so projects, sessions, and history keyed to it survive
+ *  every restart and every sign-in/sign-out cycle. */
+type LocalIdentityRecord = Readonly<{
+  scope: Scope
+  createdAt: string
+}>
+
+type ActiveIdentity =
+  | Readonly<{ kind: 'guest'; scope: Scope }>
+  | Readonly<{ kind: 'cloud'; scope: Scope; binding: BindingRecord }>
+
+function activeIdentityOf(localScope: Scope, binding: BindingRecord | undefined): ActiveIdentity {
+  if (binding) return { kind: 'cloud', scope: binding.scope, binding }
+  return { kind: 'guest', scope: localScope }
+}
+
 export type DesktopIdentityAuthority = Readonly<{
-  /** The verified active scope, or undefined while unauthenticated. */
-  currentScope(): Scope | undefined
+  /** The active scope: the cloud binding when present, the device-local
+   *  identity otherwise. Always defined — a signed-out shell still owns a
+   *  scope. */
+  currentScope(): Scope
+  /** Which binding is active: the device-local guest identity or a
+   *  cloud-verified account. UI surfaces read this to keep sign-in an
+   *  optional upgrade, never a gate. */
+  identityKind(): 'guest' | 'cloud'
   /**
    * The gate's admission check. Synchronous and total: it must run before
-   * capability derivation and dispatch, and it fails closed on a missing,
-   * expired, or mismatched binding.
+   * capability derivation and dispatch, and it fails closed on a mismatch
+   * with the active binding — a renderer-asserted scope never matches.
    */
   assertCommandScope(scope: Scope): void
   /**
-   * Re-proves runtime-node eligibility when the TTL lapsed. Called by the
-   * gate for every privileged operation; a stale cache beyond the TTL fails
-   * closed when the cloud cannot be reached.
+   * Re-proves runtime-node eligibility when the active binding is the cloud
+   * one. Called by the gate for every privileged operation; a stale cache
+   * beyond the TTL fails closed when the cloud cannot be reached. The
+   * device-local identity needs no re-proof: the shell is the eligibility
+   * authority over its own machine.
    */
   ensureNodeEligible(): Promise<void>
   /**
-   * Verifies and persists the binding from the authenticated window's bind
-   * request. Rotating to a different scope (or an explicit unbind) notifies
-   * listeners so every channel created under the old scope is revoked.
+   * Verifies and persists the cloud binding from the authenticated window's
+   * bind request, superseding the device-local identity. Rotating to a
+   * different scope (or an explicit unbind) notifies listeners so every
+   * channel created under the old scope is revoked.
    */
   bind(input: { session: DesktopSessionCredential; claimed: Scope }): Promise<Scope>
-  /** Clears the binding (sign-out / session revocation) and notifies. */
+  /** Clears the cloud binding (sign-out / session revocation) and notifies;
+   *  the active identity returns to the device-local scope. */
   unbind(reason: string): void
   onBindingChanged(listener: (reason: 'bound' | 'unbound') => void): void
 }>
@@ -216,6 +251,32 @@ export function readSealedDesktopSession(dataDir: string): DesktopSessionCredent
   }
 }
 
+/**
+ * Loads — or mints once and persists — the device-local identity. The file is
+ * owner-only durable state under the shell's data directory; the renderer has
+ * no path to write or choose it, which is what keeps "the renderer never
+ * self-asserts a scope" true with no account in the picture.
+ */
+export function loadOrCreateLocalIdentity(dataDir: string, now?: () => number): Scope {
+  const store = createDurableJsonStore<LocalIdentityRecord>({
+    file: join(dataDir, 'dev-runtime', 'identity', 'local.json'),
+    schemaVersion: 1,
+    label: 'device-local identity',
+  })
+  const existing = store.load().records[0]
+  if (existing) return existing.scope
+  const record: LocalIdentityRecord = {
+    scope: {
+      accountId: randomUUID(),
+      workspaceId: randomUUID(),
+      runtimeNodeId: randomUUID(),
+    },
+    createdAt: new Date((now ?? (() => Date.now()))()).toISOString(),
+  }
+  store.save([record])
+  return record.scope
+}
+
 export function createDesktopIdentityAuthority(options: {
   dataDir: string
   verifier: DesktopIdentityVerifier
@@ -225,6 +286,7 @@ export function createDesktopIdentityAuthority(options: {
     throw new Error('the desktop identity authority requires a verifier')
   }
   const now = options.now ?? (() => Date.now())
+  const localScope = loadOrCreateLocalIdentity(options.dataDir, now)
   const store = createDurableJsonStore<BindingRecord>({
     file: join(options.dataDir, 'dev-runtime', 'identity', 'binding.json'),
     schemaVersion: 1,
@@ -243,6 +305,10 @@ export function createDesktopIdentityAuthority(options: {
     store.save(record ? [record] : [])
   }
 
+  function activeIdentity(): ActiveIdentity {
+    return activeIdentityOf(localScope, loadBinding())
+  }
+
   function sessionForRecheck(): DesktopSessionCredential | undefined {
     // The credential lives in the client's sealed vault; if the client signed
     // out or cleared it, eligibility can no longer be re-proven.
@@ -251,39 +317,35 @@ export function createDesktopIdentityAuthority(options: {
 
   return {
     currentScope() {
-      return loadBinding()?.scope
+      return activeIdentity().scope
+    },
+    identityKind() {
+      return activeIdentity().kind
     },
     assertCommandScope(scope) {
-      const binding = loadBinding()
-      if (!binding) {
-        throw new ChannelRejection(
-          'unauthenticated',
-          'no authenticated desktop identity is bound to this shell',
-          401
-        )
-      }
+      const active = activeIdentity().scope
       if (
-        binding.scope.accountId !== scope.accountId ||
-        binding.scope.workspaceId !== scope.workspaceId ||
-        binding.scope.runtimeNodeId !== scope.runtimeNodeId
+        active.accountId !== scope.accountId ||
+        active.workspaceId !== scope.workspaceId ||
+        active.runtimeNodeId !== scope.runtimeNodeId
       ) {
         throw new ChannelRejection(
           'channel_unauthorized',
-          'command scope does not match the authenticated identity binding',
+          'command scope does not match the active identity binding',
           403
         )
       }
     },
     async ensureNodeEligible() {
-      const binding = loadBinding()
-      if (!binding) {
-        throw new ChannelRejection('unauthenticated', 'identity binding is not present', 401)
-      }
+      const active = activeIdentity()
+      // The device-local node is the machine running the shell: the shell is
+      // the eligibility authority, and there is nothing to re-prove.
+      if (active.kind === 'guest') return
       // Every privileged operation re-proves eligibility: a node revoked at
       // any point fails the next command, not the next bind. There is no
       // TTL cache on purpose — fail closed beats fail fresh.
       const session = sessionForRecheck()
-      if (!session || session.sessionId !== binding.sessionId) {
+      if (!session || session.sessionId !== active.binding.sessionId) {
         throw new ChannelRejection(
           'runtime_node_unavailable',
           'runtime-node eligibility cannot be re-proven without the authenticated session',
@@ -293,8 +355,8 @@ export function createDesktopIdentityAuthority(options: {
       try {
         await options.verifier.verifyNodeEligibility({
           session,
-          workspaceId: binding.scope.workspaceId,
-          runtimeNodeId: binding.scope.runtimeNodeId,
+          workspaceId: active.binding.scope.workspaceId,
+          runtimeNodeId: active.binding.scope.runtimeNodeId,
         })
       } catch (error) {
         if (error instanceof ChannelRejection) throw error
@@ -338,18 +400,15 @@ export function createDesktopIdentityAuthority(options: {
         verifiedAt: new Date(now()).toISOString(),
         sessionExpiresAt: session.expiresAt,
       }
-      const previous = loadBinding()
+      const previous = activeIdentity().scope
       persistBinding(binding)
-      // A re-bind under a different scope (workspace/account switch) or a
-      // fresh bind invalidates channels minted under the old one.
+      // Any effective scope change — including the guest-to-cloud upgrade —
+      // invalidates channels minted under the previous one.
       if (
-        previous &&
-        (previous.scope.accountId !== claimed.accountId ||
-          previous.scope.workspaceId !== claimed.workspaceId ||
-          previous.scope.runtimeNodeId !== claimed.runtimeNodeId)
+        previous.accountId !== claimed.accountId ||
+        previous.workspaceId !== claimed.workspaceId ||
+        previous.runtimeNodeId !== claimed.runtimeNodeId
       ) {
-        for (const listener of listeners) listener('bound')
-      } else if (!previous) {
         for (const listener of listeners) listener('bound')
       }
       return claimed
@@ -357,6 +416,9 @@ export function createDesktopIdentityAuthority(options: {
     unbind(reason) {
       const previous = loadBinding()
       persistBinding(undefined)
+      // The device-local identity takes over; channels minted under the
+      // cloud binding are revoked and the next handshake rides the guest
+      // scope. The local identity itself is never rotated or deleted.
       if (previous) {
         for (const listener of listeners) listener('unbound')
       }

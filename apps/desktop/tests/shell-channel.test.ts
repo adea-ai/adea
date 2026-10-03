@@ -229,10 +229,15 @@ describe('channel authority', () => {
     const good = await authority.execute(frame(snapshotCommand()), { trusted: true })
     expect(good.ok).toBe(true)
     if (good.ok) {
-      expect(good.value).toMatchObject({
-        scope: SCOPE,
-        granted: ['dev.appLibrary.manage', 'dev.appearance.read'],
-      })
+      // The shell's own window holds the machine's full capability catalog:
+      // the projection gates UI availability, while the real authorization
+      // lives in scope admission and the command providers.
+      expect(good.value.scope).toEqual(SCOPE)
+      expect(good.value.granted).toContain('dev.appearance.read')
+      expect(good.value.granted).toContain('dev.files.read')
+      expect(good.value.granted).toContain('dev.terminal.attach')
+      expect(good.value.granted.length).toBeGreaterThan(20)
+      expect(good.value.unavailable).toEqual([])
     }
 
     // A valid frame whose proof was computed over a different command is
