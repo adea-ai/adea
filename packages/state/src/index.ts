@@ -60,6 +60,16 @@ export type WorkspaceState = {
   ) => void
 }
 
+// The load-time viewport that seeded `mobileSidebarOpen`, captured once at
+// module init beside the seed itself. Consumers (the workspace sidebar's
+// viewport guard) need the seed moment, not the current media state, to tell
+// a stale desktop-expanded seed from a navigation the user opened while the
+// shell was still mounting.
+const wideViewportAtLoad =
+  typeof window === 'undefined' ? false : window.matchMedia('(min-width: 48rem)').matches
+
+export { wideViewportAtLoad }
+
 function initialState(): WorkspaceState {
   // `set` writes a shallow merge into the Solid store, matching the previous
   // store's set semantics for every action below.
@@ -83,8 +93,7 @@ function initialState(): WorkspaceState {
     collapsedDevProjectIds: [],
     devFocusMode: false,
     drafts: {},
-    mobileSidebarOpen:
-      typeof window === 'undefined' ? true : window.matchMedia('(min-width: 48rem)').matches,
+    mobileSidebarOpen: wideViewportAtLoad,
     globalPanel: null,
     setCameraViewMode: (cameraViewMode) => set({ cameraViewMode }),
     setSelectedWorkspaceId: (selectedWorkspaceId) => set({ selectedWorkspaceId }),

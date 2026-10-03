@@ -54,6 +54,7 @@ import {
 } from '@adea-ai/ui/components/layout/sidebar-nav'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ShortcutKeys } from '@adea-ai/app-ui/components/shortcut-keys'
+import { wideViewportAtLoad } from '@adea-ai/state'
 
 import { keyedRows } from './keyed-rows'
 import type { WorkspaceNavigation } from './workspace-model'
@@ -342,7 +343,19 @@ export function WorkspaceSidebar(props: Props) {
       if (media.matches && !wasNarrow) props.onToggleMobile(false)
       setIsNarrowViewport(media.matches)
     }
-    updateViewport()
+    // This mount pass seeds the signal and nothing else: there is no viewport
+    // crossing at mount, so the live-crossing close above must not run here —
+    // it would read the not-yet-seeded signal as a desktop-to-narrow crossing
+    // and close a navigation the user opened while the shell was still
+    // mounting (issue #942). The one close that does belong at mount is the
+    // stale store seed: a workspace that loaded wide seeds the flag expanded,
+    // and if this sidebar mounts below 48rem (a resize during boot, or the
+    // Chat→Virtual route swap remounting it after the viewport moved) that
+    // flag is the desktop seed, not user intent — close it, or the Sheet pops
+    // open over the content. A workspace that loaded narrow has no stale
+    // seed, so its armed flag always survives this mount.
+    if (media.matches && wideViewportAtLoad && props.mobileOpen) props.onToggleMobile(false)
+    setIsNarrowViewport(media.matches)
     media.addEventListener('change', updateViewport)
     onCleanup(() => media.removeEventListener('change', updateViewport))
   })
