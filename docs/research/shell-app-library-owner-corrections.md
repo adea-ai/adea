@@ -116,3 +116,76 @@ live terminal from sequence zero, subject to runtime history retention. These
 source findings are not packaged/native acceptance. A focused production-entry
 Playwright regression is authored for the same-terminal/no-stop behavior, but
 was not run in this worker lane; integration browser evidence remains pending.
+
+## Verification checkpoint — 2026-10-03
+
+Branch `feat/757-window-toolbar-app-library`, first at `a47a3fbb` and then
+rebased onto `c2592cb0` (the toolchain/dependency update) with no
+shell-chrome source change: the correction's acceptance is already carried by
+the merged slices, so this checkpoint records the fresh verification pass, its
+residual findings, and the one evidence-lane addition. It is local
+production-composition evidence on the dev server; it is not packaged/native
+certification, and window dragging and the production backend lane remain
+unattested here as before.
+
+Acceptance-to-implementation evidence, all read at this revision: the themed
+integrated bar composes the published `TopBar` with `window-drag`/
+`window-no-drag` and the macOS traffic-light inset (`workspace-top-bar.tsx`),
+history and the contextual-sidebar toggle lead, runtime-resource, appearance
+and notification actions trail, and Dev portals its pane controls into the
+trailing mount; Virtual keeps the persistent rail and its contextual room
+navigation (`workspace-shell.tsx`, `virtual-room-controls.tsx`); the rail
+carries the Library icon below the workspace views with a separate Plugins
+entry (`global-workspace-rail.tsx`); enablement stays a compiled,
+catalog-independent rail-preference record with recovery, unknown-id
+preservation, and quarantine (`workspace-apps.ts`, `rail-preferences.ts`,
+`workspace-navigation.tsx`); activation authority and install-plan integrity
+stay fail-closed for external catalog records (`app-library.ts`); and the
+spec section in `docs/specs/dev-runtime.md` documents the same contract.
+
+Fresh checks on this worktree: `bun test --conditions=browser tests/unit` in
+`packages/workspace-ui` passes 104 tests; the web unit suite passes 183;
+`bun run lint` reports 0 warnings and 0 errors (16 turbo tasks plus the root
+scan); `bun run format:check` is clean; `bun run typecheck` passes 28 tasks;
+`bun run build` passes 14 tasks including the web client build and the
+Tailwind-sources verification; all of these were re-run green after the
+rebase onto `c2592cb0`. Headless Playwright over a worktree dev server
+on an isolated port passes the App Library navigation pair, the desktop
+session-continuity quartet (draft retention across Dev remount, late-attach
+fencing, refused-attach retry, single mounted session), the production
+navigation presentation probe, the cursor and tooltip gates, the guest and
+workspace-menu gates, and the workspace chrome/library gates including the
+new reduced-settings capture, the Library/Plugins separation and all-off
+recovery journey, the history traversal branch truncation, the Virtual
+integrated-chrome and room-designer gates, and the optional
+Kanban/Source-control journey (the last re-confirmed in isolation after one
+contended batch run). Install/enable persistence and
+session-continuity evidence remains carried by named tests, not by visual
+fixtures: `disabled views remain recoverable through the separate Library`, `a
+disabled requested view selects an enabled destination`, `all-off stale links
+remain in Library while enabling the first app`, `Rail drag-and-drop reorders
+views across disabled apps and persists after reload`, `App Library enables
+views separately from Plugins and remains reachable with all apps disabled`,
+and the desktop-runtime-chat quartet above.
+
+Residual findings, recorded deliberately: first, six `-darwin` pixel
+baselines for `workspace-room-populated-light`, `workspace-switcher`,
+`workspace-direct-agent`, `workspace-appearance-popover-light`,
+`workspace-settings-light`, and `appearance-panel-light` mismatched at roughly
+0.01% of pixels at `a47a3fbb` on an otherwise unmodified worktree, so the
+resting rendered output has drifted from the committed baselines and the
+visual lane owns a deliberate, attributed re-baseline (taken after
+`c2592cb0`'s dependency update, which is itself a candidate cause); this
+checkpoint does not re-baseline anything. Second, one themed-shell gate
+failed only after the dev server process died of V8 heap exhaustion mid-suite
+and passes on a healthy server; long single-server runs on a shared
+workstation need a raised heap. Third,
+the reduced-settings captures the acceptance asks for did not exist, so a
+focused keyboard-only gate now emulates reduced motion and reduced
+transparency, asserts the opaque `--surface-alpha` backstop and the collapsed
+motion duration, operates the contextual-sidebar toggle and the Library from
+the keyboard, and records chat and Library captures as evidence artifacts
+rather than baselines (`conventional-workspace.spec.ts`, "integrated chrome
+stays keyboard-operable under reduced motion and transparency"). The
+Browser-sidebar cross-view utility mount remains the amendment's declared
+follow-up with the trailing toggle mount contract preserved.
