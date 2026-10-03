@@ -91,18 +91,23 @@ function ownerConfirms(action = COMPUTER_USE_CONSENT_ACTION): string {
 
 function snapshotWith(
   accessibility: 'granted' | 'denied' | 'not_determined' | 'unavailable',
+  screenRecording: 'granted' | 'denied' | 'not_determined' | 'unavailable' = 'unavailable',
   hostPlatform: 'macos' | 'other' | 'unknown' = 'macos'
 ): MacPermissionsSnapshot {
+  const screenRecordingRow: MacPermissionsSnapshot['permissions'][number] =
+    screenRecording === 'unavailable'
+      ? {
+          id: 'screen_recording',
+          state: 'unavailable',
+          unavailableReason: 'capability_unavailable',
+          probedAt: '2026-09-19T00:00:00.000Z',
+        }
+      : { id: 'screen_recording', state: screenRecording, probedAt: '2026-09-19T00:00:00.000Z' }
   return {
     hostPlatform,
     permissions: [
       { id: 'accessibility', state: accessibility, probedAt: '2026-09-19T00:00:00.000Z' },
-      {
-        id: 'screen_recording',
-        state: 'unavailable',
-        unavailableReason: 'capability_unavailable',
-        probedAt: '2026-09-19T00:00:00.000Z',
-      },
+      screenRecordingRow,
       {
         id: 'notifications',
         state: 'unavailable',
@@ -371,17 +376,18 @@ describe('computer-use lane registry', () => {
 })
 
 describe('computer-use capability report', () => {
-  test('granted accessibility means input is available; capture and AX-tree are honestly unavailable', async () => {
+  test('granted probes mean input and capture are available; AX-tree stays honestly unavailable', async () => {
     const capabilities = createComputerUseCapabilityService({
       platform: 'darwin',
-      permissions: scriptedPermissions(snapshotWith('granted')),
+      permissions: scriptedPermissions(snapshotWith('granted', 'granted')),
     })
     const report = await capabilities.report()
     expect(report.hostPlatform).toBe('macos')
     const byId = new Map(report.capabilities.map((row) => [row.id, row]))
     expect(byId.get('input')?.state).toBe('available')
-    expect(byId.get('capture')?.state).toBe('unavailable')
-    expect(byId.get('capture')?.missingPiece).toBe(CAPTURE_MISSING_PIECE)
+    expect(byId.get('capture')?.state).toBe('available')
+    expect(byId.get('capture')?.permissionId).toBe('screen_recording')
+    expect(byId.get('ax_tree')?.state).toBe('unavailable')
     expect(byId.get('ax_tree')?.missingPiece).toBe(AX_TREE_MISSING_PIECE)
   }, 2000)
 
@@ -399,9 +405,35 @@ describe('computer-use capability report', () => {
     }
   }, 2000)
 
+  test('the capture row mirrors the screen-recording preflight exactly (#624)', async () => {
+    for (const [state, expected] of [
+      ['granted', 'available'],
+      ['denied', 'denied'],
+      ['not_determined', 'not_determined'],
+    ] as const) {
+      const capabilities = createComputerUseCapabilityService({
+        permissions: scriptedPermissions(snapshotWith('granted', state)),
+      })
+      const report = await capabilities.report()
+      const row = report.capabilities.find((entry) => entry.id === 'capture')
+      expect(row?.state).toBe(expected)
+      expect(row?.permissionId).toBe('screen_recording')
+    }
+    // An unanswerable preflight is typed-unavailable naming the missing piece,
+    // never a stand-in for a probed state.
+    const unprobeable = createComputerUseCapabilityService({
+      permissions: scriptedPermissions(snapshotWith('granted', 'unavailable')),
+    })
+    const report = await unprobeable.report()
+    const row = report.capabilities.find((entry) => entry.id === 'capture')
+    expect(row?.state).toBe('unavailable')
+    expect(row?.unavailableReason).toBe('capability_unavailable')
+    expect(row?.missingPiece).toBe(CAPTURE_MISSING_PIECE)
+  }, 2000)
+
   test('a non-macOS host reports unsupported_platform, never a fake row', async () => {
     const capabilities = createComputerUseCapabilityService({
-      permissions: scriptedPermissions(snapshotWith('unavailable', 'other')),
+      permissions: scriptedPermissions(snapshotWith('unavailable', 'unavailable', 'other')),
       platform: 'linux',
     })
     const report = await capabilities.report()
@@ -1333,7 +1365,7 @@ describe('computer-use registration', () => {
     expect(h.runtime.registeredCommandCount).toBe(9)
   })
 
-  test('read-direction frame streams close typed-incompatible (capture helper deferred)', () => {
+  test('read-direction frame streams close typed-incompatible while capture is not proven', () => {
     const h = harness()
     expect(h.streamHandler).toBeTypeOf('function')
     const closed: { code: string; reason?: string }[] = []
@@ -1346,7 +1378,7 @@ describe('computer-use registration', () => {
     }
     ;(h.streamHandler as (session: unknown) => void)(session)
     expect(closed[0]?.code).toBe('incompatible')
-    expect(closed[0]?.reason).toContain('deferred')
+    expect(closed[0]?.reason).toContain('capture is not proven')
   })
 
   test('write-direction frames route through the authority gate; refusals close the stream', async () => {

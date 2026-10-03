@@ -97,7 +97,7 @@ const capabilityReport = {
       id: 'capture',
       state: 'unavailable',
       unavailableReason: 'capability_unavailable',
-      missingPiece: 'the native capture helper is deferred',
+      missingPiece: 'the screen-recording preflight could not answer on this host',
       probedAt: now,
     },
     {

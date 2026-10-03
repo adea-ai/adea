@@ -3889,13 +3889,19 @@ Capability probing is honest per the permissions page's rules: a capability
 exists only where a probe or host tool can prove it. Input synthesis requires
 the accessibility grant (the `osascript` System Events probe proves it) and a
 fixed-argv input tool on the host. Screen capture requires the screen
-recording grant, whose native helper is deliberately deferred — until that
-helper lands, capture reports typed `capability_unavailable` naming the
-missing piece, and `dev.computeruse.capabilities` reports the row
-truthfully. Accessibility-tree reading has no authorized bridge in this lane
-and reports the same. Capability-missing and permission-denied states block
-launch with actionable guidance through the permissions page (denied
-accessibility routes to the exact Settings pane); TCC denial is never
+recording grant, which the JXA `CGPreflightScreenCaptureAccess` preflight
+measures for the responsible process without ever showing the consent prompt
+(issue #624): a `true` answer proves the capture capability available, and
+anything less — a `false` answer, an unanswered prompt, or a probe that
+cannot answer — keeps capture refused with the probed state or the exact
+missing piece; the preflight proves only granted and not-granted, so a
+`false` answer reports the fail-closed `denied` state and the Settings pane
+is the repair path for a refusal and a never-asked prompt alike.
+`dev.computeruse.capabilities` reports the row truthfully.
+Accessibility-tree reading has no authorized bridge in this lane
+and reports the same unavailable treatment. Capability-missing and
+permission-denied states block launch with actionable guidance through the
+permissions page (denied accessibility routes to the exact Settings pane); TCC denial is never
 silently degraded into a working-looking lane.
 
 The current packaged shell does not expose a native Screen Recording helper,
@@ -3907,11 +3913,11 @@ and reconnect smoke gates remain open until the host supplies those explicit
 bridges and records their permission identity, frame provenance, and
 generation revocation behavior.
 
-| Capability | Depends on                                             | This lane's honest state until proven otherwise                          |
-| ---------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
-| input      | accessibility grant + host input tool + active consent | `denied`/`not_determined`/`unavailable` mirrors the probe; never assumed |
-| capture    | screen recording grant + native capture helper         | `capability_unavailable` (native helper deferred)                        |
-| ax_tree    | accessibility bridge for tree reads                    | `capability_unavailable` (no authorized bridge in this lane)             |
+| Capability | Depends on                                                   | This lane's honest state until proven otherwise                                                             |
+| ---------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| input      | accessibility grant + host input tool + active consent       | `denied`/`not_determined`/`unavailable` mirrors the probe; never assumed                                    |
+| capture    | screen recording grant (preflight probe) + host capture tool | `denied`/`not_determined` mirrors the preflight; `capability_unavailable` only when the probe cannot answer |
+| ax_tree    | accessibility bridge for tree reads                          | `capability_unavailable` (no authorized bridge in this lane)                                                |
 
 Threat-model closure (see `docs/security/dev-view-threat-model.md`,
 TM-015–TM-017): agent-driven typing into privileged surfaces (password
@@ -4463,13 +4469,13 @@ one, never a polling interval) and no app restart.
 
 Capability matrix (permission × what this lane can honestly report):
 
-| Permission              | Probe (fixed argv)                                                                                                    | granted | denied                        | not_determined                              | unavailable              |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ------- | ----------------------------- | ------------------------------------------- | ------------------------ |
-| accessibility           | `osascript` System Events process count, 3 s deadline                                                                 | exit 0  | assistive-access refusal text | probe deadline hit (consent prompt pending) | other failures           |
-| automation_apple_events | `osascript` Apple Event to Finder, 3 s deadline                                                                       | exit 0  | `errAEEventNotPermitted` text | probe deadline hit                          | other failures           |
-| screen_recording        | none in this lane (native capture helper still deferred; computer-use capture stays typed-unavailable until it lands) | —       | —                             | —                                           | `capability_unavailable` |
-| notifications           | none in this lane                                                                                                     | —       | —                             | —                                           | `capability_unavailable` |
-| microphone              | none in this lane                                                                                                     | —       | —                             | —                                           | `capability_unavailable` |
+| Permission              | Probe (fixed argv)                                                           | granted | denied                                                                                                                         | not_determined                              | unavailable                   |
+| ----------------------- | ---------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- | ----------------------------- |
+| accessibility           | `osascript` System Events process count, 3 s deadline                        | exit 0  | assistive-access refusal text                                                                                                  | probe deadline hit (consent prompt pending) | other failures                |
+| automation_apple_events | `osascript` Apple Event to Finder, 3 s deadline                              | exit 0  | `errAEEventNotPermitted` text                                                                                                  | probe deadline hit                          | other failures                |
+| screen_recording        | JXA `CGPreflightScreenCaptureAccess` preflight (non-prompting), 3 s deadline | `true`  | `false` (not granted; the preflight cannot separate an unanswered prompt from a refusal, so the fail-closed state is reported) | — (the preflight never prompts)             | probe failure or deadline hit |
+| notifications           | none in this lane                                                            | —       | —                                                                                                                              | —                                           | `capability_unavailable`      |
+| microphone              | none in this lane                                                            | —       | —                                                                                                                              | —                                           | `capability_unavailable`      |
 
 `unavailable` is a first-class typed state (`capability_unavailable`,
 `unsupported_platform`), never a stand-in for denied or granted, and no

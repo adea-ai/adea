@@ -79,14 +79,39 @@ type PermissionProbe = Readonly<{
 }>
 
 /**
+ * The fixed JXA expression behind the screen-recording preflight (#624).
+ * `CGPreflightScreenCaptureAccess` (macOS 10.15+) answers whether the
+ * responsible process holds the Screen Recording TCC grant WITHOUT showing
+ * the consent prompt — the prompt is left to the OS and to the user's own
+ * settings visit, exactly like every other probe here. JXA's ObjC bridge
+ * needs `bindFunction` to expose the plain-C boolean function. TCC
+ * attribution follows the invoking process, so the packaged shell measures
+ * its own bundle's grant the same way the accessibility probe does.
+ */
+const SCREEN_RECORDING_PREFLIGHT_ARGV = [
+  '/usr/bin/osascript',
+  '-l',
+  'JavaScript',
+  '-e',
+  'ObjC.import("CoreGraphics"); ' +
+    'ObjC.bindFunction("CGPreflightScreenCaptureAccess", ["bool", []]); ' +
+    '$.CGPreflightScreenCaptureAccess()',
+] as const
+
+/**
  * One probe per permission. Probes that exist:
  * - accessibility: scripting System Events is gated by TCC Accessibility for
  *   the responsible process; the refusal text is unambiguous.
  * - automation_apple_events: sending Apple Events to Finder is gated by the
  *   Automation service; per-target grants are documented on the page.
- * Permissions without a command-line probe in this lane (screen recording,
- * notifications, microphone need the app's own API surface — a native helper
- * arrives with the computer-use slice, issue #472) report typed unavailability.
+ * - screen_recording: the non-prompting CoreGraphics preflight answers the
+ *   Screen Recording grant for the responsible process (issue #624). The
+ *   preflight proves exactly two states — granted and not-granted — so a
+ *   `false` answer reports the fail-closed `denied` state and never claims
+ *   to know whether a prompt was answered; the Settings pane is the repair
+ *   path for a refusal and for a never-asked prompt alike.
+ * Permissions without a command-line probe in this lane (notifications,
+ * microphone need the app's own API surface) report typed unavailability.
  */
 const PROBES: Readonly<Record<MacPermissionId, PermissionProbe>> = Object.freeze({
   accessibility: {
@@ -108,13 +133,31 @@ const PROBES: Readonly<Record<MacPermissionId, PermissionProbe>> = Object.freeze
     },
   },
   screen_recording: {
-    noProbeReason:
-      'no command-line probe exists for the screen-recording TCC service in this lane; ' +
-      'the native helper lands with the computer-use slice (issue #472)',
-    classify: (): ProbeResult => ({
-      state: 'unavailable',
-      unavailableReason: 'capability_unavailable',
-    }),
+    argv: SCREEN_RECORDING_PREFLIGHT_ARGV,
+    noProbeReason: '',
+    classify: (outcome: HostCommandOutcome): ProbeResult => {
+      if (outcome.exitCode === 0 && outcome.stdout.trim() === 'true') return { state: 'granted' }
+      if (outcome.exitCode === 0 && outcome.stdout.trim() === 'false') {
+        return {
+          state: 'denied',
+          detail:
+            'the screen-recording preflight answers not granted; it cannot separate an ' +
+            'unanswered prompt from a refusal, so the fail-closed state is reported',
+        }
+      }
+      if (outcome.timedOut) {
+        return {
+          state: 'unavailable',
+          unavailableReason: 'capability_unavailable',
+          detail: 'the screen-recording preflight did not answer in time',
+        }
+      }
+      return {
+        state: 'unavailable',
+        unavailableReason: 'capability_unavailable',
+        detail: firstLine(outcome.stderr) || 'the screen-recording preflight did not answer',
+      }
+    },
   },
   notifications: {
     noProbeReason:

@@ -65,7 +65,10 @@ export type ComputerUseRuntimeInput = Readonly<{
 }>
 
 const unavailableStream = (session: { close: (code: 'incompatible', reason?: string) => void }) =>
-  session.close('incompatible', 'desktop frame engine unavailable (native capture helper deferred)')
+  session.close(
+    'incompatible',
+    'desktop frame publication is unavailable (capture is not proven on this host)'
+  )
 
 export function registerComputerUseRuntime(input: ComputerUseRuntimeInput) {
   const lanes: ComputerUseLaneRegistry = createComputerUseLaneRegistry()
