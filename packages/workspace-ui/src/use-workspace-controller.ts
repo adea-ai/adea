@@ -43,6 +43,8 @@ import { projectWorkspaceNavigation, reconcileWorkspaceChannelSelection } from '
 import { useWorkspacePersistence } from './use-workspace-persistence'
 import { createClientRequestId } from './request-id'
 
+const taskInput = (task: TaskSummary, prefix: string) => command(prefix, task.version)
+
 function command(prefix: string, expectedVersion?: number) {
   const id = createClientRequestId()
   return {
@@ -140,7 +142,6 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     workspaceStore.getState().setSelectedRoomId(roomId ?? null)
     workspaceStore.getState().setSelectedChannelId(channelId)
   }
-  const taskInput = (task: TaskSummary, prefix: string) => command(prefix, task.version)
 
   return {
     get activeWorkspace() {

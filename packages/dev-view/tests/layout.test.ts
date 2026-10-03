@@ -173,25 +173,25 @@ describe('strict binary Dev layout', () => {
   })
 })
 
-describe('layout normalization and neighbors', () => {
-  const nested = () =>
-    createLayoutState({
-      kind: 'split',
-      id: 'root',
-      direction: 'row',
-      ratio: 0.5,
-      children: [
-        leaf('a'),
-        {
-          kind: 'split',
-          id: 'inner',
-          direction: 'column',
-          ratio: 0.5,
-          children: [leaf('b', 'editor'), leaf('c')],
-        },
-      ],
-    })
+const nested = () =>
+  createLayoutState({
+    kind: 'split',
+    id: 'root',
+    direction: 'row',
+    ratio: 0.5,
+    children: [
+      leaf('a'),
+      {
+        kind: 'split',
+        id: 'inner',
+        direction: 'column',
+        ratio: 0.5,
+        children: [leaf('b', 'editor'), leaf('c')],
+      },
+    ],
+  })
 
+describe('layout normalization and neighbors', () => {
   test('clamps out-of-range ratios and repairs non-finite ones to an even split', () => {
     const state = nested()
     const repaired = normalizeLayout({

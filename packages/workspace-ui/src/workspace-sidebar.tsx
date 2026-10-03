@@ -235,6 +235,10 @@ type Props = Readonly<{
   workspaceName: string
 }>
 
+const persistSidebarWidth = (nextWidth: number) => {
+  window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(nextWidth)))
+}
+
 export function WorkspaceSidebar(props: Props) {
   const [sidebar, setSidebar] = createSignal<HTMLElement>()
   const [sheetNav, setSheetNav] = createSignal<HTMLElement>()
@@ -353,10 +357,6 @@ export function WorkspaceSidebar(props: Props) {
     const width = clampSidebarWidth(nextWidth)
     applySidebarWidth(root, width)
     setSidebarWidth(width)
-  }
-
-  const persistSidebarWidth = (nextWidth: number) => {
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(nextWidth)))
   }
 
   const markAllRead = () => {

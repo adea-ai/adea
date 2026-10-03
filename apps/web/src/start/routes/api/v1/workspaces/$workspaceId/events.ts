@@ -115,6 +115,8 @@ async function get(request: Request, { params }: { params: { workspaceId: string
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (frame: string) => controller.enqueue(encoder.encode(frame))
+      // Captures release from the enclosing route handler.
+      // oxlint-disable-next-line unicorn/consistent-function-scoping
       const close = () => release()
 
       request.signal.addEventListener('abort', () => {

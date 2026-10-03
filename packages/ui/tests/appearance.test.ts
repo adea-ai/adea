@@ -632,27 +632,23 @@ describe('document application', () => {
   })
 })
 
-describe('the no-flash preload script', () => {
-  function runScript(storage: Record<string, string>, systemDark = false, osReduce = false) {
-    const { document, style, dataset, classes } = fakeDocument()
-    const window = {
-      matchMedia: (query: string) => ({
-        matches:
-          query === DARK_QUERY
-            ? systemDark
-            : query === REDUCED_TRANSPARENCY_QUERY
-              ? osReduce
-              : false,
-      }),
-    }
-    new Function('window', 'document', 'localStorage', appearanceThemeScript())(
-      window,
-      document,
-      memoryStorage(storage)
-    )
-    return { style, dataset, classes }
+function runScript(storage: Record<string, string>, systemDark = false, osReduce = false) {
+  const { document, style, dataset, classes } = fakeDocument()
+  const window = {
+    matchMedia: (query: string) => ({
+      matches:
+        query === DARK_QUERY ? systemDark : query === REDUCED_TRANSPARENCY_QUERY ? osReduce : false,
+    }),
   }
+  new Function('window', 'document', 'localStorage', appearanceThemeScript())(
+    window,
+    document,
+    memoryStorage(storage)
+  )
+  return { style, dataset, classes }
+}
 
+describe('the no-flash preload script', () => {
   test('a stored v2 preference restores the palette before first paint', () => {
     const { dataset, classes, style } = runScript({
       [APPEARANCE_STORAGE_KEY]: JSON.stringify({

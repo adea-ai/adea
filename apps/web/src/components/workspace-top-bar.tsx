@@ -58,6 +58,9 @@ export function WorkspaceTopBar(props: {
     } catch {
       // Storage and timing are optional; navigation itself remains available.
     }
+    // Captures the component's history position signal (also read in the
+    // default parameter, which the scoping rule does not count).
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const record = (action: string, index: unknown, maximum = position().maximum) => {
       const next = workspaceHistoryPosition(maximum, action, index)
       setPosition(next)

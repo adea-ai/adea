@@ -30,11 +30,11 @@
   },
   "dependencies": {
     "@adea-ai/types": "workspace:*",
-    "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.7",
+    "drizzle-orm": "^0.45.3",
+    "postgres": "^3.4.9",
     "server-only": "^0.0.1"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.31.4"
+    "drizzle-kit": "^0.31.11"
   }
 }

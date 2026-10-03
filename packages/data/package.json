@@ -42,11 +42,11 @@
     "@adea-ai/api-client": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@tanstack/solid-query": "^5.102.8",
+    "@tanstack/solid-query": "^5.104.1",
     "solid-js": "^1.9.15"
   },
   "devDependencies": {
-    "vite": "^8.0.14",
+    "vite": "^8.3.2",
     "vite-plugin-solid": "^2.11.14"
   }
 }
