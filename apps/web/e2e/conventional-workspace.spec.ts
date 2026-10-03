@@ -1472,12 +1472,17 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await expect(navigation.getByRole('region', { name: 'Conversations' })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-narrow-light.png', { animations: 'disabled' })
   await navigation.getByRole('button', { name: 'Close workspace navigation' }).click()
+  const contextualToggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
+  // Finish the sheet's close/focus-restoration transition before opening the
+  // next overlay, so Search captures a persistent opener rather than its
+  // departing close button.
+  await expect(navigation).not.toBeVisible()
+  await expect(contextualToggle).toBeFocused()
 
   await page.keyboard.press('Control+k')
   await expect(page.getByRole('dialog', { name: 'Search workspace' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Search workspace' })).not.toBeVisible()
-  const contextualToggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
   await expect(contextualToggle).toBeFocused()
   const workspaceMain = page.locator('#workspace-main')
   await workspaceMain.focus()
