@@ -318,11 +318,10 @@ jobs:
             exit 1
           fi
           if [[ -n "$RELEASE_VERSION" ]]; then
-            packaged_version="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version)' "$app/Contents/Resources/version.json")"
-            if [[ "$packaged_version" != "$RELEASE_VERSION" ]]; then
-              echo "Packaged native version $packaged_version does not match release $RELEASE_VERSION." >&2
-              exit 1
-            fi
+            # The outer installer contains an extractor and compressed app, not
+            # the installed app's version.json. Verify the payload identity.
+            packaged_version="$(node ../../../scripts/check-desktop-payload-version.mjs "$payload" "$RELEASE_VERSION")"
+            echo "Packaged native version verified: $packaged_version."
           fi
           echo "Stable bundle verified: shell binary, bundled CEF framework, branded app icon, packaged client, and the terminal sidecar are present (unsigned)."
 

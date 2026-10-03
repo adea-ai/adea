@@ -65,6 +65,13 @@ attaches the disk image, the self-contained app archive
 }
 ```
 
+The stable installer is an outer extractor bundle with a compressed app payload.
+The release verifier reads `Adea.app/Contents/Resources/version.json` from that
+payload and requires its native version to match the release tag. It does not
+read version identity from the outer wrapper, which contains extractor metadata
+rather than the installed app's version file. Missing or malformed identity and
+version mismatches fail packaging before artifacts or signed feeds are uploaded.
+
 ### Slim updates
 
 The lane also publishes `Adea-<tag>-macos-arm64-update.tar.zst`: the app layer
@@ -239,6 +246,10 @@ remain unchanged, and updates are strictly newer within the selected channel.
 `restart_required` and the app relaunches into the new bundle.
 
 ## Pinned by
+
+- `scripts/check-desktop-payload-version.test.ts`: installed payload identity,
+  absent outer version metadata, and rejection of missing, malformed, or stale
+  native versions before release publication.
 
 - `scripts/desktop-update-boundary.test.ts`: manifest validation (platform,
   host, digest, the `x.y.z-dev.N` grammar), Ed25519 signature verification and
