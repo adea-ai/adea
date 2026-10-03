@@ -1,10 +1,18 @@
 import type { Accessor } from 'solid-js'
-import { UpdateDialog } from '@adea-ai/ui/components/composites/update-dialog'
+import {
+  UpdateDialog,
+  type UpdateDialogProps,
+} from '@adea-ai/ui/components/composites/update-dialog'
 
 import { createUpdateDialogAdapter } from '../internal/version-dialog-adapter'
 import type { VersionDialogAdapter } from '../internal/version-dialog-adapter'
 
 export type { SharedDesktopUpdate, VersionDialogAdapter } from '../internal/version-dialog-adapter'
+
+export type VersionDialogChannelActions = Parameters<
+  NonNullable<UpdateDialogProps['channelControl']>
+>[0]
+export type VersionDialogChannelControl = NonNullable<UpdateDialogProps['channelControl']>
 
 export function VersionDialog(props: {
   adapter: VersionDialogAdapter
@@ -12,6 +20,7 @@ export function VersionDialog(props: {
   appIcon?: string
   restoreFocusRef?: Accessor<HTMLElement | undefined>
   fallbackVersion?: string
+  channelControl?: VersionDialogChannelControl
   onOpenChange?: (open: boolean) => void
   open?: boolean
 }) {
@@ -22,6 +31,7 @@ export function VersionDialog(props: {
       adapter={adapter}
       appIcon={props.appIcon}
       appName="Adea"
+      channelControl={props.channelControl}
       fallbackVersion={props.fallbackVersion}
       onOpenChange={props.onOpenChange}
       open={props.open}

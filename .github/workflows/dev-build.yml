@@ -6,10 +6,11 @@ name: Dev build
 # only to the dev channel and can never be promoted to stable (the promoter's
 # batch selector only matches the plain tag shape).
 #
-# The lane does not build anything itself: creating the release triggers
-# release-assets.yml through its `release: published` event, and that lane's
-# tag parser accepts the `-dev.N` shape — so a dev build and a stable run the
-# identical build, sign, and verify steps and differ only in version and
+# The lane publishes the release and explicitly dispatches release-assets.yml.
+# GitHub does not start a second workflow for a release created with
+# GITHUB_TOKEN; the dispatch uses actions:write and the asset lane's tag input.
+# Its tag parser accepts the `-dev.N` shape, so dev and stable runs share the
+# same build, signing, and verification steps and differ only in version and
 # visibility.
 #
 # Concurrency cancels superseded pushes: after a burst of merges the newest
@@ -22,6 +23,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
+  actions: write
   contents: write
 
 concurrency:
@@ -55,15 +57,24 @@ jobs:
           tag="v${base}-dev.${RUN_NUMBER}"
           echo "Dev version: ${base}-dev.${RUN_NUMBER} (anchored at stable ${base})"
 
-          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-            echo "Release $tag already exists; nothing to do."
-            exit 0
+          if ! gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            notes="$(printf 'Dev build of main @ %s.\n\nInstalls on the dev update channel only; never promoted to stable.' "$SHA")"
+            gh release create "$tag" --repo "$repo" \
+              --prerelease --target "$SHA" \
+              --title "Adea $tag" --notes "$notes"
           fi
 
-          notes="$(printf 'Dev build of main @ %s.\n\nInstalls on the dev update channel only; never promoted to stable.' "$SHA")"
-          gh release create "$tag" --repo "$repo" \
-            --prerelease --target "$SHA" \
-            --title "Adea $tag" --notes "$notes"
+          assets="$(gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name')"
+          archive="Adea-${tag}-macos-arm64.app.tar.zst"
+          if printf '%s\n' "$assets" | grep -Fxq 'latest.json' && \
+            printf '%s\n' "$assets" | grep -Fxq "$archive"; then
+            echo "Release $tag already has its signed update feed and app archive."
+          else
+            # Releases made with GITHUB_TOKEN do not emit a release event that
+            # starts other workflows. Explicit dispatch also repairs an
+            # existing release whose prior asset build never completed.
+            gh workflow run release-assets.yml --repo "$repo" --ref main -f tag="$tag"
+          fi
 
       - name: Prune old dev releases
         env:
