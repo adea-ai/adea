@@ -182,11 +182,9 @@ const identityCommands: Record<
     if (!session || !claimed) throw new Error('identity bind requires session and claimed scope')
     return identity.bind({ session, claimed })
   },
-  desktop_identity_scope: () => {
-    const scope = identity.currentScope()
-    if (!scope) throw new Error('no authenticated identity is bound')
-    return scope
-  },
+  // The device-local identity means this always answers: a signed-out shell
+  // projects its guest scope, so the Dev View works with no account.
+  desktop_identity_scope: () => identity.currentScope(),
   desktop_identity_unbind: () => {
     identity.unbind('owner sign-out')
     return null

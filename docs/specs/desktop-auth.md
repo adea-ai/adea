@@ -42,6 +42,37 @@ storage protection or packaged callback registration.
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
+## Device-local identity (guest mode)
+
+Sign-in is an upgrade, never a gate. The shell mints a durable device-local
+identity on first boot — a guest scope triple (account, workspace, runtime
+node) of random UUIDs persisted owner-only at `dev-runtime/identity/local.json`
+in the shell data directory — and every Dev Runtime command authorizes against
+it when no cloud binding exists. The identity is created by the shell, never
+asserted by the renderer, so the "renderer never self-asserts a scope" rule
+holds with no account in the picture; a command naming any other scope is
+refused `channel_unauthorized` exactly as before. The guest scope is never
+rotated or deleted: projects, sessions, worktrees, and history keyed to it
+survive restarts and every sign-in/sign-out cycle.
+
+Cloud sign-in supersedes the guest scope until sign-out. `desktop_identity_bind`
+keeps its full cloud verification (credential liveness, workspace membership,
+node pairing); a successful bind notifies the composition, which revokes every
+channel minted under the guest scope. Sign-out (`desktop_identity_unbind`)
+drops the cloud binding, revokes its channels, and returns to the SAME
+device-local scope — the signed-out surface is alive, not stranded.
+`ensureNodeEligible` re-proves against the cloud only while a cloud binding is
+active; the device-local node is the shell's own machine, where the shell is
+the eligibility authority.
+
+`desktop_identity_scope` therefore always answers with the active scope, and
+`identityKind()` reports `guest` or `cloud` — surfaces read that to keep
+sign-in an optional entry point for features that genuinely require an account
+(remote linking, mobile companion), not a first-run wall. Data migration
+between the guest scope and a cloud workspace is deliberately out of scope
+until a remote feature ships; today a bind starts authoring NEW work under the
+cloud scope and existing guest-keyed data stays device-local.
+
 ## One cloud origin
 
 `apps/desktop/scripts/cloud-config.mjs` owns the origin: `DEFAULT_CLOUD_ORIGIN`

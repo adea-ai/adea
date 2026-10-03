@@ -96,16 +96,11 @@ export function projectFirstRun(facts: FirstRunFacts): FirstRunProjection {
       [action('sign_in', 'Sign in')]
     )
 
-  // CP #552 grants no model entitlement to guest credentials. A stale or
-  // malformed entitlement projection must never let a guest launch anyway.
-  if (facts.identity === 'guest')
-    return projection(
-      'model_access',
-      'Sign in to start a conversation',
-      'Your guest workspace is ready. Sign in to use the included model access.',
-      [action('sign_in', 'Sign in for model access')]
-    )
-
+  // Identity never gates the conversation: a guest and a signed-in owner
+  // traverse the same stages. Model access on the desktop is the user's own
+  // harness (BYOK is the default model-access path), so `byok` proceeds
+  // exactly like a provisioned grant would; sign-in exists for features
+  // that genuinely need an account, not to start a conversation.
   if (facts.modelAccess === 'none')
     return projection(
       'model_access',

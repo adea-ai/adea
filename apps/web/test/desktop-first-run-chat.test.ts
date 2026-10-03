@@ -53,7 +53,7 @@ describe('desktop first-run authority projection', () => {
     expect(resolved.facts).toEqual({
       identity: 'signed_in',
       managedPi: { state: 'ready' },
-      modelAccess: 'unknown',
+      modelAccess: 'byok',
       projectReady: true,
       agentProfileReady: true,
     })
@@ -88,7 +88,7 @@ describe('desktop first-run authority projection', () => {
     expect(withoutProfile.facts.agentProfileReady).toBe(false)
   })
 
-  test('keeps guest model access gated even if a stale projection claims access', () => {
+  test('a guest traverses onboarding identically: BYOK is the model path, never a gate', () => {
     const resolved = resolveDesktopFirstRun({
       temporary: true,
       managedPi: { state: 'ready' },
@@ -98,7 +98,14 @@ describe('desktop first-run authority projection', () => {
     })
 
     expect(resolved.facts.identity).toBe('guest')
-    expect(resolved.facts.modelAccess).toBe('none')
+    expect(resolved.facts.modelAccess).toBe('byok')
+    expect(resolved.context).toEqual({
+      projectId: 'project-1',
+      repoId: 'repo-1',
+      worktreeId: 'worktree-1',
+      agentProfileId: 'profile-1',
+      agentProfileVersion: 7,
+    })
   })
 
   test('does not attach a deferred onboarding creation from a replaced scope', async () => {
