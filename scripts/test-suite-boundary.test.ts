@@ -163,7 +163,10 @@ describe('test suite boundaries', () => {
     )
     expect(workflow).toContain('node scripts/set-desktop-release-version.mjs "$RELEASE_VERSION"')
     expect(workflow).toContain('packaged_version')
-    expect(workflow).toContain('does not match release $RELEASE_VERSION')
+    expect(workflow).toContain(
+      'node ../../../scripts/check-desktop-payload-version.mjs "$payload" "$RELEASE_VERSION"'
+    )
+    expect(workflow).not.toContain('readFileSync(process.argv[1], "utf8")')
     const electrobunConfig = readFileSync(
       resolve(root, 'apps/desktop/shell/electrobun.config.ts'),
       'utf8'
