@@ -143,7 +143,7 @@
   "dependencies": {
     "@adea-ai/app-ui": "workspace:*",
     "@adea-ai/state": "workspace:*",
-    "@adea-ai/themes": "0.9.1",
+    "@adea-ai/themes": "0.9.3",
     "@adea-ai/types": "workspace:*",
     "@adea-ai/ui": "0.99.4",
     "@codemirror/commands": "^6.8.1",

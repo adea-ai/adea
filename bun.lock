@@ -151,7 +151,7 @@
       "dependencies": {
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/state": "workspace:*",
-        "@adea-ai/themes": "0.9.1",
+        "@adea-ai/themes": "0.9.3",
         "@adea-ai/types": "workspace:*",
         "@adea-ai/ui": "0.99.4",
         "@codemirror/commands": "^6.8.1",
@@ -200,7 +200,7 @@
       "name": "@adea-ai/app-ui",
       "version": "0.79.1",
       "dependencies": {
-        "@adea-ai/themes": "0.9.1",
+        "@adea-ai/themes": "0.9.3",
         "@adea-ai/ui": "0.99.4",
         "lucide-solid": "^1.45.0",
         "solid-js": "^1.9.15",
@@ -272,7 +272,7 @@
 
     "@adea-ai/state": ["@adea-ai/state@workspace:packages/state"],
 
-    "@adea-ai/themes": ["@adea-ai/themes@0.9.1", "", {}, "sha512-3KNAnEkSDlbW1caREV7dJmpbW+//6AZgkjrHzOvO3SS8tNcb8TdJHoPXhq4V7njxsVlR4NCcSQf/a877oWRgVw=="],
+    "@adea-ai/themes": ["@adea-ai/themes@0.9.3", "", {}, "sha512-ABV+sP+qQXPdat0600cJ4LuE3i7yiaijuWDUasDgcZro3c5uxFmnh4tPZ5G0/RyRO00z20RkrN8rAF0q82pvtQ=="],
 
     "@adea-ai/types": ["@adea-ai/types@workspace:packages/types"],
 
