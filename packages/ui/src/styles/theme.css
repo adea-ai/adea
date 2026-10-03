@@ -4,11 +4,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-.workspace-trigger-expanded:is([aria-expanded='true'], [data-expanded='true']) {
-  background-color: var(--muted);
-  color: var(--foreground);
-}
-
 :root {
   /* Brand marks use the published theme-invariant contrast pair. */
   --workspace-logo-surface: var(--scrim);
