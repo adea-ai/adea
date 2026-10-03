@@ -6,6 +6,8 @@ import { WorkspaceSettingsDialog } from '@adea-ai/workspace-ui/workspace-setting
 import type { WorkspaceSummary } from '@adea-ai/types'
 import type { TranscriptionProvider, WorkspacePreferences } from '@adea-ai/workspace-ui/platform'
 import { createDesktopSettingsProvider } from '../../src/lib/desktop-platform-services'
+import { localContentAuthority } from '../../src/lib/desktop-local-content'
+import { desktopMacPermissionsService } from '../../src/lib/desktop-permissions'
 
 let permissionRequests = 0
 let resolvePermission: ((state: 'granted') => void) | undefined
@@ -57,6 +59,9 @@ const workspace: WorkspaceSummary = {
  * section it exercises.
  */
 function Harness() {
+  const missingDesktopBridge = document
+    .querySelector('#harness-root')
+    ?.hasAttribute('data-missing-desktop-bridge')
   const [open, setOpen] = createSignal(true)
   return (
     <>
@@ -75,7 +80,9 @@ function Harness() {
         onSignIn={() => undefined}
         onSignOut={() => undefined}
         workspace={workspace}
+        permissionsService={missingDesktopBridge ? desktopMacPermissionsService : undefined}
         services={{
+          ...(missingDesktopBridge ? { privateContent: localContentAuthority } : {}),
           ...(document
             .querySelector('#harness-root')
             ?.matches('[data-microphone-retry], [data-microphone-delayed]')

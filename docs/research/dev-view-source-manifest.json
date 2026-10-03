@@ -749,7 +749,7 @@
             "src/renderer/src/components/notifications/mac-notification-permission-card.tsx"
           ],
           "tests": ["src/renderer/src/components/settings/DeveloperPermissionsPane.test.tsx"],
-          "action": "Translate the status pane and per-row action pattern (status chip copy and tone, Request vs Open Settings affordance, focus-return re-check, no nag loops) to a Solid pane over Adea tokens. States come only from the injected probe service port; the typed-unavailable service replaces the donor's Electron systemPreferences calls so the web lane renders honest Cannot-check rows. The donor's local-network connection test, USB/Bluetooth/Full Disk rows, and toast plumbing are out of M12 scope (no shipped feature needs them)."
+          "action": "Translate the status pane and per-row action pattern (status chip copy and tone, Request vs Open Settings affordance, focus-return re-check, no nag loops) to a Solid pane over Adea tokens. States come only from the injected probe service port; the typed-unavailable service replaces the donor's Electron systemPreferences calls so the web lane renders honest Cannot-check rows. The host Open Settings action catches synchronous bridge failures as well as promise rejections, clears pending state, and announces refusal without unmounting the pane. The donor's local-network connection test, USB/Bluetooth/Full Disk rows, and toast plumbing are out of M12 scope (no shipped feature needs them)."
         },
         {
           "donor": "orca",

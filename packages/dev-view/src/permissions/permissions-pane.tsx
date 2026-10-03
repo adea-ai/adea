@@ -88,17 +88,16 @@ export function PermissionsPane(props: { service?: MacPermissionsPageService }) 
     })
   }
 
-  const openSettings = (meta: { id: MacPermissionId; title: string }) => {
+  const openSettings = async (meta: { id: MacPermissionId; title: string }) => {
     setPending(meta.id)
-    void service()
-      .openSettings(meta.id)
-      .then(() => setAnnouncement(`System Settings opened for ${meta.title}.`))
-      .catch(() =>
-        setAnnouncement(`Could not open System Settings for ${meta.title} from this lane.`)
-      )
-      .finally(() => {
-        if (pending() === meta.id) setPending(undefined)
-      })
+    try {
+      await service().openSettings(meta.id)
+      setAnnouncement(`System Settings opened for ${meta.title}.`)
+    } catch {
+      setAnnouncement(`Could not open System Settings for ${meta.title} from this lane.`)
+    } finally {
+      if (pending() === meta.id) setPending(undefined)
+    }
   }
 
   // Donor window-focus refresh: flipping a permission in System Settings and

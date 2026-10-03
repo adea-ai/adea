@@ -98,3 +98,9 @@ closed or unmounted dialog cannot change its permission presentation.
 Plugins detail fields use published `CatalogDetail sectionsLayout="columns"`: one padded outlined card, responsive stacking, and shared column dividers. The app supplies its capabilities, connection, bundle, and activation data without overriding shared section padding or borders.
 
 An install refusal stays attached to its plugin and remains visible after returning to the catalog. Closing Plugins clears that attempt; late responses from a closed dialog or replaced provider cannot overwrite the reopened dialog.
+
+## Settings provider failures
+
+The local/private content health check treats synchronous host bridge failures
+and asynchronous provider refusals as unavailable. A late result from a closed
+dialog cannot change the reopened dialog's health state.
