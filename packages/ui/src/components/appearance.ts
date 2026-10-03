@@ -46,7 +46,7 @@ export type AppearancePreferencesV2 = Readonly<{
    * theme id pins that theme's terminal colours regardless of appearance.
    */
   terminalThemeId: 'theme' | string
-  /** `'theme'`, a built-in preset id, or a validated `#rrggbb` color. */
+  /** `'theme'`, a built-in preset id, a theme-carried `ansi-<slot>` id, or a validated `#rrggbb` color. */
   accent: 'theme' | string
   surface: 'opaque' | 'frosted' | 'translucent'
   reduceTransparency: boolean
@@ -265,6 +265,37 @@ export function accentPresetById(id: string): AccentPreset | undefined {
   return getAccent(id)
 }
 
+/** The protocol index of each accent slot in a terminal palette's ANSI order. */
+const ACCENT_SLOT_PROTOCOL_INDEX: Readonly<Record<string, number>> = {
+  blue: 4,
+  magenta: 5,
+  cyan: 6,
+  green: 2,
+}
+
+/**
+ * Whether an accent id names a theme-carried slot — the `ansi-<slot>` ids
+ * `themeAccentPresets` offers. The slot names mirror the catalogue's
+ * ACCENT_PREFERENCE ranking (its own suite pins that list); an id outside it
+ * falls through to the theme accent downstream, so a stale slot can never
+ * ship an unreadable color.
+ */
+export function isThemeAccentId(id: string): boolean {
+  return /^ansi-(blue|magenta|cyan|green)$/.test(id)
+}
+
+/**
+ * The variant's own value for a theme-accent id. Readability is not decided
+ * here: whatever comes back passes through the same 3:1 interaction gate as a
+ * preset or a custom color, which is how a stored slot survives landing on a
+ * theme whose palette cannot offer it.
+ */
+export function themeAccentValue(selection: string, variant: ThemeVariant): string | undefined {
+  if (!isThemeAccentId(selection)) return undefined
+  const protocolIndex = ACCENT_SLOT_PROTOCOL_INDEX[selection.slice('ansi-'.length)]
+  return variant.terminal.ansi[protocolIndex]
+}
+
 export type AccentRoles = Readonly<{
   /** Interactive primary. */
   primary: string
@@ -289,9 +320,12 @@ export function deriveAccentRoles(selection: string, variant: ThemeVariant): Acc
   let overrides = false
   if (selection !== 'theme') {
     const preset = accentPresetById(selection)
+    const themeSlot = themeAccentValue(selection, variant)
     const requested = preset
       ? parseColor(canonicalAccentValue(preset, variant.appearance))
-      : parseColor(selection)
+      : themeSlot
+        ? parseColor(themeSlot)
+        : parseColor(selection)
     if (requested) {
       primary = colorToHex(ensureContrast(requested, parseColor(background)!, 3))
       overrides = true
@@ -674,7 +708,7 @@ function normalizeThemeId(value: unknown, fallback: string): string {
 function normalizeAccent(value: unknown): string {
   if (value === 'theme') return 'theme'
   if (typeof value !== 'string') return 'theme'
-  if (accentPresetById(value)) return value
+  if (accentPresetById(value) || isThemeAccentId(value)) return value
   const parsed = parseColor(value)
   return parsed ? colorToHex(parsed) : 'theme'
 }
