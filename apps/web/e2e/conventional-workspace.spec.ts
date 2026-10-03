@@ -2222,6 +2222,50 @@ test.describe('touch workspace sidebar actions', () => {
     await expect(page.getByRole('menuitem', { name: 'Edit' })).toBeVisible()
   })
 
+  test('keeps a navigation opened during boot open when the sidebar mounts', async ({ page }) => {
+    await mockConnectedWorkspace(page)
+    // Hold the bootstrap response so the workspace shell stays on the loading
+    // skeleton: on loaded runners the sidebar tests press the toggle while
+    // the shell is still mounting, and the press below can then only arm the
+    // store's open flag before the sidebar (and its Sheet) exists.
+    let releaseBootstrap: (() => void) | undefined
+    const bootGate = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve
+    })
+    // Registered last, so this gate shadows mockConnectedWorkspace's
+    // bootstrap fulfilment while every other route falls through to it.
+    await page.route('**/api/workspaces/bootstrap', async (route) => {
+      await bootGate
+      return route.fallback()
+    })
+
+    await page.goto('/?view=chat')
+    const toolbar = page.getByLabel('Workspace toolbar')
+    const navigationToggle = toolbar.getByRole('button', {
+      name: /^(Expand|Collapse) contextual sidebar$/,
+    })
+    await expect(navigationToggle).toBeVisible()
+    await expect(page.locator('.conventional-workspace--loading')).toBeVisible()
+
+    await navigationToggle.press('Enter')
+
+    // Boot lands; the sidebar mounts with the open flag armed. The viewport
+    // guard used to misread that mount as a desktop-to-narrow crossing and
+    // force-close the flag, so the Sheet never appeared at all.
+    releaseBootstrap!()
+    const navigationDialog = page.getByRole('dialog')
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+    await expect(navigationDialog).toHaveAttribute('data-expanded', '')
+    await expect(sidebar).toBeVisible()
+    await expect(sidebar.locator('button:not(:disabled)').first()).toBeFocused()
+
+    // Give any late boot churn time to land, then re-assert: the Sheet must
+    // not flip closed on its own.
+    await page.waitForTimeout(1000)
+    await expect(navigationDialog).toHaveAttribute('data-expanded', '')
+    await expect(sidebar).toBeVisible()
+  })
+
   test('keeps Chat and Virtual navigation controls inside a 320px viewport at 200% root size', async ({
     page,
   }) => {
