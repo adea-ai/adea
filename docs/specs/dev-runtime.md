@@ -5638,6 +5638,38 @@ can distinguish intentional spec evolution from drift:
   `dev.appearance`/`dev.appLibrary` are clarified as capability-snapshot-only
   grants with `dev.capability.snapshot` as their sole consumer.
 
+- **2026-10-03 — #624: the computer-use lane publishes real screen frames
+  behind a typed screen-recording gate.** The `screen_recording` permission
+  row stopped being structurally unprobeable: a fixed-argv JXA
+  `CGPreflightScreenCaptureAccess` preflight (non-prompting, macOS 10.15+)
+  measures the responsible process's Screen Recording grant with the same
+  attribution and probe-honesty rules as the accessibility probe — `true`
+  proves granted, `false` reports the fail-closed `denied` state (the
+  preflight cannot separate an unanswered prompt from a refusal), and a probe
+  that cannot answer stays `capability_unavailable`. The computer-use
+  capture row mirrors the preflight exactly instead of the blanket
+  deferred-helper `unavailable`, and the read direction of
+  `desktop-frames-v1` publishes live frames: attach requires a fresh granted
+  answer (refusals close typed, never a fabricated frame), capture runs the
+  macOS `screencapture` host tool behind fixed argv with engine-owned temp
+  paths, frames are bounds-checked (4096×4096, 8 MiB; over-bounds is a typed
+  `limit_exceeded` — downscaling is not available in this lane), classified
+  `restricted_local` with honest `redacted: false` provenance before egress,
+  and delivered through the shared screencast pacer. Observation requires a
+  live consent record without consuming it
+  (`gate.verifyObservation`), revocation paths stop attached streams
+  synchronously, and a moved screen-recording state stops frames at the
+  first boundary after the consent freshness window. AX-tree reading stays
+  typed-unavailable (deliberately out of scope for #624). The shared
+  screencast pacer gained a delivery-ordering fix (a direct flush drops the
+  pending throttled frame instead of letting its stale timer invert the
+  wire order). No wire, registry, or limits change (the 163 operations
+  stand). Pinned by `apps/desktop/tests/shell-permissions.test.ts`,
+  `apps/desktop/tests/dev-runtime-computeruse.test.ts` (frame pipeline,
+  fences, throttle, revocation timing), and the screencast ordering stress
+  test in `apps/desktop/tests/dev-runtime-browser.test.ts`; packaged
+  real-TCC frame evidence stays an owner-side step (#542's lane).
+
 ## What pins this
 
 As implementation lands, each row MUST be replaced or augmented with exact test
@@ -5664,7 +5696,14 @@ files in the same commit:
   permission state is not granted or not fresh, bounded desktop-frame
   publication (one in-flight plus newest, 240 inputs/s), fixed-argv host
   tooling templates with scripted runners (no real capture or input in CI),
-  and typed-unavailable classification for capture and AX-tree reading;
+  typed-unavailable classification for AX-tree reading, and the #624
+  desktop-frames read stream: the capture row mirroring the screen-recording
+  preflight, typed attach refusals when capture is not proven (never a
+  fabricated frame, the capture source never invoked), classification-before-
+  egress provenance (`restricted_local`, `redacted: false`), screencast
+  throttling with grant-bound credit and ack-driven resume, over-bounds
+  refusal, and synchronous frame stops on takeover/kill-switch/session
+  teardown plus digest-move stops after the consent freshness window;
 - `apps/desktop/tests/shell-channel.test.ts` — the M10 channel/desktop
   boundary: no loopback or browsed-page privilege (trusted-origin gate,
   bootstrap handshake, proof/replay/expiry refusals, single-use grants,
@@ -5725,7 +5764,9 @@ files in the same commit:
   deep-link recovery, reorder, shelf, zoom/reduced-motion, and CSP-safe
   journeys;
 - macOS permissions (#471): `apps/desktop/tests/shell-permissions.test.ts`
-  pins the probe outcome matrix, fixed-argv discipline, settings deep-link
+  pins the probe outcome matrix (including the #624 screen-recording
+  preflight: `true`→granted, `false`→fail-closed denied, unanswerable→
+  `capability_unavailable`), fixed-argv discipline, settings deep-link
   table, and the `desktop_permissions_*` bridge commands;
   `packages/dev-view/tests/permissions-model.test.ts` pins presentation,
   action affordances, live-region announcements, and honest degradation;
