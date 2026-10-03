@@ -48,7 +48,11 @@ export function createDesktopSettingsProvider(
   })
 }
 
-export const desktopSettingsProvider = createDesktopSettingsProvider(invoke)
+export const desktopSettingsProvider = createDesktopSettingsProvider((command, args) =>
+  command === 'desktop_preferences_load'
+    ? invoke('desktop_preferences_load')
+    : invoke('desktop_preferences_save', args)
+)
 
 type NativeTranscriptionEvent =
   | Readonly<{ type: 'complete'; text: string }>
