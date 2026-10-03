@@ -128,9 +128,9 @@ export function DesktopWorkspaceEntry(props: {
       if (!requestIsCurrent()) return
       await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
       if (!requestIsCurrent()) return
-      workspaceStore
-        .getState()
-        .switchWorkspace(nextWorkspace.workspace.id, nextWorkspace.workspace.scene)
+      // The scene is a router fact; WorkspaceNavigation reconciles the URL to
+      // this workspace's scene once it mounts with the summary.
+      workspaceStore.getState().switchWorkspace(nextWorkspace.workspace.id)
       temporaryCredential = nextWorkspace.temporaryCredential
       setWorkspaceState(nextWorkspace)
       setStatus(activeSession ? 'authenticated' : 'guest')

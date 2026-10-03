@@ -56,6 +56,7 @@ import {
   lazy,
   onCleanup,
   onMount,
+  untrack,
 } from 'solid-js'
 import { Portal } from 'solid-js/web'
 
@@ -169,6 +170,12 @@ export type DevGroupFixture = Readonly<{
   projects: readonly DevProjectFixture[]
 }>
 
+/** A URL-owning host's current deep-link request (`?devProject=`/`?devSession=`). */
+export type DevWorkspaceDeepLinkSelection = Readonly<{
+  projectId?: string
+  sessionId?: string
+}>
+
 export type DevWorkspaceEntryProps = Readonly<{
   runtime: DevRuntimeService
   /** E2E/development fixtures only; production consumes the runtime projection. */
@@ -182,6 +189,26 @@ export type DevWorkspaceEntryProps = Readonly<{
    */
   sidebarActionMount?: HTMLElement
   appMode?: 'source-control'
+  /**
+   * The router's deep-link request, handed over by the URL-owning host. A
+   * present param wins over the store's corresponding field, so a link (or a
+   * back/forward step) re-requests its selection while a param the host has
+   * not written leaves the store in charge. Absent hosts run on the store.
+   */
+  deepLinkSelection?: () => DevWorkspaceDeepLinkSelection | undefined
+  /**
+   * Reports the resolved selection whenever it changes, so the URL-owning
+   * host can converge the address bar with one guarded navigation (write
+   * only when it actually differs) and presentation hints can follow the
+   * resolution. Pairs with `deepLinkSelection`; neither side mirrors the
+   * other through effects.
+   */
+  onSelectionChange?: (
+    selection: Readonly<{
+      projectId: string
+      sessionId: string | null
+    }>
+  ) => void
 }>
 
 function toDevGroups(projection: DevWorkspaceProjection): readonly DevGroupFixture[] {
@@ -518,6 +545,26 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const groups = () => fixtureGroups() ?? props.groups ?? projectedGroups()
   const selectedProjectState = useWorkspaceState((state) => state.selectedDevProjectId)
   const selectedSessionState = useWorkspaceState((state) => state.selectedRuntimeSessionId)
+  // The effective selection request: a present deep-link param wins over the
+  // store's field, per field. An empty param value counts as absent, matching
+  // the URLSearchParams semantics the host hands over.
+  const deepLinkRequest = () => {
+    const request = props.deepLinkSelection?.()
+    if (!request) return undefined
+    const projectId = request.projectId || undefined
+    const sessionId = request.sessionId || undefined
+    if (!projectId && !sessionId) return undefined
+    return { projectId, sessionId }
+  }
+  const requestedProjectId = () => deepLinkRequest()?.projectId ?? selectedProjectState()
+  const requestedSessionId = () => {
+    const request = deepLinkRequest()
+    // A deep-linked project request switches projects, so it resets the
+    // session request exactly like a sidebar project switch does; a
+    // session-only link refines the active project.
+    if (request?.projectId) return request.sessionId ?? null
+    return request?.sessionId ?? selectedSessionState()
+  }
   const collapsedGroupIds = useWorkspaceState((state) => state.collapsedDevGroupIds)
   const collapsedProjectIds = useWorkspaceState((state) => state.collapsedDevProjectIds)
   const focusMode = useWorkspaceState((state) => state.devFocusMode)
@@ -662,8 +709,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           })),
         }))
       ),
-      requestedProjectId: selectedProjectState(),
-      requestedSessionId: selectedSessionState(),
+      requestedProjectId: requestedProjectId(),
+      requestedSessionId: requestedSessionId(),
       scope: activeScope(),
       observedAt: projection()?.observedAt,
       staleAfterMs: PROJECTION_FRESHNESS_MS,
@@ -711,19 +758,38 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   createEffect(() => {
     // A defaulting mount (no requested IDs) is silent; recovery notices apply
     // only when a stored or deep-linked selection actually failed to resolve.
-    const hadRequest = Boolean(selectedProjectState() || selectedSessionState())
+    const hadRequest = Boolean(requestedProjectId() || requestedSessionId())
     const result = selection()
     if (result.status !== 'recovered') return
-    // Latch the visible notice before correcting the store: the correction
-    // flips the selection to resolved, which would otherwise unmount the
-    // banner in the same tick it appeared.
-    if (hadRequest && !recoveryNotice()) setRecoveryNotice(RECOVERY_COPY[result.reason])
-    const store = workspaceStore.getState()
-    if (store.selectedDevProjectId !== result.projectId)
-      store.setSelectedDevProjectId(result.projectId)
-    if (result.runtimeSessionId && store.selectedRuntimeSessionId !== result.runtimeSessionId)
-      store.setSelectedRuntimeSessionId(result.runtimeSessionId)
-    if (hadRequest) setAnnouncement(RECOVERY_COPY[result.reason])
+    if (hadRequest) {
+      // Latch the visible notice before the reporting effect below records
+      // the corrected selection, so the banner cannot unmount in the same
+      // tick it appeared.
+      if (!recoveryNotice()) setRecoveryNotice(RECOVERY_COPY[result.reason])
+      setAnnouncement(RECOVERY_COPY[result.reason])
+    }
+  })
+
+  // The Dev selection family in the shared store is this surface's own record
+  // of what it resolved; Dev View is its single writer (sidebar picks,
+  // recovery, and this reporting pass for deep-linked requests). The host
+  // receives the same report so a URL-owning shell converges the address bar
+  // with one guarded navigation, and presentation consumers (resources
+  // control, desktop chat hints) keep reading the store.
+  createEffect(() => {
+    const result = selection()
+    if (result.status === 'empty') return
+    // A project_empty recovery keeps the requested session record — the
+    // selection did not move to a live session.
+    const sessionId = result.runtimeSessionId || requestedSessionId() || null
+    untrack(() => {
+      const store = workspaceStore.getState()
+      if (store.selectedDevProjectId !== result.projectId)
+        store.setSelectedDevProjectId(result.projectId)
+      if (sessionId && store.selectedRuntimeSessionId !== sessionId)
+        store.setSelectedRuntimeSessionId(sessionId)
+      props.onSelectionChange?.({ projectId: result.projectId, sessionId })
+    })
   })
 
   const visiblePaneOf = (side: 'left' | 'right') => {
@@ -1402,13 +1468,20 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           onArchiveConfirmDelete={confirmArchiveDelete}
           onProjectSelect={(id) => {
             setRecoveryNotice('')
+            // Clicking the current project's row is a collapse toggle, not a
+            // selection change: reporting it would strip the URL's session
+            // param, trip recovery, and churn the sidebar mid-toggle. The
+            // selection state already matches what the row shows.
+            if (workspaceStore.getState().selectedDevProjectId === id) return
             workspaceStore.getState().setSelectedDevProjectId(id)
+            props.onSelectionChange?.({ projectId: id, sessionId: null })
           }}
           onSessionSelect={(projectId, sessionId) => {
             setRecoveryNotice('')
             const store = workspaceStore.getState()
             if (store.selectedDevProjectId !== projectId) store.setSelectedDevProjectId(projectId)
             workspaceStore.getState().setSelectedRuntimeSessionId(sessionId)
+            props.onSelectionChange?.({ projectId, sessionId })
           }}
           onToggleGroup={(id) => workspaceStore.getState().toggleDevGroupCollapsed(id)}
           onToggleProject={(id) => workspaceStore.getState().toggleDevProjectCollapsed(id)}

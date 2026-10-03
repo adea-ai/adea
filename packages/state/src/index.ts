@@ -1,9 +1,8 @@
 import { createEffect, createMemo, createRoot, type Accessor } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
-import type { WorkspaceSceneId, WorkspaceViewMode } from '@adea-ai/types'
+import type { WorkspaceViewMode } from '@adea-ai/types'
 
 export type WorkspaceState = {
-  selectedScene: WorkspaceSceneId
   cameraViewMode: WorkspaceViewMode
   selectedWorkspaceId: string | null
   selectedRoomId: string | null
@@ -23,14 +22,9 @@ export type WorkspaceState = {
   drafts: Readonly<Record<string, string>>
   mobileSidebarOpen: boolean
   globalPanel: 'about' | 'help' | 'plugins' | 'search' | 'settings' | null
-  setSelectedScene: (scene: WorkspaceSceneId) => void
   setCameraViewMode: (mode: WorkspaceViewMode) => void
   setSelectedWorkspaceId: (workspaceId: string | null) => void
-  switchWorkspace: (
-    workspaceId: string,
-    scene: WorkspaceSceneId,
-    options?: { preserveDevSelection?: boolean }
-  ) => void
+  switchWorkspace: (workspaceId: string, options?: { preserveDevSelection?: boolean }) => void
   setSelectedRoomId: (roomId: string | null) => void
   setSelectedChannelId: (channelId: string | null) => void
   setSelectedTaskId: (taskId: string | null) => void
@@ -72,7 +66,6 @@ function initialState(): WorkspaceState {
   const set = (partial: Partial<WorkspaceState>) => setStore(partial)
 
   return {
-    selectedScene: 'home',
     cameraViewMode: 'orthographic',
     selectedWorkspaceId: null,
     selectedRoomId: null,
@@ -93,10 +86,9 @@ function initialState(): WorkspaceState {
     mobileSidebarOpen:
       typeof window === 'undefined' ? true : window.matchMedia('(min-width: 48rem)').matches,
     globalPanel: null,
-    setSelectedScene: (selectedScene) => set({ selectedScene }),
     setCameraViewMode: (cameraViewMode) => set({ cameraViewMode }),
     setSelectedWorkspaceId: (selectedWorkspaceId) => set({ selectedWorkspaceId }),
-    switchWorkspace: (selectedWorkspaceId, selectedScene, options) =>
+    switchWorkspace: (selectedWorkspaceId, options) =>
       set({
         activeSurface: 'conversation',
         cameraViewMode: 'orthographic',
@@ -109,7 +101,6 @@ function initialState(): WorkspaceState {
         selectedAgentId: null,
         selectedChannelId: null,
         selectedRoomId: null,
-        selectedScene,
         selectedTaskId: null,
         selectedWorkspaceId,
         selectedRuntimeNodeId: null,

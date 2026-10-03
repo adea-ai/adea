@@ -2,7 +2,7 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { createEffect, createSignal, untrack, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, Show, type JSX } from 'solid-js'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useAgentListQuery } from '@adea-ai/data'
@@ -62,6 +62,8 @@ const DevWorkspace = lazyComponent(
           toolbarMount?: HTMLElement
           sidebarActionMount?: HTMLElement
           appMode?: 'source-control'
+          deepLinkSelection?: () => { projectId?: string; sessionId?: string } | undefined
+          onSelectionChange?: (selection: { projectId: string; sessionId: string | null }) => void
         }) => {
           const unavailable =
             entryProps.runtime ??
@@ -84,6 +86,8 @@ const DevWorkspace = lazyComponent(
               toolbarMount={entryProps.toolbarMount}
               sidebarActionMount={entryProps.sidebarActionMount}
               appMode={entryProps.appMode}
+              deepLinkSelection={entryProps.deepLinkSelection}
+              onSelectionChange={entryProps.onSelectionChange}
             />
           )
         }
@@ -342,9 +346,11 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
-  // Dev selection lives in the shared store; the URL effects below mirror it
-  // into `devProject`/`devSession` search params deterministically.
-  const devSelectedProjectId = useWorkspaceState((state) => state.selectedDevProjectId)
+  // Dev View records its resolved selection in the shared store (it is the
+  // field family's single writer); the URL request flows in through the
+  // `devDeepLinkSelection` prop and the resolution back through
+  // `applyDevSelection`, so nothing here mirrors the store into the URL. The
+  // session accessor feeds the desktop chat presentation hint only.
   const devSelectedSessionId = useWorkspaceState((state) => state.selectedRuntimeSessionId)
   // Rail customization is a device-local versioned preference with unknown-
   // contribution preservation; a corrupt record falls back without deleting
@@ -425,46 +431,27 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const setViewParam = (nextView: WorkspaceView) => applySearch({ view: nextView })
   const setScene = (nextScene: 'home' | 'work') => applySearch({ scene: nextScene })
 
-  // Dev deep links: `devProject`/`devSession` seed the shared selection store
-  // on arrival and follow it deterministically afterwards. A stale, archived,
-  // or cross-project link converges on the recovered selection (Dev View
-  // corrects the store; the effect below rewrites the URL) instead of pinning
-  // an invalid selection. Unknown query keys survive every patch because
-  // `applySearch` spreads the current search.
-  //
-  // This effect is URL-driven only: the store reads are untracked because the
-  // store proxy's property reads would subscribe it to the very fields it
-  // writes. Tracked, Dev View's recovery correction (stale/archived session →
-  // live session) re-triggers this effect, which re-applies the now-stale URL
-  // over the corrected store, which re-triggers recovery — an infinite
-  // synchronous effect loop that never yields to the router's search patch,
-  // leaving the lazy Dev boundary permanently unresolved.
-  createEffect(() => {
-    if (view() !== 'dev') return
-    const urlProject = currentSearch().devProject
-    const urlSession = currentSearch().devSession
-    untrack(() => {
-      const store = workspaceStore.getState()
-      if (urlProject && urlProject !== store.selectedDevProjectId) {
-        store.setSelectedDevProjectId(urlProject)
-        if (urlSession) workspaceStore.getState().setSelectedRuntimeSessionId(urlSession)
-        return
-      }
-      if (urlSession && urlSession !== store.selectedRuntimeSessionId)
-        workspaceStore.getState().setSelectedRuntimeSessionId(urlSession)
-    })
-  })
-  createEffect(() => {
-    if (view() !== 'dev') return
-    const projectId = devSelectedProjectId()
-    const sessionId = devSelectedSessionId()
+  // Dev deep links: the URL request flows into Dev View through one prop and
+  // the resolved selection flows back through one callback, so a stale,
+  // archived, or cross-project link converges on the recovered selection (Dev
+  // View corrects it; the guarded patch below rewrites the URL) instead of
+  // pinning an invalid selection. No effect mirrors the store into the URL or
+  // the URL into the store: the router owns the deep-linkable fact, Dev View
+  // owns the store's presentation record. Unknown query keys survive every
+  // patch because `applySearch` spreads the current search.
+  const devDeepLinkSelection = () => {
+    const query = currentSearch()
+    if (query.devProject === undefined && query.devSession === undefined) return undefined
+    return { projectId: query.devProject, sessionId: query.devSession }
+  }
+  const applyDevSelection = (selection: { projectId: string; sessionId: string | null }) => {
     const patch: Partial<WorkspaceSearch> = {}
-    if ((currentSearch().devProject ?? undefined) !== (projectId ?? undefined))
-      patch.devProject = projectId ?? undefined
-    if ((currentSearch().devSession ?? undefined) !== (sessionId ?? undefined))
-      patch.devSession = sessionId ?? undefined
-    if (patch.devProject !== undefined || patch.devSession !== undefined) applySearch(patch)
-  })
+    if ((currentSearch().devProject ?? undefined) !== (selection.projectId ?? undefined))
+      patch.devProject = selection.projectId
+    if ((currentSearch().devSession ?? undefined) !== (selection.sessionId ?? undefined))
+      patch.devSession = selection.sessionId ?? undefined
+    if ('devProject' in patch || 'devSession' in patch) applySearch(patch)
+  }
 
   // Deep-link params are router state the chat surface consumes through
   // accessors — reactive, so notification links apply on SPA navigation too.
@@ -503,7 +490,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     setSwitchingWorkspaceId(workspace.id)
     return Promise.resolve(props.onAuthorizeWorkspace?.(workspace.id))
       .then(() => {
-        workspaceStore.getState().switchWorkspace(workspace.id, workspace.scene)
+        workspaceStore.getState().switchWorkspace(workspace.id)
+        // The scene is a router fact: this navigation is the single write.
         void setScene(workspace.scene)
         return true
       })
@@ -559,13 +547,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     // menu, `?workspace=`) go through `switchToWorkspace`, which performs the
     // full reset deliberately.
     if (selectedWorkspaceId() !== activeWorkspace.id)
-      workspaceStore.getState().switchWorkspace(activeWorkspace.id, activeWorkspace.scene, {
+      workspaceStore.getState().switchWorkspace(activeWorkspace.id, {
         // A summary arrival that lands after a Dev deep link seeded (and
         // Dev View recovered) the selection must reconcile the workspace
         // without wiping that freshly recovered selection.
         preserveDevSelection: true,
       })
-    workspaceStore.getState().setSelectedScene(activeWorkspace.scene)
+    // The scene is a router fact. The workspace summary is the fact's
+    // authority; the URL below is its single mirror, and this one navigation
+    // (not a store write plus a param write) is what keeps it there.
     const currentScene = (search() as WorkspaceSearch).scene
     if (currentScene !== activeWorkspace.scene) void setScene(activeWorkspace.scene)
   })
@@ -773,6 +763,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                     toolbarMount={mount()}
                     sidebarActionMount={sidebarActionMount()}
                     appMode={activeAppId() === 'source-control' ? 'source-control' : undefined}
+                    deepLinkSelection={devDeepLinkSelection}
+                    onSelectionChange={applyDevSelection}
                   />
                 )}
               </Show>
