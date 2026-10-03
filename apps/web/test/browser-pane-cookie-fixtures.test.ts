@@ -60,12 +60,16 @@ describe('cookie fixture replies decode through the operations own decoders', ()
   test('the plan decodes for every fixture variant, blockers included', () => {
     for (const mode of ['ok', 'blocked', 'keychain', 'stale', 'sources-unavailable'] as const) {
       const reply = cookieImportPlanReply(
-        command('dev.browser.cookieImportPlan', {
-          browserLaneId: liveLane.id,
-          domains: [],
-          expectedGeneration: liveLane.generation,
-          sourceProfileId: 'chrome:Default',
-        }, laneResource),
+        command(
+          'dev.browser.cookieImportPlan',
+          {
+            browserLaneId: liveLane.id,
+            domains: [],
+            expectedGeneration: liveLane.generation,
+            sourceProfileId: 'chrome:Default',
+          },
+          laneResource
+        ),
         liveLane,
         mode
       )
@@ -82,12 +86,12 @@ describe('cookie fixture replies decode through the operations own decoders', ()
     )
     // A live lane refuses as invalid_state in every mode: the seam checks the
     // engine before it checks the plan.
-    expect(
-      decodeDevReply(cookieImportCommitReply(commitCommand, liveLane, 'ok'))
-    ).toMatchObject({ error: { code: 'invalid_state' } })
-    expect(
-      decodeDevReply(cookieImportCommitReply(commitCommand, liveLane, 'stale'))
-    ).toMatchObject({ error: { code: 'invalid_state' } })
+    expect(decodeDevReply(cookieImportCommitReply(commitCommand, liveLane, 'ok'))).toMatchObject({
+      error: { code: 'invalid_state' },
+    })
+    expect(decodeDevReply(cookieImportCommitReply(commitCommand, liveLane, 'stale'))).toMatchObject(
+      { error: { code: 'invalid_state' } }
+    )
 
     const committed = decodeDevReply(cookieImportCommitReply(commitCommand, stoppedLane, 'ok'))
     if (!committed.ok) throw new Error('the stopped-lane commit fixture must succeed')

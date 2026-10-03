@@ -9,13 +9,7 @@
  * carries no store path, a plan carries counts and domains, a commit result
  * carries counts. No cookie value or name exists anywhere in this module.
  */
-import type {
-  BrowserLane,
-  DevCommand,
-  DevError,
-  DevReply,
-  Scope,
-} from '@adea-ai/types/dev-runtime'
+import type { BrowserLane, DevCommand, DevError, DevReply, Scope } from '@adea-ai/types/dev-runtime'
 
 /**
  * Mirrors the wire `CookieSource` decoder (id, kind, label, availability) —
