@@ -629,6 +629,13 @@ async function resizeStorm(client) {
  * Slow-subscriber phase: one subscriber never acks while more than the 1 MiB
  * per-subscriber high-water streams past it. Exactly one resync notice may
  * arrive for it, and fresh output after a clearing ack must not re-notice.
+ *
+ * Both sentinel waits resolve on stream progress, not a fixed clock — the same
+ * rule the round sentinel already follows. A busy host can stretch delivery
+ * past any fixed window while bytes keep flowing (the 2026-09-25 acceptance
+ * attempt lost phase 211's tail sentinel to exactly that, on a machine that
+ * was running client builds and Playwright beside the soak), whereas a stream
+ * silent for STALL_MS is a finding whatever the wall clock says.
  */
 async function noAckResyncPhase(client, phaseIndex) {
   const marker = `SOAKSLOW ${phaseIndex} END`
@@ -644,9 +651,16 @@ async function noAckResyncPhase(client, phaseIndex) {
     return
   }
   await writeProducer(floodCommand(marker))
-  const done = await waitForMarker(marker, 180_000)
-  if (!done) {
-    fail('slow subscriber flood', 'sentinel never arrived')
+  const outcome = await waitForMarkerOrStall(marker)
+  if (outcome !== 'marker') {
+    fail(
+      'slow subscriber flood',
+      `phase ${phaseIndex}: ${
+        outcome === 'stalled'
+          ? `the stream delivered no bytes for ${STALL_MS}ms while the sentinel was outstanding`
+          : 'the sentinel did not arrive within the 900000ms ceiling'
+      }; ${JSON.stringify(attribution())}`
+    )
     return
   }
   await drainQuiescent()
@@ -665,12 +679,19 @@ async function noAckResyncPhase(client, phaseIndex) {
   const noticesAfter = resyncNotices.length
   const tailMarker = `SOAKSLOW ${phaseIndex} TAIL`
   await writeProducer(floodCommand(tailMarker))
-  const tailSeen = await waitForMarker(tailMarker, 180_000)
-  if (!tailSeen) {
+  const tailOutcome = await waitForMarkerOrStall(tailMarker)
+  if (tailOutcome !== 'marker') {
     // Unchecked, this was invisible: the phase returned while its tail was
     // still streaming, and the next round reported the tail as thousands of
     // duplicated producer records plus tens of kilobytes of extra volume.
-    fail('slow subscriber flood (tail)', `phase ${phaseIndex}: tail sentinel never arrived`)
+    fail(
+      'slow subscriber flood (tail)',
+      `phase ${phaseIndex}: ${
+        tailOutcome === 'stalled'
+          ? `the stream delivered no bytes for ${STALL_MS}ms while the tail sentinel was outstanding`
+          : 'the tail sentinel did not arrive within the 900000ms ceiling'
+      }; ${JSON.stringify(attribution())}`
+    )
   }
   await drainQuiescent()
   const reNotices = resyncNotices
