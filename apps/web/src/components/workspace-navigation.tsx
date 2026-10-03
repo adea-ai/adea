@@ -41,7 +41,7 @@ import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
-import { isDesktopRuntime } from '../lib/desktop-bridge'
+import { isDesktopRuntime, openExternalUrl } from '../lib/desktop-bridge'
 import { adeaFeedbackUrl } from '../lib/feedback'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
@@ -311,26 +311,31 @@ function appLibraryMoveAnnouncementFor(
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
   const [feedbackError, setFeedbackError] = createSignal('')
-  // Send Feedback opens GitHub's prefilled issue form in a new window. The
-  // browser gives no success signal (noopener returns null even on success),
-  // so only a thrown error surfaces the banner below.
+  // Send Feedback opens GitHub's prefilled issue form. The browser gives no
+  // success signal (noopener returns null even on success), so only a thrown
+  // error surfaces the banner below. On the desktop shell window.open cannot
+  // leave the CEF webview, so the link hands off to the system browser
+  // through the shell's external-link command.
   const openFeedback = (opener: HTMLButtonElement | undefined) => {
     void opener
-    try {
-      window.open(
-        adeaFeedbackUrl(props.services.app?.version, props.platform),
-        '_blank',
-        'noopener,noreferrer'
-      )
-      setFeedbackError('')
-    } catch (caught: unknown) {
-      setFeedbackError(
-        caught instanceof Error
-          ? `Could not open the Adea feedback form: ${caught.message}. Please try again.`
-          : 'Could not open the Adea feedback form. Please try again.'
-      )
-    }
+    const url = adeaFeedbackUrl(props.services.app?.version, props.platform)
+    const opening = isDesktopRuntime()
+      ? openExternalUrl(url)
+      : Promise.try(() => window.open(url, '_blank', 'noopener,noreferrer'))
+    void opening.then(
+      () => setFeedbackError(''),
+      (caught: unknown) => {
+        setFeedbackError(
+          caught instanceof Error
+            ? `Could not open the Adea feedback form: ${caught.message}. Please try again.`
+            : 'Could not open the Adea feedback form. Please try again.'
+        )
+      }
+    )
   }
+  // Project links (feedback, About's source, Help Center resources) share the
+  // same handoff: undefined on web lets the shared composites use anchors.
+  const openExternal = isDesktopRuntime() ? openExternalUrl : undefined
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
@@ -870,6 +875,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           onOpenChange={(next) => {
             if (!next) workspaceStore.getState().setGlobalPanel(null)
           }}
+          openExternal={openExternal}
           platform={props.platform}
           sourceUrl="https://github.com/adea-ai/adea"
           version={props.services.app?.version}
@@ -880,6 +886,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           appName={props.services.app?.name ?? 'Adea'}
           open
           onClose={() => workspaceStore.getState().setGlobalPanel(null)}
+          openExternal={openExternal}
         />
       </Show>
       <Show when={props.updates}>
