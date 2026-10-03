@@ -2912,6 +2912,61 @@ test('themed shell and Library remain usable across desktop and narrow layouts',
   await page.screenshot({ path: testInfo.outputPath('virtual-dark-mobile.png') })
 })
 
+test('integrated chrome stays keyboard-operable under reduced motion and transparency', async ({
+  page,
+}, testInfo) => {
+  await mockConnectedWorkspace(page)
+  // Reduced settings are OS-level choices. Emulate both before the app mounts
+  // so every stylesheet resolves under them, then operate the integrated bar
+  // and the Library by keyboard alone. The captures are evidence artifacts,
+  // not pixel baselines: the visual lane owns regression baselines.
+  await page.emulateMedia({ reducedMotion: 'reduce', reducedTransparency: 'reduce' })
+  await page.goto('/?view=chat')
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await expect(toolbar).toBeVisible()
+  // The OS backstops hold: frost clamps to an opaque surface and the
+  // workspace surface collapses its motion to the near-zero duration the
+  // reduced-motion rule imposes.
+  expect(
+    await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--surface-alpha').trim()
+    )
+  ).toBe('1')
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  await expect(sidebar).toBeVisible()
+  // Chromium serializes 0.01ms as "1e-05s"; compare the duration, not the
+  // engine's string form.
+  const transitionSeconds = await sidebar.evaluate(
+    (element) => Number.parseFloat(getComputedStyle(element).transitionDuration) || Number.NaN
+  )
+  expect(transitionSeconds).toBeCloseTo(0.00001, 6)
+
+  // Keyboard-only chrome operation: collapse and reopen the contextual
+  // sidebar from the integrated bar without touching the pointer.
+  const collapse = toolbar.getByRole('button', { name: 'Collapse contextual sidebar' })
+  await collapse.focus()
+  await page.keyboard.press('Enter')
+  await expect(sidebar).toBeHidden()
+  const expand = toolbar.getByRole('button', { name: 'Expand contextual sidebar' })
+  await expect(expand).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(sidebar).toBeVisible()
+  await page.mouse.move(0, 0)
+  await page.screenshot({ path: testInfo.outputPath('chat-reduced-settings-desktop.png') })
+
+  // The Library opens from the rail by keyboard and stays operable.
+  const libraryButton = page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('button', { name: 'App Library', exact: true })
+  await libraryButton.focus()
+  await page.keyboard.press('Enter')
+  const library = page.getByRole('main', { name: 'App Library' })
+  await expect(library).toBeVisible()
+  await expect(library.getByRole('searchbox', { name: 'Search apps', exact: true })).toBeVisible()
+  await page.mouse.move(0, 0)
+  await page.screenshot({ path: testInfo.outputPath('library-reduced-settings-desktop.png') })
+})
+
 test('Chat conversation surface follows the shared light and dark theme background', async ({
   page,
 }) => {
