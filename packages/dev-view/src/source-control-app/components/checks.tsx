@@ -52,6 +52,13 @@ function checkTone(check: GitHubCheck): { tone: StatusTone; label: string } {
   }
 }
 
+/** Failing first, then running, then the rest: what needs attention leads. */
+function checkRank(check: GitHubCheck): number {
+  if (failed(check)) return 0
+  if (check.status !== 'completed') return 1
+  return check.conclusion === 'skipped' || check.conclusion === 'neutral' ? 3 : 2
+}
+
 const failed = (check: GitHubCheck) =>
   check.status === 'completed' &&
   (check.conclusion === 'failure' ||
@@ -125,7 +132,10 @@ export function ChecksView(props: {
 
   const [checks, { refetch }] = createResource(
     () => ({ pr: props.pr.id, sha: sha() }),
-    async (source) => (await props.client.checks(source.pr, source.sha)).items
+    async (source) =>
+      (await props.client.checks(source.pr, source.sha)).items.toSorted(
+        (left, right) => checkRank(left) - checkRank(right) || left.name.localeCompare(right.name)
+      )
   )
   const summary = createMemo(() => {
     const list = checks() ?? []
@@ -282,6 +292,7 @@ export function ChecksView(props: {
                           variant="link"
                           size="sm"
                           aria-pressed={check.id === selected()}
+                          aria-label={`View log for ${check.name}`}
                           onClick={() => setSelected(check.id)}
                         >
                           View log

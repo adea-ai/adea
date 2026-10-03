@@ -16,6 +16,7 @@ import { displayLogin, relativeTime, shortSha } from '../model/format'
 import type { PullRequestView } from '../model/types'
 import type { AppActions } from './actions'
 import { Person, RollupChip } from './bits'
+import { RichText } from './rich-text'
 
 type Commit = Extract<GitHubTimelineItem, { kind: 'commit' }>
 type Thread = Extract<GitHubTimelineItem, { kind: 'thread' }>
@@ -159,7 +160,7 @@ export function ThreadCard(props: {
                 <span class="dev-scm-caption">
                   <Person actor={comment.author} /> {relativeTime(comment.createdAt, props.now)}
                 </span>
-                <p class="dev-scm-text">{comment.body}</p>
+                <RichText text={comment.body} />
               </div>
             </div>
           )}
@@ -261,7 +262,7 @@ export function Conversation(props: {
             when={(props.pr.body ?? '').trim().length > 0}
             fallback={<p class="dev-scm-text dev-scm-muted">No description provided.</p>}
           >
-            <p class="dev-scm-text">{props.pr.body}</p>
+            <RichText text={props.pr.body ?? ''} />
           </Show>
         </div>
       </article>
@@ -290,7 +291,7 @@ export function Conversation(props: {
                     </span>
                   </div>
                   <div class="dev-scm-card__body">
-                    <p class="dev-scm-text">{item().body}</p>
+                    <RichText text={item().body} />
                   </div>
                 </article>
               )}
@@ -306,7 +307,7 @@ export function Conversation(props: {
                     <Show when={item().body.trim().length > 0}>
                       <article class="dev-scm-card">
                         <div class="dev-scm-card__body">
-                          <p class="dev-scm-text">{item().body}</p>
+                          <RichText text={item().body} />
                         </div>
                       </article>
                     </Show>

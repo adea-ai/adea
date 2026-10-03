@@ -8,7 +8,7 @@ export const SOURCE_CONTROL_HARNESS_PATH = '/__adea-source-control-harness'
 export function sourceControlHarnessHtml(): string {
   return [
     '<!doctype html>',
-    '<html class="dark"><head><meta charset="utf-8"><title>Source control harness</title>',
+    '<html lang="en" class="dark"><head><meta charset="utf-8"><title>Source control harness</title>',
     '<style>html,body{margin:0;height:100%;}#harness-root{height:100vh;}</style>',
     '</head><body><div id="harness-root"></div></body></html>',
   ].join('')

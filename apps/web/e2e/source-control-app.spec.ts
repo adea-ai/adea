@@ -6,6 +6,7 @@
 // failing log, the new pull request dialog, the disconnected state, and
 // keyboard-only navigation, in dark and light.
 import { expect, test, type Page } from '@playwright/test'
+import axe from 'axe-core'
 
 import {
   SOURCE_CONTROL_HARNESS_PATH,
@@ -28,6 +29,32 @@ async function openHarness(page: Page, query = '') {
     .poll(() => page.evaluate(() => Boolean(window.sourceControlHarness)), { timeout: 30_000 })
     .toBe(true)
   await expect(page.getByRole('main', { name: 'Source control' })).toBeVisible({ timeout: 30_000 })
+}
+
+type Violation = { id: string; impact: string; targets: string[][] }
+
+async function audit(page: Page): Promise<Violation[]> {
+  await page.addScriptTag({ content: axe.source })
+  return page.evaluate(async () => {
+    const runner = window as unknown as {
+      axe: {
+        run: (
+          context: Document,
+          options: object
+        ) => Promise<{
+          violations: { id: string; impact: string; nodes: { target: string[] }[] }[]
+        }>
+      }
+    }
+    const result = await runner.axe.run(document, {
+      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] },
+    })
+    return result.violations.map(({ id, impact, nodes }) => ({
+      id,
+      impact,
+      targets: nodes.map(({ target }) => target),
+    }))
+  })
 }
 
 async function commands(page: Page): Promise<string[]> {
@@ -219,6 +246,10 @@ test.describe('source control app', () => {
     await expect(
       page.getByRole('heading', { name: /2 failing, 1 passing, 1 running, 1 skipped/ })
     ).toBeVisible()
+    // Failing runs lead the list; the first one's log opens by default.
+    await expect(page.getByRole('listitem').first()).toContainText('typecheck')
+    await expect(page.getByRole('region', { name: 'Log for typecheck' })).toBeVisible()
+    await page.getByRole('button', { name: 'View log for unit-tests' }).click()
     const log = page.getByRole('region', { name: 'Log for unit-tests' })
     await expect(log).toContainText('maps "unapproved" after approval')
     await expect(log).not.toContainText('case 1\n')
@@ -283,5 +314,18 @@ test.describe('source control app', () => {
       .click()
     await expect(page.getByRole('region', { name: 'Merge status' })).toBeVisible()
     await shot(page, '10-conversation-light')
+  })
+
+  test('inbox and pull request detail pass a WCAG 2.2 AA audit', async ({ page }) => {
+    await openHarness(page)
+    await expect(page.getByRole('heading', { name: 'Ready to merge', exact: true })).toBeVisible()
+    expect(await audit(page)).toEqual([])
+    await page
+      .getByRole('button', { name: /Migrate workspace store to Solid signals/ })
+      .first()
+      .click()
+    await expect(page.getByRole('region', { name: 'Merge status' })).toBeVisible()
+    await expect(page.getByText('Does rooms() ever return undefined')).toBeVisible()
+    expect(await audit(page)).toEqual([])
   })
 })

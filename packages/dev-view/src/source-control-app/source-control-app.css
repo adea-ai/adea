@@ -560,6 +560,15 @@
   overflow: auto;
 }
 
+/* Flex scroll columns: children keep their natural height and the column
+   scrolls, instead of every card shrinking to fit the viewport. */
+.dev-scm-files__list > *,
+.dev-scm-files__nav > *,
+.dev-scm-checks__run > *,
+.dev-scm-checks__commits > * {
+  flex: none;
+}
+
 @media (max-width: 70rem) {
   .dev-scm-files__nav {
     display: none;
@@ -673,7 +682,7 @@
 
 .dev-scm-check {
   display: grid;
-  grid-template-columns: 6rem minmax(8rem, 12rem) minmax(0, 1fr) 5rem auto;
+  grid-template-columns: 6rem minmax(10rem, 20rem) minmax(0, 1fr) 5rem auto;
   column-gap: 0.75rem;
   align-items: center;
   min-height: 2.25rem;
@@ -783,6 +792,71 @@
 
 .dev-scm-state {
   padding: 2rem 1.25rem;
+}
+
+/* ── Rich text (untrusted Markdown rendered as text nodes) ────────────── */
+
+.dev-scm-md {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dev-scm-md__paragraph {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.dev-scm-md__heading {
+  margin: 0.25rem 0 0;
+  font-weight: 600;
+}
+
+.dev-scm-md__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin: 0;
+  padding-inline-start: 1.25rem;
+  list-style: disc;
+}
+
+.dev-scm-md__list--ordered {
+  list-style: decimal;
+}
+
+.dev-scm-md__code {
+  padding: 0.0625rem 0.25rem;
+  border-radius: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125em;
+  background: var(--muted);
+}
+
+.dev-scm-md__pre {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  border-radius: 0.375rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  white-space: pre;
+  background: var(--surface-sunken, var(--muted));
+}
+
+.dev-scm-md__quote {
+  margin: 0;
+  padding-inline-start: 0.75rem;
+  border-inline-start: 0.1875rem solid var(--dev-border);
+  color: var(--dev-muted);
+}
+
+.dev-scm-md__link {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }
 
 @media (prefers-reduced-motion: reduce) {

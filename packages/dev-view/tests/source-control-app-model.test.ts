@@ -15,6 +15,7 @@ import {
   groupInbox,
 } from '../src/source-control-app/model/inbox'
 import { failureLines, logLines } from '../src/source-control-app/model/log'
+import { parseInline, parseMarkdown } from '../src/source-control-app/model/markdown'
 import { mergeDock, preferredMethod } from '../src/source-control-app/model/merge-dock'
 import {
   createAppStorage,
@@ -510,5 +511,76 @@ describe('format', () => {
     expect(relativeTime('2026-10-02T10:00:00.000Z', now)).toBe('yesterday')
     expect(duration('2026-10-03T12:00:00Z', '2026-10-03T12:06:12Z')).toBe('6 min 12 s')
     expect(duration('2026-10-03T12:00:00Z', '2026-10-03T12:00:58Z')).toBe('58 s')
+  })
+})
+
+describe('markdown reader', () => {
+  test('reads the GitHub description subset into a plain tree', () => {
+    const blocks = parseMarkdown(
+      [
+        '<!-- template comment -->',
+        '## What this does',
+        '',
+        'Moves **room ordering** into a `memo` and [links](https://example.com) _stay_ text.',
+        '',
+        '- [x] tests',
+        '- [ ] docs',
+        '',
+        '1. first',
+        '2. second',
+        '',
+        '```ts',
+        'const a = 1',
+        '```',
+        '',
+        '> quoted **text**',
+        '',
+        '| a | b |',
+        '| --- | --- |',
+        '| 1 | 2 |',
+        '<script>alert(1)</script>',
+      ].join('\n')
+    )
+    expect(blocks.map((block) => block.kind)).toEqual([
+      'heading',
+      'paragraph',
+      'list',
+      'list',
+      'code',
+      'quote',
+      'table',
+      'paragraph',
+    ])
+    expect(blocks[0]).toMatchObject({ kind: 'heading', level: 2 })
+    expect(blocks[1]).toMatchObject({
+      inlines: [
+        { kind: 'text', text: 'Moves ' },
+        { kind: 'strong', children: [{ kind: 'text', text: 'room ordering' }] },
+        { kind: 'text', text: ' into a ' },
+        { kind: 'code', text: 'memo' },
+        { kind: 'text', text: ' and ' },
+        { kind: 'link', href: 'https://example.com' },
+        { kind: 'text', text: ' ' },
+        { kind: 'em' },
+        { kind: 'text', text: ' text.' },
+      ],
+    })
+    expect(blocks[2]).toMatchObject({
+      ordered: false,
+      items: [{ checked: true }, { checked: false }],
+    })
+    expect(blocks[3]).toMatchObject({ ordered: true })
+    expect(blocks[4]).toEqual({ kind: 'code', text: 'const a = 1' })
+    // Raw HTML stays literal text; nothing becomes markup.
+    expect(blocks[7]).toEqual({
+      kind: 'paragraph',
+      inlines: [{ kind: 'text', text: '<script>alert(1)</script>' }],
+    })
+  })
+
+  test('snake_case words are not emphasis', () => {
+    expect(parseInline('use snake_case_name here')).toEqual([
+      { kind: 'text', text: 'use snake_case_name here' },
+    ])
   })
 })
