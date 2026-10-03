@@ -5,6 +5,11 @@ import {
   browserPaneHarnessHtml,
   browserPaneHarnessModuleSource,
 } from './helpers/dev-browser-pane-harness'
+import {
+  browserPaneFixtureScope,
+  fixtureCookiePlanDigest,
+  fixtureCookiePlanId,
+} from './helpers/dev-browser-pane-cookie-fixtures'
 import type { ScreenshotRef } from '@adea-ai/types/dev-runtime'
 
 test.use({ headless: true })
@@ -37,11 +42,7 @@ async function mountDevicesPane(page: import('@playwright/test').Page, query = '
 function screenshotReference(id: string, redacted = false): ScreenshotRef {
   return {
     id,
-    scope: {
-      accountId: 'browser-pane-fixture-account',
-      workspaceId: 'browser-pane-fixture-workspace',
-      runtimeNodeId: 'browser-pane-fixture-node',
-    },
+    scope: browserPaneFixtureScope,
     ownerId: 'browser-pane-fixture-owner',
     laneKind: 'task_owned',
     profileId: 'browser-pane-fixture-profile',
@@ -834,4 +835,157 @@ test('BrowserPane reports a typed annotate failure without clearing the draft', 
   const alert = annotate.getByRole('alert', { name: 'Annotation error' })
   await expect(alert).toContainText('stale_generation')
   await expect(annotate.getByRole('status').filter({ hasText: /Region at/ })).toBeVisible()
+})
+
+// ── Cookie import (#646): sources → preview → confirm ──────────────────────
+// The harness serves decoder-exact fixture replies for the three cookie
+// operations (pinned in apps/web/test/browser-pane-cookie-fixtures.test.ts),
+// so this lane renders the same wire shapes the packaged app decodes.
+
+function chromePreviewButton(pane: import('@playwright/test').Locator) {
+  return pane
+    .locator('.dev-browser__diagnostic', { hasText: 'Google Chrome — Default' })
+    .getByRole('button', { name: 'Preview import' })
+}
+
+test('BrowserPane cookie import renders typed sources, previews the value-free plan, and commits a stopped lane', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page)
+  await pane.getByRole('button', { name: 'Import cookies' }).click()
+
+  // One typed row per detected profile; a browser this runtime cannot read is
+  // a row that states why, never an absence that reads as "no browsers".
+  await expect(pane.getByText('Google Chrome — Default')).toBeVisible()
+  const firefoxRow = pane.locator('.dev-browser__diagnostic', { hasText: 'Firefox — dev' })
+  await expect(
+    firefoxRow.getByText('Locked by the browser. Quit it and reload the sources to import.')
+  ).toBeVisible()
+  await expect(firefoxRow.getByRole('button', { name: 'Preview import' })).toBeDisabled()
+  const safariRow = pane.locator('.dev-browser__diagnostic', { hasText: 'Safari' })
+  await expect(
+    safariRow.getByText('This profile stores cookies in a format this runtime cannot read.')
+  ).toBeVisible()
+  await expect(safariRow.getByRole('button', { name: 'Preview import' })).toBeDisabled()
+
+  const previewButton = chromePreviewButton(pane)
+  await expect(previewButton).toBeEnabled()
+  await previewButton.click()
+
+  const preview = pane.locator('.dev-browser__cookies-preview')
+  await expect(
+    preview.getByText('12 cookies to import · 4 cookies replaced · 3 skipped across 2 families.')
+  ).toBeVisible()
+  await expect(preview.getByText('example.com, github.com')).toBeVisible()
+  // The wire plan is value-free and so is the surface: nothing value-shaped
+  // may appear anywhere in the preview.
+  const previewText = await preview.innerText()
+  expect(previewText).not.toMatch(/value|token|secret/i)
+
+  // While the lane engine owns the profile the commit is a typed refusal, and
+  // the plan stays on screen so the reader can retry after stopping the lane.
+  await pane.getByRole('button', { name: 'Import to this lane' }).click()
+  await expect(pane.getByRole('alert')).toContainText(
+    'close the browser lane before importing cookies (lane is ready)'
+  )
+  await expect(preview).toContainText('12 cookies to import')
+
+  // Stop the lane; the same plan digest then commits.
+  await page.evaluate(() => window.browserPaneHarness.closeFixtureLane())
+  await pane.getByRole('button', { name: 'Import to this lane' }).click()
+  await expect(pane.getByText('12 cookies imported · 3 skipped.')).toBeVisible()
+  await expect(preview).toHaveCount(0)
+
+  // The plan binds the lane in its resource; the commit body is exactly the
+  // plan id plus digest — the lane never travels in the commit body.
+  const commands = await page.evaluate(() => window.browserPaneHarness.report().commands)
+  const planCommand = commands.find(
+    (command) => command.operation === 'dev.browser.cookieImportPlan'
+  )
+  expect(planCommand).toMatchObject({
+    body: {
+      browserLaneId: 'browser-pane-fixture-lane',
+      domains: [],
+      expectedGeneration: 7,
+      sourceProfileId: 'chrome:Default',
+    },
+    resource: { kind: 'browser_lane', id: 'browser-pane-fixture-lane', generation: 7 },
+  })
+  const commitCommands = commands.filter(
+    (command) => command.operation === 'dev.browser.cookieImportCommit'
+  )
+  expect(commitCommands).toHaveLength(2)
+  for (const commit of commitCommands) {
+    expect(Object.keys(commit.body).toSorted()).toEqual(['planDigest', 'planId'])
+    expect(commit.body).toEqual({
+      planDigest: fixtureCookiePlanDigest,
+      planId: fixtureCookiePlanId,
+    })
+    expect(commit.resource).toEqual({
+      kind: 'browser_lane',
+      id: 'browser-pane-fixture-lane',
+      generation: 7,
+    })
+  }
+})
+
+test('BrowserPane cookie import surfaces a denied Keychain as typed guidance, never an empty success', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page, '?cookies=keychain')
+  await pane.getByRole('button', { name: 'Import cookies' }).click()
+  await chromePreviewButton(pane).click()
+
+  await expect(pane.getByRole('alert')).toContainText(
+    'Keychain item could not be read; cookies are never written unencrypted'
+  )
+  // A refusal produces no plan and no commit affordance to pretend with.
+  await expect(pane.locator('.dev-browser__cookies-preview')).toHaveCount(0)
+  await expect(pane.getByRole('button', { name: 'Import to this lane' })).toHaveCount(0)
+})
+
+test('BrowserPane cookie import reports a stale plan instead of guessing what moved', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page, '?cookies=stale')
+  await pane.getByRole('button', { name: 'Import cookies' }).click()
+  await chromePreviewButton(pane).click()
+
+  const preview = pane.locator('.dev-browser__cookies-preview')
+  await expect(preview).toContainText('12 cookies to import')
+
+  await page.evaluate(() => window.browserPaneHarness.closeFixtureLane())
+  await pane.getByRole('button', { name: 'Import to this lane' }).click()
+  await expect(pane.getByRole('alert')).toContainText(
+    'lane generation moved to 8; preview the import again'
+  )
+  // The refused plan stays readable for the re-preview the guidance asks for.
+  await expect(preview).toContainText('12 cookies to import')
+})
+
+test('BrowserPane cookie import renders a failed source read as typed guidance, not an empty list', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page, '?cookies=sources-unavailable')
+  await pane.getByRole('button', { name: 'Import cookies' }).click()
+
+  await expect(pane.getByRole('alert')).toContainText('fixture cookie source read failed')
+  await expect(
+    pane.getByText(
+      'No browser profiles with a readable cookie store were detected on this machine.'
+    )
+  ).toHaveCount(0)
+})
+
+test('BrowserPane cookie import refuses the commit while the plan carries a blocker', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page, '?cookies=blocked')
+  await pane.getByRole('button', { name: 'Import cookies' }).click()
+  await chromePreviewButton(pane).click()
+
+  await expect(pane.getByRole('alert')).toContainText(
+    'the lane engine still owns this profile; close the lane before importing'
+  )
+  await expect(pane.getByRole('button', { name: 'Import to this lane' })).toBeDisabled()
 })

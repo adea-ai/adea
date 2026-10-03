@@ -4,7 +4,10 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { DevCommand } from '../../../packages/types/src/dev-runtime'
-import { devOperationDefinitions } from '../../../packages/types/src/dev-runtime'
+import {
+  devOperationDefinitions,
+  devOperationDecoders,
+} from '../../../packages/types/src/dev-runtime'
 
 import { createBrowserLaneRegistry } from '../shell/src/dev-runtime/browser/lane-registry'
 import { createScreenshotStore } from '../shell/src/dev-runtime/browser/screenshots'
@@ -357,9 +360,21 @@ describe('cookie sources (#610)', () => {
       const { providers } = harness({ cookieSourceHomeDir: () => home })
       const page = (await providers['dev.browser.cookieSources']!(
         command('dev.browser.cookieSources', {})
-      )) as { items: Array<Record<string, unknown>>; total: number }
+      )) as { items: Array<Record<string, unknown>>; observedAt: string }
 
-      expect(page.total).toBe(2)
+      // The reply must survive the operation's own decoder — #646's render
+      // lane consumes it through `decodeDevReply`, so a stray `total` count
+      // or a missing `observedAt` would fail closed on the client.
+      expect(() =>
+        devOperationDecoders['dev.browser.cookieSources'].reply({
+          schemaVersion: 1,
+          operation: 'dev.browser.cookieSources',
+          requestId: '00000000-0000-4000-8000-000000000004',
+          ok: true,
+          value: page,
+          observedAt: new Date(0).toISOString(),
+        })
+      ).not.toThrow()
       expect(page.items.map((item) => item.id).toSorted()).toEqual([
         'chrome:Default',
         'safari:legacy',
