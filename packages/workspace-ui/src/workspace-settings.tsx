@@ -110,6 +110,42 @@ export function WorkspaceSettingsDialog(props: {
   const [permissionState, setPermissionState] = createSignal<
     'denied' | 'granted' | 'idle' | 'prompt' | 'unavailable'
   >('idle')
+  const [permissionBusy, setPermissionBusy] = createSignal(false)
+  const [permissionError, setPermissionError] = createSignal<string | null>(null)
+  let disposed = false
+  let permissionRequest = 0
+  createEffect(() => {
+    // Closing/reopening or replacing the host invalidates pending permission work.
+    void props.open
+    void props.services?.transcription
+    permissionRequest += 1
+    setPermissionBusy(false)
+    setPermissionError(null)
+    setPermissionState('idle')
+  })
+  onCleanup(() => {
+    disposed = true
+  })
+  const checkMicrophone = async () => {
+    const transcription = props.services?.transcription
+    if (!transcription || permissionBusy()) return
+    const request = ++permissionRequest
+    setPermissionBusy(true)
+    setPermissionError(null)
+    const current = () =>
+      !disposed &&
+      permissionRequest === request &&
+      props.open &&
+      props.services?.transcription === transcription
+    try {
+      const state = await transcription.requestPermission()
+      if (current()) setPermissionState(state)
+    } catch {
+      if (current()) setPermissionError('Microphone access could not be checked. Try again.')
+    } finally {
+      if (!disposed && permissionRequest === request) setPermissionBusy(false)
+    }
+  }
   const [privateHealth, setPrivateHealth] = createSignal<'available' | 'checking' | 'unavailable'>(
     props.services?.privateContent ? 'checking' : 'unavailable'
   )
@@ -489,16 +525,18 @@ export function WorkspaceSettingsDialog(props: {
           >
             <Button
               type="button"
-              disabled={!props.services?.transcription}
-              onClick={() =>
-                void props.services?.transcription
-                  ?.requestPermission()
-                  .then((state) => setPermissionState(state))
-              }
+              disabled={!props.services?.transcription || permissionBusy()}
+              aria-busy={permissionBusy()}
+              onClick={() => void checkMicrophone()}
             >
               {permissionState() === 'idle' ? 'Check microphone' : permissionState()}
             </Button>
           </SettingsRow>
+          <Show when={permissionError()}>
+            <p class="conventional-settings-note" role="alert">
+              {permissionError()}
+            </p>
+          </Show>
           <SettingsRow
             title="Dictation language"
             detail="Leave blank to follow the operating-system language."
