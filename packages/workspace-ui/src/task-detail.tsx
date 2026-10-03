@@ -4,14 +4,14 @@ import {
   Bot,
   Check,
   CheckCircle2,
-  ChevronDown,
+  CircleSlash,
   MessageCircle,
   Play,
   Plus,
   Send,
   Square,
 } from 'lucide-solid'
-import { createMemo, createSignal, For, Show } from 'solid-js'
+import { createMemo, createSignal, createUniqueId, For, type JSX, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
 import {
@@ -27,14 +27,15 @@ import {
 } from '@adea-ai/ui/components/ui/alert-dialog'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@adea-ai/ui/components/ui/dropdown-menu'
 import { FormField } from '@adea-ai/ui/components/ui/field'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@adea-ai/ui/components/ui/select'
 import {
   Sheet,
   SheetBody,
@@ -49,13 +50,7 @@ import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import { keyedRows } from './keyed-rows'
 import type { PrivateContentResolver } from './platform'
 import { RoomIcon } from './room-icon'
-import {
-  kindOption,
-  kindOptions,
-  laneFor,
-  priorityOption,
-  priorityOptions,
-} from './task-presentation'
+import { kindOptions, laneFor, priorityOptions } from './task-presentation'
 
 type TaskUpdate = Readonly<{
   kind?: TaskSummary['kind']
@@ -68,6 +63,8 @@ type SharedProps = Readonly<{
   agents: readonly AgentSummary[]
   busy: boolean
   onClose: () => void
+  /** Reports a write that failed after the panel closed. */
+  onError?: (message: string) => void
   privateContent?: PrivateContentResolver
   rooms: readonly RoomSummary[]
   tasks: readonly TaskSummary[]
@@ -105,16 +102,86 @@ type EditProps = SharedProps &
 
 const TITLE_LIMIT = 200
 const OBJECTIVE_LIMIT = 20_000
+const NONE = ''
+
+type PickerOption = Readonly<{ value: string; label: string; Icon: () => JSX.Element }>
 
 /**
- * Creates or edits one Task in an end-anchored panel, the same panel shape the
- * Appearance settings use: a titled header, a scrolling body and a footer that
- * holds the decision. The board stays where it is behind it, so opening a task
- * never moves the lanes.
+ * A labelled Select. The shared Select does not read FormField's context, so
+ * the visible label names the trigger through `aria-labelledby` instead.
+ */
+function PickerField(
+  props: Readonly<{
+    label: string
+    value: string
+    options: readonly PickerOption[]
+    disabled?: boolean
+    onChange: (value: string) => void
+  }>
+) {
+  const labelId = createUniqueId()
+  const selected = () => props.options.find((option) => option.value === props.value)
+  return (
+    <div class="conventional-task-panel__field">
+      <span id={labelId} class="conventional-task-panel__label">
+        {props.label}
+      </span>
+      <Select<PickerOption>
+        options={[...props.options]}
+        value={selected()}
+        onChange={(option) => option && props.onChange(option.value)}
+        optionValue="value"
+        optionTextValue="label"
+        disabled={props.disabled}
+        itemComponent={(item) => (
+          <SelectItem item={item.item}>
+            <span class="conventional-task-panel__option">
+              <Dynamic component={item.item.rawValue.Icon} />
+              {item.item.rawValue.label}
+            </span>
+          </SelectItem>
+        )}
+      >
+        <SelectTrigger class="w-full" aria-labelledby={labelId}>
+          <SelectValue>
+            {() => (
+              <span class="conventional-task-panel__option">
+                <Show when={selected()}>{(option) => <Dynamic component={option().Icon} />}</Show>
+                {selected()?.label}
+              </span>
+            )}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent />
+      </Select>
+    </div>
+  )
+}
+
+const iconOption = (
+  value: string,
+  label: string,
+  Icon: (props: { 'aria-hidden'?: 'true' }) => JSX.Element
+): PickerOption => ({ value, label, Icon: () => <Icon aria-hidden="true" /> })
+
+const kindPickerOptions = kindOptions.map((option) =>
+  iconOption(option.value, option.label, option.Icon)
+)
+const priorityPickerOptions = priorityOptions.map((option) =>
+  iconOption(option.value, option.label, option.Icon)
+)
+
+/**
+ * Creates or edits one Task in an inset Sheet — the same docked panel the
+ * Appearance settings use: a heading over a rule, a scrolling body and a
+ * full-width footer that holds the decision. The board stays where it is.
  *
- * Edits are a draft until Save. Escape, the close button and Cancel all discard
- * it, the way every other panel in the product behaves; lifecycle actions
- * (Start, Complete…) apply at once because they are moves, not edits.
+ * Edits are a draft. Save is offered only while there is something to save, and
+ * saving closes the panel at once: the board already shows the change (task
+ * writes are optimistic), and a write the server refuses is reported on the
+ * board. Escape, the close button and Cancel discard the draft. Lifecycle
+ * actions (Start, Complete…) apply immediately because they are moves, not
+ * edits.
  */
 export function TaskPanel(props: CreateProps | EditProps) {
   const editing = () => (props.mode === 'edit' ? props : undefined)
@@ -138,9 +205,6 @@ export function TaskPanel(props: CreateProps | EditProps) {
 
   const trimmedTitle = () => title().trim()
   const trimmedObjective = () => objective().trim()
-  const selectedRoom = createMemo(() =>
-    roomId() ? props.rooms.find(({ id }) => id === roomId()) : undefined
-  )
   const titleChanged = () => trimmedTitle() !== (initial?.title ?? '')
   const objectiveChanged = () =>
     (trimmedObjective() || undefined) !== (initial?.objective ?? undefined)
@@ -159,7 +223,37 @@ export function TaskPanel(props: CreateProps | EditProps) {
     agentChanged() ||
     roomChanged() ||
     dependenciesChanged()
+  const titleValid = () => trimmedTitle().length > 0 && trimmedTitle().length <= TITLE_LIMIT
+  const canSave = () =>
+    !saving() && !props.busy && titleValid() && (props.mode === 'create' || dirty())
   const fieldsDisabled = () => props.busy || saving()
+
+  // Refetches hand these lists fresh object identities; keying by id keeps the
+  // open list's rows (and their hover/focus) stable.
+  const roomRows = keyedRows(
+    () => props.rooms,
+    (room) => room.id
+  )
+  const agentRows = keyedRows(
+    () => props.agents,
+    (agent) => agent.id
+  )
+  const roomOptions = createMemo<PickerOption[]>(() => [
+    { value: NONE, label: 'No room', Icon: () => <CircleSlash aria-hidden="true" /> },
+    ...roomRows().map((entry) => ({
+      value: entry.item().id,
+      label: entry.item().name,
+      Icon: () => <RoomIcon functionKey={entry.item().functionKey} />,
+    })),
+  ])
+  const agentOptions = createMemo<PickerOption[]>(() => [
+    { value: NONE, label: 'Unassigned', Icon: () => <CircleSlash aria-hidden="true" /> },
+    ...agentRows().map((entry) => ({
+      value: entry.item().id,
+      label: entry.item().name,
+      Icon: () => <Bot aria-hidden="true" />,
+    })),
+  ])
 
   const dependencyCandidates = createMemo(() =>
     props.tasks.filter(
@@ -168,16 +262,6 @@ export function TaskPanel(props: CreateProps | EditProps) {
         task.lifecycleState !== 'archived' &&
         task.title.toLowerCase().includes(dependencyQuery().trim().toLowerCase())
     )
-  )
-  // Refetches hand these lists fresh object identities; keying by id keeps the
-  // open dropdown's rows (and their hover/focus) stable.
-  const roomRows = keyedRows(
-    () => props.rooms,
-    (room) => room.id
-  )
-  const agentRows = keyedRows(
-    () => props.agents,
-    (agent) => agent.id
   )
   const dependencyRows = keyedRows(dependencyCandidates, (task) => task.id)
   const toggleDependency = (taskId: string) =>
@@ -198,65 +282,64 @@ export function TaskPanel(props: CreateProps | EditProps) {
     return true
   }
 
+  /** The writes a Save makes, in order, each against the version the last left. */
+  const pendingWrites = (edit: EditProps) => {
+    const writes: ((task: TaskSummary) => Promise<void>)[] = []
+    const update: {
+      kind?: TaskSummary['kind']
+      objective?: string
+      priority?: TaskSummary['priority']
+      title?: string
+    } = {}
+    if (titleChanged()) update.title = trimmedTitle()
+    if (objectiveChanged() && trimmedObjective().length <= OBJECTIVE_LIMIT)
+      update.objective = trimmedObjective()
+    if (kindChanged()) update.kind = kind()
+    if (priorityChanged()) update.priority = priority()
+    if (Object.keys(update).length) writes.push((task) => edit.onUpdate(task, update))
+    const nextAgent = agentId()
+    const nextRoom = roomId()
+    const nextDependencies = dependencyIds()
+    if (agentChanged()) writes.push((task) => edit.onAssign(task, nextAgent))
+    if (roomChanged()) writes.push((task) => edit.onMoveRoom(task, nextRoom))
+    if (dependenciesChanged()) writes.push((task) => edit.onDependencies(task, nextDependencies))
+    return writes
+  }
+
   const save = async () => {
-    if (saving() || !validate()) return
-    setSaving(true)
+    if (!canSave() || !validate()) return
     setStatus(null)
-    try {
-      if (props.mode === 'create') {
+    if (props.mode === 'create') {
+      setSaving(true)
+      try {
         await props.onCreate({
           kind: kind(),
           objective: trimmedObjective(),
           priority: priority(),
           title: trimmedTitle(),
         })
-        return
+      } catch {
+        setStatus('The task could not be created. Check the fields and try again.')
+      } finally {
+        setSaving(false)
       }
-      if (!dirty()) {
-        props.onClose()
-        return
+      return
+    }
+    const edit = props
+    const writes = pendingWrites(edit)
+    let current: TaskSummary = { ...edit.task, version }
+    // Close first: the writes are optimistic, so the board already shows the
+    // result, and keeping the panel up until the server answers only delays it.
+    edit.onClose()
+    try {
+      for (const write of writes) {
+        await write(current)
+        current = { ...current, version: current.version + 1 }
       }
-      let current: TaskSummary = { ...props.task, version }
-      const bump = () => {
-        version += 1
-        current = { ...current, version }
-      }
-      const update: {
-        kind?: TaskSummary['kind']
-        objective?: string
-        priority?: TaskSummary['priority']
-        title?: string
-      } = {}
-      if (titleChanged()) update.title = trimmedTitle()
-      if (objectiveChanged() && trimmedObjective().length <= OBJECTIVE_LIMIT)
-        update.objective = trimmedObjective()
-      if (kindChanged()) update.kind = kind()
-      if (priorityChanged()) update.priority = priority()
-      if (Object.keys(update).length) {
-        await props.onUpdate(current, update)
-        bump()
-      }
-      if (agentChanged()) {
-        await props.onAssign(current, agentId())
-        bump()
-      }
-      if (roomChanged()) {
-        await props.onMoveRoom(current, roomId())
-        bump()
-      }
-      if (dependenciesChanged()) {
-        await props.onDependencies(current, dependencyIds())
-        bump()
-      }
-      props.onClose()
     } catch {
-      setStatus(
-        props.mode === 'create'
-          ? 'The task could not be created. Check the fields and try again.'
-          : 'This task changed elsewhere or the change could not be saved. Close the panel and try again.'
+      edit.onError?.(
+        `“${edit.task.title}” could not be saved. It may have changed elsewhere; open it and try again.`
       )
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -292,7 +375,10 @@ export function TaskPanel(props: CreateProps | EditProps) {
         if (!open && !saving()) props.onClose()
       }}
     >
-      <SheetContent side="end" class="w-lg">
+      <SheetContent
+        side="end"
+        closeLabel={props.mode === 'create' ? 'Close new task' : 'Close task'}
+      >
         <SheetHeader>
           <SheetTitle>{props.mode === 'create' ? 'New task' : 'Edit task'}</SheetTitle>
           <SheetDescription>
@@ -302,9 +388,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
             >
               {(current) => (
                 <span class="conventional-task-panel__state">
-                  <Badge variant="subtle" size="sm">
-                    {current().label}
-                  </Badge>
+                  <Badge variant="subtle">{current().label}</Badge>
                   <span>Changes apply when you save.</span>
                 </span>
               )}
@@ -326,7 +410,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
                 name="title"
                 value={title()}
                 maxLength={TITLE_LIMIT}
-                autofocus
+                placeholder="What needs doing?"
                 disabled={fieldsDisabled()}
                 aria-invalid={titleError() ? true : undefined}
                 onInput={(event) => {
@@ -351,126 +435,37 @@ export function TaskPanel(props: CreateProps | EditProps) {
               />
             </FormField>
             <div class="conventional-task-panel__grid">
-              <FormField label="Type">
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    as={Button}
-                    variant="outline"
-                    disabled={fieldsDisabled()}
-                    class="conventional-room-picker"
-                  >
-                    <Dynamic component={kindOption(kind()).Icon} aria-hidden="true" />
-                    <span>{kindOption(kind()).label}</span>
-                    <ChevronDown aria-hidden="true" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent hideArrow placement="bottom-start" gutter={4}>
-                    <For each={kindOptions}>
-                      {(option) => (
-                        <DropdownMenuItem onSelect={() => setKind(option.value)}>
-                          <option.Icon aria-hidden="true" />
-                          {option.label}
-                        </DropdownMenuItem>
-                      )}
-                    </For>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </FormField>
-              <FormField label="Priority">
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    as={Button}
-                    variant="outline"
-                    disabled={fieldsDisabled()}
-                    class="conventional-room-picker"
-                  >
-                    <Dynamic component={priorityOption(priority()).Icon} aria-hidden="true" />
-                    <span>{priorityOption(priority()).label}</span>
-                    <ChevronDown aria-hidden="true" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent hideArrow placement="bottom-start" gutter={4}>
-                    <For each={priorityOptions}>
-                      {(option) => (
-                        <DropdownMenuItem onSelect={() => setPriority(option.value)}>
-                          <option.Icon aria-hidden="true" />
-                          {option.label}
-                        </DropdownMenuItem>
-                      )}
-                    </For>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </FormField>
+              <PickerField
+                label="Type"
+                value={kind() ?? 'feature'}
+                options={kindPickerOptions}
+                disabled={fieldsDisabled()}
+                onChange={(value) => setKind(value as TaskSummary['kind'])}
+              />
+              <PickerField
+                label="Priority"
+                value={priority()}
+                options={priorityPickerOptions}
+                disabled={fieldsDisabled()}
+                onChange={(value) => setPriority(value as TaskSummary['priority'])}
+              />
             </div>
             <Show when={editing()}>
               <div class="conventional-task-panel__grid">
-                <FormField label="Room">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      disabled={fieldsDisabled()}
-                      as={Button}
-                      variant="outline"
-                      class="conventional-room-picker"
-                    >
-                      <Show when={selectedRoom()}>
-                        {(room) => <RoomIcon functionKey={room().functionKey} />}
-                      </Show>
-                      <span>{selectedRoom()?.name ?? 'No room'}</span>
-                      <ChevronDown aria-hidden="true" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      hideArrow
-                      placement="bottom-start"
-                      gutter={4}
-                      class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-                    >
-                      <DropdownMenuItem onSelect={() => setRoomId(null)}>No room</DropdownMenuItem>
-                      <For each={roomRows()}>
-                        {(entry) => (
-                          <DropdownMenuItem onSelect={() => setRoomId(entry.item().id)}>
-                            <RoomIcon functionKey={entry.item().functionKey} />
-                            {entry.item().name}
-                          </DropdownMenuItem>
-                        )}
-                      </For>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </FormField>
-                <FormField label="Agent">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      disabled={fieldsDisabled()}
-                      as={Button}
-                      variant="outline"
-                      class="conventional-room-picker"
-                    >
-                      <Bot aria-hidden="true" />
-                      <span>
-                        {agentId()
-                          ? (props.agents.find(({ id }) => id === agentId())?.name ??
-                            'Unavailable agent')
-                          : 'Unassigned'}
-                      </span>
-                      <ChevronDown aria-hidden="true" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      hideArrow
-                      placement="bottom-start"
-                      gutter={4}
-                      class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-                    >
-                      <DropdownMenuItem onSelect={() => setAgentId(null)}>
-                        Unassigned
-                      </DropdownMenuItem>
-                      <For each={agentRows()}>
-                        {(entry) => (
-                          <DropdownMenuItem onSelect={() => setAgentId(entry.item().id)}>
-                            <Bot aria-hidden="true" />
-                            {entry.item().name}
-                          </DropdownMenuItem>
-                        )}
-                      </For>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </FormField>
+                <PickerField
+                  label="Room"
+                  value={roomId() ?? NONE}
+                  options={roomOptions()}
+                  disabled={fieldsDisabled()}
+                  onChange={(value) => setRoomId(value || null)}
+                />
+                <PickerField
+                  label="Agent"
+                  value={agentId() ?? NONE}
+                  options={agentOptions()}
+                  disabled={fieldsDisabled()}
+                  onChange={(value) => setAgentId(value || null)}
+                />
               </div>
               <FormField label="Dependencies" group>
                 <div class="conventional-task-panel__dependencies">
@@ -605,6 +600,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
                   as={Button}
                   type="button"
                   variant="ghost"
+                  size="sm"
                   class="me-auto"
                   disabled={fieldsDisabled()}
                 >
@@ -637,17 +633,22 @@ export function TaskPanel(props: CreateProps | EditProps) {
               </AlertDialog>
             )}
           </Show>
-          <Button type="button" variant="outline" disabled={saving()} onClick={props.onClose}>
+          <Show when={props.mode === 'edit' && dirty()}>
+            <span class="conventional-task-panel__unsaved" role="status">
+              Unsaved changes
+            </span>
+          </Show>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={saving()}
+            onClick={props.onClose}
+          >
             Cancel
           </Button>
-          <Button type="submit" form="task-panel-form" disabled={fieldsDisabled()}>
-            {props.mode === 'create'
-              ? saving()
-                ? 'Creating…'
-                : 'Create task'
-              : saving()
-                ? 'Saving…'
-                : 'Save'}
+          <Button type="submit" size="sm" form="task-panel-form" disabled={!canSave()}>
+            {props.mode === 'create' ? (saving() ? 'Creating…' : 'Create task') : 'Save'}
           </Button>
         </SheetFooter>
       </SheetContent>

@@ -42,12 +42,17 @@ export const validTransitions: Record<TaskState, readonly TaskState[]> = {
   queued: ['in_progress', 'completed', 'cancelled', 'archived'],
 }
 
-type Option<Value> = Readonly<{ value: Value; label: string; Icon: LucideIcon }>
+type BadgeTone = 'destructive' | 'warning' | 'info' | 'secondary' | 'outline'
+type Option<Value> = Readonly<{ value: Value; label: string; Icon: LucideIcon; badge: BadgeTone }>
 
+/**
+ * Type tags take their own status tint so a bug reads apart from a feature at a
+ * glance; the glyph and the word carry the meaning, the tint only sorts.
+ */
 export const kindOptions: readonly Option<TaskSummary['kind']>[] = [
-  { value: 'feature', label: 'Feature', Icon: Sparkles },
-  { value: 'bug', label: 'Bug', Icon: Bug },
-  { value: 'chore', label: 'Chore', Icon: Wrench },
+  { value: 'feature', label: 'Feature', Icon: Sparkles, badge: 'info' },
+  { value: 'bug', label: 'Bug', Icon: Bug, badge: 'destructive' },
+  { value: 'chore', label: 'Chore', Icon: Wrench, badge: 'secondary' },
 ]
 
 /**
@@ -55,9 +60,7 @@ export const kindOptions: readonly Option<TaskSummary['kind']>[] = [
  * take the destructive and warning tints, so the two that need attention stand
  * out, and the word means the tint is never the only signal.
  */
-export const priorityOptions: readonly (Option<TaskSummary['priority']> & {
-  badge: 'destructive' | 'warning' | 'secondary' | 'outline'
-})[] = [
+export const priorityOptions: readonly Option<TaskSummary['priority']>[] = [
   { value: 'urgent', label: 'Urgent', Icon: ChevronsUp, badge: 'destructive' },
   { value: 'high', label: 'High', Icon: ArrowUp, badge: 'warning' },
   { value: 'normal', label: 'Normal', Icon: Minus, badge: 'secondary' },
