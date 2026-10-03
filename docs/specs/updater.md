@@ -140,8 +140,8 @@ counter. The update is always strictly-newer-only; nothing downgrades.
   release producer publishes it with prerelease visibility in one update.
   Stable clients cannot see it between creation and flagging. A manually
   dispatched run that cuts the release publishes it as stable; dispatching
-  before the version PR merges prepares that PR, so dispatch again after
-  merging it or promote the published version by name for a stable hotfix.
+  before the version PR merges prepares that PR. Once its squash has cut
+  a prerelease, promote the published version by name for a stable hotfix.
 - `promote-stable.yml` promotes by batch soak: everything published after the
   last stable is the candidate batch; when its **oldest** member has been
   public for 96 hours, the **newest** member (the tip, carrying every
