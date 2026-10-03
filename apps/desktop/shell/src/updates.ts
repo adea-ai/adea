@@ -99,21 +99,32 @@ const DEV_TAG = /^v\d+\.\d+\.\d+-dev\.\d+$/
  */
 export async function resolveChannelFeedUrl(
   channel: Exclude<UpdateChannel, 'stable'>,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = CHECK_TIMEOUT_MS
 ): Promise<string> {
   const response = await fetchImpl(RELEASES_API_URL, {
-    headers: { accept: 'application/vnd.github+json' },
+    headers: {
+      accept: 'application/vnd.github+json',
+      'user-agent': 'Adea desktop',
+    },
+    signal: AbortSignal.timeout(timeoutMs),
   })
   if (!response.ok) throw new Error(`github releases ${response.status}`)
   const releases = (await response.json()) as Array<{
     tag_name?: unknown
     draft?: unknown
     prerelease?: unknown
+    assets?: ReadonlyArray<{ name?: unknown } | undefined>
   }>
   const tagPattern = channel === 'dev' ? DEV_TAG : PRE_RELEASE_TAG
   for (const release of releases) {
     const tag = String(release.tag_name ?? '')
-    if (release.draft === false && release.prerelease === true && tagPattern.test(tag)) {
+    if (
+      release.draft === false &&
+      release.prerelease === true &&
+      tagPattern.test(tag) &&
+      releaseHasChannelUpdateAssets(tag, release.assets)
+    ) {
       return `https://github.com/adea-ai/adea/releases/download/${tag}/latest.json`
     }
   }
@@ -145,10 +156,24 @@ function parseUpdateVersion(version: string): [number, number, number, number] |
  * Unparseable versions fall back to the historic numeric-triple comparison —
  * a malformed version must never wedge the state machine.
  */
-export function versionLessThan(a: string, b: string): boolean {
+export function versionLessThan(a: string, b: string, channel: UpdateChannel = 'stable'): boolean {
   const pa = parseUpdateVersion(a)
   const pb = parseUpdateVersion(b)
   if (pa && pb) {
+    // A user who explicitly opts into dev can move from the stable release to
+    // the first dev build of that same core version. Keep the normal ordering
+    // for stable and pre-release channels, and still reject older dev counters
+    // or dev builds anchored at an older core version.
+    if (
+      channel === 'dev' &&
+      pa[3] === Infinity &&
+      pb[3] !== Infinity &&
+      pa[0] === pb[0] &&
+      pa[1] === pb[1] &&
+      pa[2] === pb[2]
+    ) {
+      return true
+    }
     for (let i = 0; i < 4; i++) {
       if (pa[i] !== pb[i]) return pa[i]! < pb[i]!
     }
@@ -190,6 +215,21 @@ function releaseHasInstallableAsset(
   if (!Array.isArray(assets)) return false
   const expected = `Adea-${tag}-macos-arm64.app.tar.zst`
   return assets.some((asset) => asset?.name === expected)
+}
+
+/** A channel candidate is usable only after the signed feed and its archive
+ * are both visible on the release. Release creation precedes asset building,
+ * so choosing a newer half-built release would hide the previous installable
+ * build and make the opt-in channel appear broken. */
+function releaseHasChannelUpdateAssets(
+  tag: string,
+  assets: ReadonlyArray<{ name?: unknown } | undefined> | undefined
+): boolean {
+  return (
+    Array.isArray(assets) &&
+    assets.some((asset) => asset?.name === 'latest.json') &&
+    releaseHasInstallableAsset(tag, assets)
+  )
 }
 
 /** Staging entry names this module owns inside `<dataDir>/updates`. */
@@ -251,6 +291,8 @@ export function createUpdateManager(input: {
   runtimeSha256?: string
   /** Test seam: bounds each availability request (default 10s). */
   checkTimeoutMs?: number
+  /** Test seam: capture the manual-update handoff without launching a browser. */
+  openReleasePage?: (url: string) => void
   /** The channel this installation follows; read per check so a settings
    * change takes effect without a restart. Defaults to stable. */
   channel?: () => UpdateChannel
@@ -258,6 +300,15 @@ export function createUpdateManager(input: {
   const { appVersion, dataDir } = input
   const checkTimeoutMs = input.checkTimeoutMs ?? CHECK_TIMEOUT_MS
   const onExit = input.onExit ?? ((ms: number) => setTimeout(() => process.exit(0), ms))
+  const openReleasePage =
+    input.openReleasePage ??
+    ((url: string) => {
+      try {
+        Bun.spawn(['open', url])
+      } catch {
+        /* best effort */
+      }
+    })
 
   let update: UpdateStatus = {
     current_version: appVersion,
@@ -299,7 +350,10 @@ export function createUpdateManager(input: {
   async function checkForUpdateViaReleasesPage(): Promise<UpdateStatus> {
     try {
       const res = await fetch('https://api.github.com/repos/adea-ai/adea/releases/latest', {
-        headers: { accept: 'application/vnd.github+json' },
+        headers: {
+          accept: 'application/vnd.github+json',
+          'user-agent': 'Adea desktop',
+        },
         signal: AbortSignal.timeout(checkTimeoutMs),
       })
       if (!res.ok) throw new Error(`github ${res.status}`)
@@ -343,13 +397,26 @@ export function createUpdateManager(input: {
   }
 
   async function runCheck(): Promise<UpdateStatus> {
-    snapshot({ phase: 'checking', error: null })
+    pendingManifest = null
+    snapshot({
+      phase: 'checking',
+      available_version: null,
+      release_date: null,
+      release_notes: null,
+      error: null,
+      downloaded_bytes: 0,
+      total_bytes: null,
+      restart_required: false,
+    })
     const channel = input.channel?.() ?? 'stable'
     try {
       // An explicit feed override (tests, staging) wins over the channel; the
       // stable channel reads the moving `releases/latest` manifest, the opt-in
       // channels resolve their newest release first.
-      const feedUrl = channel === 'stable' ? updateFeedUrl() : await resolveChannelFeedUrl(channel)
+      const feedUrl =
+        channel === 'stable'
+          ? updateFeedUrl()
+          : await resolveChannelFeedUrl(channel, fetch, checkTimeoutMs)
       const res = await fetch(feedUrl, {
         headers: { accept: 'application/json' },
         signal: AbortSignal.timeout(checkTimeoutMs),
@@ -358,7 +425,7 @@ export function createUpdateManager(input: {
       const parsed = parseUpdateManifest(await res.json())
       if (!parsed.ok) throw new Error(`update feed invalid: ${parsed.reason}`)
       const manifest = parsed.manifest
-      if (!versionLessThan(appVersion, manifest.version)) {
+      if (!versionLessThan(appVersion, manifest.version, channel)) {
         pendingManifest = null
         return snapshot({
           phase: 'current',
@@ -399,11 +466,7 @@ export function createUpdateManager(input: {
     if (!manifest) {
       // No signed feed entry (forks, releases older than the lane): hand the
       // user to the releases page instead of a dead-end error.
-      try {
-        Bun.spawn(['open', 'https://github.com/adea-ai/adea/releases'])
-      } catch {
-        /* best effort */
-      }
+      openReleasePage('https://github.com/adea-ai/adea/releases')
       return failed(new Error('no in-app update is pending; download the latest release manually'))
     }
     if (typeof args.expectedVersion === 'string' && args.expectedVersion !== manifest.version) {
@@ -503,11 +566,7 @@ export function createUpdateManager(input: {
       if ('error' in staged) {
         // In-place install is impossible here (dev run, unsupported
         // platform): hand off to the releases page so the user is not stuck.
-        try {
-          Bun.spawn(['open', releaseTagUrl(manifest.version)])
-        } catch {
-          /* best effort */
-        }
+        openReleasePage(releaseTagUrl(manifest.version))
         throw new Error(staged.error)
       }
       snapshot({ phase: 'installed', restart_required: true })

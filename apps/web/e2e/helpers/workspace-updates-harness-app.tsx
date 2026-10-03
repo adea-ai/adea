@@ -4,6 +4,7 @@ import { render } from 'solid-js/web'
 import { AccountMenu } from '../../../../packages/workspace-ui/src/account-menu'
 import { VersionDialog } from '../../src/components/version-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import type { UpdateChannelSetting } from '@adea-ai/workspace-ui/platform'
 
 /**
  * A controllable stand-in for the shell's update family. The version dialog's
@@ -15,14 +16,30 @@ import { Button } from '@adea-ai/ui/components/ui/button'
  */
 const updaterState = {
   phase: 'current' as string,
+  channel: 'stable' as UpdateChannelSetting,
+  channelCheckMode: false,
   releaseInstall: undefined as (() => void) | undefined,
+}
+
+const channelService = {
+  async channel() {
+    return updaterState.channel
+  },
+  async setChannel(channel: UpdateChannelSetting) {
+    updaterState.channel = channel
+    return channel
+  },
 }
 
 function updateSnapshot() {
   const available = updaterState.phase === 'available'
   return {
     current_version: '1.0.0',
-    available_version: available ? '9.9.9' : null,
+    available_version: available
+      ? updaterState.channel === 'dev'
+        ? '9.9.9-dev.17'
+        : '9.9.9'
+      : null,
     release_date: null,
     release_notes: null,
     changelog: '',
@@ -38,7 +55,13 @@ function updateSnapshot() {
 ;(window as unknown as { __adeaDesktop?: unknown }).__adeaDesktop = {
   invoke: async (command: string) => {
     if (command === 'adea_app_version') return '1.0.0'
-    if (command === 'desktop_update_status' || command === 'desktop_update_check') {
+    if (command === 'desktop_update_status') {
+      return updateSnapshot()
+    }
+    if (command === 'desktop_update_check') {
+      if (updaterState.channelCheckMode) {
+        updaterState.phase = updaterState.channel === 'pre-release' ? 'current' : 'available'
+      }
       return updateSnapshot()
     }
     if (command === 'desktop_update_install') {
@@ -79,6 +102,9 @@ function Harness() {
       <Button onClick={() => setUpdatesEnabled(false)}>Disable updates handoff</Button>
       <Button onClick={() => (updaterState.phase = 'available')}>Make update available</Button>
       <Button onClick={() => (updaterState.phase = 'current')}>Make update current</Button>
+      <Button onClick={() => (updaterState.channelCheckMode = true)}>
+        Enable channel update fixtures
+      </Button>
       {/* The rail footer is what the real shell gives this trigger: a narrow
           column with the row pushed down. Right-end placement needs that
           context — against a full-viewport-width anchor the menu flips
@@ -105,7 +131,12 @@ function Harness() {
         />
       </div>
       <Show when={open()}>
-        <VersionDialog restoreFocusRef={opener} open={open()} onOpenChange={setOpen} />
+        <VersionDialog
+          channelService={channelService}
+          restoreFocusRef={opener}
+          open={open()}
+          onOpenChange={setOpen}
+        />
       </Show>
     </>
   )

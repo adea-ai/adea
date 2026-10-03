@@ -23,6 +23,7 @@ describe('settings deep links and keyboard navigation', () => {
 
   test('groups every section without changing keyboard navigation order', () => {
     expect(settingsSectionGroups.flatMap(({ items }) => items)).toEqual(settingsSections)
+    expect(settingsSections).not.toContain('updates')
     expect(settingsSectionGroups.map(({ label }) => label)).toEqual([
       'Account',
       'Workspace',

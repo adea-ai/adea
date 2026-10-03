@@ -1,6 +1,5 @@
 export const settingsSections = [
   'account',
-  'updates',
   'appearance',
   'workspace',
   'agents',
@@ -13,7 +12,7 @@ export const settingsSections = [
 export type SettingsSection = (typeof settingsSections)[number]
 
 export const settingsSectionGroups = [
-  { label: 'Account', items: ['account', 'updates'] },
+  { label: 'Account', items: ['account'] },
   { label: 'Workspace', items: ['appearance', 'workspace'] },
   { label: 'Workflows', items: ['agents', 'input-notifications'] },
   { label: 'Data & access', items: ['privacy-data', 'integrations', 'permissions'] },
@@ -30,7 +29,6 @@ export const settingsSectionLabels: Readonly<Record<SettingsSection, string>> = 
   integrations: 'Integrations & capabilities',
   'privacy-data': 'Privacy & data',
   permissions: 'Permissions',
-  updates: 'Updates',
   workspace: 'Workspace',
 }
 

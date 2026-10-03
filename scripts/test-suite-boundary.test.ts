@@ -149,6 +149,27 @@ describe('test suite boundaries', () => {
     expect(workflow).toContain('node scripts/release-notes.mjs')
     expect(workflow).toContain('bun run --cwd packages/types build')
     expect(workflow).toContain('bun run shell:client:build')
+    const releaseVersionStep = workflow.indexOf('name: Set desktop version from release tag')
+    const installDependenciesStep = workflow.indexOf('name: Install dependencies')
+    const installShellDependenciesStep = workflow.indexOf('name: Install shell dependencies')
+    const buildBundleStep = workflow.indexOf('name: Build shell bundle (unsigned, stable)')
+    expect(releaseVersionStep).toBeGreaterThan(workflow.indexOf('name: Checkout release'))
+    expect(installDependenciesStep).toBeLessThan(installShellDependenciesStep)
+    expect(installShellDependenciesStep).toBeLessThan(releaseVersionStep)
+    expect(releaseVersionStep).toBeLessThan(buildBundleStep)
+    expect(workflow).toContain("if: ${{ needs.validate-release.outputs.release_version != '' }}")
+    expect(workflow).toContain(
+      'RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}'
+    )
+    expect(workflow).toContain('node scripts/set-desktop-release-version.mjs "$RELEASE_VERSION"')
+    expect(workflow).toContain('packaged_version')
+    expect(workflow).toContain('does not match release $RELEASE_VERSION')
+    const electrobunConfig = readFileSync(
+      resolve(root, 'apps/desktop/shell/electrobun.config.ts'),
+      'utf8'
+    )
+    expect(electrobunConfig).toContain("import desktopPackage from '../package.json'")
+    expect(electrobunConfig).toContain('version: desktopPackage.version')
     // Release bundles build in stable mode; the default dev env only ever
     // produces build/dev-* bundles, which must never reach a release.
     expect(workflow).toContain('bunx --bun electrobun build --env=stable')
@@ -194,6 +215,23 @@ describe('test suite boundaries', () => {
     expect(existsSync(resolve(root, 'scripts/manual-release.mjs'))).toBeFalse()
     expect(existsSync(resolve(root, 'scripts/release-runners.mjs'))).toBeFalse()
     expect(existsSync(resolve(root, 'scripts/native-smoke.mjs'))).toBeFalse()
+  })
+
+  test('dispatches the desktop asset lane for dev releases created with GITHUB_TOKEN', () => {
+    const workflow = readFileSync(resolve(root, '.github/workflows/dev-build.yml'), 'utf8')
+    expect(workflow).toContain('permissions:')
+    expect(workflow).toContain('actions: write')
+    expect(workflow).toContain('contents: write')
+    const releaseCreate = workflow.indexOf('gh release create "$tag"')
+    const assetDispatch = workflow.indexOf('gh workflow run release-assets.yml')
+    expect(releaseCreate).toBeGreaterThanOrEqual(0)
+    expect(assetDispatch).toBeGreaterThan(releaseCreate)
+    expect(workflow).toContain('--ref main')
+    expect(workflow).toContain('-f tag="$tag"')
+    // Re-running a dev job should repair a release left without its signed
+    // manifest or platform archive instead of treating the tag as complete.
+    expect(workflow).toContain('latest.json')
+    expect(workflow).toContain('Adea-${tag}-macos-arm64.app.tar.zst')
   })
 
   test('keeps the Electrobun icon source the release lane builds from', () => {

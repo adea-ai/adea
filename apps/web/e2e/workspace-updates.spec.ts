@@ -68,6 +68,50 @@ test('an unavailable Updates handler keeps normal menu focus restoration', async
   await expect(trigger).toBeFocused()
 })
 
+test('the update dialog persists channels and refreshes offers after a channel change', async ({
+  page,
+}) => {
+  await page.getByRole('button', { name: 'Enable channel update fixtures' }).click()
+  const trigger = page.getByRole('button', { name: /^User settings(?:, update available)?$/ })
+  const openUpdates = async () => {
+    await trigger.click()
+    await page.getByRole('menuitem', { name: /^Updates(?:, update available)?$/ }).click()
+    return page.getByRole('dialog', { name: 'Version & updates', exact: true })
+  }
+  const dialog = await openUpdates()
+  const channel = dialog.getByRole('combobox', { name: 'Update channel', exact: true })
+  await expect(channel).toHaveValue('stable')
+  await expect(dialog.getByText('Version 9.9.9 is ready', { exact: true })).toBeVisible()
+
+  await channel.selectOption('pre-release')
+  await expect(channel).toHaveValue('pre-release')
+  await expect(dialog.getByText('Adea is up to date.', { exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Install and restart' })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+
+  const reopenedPreRelease = await openUpdates()
+  const reopenedChannel = reopenedPreRelease.getByRole('combobox', {
+    name: 'Update channel',
+    exact: true,
+  })
+  await expect(reopenedChannel).toHaveValue('pre-release')
+  await reopenedChannel.selectOption('dev')
+  await expect(
+    reopenedPreRelease.getByText('Version 9.9.9-dev.17 is ready', { exact: true })
+  ).toBeVisible()
+  await expect(
+    reopenedPreRelease.getByRole('button', { name: 'Install and restart' })
+  ).toBeVisible()
+
+  await reopenedPreRelease.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(reopenedPreRelease).toHaveCount(0)
+  const reopenedDev = await openUpdates()
+  await expect(
+    reopenedDev.getByRole('combobox', { name: 'Update channel', exact: true })
+  ).toHaveValue('dev')
+})
+
 test('a pending update marks the account trigger and the Updates item', async ({ page }) => {
   const trigger = page.getByRole('button', { name: 'User settings', exact: true })
 
