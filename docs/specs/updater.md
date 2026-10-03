@@ -100,9 +100,10 @@ its "View releases" button either way.
 
 An installation follows exactly one channel, persisted in the shell's
 file-backed state (`<dataDir>/desktop-state/update-channel.json`) and read per
-check, so a settings change takes effect without a restart. The setting lives
-shell-side, never in the web client's preferences: the page cannot carry it
-past a sign-out, and the shell is the process that polls. `desktop_update_channel`
+check, so a channel change takes effect without a restart. The selector lives
+in the Version & updates dialog, while the setting stays shell-side rather
+than in web-client preferences: the page cannot carry it past a sign-out, and
+the shell is the process that polls. `desktop_update_channel`
 reads it; `desktop_update_channel_save` validates against the three values and
 persists. An `ADEA_UPDATE_FEED` override (tests, staging) wins over the
 channel.

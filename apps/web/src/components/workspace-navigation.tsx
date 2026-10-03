@@ -896,6 +896,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       <Show when={props.updates}>
         {(updates) => (
           <VersionDialog
+            channelService={props.services.updates}
             open={updates().open}
             onOpenChange={updates().onOpenChange}
             restoreFocusRef={updatesOpener}

@@ -103,7 +103,10 @@ export async function resolveChannelFeedUrl(
   timeoutMs = CHECK_TIMEOUT_MS
 ): Promise<string> {
   const response = await fetchImpl(RELEASES_API_URL, {
-    headers: { accept: 'application/vnd.github+json' },
+    headers: {
+      accept: 'application/vnd.github+json',
+      'user-agent': 'Adea desktop',
+    },
     signal: AbortSignal.timeout(timeoutMs),
   })
   if (!response.ok) throw new Error(`github releases ${response.status}`)
@@ -288,6 +291,8 @@ export function createUpdateManager(input: {
   runtimeSha256?: string
   /** Test seam: bounds each availability request (default 10s). */
   checkTimeoutMs?: number
+  /** Test seam: capture the manual-update handoff without launching a browser. */
+  openReleasePage?: (url: string) => void
   /** The channel this installation follows; read per check so a settings
    * change takes effect without a restart. Defaults to stable. */
   channel?: () => UpdateChannel
@@ -295,6 +300,15 @@ export function createUpdateManager(input: {
   const { appVersion, dataDir } = input
   const checkTimeoutMs = input.checkTimeoutMs ?? CHECK_TIMEOUT_MS
   const onExit = input.onExit ?? ((ms: number) => setTimeout(() => process.exit(0), ms))
+  const openReleasePage =
+    input.openReleasePage ??
+    ((url: string) => {
+      try {
+        Bun.spawn(['open', url])
+      } catch {
+        /* best effort */
+      }
+    })
 
   let update: UpdateStatus = {
     current_version: appVersion,
@@ -336,7 +350,10 @@ export function createUpdateManager(input: {
   async function checkForUpdateViaReleasesPage(): Promise<UpdateStatus> {
     try {
       const res = await fetch('https://api.github.com/repos/adea-ai/adea/releases/latest', {
-        headers: { accept: 'application/vnd.github+json' },
+        headers: {
+          accept: 'application/vnd.github+json',
+          'user-agent': 'Adea desktop',
+        },
         signal: AbortSignal.timeout(checkTimeoutMs),
       })
       if (!res.ok) throw new Error(`github ${res.status}`)
@@ -380,7 +397,17 @@ export function createUpdateManager(input: {
   }
 
   async function runCheck(): Promise<UpdateStatus> {
-    snapshot({ phase: 'checking', error: null })
+    pendingManifest = null
+    snapshot({
+      phase: 'checking',
+      available_version: null,
+      release_date: null,
+      release_notes: null,
+      error: null,
+      downloaded_bytes: 0,
+      total_bytes: null,
+      restart_required: false,
+    })
     const channel = input.channel?.() ?? 'stable'
     try {
       // An explicit feed override (tests, staging) wins over the channel; the
@@ -439,11 +466,7 @@ export function createUpdateManager(input: {
     if (!manifest) {
       // No signed feed entry (forks, releases older than the lane): hand the
       // user to the releases page instead of a dead-end error.
-      try {
-        Bun.spawn(['open', 'https://github.com/adea-ai/adea/releases'])
-      } catch {
-        /* best effort */
-      }
+      openReleasePage('https://github.com/adea-ai/adea/releases')
       return failed(new Error('no in-app update is pending; download the latest release manually'))
     }
     if (typeof args.expectedVersion === 'string' && args.expectedVersion !== manifest.version) {
@@ -543,11 +566,7 @@ export function createUpdateManager(input: {
       if ('error' in staged) {
         // In-place install is impossible here (dev run, unsupported
         // platform): hand off to the releases page so the user is not stuck.
-        try {
-          Bun.spawn(['open', releaseTagUrl(manifest.version)])
-        } catch {
-          /* best effort */
-        }
+        openReleasePage(releaseTagUrl(manifest.version))
         throw new Error(staged.error)
       }
       snapshot({ phase: 'installed', restart_required: true })
