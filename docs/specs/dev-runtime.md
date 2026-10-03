@@ -4009,8 +4009,9 @@ auth is the user's `gh` CLI context, and Adea stores no GitHub token.
   blockers report a repository that disallows auto-merge or the method, a
   draft, a PR that can merge now, or a no-op. `syncBranchPlan` updates the
   head from its base on GitHub (merge or rebase, explicit and confirmed in
-  the UI) and reports a user who cannot update the branch, a branch already
-  up to date, or conflicts. Each commit re-reads the PR and refuses
+  the UI) and reports a branch already up to date or conflicts; GitHub's
+  `viewerCanUpdateBranch` reflects up-to-date branch protection, not
+  permission, so it gates nothing and GitHub refuses a viewer who cannot push. Each commit re-reads the PR and refuses
   `stale_version` when the head moved. The worktree-local
   `updateBranchPlan` above is unchanged.
 - **#423 extensions.** `mergePlan` takes `deleteBranch`: after a verified

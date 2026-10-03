@@ -929,6 +929,48 @@ describe('#423 extensions', () => {
     )
   })
 
+  test('a draft-only update sends no empty REST PATCH', async () => {
+    let draft = true
+    const { run, calls } = harness((path, call) => {
+      if (path === 'repos/acme/widgets/pulls/7') {
+        if (call.args.includes('PATCH'))
+          return { stderr: 'Body should be a JSON object (HTTP 400)', exitCode: 1 }
+        return json(restPr({ draft }))
+      }
+      if (path.startsWith('repos/acme/widgets/compare/')) return json({ ahead_by: 1, behind_by: 0 })
+      if (path.startsWith('repos/acme/widgets/pulls/7/reviews')) return json([])
+      if (path === 'graphql') {
+        if (graphqlQuery(call).includes('markPullRequestReadyForReview')) {
+          draft = false
+          return json({ data: { markPullRequestReadyForReview: { clientMutationId: null } } })
+        }
+        return json({
+          data: {
+            repository: {
+              pullRequest: { id: 'PR_node7', headRefOid: HEAD, state: 'OPEN', isDraft: draft },
+            },
+          },
+        })
+      }
+      return undefined
+    })
+    const read = valueOf<{ version: number }>(
+      await run('dev.github.pullRequest', { pullRequestId: PR_ID })
+    )
+    const plan = valueOf<{ id: string; digest: string }>(
+      await run('dev.github.updatePlan', {
+        pullRequestId: PR_ID,
+        expectedVersion: read.version,
+        patch: { draft: false },
+      })
+    )
+    const updated = valueOf<{ draft: boolean }>(
+      await run('dev.github.updateCommit', { planId: plan.id, planDigest: plan.digest })
+    )
+    expect(updated.draft).toBe(false)
+    expect(calls.some((call) => call.args.includes('PATCH'))).toBe(false)
+  })
+
   test('check runs read a specific commit and carry their output title', async () => {
     const { run, calls } = harness((path) => {
       if (path.startsWith(`repos/acme/widgets/commits/${MOVED}/check-runs`))

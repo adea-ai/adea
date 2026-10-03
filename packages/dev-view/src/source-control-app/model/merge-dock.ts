@@ -77,12 +77,7 @@ export function mergeDock(
   const checks = checksFacet(pr.checks)
   const branch = {
     ...branchFacet(pr),
-    canUpdate:
-      capabilities.updateBranch &&
-      pr.state === 'open' &&
-      behind &&
-      !conflicts &&
-      pr.viewerCanUpdateBranch,
+    canUpdate: capabilities.updateBranch && pr.state === 'open' && behind && !conflicts,
   }
   return {
     reviews,

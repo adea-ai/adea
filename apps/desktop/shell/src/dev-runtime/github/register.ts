@@ -1514,11 +1514,17 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       }
       if (patch.state === 'open' || patch.state === 'closed')
         extra.push('-f', `state=${patch.state}`)
+      const cacheKey = prCacheKey(parts)
+      // A draft-only change has no REST fields: GitHub rejects an empty PATCH,
+      // so re-read server truth instead.
       const updated = await ghJson(
-        apiArgs(DEFAULT_HOST, `repos/${parts.owner}/${parts.repo}/pulls/${parts.number}`, extra),
+        apiArgs(
+          DEFAULT_HOST,
+          `repos/${parts.owner}/${parts.repo}/pulls/${parts.number}`,
+          extra.length > 2 ? extra : []
+        ),
         { staleFallback: false }
       )
-      const cacheKey = prCacheKey(parts)
       cache.delete(cacheKey)
       const pr = mapPullRequest(
         updated,

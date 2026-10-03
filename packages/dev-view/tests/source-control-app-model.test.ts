@@ -161,8 +161,7 @@ describe('inbox grouping', () => {
       action: 'update_branch',
     })
     expect(
-      classifyPullRequest(view({ mergeState: 'behind', viewerCanUpdateBranch: false }), VIEWER)
-        .action
+      classifyPullRequest(view({ mergeState: 'behind', crossRepository: true }), VIEWER).action
     ).toBe('open')
   })
 

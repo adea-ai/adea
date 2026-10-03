@@ -961,8 +961,8 @@ export function createCollaborationHandlers(
         )
       const method = String(body.method) as 'merge' | 'rebase'
       const blockers: DevError[] = []
-      if (!summary.viewerCanUpdateBranch)
-        blockers.push(planBlocker('unauthorized', 'you cannot update this branch on GitHub'))
+      // viewerCanUpdateBranch only reflects "require up to date" protection,
+      // not permission; GitHub itself refuses a viewer who cannot push.
       if (summary.behindBy === 0)
         blockers.push(planBlocker('already_completed', 'the branch already contains its base'))
       if (summary.mergeable === 'conflicting')

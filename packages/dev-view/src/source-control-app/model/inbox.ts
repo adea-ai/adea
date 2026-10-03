@@ -11,7 +11,7 @@
  * Blocked rows pick their action by first match: failing checks on an agent's
  * session branch open that session; failing checks, requested changes, or
  * conflicts open the pull request; a branch that is only behind offers
- * Update branch when the viewer may update it.
+ * Update branch unless the head lives in a fork (GitHub refuses those).
  */
 import {
   approvalsMet,
@@ -44,7 +44,7 @@ export function classifyPullRequest(
     if (failing)
       return { group: 'blocked', action: pr.authorIsAgent && pr.session ? 'open_session' : 'open' }
     if (requested || conflicts) return { group: 'blocked', action: 'open' }
-    return { group: 'blocked', action: pr.viewerCanUpdateBranch ? 'update_branch' : 'open' }
+    return { group: 'blocked', action: pr.crossRepository ? 'open' : 'update_branch' }
   }
   return { group: 'waiting', action: 'open' }
 }
