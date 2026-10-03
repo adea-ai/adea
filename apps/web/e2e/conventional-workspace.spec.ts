@@ -1292,13 +1292,24 @@ test('opens the Task panel beside the board and restores focus on dismissal', as
 test('creates a Task from a side panel without moving the board', async ({ page }) => {
   await mockWorkspace(page)
   const created: unknown[] = []
+  const boardTasks = tasks.map((task) => ({ ...task }))
+  const refetch = { released: false, waiting: new Set<() => void>() }
   await page.route('**/api/v1/workspaces/**/tasks', async (route) => {
+    if (route.request().method() === 'GET') {
+      if (created.length > 0 && !refetch.released)
+        await new Promise<void>((resolve) => {
+          refetch.waiting.add(resolve)
+        })
+      return route.fulfill({ contentType: 'application/json', json: boardTasks })
+    }
     if (route.request().method() !== 'POST') return route.fallback()
     const body = route.request().postDataJSON() as { title: string }
     created.push(body)
+    const task = { ...tasks[0]!, id: 'task-new', title: body.title, version: 1 }
+    boardTasks.push(task)
     return route.fulfill({
       contentType: 'application/json',
-      json: { task: { ...tasks[0], id: 'task-new', title: body.title, version: 1 } },
+      json: { task },
     })
   })
   await page.goto('/?view=chat&app=kanban')
@@ -1314,9 +1325,20 @@ test('creates a Task from a side panel without moving the board', async ({ page 
   await panel.getByRole('button', { name: 'Create task', exact: true }).click()
   await expect(panel.getByRole('alert')).toHaveText('Give the task a title.')
   await panel.getByRole('textbox', { name: 'Title', exact: true }).fill('Write release notes')
-  await panel.getByRole('button', { name: 'Create task', exact: true }).click()
-  await expect(panel).toHaveCount(0)
-  await expect.poll(() => created.length).toBe(1)
+  try {
+    await panel.getByRole('button', { name: 'Create task', exact: true }).click()
+    await expect(panel).toHaveCount(0)
+    await expect.poll(() => created.length).toBe(1)
+    await expect.poll(() => refetch.waiting.size).toBeGreaterThan(0)
+    // The server's create result supplies the card even while list reconciliation is held.
+    await expect(
+      board.getByRole('button', { name: 'Write release notes', exact: true })
+    ).toBeVisible()
+  } finally {
+    refetch.released = true
+    for (const release of refetch.waiting) release()
+    refetch.waiting.clear()
+  }
 })
 
 test('Task board preserves task data and moves cards with keyboard and drag', async ({

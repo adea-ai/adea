@@ -312,16 +312,59 @@ export const taskQueryOptions = {
  * to pick up anything else the write changed (dependants, ordering).
  */
 function taskMutationSuccess(queryClient: QueryClient, workspaceId: string) {
-  return async (result: Awaited<ReturnType<AgentHqApiClient['getTask']>>) => {
-    queryClient.setQueryData(taskQueryKeys.detail(workspaceId, result.task.id), result)
-    queryClient.setQueryData<readonly TaskSummary[]>(taskQueryKeys.list(workspaceId), (tasks) =>
-      tasks?.map((task) => (task.id === result.task.id ? result.task : task))
+  return async (
+    result: Awaited<ReturnType<AgentHqApiClient['getTask']>>,
+    _input?: unknown,
+    snapshot?: TaskListSnapshot
+  ) => {
+    queryClient.setQueryData<typeof result>(
+      taskQueryKeys.detail(workspaceId, result.task.id),
+      (current) => (current && current.task.version > result.task.version ? current : result)
     )
-    void queryClient.invalidateQueries({ queryKey: taskQueryKeys.list(workspaceId) })
+    queryClient.setQueryData<readonly TaskSummary[]>(taskQueryKeys.list(workspaceId), (tasks) => {
+      if (!tasks) return tasks
+      if (!tasks.some((task) => task.id === result.task.id)) return [...tasks, result.task]
+      return tasks.map((task) =>
+        task.id === result.task.id && task.version <= result.task.version ? result.task : task
+      )
+    })
+    finishTaskWrite(queryClient, workspaceId, result.task.id, snapshot)
   }
 }
 
-type TaskListSnapshot = Readonly<{ tasks: readonly TaskSummary[] | undefined }>
+type TaskListSnapshot = Readonly<{
+  before: TaskSummary | undefined
+  optimistic: TaskSummary | undefined
+  token: symbol
+}>
+
+const taskWriteTokens = new WeakMap<QueryClient, Map<string, Map<string, symbol>>>()
+function pendingTaskWrites(queryClient: QueryClient, workspaceId: string): Map<string, symbol> {
+  let workspaces = taskWriteTokens.get(queryClient)
+  if (!workspaces) {
+    workspaces = new Map()
+    taskWriteTokens.set(queryClient, workspaces)
+  }
+  let pending = workspaces.get(workspaceId)
+  if (!pending) {
+    pending = new Map()
+    workspaces.set(workspaceId, pending)
+  }
+  return pending
+}
+
+function finishTaskWrite(
+  queryClient: QueryClient,
+  workspaceId: string,
+  taskId: string,
+  snapshot?: TaskListSnapshot
+) {
+  const pending = pendingTaskWrites(queryClient, workspaceId)
+  if (snapshot && pending.get(taskId) === snapshot.token) pending.delete(taskId)
+  // A refetch must not replace another card's still-pending optimistic move.
+  if (pending.size === 0)
+    void queryClient.invalidateQueries({ queryKey: taskQueryKeys.list(workspaceId) })
+}
 
 /**
  * Applies a Task write to the cached list before the server answers, and puts
@@ -337,15 +380,46 @@ function optimisticTaskWrite<Input extends Readonly<{ taskId: string }>>(
   const listKey = taskQueryKeys.list(workspaceId)
   return {
     onMutate: async (input: Input): Promise<TaskListSnapshot> => {
+      const pending = pendingTaskWrites(queryClient, workspaceId)
+      if (pending.has(input.taskId))
+        throw new Error('This task is already being updated. Try again when the update finishes.')
       await queryClient.cancelQueries({ queryKey: listKey })
-      const tasks = queryClient.getQueryData<readonly TaskSummary[]>(listKey)
+      // Two callers can reach the cancellation await together. Only one may
+      // write against this task version; other cards remain independent.
+      if (pending.has(input.taskId))
+        throw new Error('This task is already being updated. Try again when the update finishes.')
+      const before = queryClient
+        .getQueryData<readonly TaskSummary[]>(listKey)
+        ?.find((task) => task.id === input.taskId)
+      const token = Symbol('task-write')
+      pending.set(input.taskId, token)
       queryClient.setQueryData<readonly TaskSummary[]>(listKey, (current) =>
         current?.map((task) => (task.id === input.taskId ? patch(task, input) : task))
       )
-      return { tasks }
+      const optimistic = queryClient
+        .getQueryData<readonly TaskSummary[]>(listKey)
+        ?.find((task) => task.id === input.taskId)
+      return { before, optimistic, token }
     },
-    onError: (_error: unknown, _input: Input, snapshot: TaskListSnapshot | undefined) => {
-      if (snapshot) queryClient.setQueryData(listKey, snapshot.tasks)
+    onError: (_error: unknown, input: Input, snapshot: TaskListSnapshot | undefined) => {
+      // onMutate can refuse an overlapping write before any API call. That
+      // refusal must not reconcile or disturb the active write's caches.
+      if (!snapshot) return
+      if (
+        snapshot?.before &&
+        pendingTaskWrites(queryClient, workspaceId).get(input.taskId) === snapshot.token
+      ) {
+        const before = snapshot.before
+        queryClient.setQueryData<readonly TaskSummary[]>(listKey, (current) =>
+          current?.map((task) =>
+            task.id === input.taskId && task === snapshot.optimistic ? before : task
+          )
+        )
+      }
+      finishTaskWrite(queryClient, workspaceId, input.taskId, snapshot)
+      void queryClient.invalidateQueries({
+        queryKey: taskQueryKeys.detail(workspaceId, input.taskId),
+      })
     },
   }
 }
