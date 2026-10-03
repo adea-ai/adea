@@ -343,13 +343,15 @@ export function createSourceControlState(options: {
     })
   }
 
+  /** Re-sync on focus unless the last sync is recent. */
+  const onFocus = () => {
+    const last = syncedAt()
+    if (last === undefined || options.now() - last > 10_000) void sync()
+  }
+
   function startPolling(): void {
     const timer = setInterval(() => void sync(), SYNC_INTERVAL_MS)
     const clock = setInterval(() => setTick(options.now()), 15_000)
-    const onFocus = () => {
-      const last = syncedAt()
-      if (last === undefined || options.now() - last > 10_000) void sync()
-    }
     window.addEventListener('focus', onFocus)
     onCleanup(() => {
       clearInterval(timer)

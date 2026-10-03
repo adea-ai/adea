@@ -222,10 +222,10 @@ describe('inbox grouping', () => {
   })
 })
 
-describe('merge dock', () => {
-  const dock = (pr: PullRequestView, method = preferredMethod(pr.mergeMethods, undefined)) =>
-    mergeDock(pr, VIEWER, method, githubCapabilities)
+const dock = (pr: PullRequestView, method = preferredMethod(pr.mergeMethods, undefined)) =>
+  mergeDock(pr, VIEWER, method, githubCapabilities)
 
+describe('merge dock', () => {
   test('all green merges now with the preferred method', () => {
     const result = dock(view({ reviewDecision: 'approved' }))
     expect(result.merge).toMatchObject({ kind: 'merge_now', label: 'Squash and merge' })
