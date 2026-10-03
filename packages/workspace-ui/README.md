@@ -94,3 +94,7 @@ sequence and vertical keyboard semantics remain the same.
 Microphone permission checks catch host failures and show a retryable message in
 Settings. The check button prevents concurrent requests, and a result from a
 closed or unmounted dialog cannot change its permission presentation.
+
+Plugins detail fields use published `CatalogDetail sectionsLayout="columns"`: one padded outlined card, responsive stacking, and shared column dividers. The app supplies its capabilities, connection, bundle, and activation data without overriding shared section padding or borders.
+
+An install refusal stays attached to its plugin and remains visible after returning to the catalog. Closing Plugins clears that attempt; late responses from a closed dialog or replaced provider cannot overwrite the reopened dialog.
