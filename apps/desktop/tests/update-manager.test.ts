@@ -186,6 +186,17 @@ describe('update version ordering', () => {
     expect(versionLessThan('0.65.2', '99.0.0')).toBe(true)
   })
 
+  test('dev opt-in can advance a same-core stable install to a dev build', () => {
+    expect(versionLessThan('0.66.0', '0.66.0-dev.3', 'dev')).toBe(true)
+    expect(versionLessThan('0.66.0-dev.2', '0.66.0-dev.3', 'dev')).toBe(true)
+    expect(versionLessThan('0.66.0-dev.3', '0.66.0-dev.2', 'dev')).toBe(false)
+    expect(versionLessThan('0.66.1', '0.66.0-dev.99', 'dev')).toBe(false)
+    // Stable and pre-release ordering must continue to treat a release as
+    // newer than a dev build with the same numeric version.
+    expect(versionLessThan('0.66.0', '0.66.0-dev.3')).toBe(false)
+    expect(versionLessThan('0.66.0-dev.3', '0.66.0')).toBe(true)
+  })
+
   test('the channel guard accepts exactly the three channels', () => {
     expect(isUpdateChannel('stable')).toBe(true)
     expect(isUpdateChannel('pre-release')).toBe(true)
@@ -199,9 +210,24 @@ describe('update version ordering', () => {
 // stables are skipped, drafts are skipped, the newest survivor wins.
 const RELEASES = () =>
   Response.json([
-    { tag_name: 'v0.76.0-dev.7', draft: false, prerelease: true },
-    { tag_name: 'v0.76.0-dev.6', draft: false, prerelease: true },
-    { tag_name: 'v0.75.3', draft: false, prerelease: true },
+    {
+      tag_name: 'v0.76.0-dev.7',
+      draft: false,
+      prerelease: true,
+      assets: [{ name: 'latest.json' }, { name: 'Adea-v0.76.0-dev.7-macos-arm64.app.tar.zst' }],
+    },
+    {
+      tag_name: 'v0.76.0-dev.6',
+      draft: false,
+      prerelease: true,
+      assets: [{ name: 'latest.json' }, { name: 'Adea-v0.76.0-dev.6-macos-arm64.app.tar.zst' }],
+    },
+    {
+      tag_name: 'v0.75.3',
+      draft: false,
+      prerelease: true,
+      assets: [{ name: 'latest.json' }, { name: 'Adea-v0.75.3-macos-arm64.app.tar.zst' }],
+    },
     { tag_name: 'v0.75.2', draft: true, prerelease: true },
     { tag_name: 'v0.75.1', draft: false, prerelease: false },
   ])
@@ -220,6 +246,36 @@ describe('update channels', () => {
     installFetchMock()
     fetchHandler = async (url) =>
       url.includes('/releases?') ? RELEASES() : new Response('{}', { status: 404 })
+    expect(await resolveChannelFeedUrl('dev')).toBe(
+      'https://github.com/adea-ai/adea/releases/download/v0.76.0-dev.7/latest.json'
+    )
+  })
+
+  test('channel discovery skips releases until both the signed feed and app archive exist', async () => {
+    installFetchMock()
+    fetchHandler = async (url) => {
+      if (!url.includes('/releases?')) return new Response('{}', { status: 404 })
+      return Response.json([
+        {
+          tag_name: 'v0.76.0-dev.9',
+          draft: false,
+          prerelease: true,
+          assets: [{ name: 'Adea-v0.76.0-dev.9-macos-arm64.app.tar.zst' }],
+        },
+        {
+          tag_name: 'v0.76.0-dev.8',
+          draft: false,
+          prerelease: true,
+          assets: [{ name: 'latest.json' }],
+        },
+        {
+          tag_name: 'v0.76.0-dev.7',
+          draft: false,
+          prerelease: true,
+          assets: [{ name: 'latest.json' }, { name: 'Adea-v0.76.0-dev.7-macos-arm64.app.tar.zst' }],
+        },
+      ])
+    }
     expect(await resolveChannelFeedUrl('dev')).toBe(
       'https://github.com/adea-ai/adea/releases/download/v0.76.0-dev.7/latest.json'
     )
@@ -281,5 +337,22 @@ describe('update channels', () => {
         (call) => call.url === 'https://api.github.com/repos/adea-ai/adea/releases/latest'
       )
     ).toHaveLength(0)
+  })
+
+  test('a hung opt-in release lookup settles within the configured check timeout', async () => {
+    installFetchMock()
+    fetchHandler = () => HANG
+    const manager = createUpdateManager({
+      appVersion: '0.75.0-dev.4',
+      dataDir: '/tmp/adea-update-manager-test',
+      checkTimeoutMs: 30,
+      channel: () => 'dev',
+    })
+    const status = await manager.check()
+    expect(status.phase).toBe('failed')
+    expect(fetchCalls).toContainEqual({
+      url: 'https://api.github.com/repos/adea-ai/adea/releases?per_page=30',
+    })
+    expect(status.error).not.toBeNull()
   })
 })

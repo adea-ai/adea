@@ -99,21 +99,29 @@ const DEV_TAG = /^v\d+\.\d+\.\d+-dev\.\d+$/
  */
 export async function resolveChannelFeedUrl(
   channel: Exclude<UpdateChannel, 'stable'>,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = CHECK_TIMEOUT_MS
 ): Promise<string> {
   const response = await fetchImpl(RELEASES_API_URL, {
     headers: { accept: 'application/vnd.github+json' },
+    signal: AbortSignal.timeout(timeoutMs),
   })
   if (!response.ok) throw new Error(`github releases ${response.status}`)
   const releases = (await response.json()) as Array<{
     tag_name?: unknown
     draft?: unknown
     prerelease?: unknown
+    assets?: ReadonlyArray<{ name?: unknown } | undefined>
   }>
   const tagPattern = channel === 'dev' ? DEV_TAG : PRE_RELEASE_TAG
   for (const release of releases) {
     const tag = String(release.tag_name ?? '')
-    if (release.draft === false && release.prerelease === true && tagPattern.test(tag)) {
+    if (
+      release.draft === false &&
+      release.prerelease === true &&
+      tagPattern.test(tag) &&
+      releaseHasChannelUpdateAssets(tag, release.assets)
+    ) {
       return `https://github.com/adea-ai/adea/releases/download/${tag}/latest.json`
     }
   }
@@ -145,10 +153,24 @@ function parseUpdateVersion(version: string): [number, number, number, number] |
  * Unparseable versions fall back to the historic numeric-triple comparison —
  * a malformed version must never wedge the state machine.
  */
-export function versionLessThan(a: string, b: string): boolean {
+export function versionLessThan(a: string, b: string, channel: UpdateChannel = 'stable'): boolean {
   const pa = parseUpdateVersion(a)
   const pb = parseUpdateVersion(b)
   if (pa && pb) {
+    // A user who explicitly opts into dev can move from the stable release to
+    // the first dev build of that same core version. Keep the normal ordering
+    // for stable and pre-release channels, and still reject older dev counters
+    // or dev builds anchored at an older core version.
+    if (
+      channel === 'dev' &&
+      pa[3] === Infinity &&
+      pb[3] !== Infinity &&
+      pa[0] === pb[0] &&
+      pa[1] === pb[1] &&
+      pa[2] === pb[2]
+    ) {
+      return true
+    }
     for (let i = 0; i < 4; i++) {
       if (pa[i] !== pb[i]) return pa[i]! < pb[i]!
     }
@@ -190,6 +212,21 @@ function releaseHasInstallableAsset(
   if (!Array.isArray(assets)) return false
   const expected = `Adea-${tag}-macos-arm64.app.tar.zst`
   return assets.some((asset) => asset?.name === expected)
+}
+
+/** A channel candidate is usable only after the signed feed and its archive
+ * are both visible on the release. Release creation precedes asset building,
+ * so choosing a newer half-built release would hide the previous installable
+ * build and make the opt-in channel appear broken. */
+function releaseHasChannelUpdateAssets(
+  tag: string,
+  assets: ReadonlyArray<{ name?: unknown } | undefined> | undefined
+): boolean {
+  return (
+    Array.isArray(assets) &&
+    assets.some((asset) => asset?.name === 'latest.json') &&
+    releaseHasInstallableAsset(tag, assets)
+  )
 }
 
 /** Staging entry names this module owns inside `<dataDir>/updates`. */
@@ -349,7 +386,10 @@ export function createUpdateManager(input: {
       // An explicit feed override (tests, staging) wins over the channel; the
       // stable channel reads the moving `releases/latest` manifest, the opt-in
       // channels resolve their newest release first.
-      const feedUrl = channel === 'stable' ? updateFeedUrl() : await resolveChannelFeedUrl(channel)
+      const feedUrl =
+        channel === 'stable'
+          ? updateFeedUrl()
+          : await resolveChannelFeedUrl(channel, fetch, checkTimeoutMs)
       const res = await fetch(feedUrl, {
         headers: { accept: 'application/json' },
         signal: AbortSignal.timeout(checkTimeoutMs),
@@ -358,7 +398,7 @@ export function createUpdateManager(input: {
       const parsed = parseUpdateManifest(await res.json())
       if (!parsed.ok) throw new Error(`update feed invalid: ${parsed.reason}`)
       const manifest = parsed.manifest
-      if (!versionLessThan(appVersion, manifest.version)) {
+      if (!versionLessThan(appVersion, manifest.version, channel)) {
         pendingManifest = null
         return snapshot({
           phase: 'current',

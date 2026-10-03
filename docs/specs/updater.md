@@ -112,9 +112,13 @@ channel.
 - **Pre-release**: the newest non-draft, non-dev pre-release. GitHub has no
   `releases/latest` equivalent that tracks pre-releases, so the shell lists
   releases through the GitHub API, picks the newest match, and reads that
-  release's `…/releases/download/<tag>/latest.json`. The API only discovers
-  the tag; the manifest comes from the same guarded release-download path and
-  every signature check applies as on stable.
+  release's `…/releases/download/<tag>/latest.json`. A candidate is ready only
+  when the release lists both `latest.json` and the macOS ARM64 app archive;
+  otherwise discovery continues to the newest complete release. The API only
+  discovers the tag; the manifest comes from the same guarded release-download
+  path and every signature check applies as on stable. The API lookup shares
+  the update check's timeout, so an unavailable releases API reports a retryable
+  failure instead of leaving the check in progress.
 - **Dev**: the same discovery against dev builds (`vX.Y.Z-dev.N`).
 
 Opt-in channels never fall back to the stable releases-page check: an install
@@ -125,10 +129,13 @@ is unreachable — it reports the failure instead.
 
 `x.y.z` (stable and pre-release — visibility is the GitHub flag, not the
 version) and `x.y.z-dev.N` (dev builds of main, anchored at the newest
-promoted stable with a per-workflow-run counter). A dev build sorts below its
-own release (`0.75.0-dev.1 < 0.75.0`), so the next stable always wins over the
-dev line anchored at its predecessor, and successive dev builds order by their
-counter. The update is always strictly-newer-only; nothing downgrades.
+promoted stable with a per-workflow-run counter). In normal version ordering,
+a dev build sorts below its own release (`0.75.0-dev.1 < 0.75.0`), so the next
+stable wins over the dev line anchored at its predecessor and successive dev
+builds order by the counter. The explicit dev channel allows an installed
+stable to move to a dev build with the same numeric version; it still rejects
+older core versions and older dev counters. Stable and pre-release ordering
+remain unchanged, and updates are strictly newer within the selected channel.
 
 ### Release lanes and promotion policy
 
@@ -156,10 +163,13 @@ counter. The update is always strictly-newer-only; nothing downgrades.
   or cancelled asset builds hold promotion. Named and forced promotions obey this
   qualification; `force` only overrides the soak and hold.
 - Dev builds (`dev-build.yml`) publish on every push to main (concurrency-
-  cancelled, so a burst ships only the newest commit), reusing the release-
-  assets lane verbatim — same bundle, same signing, same manifest shape, only
-  the version and visibility differ. They are never promoted: the promoter's
-  batch selector only matches the plain tag shape. The newest ten are kept.
+  cancelled, so a burst ships only the newest commit), then explicitly
+  dispatch `release-assets.yml`. GitHub suppresses the release event when the
+  release is created with `GITHUB_TOKEN`, so the dispatch is required to build
+  the installable archive and signed feed. This reuses the release-assets lane
+  verbatim — same bundle, same signing, same manifest shape, only the version
+  and visibility differ. They are never promoted: the promoter's batch
+  selector only matches the plain tag shape. The newest ten are kept.
 
 ## Trust chain
 
@@ -236,9 +246,10 @@ counter. The update is always strictly-newer-only; nothing downgrades.
   selection, install guards (approval, expected version), and the
   releases-page fallback.
 - `apps/desktop/tests/update-manager.test.ts`: version ordering across the
-  grammar (dev line vs its release), per-channel feed resolution (stable moves
-  with an override, opt-in channels resolve through the releases API), and the
-  no-stable-fallback rule for opt-in channels.
+  grammar (including the explicit dev opt-in from a same-core stable),
+  per-channel feed resolution (stable moves with an override, opt-in channels
+  skip releases until the feed and app archive exist), and the no-stable-
+  fallback rule for opt-in channels.
 - `apps/desktop/tests/shell-commands.test.ts`: feed availability phases, the
   packaged-version reporting, and the `desktop_update_channel*` surface
   (default stable, save validation).

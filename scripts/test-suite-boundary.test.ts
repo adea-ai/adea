@@ -196,6 +196,23 @@ describe('test suite boundaries', () => {
     expect(existsSync(resolve(root, 'scripts/native-smoke.mjs'))).toBeFalse()
   })
 
+  test('dispatches the desktop asset lane for dev releases created with GITHUB_TOKEN', () => {
+    const workflow = readFileSync(resolve(root, '.github/workflows/dev-build.yml'), 'utf8')
+    expect(workflow).toContain('permissions:')
+    expect(workflow).toContain('actions: write')
+    expect(workflow).toContain('contents: write')
+    const releaseCreate = workflow.indexOf('gh release create "$tag"')
+    const assetDispatch = workflow.indexOf('gh workflow run release-assets.yml')
+    expect(releaseCreate).toBeGreaterThanOrEqual(0)
+    expect(assetDispatch).toBeGreaterThan(releaseCreate)
+    expect(workflow).toContain('--ref main')
+    expect(workflow).toContain('-f tag="$tag"')
+    // Re-running a dev job should repair a release left without its signed
+    // manifest or platform archive instead of treating the tag as complete.
+    expect(workflow).toContain('latest.json')
+    expect(workflow).toContain('Adea-${tag}-macos-arm64.app.tar.zst')
+  })
+
   test('keeps the Electrobun icon source the release lane builds from', () => {
     // Hutch converts `apps/desktop/shell/icon.iconset` into the bundle's
     // AppIcon.icns while packing, so the icon reaches the app archive and the
