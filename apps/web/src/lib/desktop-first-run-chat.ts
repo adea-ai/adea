@@ -28,10 +28,11 @@ type ResolutionInput = Readonly<{
  * launch field comes from a canonical runtime or workspace record; an absent
  * project, worktree, or AgentProfile stays absent.
  *
- * Model entitlement is intentionally unresolved here. The current desktop API
- * exposes identity and workspace agents, while Control Plane model access has
- * no client-facing projection yet (#552). Signed-in users therefore remain at
- * the explicit model-access gate until that authority is available.
+ * Model access is the user's own harness under BYOK — the default path — so
+ * both guests and signed-in owners project `byok` and traverse onboarding
+ * identically. A CP-provisioned entitlement (#552's future client-facing
+ * projection) is additive when it arrives: it may grant cloud models, but it
+ * never gates the conversation, and identity never gates it either.
  */
 export function resolveDesktopFirstRun(input: ResolutionInput): DesktopFirstRunResolution {
   const projects = input.projection.groups.flatMap((group) => group.projects)
@@ -69,7 +70,7 @@ export function resolveDesktopFirstRun(input: ResolutionInput): DesktopFirstRunR
     facts: {
       identity: input.temporary ? 'guest' : 'signed_in',
       managedPi: input.managedPi,
-      modelAccess: input.temporary ? 'none' : 'unknown',
+      modelAccess: 'byok',
       projectReady,
       agentProfileReady,
     },

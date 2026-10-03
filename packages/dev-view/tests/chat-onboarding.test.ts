@@ -27,14 +27,24 @@ describe('first-run onboarding', () => {
     expect(state.installStatus).toContain('installing')
   })
 
-  test('guest without model entitlement gates at one sign-in action', () => {
-    const state = projectFirstRun({ ...ready, identity: 'guest', modelAccess: 'none' })
-    expect(state.stage).toBe('model_access')
-    expect(state.actions.map((action) => action.kind)).toEqual(['sign_in'])
-    expect(state.message).not.toMatch(/api key|token|provider/i)
-    expect(
-      projectFirstRun({ ...ready, identity: 'guest', modelAccess: 'free-tier' }).actions[0]?.kind
-    ).toBe('sign_in')
+  test('identity never gates the conversation; model access governs the stage', () => {
+    // A guest with BYOK traverses exactly like a signed-in owner: identity is
+    // not a paywall, and the harness is the model authority by default.
+    const guestByok = projectFirstRun({ ...ready, identity: 'guest', modelAccess: 'byok' })
+    expect(guestByok.stage).toBe('compose')
+    expect(guestByok.actions.map((action) => action.kind)).toEqual(['start'])
+    const signedInByok = projectFirstRun({ ...ready, identity: 'signed_in', modelAccess: 'byok' })
+    expect(signedInByok.stage).toBe('compose')
+
+    // A typed none still carries one recovery action, not a sign-in wall.
+    const none = projectFirstRun({ ...ready, identity: 'guest', modelAccess: 'none' })
+    expect(none.stage).toBe('model_access')
+    expect(none.actions.map((action) => action.kind)).toEqual(['retry_access'])
+    expect(none.message).not.toMatch(/api key|token|provider/i)
+    // Provisioned grants proceed for whoever holds them, guest or not.
+    expect(projectFirstRun({ ...ready, identity: 'guest', modelAccess: 'free-tier' }).stage).toBe(
+      'compose'
+    )
     const authRequired = projectFirstRun({ ...ready, identity: 'auth_required' })
     expect(authRequired.actions.map((action) => action.kind)).toEqual(['sign_in'])
   })

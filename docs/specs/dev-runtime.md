@@ -1503,10 +1503,15 @@ If a Chat create request loses its transport response, the client retains the
 key/body fingerprint but clears its rejected in-flight promise. Retrying the
 same request then reaches the host's durable result replay; reusing the key for
 a changed body still refuses before dispatch.
-M13 first-run onboarding consumes identity and model-access entitlement facts
-from the owning desktop composition. The guest state with no model entitlement
-offers sign-in as its one recovery action; it never invents free guest model
-access or displays a raw credential field. Managed-Pi install state is a
+M13 first-run onboarding consumes identity and model-access facts from the
+owning desktop composition. Identity never gates the conversation: a guest and
+a signed-in owner traverse the same stages, because the desktop's model path
+is the user's own harness under BYOK (the default model-access decision) —
+onboarding projects `byok` for both and never shows a sign-in wall to start a
+conversation. Onboarding never invents cloud-provided model access or displays
+a raw credential field; a typed `none` projection still carries one safe
+recovery action, and a future CP-provisioned entitlement (#552's client-facing
+projection) is additive — it may grant cloud models, never a gate. Managed-Pi install state is a
 separate visible status while identity is resolving. Typed driver errors map to
 one safe action (retry the install or update the app), and raw diagnostic
 details do not render. An unresolved project or AgentProfile remains a visible
@@ -1530,11 +1535,12 @@ Selection, scope replacement and unmount fence every deferred attachment;
 failures keep a visible canonical retry state rather than silently substituting
 team chat. View switches use read/stream operations only and cannot create,
 launch or resume a session. First-run creation refreshes that same hierarchy.
-The current desktop API has no Control Plane model-
-entitlement projection, so signed-in onboarding stays at an explicit
-model-access gate and guest onboarding requires sign-in; no client-side
-entitlement is inferred from identity or profile data. Packaged first-run
-certification remains an M13.4 acceptance gate.
+The desktop API exposes no Control Plane model-entitlement projection, so
+onboarding does not consult one: model access is the harness's own (BYOK),
+identity is the device-local guest or the cloud-bound account, and neither
+gates the launch. A CP-provisioned entitlement would arrive as an additive
+projection, not a precondition. Packaged first-run certification remains an
+M13.4 acceptance gate.
 
 The Dev↔Chat switch proof drives the model from the Chat side through repeated
 Dev projection and Chat attach cycles. Each cycle must observe the same
