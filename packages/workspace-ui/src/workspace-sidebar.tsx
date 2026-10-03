@@ -11,7 +11,6 @@ import {
   EllipsisVertical,
   Hash,
   Link2,
-  ListTodo,
   MessageCircle,
   PanelLeftClose,
   Pencil,
@@ -218,7 +217,6 @@ type Props = Readonly<{
   onCreateRoom: () => void
   onMarkAllRead: () => void | Promise<void>
   onOpenAgents: () => void
-  onOpenTasks: () => void
   /** Fires on hover/focus of a channel affordance — prefetch before click. */
   onChannelIntent?: (channelId: string) => void
   onRenameChannel: (channel: ChannelSummary, title: string) => Promise<void>
@@ -434,10 +432,6 @@ export function WorkspaceSidebar(props: Props) {
 
         <SidebarNavContent class="conventional-sidebar__content">
           <div class="conventional-sidebar__quick-actions">
-            <SidebarNavButton type="button" onClick={() => props.onOpenTasks()}>
-              <ListTodo aria-hidden="true" />
-              Tasks
-            </SidebarNavButton>
             <SidebarNavButton type="button" onClick={() => props.onOpenAgents()}>
               <Bot aria-hidden="true" />
               Agents

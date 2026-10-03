@@ -37,9 +37,11 @@ export const workspaceApps: readonly WorkspaceApp[] = Object.freeze([
   {
     id: 'kanban',
     name: 'Kanban',
-    description: 'A full workspace task board.',
+    description: 'Plan and track tasks on a full-width board.',
     view: 'chat',
-    enabledByDefault: false,
+    // The board is the only place tasks are listed, so it is on unless the
+    // person turns it off in the App Library.
+    enabledByDefault: true,
   },
   {
     id: 'source-control',

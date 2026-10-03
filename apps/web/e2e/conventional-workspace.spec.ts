@@ -1242,23 +1242,25 @@ test('restores a channel reading position without rearming transcript follow', a
   await expect(page.getByRole('button', { name: 'Jump to latest' })).toBeVisible()
 })
 
-test('opens responsive Task detail and restores focus on dismissal', async ({ page }) => {
+test('opens the Task panel beside the board and restores focus on dismissal', async ({ page }) => {
   await mockWorkspace(page)
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Tasks', exact: true }).click()
-  const taskTrigger = page.getByRole('button', { name: /Launch planning/ })
+  await page.goto('/?view=chat&app=kanban')
+  const taskTrigger = page.getByRole('button', { name: 'Launch planning', exact: true })
   await taskTrigger.click()
-  const detail = page.getByRole('dialog', { name: 'Launch planning', exact: true })
-  await expect(detail.getByRole('heading', { name: 'Launch planning' })).toBeVisible()
-  await expect(detail).toHaveAttribute('data-side', 'right')
-  await expect(page.locator('[class*="bg-scrim/50"]')).toHaveCount(1)
-  await expect(detail.locator('.conventional-detail-panel')).toHaveCSS('overflow-y', 'auto')
+  const detail = page.getByRole('dialog', { name: 'Edit task', exact: true })
+  await expect(detail.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(
+    'Launch planning'
+  )
+  // The panel shares the Appearance panel's shape: header, scrolling body, footer.
+  const body = detail.locator('[data-slot="sheet-body"]')
+  await expect(body).toHaveCSS('overflow-y', 'auto')
+  await expect(detail.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
   const rootFontSize = await page
     .locator('html')
     .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))
   expect(
     await detail.evaluate((element) => Number.parseFloat(getComputedStyle(element).width))
-  ).toBeCloseTo(29 * rootFontSize, 1)
+  ).toBeCloseTo(32 * rootFontSize, 1)
   await detail.getByRole('textbox', { name: 'Title', exact: true }).focus()
   await expect(page.getByRole('tooltip')).toHaveCount(0)
   await expect(page).toHaveScreenshot('workspace-task-detail.png', { animations: 'disabled' })
@@ -1266,15 +1268,14 @@ test('opens responsive Task detail and restores focus on dismissal', async ({ pa
   await page.setViewportSize({ width: 390, height: 480 })
   expect(
     await detail.evaluate((element) => Number.parseFloat(getComputedStyle(element).width))
-  ).toBeCloseTo(366.6, 0)
-  const detailBody = detail.locator('.conventional-detail-panel')
+  ).toBeCloseTo(390 * 0.85, 0)
   await expect
-    .poll(() => detailBody.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))
     .toBe(true)
-  await detailBody.evaluate((element) => {
+  await body.evaluate((element) => {
     element.scrollTop = element.scrollHeight
   })
-  await expect.poll(() => detailBody.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
 
   await page.keyboard.press('Escape')
   await expect(detail).toHaveCount(0)
@@ -1282,13 +1283,62 @@ test('opens responsive Task detail and restores focus on dismissal', async ({ pa
 
   await page.setViewportSize({ width: 1280, height: 720 })
   await taskTrigger.click()
-  const reopenedDetail = page.getByRole('dialog', { name: 'Launch planning', exact: true })
-  const closeDetail = reopenedDetail.getByRole('button', { name: 'Close Task detail' })
-  await closeDetail.focus()
-  await expect(page.getByRole('tooltip')).toHaveText('Close Task detail')
-  await closeDetail.click()
+  const reopenedDetail = page.getByRole('dialog', { name: 'Edit task', exact: true })
+  await reopenedDetail.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(reopenedDetail).toHaveCount(0)
   await expect(taskTrigger).toBeFocused()
+})
+
+test('creates a Task from a side panel without moving the board', async ({ page }) => {
+  await mockWorkspace(page)
+  const created: unknown[] = []
+  const boardTasks = tasks.map((task) => ({ ...task }))
+  const refetch = { released: false, waiting: new Set<() => void>() }
+  await page.route('**/api/v1/workspaces/**/tasks', async (route) => {
+    if (route.request().method() === 'GET') {
+      if (created.length > 0 && !refetch.released)
+        await new Promise<void>((resolve) => {
+          refetch.waiting.add(resolve)
+        })
+      return route.fulfill({ contentType: 'application/json', json: boardTasks })
+    }
+    if (route.request().method() !== 'POST') return route.fallback()
+    const body = route.request().postDataJSON() as { title: string }
+    created.push(body)
+    const task = { ...tasks[0]!, id: 'task-new', title: body.title, version: 1 }
+    boardTasks.push(task)
+    return route.fulfill({
+      contentType: 'application/json',
+      json: { task },
+    })
+  })
+  await page.goto('/?view=chat&app=kanban')
+  // A CSS locator: the open modal panel hides the board from role queries.
+  const board = page.locator('.conventional-kanban__board')
+  await expect(board).toBeVisible()
+  const before = await board.boundingBox()
+  await page.getByRole('button', { name: 'New task', exact: true }).click()
+  const panel = page.getByRole('dialog', { name: 'New task', exact: true })
+  await expect(panel).toBeVisible()
+  expect(await board.boundingBox()).toEqual(before)
+  // An empty title is refused in place, with the reason announced.
+  await panel.getByRole('button', { name: 'Create task', exact: true }).click()
+  await expect(panel.getByRole('alert')).toHaveText('Give the task a title.')
+  await panel.getByRole('textbox', { name: 'Title', exact: true }).fill('Write release notes')
+  try {
+    await panel.getByRole('button', { name: 'Create task', exact: true }).click()
+    await expect(panel).toHaveCount(0)
+    await expect.poll(() => created.length).toBe(1)
+    await expect.poll(() => refetch.waiting.size).toBeGreaterThan(0)
+    // The server's create result supplies the card even while list reconciliation is held.
+    await expect(
+      board.getByRole('button', { name: 'Write release notes', exact: true })
+    ).toBeVisible()
+  } finally {
+    refetch.released = true
+    for (const release of refetch.waiting) release()
+    refetch.waiting.clear()
+  }
 })
 
 test('Task board preserves task data and moves cards with keyboard and drag', async ({
@@ -1328,19 +1378,21 @@ test('Task board preserves task data and moves cards with keyboard and drag', as
     return route.fallback()
   })
 
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  await page.goto('/?view=chat&app=kanban')
   const board = page.getByRole('region', { name: 'Task board' })
   const planned = board.getByRole('region', { name: 'Planned' })
   const queued = board.getByRole('region', { name: 'Queued' })
-  const inProgress = board.getByRole('region', { name: 'In-Progress' })
+  const inProgress = board.getByRole('region', { name: 'In progress' })
   const completed = board.getByRole('region', { name: 'Completed' })
   const taskTrigger = planned.getByRole('button', { name: 'Launch planning', exact: true })
 
   await expect(taskTrigger).toBeVisible()
-  await expect(planned.locator('header > span')).toHaveText('1')
-  await expect(queued.locator('header > span')).toHaveText('1')
-  await expect(planned.getByLabel('Priority: high')).toBeVisible()
+  await expect(planned.locator('[data-slot="board-column-count"]')).toHaveText('1')
+  await expect(queued.locator('[data-slot="board-column-count"]')).toHaveText('1')
+  await expect(planned.getByLabel('Priority: High')).toBeVisible()
+  // Empty lanes fold to a sideways label; lanes holding cards stay open.
+  await expect(inProgress).toHaveAttribute('data-collapsed', '')
+  await expect(planned).not.toHaveAttribute('data-collapsed', '')
   await expect(planned.getByText('Prepare the launch brief and confirm audience.')).toBeVisible()
   await expect(planned.getByText('Research Agent')).toBeVisible()
   await expect(planned.getByText('Product', { exact: true })).toBeVisible()
@@ -1350,16 +1402,16 @@ test('Task board preserves task data and moves cards with keyboard and drag', as
   await taskTrigger.focus()
   await page.keyboard.press('Control+ArrowRight')
   await expect(queued.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
-  await expect(planned.locator('header > span')).toHaveText('0')
-  await expect(queued.locator('header > span')).toHaveText('2')
+  await expect(planned.locator('[data-slot="board-column-count"]')).toHaveText('0')
+  await expect(queued.locator('[data-slot="board-column-count"]')).toHaveText('2')
   await expect.poll(() => taskActions).toContain('task-launch/queue')
   const queuedCard = queued
     .getByRole('button', { name: 'Launch planning', exact: true })
     .locator('xpath=ancestor::article[@aria-roledescription="Draggable card"]')
   await expect(queuedCard).toBeFocused()
   await queuedCard.dragTo(planned)
-  await expect(planned.locator('header > span')).toHaveText('0')
-  await expect(queued.locator('header > span')).toHaveText('2')
+  await expect(planned.locator('[data-slot="board-column-count"]')).toHaveText('0')
+  await expect(queued.locator('[data-slot="board-column-count"]')).toHaveText('2')
   await expect.poll(() => taskActions).toEqual(['task-launch/queue'])
 
   await queuedCard.focus()
@@ -1367,19 +1419,19 @@ test('Task board preserves task data and moves cards with keyboard and drag', as
   await expect(
     inProgress.getByRole('button', { name: 'Launch planning', exact: true })
   ).toBeVisible()
-  await expect(queued.locator('header > span')).toHaveText('1')
-  await expect(inProgress.locator('header > span')).toHaveText('1')
+  await expect(queued.locator('[data-slot="board-column-count"]')).toHaveText('1')
+  await expect(inProgress.locator('[data-slot="board-column-count"]')).toHaveText('1')
   await expect.poll(() => taskActions).toContain('task-launch/start')
 
-  const inReview = board.getByRole('region', { name: 'In-Review' })
+  const inReview = board.getByRole('region', { name: 'In review' })
   const launchCard = inProgress
     .getByRole('button', { name: 'Launch planning', exact: true })
     .locator('xpath=ancestor::article[@aria-roledescription="Draggable card"]')
   await inReview.scrollIntoViewIfNeeded()
   await launchCard.dragTo(inReview)
   await expect(inReview.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
-  await expect(inProgress.locator('header > span')).toHaveText('0')
-  await expect(inReview.locator('header > span')).toHaveText('1')
+  await expect(inProgress.locator('[data-slot="board-column-count"]')).toHaveText('0')
+  await expect(inReview.locator('[data-slot="board-column-count"]')).toHaveText('1')
   await expect.poll(() => taskActions).toContain('task-launch/review')
   const inReviewCard = inReview
     .getByRole('button', { name: 'Launch planning', exact: true })
@@ -1389,8 +1441,8 @@ test('Task board preserves task data and moves cards with keyboard and drag', as
   await expect(
     completed.getByRole('button', { name: 'Launch planning', exact: true })
   ).toBeVisible()
-  await expect(inReview.locator('header > span')).toHaveText('0')
-  await expect(completed.locator('header > span')).toHaveText('1')
+  await expect(inReview.locator('[data-slot="board-column-count"]')).toHaveText('0')
+  await expect(completed.locator('[data-slot="board-column-count"]')).toHaveText('1')
   await expect.poll(() => taskActions).toContain('task-launch/complete')
   const completedCard = completed
     .getByRole('button', { name: 'Launch planning', exact: true })
@@ -1420,12 +1472,17 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await expect(navigation.getByRole('region', { name: 'Conversations' })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-narrow-light.png', { animations: 'disabled' })
   await navigation.getByRole('button', { name: 'Close workspace navigation' }).click()
+  const contextualToggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
+  // Finish the sheet's close/focus-restoration transition before opening the
+  // next overlay, so Search captures a persistent opener rather than its
+  // departing close button.
+  await expect(navigation).not.toBeVisible()
+  await expect(contextualToggle).toBeFocused()
 
   await page.keyboard.press('Control+k')
   await expect(page.getByRole('dialog', { name: 'Search workspace' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Search workspace' })).not.toBeVisible()
-  const contextualToggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
   await expect(contextualToggle).toBeFocused()
   const workspaceMain = page.locator('#workspace-main')
   await workspaceMain.focus()
@@ -2528,10 +2585,14 @@ test('optional apps open actual task and source control views without hiding the
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   const library = page.getByRole('main', { name: 'App Library' })
-  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
+  // Kanban is on by default: it is the only place tasks are listed.
+  await expect(library.getByRole('button', { name: 'Disable Kanban', exact: true })).toBeVisible()
   await library.getByRole('button', { name: 'Open Kanban', exact: true }).click()
   await expect(page).toHaveURL(/app=kanban/)
-  await expect(page.locator('.conventional-workspace')).toBeVisible()
+  await expect(page.locator('.conventional-workspace--board')).toBeVisible()
+  // The board is a full-width app: no workspace sidebar beside it.
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Task board', exact: true })).toBeVisible()
   await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true'
@@ -2561,7 +2622,7 @@ test('all-off stale links remain in Library while enabling the first app', async
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   const library = page.getByRole('main', { name: 'App Library' })
-  for (const name of ['Virtual', 'Chat', 'Dev'])
+  for (const name of ['Virtual', 'Chat', 'Dev', 'Kanban'])
     await library.getByRole('button', { name: `Disable ${name}`, exact: true }).click()
   await page.goto('/?view=dev')
   await expect(page).toHaveURL(/app=library/)
@@ -2584,15 +2645,14 @@ test('Kanban leaves the prior Chat surface intact and rail keyboard reorders per
   // Alt+Arrow moves the focused rail view; the live region announces it.
   await views.getByRole('button', { name: 'Chat view', exact: true }).click()
   await page.keyboard.press('Alt+ArrowUp')
-  await expect(rail.getByRole('status')).toHaveText('Chat moved to position 1 of 3')
+  await expect(rail.getByRole('status')).toHaveText('Chat moved to position 1 of 4')
   await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Chat view')
   await page.reload()
   await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Chat view')
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   const library = page.getByRole('main', { name: 'App Library' })
-  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
   await library.getByRole('button', { name: 'Open Kanban', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Kanban', exact: true })).toBeVisible()
   await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
   await expect(page.locator('.conventional-workspace')).toBeVisible()
   // The Agents panel selection persists through a debounced writer, so a
@@ -2603,7 +2663,8 @@ test('Kanban leaves the prior Chat surface intact and rail keyboard reorders per
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   await library.getByRole('button', { name: 'Reset Navigation', exact: true }).click()
   await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Virtual view')
-  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(0)
+  // Reset restores the defaults, and Kanban is one of them.
+  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(1)
 })
 
 test('App Library drag and keyboard ordering shares rail placements and persists hidden apps', async ({
@@ -2636,47 +2697,54 @@ test('App Library drag and keyboard ordering shares rail placements and persists
   // An enabled-only filter must not replace the canonical order with its
   // partial list. Move Dev with a keyboard-activated shared ActionButton.
   await library.getByRole('button', { name: 'Show enabled only', exact: true }).click()
-  await expect.poll(appOrder).toEqual(['virtual', 'chat', 'dev'])
+  await expect.poll(appOrder).toEqual(['virtual', 'chat', 'dev', 'kanban'])
   const moveDevLeft = library.getByRole('button', { name: 'Move Dev left', exact: true })
   await moveDevLeft.focus()
   await page.keyboard.press('Enter')
-  await expect.poll(appOrder).toEqual(['virtual', 'dev', 'chat'])
+  await expect.poll(appOrder).toEqual(['virtual', 'dev', 'chat', 'kanban'])
   await expect(library.getByRole('button', { name: 'Move Dev left', exact: true })).toBeFocused()
   await expect(library.getByRole('status')).toHaveText('Dev moved to position 2 of 5')
   await library.getByRole('button', { name: 'Show enabled only', exact: true }).click()
   await expect.poll(appOrder).toEqual(['virtual', 'dev', 'chat', 'kanban', 'source-control'])
-  await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat'])
+  await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat', 'kanban'])
 
   // Drag the optional, currently hidden app before Virtual. Reordering keeps
   // it hidden until the explicit Enable action and retains the remaining apps.
-  const kanbanTile = library.locator('[data-app-id="kanban"]')
-  const kanbanGrip = kanbanTile.getByRole('button', { name: 'Drag Kanban to reorder', exact: true })
-  await kanbanTile.hover()
-  await expect(kanbanGrip).toBeVisible()
-  await kanbanGrip.click({ trial: true })
-  await kanbanGrip.dragTo(library.locator('[data-app-id="virtual"]'), {
+  const sourceTile = library.locator('[data-app-id="source-control"]')
+  const sourceGrip = sourceTile.getByRole('button', {
+    name: 'Drag Source control to reorder',
+    exact: true,
+  })
+  await sourceTile.hover()
+  await expect(sourceGrip).toBeVisible()
+  await sourceGrip.click({ trial: true })
+  await sourceGrip.dragTo(library.locator('[data-app-id="virtual"]'), {
     targetPosition: { x: 1, y: 24 },
   })
-  await expect.poll(appOrder).toEqual(['kanban', 'virtual', 'dev', 'chat', 'source-control'])
-  await expect(library.getByRole('button', { name: 'Enable Kanban', exact: true })).toBeVisible()
-  await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat'])
+  await expect.poll(appOrder).toEqual(['source-control', 'virtual', 'dev', 'chat', 'kanban'])
+  await expect(
+    library.getByRole('button', { name: 'Enable Source control', exact: true })
+  ).toBeVisible()
+  await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat', 'kanban'])
 
-  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
+  await library.getByRole('button', { name: 'Enable Source control', exact: true }).click()
   await expect
     .poll(async () => ({ enabledApps: await enabledAppOrder(), rail: await railOrder() }))
     .toEqual({
-      enabledApps: ['kanban', 'virtual', 'dev', 'chat'],
-      rail: ['kanban', 'virtual', 'dev', 'chat'],
+      enabledApps: ['source-control', 'virtual', 'dev', 'chat', 'kanban'],
+      rail: ['source-control', 'virtual', 'dev', 'chat', 'kanban'],
     })
   await page.reload()
   await expect(library).toBeVisible()
-  await expect.poll(appOrder).toEqual(['kanban', 'virtual', 'dev', 'chat', 'source-control'])
-  await expect(library.getByRole('button', { name: 'Disable Kanban', exact: true })).toBeVisible()
+  await expect.poll(appOrder).toEqual(['source-control', 'virtual', 'dev', 'chat', 'kanban'])
+  await expect(
+    library.getByRole('button', { name: 'Disable Source control', exact: true })
+  ).toBeVisible()
   await expect
     .poll(async () => ({ enabledApps: await enabledAppOrder(), rail: await railOrder() }))
     .toEqual({
-      enabledApps: ['kanban', 'virtual', 'dev', 'chat'],
-      rail: ['kanban', 'virtual', 'dev', 'chat'],
+      enabledApps: ['source-control', 'virtual', 'dev', 'chat', 'kanban'],
+      rail: ['source-control', 'virtual', 'dev', 'chat', 'kanban'],
     })
 })
 
