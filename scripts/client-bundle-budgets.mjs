@@ -30,7 +30,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // raw / 705,668 gzip across 93 files once main rides along (Dev-pane top-bar
   // controls), so raw and file count ratchet while
   // gzip keeps the same 700 KiB step (~2% headroom) the ceiling has held.
-  total: { rawBytes: 2_410_000, gzipBytes: 700 * 1024, fileCount: 98 },
+  // The 2026-10 dependency update (#1004) lands the aggregate at
+  // 2,382,081 raw / 725,392 gzip across 93 files (shared UI 0.105.0,
+  // themes 0.9.7, xterm addon minors). Raw and file count keep their
+  // headroom; gzip moves 700 -> 715 KiB (~0.9% headroom).
+  total: { rawBytes: 2_410_000, gzipBytes: 715 * 1024, fileCount: 98 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -82,7 +86,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
     // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
     // carries ~2.2% headroom instead of leaving the cap pinned to the build.
-    devTerminal: { rawBytes: 768 * 1024, gzipBytes: 197 * 1024 },
+    // Re-measured for the 2026-10 dependency update (#1004): shared UI
+    // 0.105.0, themes 0.9.7, and the xterm addon minors land the route at
+    // 812,192 raw / 210,342 gzip. 800 KiB raw / 211 KiB gzip keep round caps
+    // with roughly the same headroom ratio instead of pinning to the build.
+    devTerminal: { rawBytes: 800 * 1024, gzipBytes: 211 * 1024 },
     devEditor: { rawBytes: 512 * 1024, gzipBytes: 160 * 1024 },
   },
 }
