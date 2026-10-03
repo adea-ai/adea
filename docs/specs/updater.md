@@ -151,6 +151,10 @@ counter. The update is always strictly-newer-only; nothing downgrades.
   (`STABLE_PROMOTION_HELD`) halts scheduled and manual promotion for a bad batch;
   workflow_dispatch inputs promote a named version or force the tip past the
   soak or hold. Set or clear the hold in repository Actions variables.
+- Stable promotion requires the latest release-event run of `release-assets.yml`
+  for the candidate tag’s exact source commit to succeed. Missing, running, failed,
+  or cancelled asset builds hold promotion. Named and forced promotions obey this
+  qualification; `force` only overrides the soak and hold.
 - Dev builds (`dev-build.yml`) publish on every push to main (concurrency-
   cancelled, so a burst ships only the newest commit), reusing the release-
   assets lane verbatim — same bundle, same signing, same manifest shape, only
