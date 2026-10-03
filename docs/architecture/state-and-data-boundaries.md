@@ -18,14 +18,14 @@ what the title predicted.
 
 ## Ownership
 
-| Fact                                                                                          | Owner                                     | Notes                                                                                                                                        |
-| --------------------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Server state (workspaces, rooms, agents, tasks, artifacts)                                    | TanStack Query in `packages/data`         | Query keys are declared once (`workspaceQueryKeys`, `roomQueryKeys`, …); SSE events map to keys through `queryKeysForEvent` for invalidation |
-| Realtime transport                                                                            | `packages/data/src/events.ts`             | One `createWorkspaceEventSubscription` (cursor, reconnect backoff, resync); the desktop shell does not open a second stream                  |
-| Ephemeral UI state (panels, collapsed groups, drafts, mobile drawer, Dev View pane selection) | `packages/state` workspace store          | Selection + layout only; no server data is cached here                                                                                       |
-| Deep-linkable selection (`view`, `scene`, room/conversation/task in the URL)                  | TanStack Router search params             | The store still mirrors `selectedScene` for the virtual scene; see the follow-up below                                                       |
-| Browser persistence                                                                           | `packages/state/src/persisted-storage.ts` | The boundary this audit landed: one read/validate/quarantine discipline                                                                      |
-| Desktop-shell facts (window geometry, preferences, vault)                                     | Shell-side authorities                    | Web reaches them through the desktop bridge, never by reading shell storage                                                                  |
+| Fact                                                                                          | Owner                                     | Notes                                                                                                                                                                                                                                                             |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server state (workspaces, rooms, agents, tasks, artifacts)                                    | TanStack Query in `packages/data`         | Query keys are declared once (`workspaceQueryKeys`, `roomQueryKeys`, …); SSE events map to keys through `queryKeysForEvent` for invalidation                                                                                                                      |
+| Realtime transport                                                                            | `packages/data/src/events.ts`             | One `createWorkspaceEventSubscription` (cursor, reconnect backoff, resync); the desktop shell does not open a second stream                                                                                                                                       |
+| Ephemeral UI state (panels, collapsed groups, drafts, mobile drawer, Dev View pane selection) | `packages/state` workspace store          | Layout and presentation hints only; no server data is cached here. The Dev View project/session family lives here too, written only by Dev View itself as it resolves its selection (see the deep-linkable row)                                                   |
+| Deep-linkable selection (`view`, `scene`, room/conversation/task in the URL)                  | TanStack Router search params             | Router-owned end to end (#616): a scene or Dev selection change is one guarded navigation, and no effect mirrors a selection fact into the store or out of it. The store's Dev View selection family is downstream of the router's request, never a second source |
+| Browser persistence                                                                           | `packages/state/src/persisted-storage.ts` | The boundary this audit landed: one read/validate/quarantine discipline                                                                                                                                                                                           |
+| Desktop-shell facts (window geometry, preferences, vault)                                     | Shell-side authorities                    | Web reaches them through the desktop bridge, never by reading shell storage                                                                                                                                                                                       |
 
 ## What was duplicated (and what happened to it)
 
@@ -70,10 +70,14 @@ store. The validator now rejects that input, and tests pin its rejection rules.
 
 ## Follow-ups
 
-- **Store/URL selection ownership.** `selectedScene` is mirrored between the
-  store and the router's `view`/`scene` search params, with a sync effect
-  bridging them. The direction of travel is router-owned deep links (#465);
-  collapsing the mirror touches navigation and is tracked separately.
+- ~~**Store/URL selection ownership.**~~ **Closed (#616).** `selectedScene`
+  left the store (the virtual scene renders the router-derived prop), and the
+  Dev View `devProject`/`devSession` mirror effects are gone: the URL request
+  flows into Dev View through one prop, the resolved selection flows back
+  through one callback that performs a single guarded navigation (written only
+  when it actually differs — the #601 discipline). A test pins the exact
+  fields the workspace store still holds
+  (`packages/state/tests/index.test.ts`).
 - **Rail preferences keep their own normalize+quarantine** because their
   normalization is lossy (it rebuilds the object and preserves the raw shape it
   could not map). If that stops being true, they fold into `readPersisted`.
