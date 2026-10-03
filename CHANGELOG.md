@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.79.1](https://github.com/adea-ai/adea/compare/v0.79.0...v0.79.1) (2026-10-03)
+
+
+### Documentation
+
+* **marketplace:** use the online Control Plane catalog origin ([#978](https://github.com/adea-ai/adea/issues/978)) ([8a78e5a](https://github.com/adea-ai/adea/commit/8a78e5a06c5552635786bb16ea895a4a9a5abeab))
+
 ## [0.79.0](https://github.com/adea-ai/adea/compare/v0.78.1...v0.79.0) (2026-10-03)
 
 
