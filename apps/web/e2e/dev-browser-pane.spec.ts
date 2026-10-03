@@ -129,6 +129,13 @@ test('synthetic BrowserPane preview exposes tooltips and supports pointer and ke
   await expect(preview).toBeVisible()
   await expect.poll(async () => (await preview.boundingBox())?.width ?? 0).toBeGreaterThan(100)
 
+  // The float remount re-homes the pane under the stationary pointer, which
+  // opens a pane-edge tooltip synthetically; its card overlaps the header
+  // controls until the pointer genuinely leaves, so park the pointer on
+  // neutral ground and let the tooltip dismiss before hovering the header.
+  await page.mouse.move(640, 450)
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+
   const move = page.getByRole('button', { name: 'Move Browser preview' })
   await move.hover()
   await expect(
