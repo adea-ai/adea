@@ -185,7 +185,7 @@ test('retains aggregate raw, gzip, and file-count ceilings', () => {
   expect(() => assertClientBundleBudgets(overRaw)).toThrow('Total client JavaScript exceeds raw')
 
   const overGzip = inspectClientBundle(fixture())
-  overGzip.total.gzipBytes = 700 * 1024 + 1
+  overGzip.total.gzipBytes = CLIENT_BUNDLE_BUDGETS.total.gzipBytes + 1
   expect(() => assertClientBundleBudgets(overGzip)).toThrow('Total client JavaScript exceeds gzip')
 
   const overFiles = inspectClientBundle(fixture())
