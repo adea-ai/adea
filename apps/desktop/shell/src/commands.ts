@@ -61,6 +61,35 @@ function isAcceptableAuthorizationUrl(url: string): boolean {
   }
 }
 
+/**
+ * External-link handoff guard: the CEF webview's window.open cannot leave the
+ * app, so feedback, help, and source links route through the shell. Only
+ * plain credential-free web links are openable — scheme handlers (file:,
+ * javascript:, custom app schemes) are refused.
+ */
+export function isExternalOpenableUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return (
+      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+      parsed.username === '' &&
+      parsed.password === ''
+    )
+  } catch {
+    return false
+  }
+}
+
+function openInSystemBrowser(url: string): void {
+  const command =
+    process.platform === 'darwin'
+      ? ['open', url]
+      : process.platform === 'linux'
+        ? ['xdg-open', url]
+        : ['rundll32', 'url.dll,FileProtocolHandler', url]
+  Bun.spawn(command)
+}
+
 export type BridgeResult = { ok: true; value: unknown } | { ok: false; error: string }
 
 export function createCommandSurface(
@@ -186,6 +215,12 @@ export function createCommandSurface(
       // Open the trusted sign-in page in the system browser; the callback
       // arrives through the URL-scheme handler (release-pipeline registration).
       Bun.spawn(['open', url])
+      return null
+    },
+    shell_open_external: (args) => {
+      const url = String(args?.url ?? '')
+      if (!isExternalOpenableUrl(url)) throw new Error('untrusted external url')
+      openInSystemBrowser(url)
       return null
     },
     desktop_auth_take_callback: () => {
