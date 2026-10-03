@@ -765,6 +765,12 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/')
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage))
+      if (key.startsWith('adea.dev-layout.v1:') || key.startsWith('adea.dev-layout.v2:'))
+        localStorage.removeItem(key)
+  })
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
   const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
@@ -787,8 +793,8 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   await expect(
     page.locator('[data-slot="side-rail-tip"]').filter({ hasText: 'Browser' })
   ).toBeVisible()
-  // The right utility slot seeds the wider 384 step by default.
-  await expect.poll(async () => (await rightUtilities.boundingBox())?.width ?? 0).toBe(384)
+  // Right utility panes seed the 448px step; existing saved widths still win.
+  await expect.poll(async () => (await rightUtilities.boundingBox())?.width ?? 0).toBe(448)
 
   await expect
     .poll(() =>
@@ -804,7 +810,7 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   })
   expect(
     savedLayout.value.utility.find((item: { pane: string }) => item.pane === 'browser').size
-  ).toBe(384)
+  ).toBe(448)
   await page.evaluate((key) => {
     const value = JSON.parse(localStorage.getItem(key) ?? '{}')
     value.utility = value.utility.map((item: { pane: string }) =>
@@ -839,6 +845,8 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   const rightSeparator = page.getByRole('separator', { name: 'Resize right utility pane' })
   await expect(leftSeparator).toBeVisible()
   await expect(rightSeparator).toBeVisible()
+  await expect(leftSeparator).toHaveAttribute('aria-valuemax', '384')
+  await expect(rightSeparator).toHaveAttribute('aria-valuemax', '448')
   // The left pane opens at the shared 336 default, one 64px drag from the 384
   // cap: shrink first so both drags land on a movable step.
   await dragAt(leftSeparator, 'top', -64)
@@ -864,6 +872,11 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
     document.documentElement.style.fontSize = '200%'
   })
   await expect(filesButton).toBeVisible()
+  const narrowRightBounds = await rightUtilities.boundingBox()
+  expect(narrowRightBounds).not.toBeNull()
+  expect(narrowRightBounds!.width).toBeLessThanOrEqual(320 * 0.78 + 1)
+  expect(narrowRightBounds!.x).toBeGreaterThanOrEqual(0)
+  expect(narrowRightBounds!.x + narrowRightBounds!.width).toBeLessThanOrEqual(320)
   const narrowSelector = await selector.evaluate((element) => {
     const bounds = element.getBoundingClientRect()
     return {

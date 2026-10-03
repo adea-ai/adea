@@ -44,10 +44,10 @@ const canonicalUtilitySides: Readonly<Record<DevUtilityPane, 'left' | 'right'>> 
   agents: 'right',
   history: 'right',
 }
-/** Left panes (files/source control) open at the browser pane's width. */
+/** Left panes (files/source control) retain their existing default step. */
 const defaultLeftUtilitySize = 336
 /** Right panes (browser/devices/agents/history) get the wider step. */
-const defaultRightUtilitySize = 384
+const defaultRightUtilitySize = 448
 
 /**
  * Utility panes sharing an edge are one resizable surface: restoring a stored
@@ -327,16 +327,36 @@ function decodePreferencesV2(value: unknown): DevLayoutPreferencesV2 | undefined
 }
 
 /**
- * Migrates the #447 V1 envelope: fills all six panes from safe defaults,
- * keeps explicit full-width state per pane, demotes extra visible panes per
- * side, and normalizes focus to a center leaf.
+ * Migrates the #447 V1 envelope: fills missing panes from an existing saved
+ * side width or safe defaults, keeps explicit full-width state per pane,
+ * demotes extra visible panes per side, and normalizes focus to a center leaf.
  */
 export function migrateLayoutPreferencesV1(value: DevLayoutPreferencesV1): DevLayoutPreferencesV2 {
   const leafIds = new Set(listLeaves(value.center).map((leaf) => leaf.id))
   const firstLeafId = listLeaves(value.center)[0]!.id
+  const storedWidth = (entry: (typeof value.utility)[number] | undefined) => {
+    if (!entry) return undefined
+    const width = entry.size > legacyFullWidthSize ? entry.lastNonzeroSize : entry.size
+    if (width > 0) return width
+    return entry.lastNonzeroSize > 0 ? entry.lastNonzeroSize : undefined
+  }
+  const fallbackSizeForSide = (side: 'left' | 'right') => {
+    const anchorPane = side === 'left' ? 'files' : 'browser'
+    const anchorWidth = storedWidth(value.utility.find((entry) => entry.pane === anchorPane))
+    if (anchorWidth !== undefined) return anchorWidth
+    const savedSideWidth = utilities
+      .filter((pane) => canonicalUtilitySides[pane] === side && pane !== anchorPane)
+      .map((pane) => storedWidth(value.utility.find((entry) => entry.pane === pane)))
+      .find((width) => width !== undefined)
+    if (savedSideWidth !== undefined) return savedSideWidth
+    return side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize
+  }
+  const fallbackSizes = {
+    left: fallbackSizeForSide('left'),
+    right: fallbackSizeForSide('right'),
+  }
   const utility = utilities.map((pane, order): DevUtilityPreference => {
-    const fallbackSize =
-      canonicalUtilitySides[pane] === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize
+    const fallbackSize = fallbackSizes[canonicalUtilitySides[pane]]
     const previous = value.utility.find((entry) => entry.pane === pane)
     if (!previous)
       return {
