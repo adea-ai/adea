@@ -4,7 +4,8 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { render } from 'solid-js/web'
 import { WorkspaceSettingsDialog } from '@adea-ai/workspace-ui/workspace-settings'
 import type { WorkspaceSummary } from '@adea-ai/types'
-import type { TranscriptionProvider } from '@adea-ai/workspace-ui/platform'
+import type { TranscriptionProvider, WorkspacePreferences } from '@adea-ai/workspace-ui/platform'
+import { createDesktopSettingsProvider } from '../../src/lib/desktop-platform-services'
 
 let permissionRequests = 0
 let resolvePermission: ((state: 'granted') => void) | undefined
@@ -25,6 +26,21 @@ const transcription: TranscriptionProvider = {
     throw new Error('Transcription is outside this permission fixture')
   },
 }
+
+let storedPreferences: WorkspacePreferences | null = null
+let writeFailed = false
+const desktopSettings = createDesktopSettingsProvider(async (command, args) => {
+  if (command === 'desktop_preferences_load') return storedPreferences
+  if (
+    !writeFailed &&
+    document.querySelector('#harness-root')?.hasAttribute('data-desktop-write-failure')
+  ) {
+    writeFailed = true
+    throw new Error('Native preferences write failed')
+  }
+  storedPreferences = args?.preferences ?? null
+  return null
+})
 
 const workspace: WorkspaceSummary = {
   id: 'workspace-settings-e2e',
@@ -59,13 +75,16 @@ function Harness() {
         onSignIn={() => undefined}
         onSignOut={() => undefined}
         workspace={workspace}
-        services={
-          document
+        services={{
+          ...(document
             .querySelector('#harness-root')
             ?.matches('[data-microphone-retry], [data-microphone-delayed]')
             ? { transcription }
-            : undefined
-        }
+            : {}),
+          ...(document.querySelector('#harness-root')?.hasAttribute('data-desktop-preferences')
+            ? { settings: desktopSettings }
+            : {}),
+        }}
       />
     </>
   )

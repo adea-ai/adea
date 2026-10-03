@@ -18,3 +18,9 @@ The Desktop shell CI lane runs the same artifact smoke on desktop changes;
 its change selector includes the smoke script and guarded Dev View fixture paths. The check also rejects
 test-terminal code in the packaged desktop module evidence.
 `start:check-bundle` verifies the web output excludes those native-only modules.
+
+Desktop workspace preferences normalize missing or malformed native JSON through
+the shared preference schema. A successful shell write acknowledges with `null`;
+the adapter returns the normalized saved values to the UI, while write failures
+remain recoverable errors. Settings navigation must stay operable on fresh profiles
+and after saving notification or dictation preferences.

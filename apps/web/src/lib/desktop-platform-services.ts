@@ -11,6 +11,8 @@ import type {
   WorkspaceSettingsProvider,
 } from '@adea-ai/workspace-ui/platform'
 
+import { normalizeWorkspacePreferences } from '@adea-ai/workspace-ui/preferences'
+
 import { Channel, invoke } from './desktop-bridge'
 
 /**
@@ -24,14 +26,29 @@ export const desktopCapabilityProvider: CapabilityProvider = Object.freeze({
   },
 })
 
-export const desktopSettingsProvider: WorkspaceSettingsProvider = Object.freeze({
-  load() {
-    return invoke<WorkspacePreferences>('desktop_preferences_load')
-  },
-  save(preferences) {
-    return invoke<WorkspacePreferences>('desktop_preferences_save', { preferences })
-  },
-})
+type DesktopPreferencesRequest = (
+  command: 'desktop_preferences_load' | 'desktop_preferences_save',
+  args?: Readonly<{ preferences: WorkspacePreferences }>
+) => Promise<unknown>
+
+/** The shell returns an acknowledgement, not preferences, after a successful write. */
+export function createDesktopSettingsProvider(
+  request: DesktopPreferencesRequest
+): WorkspaceSettingsProvider {
+  return Object.freeze({
+    async load() {
+      // A fresh profile has no preferences file; persisted JSON is untrusted.
+      return normalizeWorkspacePreferences(await request('desktop_preferences_load'))
+    },
+    async save(preferences) {
+      const normalized = normalizeWorkspacePreferences(preferences)
+      await request('desktop_preferences_save', { preferences: normalized })
+      return normalized
+    },
+  })
+}
+
+export const desktopSettingsProvider = createDesktopSettingsProvider(invoke)
 
 type NativeTranscriptionEvent =
   | Readonly<{ type: 'complete'; text: string }>

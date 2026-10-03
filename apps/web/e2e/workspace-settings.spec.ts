@@ -10,7 +10,9 @@ import { resolve } from 'node:path'
  */
 async function openSettingsHarness(
   page: Page,
-  microphoneMode: 'retry' | 'delayed' | undefined = undefined
+  microphoneMode: 'retry' | 'delayed' | undefined = undefined,
+  desktopPreferences = false,
+  desktopWriteFailure = false
 ): Promise<Error[]> {
   const path = '/__workspace-settings'
   const errors: Error[] = []
@@ -29,6 +31,16 @@ async function openSettingsHarness(
         (element, mode) => element.setAttribute(`data-microphone-${mode}`, ''),
         microphoneMode
       )
+  }
+  if (desktopPreferences) {
+    await page
+      .locator('#harness-root')
+      .evaluate((element) => element.setAttribute('data-desktop-preferences', ''))
+  }
+  if (desktopWriteFailure) {
+    await page
+      .locator('#harness-root')
+      .evaluate((element) => element.setAttribute('data-desktop-write-failure', ''))
   }
   await page.evaluate(
     async (url) => {
@@ -112,5 +124,55 @@ test('leaving and re-entering the section keeps the dialog operable', async ({ p
   await expect(dialog).toBeVisible()
   await expect(page.locator('#settings-panel-input-notifications')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Check microphone' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('desktop settings stay operable with a missing preferences file and null save acknowledgements', async ({
+  page,
+}) => {
+  const errors = await openSettingsHarness(page, undefined, true)
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  const inputPanel = page.locator('#settings-panel-input-notifications')
+  const locale = inputPanel.getByRole('textbox', { name: 'Dictation language' })
+  await expect(locale).toHaveValue('')
+  const mentions = inputPanel.getByRole('switch', { name: 'Mention notifications' })
+  await expect(mentions).toBeChecked()
+  await mentions.press('Space')
+  await expect(mentions).not.toBeChecked()
+  await expect(dialog.getByText('Settings saved', { exact: true })).toHaveCount(1)
+  await locale.fill('es-PR')
+  await locale.press('Tab')
+  await expect(dialog.getByText('Settings saved', { exact: true })).toHaveCount(1)
+  await dialog.getByRole('tab', { name: 'Privacy & data', exact: true }).click()
+  const previews = dialog.getByRole('switch', { name: 'Private notification previews' })
+  await expect(previews).not.toBeChecked()
+  await previews.locator('..').click()
+  await expect(previews).toBeChecked()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await page.getByRole('button', { name: 'Open settings fixture', exact: true }).click()
+  await dialog.getByRole('tab', { name: 'Input & notifications', exact: true }).click()
+  await expect(locale).toHaveValue('es-PR')
+  await expect(mentions).not.toBeChecked()
+  await dialog.getByRole('tab', { name: 'Privacy & data', exact: true }).click()
+  await expect(previews).toBeChecked()
+  expect(errors).toEqual([])
+})
+
+test('a failed native settings write leaves the dialog operable and the next save can recover', async ({
+  page,
+}) => {
+  const errors = await openSettingsHarness(page, undefined, true, true)
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  const mentions = dialog.getByRole('switch', { name: 'Mention notifications' })
+  await mentions.press('Space')
+  await expect(dialog.getByText('Settings could not be saved', { exact: true })).toHaveCount(1)
+  await expect(dialog).toBeVisible()
+  await expect(mentions).toBeEnabled()
+  await mentions.press('Space')
+  await expect(dialog.getByText('Settings saved', { exact: true })).toHaveCount(1)
+  await expect(dialog.getByText('Settings could not be saved', { exact: true })).toHaveCount(0)
+  await dialog.getByRole('tab', { name: 'Privacy & data', exact: true }).click()
+  await expect(dialog.getByRole('switch', { name: 'Private notification previews' })).toBeVisible()
   expect(errors).toEqual([])
 })
