@@ -1425,6 +1425,15 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await expect(page.getByRole('dialog', { name: 'Search workspace' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Search workspace' })).not.toBeVisible()
+  const contextualToggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
+  await expect(contextualToggle).toBeFocused()
+  const workspaceMain = page.locator('#workspace-main')
+  await workspaceMain.focus()
+  await expect(workspaceMain).toBeFocused()
+  // Dismissing the sheet mounts the collapsed toggle under the parked pointer;
+  // move to the empty page corner before capturing the settled dark workspace.
+  await page.mouse.move(0, 0)
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
 
   await page.evaluate(() => {
     localStorage.setItem('theme', 'dark')
@@ -1853,22 +1862,22 @@ for (const { width, fontSize } of [
 
     const tablist = settings.getByRole('tablist', { name: 'Settings sections' })
     const account = tablist.getByRole('tab', { name: 'Account & app', exact: true })
-    const updates = tablist.getByRole('tab', { name: 'Updates', exact: true })
     const appearance = tablist.getByRole('tab', { name: 'Appearance', exact: true })
+    const workspaceTab = tablist.getByRole('tab', { name: 'Workspace', exact: true })
     const permissions = tablist.getByRole('tab', { name: 'Permissions', exact: true })
     await expect(tablist).toHaveAttribute('data-slot', 'settings-navigation')
     await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
 
     await account.focus()
     await page.keyboard.press('ArrowDown')
-    await expect(updates).toBeFocused()
-    await expect(updates).toHaveAttribute('aria-selected', 'true')
-    await expect(page).toHaveURL(/#settings\/updates$/)
-
-    await page.keyboard.press('ArrowDown')
     await expect(appearance).toBeFocused()
     await expect(appearance).toHaveAttribute('aria-selected', 'true')
     await expect(page).toHaveURL(/#settings\/appearance$/)
+
+    await page.keyboard.press('ArrowDown')
+    await expect(workspaceTab).toBeFocused()
+    await expect(workspaceTab).toHaveAttribute('aria-selected', 'true')
+    await expect(page).toHaveURL(/#settings\/workspace$/)
 
     await page.keyboard.press('Home')
     await expect(account).toBeFocused()
