@@ -1787,6 +1787,7 @@ type DevOperation =
   | `dev.computeruse.${'capabilities' | 'lanes' | 'laneCreate' | 'laneClose' | 'consent' | 'attach' | 'input' | 'takeover' | 'release'}`
   | `dev.device.${'capabilities' | 'list' | 'sessions' | 'start' | 'attach' | 'input' | 'screenshot' | 'stop'}`
   | `dev.github.${'account' | 'repository' | 'issues' | 'milestones' | 'pullRequest' | 'pullRequests' | 'checks' | 'pushPlan' | 'pushCommit' | 'createPullRequest' | 'updatePlan' | 'updateCommit' | 'mergePlan' | 'mergeCommit'}`
+  | `dev.github.${'pullRequestSummaries' | 'pullRequestSummary' | 'timeline' | 'commits' | 'files' | 'checkLog' | 'labels' | 'assignableUsers' | 'branches' | 'compare' | 'comment' | 'threadReply' | 'threadResolve' | 'metadataUpdate' | 'submitReview' | 'rerunFailedJobs' | 'autoMergePlan' | 'autoMergeCommit' | 'syncBranchPlan' | 'syncBranchCommit'}`
   | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData'}`
   | `dev.cleanupPolicy.${'list' | 'createDraft' | 'approve' | 'disable' | 'evaluate'}`
 
@@ -1837,7 +1838,7 @@ projection; `unavailable` is empty for the local owner. Scoped capability
 subsets arrive with remote callers (M14 runtime nodes), which authenticate as
 a different identity class than this trusted local channel. The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 148 operation names, exact body shapes, exact reply types, complete required
+all 215 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -2187,26 +2188,27 @@ Exact transport method names are stable once shipped. M12 begins with these
 families; adding a privileged command requires this spec, decoder, M10 policy,
 audit classification, and deny-by-default tests in the same change.
 
-| Family              | Required operations                                                                                                                                                                                                                                               |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dev.capability`    | `snapshot`                                                                                                                                                                                                                                                        |
-| `dev.group`         | `list`, `create`, `update`, `delete`, `reorder`                                                                                                                                                                                                                   |
-| `dev.project`       | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `reorder`, `archive`, `bookmarks`                                                                                                                                                                   |
-| `dev.repo`          | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                                              |
-| `dev.worktree`      | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                   |
-| `dev.terminal`      | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                          |
-| `dev.session`       | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                    |
-| `dev.harness`       | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`                                                                                                      |
-| `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`, `renameOverwritePlan`, `renameOverwriteCommit`, `deleteTreePlan`, `deleteTreeCommit`, `copyTreePlan`, `copyTreeCommit`              |
-| `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                                  |
-| `dev.browser`       | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `cookieSources`, `profileReset`, `profilePolicies` |
-| `dev.computeruse`   | `capabilities`, `lanes`, `laneCreate`, `laneClose`, `consent`, `attach`, `input`, `takeover`, `release`                                                                                                                                                           |
-| `dev.device`        | `capabilities`, `list`, `sessions`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                                              |
-| `dev.github`        | `account`, `repository`, `issues`, `milestones`, `pullRequest`, `pullRequests`, `checks`, `pushPlan`, `pushCommit`, `createPullRequest`, `updatePlan`, `updateCommit`, `mergePlan`, `mergeCommit`                                                                 |
-| `dev.resources`     | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`                                                                                                                                                                    |
-| `dev.cleanupPolicy` | `list`, `createDraft`, `approve`, `disable`, `evaluate`                                                                                                                                                                                                           |
-| `dev.appearance`    | client preference only; privileged host command only for capability snapshot                                                                                                                                                                                      |
-| `dev.appLibrary`    | existing verified catalog/install-plan authority; no new dynamic-code command                                                                                                                                                                                     |
+| Family                       | Required operations                                                                                                                                                                                                                                                                                                    |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dev.capability`             | `snapshot`                                                                                                                                                                                                                                                                                                             |
+| `dev.group`                  | `list`, `create`, `update`, `delete`, `reorder`                                                                                                                                                                                                                                                                        |
+| `dev.project`                | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `reorder`, `archive`, `bookmarks`                                                                                                                                                                                                                        |
+| `dev.repo`                   | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                                                                                                   |
+| `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                                                        |
+| `dev.terminal`               | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                                                                               |
+| `dev.session`                | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                                                                         |
+| `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`                                                                                                                                                           |
+| `dev.files`                  | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`, `renameOverwritePlan`, `renameOverwriteCommit`, `deleteTreePlan`, `deleteTreeCommit`, `copyTreePlan`, `copyTreeCommit`                                                                   |
+| `dev.git`                    | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                                                                                       |
+| `dev.browser`                | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `cookieSources`, `profileReset`, `profilePolicies`                                                      |
+| `dev.computeruse`            | `capabilities`, `lanes`, `laneCreate`, `laneClose`, `consent`, `attach`, `input`, `takeover`, `release`                                                                                                                                                                                                                |
+| `dev.device`                 | `capabilities`, `list`, `sessions`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                                                                                                   |
+| `dev.github`                 | `account`, `repository`, `issues`, `milestones`, `pullRequest`, `pullRequests`, `checks`, `pushPlan`, `pushCommit`, `createPullRequest`, `updatePlan`, `updateCommit`, `mergePlan`, `mergeCommit`                                                                                                                      |
+| `dev.github` (collaboration) | `pullRequestSummaries`, `pullRequestSummary`, `timeline`, `commits`, `files`, `checkLog`, `labels`, `assignableUsers`, `branches`, `compare`, `comment`, `threadReply`, `threadResolve`, `metadataUpdate`, `submitReview`, `rerunFailedJobs`, `autoMergePlan`, `autoMergeCommit`, `syncBranchPlan`, `syncBranchCommit` |
+| `dev.resources`              | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`                                                                                                                                                                                                                         |
+| `dev.cleanupPolicy`          | `list`, `createDraft`, `approve`, `disable`, `evaluate`                                                                                                                                                                                                                                                                |
+| `dev.appearance`             | client preference only; privileged host command only for capability snapshot                                                                                                                                                                                                                                           |
+| `dev.appLibrary`             | existing verified catalog/install-plan authority; no new dynamic-code command                                                                                                                                                                                                                                          |
 
 `dev.appearance` and `dev.appLibrary` intentionally have no operation in this
 contract: `dev.capability.snapshot` is their only consumer — it reports each as
@@ -3964,6 +3966,160 @@ Issue, PR, review, and check text/logs are untrusted display content. They are
 sanitized, bounded, and never automatically inserted into a privileged prompt
 or shell command.
 
+### Pull request collaboration (source control app)
+
+The source control app reads and acts on pull requests across every
+registered repository whose `origin` is a trusted GitHub remote. Its
+operations extend the provider above under the same credential rule: GitHub
+auth is the user's `gh` CLI context, and Adea stores no GitHub token.
+
+- **Read models.** `pullRequestSummaries` (one repository, newest update
+  first, at most 50 a page) and `pullRequestSummary` (one PR, plus `body` and
+  the compare-derived `behindBy`) return `GitHubPullRequestSummary`: author
+  (`user`, `bot`, or `team`), requested reviewers, the latest review per
+  reviewer, GitHub's review decision, `mergeable`, `mergeState`, a check
+  rollup with per-bucket counts, auto-merge, the repository's allowed merge
+  methods, and closing issues. `timeline` returns comments, reviews, commits
+  with their rollup state, review threads (first page only, with the first
+  comment's diff hunk), and a fixed set of lifecycle events; an unknown node
+  type is skipped, never guessed. `commits`, `files` (patches capped at
+  256 KiB and marked `patchTruncated`), `labels`, `assignableUsers`,
+  `branches`, and `compare` back the app's lists and pickers. `repository` also carries
+  `defaultBranchHead` (the default branch's head SHA and check rollup), read
+  best effort so a failed decoration never fails the repository read. `checks` takes
+  an optional `sha` so each commit's runs can be read, and a check run carries
+  its own output `title`. `checkLog` returns the sanitized last 512 KiB of a
+  GitHub Actions job log (terminal escapes and control characters stripped,
+  `truncated` set); any other check is `not_found`.
+- **Transport.** GraphQL documents and every request body that carries user
+  text travel on gh's stdin (`gh api --input -`); argv carries only fixed
+  paths and flags. An `errors` array in a GraphQL reply fails closed.
+- **Conversation writes.** `comment`, `threadReply`, and `threadResolve` are
+  single operations that re-read server truth before replying. A thread
+  operation first re-proves that the thread belongs to the addressed pull
+  request and refuses `identity_mismatch` before any mutation is sent.
+  `metadataUpdate` adds or removes reviewers (an `<org>/<slug>` login is a
+  team), assignees, and labels; every login must match GitHub's login syntax.
+- **Reviews.** `submitReview` binds `expectedHeadSha`: when the head moved
+  since the reviewer read the diff it refuses `stale_version`, because inline
+  comments would otherwise land on the wrong lines. Requesting changes needs
+  a summary; a comment review needs a summary or at least one inline comment.
+- **Merge outcome and branch rewrites are plan/commit pairs.**
+  `autoMergePlan` binds the head SHA, the enabled state, and the method;
+  blockers report a repository that disallows auto-merge or the method, a
+  draft, a PR that can merge now, or a no-op. `syncBranchPlan` updates the
+  head from its base on GitHub (merge or rebase, explicit and confirmed in
+  the UI) and reports a branch already up to date or conflicts; GitHub's
+  `viewerCanUpdateBranch` reflects up-to-date branch protection, not
+  permission, so it gates nothing and GitHub refuses a viewer who cannot push. Each commit re-reads the PR and refuses
+  `stale_version` when the head moved. The worktree-local
+  `updateBranchPlan` above is unchanged.
+- **#423 extensions.** `mergePlan` takes `deleteBranch`: after a verified
+  merge the host deletes the head branch only when it lives in the base
+  repository and is neither the default branch nor protected (by GitHub or by
+  the registrar's `protectedRefs`); the reply's `headBranchDeleted` reports
+  the outcome and a refusal never fails the merge. `updatePlan` patches take
+  `state` (`open`/`closed`, refused on a merged PR), and `draft` now converts
+  in both directions through GraphQL, since REST cannot change draft state.
+- **Re-running failed jobs.** `rerunFailedJobs` resolves the job's workflow
+  run and refuses `identity_mismatch` unless the job ran for the pull
+  request's head branch.
+
+### GitLab provider (source control app)
+
+`dev.gitlab.*` mirrors the 29 source control operations of `dev.github.*`
+with identical request bodies, the same reply DTOs, and the capability pair
+`dev.gitlab.read`/`dev.gitlab.write`. The host provider
+(`apps/desktop/shell/src/dev-runtime/gitlab/register.ts`) follows the GitHub
+provider's rules, with these differences:
+
+- **Credentials.** GitLab auth is the user's `glab` CLI context (its
+  per-host credential store); Adea stores no GitLab token. `gitlab.com` is
+  trusted; a self-managed host must be trusted explicitly. Request bodies
+  carrying user text ride `glab api --input -` stdin, never argv. A missing
+  binary is `capability_unavailable`; a signed-out CLI is `unauthenticated`.
+- **Identity.** A merge request id is `gl:<full/project/path>!<iid>`: the
+  full path keeps every subgroup. The provider re-derives the project from
+  the registered repository's `origin` before any repository-scoped read.
+- **Mapping.** Merge requests map to `GitHubPullRequestSummary`. GitLab's
+  `Draft:` title prefix becomes the `draft` flag and is stripped from the
+  title; approvals become `approved` reviews and a reviewer who requested
+  changes a `changes_requested` review; `reviewDecision` follows the
+  project's approval rule. The head pipeline's jobs are the checks
+  (`stage / name`); an `allow_failure` job that failed is `neutral`, manual
+  and skipped jobs are `skipped`. Discussions anchored to a diff position
+  are threads (their id is the discussion id); other notes are comments;
+  system notes for approval, merge, close, reopen, draft and ready, review
+  requests, target changes and force pushes become review or lifecycle
+  events, and other system notes are dropped. Job logs drop GitLab's
+  section markers with the terminal escapes.
+- **Checks.** `checks` without a `sha`, or with the merge request's own
+  head, reads the head pipeline; an older `sha` reads that commit's latest
+  pipeline.
+- **Writes.** Reviews post inline comments as positioned discussions
+  against the head's diff refs, then the summary note, then the approval
+  bound to `expectedHeadSha`. Merge binds the planned head through GitLab's
+  `sha` guard and removes the source branch on request (never a fork's).
+  Auto-merge is merge-when-pipeline-succeeds, also bound to the head.
+  Updating a branch is a rebase. Draft and title changes travel through the
+  title prefix. `createPullRequest` opens a draft and reconciles onto the
+  open merge request for the same source and target. Re-running retries the
+  failed jobs of the job's pipeline, only for this merge request's branch.
+- **Refusals.** A `merge` branch update and a `request_changes` review are
+  `unsupported_capability` (a plan blocker for the former); a team reviewer
+  (`org/team`) is `unsupported_capability`. The app hides these actions
+  through per-provider capabilities rather than failing on them.
+
+Pinned by `apps/desktop/tests/dev-runtime-gitlab-provider.test.ts` on a
+scripted `glab`; the opt-in, read-only
+`apps/desktop/tests/live/gitlab-collaboration-live-read.ts` runs every read
+against a real project through the production `glab` transport, or with
+`--anonymous` against a public project over HTTPS (reads GitLab keeps behind
+sign-in then refuse with typed errors).
+
+### Source control app (client)
+
+`packages/dev-view/src/source-control-app/**` is the rail's Source control
+app. It reaches GitHub and GitLab only through the operations above and
+holds no provider state of its own beyond these rules:
+
+- **Projects.** The sidebar lists Dev projects whose repository `remote` is
+  on GitHub or GitLab, grouped by owner or group and labelled with the
+  provider (organizations, then the viewer's own account); other projects
+  are counted, not listed. Archived projects collapse into one row.
+- **Providers.** The client picks the operation family from the pull
+  request id (`gh:`/`gl:`) or the repository's catalog provider. Each
+  provider has its own account and viewer; a provider that is signed out
+  shows its reason on its own projects while the other keeps working, and
+  the app is disconnected only when every provider in use is. Capabilities
+  per provider hide what it cannot do: GitLab offers only a rebase update,
+  no request-changes verdict, and no team reviewers.
+- **Session link and agents.** A pull request belongs to the Adea session
+  whose non-archived worktree has its head branch checked out in the same
+  repository (a live session wins); forks never link. The link is derived on
+  every sync from `dev.worktree.list` and `dev.session.list` and never
+  stored. An author is an agent when GitHub reports a bot or the pull
+  request has a session link.
+- **Inbox grouping.** Every open pull request lands in exactly one group, in
+  order: draft; the viewer is a requested reviewer without a review on the
+  head; ready (approvals met, checks passing or absent, not behind, no
+  conflicts); blocked (failing checks, requested changes, behind, or
+  conflicts); waiting. The rules are pure functions with unit tests.
+- **Merge dock.** Merge is offered only when every row is green and is
+  confirmed first; otherwise merge-when-ready is offered when the repository
+  allows auto-merge; conflicts, requested changes, failing checks, and
+  drafts disable it with the reason shown.
+- **No agent hand-off.** The app never sends pull request, review, or check
+  text to an agent session; it offers Open session, which selects the
+  session in the Dev view.
+- **Local state.** Browser storage, scoped to the runtime scope, holds the
+  selected project, the details panel per tab, the merge method, the diff
+  layout, the delete-branch choice, viewed files per head, and pending review
+  comments until Submit review. Every read decodes strictly and falls back to
+  defaults.
+- **Sync.** Every 60 seconds and on window focus; a mutation re-reads the
+  pull request and folds it back into the inbox.
+
 ## Process, port, metrics, and usage
 
 A destructive process action requires an Adea launch record plus PID start
@@ -4730,6 +4886,30 @@ explicit spawn timeout for the same reason.
 
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
+
+- **2026-10-03 — source control app: GitLab.** Added the 29-operation
+  `dev.gitlab.*` mirror of the source control contract (total operations 215) with `dev.gitlab.read`/`dev.gitlab.write`, the `glab`-backed host
+  provider, and `gl:<path>!<iid>` review request ids (provider literals now
+  `github | gitlab`). New "GitLab provider (source control app)" section; the
+  client section gained per-provider routing, accounts and capabilities.
+  Pinned by `apps/desktop/tests/dev-runtime-gitlab-provider.test.ts`,
+  `packages/types/tests/dev-runtime-github.test.ts`, and the opt-in
+  `apps/desktop/tests/live/gitlab-collaboration-live-read.ts`.
+
+- **2026-10-03 — source control app: pull request collaboration.** Added 20
+  `dev.github` operations (total operations 186): the inbox and detail read
+  models, timeline, commits, changed files, check logs, label/assignee/branch
+  pickers, compare, comments, thread reply and resolution, reviewer/assignee/
+  label edits, review submission bound to the head SHA, re-running failed
+  jobs, and the `autoMerge` and server-side `syncBranch` plan/commit pairs.
+  `checks` gained an optional `sha` and `GitHubCheck.title`; `mergePlan`
+  gained `deleteBranch` with `GitHubPullRequest.headBranchDeleted`; and the
+  `updatePlan` patch gained `state` plus two-way draft conversion. New
+  "Pull request collaboration (source control app)" section. Pinned by
+  `apps/desktop/tests/dev-runtime-github-collaboration.test.ts` and
+  `packages/types/tests/dev-runtime-github.test.ts`; the opt-in, read-only
+  `apps/desktop/tests/live/github-collaboration-live-read.ts` runs every read
+  against a real repository through the production `gh` transport.
 
 - **2026-09-22 — #424: on-device usage adapters and provable cleanup facts.**
   The `usage` surface stopped being truthful-empty where the runtime can prove

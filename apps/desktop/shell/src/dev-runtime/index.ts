@@ -72,6 +72,7 @@ import { registerRepoRuntime } from './repos/register'
 import { registerFilesRuntime } from './files/register'
 import { registerGitRuntime } from './git/register'
 import { registerGithubRuntime, type GhRunner, type GithubRepoContext } from './github/register'
+import { registerGitlabRuntime, type GlabRunner } from './gitlab/register'
 import { createCredentialVault, type CredentialVault } from './vault'
 
 export type DevProviderKind = 'provider' | 'typed_unavailable'
@@ -103,6 +104,8 @@ export type DevRuntimeHost = Readonly<{
   git?: ReturnType<typeof registerGitRuntime>
   /** Present only when a verified scope exists at composition time (#423). */
   github?: ReturnType<typeof registerGithubRuntime>
+  /** Present only when a verified scope exists at composition time. */
+  gitlab?: ReturnType<typeof registerGitlabRuntime>
   terminal?: TerminalRuntimeRegistration
   /** Present only when a verified scope exists at composition time. */
   resources?: ReturnType<typeof registerResourcesRuntime>
@@ -211,6 +214,8 @@ export type CreateDevRuntimeHostInput = {
   cleanupWorktreeFacts?: (worktreeId: string) => CleanupFacts | undefined
   /** #423: scripted gh transport (tests inject one; production spawns `gh`). */
   runGh?: GhRunner
+  /** Scripted glab transport (tests inject one; production spawns `glab`). */
+  runGlab?: GlabRunner
   /** #399 residue: overrides the git status watcher's production seams
    *  (tests script them; production uses recursive `fs.watch` plus the
    *  `setTimeout` scheduler, and an unwatchable platform degrades — typed
@@ -510,6 +515,18 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         ...(input.runGh ? { runGh: input.runGh } : {}),
       })
     : undefined
+  // The GitLab mirror of the collaboration contract, through the user's
+  // `glab` context; the same registered repositories, classified by remote.
+  const gitlab = input.scope
+    ? registerGitlabRuntime({
+        authority: input.authority,
+        scope: input.scope,
+        resolveRepo: (repoId) =>
+          registeredRepos(worktreeService)().find((repo) => repo.repoId === repoId),
+        listRepos: registeredRepos(worktreeService),
+        ...(input.runGlab ? { runGlab: input.runGlab } : {}),
+      })
+    : undefined
 
   // #424: when the component manifest is composed in, the composition
   // constructs and holds the M10 supervision engine over its durable journal
@@ -735,6 +752,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ...(files ? { files } : {}),
     ...(git ? { git } : {}),
     ...(github ? { github } : {}),
+    ...(gitlab ? { gitlab } : {}),
     ...(terminal ? { terminal } : {}),
     ...(resources ? { resources } : {}),
     ...(supervisor ? { supervision: supervisor } : {}),

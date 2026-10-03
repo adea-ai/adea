@@ -34,7 +34,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // 2,382,081 raw / 725,392 gzip across 93 files (shared UI 0.105.0,
   // themes 0.9.7, xterm addon minors). Raw and file count keep their
   // headroom; gzip moves 700 -> 715 KiB (~0.9% headroom).
-  total: { rawBytes: 2_410_000, gzipBytes: 715 * 1024, fileCount: 98 },
+  // The source control app (2026-10-03, #1003) adds a lazy rail app: its own
+  // 144,599-raw chunk (it reuses the shared UI chunks), five more files, and
+  // the 49 pull request operations in the Dev Runtime contract. Startup and
+  // every other view keep their caps. The aggregate lands at 2,584,317 raw /
+  // 774,540 gzip across 103 files; raw keeps ~1% headroom, gzip moves to
+  // 768 KiB (~1.5%), and file count keeps its 5-file step.
+  total: { rawBytes: 2_610_000, gzipBytes: 768 * 1024, fileCount: 108 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -90,7 +96,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // 0.105.0, themes 0.9.7, and the xterm addon minors land the route at
     // 812,192 raw / 210,342 gzip. 800 KiB raw / 211 KiB gzip keep round caps
     // with roughly the same headroom ratio instead of pinning to the build.
-    devTerminal: { rawBytes: 800 * 1024, gzipBytes: 211 * 1024 },
+    // Re-measured for the source control app (2026-10-03, #1003): this route
+    // carries the whole Dev Runtime contract (definitions, whose body types
+    // `validateType` parses at runtime, and every reply decoder), and the 49
+    // pull request operations (20 `dev.github`, 29 `dev.gitlab` mirrors) add
+    // 32,406 raw over main's 812,684, landing at 845,090 raw / 214,466 gzip.
+    // 832 KiB raw keeps the same ~0.8% headroom; gzip stays under its cap.
+    devTerminal: { rawBytes: 832 * 1024, gzipBytes: 211 * 1024 },
     devEditor: { rawBytes: 512 * 1024, gzipBytes: 160 * 1024 },
   },
 }

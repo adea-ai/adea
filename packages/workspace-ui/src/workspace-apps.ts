@@ -46,7 +46,7 @@ export const workspaceApps: readonly WorkspaceApp[] = Object.freeze([
   {
     id: 'source-control',
     name: 'Source control',
-    description: 'Review the selected runtime session’s changes.',
+    description: 'Pull requests, reviews, checks and merges across your GitHub projects.',
     view: 'dev',
     enabledByDefault: false,
   },

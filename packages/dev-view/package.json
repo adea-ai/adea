@@ -78,6 +78,12 @@
       "development": "./src/source-control/index.ts",
       "import": "./dist/source-control/index.js"
     },
+    "./source-control-app": {
+      "types": "./dist/source-control-app/index.d.ts",
+      "solid": "./src/source-control-app/index.ts",
+      "development": "./src/source-control-app/index.ts",
+      "import": "./dist/source-control-app/index.js"
+    },
     "./editor": {
       "types": "./dist/editor/code-editor.d.ts",
       "solid": "./src/editor/code-editor.tsx",
@@ -145,7 +151,7 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/themes": "0.9.7",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.105.0",
+    "@adea-ai/ui": "0.106.0",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/language": "^6.12.4",
     "@codemirror/search": "^6.7.2",

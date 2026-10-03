@@ -188,7 +188,6 @@ export type DevWorkspaceEntryProps = Readonly<{
    * hosts render it inside the Dev toolbar instead.
    */
   sidebarActionMount?: HTMLElement
-  appMode?: 'source-control'
   /**
    * The router's deep-link request, handed over by the URL-owning host. A
    * present param wins over the store's corresponding field, so a link (or a
@@ -801,13 +800,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     })
   })
 
-  const visiblePaneOf = (side: 'left' | 'right') => {
-    if (props.appMode === 'source-control') {
-      const item = utilityPreferences().find((entry) => entry.pane === 'source_control')
-      return side === item?.side ? { ...item, visible: true, fullWidth: true } : undefined
-    }
-    return utilityPreferences().find((item) => item.side === side && item.visible)
-  }
+  const visiblePaneOf = (side: 'left' | 'right') =>
+    utilityPreferences().find((item) => item.side === side && item.visible)
   const panesOfSide = (side: 'left' | 'right') =>
     utilityPreferences()
       .filter((item) => item.side === side)
@@ -1267,7 +1261,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const rightFullWidth = () => visiblePaneOf('right')?.fullWidth ?? false
   // The right collapse control remains available when its pane is full width;
   // the pane's own heading owns the separate restore-width action.
-  const sidebarToggleAvailable = () => props.appMode !== 'source-control'
   const sidebarToggleControl = () => {
     // Captures visiblePaneOf from the component scope.
     // oxlint-disable-next-line unicorn/consistent-function-scoping
@@ -1311,7 +1304,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   }
 
   const devPaneActions = () => (
-    <Show when={props.appMode !== 'source-control'}>
+    <>
       {leftUtilityToggleControl()}
       <ActionButton
         type="button"
@@ -1381,14 +1374,13 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       >
         <Undo2 aria-hidden="true" />
       </ActionButton>
-    </Show>
+    </>
   )
 
   return (
     <main
       class={cn('dev-workspace', {
-        'dev-workspace--source-control-app': props.appMode === 'source-control',
-        'dev-workspace--focus': focusMode() && props.appMode !== 'source-control',
+        'dev-workspace--focus': focusMode(),
         'dev-workspace--left-full': leftFullWidth(),
         'dev-workspace--right-full': rightFullWidth(),
       })}
@@ -1406,9 +1398,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
               aria-label="Developer workspace actions"
             >
               {devPaneActions()}
-              <Show when={sidebarToggleAvailable() && !props.sidebarActionMount}>
-                {sidebarToggleControl()}
-              </Show>
+              <Show when={!props.sidebarActionMount}>{sidebarToggleControl()}</Show>
             </div>
           </header>
         }
@@ -1417,7 +1407,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       </Show>
       {/* The right utility collapse action stays in the trailing global slot;
           direct hosts keep a local fallback for the runtime integration harness. */}
-      <Show when={sidebarToggleAvailable() && props.sidebarActionMount}>
+      <Show when={props.sidebarActionMount}>
         {(mount) => <Portal mount={mount()}>{sidebarToggleControl()}</Portal>}
       </Show>
 
@@ -1495,12 +1485,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         <Show when={visiblePaneOf('left')}>
           <UtilitySlot
             side="left"
-            fixedPane={props.appMode === 'source-control'}
-            panes={
-              props.appMode === 'source-control'
-                ? panesOfSide('left').filter((item) => item.pane === 'source_control')
-                : panesOfSide('left')
-            }
+            panes={panesOfSide('left')}
             visiblePane={visiblePaneOf('left')}
             runtime={props.runtime}
             runtimeSessionId={selectedSession() || undefined}
@@ -1633,12 +1618,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         <Show when={visiblePaneOf('right')}>
           <UtilitySlot
             side="right"
-            fixedPane={props.appMode === 'source-control'}
-            panes={
-              props.appMode === 'source-control'
-                ? panesOfSide('right').filter((item) => item.pane === 'source_control')
-                : panesOfSide('right')
-            }
+            panes={panesOfSide('right')}
             visiblePane={visiblePaneOf('right')}
             runtime={props.runtime}
             runtimeSessionId={selectedSession() || undefined}
@@ -1742,7 +1722,6 @@ function PaneProviderState(props: {
 }
 
 function UtilitySlot(props: {
-  fixedPane?: boolean
   side: 'left' | 'right'
   panes: readonly DevUtilityPreference[]
   visiblePane: DevUtilityPreference | undefined
@@ -1943,42 +1922,38 @@ function UtilitySlot(props: {
       >
         <div class="dev-utility-panel__heading">
           <h2 id={`dev-utility-heading-${props.side}`}>{visibleItem()?.title}</h2>
-          <Show when={!props.fixedPane}>
-            <ActionButton
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              tooltip={
-                props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
-              }
-              aria-label={
-                props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
-              }
-              aria-pressed={props.visiblePane?.fullWidth ?? false}
-              onClick={() =>
-                props.onToggleFullWidth(props.visiblePane!.pane, !props.visiblePane!.fullWidth)
-              }
-            >
-              <Maximize2 aria-hidden="true" />
-            </ActionButton>
-            <ActionButton
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              tooltip={`Collapse ${sideLabel().toLowerCase()} utility slot`}
-              aria-label={`Collapse ${sideLabel().toLowerCase()} utility slot`}
-              onClick={props.onCollapse}
-            >
-              <X aria-hidden="true" />
-            </ActionButton>
-          </Show>
+          <ActionButton
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            tooltip={props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'}
+            aria-label={
+              props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
+            }
+            aria-pressed={props.visiblePane?.fullWidth ?? false}
+            onClick={() =>
+              props.onToggleFullWidth(props.visiblePane!.pane, !props.visiblePane!.fullWidth)
+            }
+          >
+            <Maximize2 aria-hidden="true" />
+          </ActionButton>
+          <ActionButton
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            tooltip={`Collapse ${sideLabel().toLowerCase()} utility slot`}
+            aria-label={`Collapse ${sideLabel().toLowerCase()} utility slot`}
+            onClick={props.onCollapse}
+          >
+            <X aria-hidden="true" />
+          </ActionButton>
         </div>
         <div class="dev-utility-panel__content">
           <Suspense fallback={<p class="dev-pane-state__line">Loading pane…</p>}>
             {paneBody(props.visiblePane!.pane)}
           </Suspense>
         </div>
-        <Show when={isFileSourceControlSlot() && !props.fixedPane}>
+        <Show when={isFileSourceControlSlot()}>
           <ButtonGroup
             class="dev-utility__file-source-selector w-full"
             label="Files and Source Control"

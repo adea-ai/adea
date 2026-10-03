@@ -327,27 +327,13 @@ describe('github remote provider', () => {
     fixtures.push(fixture)
     const { runner } = ghFixture(() => ({}))
     const { registered } = runtimeFor(fixture, runner)
+    // Every contracted dev.github operation resolves to this provider.
     expect(registered.commands.toSorted()).toEqual(
-      [
-        'dev.github.account',
-        'dev.github.checks',
-        'dev.github.createPullRequest',
-        'dev.github.issues',
-        'dev.github.mergeCommit',
-        'dev.github.mergePlan',
-        'dev.github.milestones',
-        'dev.github.pullRequest',
-        'dev.github.pullRequests',
-        'dev.github.pushCommit',
-        'dev.github.pushPlan',
-        'dev.github.repository',
-        'dev.github.updateBranchCommit',
-        'dev.github.updateBranchPlan',
-        'dev.github.updateCommit',
-        'dev.github.updatePlan',
-      ].toSorted()
+      Object.keys(devOperationDefinitions)
+        .filter((operation) => operation.startsWith('dev.github.'))
+        .toSorted()
     )
-    expect(registered.registeredCommands).toBe(16)
+    expect(registered.registeredCommands).toBe(registered.commands.length)
   })
 
   test('account read decodes gh JSON strictly through the channel', async () => {

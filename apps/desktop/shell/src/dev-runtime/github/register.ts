@@ -50,6 +50,25 @@ import type { ChannelAuthority } from '../channel/authority'
 import { createDurableJsonStore } from '../host-store'
 import { GIT_CHILD_TIMEOUT_MS, gitChildEnv, runGit } from '../worktrees/git-run'
 import type { FileIdentityValue } from '../worktrees/identity'
+import {
+  applyDraftState,
+  createCollaborationHandlers,
+  readDefaultBranchHead,
+} from './collaboration'
+import {
+  UntrustedError,
+  arr,
+  bool,
+  gitSha,
+  isoTimestamp,
+  literal,
+  num,
+  obj,
+  optStr,
+  requiredIsoTimestamp,
+  str,
+  untrusted,
+} from './untrusted'
 
 const PLAN_TTL_MS = 10 * 60_000
 const CACHE_TTL_MS = 30_000
@@ -91,20 +110,26 @@ export type GhRunResult = Readonly<{
 
 export type GhRunner = (
   args: readonly string[],
-  options?: { timeoutMs?: number; maxOutputBytes?: number }
+  options?: {
+    timeoutMs?: number
+    maxOutputBytes?: number
+    /** A JSON request body for `gh api --input -`; never credential material. */
+    stdin?: string
+  }
 ) => Promise<GhRunResult>
 
 /** Default bounded, argv-only gh runner. The environment is the worktree
  *  service's minimal git child env plus `GH_PROMPT_DISABLED`: gh resolves its
  *  credentials from its own host-scoped configuration under HOME, so token
- *  values never pass through this process's argv or env. stdin is ignored, so
- *  an interactive gh prompt fails typed instead of hanging the pipeline. */
+ *  values never pass through this process's argv or env. stdin is ignored
+ *  unless the caller supplies a request body, so an interactive gh prompt
+ *  fails typed instead of hanging the pipeline. */
 export const defaultRunGh: GhRunner = async (args, options) => {
-  let proc: Bun.Subprocess<'ignore', 'pipe', 'pipe'>
+  let proc: Bun.Subprocess<'ignore' | Uint8Array, 'pipe', 'pipe'>
   try {
     proc = Bun.spawn(['gh', ...args], {
       env: { ...gitChildEnv(), GH_PROMPT_DISABLED: '1' },
-      stdin: 'ignore',
+      stdin: options?.stdin !== undefined ? new TextEncoder().encode(options.stdin) : 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
     })
@@ -153,75 +178,6 @@ export const defaultRunGh: GhRunner = async (args, options) => {
   ])
   clearTimeout(timer)
   return { stdout, stderr, exitCode }
-}
-
-// ─── Untrusted gh JSON decoding ─────────────────────────────────────────────
-//
-// gh output is untrusted input: every field is re-proven through narrow
-// guards, and unknown extra keys are ignored (GitHub adds fields freely).
-
-class UntrustedError extends Error {}
-
-function untrusted(path: string, expected: string): never {
-  throw new UntrustedError(`${path}: expected ${expected}`)
-}
-
-function obj(value: unknown, path: string): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) untrusted(path, 'object')
-  return value as Record<string, unknown>
-}
-
-function arr(value: unknown, path: string): readonly unknown[] {
-  if (!Array.isArray(value)) untrusted(path, 'array')
-  return value
-}
-
-function str(value: unknown, path: string, max = 4096): string {
-  if (typeof value !== 'string' || value.length > max) untrusted(path, `string<=${max}`)
-  return value
-}
-
-function optStr(value: unknown, path: string, max = 4096): string | undefined {
-  if (value === undefined || value === null) return undefined
-  return str(value, path, max)
-}
-
-function num(value: unknown, path: string): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
-    untrusted(path, 'non-negative integer')
-  return value
-}
-
-function bool(value: unknown, path: string): boolean {
-  if (typeof value !== 'boolean') untrusted(path, 'boolean')
-  return value
-}
-
-function literal<T extends string>(value: unknown, choices: readonly T[], path: string): T {
-  if (typeof value !== 'string') untrusted(path, 'string')
-  const found = choices.find((choice) => choice === value)
-  if (found === undefined) untrusted(path, `one of ${choices.join('|')}`)
-  return found
-}
-
-function gitSha(value: unknown, path: string): string {
-  const text = str(value, path, 64)
-  if (!/^[0-9a-f]{40}$/.test(text)) untrusted(path, 'git sha')
-  return text
-}
-
-function isoTimestamp(value: unknown, path: string): string | undefined {
-  const text = optStr(value, path, 64)
-  if (text === undefined) return undefined
-  const parsed = Date.parse(text)
-  if (Number.isNaN(parsed)) untrusted(path, 'timestamp')
-  return new Date(parsed).toISOString()
-}
-
-function requiredIsoTimestamp(value: unknown, path: string): string {
-  const parsed = isoTimestamp(value, path)
-  if (parsed === undefined) untrusted(path, 'timestamp')
-  return parsed
 }
 
 // ─── Remote URL parsing ─────────────────────────────────────────────────────
@@ -342,6 +298,7 @@ type PlanEntry =
       pullRequestId: string
       headSha: string
       method: 'merge' | 'squash' | 'rebase'
+      deleteBranch: boolean
       expiresAt: number
       digest: string
     }
@@ -366,6 +323,88 @@ const REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/
 
 function pullRequestIdOf(owner: string, repo: string, number: number): string {
   return `gh:${owner}/${repo}#${number}`
+}
+
+function mapCheck(payload: unknown): GitHubCheck {
+  const item = obj(payload, 'check')
+  const status = literal(
+    item.status,
+    ['queued', 'in_progress', 'completed'] as const,
+    'check.status'
+  )
+  const conclusion =
+    item.conclusion === undefined || item.conclusion === null
+      ? undefined
+      : literal(
+          item.conclusion,
+          [
+            'success',
+            'failure',
+            'neutral',
+            'cancelled',
+            'skipped',
+            'timed_out',
+            'action_required',
+            'stale',
+          ] as const,
+          'check.conclusion'
+        )
+  const detailsUrl = optStr(item.details_url, 'check.details_url', 512)
+  const output =
+    item.output === undefined || item.output === null ? undefined : obj(item.output, 'check.output')
+  const title = output ? optStr(output.title, 'check.output.title', 4096) : undefined
+  const startedAt = isoTimestamp(item.started_at, 'check.started_at')
+  const completedAt = isoTimestamp(item.completed_at, 'check.completed_at')
+  return {
+    id: String(num(item.id, 'check.id')),
+    name: str(item.name, 'check.name', 256),
+    status,
+    ...(conclusion !== undefined ? { conclusion } : {}),
+    // oxlint-disable-next-line no-control-regex -- stripping provider control characters is intentional
+    ...(title ? { title: title.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 256) } : {}),
+    ...(detailsUrl !== undefined ? { detailsUrl } : {}),
+    ...(startedAt !== undefined ? { startedAt } : {}),
+    ...(completedAt !== undefined ? { completedAt } : {}),
+  }
+}
+
+function mapMilestone(payload: unknown, owner: string, repo: string): GitHubMilestone {
+  const item = obj(payload, 'milestone')
+  const number = num(item.number, 'milestone.number')
+  const dueOn = isoTimestamp(item.due_on, 'milestone.due_on')
+  return {
+    id: `ghm:${owner}/${repo}#${number}`,
+    number,
+    title: str(item.title ?? '', 'milestone.title', 512),
+    state: literal(item.state, ['open', 'closed'] as const, 'milestone.state'),
+    ...(dueOn !== undefined ? { dueOn } : {}),
+    openIssues: num(item.open_issues, 'milestone.open_issues'),
+    closedIssues: num(item.closed_issues, 'milestone.closed_issues'),
+    url: str(item.html_url, 'milestone.html_url', 512),
+  }
+}
+
+/** Endpoints either return a bare array or `{ total_count, <key>: [...] }`. */
+function decodeJsonList(payload: unknown, key: string): readonly unknown[] {
+  if (Array.isArray(payload)) return payload
+  return arr(obj(payload, key)[key], key)
+}
+
+function reviewDecisionOf(reviews: readonly unknown[]): GitHubPullRequest['reviewDecision'] {
+  const latest = new Map<string, string>()
+  for (const review of reviews) {
+    const item = obj(review, 'review')
+    const user =
+      item.user === undefined || item.user === null ? undefined : obj(item.user, 'review.user')
+    const login = user !== undefined ? str(user.login, 'review.user.login', 100) : ''
+    const state = str(item.state, 'review.state', 32)
+    if (login.length > 0) latest.set(login, state)
+  }
+  const states = [...latest.values()]
+  if (states.includes('CHANGES_REQUESTED')) return 'changes_requested'
+  if (states.includes('APPROVED')) return 'approved'
+  if (states.length > 0) return 'review_required'
+  return undefined
 }
 
 export function registerGithubRuntime(input: GithubRegistrarInput): {
@@ -666,44 +705,6 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     }
   }
 
-  function mapCheck(payload: unknown): GitHubCheck {
-    const item = obj(payload, 'check')
-    const status = literal(
-      item.status,
-      ['queued', 'in_progress', 'completed'] as const,
-      'check.status'
-    )
-    const conclusion =
-      item.conclusion === undefined || item.conclusion === null
-        ? undefined
-        : literal(
-            item.conclusion,
-            [
-              'success',
-              'failure',
-              'neutral',
-              'cancelled',
-              'skipped',
-              'timed_out',
-              'action_required',
-              'stale',
-            ] as const,
-            'check.conclusion'
-          )
-    const detailsUrl = optStr(item.details_url, 'check.details_url', 512)
-    const startedAt = isoTimestamp(item.started_at, 'check.started_at')
-    const completedAt = isoTimestamp(item.completed_at, 'check.completed_at')
-    return {
-      id: String(num(item.id, 'check.id')),
-      name: str(item.name, 'check.name', 256),
-      status,
-      ...(conclusion !== undefined ? { conclusion } : {}),
-      ...(detailsUrl !== undefined ? { detailsUrl } : {}),
-      ...(startedAt !== undefined ? { startedAt } : {}),
-      ...(completedAt !== undefined ? { completedAt } : {}),
-    }
-  }
-
   function mapIssue(payload: unknown): GitHubIssue | undefined {
     const item = obj(payload, 'issue')
     // The issues endpoint returns PRs too; they are not issues.
@@ -727,28 +728,6 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       ...(milestone !== undefined ? { milestone } : {}),
       updatedAt: requiredIsoTimestamp(item.updated_at, 'issue.updated_at'),
     }
-  }
-
-  function mapMilestone(payload: unknown, owner: string, repo: string): GitHubMilestone {
-    const item = obj(payload, 'milestone')
-    const number = num(item.number, 'milestone.number')
-    const dueOn = isoTimestamp(item.due_on, 'milestone.due_on')
-    return {
-      id: `ghm:${owner}/${repo}#${number}`,
-      number,
-      title: str(item.title ?? '', 'milestone.title', 512),
-      state: literal(item.state, ['open', 'closed'] as const, 'milestone.state'),
-      ...(dueOn !== undefined ? { dueOn } : {}),
-      openIssues: num(item.open_issues, 'milestone.open_issues'),
-      closedIssues: num(item.closed_issues, 'milestone.closed_issues'),
-      url: str(item.html_url, 'milestone.html_url', 512),
-    }
-  }
-
-  /** Endpoints either return a bare array or `{ total_count, <key>: [...] }`. */
-  function decodeJsonList(payload: unknown, key: string): readonly unknown[] {
-    if (Array.isArray(payload)) return payload
-    return arr(obj(payload, key)[key], key)
   }
 
   /** Page over a server-side page: the cursor is the absolute offset; only
@@ -850,23 +829,6 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     }
   }
 
-  function reviewDecisionOf(reviews: readonly unknown[]): GitHubPullRequest['reviewDecision'] {
-    const latest = new Map<string, string>()
-    for (const review of reviews) {
-      const item = obj(review, 'review')
-      const user =
-        item.user === undefined || item.user === null ? undefined : obj(item.user, 'review.user')
-      const login = user !== undefined ? str(user.login, 'review.user.login', 100) : ''
-      const state = str(item.state, 'review.state', 32)
-      if (login.length > 0) latest.set(login, state)
-    }
-    const states = [...latest.values()]
-    if (states.includes('CHANGES_REQUESTED')) return 'changes_requested'
-    if (states.includes('APPROVED')) return 'approved'
-    if (states.length > 0) return 'review_required'
-    return undefined
-  }
-
   async function checkRunsFor(
     parts: { owner: string; repo: string },
     headSha: string
@@ -924,9 +886,85 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       throw devError('plan_stale', 'the plan digest does not match the issued plan')
   }
 
+  /** After a verified merge, delete the head branch when it lives in the
+   *  base repository and is neither the default nor a protected branch. A
+   *  refusal never fails the merge that already happened; it reports false. */
+  async function deleteMergedHead(
+    parts: { owner: string; repo: string; number: number },
+    headRef: string
+  ): Promise<boolean> {
+    try {
+      if (!REF_PATTERN.test(headRef) || headRef.includes('..')) return false
+      const raw = obj(
+        await ghJson(
+          apiArgs(DEFAULT_HOST, `repos/${parts.owner}/${parts.repo}/pulls/${parts.number}`),
+          { staleFallback: false }
+        ),
+        'pullRequest'
+      )
+      const head = obj(raw.head, 'pullRequest.head')
+      const base = obj(raw.base, 'pullRequest.base')
+      if (head.repo === null || head.repo === undefined) return false
+      const headRepo = obj(head.repo, 'pullRequest.head.repo')
+      const baseRepo = obj(base.repo, 'pullRequest.base.repo')
+      if (
+        str(headRepo.full_name, 'head.full_name', 201) !==
+        str(baseRepo.full_name, 'base.full_name', 201)
+      )
+        return false
+      if (headRef === str(baseRepo.default_branch, 'base.default_branch', 256)) return false
+      if (protectedRefs.includes(headRef)) return false
+      const branch = obj(
+        await ghJson(
+          apiArgs(
+            DEFAULT_HOST,
+            `repos/${parts.owner}/${parts.repo}/branches/${encodeURIComponent(headRef)}`
+          ),
+          { staleFallback: false }
+        ),
+        'branch'
+      )
+      if (branch.protected === true) return false
+      const deleted = await runGh(
+        apiArgs(
+          DEFAULT_HOST,
+          `repos/${parts.owner}/${parts.repo}/git/refs/heads/${encodeURIComponent(headRef)}`,
+          ['--method', 'DELETE']
+        )
+      )
+      return deleted.exitCode === 0
+    } catch {
+      return false
+    }
+  }
+
+  const collaborationContext = {
+    scope: input.scope,
+    host: DEFAULT_HOST,
+    now,
+    cacheTtlMs,
+    runGh,
+    devError,
+    classifyGh,
+    requireScope,
+    resourceOf,
+    repoContext,
+    remoteOf,
+    prIdParts,
+    repoIdForRemote,
+    ghJson: (args: readonly string[], options?: { staleFallback?: boolean }) =>
+      ghJson(args, options ?? {}),
+    apiArgs,
+    invalidatePullRequest: (parts: { owner: string; repo: string; number: number }) => {
+      cache.delete(prCacheKey(parts))
+    },
+  }
+
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handlers: Partial<Record<DevOperation, (command: DevCommand) => unknown>> = {
+    ...createCollaborationHandlers(collaborationContext),
+
     'dev.github.account': async (command) => {
       requireScope(command)
       devOperationDecoders['dev.github.account'].request(command.body)
@@ -946,7 +984,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         cacheKey,
         allowCached: stale,
       })
-      return mapRepository(payload, repoId, parsed, stale)
+      const repository = mapRepository(payload, repoId, parsed, stale)
+      // The default branch's CI state decorates the read; it never fails it.
+      const head = await readDefaultBranchHead(collaborationContext, parsed).catch(() => undefined)
+      return head ? { ...repository, defaultBranchHead: head } : repository
     },
 
     'dev.github.pullRequests': async (command) => {
@@ -983,10 +1024,11 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       requireScope(command)
       const pullRequestId = resourceOf(command, 'pull_request', body.pullRequestId)
       const parts = prIdParts(pullRequestId)
-      const pr = await readPullRequest(parts, false)
+      const sha =
+        body.sha !== undefined ? String(body.sha) : (await readPullRequest(parts, false)).headSha
       const limit = Math.min(Number(body.limit ?? PAGE_MAX), PAGE_MAX)
       const start = body.cursor !== undefined ? offsetOf(body.cursor) : 0
-      const checks = await checkRunsFor(parts, pr.headSha)
+      const checks = await checkRunsFor(parts, sha)
       return serverPageOf(checks, start, limit)
     },
 
@@ -1409,7 +1451,7 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         )
       const patch = body.patch as Record<string, unknown>
       const normalizedPatch: Record<string, unknown> = {}
-      for (const key of ['title', 'body', 'draft', 'baseRef'] as const)
+      for (const key of ['title', 'body', 'draft', 'baseRef', 'state'] as const)
         if (patch[key] !== undefined) normalizedPatch[key] = patch[key]
       if (Object.keys(normalizedPatch).length === 0)
         throw devError('invalid_state', 'the patch carries no supported fields')
@@ -1454,11 +1496,11 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       if (current.updatedAt !== entry.expectedUpdatedAt)
         throw devError('stale_version', 'the pull request moved on since the plan was made')
       const patch = entry.patch
-      if (patch.draft === true && !current.draft)
-        throw devError(
-          'invalid_state',
-          'converting an opened pull request back to draft is not supported by this provider'
-        )
+      if (patch.state !== undefined && current.state === 'merged')
+        throw devError('invalid_state', 'a merged pull request cannot be closed or reopened')
+      // REST PATCH cannot change draft state; GraphQL owns that half.
+      if (typeof patch.draft === 'boolean' && patch.draft !== current.draft)
+        await applyDraftState(collaborationContext, parts, patch.draft)
       const extra: string[] = ['--method', 'PATCH']
       if (patch.title !== undefined)
         extra.push('-f', `title=${String(patch.title).slice(0, TITLE_MAX)}`)
@@ -1470,12 +1512,19 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
           throw devError('identity_mismatch', 'baseRef is not a simple branch name')
         extra.push('-f', `base=${baseRef}`)
       }
-      if (patch.draft === false && current.draft) extra.push('-F', 'draft=false')
+      if (patch.state === 'open' || patch.state === 'closed')
+        extra.push('-f', `state=${patch.state}`)
+      const cacheKey = prCacheKey(parts)
+      // A draft-only change has no REST fields: GitHub rejects an empty PATCH,
+      // so re-read server truth instead.
       const updated = await ghJson(
-        apiArgs(DEFAULT_HOST, `repos/${parts.owner}/${parts.repo}/pulls/${parts.number}`, extra),
+        apiArgs(
+          DEFAULT_HOST,
+          `repos/${parts.owner}/${parts.repo}/pulls/${parts.number}`,
+          extra.length > 2 ? extra : []
+        ),
         { staleFallback: false }
       )
-      const cacheKey = prCacheKey(parts)
       cache.delete(cacheKey)
       const pr = mapPullRequest(
         updated,
@@ -1539,12 +1588,20 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
             message: `check ${check.name} is ${check.conclusion ?? check.status}`,
           })
       }
-      const digest = digestOf({ kind: 'pr-merge', pullRequestId, headSha: pr.headSha, method })
+      const deleteBranch = body.deleteBranch === true
+      const digest = digestOf({
+        kind: 'pr-merge',
+        pullRequestId,
+        headSha: pr.headSha,
+        method,
+        ...(deleteBranch ? { deleteBranch } : {}),
+      })
       const entry: PlanEntry = {
         kind: 'pr-merge',
         pullRequestId,
         headSha: pr.headSha,
         method,
+        deleteBranch,
         expiresAt: now() + PLAN_TTL_MS,
         digest,
       }
@@ -1594,7 +1651,8 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       cache.delete(cacheKey)
       const pr = await readPullRequest(parts, true)
       plans.delete(String(body.planId))
-      return pr
+      if (!entry.deleteBranch || pr.state !== 'merged') return pr
+      return { ...pr, headBranchDeleted: await deleteMergedHead(parts, pr.headRef) }
     },
 
     // ── Update branch (merge base into the PR branch): plan/commit pair ──

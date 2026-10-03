@@ -318,18 +318,58 @@ export const devOperationMetadata = {
     capabilities: operationMetadata.devOperationMetadataFor_dev_github_account.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_github_account.resource,
   },
+  'dev.github.assignableUsers': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_assignableUsers.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_assignableUsers.resource,
+  },
+  'dev.github.autoMergeCommit': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_autoMergeCommit.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_autoMergeCommit.resource,
+  },
+  'dev.github.autoMergePlan': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_autoMergePlan.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_autoMergePlan.resource,
+  },
+  'dev.github.branches': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_branches.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_branches.resource,
+  },
+  'dev.github.checkLog': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_checkLog.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_checkLog.resource,
+  },
   'dev.github.checks': {
     capabilities: operationMetadata.devOperationMetadataFor_dev_github_checks.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_github_checks.resource,
+  },
+  'dev.github.comment': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_comment.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_comment.resource,
+  },
+  'dev.github.commits': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_commits.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_commits.resource,
+  },
+  'dev.github.compare': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_compare.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_compare.resource,
   },
   'dev.github.createPullRequest': {
     capabilities:
       operationMetadata.devOperationMetadataFor_dev_github_createPullRequest.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_github_createPullRequest.resource,
   },
+  'dev.github.files': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_files.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_files.resource,
+  },
   'dev.github.issues': {
     capabilities: operationMetadata.devOperationMetadataFor_dev_github_issues.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_github_issues.resource,
+  },
+  'dev.github.labels': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_labels.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_labels.resource,
   },
   'dev.github.mergeCommit': {
     capabilities: operationMetadata.devOperationMetadataFor_dev_github_mergeCommit.capabilities,
@@ -339,6 +379,10 @@ export const devOperationMetadata = {
     capabilities: operationMetadata.devOperationMetadataFor_dev_github_mergePlan.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_github_mergePlan.resource,
   },
+  'dev.github.metadataUpdate': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_metadataUpdate.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_metadataUpdate.resource,
+  },
   'dev.github.milestones': {
     capabilities: operationMetadata.devOperationMetadataFor_dev_github_milestones.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_github_milestones.resource,
@@ -346,6 +390,16 @@ export const devOperationMetadata = {
   'dev.github.pullRequest': {
     capabilities: operationMetadata.devOperationMetadataFor_dev_github_pullRequest.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_github_pullRequest.resource,
+  },
+  'dev.github.pullRequestSummaries': {
+    capabilities:
+      operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummaries.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummaries.resource,
+  },
+  'dev.github.pullRequestSummary': {
+    capabilities:
+      operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummary.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummary.resource,
   },
   'dev.github.pullRequests': {
     capabilities: operationMetadata.devOperationMetadataFor_dev_github_pullRequests.capabilities,
@@ -362,6 +416,35 @@ export const devOperationMetadata = {
   'dev.github.repository': {
     capabilities: operationMetadata.devOperationMetadataFor_dev_github_repository.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_github_repository.resource,
+  },
+  'dev.github.rerunFailedJobs': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_rerunFailedJobs.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_rerunFailedJobs.resource,
+  },
+  'dev.github.submitReview': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_submitReview.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_submitReview.resource,
+  },
+  'dev.github.syncBranchCommit': {
+    capabilities:
+      operationMetadata.devOperationMetadataFor_dev_github_syncBranchCommit.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_syncBranchCommit.resource,
+  },
+  'dev.github.syncBranchPlan': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_syncBranchPlan.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_syncBranchPlan.resource,
+  },
+  'dev.github.threadReply': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_threadReply.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_threadReply.resource,
+  },
+  'dev.github.threadResolve': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_threadResolve.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_threadResolve.resource,
+  },
+  'dev.github.timeline': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_github_timeline.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_github_timeline.resource,
   },
   'dev.github.updateBranchCommit': {
     capabilities:
@@ -380,6 +463,126 @@ export const devOperationMetadata = {
   'dev.github.updatePlan': {
     capabilities: operationMetadata.devOperationMetadataFor_dev_github_updatePlan.capabilities,
     resource: operationMetadata.devOperationMetadataFor_dev_github_updatePlan.resource,
+  },
+  'dev.gitlab.account': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_account.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_account.resource,
+  },
+  'dev.gitlab.assignableUsers': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_assignableUsers.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_assignableUsers.resource,
+  },
+  'dev.gitlab.autoMergeCommit': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergeCommit.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergeCommit.resource,
+  },
+  'dev.gitlab.autoMergePlan': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergePlan.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergePlan.resource,
+  },
+  'dev.gitlab.branches': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_branches.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_branches.resource,
+  },
+  'dev.gitlab.checkLog': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_checkLog.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_checkLog.resource,
+  },
+  'dev.gitlab.checks': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_checks.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_checks.resource,
+  },
+  'dev.gitlab.comment': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_comment.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_comment.resource,
+  },
+  'dev.gitlab.commits': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_commits.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_commits.resource,
+  },
+  'dev.gitlab.compare': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_compare.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_compare.resource,
+  },
+  'dev.gitlab.createPullRequest': {
+    capabilities:
+      operationMetadata.devOperationMetadataFor_dev_gitlab_createPullRequest.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_createPullRequest.resource,
+  },
+  'dev.gitlab.files': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_files.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_files.resource,
+  },
+  'dev.gitlab.labels': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_labels.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_labels.resource,
+  },
+  'dev.gitlab.mergeCommit': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_mergeCommit.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_mergeCommit.resource,
+  },
+  'dev.gitlab.mergePlan': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_mergePlan.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_mergePlan.resource,
+  },
+  'dev.gitlab.metadataUpdate': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_metadataUpdate.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_metadataUpdate.resource,
+  },
+  'dev.gitlab.pullRequest': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequest.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequest.resource,
+  },
+  'dev.gitlab.pullRequestSummaries': {
+    capabilities:
+      operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummaries.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummaries.resource,
+  },
+  'dev.gitlab.pullRequestSummary': {
+    capabilities:
+      operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummary.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummary.resource,
+  },
+  'dev.gitlab.repository': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_repository.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_repository.resource,
+  },
+  'dev.gitlab.rerunFailedJobs': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_rerunFailedJobs.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_rerunFailedJobs.resource,
+  },
+  'dev.gitlab.submitReview': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_submitReview.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_submitReview.resource,
+  },
+  'dev.gitlab.syncBranchCommit': {
+    capabilities:
+      operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchCommit.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchCommit.resource,
+  },
+  'dev.gitlab.syncBranchPlan': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchPlan.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchPlan.resource,
+  },
+  'dev.gitlab.threadReply': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_threadReply.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_threadReply.resource,
+  },
+  'dev.gitlab.threadResolve': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_threadResolve.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_threadResolve.resource,
+  },
+  'dev.gitlab.timeline': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_timeline.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_timeline.resource,
+  },
+  'dev.gitlab.updateCommit': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_updateCommit.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_updateCommit.resource,
+  },
+  'dev.gitlab.updatePlan': {
+    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_updatePlan.capabilities,
+    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_updatePlan.resource,
   },
   'dev.group.create': {
     capabilities: operationMetadata.devOperationMetadataFor_dev_group_create.capabilities,
