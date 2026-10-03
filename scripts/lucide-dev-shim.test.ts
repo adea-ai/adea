@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
+import ts from 'typescript'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -32,20 +33,37 @@ sourceRoots.push('apps/web/src')
 
 const localFiles = sourceRoots.flatMap((directory) => filesUnder(join(root, directory), /\.tsx?$/))
 
-const importedNames = new Set<string>(
-  localFiles
-    .map((file) => readFileSync(file, 'utf8'))
-    .flatMap((source) =>
-      [...source.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+['"]lucide-solid['"]/g)]
-        .flatMap(([, clause]) => clause.split(','))
-        .map((name) =>
-          name
-            .replace(/^(type\s+)?/, '')
-            .replace(/\s+as\s+[\w$]+\s*$/, '')
-            .trim()
-        )
-        .filter(Boolean)
+function runtimeLucideNames(source: string): string[] {
+  const parsed = ts.createSourceFile(
+    'icons.tsx',
+    source,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.TSX
+  )
+  return parsed.statements.flatMap((statement) => {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== 'lucide-solid'
     )
+      return []
+    const clause = statement.importClause
+    if (
+      !clause ||
+      clause.isTypeOnly ||
+      !clause.namedBindings ||
+      !ts.isNamedImports(clause.namedBindings)
+    )
+      return []
+    return clause.namedBindings.elements
+      .filter((element) => !element.isTypeOnly)
+      .map((element) => (element.propertyName ?? element.name).text)
+  })
+}
+
+const importedNames = new Set(
+  localFiles.flatMap((file) => runtimeLucideNames(readFileSync(file, 'utf8')))
 )
 
 function resolveSourceFile(base: string): string | undefined {
@@ -157,17 +175,7 @@ while (pendingPublishedFiles.length > 0) {
   if (!file || publishedSourceFiles.has(file)) continue
   publishedSourceFiles.add(file)
   const source = readFileSync(file, 'utf8')
-  for (const [, clause] of source.matchAll(
-    /import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+['"]lucide-solid['"]/g
-  )) {
-    for (const part of clause.split(',')) {
-      const name = part
-        .replace(/^(type\s+)?/, '')
-        .replace(/\s+as\s+[\w$]+\s*$/, '')
-        .trim()
-      if (name) publishedImportedNames.add(name)
-    }
-  }
+  for (const name of runtimeLucideNames(source)) publishedImportedNames.add(name)
   for (const [, specifier] of source.matchAll(/(?:from\s+|import\s*\(\s*)['"]([^'"]+)['"]/g)) {
     const dependency = publishedDependency(file, specifier, entry.publishedSourceRoot)
     if (dependency) {
@@ -189,6 +197,19 @@ for (const [, name, file] of shimSource.matchAll(
 }
 
 describe('lucide-solid dev shim', () => {
+  test('only runtime icon imports require dev-shim exports', () => {
+    expect(
+      runtimeLucideNames(`
+      import type { LucideIcon } from 'lucide-solid'
+      import {
+        ArrowUp as Up,
+        type LucideIcon as Icon,
+        /* a runtime icon */ ArrowDown,
+      } from 'lucide-solid'
+    `)
+    ).toEqual(['ArrowUp', 'ArrowDown'])
+  })
+
   test('resolves every imported published UI entry', () => {
     expect(
       unresolvedPublishedEntries.length > 0
