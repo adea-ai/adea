@@ -151,7 +151,7 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/themes": "0.9.7",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.105.0",
+    "@adea-ai/ui": "0.106.0",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/language": "^6.12.4",
     "@codemirror/search": "^6.7.2",
