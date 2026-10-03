@@ -11,6 +11,7 @@
  * and docs/research/dev-view-donor-audit.md.
  */
 import type {
+  BrowserAnnotation,
   BrowserInspection,
   BrowserLane,
   BrowserTarget,
@@ -22,12 +23,27 @@ import type {
 } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/app-ui/dev-view.css'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import { Camera, Cookie, PictureInPicture2, RotateCw, X } from 'lucide-solid'
+import { Camera, Cookie, PictureInPicture2, RotateCw, SquarePen, X } from 'lucide-solid'
 import { For, Show, createEffect, createResource, createSignal, onCleanup } from 'solid-js'
 
 import './browser-pane.css'
 import type { DevRuntimeService } from '../platform'
 import { resolveAnnotationSubmission } from './annotation-model'
+import {
+  MAX_NOTE_LENGTH,
+  NUDGE_FINE_STEP,
+  type AnnotationDraft,
+  type AnnotationPoint,
+  type AnnotationRectDraft,
+  type AnnotationSurfaceTool,
+  annotationDisabledReason,
+  annotationRequest,
+  describeAnnotationResult,
+  describeDraft,
+  dragRegion,
+  isRegionSubmittable,
+  nudgeRegion,
+} from './annotation-surface-model'
 import { buildDevCommand } from './command'
 import { CookieImportPanel } from './cookie-import-panel'
 import {
@@ -170,6 +186,223 @@ export function BrowserPane(props: BrowserPaneProps) {
   let latestScreenshotRequest = 0
   const latestViewportRequests = new Map<string, number>()
   let screenshotMounted = true
+
+  // ── Annotation frame (#718) ────────────────────────────────────────────────
+  // The surface is pixel-free by spec: the region is normalized viewport
+  // geometry, and the host captures the screenshot when the annotation is
+  // submitted, binding the reply's screenshotId to the frame it captured.
+  const [annotateMode, setAnnotateMode] = createSignal(false)
+  const [annotateTool, setAnnotateTool] = createSignal<AnnotationSurfaceTool>('region')
+  const [regionDraft, setRegionDraft] = createSignal<AnnotationRectDraft>()
+  const [dragPoints, setDragPoints] = createSignal<{
+    start: AnnotationPoint
+    current: AnnotationPoint
+  }>()
+  const [noteAnchor, setNoteAnchor] = createSignal<AnnotationPoint>()
+  const [noteText, setNoteText] = createSignal('')
+  const [annotationResult, setAnnotationResult] = createSignal<BrowserAnnotation>()
+  const [annotationError, setAnnotationError] = createSignal<DevError>()
+  const [annotationBusy, setAnnotationBusy] = createSignal(false)
+  let latestAnnotationRequest = 0
+  let annotateSurfaceRef: HTMLDivElement | undefined
+  let annotateButtonRef: HTMLButtonElement | undefined
+
+  const liveRegion = (): AnnotationRectDraft | undefined => {
+    const drag = dragPoints()
+    return drag ? dragRegion(drag.start, drag.current) : regionDraft()
+  }
+
+  const activeDraft = (): AnnotationDraft | undefined => {
+    if (annotateTool() === 'region') return liveRegion()
+    const anchor = noteAnchor()
+    const text = noteText().trim()
+    return anchor && text.length > 0 ? { kind: 'text', ...anchor, text } : undefined
+  }
+
+  const annotateReason = () =>
+    annotationDisabledReason({
+      serviceReady: serviceReady(),
+      targetsLoading: targets.loading,
+      hasLane: Boolean(activeLane()),
+      laneState: activeLane()?.state,
+      laneKind: activeLane()?.kind,
+      automationOwner: activeLane()?.automationOwner,
+      hasPageTarget: Boolean(activePageTarget()),
+    })
+
+  function writeRegionCustomProps(draft: AnnotationRectDraft | undefined): void {
+    const surface = annotateSurfaceRef
+    if (!surface) return
+    if (draft) {
+      surface.style.setProperty('--dev-annotate-region-x', String(draft.x * 100))
+      surface.style.setProperty('--dev-annotate-region-y', String(draft.y * 100))
+      surface.style.setProperty('--dev-annotate-region-w', String(draft.width * 100))
+      surface.style.setProperty('--dev-annotate-region-h', String(draft.height * 100))
+    } else {
+      for (const name of [
+        '--dev-annotate-region-x',
+        '--dev-annotate-region-y',
+        '--dev-annotate-region-w',
+        '--dev-annotate-region-h',
+      ])
+        surface.style.removeProperty(name)
+    }
+  }
+
+  createEffect(() => {
+    writeRegionCustomProps(annotateMode() && annotateTool() === 'region' ? liveRegion() : undefined)
+  })
+
+  function clearAnnotationDraft(): void {
+    latestAnnotationRequest += 1
+    setDragPoints(undefined)
+    setRegionDraft(undefined)
+    setNoteAnchor(undefined)
+    setNoteText('')
+    setAnnotationError(undefined)
+  }
+
+  function exitAnnotateMode(): void {
+    clearAnnotationDraft()
+    setAnnotateMode(false)
+    annotateButtonRef?.focus()
+  }
+
+  function surfacePoint(event: PointerEvent): AnnotationPoint {
+    const surface = annotateSurfaceRef
+    if (!surface) return { x: 0, y: 0 }
+    const bounds = surface.getBoundingClientRect()
+    const width = bounds.width || 1
+    const height = bounds.height || 1
+    return {
+      x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / width)),
+      y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / height)),
+    }
+  }
+
+  function handleSurfacePointerDown(event: PointerEvent): void {
+    if (annotationBusy()) return
+    event.preventDefault()
+    const point = surfacePoint(event)
+    if (annotateTool() === 'region') {
+      setRegionDraft(undefined)
+      setDragPoints({ start: point, current: point })
+      if (annotateSurfaceRef) annotateSurfaceRef.setPointerCapture(event.pointerId)
+    } else {
+      setNoteAnchor(point)
+    }
+  }
+
+  function handleSurfacePointerMove(event: PointerEvent): void {
+    const drag = dragPoints()
+    if (!drag) return
+    setDragPoints({ start: drag.start, current: surfacePoint(event) })
+  }
+
+  function handleSurfacePointerUp(event: PointerEvent): void {
+    const drag = dragPoints()
+    if (!drag) return
+    const region = dragRegion(drag.start, surfacePoint(event))
+    setDragPoints(undefined)
+    setRegionDraft(isRegionSubmittable(region) ? region : undefined)
+  }
+
+  function handleSurfacePointerCancel(): void {
+    setDragPoints(undefined)
+  }
+
+  function handleSurfaceKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      if (activeDraft() || noteAnchor()) {
+        clearAnnotationDraft()
+        return
+      }
+      exitAnnotateMode()
+      return
+    }
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault()
+      void submitAnnotation()
+      return
+    }
+    if (!event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (event.key === 'r' || event.key === 'R') {
+        event.preventDefault()
+        setAnnotateTool('region')
+        return
+      }
+      if (event.key === 'n' || event.key === 'N') {
+        event.preventDefault()
+        setAnnotateTool('note')
+        return
+      }
+    }
+    const draft = regionDraft()
+    if (!draft || !event.key.startsWith('Arrow')) return
+    const key = event.key.slice('Arrow'.length).toLowerCase()
+    if (key !== 'up' && key !== 'down' && key !== 'left' && key !== 'right') return
+    event.preventDefault()
+    setRegionDraft(
+      nudgeRegion(draft, key, {
+        resize: event.shiftKey,
+        step: event.altKey ? NUDGE_FINE_STEP : undefined,
+      })
+    )
+  }
+
+  function toggleAnnotateMode(): void {
+    if (annotateMode()) {
+      exitAnnotateMode()
+      return
+    }
+    clearAnnotationDraft()
+    setAnnotateMode(true)
+  }
+
+  function submitAnnotation(): void {
+    const lane = activeLane()
+    const target = activePageTarget()
+    const draft = activeDraft()
+    const currentScope = scope()
+    if (!lane || !target || !draft || !currentScope || annotateReason()) return
+    const request = annotationRequest({ lane, target, draft })
+    const requestId = ++latestAnnotationRequest
+    setAnnotationBusy(true)
+    setAnnotationError(undefined)
+    execute<BrowserAnnotation>(request.operation, request.body, request.resource)
+      .then((value) => {
+        if (requestId !== latestAnnotationRequest) return
+        const currentLane = activeLane()
+        const currentTarget = activePageTarget()
+        if (currentLane?.id !== lane.id || currentLane.generation !== lane.generation) return
+        if (currentTarget?.id !== target.id) return
+        setAnnotationResult(value)
+        clearAnnotationDraft()
+      })
+      .catch((reply) => {
+        if (requestId === latestAnnotationRequest) setAnnotationError(commandError(reply))
+      })
+      .finally(() => {
+        if (requestId === latestAnnotationRequest) setAnnotationBusy(false)
+      })
+  }
+
+  // A pending annotation is bound to one lane generation and page target; any
+  // context change discards the draft the way it clears the screenshot.
+  createEffect(() => {
+    const laneId = activeLane()?.id
+    const generation = activeLane()?.generation
+    const targetId = activePageTarget()?.id
+    void laneId
+    void generation
+    void targetId
+    setDragPoints(undefined)
+    setRegionDraft(undefined)
+    setNoteAnchor(undefined)
+    setNoteText('')
+    setAnnotationError(undefined)
+  })
 
   async function execute<T>(
     operation: Parameters<typeof buildDevCommand>[0]['operation'],
@@ -672,6 +905,23 @@ export function BrowserPane(props: BrowserPaneProps) {
           type="button"
           variant="outline"
           size="icon-sm"
+          aria-label={annotateMode() ? 'Exit annotate mode' : 'Annotate frame'}
+          tooltip={
+            annotateReason() ?? 'Annotate the current page frame: drag a region or anchor a note.'
+          }
+          aria-pressed={annotateMode()}
+          disabled={Boolean(annotateReason())}
+          busy={annotationBusy()}
+          busyLabel="Submitting annotation"
+          ref={(element) => (annotateButtonRef = element)}
+          onClick={toggleAnnotateMode}
+        >
+          <SquarePen aria-hidden="true" />
+        </ActionButton>
+        <ActionButton
+          type="button"
+          variant="outline"
+          size="icon-sm"
           aria-label={miniPreviewOpen() ? 'Close floating preview' : 'Float preview'}
           tooltip="Toggle the floating browser preview."
           aria-pressed={miniPreviewOpen()}
@@ -725,6 +975,135 @@ export function BrowserPane(props: BrowserPaneProps) {
           )}
         </Show>
       </div>
+
+      <Show when={annotateMode() && activeLane() && activePageTarget()}>
+        {(target) => (
+          <section class="dev-browser__annotate" aria-label="Annotate frame">
+            <p class="dev-browser__section-title">Annotate frame</p>
+            <p class="dev-browser__row-meta">
+              The frame is viewport geometry, not page pixels: the host captures the screenshot when
+              the annotation is submitted.
+            </p>
+            {/* oxlint-disable-next-line adea/no-interactive-wrappers -- the region surface is a drawing widget, not a control; keyboard access is the surface's own handler set */}
+            <div
+              ref={(element) => (annotateSurfaceRef = element)}
+              class={cn('dev-browser__annotate-surface', {
+                'dev-browser__annotate-surface--dragging': Boolean(dragPoints()),
+              })}
+              data-tool={annotateTool()}
+              tabindex={0}
+              role="application"
+              aria-roledescription="annotation surface"
+              aria-label={`Annotate frame for ${target().url}. Drag to mark a region; arrow keys adjust; Enter submits; Escape cancels.`}
+              onPointerDown={handleSurfacePointerDown}
+              onPointerMove={handleSurfacePointerMove}
+              onPointerUp={handleSurfacePointerUp}
+              onPointerCancel={handleSurfacePointerCancel}
+              onKeyDown={handleSurfaceKeyDown}
+            >
+              <span class="dev-browser__annotate-region" aria-hidden="true" />
+              <Show when={!activeDraft()}>
+                <span class="dev-browser__annotate-hint">
+                  {annotateTool() === 'region'
+                    ? 'Drag across the frame to mark a region.'
+                    : 'Click the frame to anchor a note.'}
+                </span>
+              </Show>
+            </div>
+            <p class="dev-browser__row-meta" role="status" aria-live="polite">
+              {describeDraft(activeDraft())}
+            </p>
+            <div class="dev-browser__actions">
+              <Button
+                type="button"
+                variant={annotateTool() === 'region' ? 'secondary' : 'outline'}
+                size="sm"
+                aria-pressed={annotateTool() === 'region'}
+                onClick={() => setAnnotateTool('region')}
+              >
+                Region (R)
+              </Button>
+              <Button
+                type="button"
+                variant={annotateTool() === 'note' ? 'secondary' : 'outline'}
+                size="sm"
+                aria-pressed={annotateTool() === 'note'}
+                onClick={() => setAnnotateTool('note')}
+              >
+                Note (N)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!activeDraft() || annotationBusy()}
+                onClick={clearAnnotationDraft}
+              >
+                Discard draft
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                disabled={!activeDraft() || annotationBusy()}
+                aria-busy={annotationBusy()}
+                onClick={submitAnnotation}
+              >
+                {annotationBusy() ? 'Submitting…' : 'Submit annotation'}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={annotationBusy()}
+                onClick={exitAnnotateMode}
+              >
+                Exit annotate mode (Esc)
+              </Button>
+            </div>
+            <Show when={annotateTool() === 'note'}>
+              <div class="dev-browser__annotate-note">
+                <Label for="dev-browser-annotation-note">Note text</Label>
+                <Input
+                  id="dev-browser-annotation-note"
+                  type="text"
+                  aria-label="Note text"
+                  maxLength={MAX_NOTE_LENGTH}
+                  autocomplete="off"
+                  spellcheck={false}
+                  placeholder="Bounded note carried with the annotation"
+                  value={noteText()}
+                  onInput={(event) => setNoteText(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.isComposing) {
+                      event.preventDefault()
+                      void submitAnnotation()
+                    }
+                  }}
+                />
+              </div>
+            </Show>
+            <Show when={annotationError()}>
+              {(shown) => (
+                <p class="dev-terminal-muted" role="alert" aria-label="Annotation error">
+                  {shown().code}: {shown().message}
+                </p>
+              )}
+            </Show>
+            <Show when={annotationResult()}>
+              {(shown) => (
+                <p
+                  class="dev-browser__inspection-result"
+                  role="status"
+                  aria-label="Annotation result"
+                >
+                  {describeAnnotationResult(shown())}
+                </p>
+              )}
+            </Show>
+          </section>
+        )}
+      </Show>
 
       <Show
         when={availability().status === 'ready'}

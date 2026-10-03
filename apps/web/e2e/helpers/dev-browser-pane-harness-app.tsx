@@ -28,7 +28,10 @@ let lane: BrowserLane = {
   kind: 'task_owned',
   profileId: 'browser-pane-fixture-profile',
   state: 'ready',
-  automationOwner: 'human_takeover',
+  automationOwner:
+    new URLSearchParams(window.location.search).get('owner') === 'agent'
+      ? 'agent'
+      : 'human_takeover',
   generation: 7,
 }
 const alternateLane: BrowserLane = {
@@ -55,6 +58,12 @@ let nextDeferredScreenshotSequence = 0
 let nextDeferredViewportSequence = 0
 const deferredViewports = new Map<number, { command: DevCommand; resolve(reply: DevReply): void }>()
 const queuedViewportIds: number[] = []
+let nextDeferredAnnotateSequence = 0
+let nextDeferredAnnotateId: number | undefined
+const deferredAnnotations = new Map<
+  number,
+  { command: DevCommand; resolve(reply: DevReply): void }
+>()
 
 function browserLanes(): readonly BrowserLane[] {
   return new URLSearchParams(window.location.search).get('lanes') === 'multiple'
@@ -169,6 +178,23 @@ const deferredControls = {
   },
   advanceLaneGeneration(): void {
     lane = { ...lane, generation: lane.generation + 1 }
+  },
+  deferNextAnnotate(): number {
+    nextDeferredAnnotateSequence += 1
+    nextDeferredAnnotateId = nextDeferredAnnotateSequence
+    return nextDeferredAnnotateSequence
+  },
+  resolveAnnotate(requestId: number, value: unknown): void {
+    const pending = deferredAnnotations.get(requestId)
+    if (!pending) throw new Error(`deferred annotation ${requestId} is not pending`)
+    deferredAnnotations.delete(requestId)
+    pending.resolve(reply(pending.command, value))
+  },
+  rejectAnnotate(requestId: number, error: DevError): void {
+    const pending = deferredAnnotations.get(requestId)
+    if (!pending) throw new Error(`deferred annotation ${requestId} is not pending`)
+    deferredAnnotations.delete(requestId)
+    pending.resolve(errorReply(pending.command, error))
   },
 }
 
@@ -296,6 +322,35 @@ const runtime = {
           })
         }
         return reply(command, {})
+      }
+      case 'dev.browser.annotate': {
+        if (nextDeferredAnnotateId !== undefined) {
+          const requestId = nextDeferredAnnotateId
+          nextDeferredAnnotateId = undefined
+          return await new Promise<DevReply>((resolve) => {
+            deferredAnnotations.set(requestId, { command, resolve })
+          })
+        }
+        const annotation = command.body.annotation as {
+          kind: string
+          x: number
+          y: number
+          width?: number
+          height?: number
+          text?: string
+        }
+        return reply(command, {
+          targetId: command.body.targetId,
+          kind: annotation.kind,
+          x: annotation.x,
+          y: annotation.y,
+          ...(annotation.width === undefined ? {} : { width: annotation.width }),
+          ...(annotation.height === undefined ? {} : { height: annotation.height }),
+          ...(annotation.text === undefined ? {} : { text: annotation.text }),
+          id: '00000000-0000-4000-8000-00000000a001',
+          screenshotId: '00000000-0000-4000-8000-00000000b002',
+          createdAt: new Date(0).toISOString(),
+        })
       }
       case 'dev.browser.takeover':
       case 'dev.browser.release': {

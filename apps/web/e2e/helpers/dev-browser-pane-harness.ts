@@ -48,6 +48,9 @@ export type BrowserPaneHarnessControls = {
   resolveViewport(requestId: number): void
   rejectViewport(requestId: number, error: import('@adea-ai/types/dev-runtime').DevError): void
   advanceLaneGeneration(): void
+  deferNextAnnotate(): number
+  resolveAnnotate(requestId: number, value: unknown): void
+  rejectAnnotate(requestId: number, error: import('@adea-ai/types/dev-runtime').DevError): void
   unmount(): void
 }
 
