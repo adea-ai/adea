@@ -3,11 +3,18 @@ import {
   type HelpLink,
   type HelpShortcut,
 } from '@adea-ai/ui/components/composites/help-center'
-import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@adea-ai/ui/components/ui/dialog'
 import { createMemo } from 'solid-js'
 
 export type WorkspaceHelpCenterProps = {
   appName?: string
+  /** Hands project links to the system browser on desktop shells. */
+  openExternal?: (url: string) => Promise<void>
   onClose: () => void
   open: boolean
 }
@@ -53,27 +60,42 @@ const PROJECT_LINKS: readonly HelpLink[] = [
 
 /**
  * The account menu's Help Center destination: the shared help page (real
- * keyboard shortcuts plus the project's resources) hosted in the workspace
- * dialog shell, mirroring the About dialog's composition.
+ * keyboard shortcuts plus the project's resources) in a compact dialog sized
+ * to its cards — not the tall settings shell.
  */
 export function WorkspaceHelpCenter(props: WorkspaceHelpCenterProps) {
   const appName = () => props.appName ?? 'Adea'
   const shortcuts = createMemo(workspaceShortcuts)
   return (
-    <ModalDialog
-      modal={false}
-      class="conventional-dialog"
+    <Dialog
       open={props.open}
-      onClose={props.onClose}
-      title="Help Center"
-      description={`Keyboard shortcuts and resources for ${appName()}.`}
+      onOpenChange={(next) => {
+        if (!next) props.onClose()
+      }}
     >
-      <HelpCenter
-        appName={appName()}
-        shortcuts={shortcuts()}
-        links={PROJECT_LINKS}
-        showHeader={false}
-      />
-    </ModalDialog>
+      <DialogContent
+        class="max-w-md"
+        aria-label="Help Center"
+        onKeyDown={(event: KeyboardEvent) => {
+          // Link help tooltips cannot trap Escape in this popup.
+          if (event.key === 'Escape' && !event.defaultPrevented) {
+            event.preventDefault()
+            props.onClose()
+          }
+        }}
+      >
+        <div class="flex flex-col gap-1">
+          <DialogTitle>Help Center</DialogTitle>
+          <DialogDescription>Keyboard shortcuts and resources for {appName()}.</DialogDescription>
+        </div>
+        <HelpCenter
+          appName={appName()}
+          shortcuts={shortcuts()}
+          links={PROJECT_LINKS}
+          showHeader={false}
+          openExternal={props.openExternal}
+        />
+      </DialogContent>
+    </Dialog>
   )
 }

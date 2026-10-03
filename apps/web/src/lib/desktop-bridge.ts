@@ -51,6 +51,15 @@ export async function getVersion(): Promise<string> {
   return version
 }
 
+/**
+ * Open a web link in the system browser. The CEF webview's window.open cannot
+ * leave the app, so feedback, help, and source links hand off through the
+ * shell, which refuses anything but a plain credential-free http(s) link.
+ */
+export async function openExternalUrl(url: string): Promise<void> {
+  await invoke('shell_open_external', { url })
+}
+
 /** Streaming channel stub for transcription parity with the previous shell. */
 export class Channel<T> {
   onmessage: ((message: T) => void) | null = null
