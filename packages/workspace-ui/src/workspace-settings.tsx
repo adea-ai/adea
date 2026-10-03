@@ -179,10 +179,13 @@ export function WorkspaceSettingsDialog(props: {
         if (active) setSaveState('error')
       })
     void refreshCapabilities(false)
-    if (props.services?.privateContent?.health) {
+    const privateContent = props.services?.privateContent
+    const health = privateContent?.health?.bind(privateContent)
+    const workspaceId = props.workspace.id
+    if (health) {
       setPrivateHealth('checking')
-      void props.services.privateContent
-        .health(props.workspace.id)
+      void Promise.resolve()
+        .then(() => health(workspaceId))
         .then(({ available }) => {
           if (active) setPrivateHealth(available ? 'available' : 'unavailable')
         })

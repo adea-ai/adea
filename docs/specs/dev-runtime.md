@@ -4252,6 +4252,10 @@ unshipped scope; Library does not pretend a plugin installation enables it.
 
 ## macOS permissions onboarding
 
+Opening System Settings catches both synchronous bridge failures and rejected
+host promises. A failed action clears its pending state and announces that
+System Settings could not be opened; the permissions page remains usable.
+
 The permissions page (issue #471) reports macOS TCC permissions the shipped
 features depend on: `accessibility`, `screen_recording`, `notifications`,
 `automation_apple_events`, and `microphone`. No permission ships without a

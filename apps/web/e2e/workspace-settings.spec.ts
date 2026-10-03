@@ -12,7 +12,8 @@ async function openSettingsHarness(
   page: Page,
   microphoneMode: 'retry' | 'delayed' | undefined = undefined,
   desktopPreferences = false,
-  desktopWriteFailure = false
+  desktopWriteFailure = false,
+  missingDesktopBridge = false
 ): Promise<Error[]> {
   const path = '/__workspace-settings'
   const errors: Error[] = []
@@ -41,6 +42,11 @@ async function openSettingsHarness(
     await page
       .locator('#harness-root')
       .evaluate((element) => element.setAttribute('data-desktop-write-failure', ''))
+  }
+  if (missingDesktopBridge) {
+    await page
+      .locator('#harness-root')
+      .evaluate((element) => element.setAttribute('data-missing-desktop-bridge', ''))
   }
   await page.evaluate(
     async (url) => {
@@ -174,5 +180,32 @@ test('a failed native settings write leaves the dialog operable and the next sav
   await expect(dialog.getByText('Settings could not be saved', { exact: true })).toHaveCount(0)
   await dialog.getByRole('tab', { name: 'Privacy & data', exact: true }).click()
   await expect(dialog.getByRole('switch', { name: 'Private notification previews' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('missing desktop bridge degrades private health and System Settings actions without crashing', async ({
+  page,
+}) => {
+  const errors = await openSettingsHarness(page, undefined, false, false, true)
+  expect(await page.evaluate(() => Reflect.get(window, '__adeaDesktop'))).toBeUndefined()
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('tab', { name: 'Privacy & data', exact: true }).click()
+  await expect(page.locator('#settings-panel-privacy-data')).toContainText(
+    'Unavailable in this app or on this device.'
+  )
+  await dialog.getByRole('tab', { name: 'Permissions', exact: true }).click()
+  const pane = dialog.getByRole('region', { name: 'macOS permissions' })
+  const openSystemSettings = pane
+    .getByRole('button', { name: 'Open System Settings', exact: true })
+    .first()
+  await expect(openSystemSettings).toBeEnabled()
+  await openSystemSettings.click()
+  await expect(pane.getByRole('status')).toContainText(
+    /could not open system settings for .* from this lane/i
+  )
+  await expect(openSystemSettings).toBeEnabled()
+  await dialog.getByRole('tab', { name: 'Input & notifications', exact: true }).click()
+  await expect(page.locator('#settings-panel-input-notifications')).toBeVisible()
   expect(errors).toEqual([])
 })
