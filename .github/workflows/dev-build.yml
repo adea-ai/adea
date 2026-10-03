@@ -2,8 +2,8 @@ name: Dev build
 
 # The dev update channel's build lane. Installs that opt into "Dev" follow
 # main: every push publishes a signed macOS ARM64 build whose version is
-# `<last stable>-dev.<run number>`, flagged as a pre-release so it is visible
-# only to the dev channel and can never be promoted to stable (the promoter's
+# `<desktop app version on main>-dev.<run number>`. It is a pre-release visible
+# only to the dev channel and cannot be promoted to stable (the promoter's
 # batch selector only matches the plain tag shape).
 #
 # The lane publishes the release and explicitly dispatches release-assets.yml.
@@ -40,6 +40,10 @@ jobs:
     if: >-
       ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(main): release ')) }}
     steps:
+      - name: Check out the source version
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
       - name: Publish the dev pre-release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -49,13 +53,22 @@ jobs:
           set -euo pipefail
           repo="$GITHUB_REPOSITORY"
 
-          # Anchor the dev line at the newest promoted stable so ordering
-          # stays semver-honest: every 0.75.0-dev.N sorts below 0.75.1, so
-          # the next stable always wins over the dev line anchored at its
-          # predecessor, and successive dev builds order by their counter.
-          base="$(gh api "repos/$repo/releases/latest" --jq '.tag_name' | sed 's/^v//')"
+          # Match the exact source commit the release lane will build. The
+          # latest stable can lag a version bump and produce a tag older than
+          # the desktop app itself.
+          base="$(
+            jq -er '
+              .version
+              | strings
+              | select(test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))
+              | select(. != "0.0.0")
+            ' apps/desktop/package.json
+          )" || {
+            echo "The checked-out desktop source has no stable SemVer version." >&2
+            exit 1
+          }
           tag="v${base}-dev.${RUN_NUMBER}"
-          echo "Dev version: ${base}-dev.${RUN_NUMBER} (anchored at stable ${base})"
+          echo "Dev version: ${base}-dev.${RUN_NUMBER} (anchored at desktop source ${base})"
 
           if ! gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
             notes="$(printf 'Dev build of main @ %s.\n\nInstalls on the dev update channel only; never promoted to stable.' "$SHA")"
