@@ -19,6 +19,7 @@ import type {
   DevRuntimePage,
   GitHubActor,
   GitHubBranch,
+  GitHubCheckRollupState,
   GitHubCheckLog,
   GitHubCompare,
   GitHubLabel,
@@ -34,6 +35,7 @@ import {
   BODY_MAX,
   COMMITS_QUERY,
   CONVERT_TO_DRAFT_MUTATION,
+  DEFAULT_BRANCH_HEAD_QUERY,
   DISABLE_AUTO_MERGE_MUTATION,
   ENABLE_AUTO_MERGE_MUTATION,
   READY_FOR_REVIEW_MUTATION,
@@ -53,6 +55,7 @@ import {
   mapChangedFile,
   mapCommitSummary,
   mapRepositorySettings,
+  mapRollupState,
   mapRestComment,
   mapRestReview,
   mapSummary,
@@ -1047,4 +1050,31 @@ export async function applyDraftState(
   await run(draft ? CONVERT_TO_DRAFT_MUTATION : READY_FOR_REVIEW_MUTATION, {
     pr: str(pr.id, 'pullRequest.id', 128),
   })
+}
+
+/** The default branch's head commit and its check rollup, for the source
+ *  control sidebar's per-project CI dot. Best effort: absent when GitHub has
+ *  no default branch or the read fails. */
+export async function readDefaultBranchHead(
+  ctx: Pick<CollaborationContext, 'runGh' | 'apiArgs' | 'classifyGh'>,
+  parsed: { host: string; owner: string; repo: string }
+): Promise<{ sha: string; checks: GitHubCheckRollupState } | undefined> {
+  const result = await ctx.runGh(
+    ctx.apiArgs(parsed.host, 'graphql', ['--input', '-', '--method', 'POST']),
+    {
+      stdin: JSON.stringify({
+        query: DEFAULT_BRANCH_HEAD_QUERY,
+        variables: { owner: parsed.owner, name: parsed.repo },
+      }),
+    }
+  )
+  if (result.exitCode !== 0) throw ctx.classifyGh(result, 'default branch read')
+  const data = graphqlData(JSON.parse(result.stdout))
+  const ref = obj(data.repository, 'repository').defaultBranchRef
+  if (ref === null || ref === undefined) return undefined
+  const target = obj(obj(ref, 'defaultBranchRef').target, 'defaultBranchRef.target')
+  return {
+    sha: gitSha(target.oid, 'defaultBranchRef.target.oid'),
+    checks: mapRollupState(target.statusCheckRollup, 'defaultBranchRef.target.statusCheckRollup'),
+  }
 }

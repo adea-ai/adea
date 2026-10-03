@@ -295,6 +295,8 @@ export type GitHubRepository = Readonly<{
   fork: boolean
   freshness: 'fresh' | 'stale'
   observedAt: string
+  /** The default branch's head commit and its check rollup, when known. */
+  defaultBranchHead?: Readonly<{ sha: string; checks: GitHubCheckRollupState }>
 }>
 
 export type GitHubAheadBehind = Readonly<{
@@ -2601,7 +2603,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
         'freshness',
         'observedAt',
       ],
-      [],
+      ['defaultBranchHead'],
       path
     )
     stringValue(item.repoId, `${path}.repoId`, 1, 128)
@@ -2616,6 +2618,17 @@ function namedType(name: string, value: unknown, path: string): unknown {
     if (typeof item.fork !== 'boolean') fail(`${path}.fork`, 'expected boolean')
     literal(item.freshness, ['fresh', 'stale'], `${path}.freshness`)
     timestamp(item.observedAt, `${path}.observedAt`)
+    if (item.defaultBranchHead !== undefined) {
+      const head = record(item.defaultBranchHead, `${path}.defaultBranchHead`)
+      exactKeys(head, ['sha', 'checks'], [], `${path}.defaultBranchHead`)
+      if (!gitShaPattern.test(stringValue(head.sha, `${path}.defaultBranchHead.sha`)))
+        fail(`${path}.defaultBranchHead.sha`, 'expected git sha')
+      literal(
+        head.checks,
+        ['success', 'failure', 'pending', 'none'],
+        `${path}.defaultBranchHead.checks`
+      )
+    }
     return value
   }
   if (name === 'GitHubAheadBehind') {

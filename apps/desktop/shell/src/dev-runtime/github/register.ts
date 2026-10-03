@@ -50,7 +50,11 @@ import type { ChannelAuthority } from '../channel/authority'
 import { createDurableJsonStore } from '../host-store'
 import { GIT_CHILD_TIMEOUT_MS, gitChildEnv, runGit } from '../worktrees/git-run'
 import type { FileIdentityValue } from '../worktrees/identity'
-import { applyDraftState, createCollaborationHandlers } from './collaboration'
+import {
+  applyDraftState,
+  createCollaborationHandlers,
+  readDefaultBranchHead,
+} from './collaboration'
 import {
   UntrustedError,
   arr,
@@ -980,7 +984,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         cacheKey,
         allowCached: stale,
       })
-      return mapRepository(payload, repoId, parsed, stale)
+      const repository = mapRepository(payload, repoId, parsed, stale)
+      // The default branch's CI state decorates the read; it never fails it.
+      const head = await readDefaultBranchHead(collaborationContext, parsed).catch(() => undefined)
+      return head ? { ...repository, defaultBranchHead: head } : repository
     },
 
     'dev.github.pullRequests': async (command) => {

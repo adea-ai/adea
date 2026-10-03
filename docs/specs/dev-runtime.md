@@ -3984,7 +3984,9 @@ auth is the user's `gh` CLI context, and Adea stores no GitHub token.
   comment's diff hunk), and a fixed set of lifecycle events; an unknown node
   type is skipped, never guessed. `commits`, `files` (patches capped at
   256 KiB and marked `patchTruncated`), `labels`, `assignableUsers`,
-  `branches`, and `compare` back the app's lists and pickers. `checks` takes
+  `branches`, and `compare` back the app's lists and pickers. `repository` also carries
+  `defaultBranchHead` (the default branch's head SHA and check rollup), read
+  best effort so a failed decoration never fails the repository read. `checks` takes
   an optional `sha` so each commit's runs can be read, and a check run carries
   its own output `title`. `checkLog` returns the sanitized last 512 KiB of a
   GitHub Actions job log (terminal escapes and control characters stripped,

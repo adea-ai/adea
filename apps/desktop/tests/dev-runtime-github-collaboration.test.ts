@@ -481,6 +481,46 @@ describe('pull request read models', () => {
   })
 })
 
+describe('repository read', () => {
+  test('carries the default branch head and its CI state, best effort', async () => {
+    let broken = false
+    const { run } = harness((path, call) => {
+      if (path === 'repos/acme/widgets')
+        return json({
+          id: 1,
+          name: 'widgets',
+          owner: { login: 'acme' },
+          default_branch: 'main',
+          html_url: 'https://github.com/acme/widgets',
+          private: true,
+          fork: false,
+        })
+      if (path === 'graphql' && graphqlQuery(call).includes('defaultBranchRef'))
+        return broken
+          ? { stderr: 'HTTP 502', exitCode: 1 }
+          : json({
+              data: {
+                repository: {
+                  defaultBranchRef: {
+                    target: { oid: BASE, statusCheckRollup: { state: 'SUCCESS' } },
+                  },
+                },
+              },
+            })
+      return undefined
+    })
+    const repo = valueOf<{ defaultBranchHead?: unknown }>(
+      await run('dev.github.repository', { repoId: REPO_ID, refresh: true })
+    )
+    expect(repo.defaultBranchHead).toEqual({ sha: BASE, checks: 'success' })
+    broken = true
+    const degraded = valueOf<{ defaultBranchHead?: unknown }>(
+      await run('dev.github.repository', { repoId: REPO_ID, refresh: true })
+    )
+    expect(degraded.defaultBranchHead).toBeUndefined()
+  })
+})
+
 describe('conversation writes', () => {
   test('comment text rides stdin, never argv', async () => {
     const secretish = 'please review $(rm -rf /) --hostname evil.example'

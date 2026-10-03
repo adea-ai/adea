@@ -161,6 +161,12 @@ export const ASSIGNABLE_USERS_QUERY = `query($owner: String!, $name: String!, $q
   }
 }`
 
+export const DEFAULT_BRANCH_HEAD_QUERY = `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef { target { ... on Commit { oid statusCheckRollup { state } } } }
+  }
+}`
+
 export const PULL_REQUEST_NODE_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) { id headRefOid state isDraft } }
 }`
