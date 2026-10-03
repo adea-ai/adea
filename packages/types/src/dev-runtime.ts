@@ -5,6 +5,7 @@ import {
   devStreamProtocolDefinitions,
 } from './dev-runtime-registry'
 import { decodeRegistryDto } from './dev-runtime-registry-dto'
+import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
 import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
 import {
   decodeScope,
@@ -327,6 +328,8 @@ export type GitHubPullRequest = Readonly<{
   observedAt: string
   /** createPullRequest reconciled onto an already-open PR instead of duplicating. */
   reconciled?: boolean
+  /** mergeCommit with deleteBranch: whether the head branch was deleted. */
+  headBranchDeleted?: boolean
 }>
 
 export type GitHubCheck = Readonly<{
@@ -342,9 +345,236 @@ export type GitHubCheck = Readonly<{
     | 'timed_out'
     | 'action_required'
     | 'stale'
+  /** The check run's own one-line output title, untrusted display text. */
+  title?: string
   detailsUrl?: string
   startedAt?: string
   completedAt?: string
+}>
+
+// ─── Pull request collaboration (source control app) ────────────────────────
+//
+// Read models for the source control app: inbox summaries, the conversation
+// timeline, commits, changed files, and check logs. Every string is
+// untrusted provider display text; the UI renders it as text nodes only and
+// never forwards it into a prompt or shell command.
+
+/** A GitHub user, bot, or team. `team` logins are `<org>/<slug>`. */
+export type GitHubActor = Readonly<{
+  login: string
+  kind: 'user' | 'bot' | 'team'
+  name?: string
+}>
+
+export type GitHubCheckRollupState = 'success' | 'failure' | 'pending' | 'none'
+
+export type GitHubCheckRollup = Readonly<{
+  state: GitHubCheckRollupState
+  passing: number
+  failing: number
+  running: number
+  skipped: number
+  total: number
+}>
+
+export type GitHubReviewState =
+  | 'approved'
+  | 'changes_requested'
+  | 'commented'
+  | 'dismissed'
+  | 'pending'
+
+export type GitHubLatestReview = Readonly<{
+  actor: GitHubActor
+  state: GitHubReviewState
+  commitSha?: string
+  submittedAt?: string
+}>
+
+export type GitHubMergeMethod = 'merge' | 'squash' | 'rebase'
+
+export type GitHubLinkedIssue = Readonly<{
+  number: number
+  title: string
+  state: 'open' | 'closed'
+  url: string
+}>
+
+export type GitHubPullRequestSummary = Readonly<{
+  id: string
+  repoId: string
+  number: number
+  title: string
+  url: string
+  state: 'open' | 'closed' | 'merged'
+  draft: boolean
+  author?: GitHubActor
+  headRef: string
+  headSha: string
+  baseRef: string
+  /** True when the head branch lives in a fork, not the base repository. */
+  crossRepository: boolean
+  additions: number
+  deletions: number
+  changedFiles: number
+  commitCount: number
+  labels: readonly string[]
+  assignees: readonly GitHubActor[]
+  requestedReviewers: readonly GitHubActor[]
+  /** The latest review per reviewer, as GitHub reports it. */
+  reviews: readonly GitHubLatestReview[]
+  reviewDecision?: 'approved' | 'changes_requested' | 'review_required'
+  mergeable: 'mergeable' | 'conflicting' | 'unknown'
+  mergeState:
+    | 'behind'
+    | 'blocked'
+    | 'clean'
+    | 'dirty'
+    | 'draft'
+    | 'has_hooks'
+    | 'unknown'
+    | 'unstable'
+  checks: GitHubCheckRollup
+  autoMerge?: Readonly<{ method: GitHubMergeMethod; enabledBy?: string }>
+  /** Commits the head is behind its base; only on a single-PR read. */
+  behindBy?: number
+  /** Merge methods the repository allows, in GitHub's order. */
+  mergeMethods: readonly GitHubMergeMethod[]
+  autoMergeAllowed: boolean
+  viewerCanUpdateBranch: boolean
+  linkedIssues: readonly GitHubLinkedIssue[]
+  /** The description; only on a single-PR read. */
+  body?: string
+  createdAt: string
+  updatedAt: string
+  mergedAt?: string
+  closedAt?: string
+  observedAt: string
+}>
+
+export type GitHubThreadComment = Readonly<{
+  id: string
+  author?: GitHubActor
+  body: string
+  createdAt: string
+}>
+
+export type GitHubTimelineItem =
+  | Readonly<{ kind: 'comment'; id: string; author?: GitHubActor; body: string; createdAt: string }>
+  | Readonly<{
+      kind: 'review'
+      id: string
+      author?: GitHubActor
+      state: GitHubReviewState
+      body: string
+      commitSha?: string
+      createdAt: string
+    }>
+  | Readonly<{
+      kind: 'commit'
+      id: string
+      sha: string
+      headline: string
+      authorLogin?: string
+      authorName?: string
+      checks: GitHubCheckRollupState
+      createdAt: string
+    }>
+  | Readonly<{
+      kind: 'thread'
+      id: string
+      path: string
+      line?: number
+      startLine?: number
+      side: 'left' | 'right'
+      diffHunk?: string
+      resolved: boolean
+      outdated: boolean
+      comments: readonly GitHubThreadComment[]
+      createdAt: string
+    }>
+  | Readonly<{
+      kind: 'event'
+      id: string
+      event:
+        | 'merged'
+        | 'closed'
+        | 'reopened'
+        | 'ready_for_review'
+        | 'converted_to_draft'
+        | 'review_requested'
+        | 'head_ref_force_pushed'
+        | 'base_ref_changed'
+      actor?: GitHubActor
+      /** Event subject: the requested reviewer, the new base, the merge sha. */
+      detail?: string
+      createdAt: string
+    }>
+
+export type GitHubCommitSummary = Readonly<{
+  sha: string
+  headline: string
+  authorLogin?: string
+  authorName?: string
+  committedAt: string
+  checks: GitHubCheckRollupState
+}>
+
+export type GitHubChangedFile = Readonly<{
+  path: string
+  previousPath?: string
+  status: 'added' | 'modified' | 'removed' | 'renamed' | 'copied' | 'changed' | 'unchanged'
+  additions: number
+  deletions: number
+  /** Unified patch hunks; absent when GitHub omits it (binary or too large). */
+  patch?: string
+  patchTruncated: boolean
+}>
+
+export type GitHubCheckLog = Readonly<{
+  checkId: string
+  text: string
+  truncated: boolean
+  observedAt: string
+}>
+
+export type GitHubLabel = Readonly<{
+  name: string
+  color?: string
+  description?: string
+}>
+
+export type GitHubBranch = Readonly<{
+  name: string
+  sha: string
+  protected: boolean
+}>
+
+export type GitHubCompare = Readonly<{
+  baseRef: string
+  headRef: string
+  status: 'ahead' | 'behind' | 'diverged' | 'identical'
+  aheadBy: number
+  behindBy: number
+  commitCount: number
+  changedFiles: number
+  additions: number
+  deletions: number
+  observedAt: string
+}>
+
+export type GitHubReviewCommentInput = Readonly<{
+  path: string
+  line: number
+  side: 'left' | 'right'
+  startLine?: number
+  body: string
+}>
+
+export type GitHubRerunResult = Readonly<{
+  checkId: string
+  runId: string
+  observedAt: string
 }>
 
 export type GitHubIssue = Readonly<{
@@ -1454,6 +1684,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
     name === 'RepoInspection'
   )
     return decodeRegistryDto(name, value, path)
+  if (decodeGithubCollaborationDto(name, value, path)) return value
   if (name === 'ArchiveRecord') {
     const item = record(value, path)
     exactKeys(
@@ -2419,7 +2650,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
         'updatedAt',
         'observedAt',
       ],
-      ['body', 'authorLogin', 'reviewDecision', 'aheadBehind', 'reconciled'],
+      ['body', 'authorLogin', 'reviewDecision', 'aheadBehind', 'reconciled', 'headBranchDeleted'],
       path
     )
     if (!githubPullRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
@@ -2459,6 +2690,8 @@ function namedType(name: string, value: unknown, path: string): unknown {
     timestamp(item.observedAt, `${path}.observedAt`)
     if (item.reconciled !== undefined && typeof item.reconciled !== 'boolean')
       fail(`${path}.reconciled`, 'expected boolean')
+    if (item.headBranchDeleted !== undefined && typeof item.headBranchDeleted !== 'boolean')
+      fail(`${path}.headBranchDeleted`, 'expected boolean')
     return value
   }
   if (name === 'GitHubCheck') {
@@ -2466,7 +2699,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
     exactKeys(
       item,
       ['id', 'name', 'status'],
-      ['conclusion', 'detailsUrl', 'startedAt', 'completedAt'],
+      ['conclusion', 'title', 'detailsUrl', 'startedAt', 'completedAt'],
       path
     )
     stringValue(item.id, `${path}.id`, 1, 64)
@@ -2487,6 +2720,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
         ],
         `${path}.conclusion`
       )
+    if (item.title !== undefined) stringValue(item.title, `${path}.title`, 0, 256)
     if (item.detailsUrl !== undefined) stringValue(item.detailsUrl, `${path}.detailsUrl`, 1, 512)
     if (item.startedAt !== undefined) timestamp(item.startedAt, `${path}.startedAt`)
     if (item.completedAt !== undefined) timestamp(item.completedAt, `${path}.completedAt`)
@@ -2675,12 +2909,13 @@ function namedType(name: string, value: unknown, path: string): unknown {
   }
   if (name === 'GitHubPullRequestMutableFields') {
     const item = record(value, path)
-    exactKeys(item, [], ['title', 'body', 'draft', 'baseRef'], path)
+    exactKeys(item, [], ['title', 'body', 'draft', 'baseRef', 'state'], path)
     if (item.title !== undefined) stringValue(item.title, `${path}.title`, 0, 256)
     if (item.body !== undefined) stringValue(item.body, `${path}.body`, 0, 65_536)
     if (item.draft !== undefined && typeof item.draft !== 'boolean')
       fail(`${path}.draft`, 'expected boolean')
     if (item.baseRef !== undefined) stringValue(item.baseRef, `${path}.baseRef`, 1)
+    if (item.state !== undefined) literal(item.state, ['open', 'closed'], `${path}.state`)
     return value
   }
   if (name === 'HarnessModel') {
@@ -3530,6 +3765,66 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.github.updateBranchPlan': (value) => decodeMutationPlan(value),
   'dev.github.updateCommit': (value) => namedType('GitHubPullRequest', value, 'reply.value'),
   'dev.github.updatePlan': (value) => decodeMutationPlan(value),
+  // Source control app collaboration reads and writes.
+  'dev.github.assignableUsers': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubActor', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.autoMergeCommit': (value) =>
+    namedType('GitHubPullRequestSummary', value, 'reply.value'),
+  'dev.github.autoMergePlan': (value) => decodeMutationPlan(value),
+  'dev.github.branches': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubBranch', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.checkLog': (value) => namedType('GitHubCheckLog', value, 'reply.value'),
+  'dev.github.comment': (value) => namedType('GitHubTimelineItem', value, 'reply.value'),
+  'dev.github.commits': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubCommitSummary', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.compare': (value) => namedType('GitHubCompare', value, 'reply.value'),
+  'dev.github.files': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubChangedFile', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.labels': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubLabel', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.metadataUpdate': (value) =>
+    namedType('GitHubPullRequestSummary', value, 'reply.value'),
+  'dev.github.pullRequestSummaries': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubPullRequestSummary', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.pullRequestSummary': (value) =>
+    namedType('GitHubPullRequestSummary', value, 'reply.value'),
+  'dev.github.rerunFailedJobs': (value) => namedType('GitHubRerunResult', value, 'reply.value'),
+  'dev.github.submitReview': (value) => namedType('GitHubTimelineItem', value, 'reply.value'),
+  'dev.github.syncBranchCommit': (value) =>
+    namedType('GitHubPullRequestSummary', value, 'reply.value'),
+  'dev.github.syncBranchPlan': (value) => decodeMutationPlan(value),
+  'dev.github.threadReply': (value) => namedType('GitHubTimelineItem', value, 'reply.value'),
+  'dev.github.threadResolve': (value) => namedType('GitHubTimelineItem', value, 'reply.value'),
+  'dev.github.timeline': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubTimelineItem', item, path),
+      value,
+      'reply.value'
+    ),
   // Terminal slice (#396): attach/input return single-use stream grants.
   'dev.terminal.attach': (value) => decodeDevStreamGrant(value),
   'dev.terminal.input': (value) => decodeDevStreamGrant(value),
