@@ -1,3 +1,13 @@
+/* Designer views (room designer) are full-bleed: the global rail collapses
+   and the viewport surface stretches edge to edge; the top bar drops the
+   contextual-sidebar toggle (nothing left for it to control). */
+.workspace-frame[data-designer-mode='true'] {
+  --workspace-rail-width: 0rem;
+}
+.workspace-frame[data-designer-mode='true'] .global-rail {
+  display: none;
+}
+
 .workspace-frame {
   --workspace-rail-width: var(--rail-width);
   --workspace-topbar-height: 3rem;

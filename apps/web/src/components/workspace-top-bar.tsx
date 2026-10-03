@@ -20,6 +20,8 @@ export function WorkspaceTopBar(props: {
   /** Mount Dev pane controls only while Dev owns the active surface. */
   showDevActions: boolean
   sidebarToggleRef?: (element: HTMLButtonElement | undefined) => void
+  /** Edit views run without a contextual sidebar, so the toggle has nothing to control. */
+  hideSidebarToggle?: boolean
   /** Workspace-wide actions rendered before the appearance control. */
   resources?: JSX.Element
   /**
@@ -122,20 +124,24 @@ export function WorkspaceTopBar(props: {
           >
             <ArrowRight aria-hidden="true" />
           </ActionButton>
-          <ActionButton
-            ref={props.sidebarToggleRef}
-            variant="outline"
-            size="icon-sm"
-            tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
-            class="workspace-topbar__control workspace-topbar__context-toggle"
-            aria-label={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
-            aria-expanded={sidebarOpen()}
-            onClick={() => workspaceStore.getState().setMobileSidebarOpen(!sidebarOpen())}
-          >
-            <Show when={sidebarOpen()} fallback={<PanelLeftOpen aria-hidden="true" />}>
-              <PanelLeftClose aria-hidden="true" />
-            </Show>
-          </ActionButton>
+          <Show when={!props.hideSidebarToggle}>
+            <ActionButton
+              ref={props.sidebarToggleRef}
+              variant="outline"
+              size="icon-sm"
+              tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
+              class="workspace-topbar__control workspace-topbar__context-toggle"
+              aria-label={
+                sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'
+              }
+              aria-expanded={sidebarOpen()}
+              onClick={() => workspaceStore.getState().setMobileSidebarOpen(!sidebarOpen())}
+            >
+              <Show when={sidebarOpen()} fallback={<PanelLeftOpen aria-hidden="true" />}>
+                <PanelLeftClose aria-hidden="true" />
+              </Show>
+            </ActionButton>
+          </Show>
         </div>
         <div class="workspace-topbar__view-action-group">
           {/* The divider renders on every view so the left side of the bar has

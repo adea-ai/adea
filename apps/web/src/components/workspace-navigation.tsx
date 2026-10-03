@@ -644,8 +644,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     else if (destination.id !== requestedAppId()) changeApp(destination.id, true)
   })
   return (
-    <div class={`workspace-frame workspace-frame--${view()}`}>
+    <div
+      class={`workspace-frame workspace-frame--${view()}`}
+      data-designer-mode={roomDesignerEnabled() ? 'true' : undefined}
+    >
       <WorkspaceTopBar
+        hideSidebarToggle={roomDesignerEnabled()}
         platform={props.platform}
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
         onOpenNotifications={() => openSettings('input-notifications')}
