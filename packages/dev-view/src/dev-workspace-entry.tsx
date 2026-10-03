@@ -41,6 +41,7 @@ import {
   MonitorSmartphone,
   PanelRightClose,
   PanelRightOpen,
+  SquareX,
   Undo2,
   Users,
   X,
@@ -68,8 +69,10 @@ import {
   listLeaves,
   neighborLeaf,
   normalizeLayout,
+  preferredSplitDirection,
   resizeSplit,
   splitPane,
+  splitPaneEvenly,
   undoClosePane,
   movePane,
   type DevLayoutState,
@@ -283,7 +286,10 @@ const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {
 const utilityItemByPane = new Map(utilityItems.map((item) => [item.pane, item]))
 const utilitySizeSteps = [240, 288, 336, 384] as const
 /** Every pane opens at one shared width — no custom width per tab type. */
-const defaultUtilitySize = 336
+/** Left panes (files/source control) open at the browser pane's width. */
+const defaultLeftUtilitySize = 336
+/** Right panes (browser/devices/agents/history) get the wider step. */
+const defaultRightUtilitySize = 384
 
 const defaultUtilityPreferences = (): DevUtilityPreference[] =>
   utilityItems.map((item, order) => ({
@@ -291,8 +297,8 @@ const defaultUtilityPreferences = (): DevUtilityPreference[] =>
     side: item.side,
     order,
     visible: item.pane === 'files',
-    size: defaultUtilitySize,
-    lastNonzeroSize: defaultUtilitySize,
+    size: item.side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize,
+    lastNonzeroSize: item.side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize,
     fullWidth: false,
   }))
 
@@ -304,7 +310,7 @@ const initialLayout = () =>
   })
 
 const snapUtilitySize = (size: number) => {
-  if (!Number.isFinite(size)) return defaultUtilitySize
+  if (!Number.isFinite(size)) return defaultLeftUtilitySize
   return utilitySizeSteps.reduce(
     (best, step) => (Math.abs(step - size) < Math.abs(best - size) ? step : best),
     utilitySizeSteps[0]
@@ -1242,8 +1248,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           updateLayout((state) => {
             const focused = listLeaves(state.center).find((leaf) => leaf.id === state.focusedLeafId)
             if (!focused) return state
-            return splitPane(state, state.focusedLeafId, {
-              direction: 'row',
+            return splitPaneEvenly(state, state.focusedLeafId, {
+              direction: preferredSplitDirection(state.center),
               placement: 'after',
               leaf: {
                 kind: 'leaf',
@@ -1259,6 +1265,31 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         }}
       >
         <Columns2 aria-hidden="true" />
+      </ActionButton>
+      <ActionButton
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        class="workspace-topbar__control dev-toolbar__close-all"
+        tooltip="Close all panes"
+        aria-label="Close all panes"
+        disabled={countLeaves(layout().center) <= 1}
+        onClick={() => {
+          let nextFocusId = layout().focusedLeafId
+          updateLayout((state) => {
+            let next = state
+            for (const leaf of listLeaves(next.center)) {
+              next = closePane(next, leaf.id, () => `dev-placeholder-${++nextPaneId}`)
+            }
+            nextFocusId = next.focusedLeafId
+            return next
+          })
+          setActiveEditorFile(undefined)
+          focusPaneElement(nextFocusId)
+          setAnnouncement('All panes closed')
+        }}
+      >
+        <SquareX aria-hidden="true" />
       </ActionButton>
       <ActionButton
         type="button"
@@ -1867,7 +1898,7 @@ function UtilitySlot(props: {
           >
             <Button
               type="button"
-              variant={props.visiblePane?.pane === 'files' ? 'secondary' : 'outline'}
+              variant={props.visiblePane?.pane === 'files' ? 'default' : 'outline'}
               size="sm"
               aria-label="Files"
               aria-pressed={props.visiblePane?.pane === 'files'}
@@ -1878,7 +1909,7 @@ function UtilitySlot(props: {
             </Button>
             <Button
               type="button"
-              variant={props.visiblePane?.pane === 'source_control' ? 'secondary' : 'outline'}
+              variant={props.visiblePane?.pane === 'source_control' ? 'default' : 'outline'}
               size="sm"
               aria-label="Source control"
               aria-pressed={props.visiblePane?.pane === 'source_control'}
@@ -1893,7 +1924,10 @@ function UtilitySlot(props: {
       <Show when={Boolean(resizablePane())}>
         <UtilityResizeHandle
           side={props.side}
-          size={resizablePane()?.size ?? defaultUtilitySize}
+          size={
+            resizablePane()?.size ??
+            (props.side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize)
+          }
           onResize={(size) => {
             const pane = resizablePane()
             if (pane) props.onResize(pane.pane, size)

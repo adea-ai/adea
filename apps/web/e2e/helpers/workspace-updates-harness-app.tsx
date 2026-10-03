@@ -5,6 +5,70 @@ import { AccountMenu } from '../../../../packages/workspace-ui/src/account-menu'
 import { VersionDialog } from '../../src/components/version-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
+/**
+ * A controllable stand-in for the shell's update family. The version dialog's
+ * adapter is the only update-checker; answering its invocations here exercises
+ * the real mirror into the shared update-pending state, so the badge tests
+ * below cover the whole chain rather than a hand-set signal. The install stays
+ * in flight (phase `downloading`, zero bytes — the real shell answers exactly
+ * this way for its fast downloads) until the harness settles it.
+ */
+const updaterState = {
+  phase: 'current' as string,
+  releaseInstall: undefined as (() => void) | undefined,
+}
+
+function updateSnapshot() {
+  const available = updaterState.phase === 'available'
+  return {
+    current_version: '1.0.0',
+    available_version: available ? '9.9.9' : null,
+    release_date: null,
+    release_notes: null,
+    changelog: '',
+    github_url: 'https://github.com/adea-ai/adea/releases',
+    phase: updaterState.phase,
+    downloaded_bytes: 0,
+    total_bytes: null,
+    error: null,
+    restart_required: false,
+  }
+}
+
+;(window as unknown as { __adeaDesktop?: unknown }).__adeaDesktop = {
+  invoke: async (command: string) => {
+    if (command === 'adea_app_version') return '1.0.0'
+    if (command === 'desktop_update_status' || command === 'desktop_update_check') {
+      return updateSnapshot()
+    }
+    if (command === 'desktop_update_install') {
+      updaterState.phase = 'downloading'
+      return new Promise((resolve) => {
+        updaterState.releaseInstall = () => {
+          updaterState.phase = 'installed'
+          resolve({
+            ...updateSnapshot(),
+            restart_required: true,
+          })
+        }
+      })
+    }
+    return undefined
+  },
+  listen: async () => () => undefined,
+}
+
+// The modal update dialog blocks pointer events to the harness buttons, so
+// the spec settles an in-flight install through this hook instead (the same
+// route the shared dialog's own fixture uses).
+;(window as unknown as { updatesHarness?: unknown }).updatesHarness = {
+  settleInstall() {
+    const release = updaterState.releaseInstall
+    updaterState.releaseInstall = undefined
+    release?.()
+  },
+}
+
 function Harness() {
   const [open, setOpen] = createSignal(false)
   const [updatesEnabled, setUpdatesEnabled] = createSignal(true)
@@ -13,6 +77,8 @@ function Harness() {
     <>
       <output id="updates-opener">{opener()?.getAttribute('aria-label') ?? 'missing'}</output>
       <Button onClick={() => setUpdatesEnabled(false)}>Disable updates handoff</Button>
+      <Button onClick={() => (updaterState.phase = 'available')}>Make update available</Button>
+      <Button onClick={() => (updaterState.phase = 'current')}>Make update current</Button>
       {/* The rail footer is what the real shell gives this trigger: a narrow
           column with the row pushed down. Right-end placement needs that
           context — against a full-viewport-width anchor the menu flips

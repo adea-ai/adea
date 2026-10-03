@@ -2,15 +2,7 @@ import { useRouter } from '@tanstack/solid-router'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { TopBar, TopBarSection, TopBarTitle } from '@adea-ai/ui/components/layout/top-bar'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
-import {
-  ArrowLeft,
-  ArrowRight,
-  Bell,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
-} from 'lucide-solid'
+import { ArrowLeft, ArrowRight, Bell, PanelLeftClose, PanelLeftOpen } from 'lucide-solid'
 import type { JSX } from 'solid-js'
 import { createSignal, onCleanup, onMount, Show } from 'solid-js'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
@@ -28,6 +20,8 @@ export function WorkspaceTopBar(props: {
   /** Mount Dev pane controls only while Dev owns the active surface. */
   showDevActions: boolean
   sidebarToggleRef?: (element: HTMLButtonElement | undefined) => void
+  /** Edit views run without a contextual sidebar, so the toggle has nothing to control. */
+  hideSidebarToggle?: boolean
   /** Workspace-wide actions rendered before the appearance control. */
   resources?: JSX.Element
   /**
@@ -130,29 +124,34 @@ export function WorkspaceTopBar(props: {
           >
             <ArrowRight aria-hidden="true" />
           </ActionButton>
-          <ActionButton
-            ref={props.sidebarToggleRef}
-            variant="outline"
-            size="icon-sm"
-            tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
-            class="workspace-topbar__control workspace-topbar__context-toggle"
-            aria-label={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
-            aria-expanded={sidebarOpen()}
-            onClick={() => workspaceStore.getState().setMobileSidebarOpen(!sidebarOpen())}
-          >
-            <Show when={sidebarOpen()} fallback={<PanelLeftOpen aria-hidden="true" />}>
-              <PanelLeftClose aria-hidden="true" />
-            </Show>
-          </ActionButton>
+          <Show when={!props.hideSidebarToggle}>
+            <ActionButton
+              ref={props.sidebarToggleRef}
+              variant="outline"
+              size="icon-sm"
+              tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
+              class="workspace-topbar__control workspace-topbar__context-toggle"
+              aria-label={
+                sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'
+              }
+              aria-expanded={sidebarOpen()}
+              onClick={() => workspaceStore.getState().setMobileSidebarOpen(!sidebarOpen())}
+            >
+              <Show when={sidebarOpen()} fallback={<PanelLeftOpen aria-hidden="true" />}>
+                <PanelLeftClose aria-hidden="true" />
+              </Show>
+            </ActionButton>
+          </Show>
         </div>
         <div class="workspace-topbar__view-action-group">
-          <Show when={props.showDevActions}>
-            <Separator
-              orientation="vertical"
-              class="workspace-topbar__view-divider"
-              aria-hidden="true"
-            />
-          </Show>
+          {/* The divider renders on every view so the left side of the bar has
+              one shape: back/forward/contextual toggle, divider, then the
+              Dev-only pane section (empty everywhere else). */}
+          <Separator
+            orientation="vertical"
+            class="workspace-topbar__view-divider"
+            aria-hidden="true"
+          />
           <div
             class="workspace-topbar__view-actions"
             ref={props.actionsMount}
@@ -176,27 +175,14 @@ export function WorkspaceTopBar(props: {
         >
           <Bell aria-hidden="true" />
         </ActionButton>
-        {/* The view-provided sidebar toggle rides the trailing mount: a standard
-            icon button after the workspace actions, separated by a vertical
-            divider. While the active view supplies no toggle, a default one
-            keeps the slot present on every view and owns the contextual
-            sidebar; the leading contextual toggle stands down (CSS below). */}
+        {/* The trailing slot mirrors the leading one: divider first, then the
+            active view's right-sidebar toggle (Dev portals its utility-pane
+            control). Views without a right pane leave the mount empty and own
+            the contextual sidebar through the leading toggle, so exactly one
+            control speaks for each side on every view. */}
         <div class="workspace-topbar__sidebar">
           <Separator orientation="vertical" class="workspace-topbar__sidebar-divider" />
           <div class="workspace-topbar__sidebar-mount" ref={props.sidebarMount} />
-          <ActionButton
-            variant="outline"
-            size="icon-sm"
-            tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
-            class="workspace-topbar__control workspace-topbar__sidebar-default"
-            aria-label={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
-            aria-expanded={sidebarOpen()}
-            onClick={() => workspaceStore.getState().setMobileSidebarOpen(!sidebarOpen())}
-          >
-            <Show when={sidebarOpen()} fallback={<PanelRightOpen aria-hidden="true" />}>
-              <PanelRightClose aria-hidden="true" />
-            </Show>
-          </ActionButton>
         </div>
       </TopBarSection>
     </TopBar>

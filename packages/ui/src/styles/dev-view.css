@@ -57,6 +57,15 @@
   margin-inline-start: auto;
 }
 
+/* The narrow shell has no room for a fourth pane action: below the shared
+   48rem breakpoint the close-all convenience hides, and the per-pane close
+   carries the work. */
+@media (max-width: 48rem) {
+  .dev-toolbar__close-all {
+    display: none;
+  }
+}
+
 .dev-button,
 .dev-tree-row {
   min-height: 2rem;
@@ -114,8 +123,25 @@
 .dev-sidebar {
   min-width: 0;
   flex: none;
-  width: var(--dev-context-sidebar-width, clamp(13rem, 16vw, 17rem));
+  /* The shared contextual-sidebar width: the same stored value drives the
+     chat/virtual navigation, and the Dev top-bar section alignment reads it
+     through the workspace frame. */
+  width: var(--dev-context-sidebar-width, 17rem);
   background: var(--dev-panel);
+}
+
+/* The same resize affordance the chat navigation has; the stored width is
+   shared, so one drag sets both views. Pointer parity is a product gate. */
+.dev-sidebar__resize {
+  z-index: 6;
+  cursor: pointer;
+}
+
+/* The shared SidebarNav ships a 16rem w-sidebar default; the chat navigation
+   overrides it through unlayered host CSS, so the Dev sidebar does too — the
+   shared contextual width must win over the published default. */
+.dev-sidebar aside {
+  width: 100%;
 }
 
 .dev-tree-group + .dev-tree-group {
@@ -291,9 +317,18 @@
 }
 
 /* The shared grip rung is 1rem tall; the utility pane's resize affordance
-   triples it so the drag target is findable without pixel hunting. */
+   triples it so the drag target is findable without pixel hunting, while a
+   narrow translucent chip keeps it quiet next to the pane content (the grip
+   glyph it replaces read as a wide solid button). */
 .dev-utility-splitter__handle > div {
   height: 3rem;
+  width: 0.375rem;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--dev-border) 55%, transparent);
+}
+
+.dev-utility-splitter__handle > div > svg {
+  display: none;
 }
 
 .dev-row-badge {
@@ -416,10 +451,6 @@
 }
 
 @media (max-width: 70rem) {
-  .dev-sidebar {
-    width: var(--dev-context-sidebar-width, clamp(12rem, 30vw, 15rem));
-  }
-
   .dev-utility {
     position: absolute;
     z-index: var(--z-docked);
@@ -473,6 +504,12 @@
     transition:
       transform 160ms ease,
       visibility 0s linear 160ms;
+  }
+
+  /* The drawer drags the whole viewport contract; resizing stays a desktop
+     affordance like the sheet's in the shared sidebar. */
+  .dev-sidebar__resize {
+    display: none;
   }
 
   .dev-sidebar--open {

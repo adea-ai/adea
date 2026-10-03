@@ -1,7 +1,20 @@
+/* Designer views (room designer) are full-bleed: the global rail collapses
+   and the viewport surface stretches edge to edge; the top bar drops the
+   contextual-sidebar toggle (nothing left for it to control). */
+.workspace-frame[data-designer-mode='true'] {
+  --workspace-rail-width: 0rem;
+}
+.workspace-frame[data-designer-mode='true'] .global-rail {
+  display: none;
+}
+
 .workspace-frame {
   --workspace-rail-width: var(--rail-width);
   --workspace-topbar-height: 3rem;
-  --dev-context-sidebar-width: clamp(13rem, 16vw, 17rem);
+  /* One contextual-sidebar width across views: the shared sidebar writes the
+     stored width into --conventional-sidebar-width on this frame, and the Dev
+     sidebar plus the Dev top-bar section alignment follow it. */
+  --dev-context-sidebar-width: var(--conventional-sidebar-width, 17rem);
   position: fixed;
   inset: 0;
   display: grid;
@@ -14,15 +27,16 @@
   color: var(--foreground);
 }
 
-@media (max-width: 70rem) {
-  .workspace-frame {
-    --dev-context-sidebar-width: clamp(12rem, 30vw, 15rem);
-  }
-}
-
 @media (max-width: 48rem) {
   .workspace-frame {
-    --dev-context-sidebar-width: min(17rem, 84vw, calc(100vw - var(--workspace-rail-width, 0px)));
+    /* The narrow drawer caps the shared width so a wide desktop value cannot
+       overflow a small viewport. */
+    --dev-context-sidebar-width: min(
+      var(--conventional-sidebar-width, 17rem),
+      17rem,
+      84vw,
+      calc(100vw - var(--workspace-rail-width, 0px))
+    );
   }
 }
 
@@ -166,6 +180,34 @@
   color: var(--primary);
 }
 
+/*
+ * The pending-update dot: one accent indicator shared by the account trigger
+ * and the Updates menu item. The dot carries no text on purpose — the host
+ * controls extend their accessible names ("update available") so the state is
+ * announced, and the dialog itself remains the source of truth.
+ */
+.global-rail__account-trigger {
+  position: relative;
+}
+.global-rail__account-trigger .global-rail__update-dot {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.6rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--primary);
+  pointer-events: none;
+}
+.global-rail__account-menu .global-rail__update-dot {
+  flex: none;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-inline-start: auto;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
 .conventional-workspace,
 .workspace-shell--contextual,
 .conventional-dialog {
@@ -299,9 +341,8 @@
 .conventional-sidebar__quick-actions button {
   width: 100%;
 }
-.conventional-sidebar__quick-actions kbd {
-  margin-left: auto;
-}
+/* The mark-all-read chord rides the shared ShortcutKeys caps; the button
+   keeps its accessible name and aria-keyshortcuts. */
 .conventional-sidebar__content {
   scrollbar-gutter: stable;
 }
@@ -1058,6 +1099,12 @@
   display: grid;
   gap: 0.45rem;
 }
+/* The palette sizes to its rows; the cap only bounds very long result sets
+   (five rows visible, the rest scroll) so an empty query never leaves a tall
+   half-blank panel. Overrides the shared list's max-h-80. */
+.conventional-search-results {
+  max-height: 18rem;
+}
 .conventional-template-options button {
   display: grid;
   min-height: 3.2rem;
@@ -1137,7 +1184,7 @@
   height: 100%;
 }
 .conventional-search-hint {
-  padding: 0.35rem 1rem 0.9rem;
+  padding: 0 1rem 0.35rem;
   color: var(--cw-muted);
   font-size: 0.75rem;
   text-align: right;
@@ -1302,6 +1349,26 @@
   color: var(--cw-muted);
   font-size: 0.78rem;
 }
+/* The plugin detail fields share one row: the shared catalog sections stand
+   side by side and trade their card chrome for vertical dividers between
+   columns, so the detail pane's width is actually used. */
+.plugins-detail-columns {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+.plugins-detail-columns > section {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 0.9rem;
+  border: 0;
+  border-left: 1px solid var(--cw-border);
+  border-radius: 0;
+}
+.plugins-detail-columns > section:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
 .plugin-logo {
   display: flex;
   width: 2.75rem;
@@ -1458,6 +1525,15 @@
   .plugins-dialog {
     width: calc(100% - 3rem);
     height: calc(100svh - 1rem);
+  }
+  .plugins-detail-columns {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .plugins-detail-columns > section,
+  .plugins-detail-columns > section:first-child {
+    padding: 0;
+    border: 0;
   }
   .plugin-logo {
     width: 2.5rem;
@@ -1631,7 +1707,12 @@
 
 /* The common header is above every view and its collapsed outer rail. */
 .workspace-topbar {
-  --workspace-topbar-inline-start-inset: 0.75rem;
+  /* A full rem of inline padding keeps the bar's first and last controls
+     clear of the window edges (and reads as breathing room next to the
+     macOS traffic lights). The padding restate keeps the Dev section's
+     alignment calc exact: it subtracts this inset from the sidebar edge, so
+     the painted padding must follow the var, not the shared px-3. */
+  --workspace-topbar-inline-start-inset: 1rem;
   grid-column: 1 / -1;
   grid-row: 1;
   display: grid;
@@ -1641,6 +1722,8 @@
   position: relative;
   z-index: var(--z-sticky);
   height: var(--workspace-topbar-height);
+  padding-inline-start: var(--workspace-topbar-inline-start-inset);
+  padding-inline-end: 1rem;
   background: var(--card);
   color: var(--card-foreground);
 }
@@ -1664,9 +1747,6 @@
   align-items: center;
   gap: 0.5rem;
 }
-.workspace-topbar__view-action-group:has(.workspace-topbar__view-actions:empty) {
-  display: none;
-}
 .workspace-topbar__title {
   min-width: 0;
   overflow: hidden;
@@ -1681,8 +1761,9 @@
  * window buttons. Unlayered host CSS wins that contest for good.
  */
 .workspace-topbar.window-inset-macos {
-  --workspace-topbar-inline-start-inset: 84px;
-  padding-inline-start: 84px;
+  /* Clears the traffic-light column (lights end ≈76px) with a little air. */
+  --workspace-topbar-inline-start-inset: 88px;
+  padding-inline-start: 88px;
 }
 .workspace-frame > .global-rail {
   grid-column: 1;
@@ -1719,35 +1800,17 @@
 .workspace-topbar__title {
   text-align: center;
 }
-/* The sidebar toggle stays visible on every view. A view without its own
-   toggle leaves the mount empty: below 48rem the trailing group keeps the
-   drawer contract (hidden; the leading contextual toggle opens the sheet),
-   while wide viewports show a default trailing toggle — owner of the
-   contextual sidebar — and stand the leading one down so exactly one
-   sidebar control shows at a time. */
+/* The sidebar toggle stays visible on every view. The leading contextual
+   toggle owns the left sidebar on all of them; the trailing group keeps the
+   divider plus the active view's right-sidebar mount, so both sides of the
+   bar keep one shape across views (Dev fills the mounts, the rest leave them
+   empty). */
 .workspace-topbar__sidebar {
   display: flex;
   align-items: center;
   gap: 0.35rem;
   -webkit-app-region: no-drag;
   app-region: no-drag;
-}
-.workspace-topbar__sidebar:has(.workspace-topbar__sidebar-mount:empty) {
-  display: none;
-}
-.workspace-topbar__sidebar-default {
-  display: none;
-}
-@media (min-width: 48.001rem) {
-  .workspace-topbar:has(.workspace-topbar__sidebar-mount:empty) .workspace-topbar__sidebar {
-    display: flex;
-  }
-  .workspace-topbar:has(.workspace-topbar__sidebar-mount:empty) .workspace-topbar__sidebar-default {
-    display: inline-flex;
-  }
-  .workspace-topbar:has(.workspace-topbar__sidebar-mount:empty) .workspace-topbar__context-toggle {
-    display: none;
-  }
 }
 .workspace-topbar__sidebar-divider[data-orientation='vertical'] {
   height: 1.25rem;
@@ -1821,7 +1884,19 @@
 }
 .workspace-app-library__tile:hover,
 .workspace-app-library__tile:focus-within {
-  background: var(--muted);
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+/* Accent marks the live state app-wide: an enabled tile answers hover with
+   the accent on its mark, while the corner badge carries the enabled state. */
+.workspace-app-library__tile[data-enabled='true']:hover .workspace-app-library__tile-icon,
+.workspace-app-library__tile[data-enabled='true']:focus-within .workspace-app-library__tile-icon {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+.workspace-app-library__tile[data-enabled='true']:hover .workspace-app-library__tile-icon svg,
+.workspace-app-library__tile[data-enabled='true']:focus-within
+  .workspace-app-library__tile-icon
+  svg {
+  color: var(--primary);
 }
 .workspace-app-library__tile[data-drop-target]::before {
   content: '';
@@ -1886,6 +1961,13 @@
   top: -0.375rem;
   inset-inline-end: -0.375rem;
   box-shadow: var(--shadow-xs);
+}
+/* The grip button drags like its card: same grab cursor, same active state. */
+.workspace-app-library__tile-grip {
+  cursor: grab;
+}
+.workspace-app-library__tile-grip:active {
+  cursor: grabbing;
 }
 .workspace-app-library__tile-name {
   display: flex;

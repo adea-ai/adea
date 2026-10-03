@@ -87,7 +87,14 @@ from the shell process (never the webview). `version` is compared against the
 running version, which comes from `apps/desktop/package.json` — the version
 Release Please bumps — with an `ADEA_APP_VERSION` override for local runs.
 Releases without a feed (forks, releases older than the lane) fall back to a
-GitHub-API availability check plus a releases-page handoff.
+GitHub-API availability check plus a releases-page handoff. That fallback can
+only announce an update when the release actually carries this platform's
+installable archive (`Adea-<tag>-macos-arm64.app.tar.zst` in the release's
+asset list): a freshly published tag exists before the lane attaches its
+archives and signed feed, and announcing in that window reported "update
+available" for an update that could only end in the releases-page handoff. A
+newer release without the archive stays quiet (`current`); the dialog keeps
+its "View releases" button either way.
 
 ## Update channels
 
@@ -175,6 +182,14 @@ counter. The update is always strictly-newer-only; nothing downgrades.
 
 - The version dialog reports the running version, phase, release notes, and
   the release page, and auto-checks when it opens.
+- The update-pending badge (the rail account dot and the Updates menu dot) is
+  a surface of the shell's own updater state, never a second checker: the
+  desktop entry seeds it once per session with `desktop_update_status` — the
+  same lazily-started check the dialog drives — and every dialog answer is
+  mirrored into it. The boot probe is deliberately unguarded: it is that one
+  existing check's user-visible surface, so no setting gates it, and no
+  independent poller exists; a session that never boots the desktop entry or
+  opens the dialog simply has no badge, which is the accepted trade.
 - A failed update check is shown as a retryable failure, never as an up-to-date
   result from an older status snapshot. Before returning a status across the
   shell boundary, the updater preserves an `Error` message, a string, or the

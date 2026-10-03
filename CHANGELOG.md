@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.79.1](https://github.com/adea-ai/adea/compare/v0.79.0...v0.79.1) (2026-10-03)
+
+
+### Documentation
+
+* **marketplace:** use the online Control Plane catalog origin ([#978](https://github.com/adea-ai/adea/issues/978)) ([8a78e5a](https://github.com/adea-ai/adea/commit/8a78e5a06c5552635786bb16ea895a4a9a5abeab))
+
+## [0.79.0](https://github.com/adea-ai/adea/compare/v0.78.1...v0.79.0) (2026-10-03)
+
+
+### Features
+
+* **workspace:** full-bleed designer chrome — no rail, no sidebar toggle ([#974](https://github.com/adea-ai/adea/issues/974)) ([b95f022](https://github.com/adea-ai/adea/commit/b95f02253ceb2804a7f0999831a87ce88fad0f11))
+
+
+### Documentation
+
+* **updater:** pin the update-badge feed policy ([#976](https://github.com/adea-ai/adea/issues/976)) ([9f5313d](https://github.com/adea-ai/adea/commit/9f5313df137b0b32b0141b3b6f39b37abfce255b))
+
+
+### Maintenance
+
+* **deps:** resolve the lockfile to the pinned @adea-ai/ui 0.99.0 ([#971](https://github.com/adea-ai/adea/issues/971)) ([ad691d6](https://github.com/adea-ai/adea/commit/ad691d682a21223e9425bd1be0f723a1739f12d0))
+
+## [0.78.1](https://github.com/adea-ai/adea/compare/v0.78.0...v0.78.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* round-4 product-owner reports — settings crash, plugin detail layout, update dialog, and update badges ([#968](https://github.com/adea-ai/adea/issues/968)) ([99ef591](https://github.com/adea-ai/adea/commit/99ef5919e360dfbb638db9355b7567f717d51657))
+* **workspace:** cache-bust the Agent Sim engine entry by pack version ([#970](https://github.com/adea-ai/adea/issues/970)) ([3d8d514](https://github.com/adea-ai/adea/commit/3d8d5142f7eb8909ef2ce0e16da35aeaf5eb1579))
+
+## [0.78.0](https://github.com/adea-ai/adea/compare/v0.77.0...v0.78.0) (2026-10-02)
+
+
+### Features
+
+* **desktop:** adopt the shared app support surfaces ([#966](https://github.com/adea-ai/adea/issues/966)) ([12e3c4c](https://github.com/adea-ai/adea/commit/12e3c4c73c8d9268806975091c173b6bb7e543dc))
+
+
+### Bug Fixes
+
+* **ui:** consume the resolved surface where the workspace paints it ([#961](https://github.com/adea-ai/adea/issues/961)) ([3e12db6](https://github.com/adea-ai/adea/commit/3e12db680df344ec59c3c258f13c748f4c24a5c2))
+* **web:** polish round 4 — topbar parity, shared sidebar width, accent states ([#963](https://github.com/adea-ai/adea/issues/963)) ([f0648d0](https://github.com/adea-ai/adea/commit/f0648d01bcbac2291909d757ac6b403157b3a412))
+
+
+### Maintenance
+
+* **code-foundry:** upgrade runtime to v1.42.0 ([#964](https://github.com/adea-ai/adea/issues/964)) ([930b065](https://github.com/adea-ai/adea/commit/930b065cfe0798f0b6ecdd49c3b8f4c04bf91592))
+
 ## [0.77.0](https://github.com/adea-ai/adea/compare/v0.76.0...v0.77.0) (2026-10-02)
 
 
