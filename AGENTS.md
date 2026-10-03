@@ -89,6 +89,11 @@ routed spec is missing, or a relative link between docs stops resolving.
 
 ## Shared UI enforcement (mandatory)
 
+Use the [shared UI design reference](docs/guides/shared-ui-design-reference.md)
+when checking visual continuity. It applies to every agent and documents how
+the authenticated design artifact relates to the current published components
+and product requirements. The artifact does not replace the rules below.
+
 The root oxlint config loads `@adea-ai/ui/lint`, the published design system's
 plugin, and keeps these selected consumer rules enabled as errors:
 
