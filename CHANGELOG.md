@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.80.1](https://github.com/adea-ai/adea/compare/v0.80.0...v0.80.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* **release:** anchor dev versions to source app ([#996](https://github.com/adea-ai/adea/issues/996)) ([d7a5858](https://github.com/adea-ai/adea/commit/d7a58588c5305826d0020b93346edcf613a0077c))
+
 ## [0.80.0](https://github.com/adea-ai/adea/compare/v0.79.1...v0.80.0) (2026-10-03)
 
 
