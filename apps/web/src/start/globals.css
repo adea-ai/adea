@@ -400,12 +400,11 @@ html {
 
 /* The virtual scene and its navigation share the same inner frame. */
 .workspace-shell--contextual {
-  --conventional-sidebar-width: 17rem;
   display: flex;
   height: 100%;
 }
 .workspace-shell--contextual > .conventional-sidebar {
-  flex-basis: var(--conventional-sidebar-width);
+  flex-basis: var(--conventional-sidebar-width, 17rem);
 }
 .workspace-shell--contextual:has(> .conventional-sidebar:not(.conventional-sidebar--open))
   > .conventional-sidebar {

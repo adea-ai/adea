@@ -8,7 +8,10 @@ import { resolve } from 'node:path'
  * the dialog with no providers above it, so any section that stops rendering
  * standalone fails here instead of in the product.
  */
-async function openSettingsHarness(page: Page): Promise<Error[]> {
+async function openSettingsHarness(
+  page: Page,
+  microphoneMode: 'retry' | 'delayed' | undefined = undefined
+): Promise<Error[]> {
   const path = '/__workspace-settings'
   const errors: Error[] = []
   page.on('pageerror', (error) => errors.push(error))
@@ -19,6 +22,14 @@ async function openSettingsHarness(page: Page): Promise<Error[]> {
     })
   )
   await page.goto(`${path}#settings/input-notifications`)
+  if (microphoneMode) {
+    await page
+      .locator('#harness-root')
+      .evaluate(
+        (element, mode) => element.setAttribute(`data-microphone-${mode}`, ''),
+        microphoneMode
+      )
+  }
   await page.evaluate(
     async (url) => {
       await import(url)
@@ -27,6 +38,44 @@ async function openSettingsHarness(page: Page): Promise<Error[]> {
   )
   return errors
 }
+
+test('a rejected microphone permission check stays recoverable and retries', async ({ page }) => {
+  const errors = await openSettingsHarness(page, 'retry')
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  const microphone = dialog.getByRole('button', { name: 'Check microphone', exact: true })
+  await microphone.click()
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'Microphone access could not be checked. Try again.'
+  )
+  await expect(microphone).toBeEnabled()
+  await microphone.click()
+  await expect(dialog.getByRole('button', { name: 'granted', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await dialog.getByRole('tab', { name: 'Privacy & data' }).click()
+  await expect(page.locator('#settings-panel-privacy-data')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('a permission result from a closed dialog cannot change the reopened dialog', async ({
+  page,
+}) => {
+  const errors = await openSettingsHarness(page, 'delayed')
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await dialog.getByRole('button', { name: 'Check microphone', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'Check microphone', exact: true })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await page.getByRole('button', { name: 'Open settings fixture', exact: true }).click()
+  await dialog.getByRole('tab', { name: 'Input & notifications', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'Check microphone', exact: true })).toBeEnabled()
+  // Simulate host completion while the outside fixture control is inert behind the dialog.
+  await page
+    .locator('#resolve-permission-fixture')
+    .evaluate((element: HTMLButtonElement) => element.click())
+  await expect(dialog.getByRole('button', { name: 'Check microphone', exact: true })).toBeEnabled()
+  await expect(dialog.getByRole('button', { name: 'granted', exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
 
 test('the Input & notifications section renders without the app sound providers', async ({
   page,

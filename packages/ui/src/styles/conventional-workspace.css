@@ -1620,8 +1620,7 @@
 
 @media (max-width: 64rem) {
   .conventional-workspace {
-    --conventional-sidebar-width: 15rem;
-    grid-template-columns: var(--conventional-sidebar-width) minmax(0, 1fr);
+    grid-template-columns: var(--conventional-sidebar-width, 17rem) minmax(0, 1fr);
   }
   .conventional-conversation--thread-open {
     grid-template-columns: minmax(20rem, 1fr) minmax(18rem, 22rem);
@@ -1736,7 +1735,7 @@
   align-items: center;
   gap: 0.5rem;
 }
-.workspace-topbar__navigation[data-dev-actions] {
+.workspace-topbar__navigation {
   display: grid;
   grid-template-columns: max-content max-content;
   gap: 0.5rem;
@@ -1789,7 +1788,8 @@
         )
         .dev-sidebar.dev-sidebar--open
     )
-    .workspace-topbar__navigation[data-dev-actions] {
+    .workspace-topbar__navigation,
+  .workspace-frame:has(.conventional-sidebar--open) .workspace-topbar__navigation {
     grid-template-columns: calc(
         var(--workspace-rail-width) + var(--dev-context-sidebar-width) -
           var(--workspace-topbar-inline-start-inset)

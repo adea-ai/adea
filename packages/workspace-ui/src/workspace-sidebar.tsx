@@ -86,7 +86,10 @@ function clampSidebarWidth(width: number): number {
 
 function workspaceRootFor(sidebar: HTMLElement | null | undefined): HTMLElement | null {
   return (
-    sidebar?.closest<HTMLElement>('.conventional-workspace, .workspace-shell--contextual') ?? null
+    // The toolbar and each contextual sidebar inherit one width from the shell.
+    sidebar?.closest<HTMLElement>('.workspace-frame') ??
+    sidebar?.closest<HTMLElement>('.workspace-shell--contextual, .conventional-workspace') ??
+    null
   )
 }
 
