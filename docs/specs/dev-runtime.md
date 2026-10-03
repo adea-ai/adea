@@ -2132,6 +2132,20 @@ separate write-direction grant. This transport does not authorize pixels for
 display: BrowserPane remains closed to image projection while host redaction
 provenance is `redacted: false`.
 
+Browser annotations respect the same boundary (#718). The pane's annotate
+surface is viewport geometry, never page pixels: the user drags a region (or
+anchors a bounded note) over a frame-shaped box expressed in normalized
+0..1 coordinates, and only `dev.browser.annotate` reaches the host, which
+captures the screenshot at submit time and binds the reply's `screenshotId`
+to the frame it captured. A draft is bound to one lane generation and page
+target; any context change, Escape, or the discard control drops it without a
+command. The annotate control is disabled with a stated reason whenever the
+lane cannot serve a capture — service unavailable, no lane or page target, a
+crashed/closing lane, an agent-owned lane, or the packaged human-embedded
+lane whose CDP handle Electrobun does not expose. Element picking stays
+selector-driven through `dev.browser.inspect`; the operation deliberately
+provides no preview-pixel click picking.
+
 On the desktop shell the channel rides one loopback WebSocket
 (`/__adea/channel`) upgraded only for a request that passed the trusted-origin
 gate. Its first text message completes `dev.runtime.handshake.v1`; later text

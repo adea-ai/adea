@@ -647,3 +647,191 @@ test('BrowserPane invalidates a pending screenshot on unmount', async ({ page })
   })
   await expect(pane).toHaveCount(0)
 })
+
+// ── #718: the annotation surface ─────────────────────────────────────────────
+
+async function mountAnnotateSurface(page: import('@playwright/test').Page) {
+  const pane = await mountBrowserPane(page)
+  await pane.getByRole('button', { name: 'Annotate frame' }).click()
+  const annotate = pane.getByRole('region', { name: 'Annotate frame' })
+  await expect(annotate).toBeVisible()
+  const surface = annotate.getByRole('application', { name: /Annotate frame for/ })
+  await expect(surface).toBeVisible()
+  return { pane, annotate, surface }
+}
+
+async function dragRegion(
+  page: import('@playwright/test').Page,
+  surface: import('@playwright/test').Locator,
+  from: { x: number; y: number },
+  to: { x: number; y: number }
+) {
+  const box = (await surface.boundingBox())!
+  await page.mouse.move(box.x + box.width * from.x, box.y + box.height * from.y)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * to.x, box.y + box.height * to.y)
+  await page.mouse.up()
+}
+
+const annotateCommands = (page: import('@playwright/test').Page) =>
+  page.evaluate(() =>
+    window.browserPaneHarness
+      .report()
+      .commands.filter((command) => command.operation === 'dev.browser.annotate')
+  )
+
+test('BrowserPane disables annotate with a reason while the lane is agent-owned', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('**' + BROWSER_PANE_HARNESS_PATH + '**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: browserPaneHarnessHtml() })
+  )
+  await page.goto(`${BROWSER_PANE_HARNESS_PATH}?owner=agent`)
+  await page.addScriptTag({ type: 'module', content: browserPaneHarnessModuleSource() })
+  const pane = page.getByRole('region', { name: 'Browser' })
+  await expect(pane).toBeVisible()
+
+  const annotate = pane.getByRole('button', { name: 'Annotate frame' })
+  await expect(annotate).toBeDisabled()
+  await annotate.hover()
+  await expect(page.getByRole('tooltip')).toContainText('agent-owned')
+})
+
+test('BrowserPane submits a dragged region bound to lane, target, and generation', async ({
+  page,
+}) => {
+  const { annotate, surface } = await mountAnnotateSurface(page)
+  await dragRegion(page, surface, { x: 0.2, y: 0.2 }, { x: 0.6, y: 0.5 })
+
+  const draft = annotate.getByRole('status').filter({ hasText: /Region at/ })
+  await expect(draft).toContainText('Region at 20,20')
+
+  const deferredId = await page.evaluate(() => window.browserPaneHarness.deferNextAnnotate())
+  await annotate.getByRole('button', { name: 'Submit annotation' }).click()
+
+  const commands = await annotateCommands(page)
+  expect(commands).toHaveLength(1)
+  expect(commands[0].body.browserLaneId).toBe('browser-pane-fixture-lane')
+  expect(commands[0].body.expectedGeneration).toBe(7)
+  expect(commands[0].body.targetId).toBe('browser-pane-fixture-target')
+  const annotation = commands[0].body.annotation as Record<string, unknown>
+  expect(annotation.kind).toBe('rect')
+  expect(annotation.targetId).toBe('browser-pane-fixture-target')
+  expect(annotation.x).toBeCloseTo(0.2, 2)
+  expect(annotation.y).toBeCloseTo(0.2, 2)
+  expect(annotation.width).toBeCloseTo(0.4, 2)
+  expect(annotation.height).toBeCloseTo(0.3, 2)
+  expect(commands[0].resource).toEqual({
+    kind: 'browser_lane',
+    id: 'browser-pane-fixture-lane',
+    generation: 7,
+  })
+
+  await page.evaluate(
+    (id) =>
+      window.browserPaneHarness.resolveAnnotate(id, {
+        targetId: 'browser-pane-fixture-target',
+        kind: 'rect',
+        x: 0.2,
+        y: 0.2,
+        width: 0.4,
+        height: 0.3,
+        id: '00000000-0000-4000-8000-00000000a001',
+        screenshotId: '00000000-0000-4000-8000-00000000b002',
+        createdAt: '2099-01-01T00:00:00.000Z',
+      }),
+    deferredId
+  )
+  const result = annotate.getByRole('status', { name: 'Annotation result' })
+  await expect(result).toContainText('annotation 00000000')
+  await expect(result).toContainText('screenshot 00000000')
+  await expect(result.locator('img')).toHaveCount(0)
+})
+
+test('BrowserPane adjusts a region with arrow keys and submits with Enter', async ({ page }) => {
+  const { annotate, surface } = await mountAnnotateSurface(page)
+  await dragRegion(page, surface, { x: 0.2, y: 0.2 }, { x: 0.5, y: 0.5 })
+  await surface.press('ArrowRight')
+  await surface.press('ArrowDown')
+  await surface.press('Shift+ArrowRight')
+
+  await annotate.getByRole('button', { name: 'Submit annotation' }).click()
+  const commands = await annotateCommands(page)
+  expect(commands).toHaveLength(1)
+  const annotation = commands[0].body.annotation as Record<string, number>
+  expect(annotation.x).toBeCloseTo(0.21, 2)
+  expect(annotation.y).toBeCloseTo(0.21, 2)
+  expect(annotation.width).toBeCloseTo(0.31, 2)
+  expect(annotation.height).toBeCloseTo(0.3, 2)
+})
+
+test('BrowserPane discards the pending annotation on Escape and exits on the second press', async ({
+  page,
+}) => {
+  const { pane, annotate, surface } = await mountAnnotateSurface(page)
+  await dragRegion(page, surface, { x: 0.2, y: 0.2 }, { x: 0.6, y: 0.5 })
+  await expect(annotate.getByRole('status').filter({ hasText: /Region at/ })).toBeVisible()
+
+  await surface.press('Escape')
+  await expect(annotate.getByRole('status').filter({ hasText: /No region marked/ })).toBeVisible()
+  await expect(annotate.getByRole('button', { name: 'Submit annotation' })).toBeDisabled()
+  expect(await annotateCommands(page)).toHaveLength(0)
+
+  await surface.press('Escape')
+  await expect(annotate).toHaveCount(0)
+  await expect(pane.getByRole('button', { name: 'Annotate frame' })).toBeFocused()
+})
+
+test('BrowserPane discards a pending draft through the discard control without a command', async ({
+  page,
+}) => {
+  const { annotate, surface } = await mountAnnotateSurface(page)
+  await dragRegion(page, surface, { x: 0.3, y: 0.3 }, { x: 0.7, y: 0.6 })
+  await annotate.getByRole('button', { name: 'Discard draft' }).click()
+  await expect(annotate.getByRole('status').filter({ hasText: /No region marked/ })).toBeVisible()
+  await expect(annotate.getByRole('button', { name: 'Submit annotation' })).toBeDisabled()
+  expect(await annotateCommands(page)).toHaveLength(0)
+})
+
+test('BrowserPane anchors a note with text and submits it as a text annotation', async ({
+  page,
+}) => {
+  const { annotate, surface } = await mountAnnotateSurface(page)
+  await annotate.getByRole('button', { name: 'Note (N)' }).click()
+  await page.mouse.click(
+    (await surface.boundingBox())!.x + 64,
+    (await surface.boundingBox())!.y + 48
+  )
+  await annotate.getByRole('textbox', { name: 'Note text' }).fill('Badge overlaps the heading')
+  await annotate.getByRole('textbox', { name: 'Note text' }).press('Enter')
+
+  const commands = await annotateCommands(page)
+  expect(commands).toHaveLength(1)
+  const annotation = commands[0].body.annotation as Record<string, unknown>
+  expect(annotation.kind).toBe('text')
+  expect(annotation.text).toBe('Badge overlaps the heading')
+  expect(annotation.x).toBeGreaterThan(0)
+  expect(annotation.y).toBeGreaterThan(0)
+})
+
+test('BrowserPane reports a typed annotate failure without clearing the draft', async ({
+  page,
+}) => {
+  const { annotate, surface } = await mountAnnotateSurface(page)
+  await dragRegion(page, surface, { x: 0.2, y: 0.2 }, { x: 0.6, y: 0.5 })
+  const deferredId = await page.evaluate(() => window.browserPaneHarness.deferNextAnnotate())
+  await annotate.getByRole('button', { name: 'Submit annotation' }).click()
+  await page.evaluate(
+    (id) =>
+      window.browserPaneHarness.rejectAnnotate(id, {
+        code: 'stale_generation',
+        message: 'lane generation moved',
+        retryable: false,
+      }),
+    deferredId
+  )
+  const alert = annotate.getByRole('alert', { name: 'Annotation error' })
+  await expect(alert).toContainText('stale_generation')
+  await expect(annotate.getByRole('status').filter({ hasText: /Region at/ })).toBeVisible()
+})

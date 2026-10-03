@@ -147,6 +147,7 @@ export { default as SlidersHorizontal } from 'lucide-solid/icons/sliders-horizon
 export { default as Smartphone } from 'lucide-solid/icons/smartphone'
 export { default as Sparkles } from 'lucide-solid/icons/sparkles'
 export { default as Square } from 'lucide-solid/icons/square'
+export { default as SquarePen } from 'lucide-solid/icons/square-pen'
 export { default as SquareKanban } from 'lucide-solid/icons/square-kanban'
 export { default as SquareTerminal } from 'lucide-solid/icons/square-terminal'
 export { default as Sun } from 'lucide-solid/icons/sun'

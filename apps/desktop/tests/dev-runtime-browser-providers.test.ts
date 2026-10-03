@@ -21,7 +21,9 @@ const scope = {
 const otherScope = { ...scope, workspaceId: '00000000-0000-4000-8000-000000000099' } as const
 const sessionId = '00000000-0000-4000-8000-0000000000b1'
 
-function harness(overrides: { cookieSourceHomeDir?: () => string } = {}) {
+function harness(
+  overrides: { cookieSourceHomeDir?: () => string; engine?: Record<string, unknown> } = {}
+) {
   const lanes = createBrowserLaneRegistry()
   const diagnosticsMap = new Map()
   const { providers, diagnosticsFor } = createBrowserProviders({
@@ -30,6 +32,7 @@ function harness(overrides: { cookieSourceHomeDir?: () => string } = {}) {
     ...(overrides.cookieSourceHomeDir
       ? { cookieSourceHomeDir: overrides.cookieSourceHomeDir }
       : {}),
+    ...(overrides.engine ? { engine: overrides.engine } : {}),
     resolveDns: async (hostname) =>
       hostname === 'example.test'
         ? [{ address: '93.184.216.34', family: 4 }]
@@ -51,6 +54,11 @@ function harness(overrides: { cookieSourceHomeDir?: () => string } = {}) {
     },
   })
   return { lanes, providers, diagnosticsMap, diagnosticsFor }
+}
+
+/** Minimal engine seam: `dev.browser.annotate` only reaches `screenshot`. */
+const screenshotOnlyEngine = {
+  screenshot: async () => ({ bytes: new Uint8Array([1, 2, 3, 4]), width: 1280, height: 720 }),
 }
 
 function command(
@@ -212,6 +220,121 @@ describe('browser providers', () => {
   test('browserProviderError maps lane errors onto the typed DevError codes', () => {
     const mapped = browserProviderError(new Error('boom'))
     expect(mapped.code).toBe('invalid_state')
+  })
+})
+
+// #718: the annotate operation captures the frame host-side at submit time.
+describe('browser annotate (#718)', () => {
+  async function annotateLane(overrides: { engine?: Record<string, unknown> } = {}) {
+    const harnessResult = harness(overrides)
+    const lane = (await harnessResult.providers['dev.browser.laneCreate']!(
+      command('dev.browser.laneCreate', { runtimeSessionId: sessionId, kind: 'task_owned' })
+    )) as { id: string; generation: number }
+    return { ...harnessResult, lane }
+  }
+
+  test('a rect annotation echoes normalized geometry and binds the captured screenshot', async () => {
+    const { providers, lane } = await annotateLane({ engine: screenshotOnlyEngine })
+    const result = (await providers['dev.browser.annotate']!(
+      command('dev.browser.annotate', {
+        browserLaneId: lane.id,
+        expectedGeneration: lane.generation,
+        targetId: 'target-1',
+        annotation: { targetId: 'target-1', kind: 'rect', x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+      })
+    )) as {
+      targetId: string
+      kind: string
+      x: number
+      y: number
+      width: number
+      height: number
+      id: string
+      screenshotId: string
+      createdAt: string
+    }
+    expect(result).toMatchObject({
+      targetId: 'target-1',
+      kind: 'rect',
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+    })
+    expect(result.id).toBeTruthy()
+    expect(result.screenshotId).toBeTruthy()
+    expect(result.createdAt).toBeTruthy()
+  })
+
+  test('a text annotation carries bounded note text through the same binding', async () => {
+    const { providers, lane } = await annotateLane({ engine: screenshotOnlyEngine })
+    const result = (await providers['dev.browser.annotate']!(
+      command('dev.browser.annotate', {
+        browserLaneId: lane.id,
+        expectedGeneration: lane.generation,
+        targetId: 'target-1',
+        annotation: { targetId: 'target-1', kind: 'text', x: 0.25, y: 0.5, text: 'overlap here' },
+      })
+    )) as { kind: string; text?: string; screenshotId: string }
+    expect(result.kind).toBe('text')
+    expect(result.text).toBe('overlap here')
+    expect(result.screenshotId).toBeTruthy()
+  })
+
+  test('malformed annotations fail closed before any capture', async () => {
+    const { providers, lane } = await annotateLane({ engine: screenshotOnlyEngine })
+    const base = {
+      browserLaneId: lane.id,
+      expectedGeneration: lane.generation,
+      targetId: 'target-1',
+    }
+    await expect(
+      providers['dev.browser.annotate']!(
+        command('dev.browser.annotate', {
+          ...base,
+          annotation: { targetId: 'target-1', kind: 'rect', x: 0.1, y: 0.2 },
+        })
+      )
+    ).rejects.toMatchObject({ code: 'invalid_state' })
+    await expect(
+      providers['dev.browser.annotate']!(
+        command('dev.browser.annotate', {
+          ...base,
+          annotation: { targetId: 'target-1', kind: 'point', x: 1.5, y: 0.2 },
+        })
+      )
+    ).rejects.toMatchObject({ code: 'invalid_state' })
+    await expect(
+      providers['dev.browser.annotate']!(
+        command('dev.browser.annotate', {
+          ...base,
+          annotation: { targetId: 'target-1', kind: 'text', x: 0.1, y: 0.2 },
+        })
+      )
+    ).rejects.toMatchObject({ code: 'invalid_state' })
+    await expect(
+      providers['dev.browser.annotate']!(
+        command('dev.browser.annotate', {
+          ...base,
+          expectedGeneration: lane.generation + 1,
+          annotation: { targetId: 'target-1', kind: 'point', x: 0.1, y: 0.2 },
+        })
+      )
+    ).rejects.toMatchObject({ code: 'stale_generation' })
+  })
+
+  test('without an engine the capture is typed-unavailable, never fabricated', async () => {
+    const { providers, lane } = await annotateLane()
+    await expect(
+      providers['dev.browser.annotate']!(
+        command('dev.browser.annotate', {
+          browserLaneId: lane.id,
+          expectedGeneration: lane.generation,
+          targetId: 'target-1',
+          annotation: { targetId: 'target-1', kind: 'point', x: 0.1, y: 0.2 },
+        })
+      )
+    ).rejects.toMatchObject({ code: 'capability_unavailable' })
   })
 })
 
