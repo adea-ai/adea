@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.79.1](https://github.com/adea-ai/adea/compare/v0.79.0...v0.79.1) (2026-10-03)
+
+
+### Documentation
+
+* **marketplace:** use the online Control Plane catalog origin ([#978](https://github.com/adea-ai/adea/issues/978)) ([8a78e5a](https://github.com/adea-ai/adea/commit/8a78e5a06c5552635786bb16ea895a4a9a5abeab))
+
+## [0.79.0](https://github.com/adea-ai/adea/compare/v0.78.1...v0.79.0) (2026-10-03)
+
+
+### Features
+
+* **workspace:** full-bleed designer chrome — no rail, no sidebar toggle ([#974](https://github.com/adea-ai/adea/issues/974)) ([b95f022](https://github.com/adea-ai/adea/commit/b95f02253ceb2804a7f0999831a87ce88fad0f11))
+
+
+### Documentation
+
+* **updater:** pin the update-badge feed policy ([#976](https://github.com/adea-ai/adea/issues/976)) ([9f5313d](https://github.com/adea-ai/adea/commit/9f5313df137b0b32b0141b3b6f39b37abfce255b))
+
+
+### Maintenance
+
+* **deps:** resolve the lockfile to the pinned @adea-ai/ui 0.99.0 ([#971](https://github.com/adea-ai/adea/issues/971)) ([ad691d6](https://github.com/adea-ai/adea/commit/ad691d682a21223e9425bd1be0f723a1739f12d0))
+
 ## [0.78.1](https://github.com/adea-ai/adea/compare/v0.78.0...v0.78.1) (2026-10-03)
 
 

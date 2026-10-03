@@ -14,6 +14,7 @@ import {
 import {
   accentPresets,
   accentPresetById,
+  isThemeAccentId,
   subscribeCustomThemes,
   type AppearancePreferencesV2,
 } from '@adea-ai/app-ui/components/appearance'
@@ -27,6 +28,7 @@ import { MonitorCog } from 'lucide-solid'
 
 import { readCustomThemeLibrary, removeCustomTheme } from '@adea-ai/app-ui/components/appearance'
 import { For, Show } from 'solid-js'
+import { themeAccentPresets } from '@adea-ai/themes'
 
 import { draftVariants } from './composition'
 import { createAppearanceEditor } from './editor'
@@ -41,11 +43,14 @@ import {
 // The published catalogue is the palette authority. The local shape is kept
 // here only as a narrow UI projection so importing the catalogue barrel cannot
 // ship every theme adapter into the appearance chunk. A parity test compares
-// these fields against @adea-ai/themes' canonical ACCENTS.
+// these fields against @adea-ai/themes' canonical ACCENTS. This projection is
+// the fallback row: the offered swatches are the pair's own accents (see the
+// accentOptions memo) — the brand presets only stand in when a selected id
+// has no record to derive from.
 const appearanceAccentOptions = Object.freeze(accentPresets.map((accent) => ({ ...accent })))
 
 function customAccentValue(accent: string): string {
-  return accent === 'theme' || accentPresetById(accent) ? '' : accent
+  return accent === 'theme' || accentPresetById(accent) || isThemeAccentId(accent) ? '' : accent
 }
 
 type AppearanceControlProps = {
@@ -75,6 +80,11 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   const [libraryOpen, setLibraryOpen] = createSignal(false)
 
   const miniatures = createMemo(() => draftVariants(editor.draft()))
+  // The offered accents are the selected pair's own slots, derived by the
+  // catalogue from the same records the editor previews — so the swatches
+  // change with the theme and every offered id is one the pair can honor.
+  // The brand presets stand in only when a selection has no record to
+  // derive from (an id the catalogue dropped, say), never as a second row.
   // Imported themes: refreshed through the registry subscription so the
   // picker and this dialog track imports and removals without prop drilling.
   const [library, setLibrary] = createSignal(
@@ -91,6 +101,14 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     return allThemeRecords()
   }
   const [importStatus, setImportStatus] = createSignal('')
+
+  const accentOptions = createMemo(() => {
+    const draft = editor.draft()
+    const records = themes()
+    const light = records.find((record) => record.id === draft.lightThemeId)
+    const dark = records.find((record) => record.id === draft.darkThemeId)
+    return light && dark ? themeAccentPresets(light, dark) : appearanceAccentOptions
+  })
 
   const importThemeFile = async (file: File) => {
     const text = await file.text()
@@ -119,7 +137,10 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     return {
       ...draft,
       accent:
-        rawCustomAccent() && !accentPresetById(draft.accent) && draft.accent !== 'theme'
+        rawCustomAccent() &&
+        !accentPresetById(draft.accent) &&
+        !isThemeAccentId(draft.accent) &&
+        draft.accent !== 'theme'
           ? rawCustomAccent()
           : draft.accent,
       surface: draft.surface === 'translucent' ? 'theme' : draft.surface,
@@ -153,7 +174,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   }
 
   const setAccent = (value: string) => {
-    if (value === 'theme' || accentPresetById(value)) {
+    if (value === 'theme' || accentPresetById(value) || isThemeAccentId(value)) {
       setCustomAccent('')
       setRawCustomAccent('')
       setAccentStatus('')
@@ -232,7 +253,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     get themes() {
       return themes()
     },
-    accentOptions: appearanceAccentOptions,
+    accentOptions: accentOptions(),
     get customAccentValue() {
       return customAccent() || DEFAULT_CUSTOM_ACCENT
     },

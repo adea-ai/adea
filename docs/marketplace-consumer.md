@@ -38,6 +38,12 @@ Configure the proxy with:
 - `CONTROL_PLANE_SERVICE_TOKEN`: server-only scoped service credential;
 - `CONTROL_PLANE_SCOPE_WORKSPACE_ID`: server-side service scope.
 
+The example configuration points to the online production catalog API. Railway staging
+is an on-demand reference environment and normally has no running services. For local
+Docker testing, override `CONTROL_PLANE_ORIGIN` with your mapped Control Plane origin
+and use a credential and workspace scope issued by that local instance. Keep these
+values server-only; production HTTPS remains required.
+
 The proxy uses the configured service scope for the top-level request
 `workspaceId` and the Adea workspace identity for the nested value. Current
 Control Plane catalog and install routes require those IDs to match; the

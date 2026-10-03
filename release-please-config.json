@@ -49,7 +49,9 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "package-name": "adea"
+      "package-name": "adea",
+      "draft": true,
+      "force-tag-creation": true
     }
   },
   "extra-files": [
@@ -138,5 +140,7 @@
       "path": "packages/spatial/package.json",
       "jsonpath": "$.version"
     }
-  ]
+  ],
+  "draft": true,
+  "force-tag-creation": true
 }

@@ -13,6 +13,7 @@ import {
   defaultAppearancePreferences,
   deriveAccentRoles,
   flatVariantTokens,
+  isThemeAccentId,
   LEGACY_THEME_STORAGE_KEY,
   migrateLegacyThemeValue,
   normalizeAccentValue,
@@ -24,6 +25,7 @@ import {
   resolveAppearanceState,
   resolveSurface,
   resolveThemeVariant,
+  themeAccentValue,
   validateThemeRegistry,
   writeAppearancePreferences,
   type AppearancePreferencesV2,
@@ -128,6 +130,37 @@ describe('accent roles (Zeron AccentRoles derivation with Adea presets)', () => 
     const roles = deriveAccentRoles('not-a-color', variant)
     expect(roles.overrides).toBe(false)
     expect(roles.primary).toBe(variant.colors.primary)
+  })
+
+  test('a theme-carried accent id resolves from the variant own palette', () => {
+    expect(isThemeAccentId('ansi-blue')).toBe(true)
+    expect(isThemeAccentId('blue')).toBe(false)
+    // Only the catalogue's accent ranking is a slot; pink is a brand preset.
+    expect(isThemeAccentId('ansi-pink')).toBe(false)
+
+    const variant = builtinThemeRegistry.find((candidate) => candidate.appearance === 'dark')!
+    // The protocol order is black, red, green, yellow, blue, ... — slot 4.
+    expect(themeAccentValue('ansi-blue', variant)).toBe(variant.terminal.ansi[4])
+    expect(themeAccentValue('ansi-green', variant)).toBe(variant.terminal.ansi[2])
+    expect(themeAccentValue('ansi-pink', variant)).toBeUndefined()
+
+    const roles = deriveAccentRoles('ansi-blue', variant)
+    expect(roles.overrides).toBe(true)
+    expect(contrastRatio(roles.primary, variant.colors.background)).toBeGreaterThanOrEqual(3)
+    expect(contrastRatio(roles.onPrimary, roles.strong)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  test('a stored theme-accent id survives preference normalization', () => {
+    const document = normalizeAppearancePreferences({
+      version: 2,
+      mode: 'system',
+      lightThemeId: 'adea-light',
+      darkThemeId: 'adea-dark',
+      accent: 'ansi-cyan',
+      surface: 'opaque',
+      reduceTransparency: false,
+    })
+    expect(document.value.accent).toBe('ansi-cyan')
   })
 
   test('normalizeAccentValue rejects unparseable input and lifts weak colors', () => {
