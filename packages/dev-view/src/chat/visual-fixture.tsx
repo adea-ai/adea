@@ -272,12 +272,20 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   }
 
   onMount(() => {
+    // Captures this component's signals and pending-send state.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const remount = () => setMountKey((key) => key + 1)
+    // Captures this component's signals and pending-send state.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const nextGeneration = () => {
       setGeneration((value) => value + 1)
       setMountKey((key) => key + 1)
     }
+    // Captures this component's signals and pending-send state.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const resolveSend = () => resolvePending()
+    // Captures this component's signals and pending-send state.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const rejectSend = () => resolvePending(new Error('visual send failed'))
     window.addEventListener('chat-visual:remount', remount)
     window.addEventListener('chat-visual:next-generation', nextGeneration)

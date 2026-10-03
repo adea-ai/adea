@@ -1,6 +1,6 @@
-/** Generated from the isolated @adea-ai/themes 0.9.5 records. */
+/** Generated from the isolated @adea-ai/themes 0.9.7 records. */
 export const CANONICAL_THEME_PACKAGE = '@adea-ai/themes' as const
-export const CANONICAL_THEME_VERSION = '0.9.5' as const
+export const CANONICAL_THEME_VERSION = '0.9.7' as const
 /** Catalogue ids absent from the data: the published editor projection cannot reach the host's 4.5:1 syntax floor for them yet. */
 export const CANONICAL_FLOOR_EXCLUSIONS = [] as const
 export const CANONICAL_THEME_COLOR_VALUES = [

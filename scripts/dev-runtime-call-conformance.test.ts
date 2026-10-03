@@ -22,7 +22,8 @@ import { createRequire } from 'node:module'
 
 import { devOperationDefinitions } from '../packages/types/src/dev-runtime-registry'
 
-const ts = createRequire(import.meta.url)('typescript') as typeof import('typescript')
+// TS 7's native compiler removed the classic JS API; typescript6 pins it.
+const ts = createRequire(import.meta.url)('typescript6') as typeof import('typescript6')
 
 const root = resolve(import.meta.dir, '..')
 
@@ -81,7 +82,7 @@ function contractBodyKeys(
 }
 
 /** The statically-known keys of an object literal, or null if any is dynamic. */
-function literalKeys(node: import('typescript').Node): string[] | null {
+function literalKeys(node: import('typescript6').Node): string[] | null {
   if (!ts.isObjectLiteralExpression(node)) return null
   const keys: string[] = []
   for (const property of node.properties) {
@@ -108,7 +109,7 @@ function scanFile(file: string): Finding[] {
     file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   )
   const findings: Finding[] = []
-  const report = (node: import('typescript').Node, operation: string, problem: string) => {
+  const report = (node: import('typescript6').Node, operation: string, problem: string) => {
     const { line } = source.getLineAndCharacterOfPosition(node.getStart(source))
     findings.push({
       file: file.slice(root.length + 1),
@@ -118,7 +119,7 @@ function scanFile(file: string): Finding[] {
     })
   }
 
-  const visit = (node: import('typescript').Node) => {
+  const visit = (node: import('typescript6').Node) => {
     if (ts.isCallExpression(node) && node.arguments.length > 0) {
       const callee = node.expression
       const name = ts.isIdentifier(callee)

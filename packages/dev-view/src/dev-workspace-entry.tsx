@@ -311,6 +311,15 @@ const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {
 }
 
 const utilityItemByPane = new Map(utilityItems.map((item) => [item.pane, item]))
+
+const toUtilityTuple = (
+  items: readonly DevUtilityPreference[]
+): DevLayoutPreferencesV2['utility'] => {
+  if (items.length !== utilityItems.length)
+    throw new TypeError('corrupt_state: utility preferences require all six panes')
+  return items as DevLayoutPreferencesV2['utility']
+}
+
 const utilitySizeSteps = {
   left: [240, 288, 336, 384],
   right: [240, 288, 336, 384, 448],
@@ -804,14 +813,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       .filter((item) => item.side === side)
       .toSorted((first, second) => first.order - second.order)
 
-  const toUtilityTuple = (
-    items: readonly DevUtilityPreference[]
-  ): DevLayoutPreferencesV2['utility'] => {
-    if (items.length !== utilityItems.length)
-      throw new TypeError('corrupt_state: utility preferences require all six panes')
-    return items as DevLayoutPreferencesV2['utility']
-  }
-
   const persistedPreferences = (state: DevLayoutState): DevLayoutPreferencesV2 | undefined => {
     const scope = props.runtime.preferenceScope?.()
     if (!scope || !selectedProject() || !selectedSession()) return undefined
@@ -1268,6 +1269,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // the pane's own heading owns the separate restore-width action.
   const sidebarToggleAvailable = () => props.appMode !== 'source-control'
   const sidebarToggleControl = () => {
+    // Captures visiblePaneOf from the component scope.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const open = () => Boolean(visiblePaneOf('right'))
     return (
       <ActionButton
@@ -1288,6 +1291,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   }
 
   const leftUtilityToggleControl = () => {
+    // Captures visiblePaneOf from the component scope.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const open = () => Boolean(visiblePaneOf('left'))
     return (
       <ActionButton

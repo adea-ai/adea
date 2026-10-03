@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
-import ts from 'typescript'
+// TS 7's native compiler removed the classic JS API; the typescript6
+// alias pins it for this tooling while the toolchain compiles with TS 7.
+import ts from 'typescript6'
 
 const root = resolve(import.meta.dirname, '..')
 

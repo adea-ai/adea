@@ -63,8 +63,7 @@ export const Route = createFileRoute('/')({
 })
 
 function WorkspaceRoute() {
-  const denied = () => Route.useLoaderData()().denied
-  if (denied()) return <EarlyAccessNotice />
+  if (Route.useLoaderData()().denied) return <EarlyAccessNotice />
   return (
     <ClientOnly fallback={<Loading />}>
       <WorkspaceMount />

@@ -32,19 +32,19 @@ const scope = {
 
 type SecurityKeyStore = VaultKeyStore & { readonly service: string }
 
-function securityStore(service: string): SecurityKeyStore {
-  const run = (args: string[], input?: Buffer) => {
-    const result = spawnSync('/usr/bin/security', args, {
-      encoding: 'buffer',
-      input,
-      stdio: ['pipe', 'pipe', 'ignore'],
-      timeout: SECURITY_TIMEOUT_MS,
-      maxBuffer: 128 * 1024,
-    })
-    if (result.error || result.signal) throw new Error('security command failed')
-    return result
-  }
+const run = (args: string[], input?: Buffer) => {
+  const result = spawnSync('/usr/bin/security', args, {
+    encoding: 'buffer',
+    input,
+    stdio: ['pipe', 'pipe', 'ignore'],
+    timeout: SECURITY_TIMEOUT_MS,
+    maxBuffer: 128 * 1024,
+  })
+  if (result.error || result.signal) throw new Error('security command failed')
+  return result
+}
 
+function securityStore(service: string): SecurityKeyStore {
   return {
     service,
     get: () => {
@@ -75,6 +75,21 @@ function securityStore(service: string): SecurityKeyStore {
   }
 }
 
+const bounded = <T>(operation: Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    operation,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error('native credential operation timed out')),
+        NATIVE_TIMEOUT_MS
+      )
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
+
 function nativeSecrets(service: string): BunSecretsApi {
   const native = Bun.secrets
   if (!native || typeof native.get !== 'function' || typeof native.set !== 'function') {
@@ -85,20 +100,6 @@ function nativeSecrets(service: string): BunSecretsApi {
   // password slot. Bun's native implementation owns its own Keychain item
   // class, while this suffix makes the disposable probe's cleanup explicit.
   const nativeService = `${service}.bun`
-  const bounded = <T>(operation: Promise<T>): Promise<T> => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    return Promise.race([
-      operation,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error('native credential operation timed out')),
-          NATIVE_TIMEOUT_MS
-        )
-      }),
-    ]).finally(() => {
-      if (timer) clearTimeout(timer)
-    })
-  }
   return {
     get: () => bounded(native.get({ service: nativeService, name: LEGACY_ACCOUNT })),
     set: ({ value }) =>

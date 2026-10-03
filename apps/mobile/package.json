@@ -13,12 +13,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@capacitor/android": "^8.5.0",
-    "@capacitor/core": "^8.5.0",
-    "@capacitor/ios": "^8.5.0"
+    "@capacitor/android": "8.5.2",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/ios": "8.5.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.0",
-    "@types/node": "^26.5.1"
+    "@capacitor/cli": "8.5.2",
+    "@types/node": "^26.6.4"
   }
 }

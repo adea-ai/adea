@@ -8,7 +8,9 @@ import {
 } from 'node:fs'
 import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
 
-import ts from 'typescript'
+// TS 7's native compiler removed the classic JS API; the typescript6
+// alias pins it for this tooling while the toolchain compiles with TS 7.
+import ts from 'typescript6'
 import type { Plugin, ResolvedConfig } from 'vite'
 
 type Selection = { kind: 'execute' | 'side-effect' | 'all' } | { kind: 'named'; names: string[] }

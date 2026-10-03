@@ -561,6 +561,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   })
 
   createEffect(() => {
+    // Captures the component's settings-open signal and the workspace store setter.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const openDeepLinkedSettings = () => {
       setHashSettingsOpen(window.location.hash.startsWith('#settings'))
       if (window.location.hash.startsWith('#settings'))

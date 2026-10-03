@@ -135,6 +135,8 @@ export function ConventionalWorkspaceShell(props: {
 
   createEffect(() => {
     if (!(props.manageSettings ?? true)) return
+    // Captures setDialog from the component scope.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const openDeepLinkedSettings = () => {
       if (window.location.hash.startsWith('#settings')) setDialog('settings')
     }
@@ -144,6 +146,8 @@ export function ConventionalWorkspaceShell(props: {
   })
 
   createEffect(() => {
+    // Captures setOnline from the component scope.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const updateOnlineStatus = () => setOnline(navigator.onLine)
     updateOnlineStatus()
     window.addEventListener('online', updateOnlineStatus)
@@ -155,6 +159,8 @@ export function ConventionalWorkspaceShell(props: {
   })
 
   createEffect(() => {
+    // Captures the shell's dialog and pane signals from the component scope.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const onKeyDown = (event: KeyboardEvent) => {
       const editableTarget =
         event.target instanceof HTMLInputElement ||

@@ -149,12 +149,12 @@
     "@adea-ai/spatial": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.104.2",
-    "lucide-solid": "^1.45.0",
+    "@adea-ai/ui": "0.105.0",
+    "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },
   "devDependencies": {
-    "vite": "^8.0.14",
+    "vite": "^8.3.2",
     "vite-plugin-solid": "^2.11.14"
   }
 }

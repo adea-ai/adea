@@ -141,6 +141,8 @@ export function GlobalWorkspaceRail(props: {
   const reorderable = () => Boolean(props.reorder) && props.views.length > 1
 
   createEffect(() => {
+    // Captures props.onOpenSearch from the component scope.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const openSearchWithShortcut = (event: KeyboardEvent) => {
       if (
         event.defaultPrevented ||
@@ -153,6 +155,8 @@ export function GlobalWorkspaceRail(props: {
       event.preventDefault()
       props.onOpenSearch()
     }
+    // Captures props.onOpenSettings from the component scope.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const openSettingsWithShortcut = (event: KeyboardEvent) => {
       if (
         !(event.metaKey || event.ctrlKey) ||

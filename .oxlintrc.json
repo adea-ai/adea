@@ -116,6 +116,16 @@
       "rules": {
         "adea/no-interactive-wrappers": "off"
       }
+    },
+    {
+      "files": [
+        "apps/desktop/shell/src/dev-runtime/**",
+        "apps/desktop/shell/tests/**",
+        "apps/desktop/tests/**"
+      ],
+      "rules": {
+        "unicorn/consistent-function-scoping": "off"
+      }
     }
   ],
   "ignorePatterns": [

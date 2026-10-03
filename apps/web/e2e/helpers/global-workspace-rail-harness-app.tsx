@@ -28,6 +28,8 @@ function Harness() {
   const [chatSearchRequests, setChatSearchRequests] = createSignal(0)
 
   onMount(() => {
+    // Captures the harness's view, library, and chat-search signals.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const standaloneChatShortcut = (event: KeyboardEvent) => {
       if (
         !event.defaultPrevented &&
