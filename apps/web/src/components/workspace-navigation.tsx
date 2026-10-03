@@ -503,7 +503,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     setSwitchingWorkspaceId(workspace.id)
     return Promise.resolve(props.onAuthorizeWorkspace?.(workspace.id))
       .then(() => {
-        workspaceStore.getState().switchWorkspace(workspace.id, workspace.scene)
+        workspaceStore.getState().switchWorkspace(workspace.id)
+        // The scene is a router fact: this navigation is the single write.
         void setScene(workspace.scene)
         return true
       })
@@ -559,13 +560,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     // menu, `?workspace=`) go through `switchToWorkspace`, which performs the
     // full reset deliberately.
     if (selectedWorkspaceId() !== activeWorkspace.id)
-      workspaceStore.getState().switchWorkspace(activeWorkspace.id, activeWorkspace.scene, {
+      workspaceStore.getState().switchWorkspace(activeWorkspace.id, {
         // A summary arrival that lands after a Dev deep link seeded (and
         // Dev View recovered) the selection must reconcile the workspace
         // without wiping that freshly recovered selection.
         preserveDevSelection: true,
       })
-    workspaceStore.getState().setSelectedScene(activeWorkspace.scene)
+    // The scene is a router fact. The workspace summary is the fact's
+    // authority; the URL below is its single mirror, and this one navigation
+    // (not a store write plus a param write) is what keeps it there.
     const currentScene = (search() as WorkspaceSearch).scene
     if (currentScene !== activeWorkspace.scene) void setScene(activeWorkspace.scene)
   })

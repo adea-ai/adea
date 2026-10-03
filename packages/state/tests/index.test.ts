@@ -8,6 +8,56 @@ afterEach(() => {
   workspaceStore.setState(initialState, true)
 })
 
+test('the store keeps only ephemeral UI and Dev selection state', () => {
+  // The boundary contract (docs/architecture/state-and-data-boundaries.md):
+  // deep-linkable selection lives in the router's search params, so this list
+  // pins exactly the fields that remain — layout, presentation hints, and the
+  // Dev View selection family the router cannot reach. A selection fact that
+  // grows a URL deep link must be REMOVED here, not mirrored.
+  expect(Object.keys(workspaceStore.getState()).toSorted()).toEqual([
+    'activeSurface',
+    'cameraViewMode',
+    'collapsedDevGroupIds',
+    'collapsedDevProjectIds',
+    'collapsedRoomIds',
+    'devFocusMode',
+    'drafts',
+    'globalPanel',
+    'mobileSidebarOpen',
+    'restoreConventionalState',
+    'selectedAgentId',
+    'selectedChannelId',
+    'selectedDevPaneId',
+    'selectedDevProjectId',
+    'selectedRoomId',
+    'selectedRuntimeNodeId',
+    'selectedRuntimeSessionId',
+    'selectedTaskId',
+    'selectedWorkspaceId',
+    'setActiveSurface',
+    'setCameraViewMode',
+    'setDevFocusMode',
+    'setDraft',
+    'setGlobalPanel',
+    'setMobileSidebarOpen',
+    'setSelectedAgentId',
+    'setSelectedChannelId',
+    'setSelectedDevPaneId',
+    'setSelectedDevProjectId',
+    'setSelectedRoomId',
+    'setSelectedRuntimeNodeId',
+    'setSelectedRuntimeSessionId',
+    'setSelectedTaskId',
+    'setSelectedWorkspaceId',
+    'setThreadRootMessageId',
+    'switchWorkspace',
+    'threadRootMessageId',
+    'toggleDevGroupCollapsed',
+    'toggleDevProjectCollapsed',
+    'toggleRoomCollapsed',
+  ])
+})
+
 test('Dev selections reset at their authority boundaries without storing durable records', () => {
   workspaceStore.setState({
     selectedRuntimeNodeId: 'node-a',
@@ -41,7 +91,7 @@ test('Dev selections reset at their authority boundaries without storing durable
   })
 })
 
-test('switchWorkspace starts a fresh workspace context with its configured scene', () => {
+test('switchWorkspace starts a fresh workspace context', () => {
   workspaceStore.setState({
     activeSurface: 'tasks',
     cameraViewMode: 'perspective',
@@ -54,7 +104,6 @@ test('switchWorkspace starts a fresh workspace context with its configured scene
     selectedRoomId: 'room-work',
     selectedTaskId: 'task-work',
     selectedWorkspaceId: 'workspace-work',
-    selectedScene: 'work',
     selectedRuntimeNodeId: 'node-work',
     selectedDevProjectId: 'project-work',
     selectedRuntimeSessionId: 'session-work',
@@ -65,7 +114,7 @@ test('switchWorkspace starts a fresh workspace context with its configured scene
     threadRootMessageId: 'thread-work',
   })
 
-  workspaceStore.getState().switchWorkspace('workspace-home', 'home')
+  workspaceStore.getState().switchWorkspace('workspace-home')
 
   expect(workspaceStore.getState()).toMatchObject({
     activeSurface: 'conversation',
@@ -79,7 +128,6 @@ test('switchWorkspace starts a fresh workspace context with its configured scene
     selectedAgentId: null,
     selectedChannelId: null,
     selectedRoomId: null,
-    selectedScene: 'home',
     selectedTaskId: null,
     selectedWorkspaceId: 'workspace-home',
     selectedRuntimeNodeId: null,
@@ -96,7 +144,6 @@ test('switchWorkspace starts a fresh workspace context with its configured scene
 test('switchWorkspace preserves the Dev selection family when asked', () => {
   workspaceStore.setState({
     selectedWorkspaceId: 'workspace-work',
-    selectedScene: 'work',
     selectedRoomId: 'room-work',
     selectedChannelId: 'channel-work',
     drafts: { 'channel-work': 'unsent work' },
@@ -105,7 +152,7 @@ test('switchWorkspace preserves the Dev selection family when asked', () => {
     selectedDevPaneId: 'pane-work',
   })
 
-  workspaceStore.getState().switchWorkspace('workspace-next', 'work', {
+  workspaceStore.getState().switchWorkspace('workspace-next', {
     preserveDevSelection: true,
   })
 

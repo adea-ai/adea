@@ -1,7 +1,7 @@
 import { createEffect, createSignal, onMount } from 'solid-js'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import type { HqSceneId } from '@adea-ai/app-core'
-import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
+import { workspaceStore } from '@adea-ai/state'
 import { hqHomeManifest, hqWorkManifest, type SceneStartPosition } from '@adea-ai/spatial'
 // Subpath imports keep this chunk's static graph shallow: the package barrel
 // re-exports the dialogs and the conventional shell, which would otherwise be
@@ -44,18 +44,16 @@ export type WorkspaceShellProps = {
 }
 
 export function WorkspaceShell(props: WorkspaceShellProps) {
-  const selectedScene = useWorkspaceState((state) => state.selectedScene)
-  const [storeReady, setStoreReady] = createSignal(false)
   const [fallbackApiClient] = createSignal(createApiClient())
   const apiClient = () => props.apiClient ?? fallbackApiClient()
-  const sceneId = () => (storeReady() ? selectedScene() : props.initialScene)
+  // The scene is a router fact (`?scene=`, reconciled to the active workspace
+  // by WorkspaceNavigation); the shell renders the prop it is handed and never
+  // mirrors it into the store.
+  const sceneId = () => props.initialScene
   const scene = () => sceneById[sceneId()]
 
   onMount(() => {
-    const store = workspaceStore.getState()
-    store.setSelectedScene(props.initialScene)
-    store.setCameraViewMode(props.cameraViewMode ?? 'orthographic')
-    setStoreReady(true)
+    workspaceStore.getState().setCameraViewMode(props.cameraViewMode ?? 'orthographic')
   })
 
   createEffect(() => {

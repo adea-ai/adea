@@ -133,7 +133,9 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const selectWorkspace = (nextWorkspaceId: string) => {
     const nextWorkspace = bootstrapData()?.workspaces.find(({ id }) => id === nextWorkspaceId)
     if (!nextWorkspace || nextWorkspace.id === activeWorkspace()?.id) return
-    workspaceStore.getState().switchWorkspace(nextWorkspace.id, nextWorkspace.scene)
+    // The scene is a router fact (reconciled by WorkspaceNavigation); the
+    // store reset here covers only the workspace's own context.
+    workspaceStore.getState().switchWorkspace(nextWorkspace.id)
   }
   const selectChannel = (channelId: string, roomId?: string) => {
     explicitSelection = channelId
