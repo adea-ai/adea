@@ -182,6 +182,14 @@ counter. The update is always strictly-newer-only; nothing downgrades.
 
 - The version dialog reports the running version, phase, release notes, and
   the release page, and auto-checks when it opens.
+- The update-pending badge (the rail account dot and the Updates menu dot) is
+  a surface of the shell's own updater state, never a second checker: the
+  desktop entry seeds it once per session with `desktop_update_status` — the
+  same lazily-started check the dialog drives — and every dialog answer is
+  mirrored into it. The boot probe is deliberately unguarded: it is that one
+  existing check's user-visible surface, so no setting gates it, and no
+  independent poller exists; a session that never boots the desktop entry or
+  opens the dialog simply has no badge, which is the accepted trade.
 - A failed update check is shown as a retryable failure, never as an up-to-date
   result from an older status snapshot. Before returning a status across the
   shell boundary, the updater preserves an `Error` message, a string, or the
