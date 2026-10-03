@@ -1468,6 +1468,11 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           onArchiveConfirmDelete={confirmArchiveDelete}
           onProjectSelect={(id) => {
             setRecoveryNotice('')
+            // Clicking the current project's row is a collapse toggle, not a
+            // selection change: reporting it would strip the URL's session
+            // param, trip recovery, and churn the sidebar mid-toggle. The
+            // selection state already matches what the row shows.
+            if (workspaceStore.getState().selectedDevProjectId === id) return
             workspaceStore.getState().setSelectedDevProjectId(id)
             props.onSelectionChange?.({ projectId: id, sessionId: null })
           }}
