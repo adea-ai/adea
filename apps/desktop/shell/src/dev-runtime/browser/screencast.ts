@@ -76,6 +76,11 @@ export function createLaneScreencast(
   let inputWindow: number[] = []
 
   function flush(frame: ScreencastFrame): void {
+    // The flushed frame is by construction newer than any pending newest
+    // frame (publish order), so the pending one is dropped here — otherwise
+    // a stale throttled timer would deliver an older frame AFTER this newer
+    // one and invert the sequence order on the wire.
+    newest = undefined
     inFlight = true
     lastSentAt = Date.now()
     options.onFrame?.(frame)

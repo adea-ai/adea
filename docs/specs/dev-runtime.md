@@ -3885,6 +3885,32 @@ scope/lane/generation/sequence provenance, are classified before leaving the
 host, and inherit workspace screenshot retention when attached to the
 canonical session.
 
+Frame publication (issue #624) is the read direction of `desktop-frames-v1`.
+A read attach is gated on a FRESH screen-recording preflight answer: capture
+that cannot be proven closes the stream typed (`revoked` for a refused or
+unanswered prompt, `incompatible` for an unanswerable probe) and no frame is
+ever fabricated — the capture tool itself cannot detect a missing grant (it
+exits 0 and produces wallpaper-only frames), so the preflight is the only
+honest gate. When the preflight proves the grant, the publisher captures the
+main display through the macOS `screencapture` host tool (fixed argv, engine
+generated temp path), parses the PNG dimensions, and enforces the bounds
+before the pacer sees a frame; an over-bounds capture is a typed refusal
+(downscaling is not available in this lane), never a silent shrink or drop
+into a placeholder. Observation rides the lane's authority fences: a live
+consent record is required (publication never consumes the single-use record
+— consumption mints input), and every publication tick re-derives lane state,
+generation, automation owner, and the consent's permission digest, so a
+takeover or kill switch stops frames synchronously in the same call and a
+moved TCC state stops them at the first boundary after the consent freshness
+window. Every published frame is classified before egress: the frame record
+carries lane/session/generation/sequence provenance and the classification
+`restricted_local` (full-desktop pixels can include credential prompts) with
+`redacted: false` recorded honestly — no pixel-level redaction exists in this
+lane; the consented, authenticated channel is the boundary. Delivery follows
+the shared screencast flow control: the grant's frame bound is the initial
+credit, acks refresh it, a frame larger than the remaining credit is never
+sent, and the newest complete frame waits instead of queueing.
+
 Capability probing is honest per the permissions page's rules: a capability
 exists only where a probe or host tool can prove it. Input synthesis requires
 the accessibility grant (the `osascript` System Events probe proves it) and a
@@ -3904,14 +3930,18 @@ permission-denied states block launch with actionable guidance through the
 permissions page (denied accessibility routes to the exact Settings pane); TCC denial is never
 silently degraded into a working-looking lane.
 
-The current packaged shell does not expose a native Screen Recording helper,
-CGWindow/ScreenCaptureKit bridge, or authorized accessibility-tree bridge to
-the Bun process. The browser CDP frame path cannot satisfy computer-use
-capture: it sees only the browser lane and cannot claim the full desktop.
-Therefore #542's packaged activity-frame, TCC-denied, capture/input/takeover,
-and reconnect smoke gates remain open until the host supplies those explicit
-bridges and records their permission identity, frame provenance, and
-generation revocation behavior.
+The lane has no native ScreenCaptureKit bridge and no authorized
+accessibility-tree bridge to the Bun process: capture goes through the macOS
+`screencapture` host tool behind the preflight gate, and AX-tree reading stays
+typed-unavailable (issue #624 leaves it deliberately out of scope). The
+browser CDP frame path cannot satisfy computer-use capture: it sees only the
+browser lane and cannot claim the full desktop. #542's packaged real-TCC
+frame gates (granted-preflight frames flowing end to end, TCC-denied refusal
+copy on the packaged bundle identity, revocation timing against a live
+desktop) remain owner-side evidence: this machine class cannot grant Screen
+Recording headlessly, and the packaged lane must record the bundle's own
+permission identity, frame provenance, and generation revocation behavior on
+a host where the grant is real.
 
 | Capability | Depends on                                                   | This lane's honest state until proven otherwise                                                             |
 | ---------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
@@ -3924,8 +3954,12 @@ TM-015–TM-017): agent-driven typing into privileged surfaces (password
 fields, Terminal, sudo prompts) is bounded by consent records that name the
 session, are single-use, and die with the run — but the residual risk is
 accepted and documented, not engineered away; capture of secrets
-(keychain/password-manager prompts) is why capture stays unavailable until a
-redaction-classifying helper exists; grant escalation via harness compromise
+(keychain/password-manager prompts) is bounded by the #624 fences — frames
+flow only while the screen-recording preflight and the lane's live consent
+hold, are classified `restricted_local` before egress with honest
+`redacted: false` provenance, and stop at the next boundary after revocation
+— while pixel-level redaction of credential surfaces remains unbuilt and the
+residual risk stays documented; grant escalation via harness compromise
 is bounded by the gate re-deriving every admission from provider-owned state,
 so a compromised harness can never extend, replay, or widen a grant.
 

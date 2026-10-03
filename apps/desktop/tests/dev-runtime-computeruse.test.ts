@@ -6,7 +6,7 @@
 // ScreenCapturePermissionPreflightSafety / ComputerSnapshotCachePolicy (MIT,
 // revision 403b62a8d8fa6e896a93acc4c15405be0f0b7dc7).
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -156,6 +156,74 @@ function scriptedPermissions(
       return `x-apple.systempreferences:${permissionId}`
     },
   } as MacPermissionService & { set(next: MacPermissionsSnapshot): void }
+}
+
+/**
+ * Builds a minimal PNG-shaped fixture: the 8-byte signature plus a well-formed
+ * IHDR header carrying the requested dimensions. The pipeline and the engine
+ * read only the header — pixel bytes are inert filler, so a synthetic source
+ * proves the pipeline without any real screen content (CI never captures).
+ */
+function framePng(width: number, height: number, filler = 0xab): Uint8Array {
+  const bytes = new Uint8Array(24 + 16)
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
+  const view = new DataView(bytes.buffer)
+  view.setUint32(8, 13) // IHDR chunk length
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12) // 'IHDR'
+  view.setUint32(16, width)
+  view.setUint32(20, height)
+  for (let index = 24; index < bytes.length; index += 1) bytes[index] = filler
+  return bytes
+}
+
+/** A scripted capture source: hands out fixture frames and counts every call. */
+function frameEngine(source: () => Uint8Array) {
+  let captures = 0
+  return {
+    get captures() {
+      return captures
+    },
+    async injectInput(): Promise<void> {},
+    async capture() {
+      captures += 1
+      const bytes = source()
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+      return {
+        format: 'png' as const,
+        width: view.getUint32(16),
+        height: view.getUint32(20),
+        bytes,
+      }
+    },
+    async readAccessibilityTree(): Promise<never> {
+      throw new ComputerUseEngineError('capability_unavailable', AX_TREE_MISSING_PIECE)
+    },
+  }
+}
+
+function readSession(laneId: string, generation: number, maxFrameBytes = 8 * 1024 * 1024) {
+  const sent: {
+    type: string
+    sequence: string
+    generation: number
+    width: number
+    height: number
+    keyframe: boolean
+    bytes: Uint8Array
+  }[] = []
+  const closed: { code: string; reason?: string }[] = []
+  const session = {
+    grant: {
+      direction: 'read',
+      resource: { kind: 'computeruse_lane', id: laneId, generation },
+      maxFrameBytes,
+    },
+    send: (frame: (typeof sent)[number]) => {
+      sent.push(frame)
+    },
+    close: (code: string, reason?: string) => closed.push({ code, reason }),
+  }
+  return { session, sent, closed }
 }
 
 function commandFor(
@@ -736,10 +804,52 @@ describe('computer-use engine (fixed argv, scripted runner)', () => {
     ).rejects.toThrow(/did not answer/)
   })
 
-  test('capture and AX-tree reading are typed-unavailable, never stubbed', async () => {
+  test('AX-tree reading stays typed-unavailable; capture runs the fixed-argv host tool', async () => {
     const engine = createHostComputerUseEngine(runner().runner)
-    await expect(engine.capture()).rejects.toThrow(CAPTURE_MISSING_PIECE)
     await expect(engine.readAccessibilityTree()).rejects.toThrow(AX_TREE_MISSING_PIECE)
+    // Capture (#624) goes through /usr/sbin/screencapture with a fixed argv
+    // whose only free element is the engine-owned temp path.
+    const argvCalls: string[][] = []
+    const capturing = createHostComputerUseEngine(async (argv) => {
+      argvCalls.push([...argv])
+      // The engine cleans its temp directory, so write the fixture beside
+      // the recorded target path inside this runner window.
+      const target = argv[4]
+      if (typeof target === 'string') writeFileSync(target, framePng(64, 48))
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false, spawnFailed: false }
+    })
+    const frame = await capturing.capture()
+    expect(argvCalls[0]?.slice(0, 4)).toEqual(['/usr/sbin/screencapture', '-x', '-t', 'png'])
+    expect(frame.format).toBe('png')
+    expect(frame.width).toBe(64)
+    expect(frame.height).toBe(48)
+    expect(frame.bytes.byteLength).toBe(framePng(64, 48).byteLength)
+  })
+
+  test('capture enforces the frame bounds with typed refusals', async () => {
+    const overBounds = createHostComputerUseEngine(async (argv) => {
+      const target = argv[4]
+      if (typeof target === 'string') writeFileSync(target, framePng(4097, 10))
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false, spawnFailed: false }
+    })
+    await expect(overBounds.capture()).rejects.toThrow(/exceeding the 4096x4096 frame bound/)
+
+    const garbage = createHostComputerUseEngine(async (argv) => {
+      const target = argv[4]
+      if (typeof target === 'string') writeFileSync(target, new Uint8Array([1, 2, 3]))
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false, spawnFailed: false }
+    })
+    await expect(garbage.capture()).rejects.toThrow(/readable PNG/)
+
+    const failed = createHostComputerUseEngine(
+      runner({ exitCode: 1, stderr: 'could not capture main display' }).runner
+    )
+    await expect(failed.capture()).rejects.toThrow(/refused the capture/)
+
+    const missing = createHostComputerUseEngine(
+      runner({ exitCode: null, spawnFailed: true }).runner
+    )
+    await expect(missing.capture()).rejects.toThrow(/screen-capture tool is unavailable/)
   })
 })
 
@@ -1365,21 +1475,27 @@ describe('computer-use registration', () => {
     expect(h.runtime.registeredCommandCount).toBe(9)
   })
 
-  test('read-direction frame streams close typed-incompatible while capture is not proven', () => {
+  test('read-direction frame streams close typed-incompatible while capture is not proven', async () => {
     const h = harness()
     expect(h.streamHandler).toBeTypeOf('function')
+    const lane = h.lanes.create({ scope, runtimeSessionId: sessionId })
     const closed: { code: string; reason?: string }[] = []
     const session = {
       grant: {
         direction: 'read',
-        resource: { kind: 'computeruse_lane', id: 'lane', generation: 1 },
+        resource: { kind: 'computeruse_lane', id: lane.id, generation: lane.generation },
+        maxFrameBytes: 262_144,
       },
       close: (code: string, reason?: string) => closed.push({ code, reason }),
+      send: (frame: unknown) => {
+        throw new Error(`no frame may be sent: ${String(frame)}`)
+      },
     }
     ;(h.streamHandler as (session: unknown) => void)(session)
+    await Bun.sleep(30)
     expect(closed[0]?.code).toBe('incompatible')
-    expect(closed[0]?.reason).toContain('capture is not proven')
-  })
+    expect(closed[0]?.reason).toBe(CAPTURE_MISSING_PIECE)
+  }, 2000)
 
   test('write-direction frames route through the authority gate; refusals close the stream', async () => {
     const { lanes, streamHandler } = harness()
@@ -1406,5 +1522,238 @@ describe('computer-use registration', () => {
     await Bun.sleep(5)
     expect(outcomes[0]?.code).toBe('revoked')
     expect(sent).toHaveLength(0)
+  }, 2000)
+})
+
+describe('desktop-frames publication (read direction, #624)', () => {
+  type AuditEntry = {
+    laneId: string
+    generation: number
+    decision: string
+    code?: string
+    egress?: {
+      classification: string
+      redacted: boolean
+      runtimeSessionId: string
+      sequence: string
+    }
+  }
+
+  /** A granted-flow harness: real gate, granted probes, synthetic frame source. */
+  function frameHarness(
+    engine: ReturnType<typeof frameEngine>,
+    overrides: Partial<ComputerUseRuntimeInput> = {}
+  ) {
+    const audits: AuditEntry[] = []
+    const h = harness({
+      macPermissions: scriptedPermissions(snapshotWith('granted', 'granted')),
+      engine: engine as unknown as ComputerUseEngine,
+      frameTickMs: 5,
+      audit: (entry) => audits.push(entry as AuditEntry),
+      ...overrides,
+    })
+    return { ...h, audits, engine }
+  }
+
+  /** Creates a lane and drives a real owner-confirmed consent through the gate. */
+  async function consentedLane(h: ReturnType<typeof frameHarness>) {
+    const lane = h.lanes.create({ scope, runtimeSessionId: sessionId })
+    const consent = await h.runtime.gate.issue({
+      scope,
+      lane: { id: lane.id, runtimeSessionId: sessionId, generation: lane.generation },
+      confirmationId: ownerConfirms(),
+    })
+    return h.lanes.activate(lane.id, consent)
+  }
+
+  test('granted capture publishes bounded, generation-bound frames with classification provenance', async () => {
+    const engine = frameEngine(() => framePng(64, 48))
+    const h = frameHarness(engine)
+    const lane = await consentedLane(h)
+    const { session, sent, closed } = readSession(lane.id, lane.generation)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(120)
+    expect(sent.length).toBeGreaterThanOrEqual(1)
+    const frame = sent[0]
+    expect(frame.type).toBe('video')
+    expect(frame.generation).toBe(lane.generation)
+    expect(frame.keyframe).toBe(true)
+    expect(frame.width).toBe(64)
+    expect(frame.height).toBe(48)
+    expect(frame.bytes.byteLength).toBe(framePng(64, 48).byteLength)
+    // Sequences are strictly increasing decimals, one per publication.
+    const sequences = sent.map((entry) => Number(entry.sequence))
+    for (let index = 1; index < sequences.length; index += 1)
+      expect(sequences[index]).toBeGreaterThan(sequences[index - 1])
+    // Classification before egress: every published frame carries the derived
+    // provenance record naming the lane AND its owning runtime session.
+    const published = h.audits.filter((entry) => entry.decision === 'published')
+    expect(published.length).toBeGreaterThanOrEqual(1)
+    expect(published[0]?.egress?.classification).toBe('restricted_local')
+    expect(published[0]?.egress?.redacted).toBe(false)
+    expect(published[0]?.egress?.runtimeSessionId).toBe(sessionId)
+    expect(published[0]?.egress?.sequence).toBe(frame.sequence)
+    // Detach stops the publisher cleanly.
+    ;(session as unknown as { onClose?: () => void }).onClose?.()
+    await Bun.sleep(5)
+    expect(closed[0]?.code).toBe('normal')
+  }, 2000)
+
+  test('denied capture refuses typed with the Settings remediation and never fabricates a frame', async () => {
+    const engine = frameEngine(() => {
+      throw new Error('capture must never run on a denied host')
+    })
+    const h = frameHarness(engine, {
+      macPermissions: scriptedPermissions(snapshotWith('granted', 'denied')),
+    })
+    const lane = await consentedLane(h)
+    const { session, sent, closed } = readSession(lane.id, lane.generation)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(30)
+    expect(closed[0]?.code).toBe('revoked')
+    expect(closed[0]?.reason).toContain('System Settings')
+    expect(sent).toHaveLength(0)
+    expect(engine.captures).toBe(0)
+  }, 2000)
+
+  test('unproven capture refuses typed and never calls the capture source (never stubbed)', async () => {
+    const engine = frameEngine(() => {
+      throw new Error('capture must never run on an unproven host')
+    })
+    // The default #471 snapshot shape: screen_recording unanswerable.
+    const h = frameHarness(engine, {
+      macPermissions: scriptedPermissions(snapshotWith('granted')),
+    })
+    const lane = await consentedLane(h)
+    const { session, sent, closed } = readSession(lane.id, lane.generation)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(30)
+    expect(closed[0]?.code).toBe('incompatible')
+    expect(closed[0]?.reason).toBe(CAPTURE_MISSING_PIECE)
+    expect(sent).toHaveLength(0)
+    expect(engine.captures).toBe(0)
+  }, 2000)
+
+  test('observation requires a live consent record', async () => {
+    const engine = frameEngine(() => {
+      throw new Error('capture must never run without a live consent record')
+    })
+    const h = frameHarness(engine)
+    const lane = h.lanes.create({ scope, runtimeSessionId: sessionId })
+    const { session, sent, closed } = readSession(lane.id, lane.generation)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(30)
+    expect(closed[0]?.code).toBe('revoked')
+    expect(closed[0]?.reason).toContain('consent')
+    expect(sent).toHaveLength(0)
+    expect(engine.captures).toBe(0)
+  }, 2000)
+
+  test('frames throttle to the screencast budget with newest-complete retention', async () => {
+    const engine = frameEngine(() => framePng(32, 32))
+    const h = frameHarness(engine)
+    const lane = await consentedLane(h)
+    const { session, sent, closed } = readSession(lane.id, lane.generation)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(150)
+    ;(session as unknown as { onClose?: () => void }).onClose?.()
+    // The 5 ms tick captures far more often than the 30 FPS pacer admits;
+    // throttled frames replace the pending newest frame instead of queueing.
+    expect(engine.captures).toBeGreaterThan(sent.length)
+    expect(sent.length).toBeGreaterThanOrEqual(1)
+    const sequences = sent.map((entry) => Number(entry.sequence))
+    for (let index = 1; index < sequences.length; index += 1)
+      expect(sequences[index]).toBeGreaterThan(sequences[index - 1])
+    expect(closed).toHaveLength(1) // only the detach
+  }, 2000)
+
+  test('an over-bounds capture frame is refused at the pacer, never sent', async () => {
+    const engine = frameEngine(() => framePng(4097, 10))
+    const h = frameHarness(engine)
+    const lane = await consentedLane(h)
+    const { session, sent, closed } = readSession(lane.id, lane.generation)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(60)
+    ;(session as unknown as { onClose?: () => void }).onClose?.()
+    expect(sent).toHaveLength(0)
+    expect(closed).toHaveLength(1)
+    expect(h.audits.filter((entry) => entry.decision === 'refused').length).toBeGreaterThanOrEqual(
+      1
+    )
+  }, 2000)
+
+  test('delivery credit gates frames; an ack resumes the stream', async () => {
+    const engine = frameEngine(() => framePng(32, 32))
+    const h = frameHarness(engine)
+    const lane = await consentedLane(h)
+    // The grant's frame bound is the initial credit: 10 bytes can never carry
+    // a 48-byte fixture frame, so nothing may be sent until an ack arrives.
+    const { session, sent } = readSession(lane.id, lane.generation, 10)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(60)
+    expect(sent).toHaveLength(0)
+    expect(engine.captures).toBeGreaterThanOrEqual(1)
+    const handler = session as unknown as { onFrame?: (frame: unknown) => void }
+    handler.onFrame?.({ type: 'ack', throughSequence: '0', availableCreditBytes: 1_000_000 })
+    await Bun.sleep(60)
+    ;(session as unknown as { onClose?: () => void }).onClose?.()
+    expect(sent.length).toBeGreaterThanOrEqual(1)
+  }, 2000)
+
+  test('takeover stops frames synchronously; the next interaction cannot publish', async () => {
+    const engine = frameEngine(() => framePng(32, 32))
+    const h = frameHarness(engine)
+    const lane = await consentedLane(h)
+    const { session, sent, closed } = readSession(lane.id, lane.generation)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(60)
+    expect(sent.length).toBeGreaterThanOrEqual(1)
+    const atTakeover = engine.captures
+    h.lanes.takeover(lane.id, lane.generation)
+    expect(closed[0]?.code).toBe('stale_generation')
+    await Bun.sleep(40)
+    expect(engine.captures).toBe(atTakeover)
+  }, 2000)
+
+  test('the kill switch closes frame streams revoked', async () => {
+    const engine = frameEngine(() => framePng(32, 32))
+    const h = frameHarness(engine)
+    const lane = await consentedLane(h)
+    const { session, closed } = readSession(lane.id, lane.generation)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(40)
+    h.lanes.close(lane.id, lane.generation)
+    expect(closed[0]?.code).toBe('revoked')
+    expect(closed[0]?.reason).toContain('closed')
+  }, 2000)
+
+  test('a flipped screen-recording state stops frames after the freshness window', async () => {
+    const engine = frameEngine(() => framePng(32, 32))
+    const permissions = scriptedPermissions(snapshotWith('granted', 'granted'))
+    const h = frameHarness(engine, {
+      macPermissions: permissions,
+      permissionFreshnessMs: 30,
+    })
+    const lane = await consentedLane(h)
+    const { session, sent, closed } = readSession(lane.id, lane.generation)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(60)
+    expect(sent.length).toBeGreaterThanOrEqual(1)
+    // The screen-recording grant moves: the consent digest no longer matches,
+    // so the gate refuses the next verification after the freshness window.
+    permissions.set(snapshotWith('granted', 'denied'))
+    await Bun.sleep(150)
+    expect(closed[0]?.code).toBe('revoked')
+  }, 2000)
+
+  test('session teardown stops every frame stream of the session', async () => {
+    const engine = frameEngine(() => framePng(32, 32))
+    const h = frameHarness(engine)
+    const lane = await consentedLane(h)
+    const { session, closed } = readSession(lane.id, lane.generation)
+    ;(h.streamHandler as (s: unknown) => void)(session)
+    await Bun.sleep(40)
+    h.runtime.closeForSession(sessionId)
+    expect(closed[0]?.code).toBe('revoked')
   }, 2000)
 })

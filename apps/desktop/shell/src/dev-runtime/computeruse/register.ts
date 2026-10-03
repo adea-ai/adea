@@ -1,4 +1,5 @@
-// Registration entry and composition root for the #472 computer-use runtime.
+// Registration entry and composition root for the #472/#624 computer-use
+// runtime.
 //
 // `createChannelAuthority` gates every command; this module registers the
 // computer-use providers onto it so `dev.computeruse.*` operations dispatch
@@ -9,13 +10,19 @@
 // the CALLER'S authenticated channel identity — single-use at attach,
 // expiring, bound to the lane resource and generation.
 //
-// Engine seams: the capture engine stays absent in this lane (the native
-// screen-recording helper is deferred), so read-direction frame streams
-// close typed-`incompatible` exactly like the browser lane's until a frame
-// engine is attached. The input engine defaults to the real host
-// implementation (fixed-argv osascript) — its absence on a host is a genuine
-// toolchain absence, and the consent gate refuses admission long before the
-// engine runs where the accessibility grant cannot be proven.
+// Frame publication (issue #624): the read direction of `desktop-frames-v1`
+// is served by the capture stream (computeruse/capture.ts), which gates every
+// attach on a FRESH screen-recording preflight and every publication tick on
+// the lane's authority fences (generation, owner, live consent). Revocation
+// paths (takeover, release, kill switch, crash, session teardown) stop
+// attached streams synchronously through the wrapped lane registry. Capture
+// is typed-unavailable — never stubbed — whenever the preflight cannot prove
+// the grant.
+//
+// Engine seams: the input engine defaults to the real host implementation
+// (fixed-argv osascript); the capture source defaults to the real macOS
+// `screencapture` host tool (fixed argv, engine-owned temp path). Tests
+// inject scripted engines, so CI never performs real input or capture.
 import type {
   DevCommand,
   DevOperation,
@@ -31,6 +38,7 @@ import type { ChannelAuthority, ChannelIdentity } from '../channel/authority'
 import type { ChannelGateway } from '../channel/server'
 import type { OwnerApprovalVerifier } from '../authority'
 import { createComputerUseCapabilityService } from './capability'
+import { createDesktopFrameStream, type DesktopFrameAuditEntry } from './capture'
 import { createConsentGate } from './consent-gate'
 import { createHostComputerUseEngine, type ComputerUseEngine } from './engine'
 import { createComputerUseLaneRegistry, type ComputerUseLaneRegistry } from './lane-registry'
@@ -62,16 +70,63 @@ export type ComputerUseRuntimeInput = Readonly<{
    * granted-flow logic stays exercisable on every lane.
    */
   platform?: NodeJS.Platform
+  /** Bounded, secret-free audit of frame publication decisions (#624). */
+  audit?: (entry: DesktopFrameAuditEntry) => void
+  /**
+   * Publication tick interval for the desktop-frames read stream (#624);
+   * defaults to one frame at the budget FPS. Evidence lanes shorten it so a
+   * proof observes several boundaries without real-time waits.
+   */
+  frameTickMs?: number
+  /**
+   * Freshness window for the consent gate's permission re-verification;
+   * defaults to the spec window. Evidence lanes shorten it so a flipped TCC
+   * state is observable within a bounded test.
+   */
+  permissionFreshnessMs?: number
 }>
 
-const unavailableStream = (session: { close: (code: 'incompatible', reason?: string) => void }) =>
-  session.close(
-    'incompatible',
-    'desktop frame publication is unavailable (capture is not proven on this host)'
-  )
-
 export function registerComputerUseRuntime(input: ComputerUseRuntimeInput) {
-  const lanes: ComputerUseLaneRegistry = createComputerUseLaneRegistry()
+  const baseLanes = createComputerUseLaneRegistry()
+  // Synchronous frame-stream revocation (#624): every authority transfer or
+  // kill path stops the lane's attached frame streams in the same call, so
+  // the very next interaction after revocation cannot publish. The
+  // publication ticks re-derive the same fences as defense in depth.
+  let frameStreams: ReturnType<typeof createDesktopFrameStream> | undefined
+  const lanes: ComputerUseLaneRegistry = {
+    ...baseLanes,
+    activate: (id, consent) => {
+      const record = baseLanes.activate(id, consent)
+      frameStreams?.stopForLane(id, 'stale_generation', 'computer-use lane generation changed')
+      return record
+    },
+    takeover: (id, expectedGeneration) => {
+      const record = baseLanes.takeover(id, expectedGeneration)
+      frameStreams?.stopForLane(id, 'stale_generation', 'computer-use lane generation changed')
+      return record
+    },
+    release: (id, expectedGeneration) => {
+      const record = baseLanes.release(id, expectedGeneration)
+      frameStreams?.stopForLane(id, 'stale_generation', 'computer-use lane generation changed')
+      return record
+    },
+    close: (id, expectedGeneration) => {
+      const record = baseLanes.close(id, expectedGeneration)
+      frameStreams?.stopForLane(id, 'revoked', 'computer-use lane is closed')
+      return record
+    },
+    markCrashed: (id) => {
+      const record = baseLanes.markCrashed(id)
+      frameStreams?.stopForLane(id, 'incompatible', 'computer-use lane is crashed')
+      return record
+    },
+    closeForSession: (runtimeSessionId) => {
+      const victims = baseLanes.list({ runtimeSessionId }).items.map((record) => record.id)
+      baseLanes.closeForSession(runtimeSessionId)
+      for (const id of victims)
+        frameStreams?.stopForLane(id, 'revoked', 'computer-use lane is closed')
+    },
+  }
   const macPermissions = input.macPermissions ?? createMacPermissionService({})
   const capabilities = createComputerUseCapabilityService({
     permissions: macPermissions,
@@ -81,12 +136,34 @@ export function registerComputerUseRuntime(input: ComputerUseRuntimeInput) {
     permissions: macPermissions,
     capabilities,
     approvalVerifier: input.approvalVerifier,
+    ...(input.permissionFreshnessMs !== undefined
+      ? { freshnessMs: input.permissionFreshnessMs }
+      : {}),
   })
   // The default engine runs the #471 fixed-argv host command runner (bounded
   // deadline); tests inject a scripted engine instead, so CI never performs
-  // real input.
+  // real input or capture.
   let engine: ComputerUseEngine | undefined =
     input.engine ?? createHostComputerUseEngine(createHostCommandRunner({ timeoutMs: 5_000 }))
+
+  // Frame publication (issue #624): the read-direction desktop-frames-v1
+  // handler gates every attach on a fresh capture preflight and serves
+  // bounded, throttled, consent-fenced frames. Publication is composed
+  // whenever a gateway exists — whether frames actually flow is decided by
+  // the preflight and the fences, never by composition.
+  frameStreams = input.gateway
+    ? createDesktopFrameStream({
+        lanes,
+        gate,
+        captureRow: async () => {
+          const report = await capabilities.report({ force: true })
+          return report.capabilities.find((row) => row.id === 'capture')
+        },
+        engine: () => engine,
+        ...(input.audit ? { audit: input.audit } : {}),
+        ...(input.frameTickMs !== undefined ? { tickMs: input.frameTickMs } : {}),
+      })
+    : undefined
 
   const computerUseProviders = createComputerUseProviders({
     lanes,
@@ -135,10 +212,13 @@ export function registerComputerUseRuntime(input: ComputerUseRuntimeInput) {
 
   const registered = register(computerUseProviders.providers, computerUseProviderError)
 
-  if (input.gateway) {
+  if (input.gateway && frameStreams) {
     input.gateway.registerStreamHandler('desktop-frames-v1', (session) => {
       if (session.grant.direction === 'read') {
-        unavailableStream(session)
+        // Read direction: bounded frame publication behind the capture
+        // preflight and the lane authority fences (#624). A lane whose
+        // capture cannot be proven closes typed before any frame exists.
+        frameStreams?.handleSession(session)
         return
       }
       // Write direction: input frames. The wire layer has verified
