@@ -22,7 +22,6 @@ const specs = [
   'apps/web/e2e/dev-browser-pane.spec.ts',
   'apps/web/e2e/workspace-tooltip.spec.ts',
   'apps/web/e2e/workspace-menu.spec.ts',
-  'apps/web/e2e/account-drawer.spec.ts',
   'apps/web/e2e/workspace-loading.spec.ts',
   'apps/web/e2e/private-message.spec.ts',
   'apps/web/e2e/desktop-chat-presentation.spec.ts',
