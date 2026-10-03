@@ -25,8 +25,9 @@ async function openHarness(page: Page, query = '') {
   )
   await page.goto(`${SOURCE_CONTROL_HARNESS_PATH}${query}`)
   await page.addScriptTag({ type: 'module', content: sourceControlHarnessModuleSource() })
+  // A cold dev server compiles the Tailwind sheet on first load; give it room.
   await expect
-    .poll(() => page.evaluate(() => Boolean(window.sourceControlHarness)), { timeout: 30_000 })
+    .poll(() => page.evaluate(() => Boolean(window.sourceControlHarness)), { timeout: 90_000 })
     .toBe(true)
   await expect(page.getByRole('main', { name: 'Source control' })).toBeVisible({ timeout: 30_000 })
 }
@@ -120,11 +121,29 @@ test.describe('source control app', () => {
     await page.getByRole('button', { name: /^Ready to merge/ }).click()
     await expect(page.locator('[data-pr="912"]')).toBeVisible()
     await expect(page.locator('[data-pr="904"]')).toHaveCount(0)
-    await page.reload()
-    await page.addScriptTag({
-      type: 'module',
-      content: sourceControlHarnessModuleSource().replace('.tsx', '.tsx?reset=keep'),
-    })
+    // The selection survives a restart.
+    await openHarness(page, '?reset=keep')
+    await expect(
+      page.getByRole('heading', { name: 'Ready to merge', exact: true }).first()
+    ).toBeVisible()
+    await expect(page.locator('[data-pr="912"]')).toBeVisible()
+  })
+
+  test('top bar search jumps to a pull request across projects', async ({ page }) => {
+    await openHarness(page)
+    const toolbar = page.getByRole('toolbar', { name: 'Workspace toolbar' })
+    await expect(toolbar.getByText(/Synced/)).toBeVisible()
+    const search = toolbar.getByRole('searchbox', { name: 'Search pull requests and branches' })
+    await search.fill('rail-tooltips')
+    await expect(
+      page.getByRole('button', { name: /Collapse rail labels into tooltips adea #901/ })
+    ).toBeVisible()
+    await search.press('Enter')
+    await expect(
+      page.getByRole('heading', { name: /Collapse rail labels into tooltips/ })
+    ).toBeVisible()
+    await toolbar.getByRole('button', { name: 'Sync now' }).click()
+    await expect(toolbar.getByText(/Synced/)).toBeVisible()
   })
 
   test('merging from the inbox confirms, then plans and commits', async ({ page }) => {

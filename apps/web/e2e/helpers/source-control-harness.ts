@@ -9,8 +9,11 @@ export function sourceControlHarnessHtml(): string {
   return [
     '<!doctype html>',
     '<html lang="en" class="dark"><head><meta charset="utf-8"><title>Source control harness</title>',
-    '<style>html,body{margin:0;height:100%;}#harness-root{height:100vh;}</style>',
-    '</head><body><div id="harness-root"></div></body></html>',
+    '<style>html,body{margin:0;height:100%;}body{display:flex;flex-direction:column;}',
+    '#harness-toolbar{display:flex;align-items:center;height:3rem;padding:0 1rem;}',
+    '#harness-root{flex:1;min-height:0;}</style>',
+    '</head><body><div id="harness-toolbar" role="toolbar" aria-label="Workspace toolbar"></div>',
+    '<div id="harness-root"></div></body></html>',
   ].join('')
 }
 

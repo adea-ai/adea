@@ -774,4 +774,5 @@ if (params.get('reset') !== 'keep') {
 }
 
 const root = document.getElementById('harness-root')!
-render(() => <SourceControlApp runtime={runtime} now={() => now} />, root)
+const toolbar = document.getElementById('harness-toolbar') ?? undefined
+render(() => <SourceControlApp runtime={runtime} now={() => now} toolbarMount={toolbar} />, root)
