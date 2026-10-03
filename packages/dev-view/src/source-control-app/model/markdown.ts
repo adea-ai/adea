@@ -88,8 +88,22 @@ export function parseInline(text: string, depth = 0): readonly Inline[] {
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/
 const TASK = /^\[([ xX])\]\s+(.*)$/
 
+/** Drop HTML comments. Removal repeats until nothing changes, so a comment
+ *  split around another (`<!<!---->--`) cannot reassemble, and an
+ *  unterminated comment runs to the end of the text, as HTML parses it. */
+export function stripComments(text: string): string {
+  let current = text
+  let previous: string
+  do {
+    previous = current
+    current = current.replace(/<!--[\s\S]*?-->/g, '')
+  } while (current !== previous)
+  const open = current.indexOf('<!--')
+  return open === -1 ? current : current.slice(0, open)
+}
+
 export function parseMarkdown(source: string, depth = 0): readonly Block[] {
-  const text = source.replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?-->/g, '')
+  const text = stripComments(source.replace(/\r\n?/g, '\n'))
   const lines = text.split('\n')
   const blocks: Block[] = []
   let index = 0

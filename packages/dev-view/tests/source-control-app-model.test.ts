@@ -15,7 +15,7 @@ import {
   groupInbox,
 } from '../src/source-control-app/model/inbox'
 import { failureLines, logLines } from '../src/source-control-app/model/log'
-import { parseInline, parseMarkdown } from '../src/source-control-app/model/markdown'
+import { parseInline, parseMarkdown, stripComments } from '../src/source-control-app/model/markdown'
 import { mergeDock, preferredMethod } from '../src/source-control-app/model/merge-dock'
 import {
   createAppStorage,
@@ -579,6 +579,14 @@ describe('format', () => {
 })
 
 describe('markdown reader', () => {
+  test('comments cannot reassemble or run open', () => {
+    expect(stripComments('a<!-- x -->b')).toBe('ab')
+    expect(stripComments('a<!<!---->--b')).toBe('a')
+    expect(stripComments('<!<!--- x -->-- y -->z')).toBe('z')
+    expect(stripComments('keep<!-- never closed')).toBe('keep')
+    expect(stripComments('a < ! -- b')).toBe('a < ! -- b')
+  })
+
   test('reads the GitHub description subset into a plain tree', () => {
     const blocks = parseMarkdown(
       [
