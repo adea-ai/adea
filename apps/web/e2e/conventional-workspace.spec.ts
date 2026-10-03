@@ -1995,10 +1995,24 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   const toolbar = page.getByLabel('Workspace toolbar')
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
   const chatSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  const expectAlignedDivider = async () => {
+    for (const width of [1024, 1280]) {
+      await page.setViewportSize({ width, height: 840 })
+      await expect
+        .poll(async () => {
+          const sidebar = await chatSidebar.boundingBox()
+          const divider = await toolbar.locator('.workspace-topbar__view-divider').boundingBox()
+          if (!sidebar || !divider) return Number.POSITIVE_INFINITY
+          return Math.abs(divider.x - (sidebar.x + sidebar.width))
+        })
+        .toBeLessThanOrEqual(1)
+    }
+  }
   await expect(
     chatSidebar.getByRole('button', { name: 'Research Agent', exact: true })
   ).toBeVisible()
   await expect(chatSidebar.getByRole('button', { name: 'Launch group', exact: true })).toBeVisible()
+  await expectAlignedDivider()
   await expect(
     chatSidebar
       .getByRole('button', { name: 'Product', exact: true })
@@ -2019,6 +2033,7 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   const resizedWidth = await chatSidebar.evaluate(
     (element) => element.getBoundingClientRect().width
   )
+  await expectAlignedDivider()
 
   // The keyboard resize leaves :focus-visible on the handle, which is
   // interaction state rather than rendering identity; drop it so the capture
@@ -2030,6 +2045,7 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
   const virtualSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(virtualSidebar).toBeVisible()
+  await expectAlignedDivider()
   await expect(
     virtualSidebar.getByRole('button', { name: 'Research Agent', exact: true })
   ).toHaveAttribute('aria-current', 'page')

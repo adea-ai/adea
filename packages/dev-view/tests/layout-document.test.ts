@@ -213,15 +213,15 @@ describe('V1 to V2 layout migration', () => {
       ...v1,
       utility: v1.utility.filter((entry) => entry.pane !== 'browser'),
     })
-    // Absent widths seed the side's default: the right-side panes open wider
-    // than the left ones (browser-pane anchor).
+    // Absent widths seed the side's default: right-side panes inherit the
+    // Browser anchor's wider default.
     expect(migrated.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
-      size: 384,
-      lastNonzeroSize: 384,
+      size: 448,
+      lastNonzeroSize: 448,
     })
     expect(migrated.utility.find((entry) => entry.pane === 'devices')).toMatchObject({
-      size: 384,
-      lastNonzeroSize: 384,
+      size: 448,
+      lastNonzeroSize: 448,
     })
 
     const collapsed = migrateLayoutPreferencesV1(v1)
@@ -239,6 +239,63 @@ describe('V1 to V2 layout migration', () => {
       size: 280,
       lastNonzeroSize: 280,
     })
+  })
+
+  test('applies the wider right-side fallback only when a stored width is absent', () => {
+    const migrated = migrateLayoutPreferencesV1({
+      ...v1,
+      utility: v1.utility.map((entry) =>
+        entry.pane === 'browser' ? { ...entry, size: 384, lastNonzeroSize: 384 } : entry
+      ),
+    })
+    expect(migrated.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
+      size: 384,
+      lastNonzeroSize: 384,
+    })
+    for (const paneName of ['devices', 'agents', 'history'] as const)
+      expect(migrated.utility.find((entry) => entry.pane === paneName)).toMatchObject({
+        size: 384,
+        lastNonzeroSize: 384,
+      })
+
+    const stored = {
+      ...preferences(),
+      utility: utility().map((entry) =>
+        entry.pane === 'browser' ? { ...entry, size: 384, lastNonzeroSize: 384 } : entry
+      ),
+    }
+    const decoded = decodeLayoutDocument(serializeLayoutPreferencesV2(stored))
+    expect(decoded.state).toBe('ready')
+    if (decoded.state !== 'ready') throw new Error('expected a ready decode')
+    expect(decoded.value.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
+      size: 384,
+      lastNonzeroSize: 384,
+    })
+    expect(decoded.value.utility.find((entry) => entry.pane === 'devices')).toMatchObject({
+      size: 384,
+      lastNonzeroSize: 384,
+    })
+  })
+
+  test('keeps a saved right-side width when a legacy document has no Browser anchor', () => {
+    const migrated = migrateLayoutPreferencesV1({
+      ...v1,
+      utility: [
+        v1.utility[0]!,
+        {
+          pane: 'devices' as const,
+          side: 'right' as const,
+          visible: true,
+          size: 336,
+          lastNonzeroSize: 336,
+        },
+      ],
+    })
+    for (const paneName of ['browser', 'devices', 'agents', 'history'] as const)
+      expect(migrated.utility.find((entry) => entry.pane === paneName)).toMatchObject({
+        size: 336,
+        lastNonzeroSize: 336,
+      })
   })
 
   test('collapses stored per-pane widths onto one width per side when decoding', () => {

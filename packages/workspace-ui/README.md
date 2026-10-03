@@ -90,3 +90,7 @@ Home/End, and revealing the selected row within scrollable ancestors. Adea owns
 section values, icons, hash synchronization, panel content, and reselection.
 Narrow layouts arrange the groups horizontally with scrolling; their tab
 sequence and vertical keyboard semantics remain the same.
+
+Microphone permission checks catch host failures and show a retryable message in
+Settings. The check button prevents concurrent requests, and a result from a
+closed or unmounted dialog cannot change its permission presentation.

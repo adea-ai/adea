@@ -284,12 +284,15 @@ const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {
 }
 
 const utilityItemByPane = new Map(utilityItems.map((item) => [item.pane, item]))
-const utilitySizeSteps = [240, 288, 336, 384] as const
+const utilitySizeSteps = {
+  left: [240, 288, 336, 384],
+  right: [240, 288, 336, 384, 448],
+} as const
 /** Every pane opens at one shared width — no custom width per tab type. */
-/** Left panes (files/source control) open at the browser pane's width. */
+/** Left panes (files/source control) retain their existing default step. */
 const defaultLeftUtilitySize = 336
 /** Right panes (browser/devices/agents/history) get the wider step. */
-const defaultRightUtilitySize = 384
+const defaultRightUtilitySize = 448
 
 const defaultUtilityPreferences = (): DevUtilityPreference[] =>
   utilityItems.map((item, order) => ({
@@ -309,11 +312,15 @@ const initialLayout = () =>
     pane: 'terminal',
   })
 
-const snapUtilitySize = (size: number) => {
-  if (!Number.isFinite(size)) return defaultLeftUtilitySize
-  return utilitySizeSteps.reduce(
+const utilitySizeStepsFor = (side: 'left' | 'right') => utilitySizeSteps[side]
+
+const snapUtilitySize = (size: number, side: 'left' | 'right') => {
+  const steps = utilitySizeStepsFor(side)
+  if (!Number.isFinite(size))
+    return side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize
+  return steps.reduce(
     (best, step) => (Math.abs(step - size) < Math.abs(best - size) ? step : best),
-    utilitySizeSteps[0]
+    steps[0]
   )
 }
 
@@ -857,10 +864,10 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     schedulePreferences()
   }
   const setPaneSize = (pane: DevUtilityPane, size: number) => {
-    const snapped = snapUtilitySize(size)
     // Panes share one width per side: resizing any tab resizes them all, so
     // switching tabs never changes the edge's width.
     const side = utilityItemByPane.get(pane)!.side
+    const snapped = snapUtilitySize(size, side)
     setUtilityPreferences((items) =>
       items.map((item) =>
         item.side === side ? { ...item, size: snapped, lastNonzeroSize: snapped } : item
@@ -1579,7 +1586,8 @@ function UtilityResizeHandle(props: {
   size: number
   onResize(size: number): void
 }) {
-  const max = utilitySizeSteps[utilitySizeSteps.length - 1]
+  const steps = utilitySizeStepsFor(props.side)
+  const max = steps[steps.length - 1]
   const sizeRatio = () => props.size / max
   const rulerSizes = () =>
     props.side === 'left' ? [sizeRatio(), 1 - sizeRatio()] : [1 - sizeRatio(), sizeRatio()]
@@ -1596,26 +1604,26 @@ function UtilityResizeHandle(props: {
         'dev-utility-splitter--right': props.side === 'right',
       })}
       onSizesChange={(sizes) => {
-        const nextSize = snapUtilitySize(resizedSize(sizes))
+        const nextSize = snapUtilitySize(resizedSize(sizes), props.side)
         if (nextSize !== props.size) props.onResize(nextSize)
       }}
     >
       <ResizablePanel
-        minSize={props.side === 'left' ? utilitySizeSteps[0] / max : 0}
-        maxSize={props.side === 'left' ? 1 : (max - utilitySizeSteps[0]) / max}
+        minSize={props.side === 'left' ? steps[0] / max : 0}
+        maxSize={props.side === 'left' ? 1 : (max - steps[0]) / max}
         aria-hidden="true"
       />
       <ResizableHandle
         withHandle
         label={`Resize ${props.side} utility pane`}
         aria-controls={`dev-utility-panel-${props.side}`}
-        aria-valuemin={utilitySizeSteps[0]}
+        aria-valuemin={steps[0]}
         aria-valuemax={max}
         aria-valuenow={props.size}
         class="dev-utility-splitter__handle"
       />
       <ResizablePanel
-        minSize={props.side === 'left' ? 0 : utilitySizeSteps[0] / max}
+        minSize={props.side === 'left' ? 0 : steps[0] / max}
         maxSize={1}
         aria-hidden="true"
       />
@@ -1818,6 +1826,7 @@ function UtilitySlot(props: {
         'dev-utility--size-240': props.visiblePane?.size === 240,
         'dev-utility--size-336': props.visiblePane?.size === 336,
         'dev-utility--size-384': props.visiblePane?.size === 384,
+        'dev-utility--size-448': props.side === 'right' && props.visiblePane?.size === 448,
       })}
       id={`dev-utility-${props.side}`}
       aria-label={`Developer utilities (${sideLabel().toLowerCase()})`}
