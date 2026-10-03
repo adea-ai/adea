@@ -1735,7 +1735,7 @@
   align-items: center;
   gap: 0.5rem;
 }
-.workspace-topbar__navigation {
+.workspace-topbar__navigation[data-dev-actions] {
   display: grid;
   grid-template-columns: max-content max-content;
   gap: 0.5rem;
@@ -1790,6 +1790,7 @@
     )
     .workspace-topbar__navigation,
   .workspace-frame:has(.conventional-sidebar--open) .workspace-topbar__navigation {
+    display: grid;
     grid-template-columns: calc(
         var(--workspace-rail-width) + var(--dev-context-sidebar-width) -
           var(--workspace-topbar-inline-start-inset)
