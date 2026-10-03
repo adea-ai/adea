@@ -772,7 +772,12 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
         availability: source.availability,
         ...(source.detail !== undefined ? { detail: source.detail } : {}),
       }))
-      return { items: rows, nextCursor: null, total: rows.length }
+      // The page shape the operation's own decoder admits (`DevRuntimePage`:
+      // items + observedAt, optional string nextCursor). A `total` count, a
+      // null cursor, or a missing observedAt would fail `decodeDevReply` on
+      // the client, so detection is one complete page like every other
+      // browser listing.
+      return { items: rows, observedAt: new Date().toISOString() }
     },
     'dev.browser.cookieImportPlan': async (command) => {
       const lane = laneFor(command)

@@ -51,6 +51,7 @@ export type BrowserPaneHarnessControls = {
   deferNextAnnotate(): number
   resolveAnnotate(requestId: number, value: unknown): void
   rejectAnnotate(requestId: number, error: import('@adea-ai/types/dev-runtime').DevError): void
+  closeFixtureLane(): void
   unmount(): void
 }
 

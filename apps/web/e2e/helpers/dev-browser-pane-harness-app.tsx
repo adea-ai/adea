@@ -3,6 +3,13 @@ import { render } from 'solid-js/web'
 import { BrowserPane } from '../../../../packages/dev-view/src/browser/browser-pane'
 import { DevicesPane } from '../../../../packages/dev-view/src/devices/devices-pane'
 import type { DevRuntimeService } from '../../../../packages/dev-view/src/platform'
+import {
+  browserPaneFixtureScope,
+  cookieFixtureMode,
+  cookieImportCommitReply,
+  cookieImportPlanReply,
+  cookieSourcesReply,
+} from './dev-browser-pane-cookie-fixtures'
 import type {
   BrowserLane,
   BrowserTarget,
@@ -11,16 +18,11 @@ import type {
   DevReply,
   PortRecord,
   ScreenshotRef,
-  Scope,
 } from '@adea-ai/types/dev-runtime'
 
 import type { BrowserPaneHarnessReport } from './dev-browser-pane-harness'
 
-const scope: Scope = {
-  accountId: 'browser-pane-fixture-account',
-  workspaceId: 'browser-pane-fixture-workspace',
-  runtimeNodeId: 'browser-pane-fixture-node',
-}
+const scope = browserPaneFixtureScope
 let lane: BrowserLane = {
   id: 'browser-pane-fixture-lane',
   scope,
@@ -69,6 +71,10 @@ function browserLanes(): readonly BrowserLane[] {
   return new URLSearchParams(window.location.search).get('lanes') === 'multiple'
     ? [lane, alternateLane]
     : [lane]
+}
+
+function cookiesFixtureMode() {
+  return cookieFixtureMode(new URLSearchParams(window.location.search))
 }
 
 const port: PortRecord = {
@@ -196,6 +202,11 @@ const deferredControls = {
     deferredAnnotations.delete(requestId)
     pending.resolve(errorReply(pending.command, error))
   },
+  closeFixtureLane(): void {
+    // Mirrors the registry's close: the state flips, ownership drops, and the
+    // generation stays — the pane's cached binding remains the truth.
+    lane = { ...lane, state: 'closed', automationOwner: 'none' }
+  },
 }
 
 const runtime = {
@@ -280,6 +291,12 @@ const runtime = {
       }
       case 'dev.browser.diagnostics':
         return reply(command, { items: [] })
+      case 'dev.browser.cookieSources':
+        return cookieSourcesReply(command, cookiesFixtureMode())
+      case 'dev.browser.cookieImportPlan':
+        return cookieImportPlanReply(command, lane, cookiesFixtureMode())
+      case 'dev.browser.cookieImportCommit':
+        return cookieImportCommitReply(command, lane, cookiesFixtureMode())
       case 'dev.browser.navigate': {
         const url = command.body.url
         if (typeof url === 'string') currentUrl = url
