@@ -1,5 +1,5 @@
 /*
- * Source control app state: the account, the runtime catalog (projects,
+ * Source control app state: the provider accounts, the runtime catalog (projects,
  * repositories, worktrees, sessions), each repository's open pull requests
  * and default-branch CI, and the selection/route. Sync polls on an interval
  * and on window focus; webhooks are a later improvement. Every pull request
@@ -17,7 +17,12 @@ import { classifyPullRequest, needsViewer } from './model/inbox'
 import type { AppPreferences, AppStorage, PrTab, Selection } from './model/persistence'
 import { indexSessions, linkPullRequest } from './model/sessions'
 import { buildTree, type RepoStats, type TreeProject } from './model/tree'
-import type { LinkedSession, PullRequestView } from './model/types'
+import {
+  providerOf,
+  type LinkedSession,
+  type PullRequestView,
+  type ScmProvider,
+} from './model/types'
 
 export const SYNC_INTERVAL_MS = 60_000
 const CONCURRENCY = 3
@@ -44,7 +49,7 @@ export function createSourceControlState(options: {
   now: () => number
 }) {
   const { client, storage } = options
-  const [account, setAccount] = createSignal<AccountState>({ status: 'loading' })
+  const [accounts, setAccounts] = createSignal<ReadonlyMap<ScmProvider, AccountState>>(new Map())
   const [projects, setProjects] = createSignal<Awaited<ReturnType<ScmClient['projects']>>>([])
   const [repos, setRepos] = createSignal<Awaited<ReturnType<ScmClient['repos']>>>([])
   const [sessionIndex, setSessionIndex] = createSignal<ReadonlyMap<string, LinkedSession>>(
@@ -68,10 +73,46 @@ export function createSourceControlState(options: {
     storage.savePreferences(next)
   }
 
-  const viewer = () => {
-    const state = account()
+  /** A provider's account; GitHub unless asked. */
+  const account = (provider: ScmProvider = 'github'): AccountState =>
+    accounts().get(provider) ?? { status: 'loading' }
+
+  /** The signed-in login on a provider. */
+  const viewer = (provider: ScmProvider = 'github') => {
+    const state = account(provider)
     return state.status === 'connected' ? state.account.login : undefined
   }
+
+  /** The provider of each repository with a supported remote. */
+  const repoProvider = (repoId: string): ScmProvider | undefined => {
+    const remote = repos().find((repo) => repo.id === repoId)?.remote
+    return remote?.provider === 'github' || remote?.provider === 'gitlab'
+      ? remote.provider
+      : undefined
+  }
+
+  /** Providers the catalog's repositories use; GitHub when there are none. */
+  const providers = createMemo((): readonly ScmProvider[] => {
+    const used = new Set<ScmProvider>()
+    for (const repo of repos())
+      if (repo.remote?.provider === 'github' || repo.remote?.provider === 'gitlab')
+        used.add(repo.remote.provider)
+    return used.size === 0 ? ['github'] : (['github', 'gitlab'] as const).filter((p) => used.has(p))
+  })
+
+  /** Disconnected only when no provider in use is connected; the first such
+   *  provider's state explains why. */
+  const disconnected = createMemo(() => {
+    const states = providers().map((provider) => ({ provider, state: account(provider) }))
+    if (states.some((entry) => entry.state.status !== 'disconnected')) return undefined
+    const first = states[0]!
+    return first.state.status === 'disconnected'
+      ? { provider: first.provider, ...first.state }
+      : undefined
+  })
+
+  /** The viewer for a pull request, on its own provider. */
+  const viewerFor = (pullRequestId: string) => viewer(providerOf(pullRequestId))
 
   const tree = createMemo(() => {
     const stats = new Map<string, RepoStats>()
@@ -107,7 +148,10 @@ export function createSourceControlState(options: {
           : []
       ),
       stats,
-      viewer()
+      {
+        ...(viewer('github') ? { github: viewer('github')! } : {}),
+        ...(viewer('gitlab') ? { gitlab: viewer('gitlab')! } : {}),
+      }
     )
   })
 
@@ -133,8 +177,8 @@ export function createSourceControlState(options: {
     let needsYou = 0
     let ready = 0
     for (const { pr } of everyOpen()) {
-      if (classifyPullRequest(pr, viewer()).group === 'ready') ready += 1
-      if (needsViewer(pr, viewer())) needsYou += 1
+      if (classifyPullRequest(pr, viewerFor(pr.id)).group === 'ready') ready += 1
+      if (needsViewer(pr, viewerFor(pr.id))) needsYou += 1
     }
     return { needsYou, ready }
   })
@@ -186,6 +230,13 @@ export function createSourceControlState(options: {
       client.worktrees().catch(() => []),
       client.sessions().catch(() => []),
     ])
+    client.setRepoProviders(
+      repoList.flatMap((repo) =>
+        repo.remote?.provider === 'github' || repo.remote?.provider === 'gitlab'
+          ? [[repo.id, repo.remote.provider] as const]
+          : []
+      )
+    )
     batch(() => {
       setProjects(projectList)
       setRepos(repoList)
@@ -213,28 +264,49 @@ export function createSourceControlState(options: {
   }
 
   let inFlight: Promise<void> | undefined
-  /** Re-read the account, catalog, and every active repository. */
+  async function loadAccount(provider: ScmProvider): Promise<void> {
+    let next: AccountState
+    try {
+      next = { status: 'connected', account: await client.account(provider) }
+    } catch (error) {
+      const code = (error as { code?: string }).code ?? 'unavailable'
+      next = { status: 'disconnected', reason: errorText(error), code }
+    }
+    setAccounts((current) => new Map(current).set(provider, next))
+  }
+
+  /** Re-read the accounts, catalog, and every active repository. */
   function sync(): Promise<void> {
     if (inFlight) return inFlight
     inFlight = (async () => {
       setSyncing(true)
       try {
-        try {
-          const current = await client.account()
-          setAccount({ status: 'connected', account: current })
-        } catch (error) {
-          const code = (error as { code?: string }).code ?? 'unavailable'
-          setAccount({ status: 'disconnected', reason: errorText(error), code })
-        }
+        const github = loadAccount('github')
         try {
           await loadCatalog()
         } catch (error) {
           setCatalogError(errorText(error))
           setCatalogLoaded(true)
+          await github
           return
         }
-        if (account().status !== 'connected') return
-        const queue = activeProjects().map((row) => row.repoId)
+        await Promise.all([
+          github,
+          ...(providers().includes('gitlab') ? [loadAccount('gitlab')] : []),
+        ])
+        // A provider that is not signed in explains itself on its projects.
+        setPulls((current) => {
+          const next = new Map(current)
+          for (const row of activeProjects()) {
+            const state = account(row.provider)
+            if (state.status === 'disconnected')
+              next.set(row.repoId, { items: [], more: false, error: state.reason })
+          }
+          return next
+        })
+        const queue = activeProjects()
+          .filter((row) => account(row.provider).status === 'connected')
+          .map((row) => row.repoId)
         const unique = [...new Set(queue)]
         const workers = Array.from({ length: Math.min(CONCURRENCY, unique.length) }, async () => {
           for (let next = unique.shift(); next !== undefined; next = unique.shift())
@@ -291,6 +363,10 @@ export function createSourceControlState(options: {
     storage,
     account,
     viewer,
+    viewerFor,
+    repoProvider,
+    providers,
+    disconnected,
     tree,
     activeProjects,
     projectFor,

@@ -16,7 +16,8 @@ import {
   timestamp,
 } from './dev-runtime-validation-internal'
 
-const pullRequestIdPattern = /^gh:[A-Za-z0-9-]{1,100}\/[A-Za-z0-9._-]{1,100}#\d{1,9}$/
+const pullRequestIdPattern =
+  /^(?:gh:[A-Za-z0-9-]{1,100}\/[A-Za-z0-9._-]{1,100}#\d{1,9}|gl:[A-Za-z0-9._-]{1,100}(?:\/[A-Za-z0-9._-]{1,100}){1,19}!\d{1,9})$/
 const colorPattern = /^[0-9a-f]{6}$/
 const reviewStates = ['approved', 'changes_requested', 'commented', 'dismissed', 'pending'] as const
 const rollupStates = ['success', 'failure', 'pending', 'none'] as const
@@ -130,7 +131,7 @@ function pullRequestSummary(value: unknown, path: string): void {
     path
   )
   if (!pullRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
-    fail(`${path}.id`, 'expected gh:<owner>/<repo>#<number>')
+    fail(`${path}.id`, 'expected gh:<owner>/<repo>#<number> or gl:<project>!<iid>')
   stringValue(item.repoId, `${path}.repoId`, 1, 128)
   integerValue(item.number, `${path}.number`, 1)
   stringValue(item.title, `${path}.title`, 0, 1024)

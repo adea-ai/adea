@@ -33,10 +33,11 @@ import {
 } from 'solid-js'
 
 import { errorText } from '../client'
+import { prRef } from '../model/format'
 import { mergeDock, preferredMethod } from '../model/merge-dock'
 import type { PrTab } from '../model/persistence'
 import { checksFailing } from '../model/status'
-import { githubCapabilities, type PullRequestView } from '../model/types'
+import { capabilitiesOf, providerOf, type PullRequestView } from '../model/types'
 import type { SourceControlState } from '../state'
 import type { AppActions } from './actions'
 import { ChangeCounts, LoadingRows, Person, StateMessage } from './bits'
@@ -122,10 +123,12 @@ export function PullRequestDetail(props: {
       ? preferredMethod(current.mergeMethods, props.state.preferences().mergeMethod)
       : undefined
   }
+  const capabilities = () => capabilitiesOf(providerOf(props.pullRequestId))
+  const viewer = () => props.state.viewerFor(props.pullRequestId)
   const dock = createMemo(() => {
     const current = pr()
     return current
-      ? mergeDock(current, props.state.viewer(), method(), githubCapabilities)
+      ? mergeDock(current, props.state.viewerFor(current.id), method(), capabilities())
       : undefined
   })
   const detailsOpen = () => props.state.preferences().details[props.tab]
@@ -198,11 +201,11 @@ export function PullRequestDetail(props: {
                   {current().id.slice(3, current().id.indexOf('#'))}
                 </Button>
                 <span aria-hidden="true">/</span>
-                <span>#{current().number}</span>
+                <span>{prRef(current())}</span>
               </div>
               <div class="dev-scm-header__row">
                 <h1 class="dev-scm-pr__title">
-                  {current().title} <span class="dev-scm-pr__number">#{current().number}</span>
+                  {current().title} <span class="dev-scm-pr__number">{prRef(current())}</span>
                 </h1>
               </div>
               <div class="dev-scm-header__row">
@@ -292,7 +295,7 @@ export function PullRequestDetail(props: {
                     loading={timeline.loading}
                     {...(timeline.error ? { error: errorText(timeline.error) } : {})}
                     client={client}
-                    {...(props.state.viewer() ? { viewer: props.state.viewer()! } : {})}
+                    {...(viewer() ? { viewer: viewer()! } : {})}
                     now={props.state.tick()}
                     actions={props.actions}
                     onItem={replaceItem}
@@ -305,7 +308,8 @@ export function PullRequestDetail(props: {
                       dock={value()}
                       {...(method() ? { method: method()! } : {})}
                       {...(busy() ? { busy: busy()! } : {})}
-                      canDraft={githubCapabilities.draft}
+                      canDraft={capabilities().draft}
+                      updateMethods={capabilities().updateMethods}
                       onMethod={(next) =>
                         props.state.setPreferences((prefs) => ({ ...prefs, mergeMethod: next }))
                       }
@@ -364,7 +368,7 @@ export function PullRequestDetail(props: {
                   pr={current()}
                   commits={commits()}
                   client={client}
-                  capabilities={githubCapabilities}
+                  capabilities={capabilities()}
                   now={props.state.tick()}
                   actions={props.actions}
                 />
@@ -378,7 +382,8 @@ export function PullRequestDetail(props: {
                   threads={threads()}
                   client={client}
                   storage={props.state.storage}
-                  {...(props.state.viewer() ? { viewer: props.state.viewer()! } : {})}
+                  canRequestChanges={capabilities().requestChanges}
+                  {...(viewer() ? { viewer: viewer()! } : {})}
                   now={props.state.tick()}
                   layout={props.state.preferences().diffLayout}
                   actions={props.actions}
@@ -411,8 +416,8 @@ export function PullRequestDetail(props: {
               <AlertDialogHeader>
                 <AlertDialogTitle>Close this pull request?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  #{current().number} closes without merging. The branch stays, and you can reopen
-                  it later.
+                  {prRef(current())} closes without merging. The branch stays, and you can reopen it
+                  later.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

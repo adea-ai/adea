@@ -13,7 +13,7 @@ import { For, Show, createSignal, type JSX } from 'solid-js'
 
 import { errorText, type ScmClient } from '../client'
 import { displayLogin } from '../model/format'
-import type { PullRequestView, Tone } from '../model/types'
+import { hostNameOf, type PullRequestView, type Tone } from '../model/types'
 import type { AppActions } from './actions'
 import { Person } from './bits'
 import { Picker, labelLoader, peopleLoader } from './picker'
@@ -244,7 +244,7 @@ export function DetailsPanel(props: {
           <Switch
             checked={props.deleteBranch}
             onChange={props.onDeleteBranch}
-            label="Delete the branch on GitHub"
+            label={`Delete the branch on ${hostNameOf(props.pr.id)}`}
             description={`Removes ${displayLogin(props.pr.headRef)} unless it is protected. Local worktrees stay; clean them up in the Dev view.`}
           />
         </section>

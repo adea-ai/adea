@@ -32,7 +32,7 @@ import {
 } from '../model/diff'
 import type { AppStorage, PendingComment, ReviewDraft } from '../model/persistence'
 import { viewerIsAuthor } from '../model/status'
-import type { PullRequestView } from '../model/types'
+import { hostNameOf, type PullRequestView } from '../model/types'
 import type { AppActions } from './actions'
 import { ChangeCounts, LoadingRows, StateMessage } from './bits'
 import { ThreadCard } from './conversation'
@@ -243,7 +243,7 @@ function FileDiff(props: {
         <p class="dev-scm-diff__empty">
           {props.file.status === 'renamed' && props.file.additions + props.file.deletions === 0
             ? 'Renamed without content changes.'
-            : 'GitHub does not show this diff (binary or too large).'}
+            : `${hostNameOf(props.pr.id)} does not show this diff (binary or too large).`}
         </p>
       }
     >
@@ -372,6 +372,8 @@ export function FilesChanged(props: {
   client: ScmClient
   storage: AppStorage
   viewer?: string
+  /** The provider has a blocking request-changes verdict. */
+  canRequestChanges: boolean
   now: number
   layout: 'unified' | 'split'
   actions: AppActions
@@ -433,6 +435,14 @@ export function FilesChanged(props: {
   const viewedCount = () => (props.files ?? []).filter((file) => viewed().has(file.path)).length
   const threadsFor = (path: string) => props.threads.filter((thread) => thread.path === path)
   const own = () => viewerIsAuthor(props.pr, props.viewer)
+  /** The verdict to send: your own pull request only takes comments, and a
+   *  stored request-changes draft falls back to a comment where the
+   *  provider has no such verdict. */
+  const verdict = () => {
+    const chosen = draft().verdict
+    if (own()) return 'comment'
+    return chosen === 'request_changes' && !props.canRequestChanges ? 'comment' : chosen
+  }
   const draftStale = () => draft().comments.length > 0 && draft().headSha !== props.pr.headSha
 
   const submit = async () => {
@@ -442,7 +452,7 @@ export function FilesChanged(props: {
       const item = await props.client.submitReview(
         props.pr.id,
         props.pr.headSha,
-        own() ? 'comment' : current.verdict,
+        verdict(),
         current.body.trim(),
         current.comments.map((comment) => ({
           path: comment.path,
@@ -521,7 +531,7 @@ export function FilesChanged(props: {
                   }}
                 />
                 <RadioGroup
-                  value={own() ? 'comment' : draft().verdict}
+                  value={verdict()}
                   onChange={(value) =>
                     updateDraft((current) => ({
                       ...current,
@@ -543,16 +553,18 @@ export function FilesChanged(props: {
                     }
                     disabled={own()}
                   />
-                  <RadioGroupItem
-                    value="request_changes"
-                    label="Request changes"
-                    description={
-                      own()
-                        ? 'You cannot request changes on your own pull request.'
-                        : 'Block merging until the author pushes a fix.'
-                    }
-                    disabled={own()}
-                  />
+                  <Show when={props.canRequestChanges}>
+                    <RadioGroupItem
+                      value="request_changes"
+                      label="Request changes"
+                      description={
+                        own()
+                          ? 'You cannot request changes on your own pull request.'
+                          : 'Block merging until the author pushes a fix.'
+                      }
+                      disabled={own()}
+                    />
+                  </Show>
                 </RadioGroup>
                 <div class="dev-scm-form__footer">
                   <span class="dev-scm-caption flex-1">
@@ -569,12 +581,10 @@ export function FilesChanged(props: {
                     busyLabel="Submitting"
                     disabled={
                       submitting() ||
-                      ((own() || draft().verdict === 'comment') &&
+                      (verdict() === 'comment' &&
                         draft().body.trim().length === 0 &&
                         draft().comments.length === 0) ||
-                      (draft().verdict === 'request_changes' &&
-                        !own() &&
-                        draft().body.trim().length === 0)
+                      (verdict() === 'request_changes' && draft().body.trim().length === 0)
                     }
                     onClick={() => void submit()}
                   >

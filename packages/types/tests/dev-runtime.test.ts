@@ -95,10 +95,11 @@ function command(operation: keyof typeof devOperationDefinitions, body: Record<s
 describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
     // 165 before dev.device.capabilities, 166 before the source control
-    // app's 20 pull request collaboration operations: the registry ratchet
-    // moves only when an operation is deliberately added, and the decoder-key
-    // check below is what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(186)
+    // app's 20 pull request collaboration operations, 186 before its 29
+    // GitLab mirrors: the registry ratchet moves only when an operation is
+    // deliberately added, and the decoder-key check below is what keeps the
+    // list and the decoders in step.
+    expect(devOperations).toHaveLength(215)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
@@ -326,8 +327,9 @@ describe('Dev Runtime command envelope', () => {
 
   test('accepts every paired commit whose immutable plan owns the target binding', () => {
     const pairedCommits = devOperations.filter((operation) => operation.endsWith('Commit'))
-    // 14 before the auto-merge and server-side branch sync pairs.
-    expect(pairedCommits).toHaveLength(16)
+    // 14 before the auto-merge and server-side branch sync pairs; 16 before
+    // the GitLab mirrors of update, merge, auto-merge and branch sync.
+    expect(pairedCommits).toHaveLength(20)
     for (const operation of pairedCommits) {
       const value = command(operation, {
         planId: 'plan-1',

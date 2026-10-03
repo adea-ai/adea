@@ -309,3 +309,40 @@ describe('GitHub collaboration replies', () => {
     ).toThrow('hex')
   })
 })
+
+describe('GitLab mirrors', () => {
+  const mr = 'gl:labs/platform/deploy-scripts!12'
+
+  test('share the GitHub bodies and accept nested GitLab project ids', () => {
+    for (const [operation, body] of [
+      ['dev.gitlab.pullRequestSummary', { pullRequestId: mr }],
+      ['dev.gitlab.timeline', { pullRequestId: mr }],
+      ['dev.gitlab.syncBranchPlan', { pullRequestId: mr, expectedHeadSha: sha, method: 'rebase' }],
+      ['dev.gitlab.pullRequestSummaries', { repoId: 'repo-1', state: 'open' }],
+    ] as const) {
+      const value = command(operation, body)
+      expect(decodeDevCommand(value)).toEqual(value)
+      expect(devOperationDefinitions[operation].body).toBe(
+        devOperationDefinitions[
+          operation.replace('dev.gitlab.', 'dev.github.') as keyof typeof devOperationDefinitions
+        ].body
+      )
+    }
+    expect(devOperationDefinitions['dev.gitlab.comment'].capabilities).toEqual(['dev.gitlab.write'])
+  })
+
+  test('decode GitLab-shaped replies through the shared DTOs', () => {
+    const envelope = reply('dev.gitlab.pullRequestSummary', { ...summary, id: mr })
+    expect(decodeDevReply(envelope)).toEqual(envelope)
+    const account = reply('dev.gitlab.account', {
+      provider: 'gitlab',
+      host: 'gitlab.com',
+      login: 'octocat',
+      observedAt: now,
+    })
+    expect(decodeDevReply(account)).toEqual(account)
+    expect(() =>
+      decodeDevReply(reply('dev.gitlab.pullRequestSummary', { ...summary, id: 'gl:project!12' }))
+    ).toThrow('expected gh:')
+  })
+})

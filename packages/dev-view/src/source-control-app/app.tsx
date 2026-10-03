@@ -37,10 +37,10 @@ import { NewPullRequestDialog, ProvidersDialog } from './components/dialogs'
 import { ProjectInbox, ShortcutInbox } from './components/inbox'
 import { PullRequestDetail } from './components/pr-detail'
 import { SourceControlSidebar } from './components/sidebar'
-import { relativeTime, shortSha } from './model/format'
+import { prRef, relativeTime, shortSha } from './model/format'
 import { mergeMethodLabel, preferredMethod } from './model/merge-dock'
 import { createAppStorage, type KeyValueStorage } from './model/persistence'
-import type { LinkedSession, PullRequestView } from './model/types'
+import { hostNameOf, providerLabel, type LinkedSession, type PullRequestView } from './model/types'
 import { createSourceControlState, type SourceControlState } from './state'
 import './source-control-app.css'
 
@@ -123,7 +123,7 @@ function TopBarControls(props: { state: SourceControlState; actions: AppActions 
                 >
                   <span class="dev-scm-truncate">{pr.title}</span>
                   <span class="dev-scm-caption">
-                    {project.name} #{pr.number}
+                    {project.name} {prRef(pr)}
                   </span>
                 </Button>
               )}
@@ -227,9 +227,23 @@ function ConnectedApp(
     state.startPolling()
   })
 
-  const disconnected = () => {
-    const account = state.account()
-    return account.status === 'disconnected' ? account : undefined
+  const disconnected = () => state.disconnected()
+  /** The status bar's summary across the providers in use. */
+  const connection = () => {
+    const states = state
+      .providers()
+      .map((provider) => ({ provider, account: state.account(provider) }))
+    const names = (filter: (entry: (typeof states)[number]) => boolean) =>
+      states
+        .filter(filter)
+        .map((entry) => providerLabel[entry.provider])
+        .join(' and ')
+    if (states.some((entry) => entry.account.status === 'loading'))
+      return { tone: 'default' as const, text: `Checking ${names(() => true)}` }
+    const off = names((entry) => entry.account.status !== 'connected')
+    return off
+      ? { tone: 'warning' as const, text: `${off} not connected` }
+      : { tone: 'success' as const, text: `${names(() => true)} connected` }
   }
   const route = () => state.route()
   const selectedProject = () => {
@@ -267,8 +281,8 @@ function ConnectedApp(
       )
       notify(
         result.headBranchDeleted
-          ? `Merged #${pr.number} and deleted ${pr.headRef}.`
-          : `Merged #${pr.number}.`
+          ? `Merged ${prRef(pr)} and deleted ${pr.headRef}.`
+          : `Merged ${prRef(pr)}.`
       )
       setMergeTarget(undefined)
       void state.loadRepo(pr.repoId)
@@ -327,8 +341,8 @@ function ConnectedApp(
                 <StateMessage
                   title={
                     account().code === 'capability_unavailable'
-                      ? 'Install the GitHub CLI to connect GitHub'
-                      : 'Connect GitHub'
+                      ? `Install the ${providerLabel[account().provider]} CLI to connect ${providerLabel[account().provider]}`
+                      : `Connect ${providerLabel[account().provider]}`
                   }
                   description={account().reason}
                 >
@@ -379,29 +393,16 @@ function ConnectedApp(
             </Match>
             <Match when={state.catalogLoaded()}>
               <StateMessage
-                title="No GitHub projects yet"
-                description="Add a project whose repository is on GitHub in the Dev view, and its pull requests appear here."
+                title="No GitHub or GitLab projects yet"
+                description="Add a project whose repository is on GitHub or GitLab in the Dev view, and its pull requests appear here."
               />
             </Match>
           </Switch>
         </div>
       </div>
       <StatusBar class="dev-scm__status">
-        <StatusBarItem
-          dot
-          tone={
-            state.account().status === 'connected'
-              ? 'success'
-              : state.account().status === 'loading'
-                ? 'default'
-                : 'warning'
-          }
-        >
-          {state.account().status === 'connected'
-            ? 'GitHub connected'
-            : state.account().status === 'loading'
-              ? 'Checking GitHub'
-              : 'GitHub not connected'}
+        <StatusBarItem dot tone={connection().tone}>
+          {connection().text}
         </StatusBarItem>
         <Show when={statusProject()}>
           {(project) => (
@@ -410,7 +411,7 @@ function ConnectedApp(
             </StatusBarItem>
           )}
         </Show>
-        <Show when={statusPr()}>{(pr) => <StatusBarItem>#{pr().number}</StatusBarItem>}</Show>
+        <Show when={statusPr()}>{(pr) => <StatusBarItem>{prRef(pr())}</StatusBarItem>}</Show>
         <StatusBarSpacer />
         <Show when={statusPr()}>
           {(pr) => (
@@ -432,8 +433,11 @@ function ConnectedApp(
 
       <ProvidersDialog
         open={providersOpen()}
-        account={state.account()}
-        projectCount={state.activeProjects().length}
+        accounts={{ github: state.account('github'), gitlab: state.account('gitlab') }}
+        projectCounts={{
+          github: state.activeProjects().filter((row) => row.provider === 'github').length,
+          gitlab: state.activeProjects().filter((row) => row.provider === 'gitlab').length,
+        }}
         checking={state.syncing()}
         onCheck={() => void state.sync()}
         onClose={() => setProvidersOpen(false)}
@@ -451,7 +455,10 @@ function ConnectedApp(
             {...(state.preferences().mergeMethod
               ? { mergeMethod: state.preferences().mergeMethod! }
               : {})}
-            {...(state.viewer() ? { viewer: state.viewer()! } : {})}
+            {...(state.viewer(state.repoProvider(target().repoId))
+              ? { viewer: state.viewer(state.repoProvider(target().repoId))! }
+              : {})}
+            providerName={providerLabel[state.repoProvider(target().repoId) ?? 'github']}
             client={client}
             onClose={() => setNewPr(undefined)}
             onCreated={(pullRequestId) => {
@@ -475,11 +482,12 @@ function ConnectedApp(
               <>
                 <AlertDialogHeader>
                   <AlertDialogTitle>
-                    {mergeMethod() ? mergeMethodLabel[mergeMethod()!] : 'Merge'} #{pr().number}?
+                    {mergeMethod() ? mergeMethodLabel[mergeMethod()!] : 'Merge'} {prRef(pr())}?
                   </AlertDialogTitle>
                   <AlertDialogDescription>
                     “{pr().title}” merges {pr().headRef} into {pr().baseRef} at{' '}
-                    {shortSha(pr().headSha)}. GitHub re-checks every requirement first.
+                    {shortSha(pr().headSha)}. {hostNameOf(pr().id)} re-checks every requirement
+                    first.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <Show when={!pr().crossRepository}>
@@ -488,7 +496,7 @@ function ConnectedApp(
                     onChange={(deleteBranch: boolean) =>
                       state.setPreferences((prefs) => ({ ...prefs, deleteBranch }))
                     }
-                    label={`Delete ${pr().headRef} on GitHub after merging`}
+                    label={`Delete ${pr().headRef} on ${hostNameOf(pr().id)} after merging`}
                   />
                 </Show>
                 <AlertDialogFooter>
@@ -536,8 +544,8 @@ function ConnectedApp(
                   </AlertDialogTitle>
                   <AlertDialogDescription>
                     {target().method === 'rebase'
-                      ? `GitHub rebases the branch onto ${target().pr.baseRef} and rewrites its history. Anyone with the branch checked out, including an agent's worktree, must reset to the new head.`
-                      : `GitHub merges ${target().pr.baseRef} into the branch with a new commit.`}{' '}
+                      ? `${hostNameOf(target().pr.id)} rebases the branch onto ${target().pr.baseRef} and rewrites its history. Anyone with the branch checked out, including an agent's worktree, must reset to the new head.`
+                      : `${hostNameOf(target().pr.id)} merges ${target().pr.baseRef} into the branch with a new commit.`}{' '}
                     Checks re-run on the new head.
                   </AlertDialogDescription>
                 </AlertDialogHeader>

@@ -1,12 +1,15 @@
 /*
- * The sidebar tree: GitHub owners (organizations and the viewer's own
- * account) at the top level, each labelled with its provider, and the Adea
- * projects whose repository lives there underneath. Projects without a
- * GitHub remote are not source control destinations and are left out; the
+ * The sidebar tree: GitHub and GitLab owners (organizations, groups and
+ * the viewer's own account) at the top level, each labelled with its
+ * provider, and the Adea projects whose repository lives there underneath.
+ * Projects without a GitHub or GitLab remote are not source control
+ * destinations and are left out; the
  * caller reports how many were skipped. Archived projects collapse into one
  * row at the bottom.
  */
 import type { GitHubCheckRollupState } from '@adea-ai/types/dev-runtime'
+
+import { providerLabel, type ScmProvider } from './types'
 
 export type ProjectFact = Readonly<{
   id: string
@@ -33,6 +36,7 @@ export type TreeProject = Readonly<{
   name: string
   projectName: string
   host: string
+  provider: ScmProvider
   archived: boolean
   openCount?: number
   /** The open count is a lower bound: more pages exist. */
@@ -44,7 +48,9 @@ export type TreeOwner = Readonly<{
   key: string
   owner: string
   host: string
-  provider: 'GitHub'
+  provider: ScmProvider
+  /** The provider's display name. */
+  providerName: string
   isViewer: boolean
   projects: readonly TreeProject[]
 }>
@@ -52,7 +58,7 @@ export type TreeOwner = Readonly<{
 export type SourceControlTree = Readonly<{
   owners: readonly TreeOwner[]
   archived: readonly TreeProject[]
-  /** Projects with no GitHub repository. */
+  /** Projects with no GitHub or GitLab repository. */
   skipped: number
 }>
 
@@ -72,21 +78,28 @@ export function buildTree(
   projects: readonly ProjectFact[],
   repos: readonly RepoFact[],
   stats: ReadonlyMap<string, RepoStats>,
-  viewer: string | undefined
+  /** The signed-in login on each provider. */
+  viewers: Readonly<Partial<Record<ScmProvider, string>>>
 ): SourceControlTree {
   const repoById = new Map(repos.map((repo) => [repo.id, repo]))
-  const owners = new Map<string, { owner: string; host: string; projects: TreeProject[] }>()
+  const owners = new Map<
+    string,
+    { owner: string; host: string; provider: ScmProvider; projects: TreeProject[] }
+  >()
   const archived: TreeProject[] = []
   let skipped = 0
   for (const project of projects) {
-    const github = project.repoIds
+    const hosted = project.repoIds
       .map((id) => repoById.get(id))
-      .filter((repo): repo is RepoFact => repo !== undefined && repo.provider === 'github')
-    if (github.length === 0) {
+      .filter(
+        (repo): repo is RepoFact & { provider: ScmProvider } =>
+          repo !== undefined && (repo.provider === 'github' || repo.provider === 'gitlab')
+      )
+    if (hosted.length === 0) {
       skipped += 1
       continue
     }
-    for (const repo of github) {
+    for (const repo of hosted) {
       const name = repositoryName(repo.displayUrl)
       const stat = stats.get(repo.id)
       const row: TreeProject = {
@@ -97,6 +110,7 @@ export function buildTree(
         name,
         projectName: project.name,
         host: repo.host,
+        provider: repo.provider,
         archived: project.archived,
         ...(stat?.openCount !== undefined ? { openCount: stat.openCount } : {}),
         openCountMore: stat?.openCountMore === true,
@@ -106,21 +120,29 @@ export function buildTree(
         archived.push(row)
         continue
       }
-      const key = `${repo.host}/${repo.ownerPath}`.toLowerCase()
-      const group = owners.get(key) ?? { owner: repo.ownerPath, host: repo.host, projects: [] }
+      const key = `${repo.provider}:${repo.host}/${repo.ownerPath}`.toLowerCase()
+      const group = owners.get(key) ?? {
+        owner: repo.ownerPath,
+        host: repo.host,
+        provider: repo.provider,
+        projects: [],
+      }
       group.projects.push(row)
       owners.set(key, group)
     }
   }
-  const isViewer = (owner: string) =>
-    Boolean(viewer && owner.toLowerCase() === viewer.toLowerCase())
+  const isViewer = (owner: string, provider: ScmProvider) => {
+    const viewer = viewers[provider]
+    return Boolean(viewer && owner.toLowerCase() === viewer.toLowerCase())
+  }
   const ordered = [...owners.entries()]
     .map(([key, group]) => ({
       key,
       owner: group.owner,
       host: group.host,
-      provider: 'GitHub' as const,
-      isViewer: isViewer(group.owner),
+      provider: group.provider,
+      providerName: providerLabel[group.provider],
+      isViewer: isViewer(group.owner, group.provider),
       projects: group.projects.toSorted((a, b) => a.name.localeCompare(b.name)),
     }))
     // Organizations first, alphabetically; the viewer's own account last.

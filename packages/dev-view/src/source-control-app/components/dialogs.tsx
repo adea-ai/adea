@@ -7,7 +7,8 @@
  * exists is reported without undoing the creation.
  *
  * Git providers reflects how Adea actually authenticates: GitHub through the
- * `gh` CLI's own credential store. Adea stores no GitHub token.
+ * `gh` CLI's credential store and GitLab through `glab`'s. Adea stores no
+ * provider token.
  */
 import type { GitHubAccount, GitHubBranch, GitHubMergeMethod } from '@adea-ai/types/dev-runtime'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -20,10 +21,11 @@ import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import { ArrowLeft, Copy } from 'lucide-solid'
-import { Show, createEffect, createResource, createSignal, on, type JSX } from 'solid-js'
+import { For, Show, createEffect, createResource, createSignal, on, type JSX } from 'solid-js'
 
 import { errorText, type ScmClient } from '../client'
 import { plural } from '../model/format'
+import { providerLabel, type ScmProvider } from '../model/types'
 import type { AccountState } from '../state'
 import { ChangeCounts } from './bits'
 import { Picker, labelLoader, peopleLoader } from './picker'
@@ -43,6 +45,8 @@ export function NewPullRequestDialog(props: {
   headRef?: string
   mergeMethod?: GitHubMergeMethod
   viewer?: string
+  /** Where the pull request is created: GitHub or GitLab. */
+  providerName: string
   client: ScmClient
   onClose(): void
   onCreated(pullRequestId: string): void
@@ -323,7 +327,9 @@ export function NewPullRequestDialog(props: {
           </p>
         </Show>
         <div class="dev-scm-form__footer">
-          <span class="dev-scm-caption flex-1">Creates the pull request on GitHub.</span>
+          <span class="dev-scm-caption flex-1">
+            Creates the pull request on {props.providerName}.
+          </span>
           <Button type="button" variant="ghost" onClick={() => props.onClose()}>
             Cancel
           </Button>
@@ -342,101 +348,143 @@ export function NewPullRequestDialog(props: {
   )
 }
 
-export function ProvidersDialog(props: {
-  open: boolean
+type ProviderRow = Readonly<{
+  provider: ScmProvider
+  mark: string
+  cli: string
+  login: string
+}>
+
+const PROVIDER_ROWS: readonly ProviderRow[] = [
+  { provider: 'github', mark: 'GH', cli: 'GitHub CLI', login: 'gh auth login' },
+  { provider: 'gitlab', mark: 'GL', cli: 'GitLab CLI', login: 'glab auth login' },
+]
+
+function ProviderAccountRow(props: {
+  row: ProviderRow
   account: AccountState
   projectCount: number
   checking: boolean
   onCheck(): void
-  onClose(): void
 }): JSX.Element {
   const [copied, setCopied] = createSignal(false)
+  const name = () => providerLabel[props.row.provider]
   const connected = (): GitHubAccount | undefined =>
     props.account.status === 'connected' ? props.account.account : undefined
   const copy = () => {
-    void navigator.clipboard?.writeText('gh auth login').then(() => {
+    void navigator.clipboard?.writeText(props.row.login).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
   }
   return (
+    <>
+      <div class="dev-scm-card">
+        <div class="dev-scm-provider-row">
+          <span class="dev-scm-mark dev-scm-mark--lg" aria-hidden="true">
+            {props.row.mark}
+          </span>
+          <div class="dev-scm-provider-row__text">
+            <span class="font-medium">{name()}</span>
+            <span class="dev-scm-caption dev-scm-truncate">
+              <Show
+                when={connected()}
+                fallback={
+                  props.account.status === 'loading'
+                    ? props.projectCount > 0
+                      ? `Checking the ${props.row.cli}…`
+                      : `No ${name()} projects yet`
+                    : props.account.status === 'disconnected'
+                      ? props.account.reason
+                      : ''
+                }
+              >
+                {(account) =>
+                  `Signed in as ${account().login} on ${account().host} · ${plural(props.projectCount, 'project')}`
+                }
+              </Show>
+            </span>
+          </div>
+          <StatusChip
+            tone={
+              connected() ? 'success' : props.account.status === 'loading' ? 'unknown' : 'warning'
+            }
+            label={
+              connected()
+                ? 'Connected'
+                : props.account.status === 'loading'
+                  ? props.projectCount > 0
+                    ? 'Checking'
+                    : 'Not checked'
+                  : 'Not connected'
+            }
+          />
+          <ActionButton
+            type="button"
+            variant="outline"
+            busy={props.checking}
+            busyLabel="Checking"
+            aria-label={`Check ${name()} again`}
+            onClick={() => props.onCheck()}
+          >
+            Check again
+          </ActionButton>
+        </div>
+      </div>
+      <Show when={props.account.status === 'disconnected'}>
+        <div class="dev-scm-summary">
+          <span class="dev-scm-caption flex-1">
+            Adea uses the {props.row.cli}'s sign-in and never stores a {name()} token. Install the{' '}
+            {props.row.cli}, then run this in a terminal:
+          </span>
+          <span class="dev-scm-mono">{props.row.login}</span>
+          <ActionButton
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            tooltip={copied() ? 'Copied' : 'Copy the command'}
+            aria-label={`Copy ${props.row.login}`}
+            onClick={copy}
+          >
+            <Copy aria-hidden="true" />
+          </ActionButton>
+        </div>
+      </Show>
+    </>
+  )
+}
+
+export function ProvidersDialog(props: {
+  open: boolean
+  accounts: Readonly<Record<ScmProvider, AccountState>>
+  projectCounts: Readonly<Record<ScmProvider, number>>
+  checking: boolean
+  onCheck(): void
+  onClose(): void
+}): JSX.Element {
+  return (
     <ModalDialog
       open={props.open}
       onClose={() => props.onClose()}
       title="Git providers"
-      description="Each connected account's organizations appear in the sidebar, with your projects underneath."
+      description="Each connected account's organizations and groups appear in the sidebar, with your projects underneath."
       class="conventional-dialog"
     >
       <div class="dev-scm-form">
-        <div class="dev-scm-card">
-          <div class="dev-scm-provider-row">
-            <span class="dev-scm-mark dev-scm-mark--lg" aria-hidden="true">
-              GH
-            </span>
-            <div class="dev-scm-provider-row__text">
-              <span class="font-medium">GitHub</span>
-              <span class="dev-scm-caption dev-scm-truncate">
-                <Show
-                  when={connected()}
-                  fallback={
-                    props.account.status === 'loading'
-                      ? 'Checking the GitHub CLI…'
-                      : props.account.status === 'disconnected'
-                        ? props.account.reason
-                        : ''
-                  }
-                >
-                  {(account) =>
-                    `Signed in as ${account().login} on ${account().host} · ${plural(props.projectCount, 'project')}`
-                  }
-                </Show>
-              </span>
-            </div>
-            <StatusChip
-              tone={
-                connected() ? 'success' : props.account.status === 'loading' ? 'unknown' : 'warning'
-              }
-              label={
-                connected()
-                  ? 'Connected'
-                  : props.account.status === 'loading'
-                    ? 'Checking'
-                    : 'Not connected'
-              }
+        <For each={PROVIDER_ROWS}>
+          {(row) => (
+            <ProviderAccountRow
+              row={row}
+              account={props.accounts[row.provider]}
+              projectCount={props.projectCounts[row.provider]}
+              checking={props.checking}
+              onCheck={() => props.onCheck()}
             />
-            <ActionButton
-              type="button"
-              variant="outline"
-              busy={props.checking}
-              busyLabel="Checking"
-              onClick={() => props.onCheck()}
-            >
-              Check again
-            </ActionButton>
-          </div>
-        </div>
-        <Show when={!connected() && props.account.status !== 'loading'}>
-          <div class="dev-scm-summary">
-            <span class="dev-scm-caption flex-1">
-              Adea uses the GitHub CLI's sign-in and never stores a GitHub token. Install the GitHub
-              CLI, then run this in a terminal:
-            </span>
-            <span class="dev-scm-mono">gh auth login</span>
-            <ActionButton
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              tooltip={copied() ? 'Copied' : 'Copy the command'}
-              aria-label="Copy gh auth login"
-              onClick={copy}
-            >
-              <Copy aria-hidden="true" />
-            </ActionButton>
-          </div>
-        </Show>
+          )}
+        </For>
         <p class="dev-scm-caption">
-          Projects appear here when their repository's origin is on GitHub. Add projects in the Dev
-          view. GitLab and other providers are not supported yet.
+          Projects appear here when their repository's origin is on GitHub or GitLab. Add projects
+          in the Dev view.
         </p>
         <div class="dev-scm-form__footer">
           <span class="flex-1" />

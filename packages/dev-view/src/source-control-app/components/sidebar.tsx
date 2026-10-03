@@ -154,7 +154,7 @@ export function SourceControlSidebar(props: {
               fallback={
                 <Show when={props.state.catalogLoaded()}>
                   <EmptyDescription>
-                    No projects with a GitHub repository yet. Add one in the Dev view.
+                    No projects with a GitHub or GitLab repository yet. Add one in the Dev view.
                   </EmptyDescription>
                 </Show>
               }
@@ -170,7 +170,7 @@ export function SourceControlSidebar(props: {
                     action={
                       <span class="dev-scm-tree__owner" aria-hidden="true">
                         <span class="dev-scm-mark">{monogram(owner.owner)}</span>
-                        <span class="dev-scm-provider">{owner.provider}</span>
+                        <span class="dev-scm-provider">{owner.providerName}</span>
                       </span>
                     }
                   >
@@ -198,8 +198,8 @@ export function SourceControlSidebar(props: {
             <Show when={props.state.tree().skipped > 0}>
               <EmptyDescription>
                 {props.state.tree().skipped === 1
-                  ? '1 project has no GitHub repository.'
-                  : `${props.state.tree().skipped} projects have no GitHub repository.`}
+                  ? '1 project has no GitHub or GitLab repository.'
+                  : `${props.state.tree().skipped} projects have no GitHub or GitLab repository.`}
               </EmptyDescription>
             </Show>
           </nav>

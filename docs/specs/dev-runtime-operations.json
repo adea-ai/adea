@@ -734,6 +734,180 @@
       "body": "{ pullRequestId: string; expectedVersion: integer; patch: GitHubPullRequestMutableFields }",
       "reply": "MutationPlan"
     },
+    "dev.gitlab.account": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": null,
+      "body": "{}",
+      "reply": "GitHubAccount"
+    },
+    "dev.gitlab.assignableUsers": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; query?: string<=100; limit?: integer(1..100) }",
+      "reply": "Page<GitHubActor>"
+    },
+    "dev.gitlab.autoMergeCommit": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitHubPullRequestSummary"
+    },
+    "dev.gitlab.autoMergePlan": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; expectedHeadSha: sha; enabled: boolean; method?: 'merge'|'squash'|'rebase' }",
+      "reply": "MutationPlan"
+    },
+    "dev.gitlab.branches": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; cursor?: string; limit?: integer(1..100) }",
+      "reply": "Page<GitHubBranch>"
+    },
+    "dev.gitlab.checkLog": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; checkId: string(1..64) }",
+      "reply": "GitHubCheckLog"
+    },
+    "dev.gitlab.checks": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; sha?: sha; cursor?: string; limit?: integer(1..100) }",
+      "reply": "Page<GitHubCheck>"
+    },
+    "dev.gitlab.comment": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; body: string(1..65536) }",
+      "reply": "GitHubTimelineItem"
+    },
+    "dev.gitlab.commits": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; cursor?: string; limit?: integer(1..100) }",
+      "reply": "Page<GitHubCommitSummary>"
+    },
+    "dev.gitlab.compare": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; baseRef: string(1..255); headRef: string(1..255) }",
+      "reply": "GitHubCompare"
+    },
+    "dev.gitlab.createPullRequest": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; headRef: string; baseRef: string; title: string(1..256); body: string<=65536; draft: true }",
+      "reply": "GitHubPullRequest"
+    },
+    "dev.gitlab.files": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; cursor?: string; limit?: integer(1..100) }",
+      "reply": "Page<GitHubChangedFile>"
+    },
+    "dev.gitlab.labels": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; cursor?: string; limit?: integer(1..100) }",
+      "reply": "Page<GitHubLabel>"
+    },
+    "dev.gitlab.mergeCommit": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitHubPullRequest"
+    },
+    "dev.gitlab.mergePlan": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; expectedHeadSha: sha; method: 'merge'|'squash'|'rebase'; deleteBranch?: boolean }",
+      "reply": "MutationPlan"
+    },
+    "dev.gitlab.metadataUpdate": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; reviewers?: { add: string[]<=20; remove: string[]<=20 }; assignees?: { add: string[]<=20; remove: string[]<=20 }; labels?: { add: string[]<=50; remove: string[]<=50 } }",
+      "reply": "GitHubPullRequestSummary"
+    },
+    "dev.gitlab.pullRequest": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; refresh?: boolean }",
+      "reply": "GitHubPullRequest"
+    },
+    "dev.gitlab.pullRequestSummaries": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; state?: 'open'|'closed'|'merged'; cursor?: string; limit?: integer(1..50) }",
+      "reply": "Page<GitHubPullRequestSummary>"
+    },
+    "dev.gitlab.pullRequestSummary": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; refresh?: boolean }",
+      "reply": "GitHubPullRequestSummary"
+    },
+    "dev.gitlab.repository": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; refresh?: boolean }",
+      "reply": "GitHubRepository"
+    },
+    "dev.gitlab.rerunFailedJobs": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; checkId: string(1..64) }",
+      "reply": "GitHubRerunResult"
+    },
+    "dev.gitlab.submitReview": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; expectedHeadSha: sha; verdict: 'comment'|'approve'|'request_changes'; body: string<=65536; comments: GitHubReviewCommentInput[]<=100 }",
+      "reply": "GitHubTimelineItem"
+    },
+    "dev.gitlab.syncBranchCommit": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitHubPullRequestSummary"
+    },
+    "dev.gitlab.syncBranchPlan": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; expectedHeadSha: sha; method: 'merge'|'rebase' }",
+      "reply": "MutationPlan"
+    },
+    "dev.gitlab.threadReply": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; threadId: string(1..128); body: string(1..65536) }",
+      "reply": "GitHubTimelineItem"
+    },
+    "dev.gitlab.threadResolve": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; threadId: string(1..128); resolved: boolean }",
+      "reply": "GitHubTimelineItem"
+    },
+    "dev.gitlab.timeline": {
+      "capabilities": ["dev.gitlab.read"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; cursor?: string; limit?: integer(1..100) }",
+      "reply": "Page<GitHubTimelineItem>"
+    },
+    "dev.gitlab.updateCommit": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitHubPullRequest"
+    },
+    "dev.gitlab.updatePlan": {
+      "capabilities": ["dev.gitlab.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; expectedVersion: integer; patch: GitHubPullRequestMutableFields }",
+      "reply": "MutationPlan"
+    },
     "dev.group.create": {
       "capabilities": ["dev.project.manage"],
       "resource": null,

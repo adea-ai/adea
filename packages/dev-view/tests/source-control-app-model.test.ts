@@ -7,7 +7,7 @@ import {
   parsePatch,
   splitRows,
 } from '../src/source-control-app/model/diff'
-import { duration, relativeTime } from '../src/source-control-app/model/format'
+import { duration, prRef, relativeTime } from '../src/source-control-app/model/format'
 import {
   classifyPullRequest,
   filterOptions,
@@ -25,7 +25,12 @@ import {
 } from '../src/source-control-app/model/persistence'
 import { indexSessions, linkPullRequest } from '../src/source-control-app/model/sessions'
 import { buildTree, monogram, repositoryName } from '../src/source-control-app/model/tree'
-import { githubCapabilities, type PullRequestView } from '../src/source-control-app/model/types'
+import {
+  capabilitiesOf,
+  githubCapabilities,
+  providerOf,
+  type PullRequestView,
+} from '../src/source-control-app/model/types'
 
 const NOW = '2026-10-03T12:00:00.000Z'
 const HEAD = 'a'.repeat(40)
@@ -324,7 +329,7 @@ describe('sidebar tree', () => {
         },
       ],
       new Map([['r1', { openCount: 10, ci: 'success' as const }]]),
-      VIEWER
+      { github: VIEWER }
     )
     expect(tree.owners.map((owner) => [owner.owner, owner.isViewer])).toEqual([
       ['adea-ai', false],
@@ -341,6 +346,66 @@ describe('sidebar tree', () => {
     expect(repositoryName('git@github.com:acme/widgets.git')).toBe('widgets')
     expect(monogram('adea-ai')).toBe('AA')
     expect(monogram('labs')).toBe('LA')
+  })
+
+  test('labels GitLab groups and resolves the viewer per provider', () => {
+    const tree = buildTree(
+      [
+        { id: 'p1', name: 'Runner', repoIds: ['r1'], archived: false },
+        { id: 'p2', name: 'Adea', repoIds: ['r2'], archived: false },
+        { id: 'p3', name: 'Notes', repoIds: ['r3'], archived: false },
+      ],
+      [
+        {
+          id: 'r1',
+          provider: 'gitlab',
+          host: 'gitlab.com',
+          ownerPath: 'acme/platform',
+          displayUrl: 'https://gitlab.com/acme/platform/runner',
+        },
+        {
+          id: 'r2',
+          provider: 'github',
+          host: 'github.com',
+          ownerPath: 'adea-ai',
+          displayUrl: 'https://github.com/adea-ai/adea',
+        },
+        {
+          id: 'r3',
+          provider: 'gitlab',
+          host: 'gitlab.com',
+          ownerPath: 'octocat',
+          displayUrl: 'https://gitlab.com/octocat/notes',
+        },
+      ],
+      new Map(),
+      // The same login on GitHub is not the GitLab viewer.
+      { github: 'octocat', gitlab: 'dana' }
+    )
+    expect(tree.owners.map((owner) => [owner.owner, owner.providerName, owner.isViewer])).toEqual([
+      ['acme/platform', 'GitLab', false],
+      ['adea-ai', 'GitHub', false],
+      ['octocat', 'GitLab', false],
+    ])
+    expect(tree.owners[0]!.projects[0]).toMatchObject({ name: 'runner', provider: 'gitlab' })
+    expect(tree.skipped).toBe(0)
+  })
+})
+
+describe('providers', () => {
+  test('pull request ids carry their provider and reference style', () => {
+    expect(providerOf('gl:acme/platform/widgets!7')).toBe('gitlab')
+    expect(providerOf('gh:acme/widgets#7')).toBe('github')
+    expect(prRef({ id: 'gl:acme/widgets!7', number: 7 })).toBe('!7')
+    expect(prRef({ id: 'gh:acme/widgets#7', number: 7 })).toBe('#7')
+  })
+
+  test('GitLab hides merge-commit updates, change requests and team reviewers', () => {
+    const gitlab = capabilitiesOf('gitlab')
+    expect(gitlab.updateMethods).toEqual(['rebase'])
+    expect(gitlab.requestChanges).toBe(false)
+    expect(gitlab.teamReviewers).toBe(false)
+    expect(capabilitiesOf('github').updateMethods).toEqual(['merge', 'rebase'])
   })
 })
 

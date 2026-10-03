@@ -3,8 +3,9 @@
 // actions, filters, the pull request conversation with thread resolution and
 // commenting, the merge dock's plan/commit merge with confirmation, update
 // branch, the review flow with a pending inline comment, checks with the
-// failing log, the new pull request dialog, the disconnected state, and
-// keyboard-only navigation, in dark and light.
+// failing log, the new pull request dialog, a GitLab project through the same
+// screens (rebase-only updates, no change requests), the disconnected states,
+// and keyboard-only navigation, in dark and light.
 import { expect, test, type Page } from '@playwright/test'
 import axe from 'axe-core'
 
@@ -308,6 +309,63 @@ test.describe('source control app', () => {
     await expect(dialog).toContainText('gh auth login')
     await expect(dialog).toContainText('never stores a GitHub token')
     await shot(page, '08-providers')
+  })
+
+  test('a GitLab project runs through the same screens', async ({ page }) => {
+    await openHarness(page)
+    const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
+    await expect(sidebar.getByText('GitLab', { exact: true })).toBeVisible()
+    await sidebar.locator('[data-repo-id="repo-runner"]').click()
+    await expect(page.getByRole('heading', { name: 'platform/infra / runner' })).toBeVisible()
+    await expect(page.locator('[data-pr="12"]')).toContainText('!12')
+    await page
+      .getByRole('button', { name: /Cache Go modules between jobs/ })
+      .first()
+      .click()
+    await expect(page.getByRole('heading', { name: /Cache Go modules between jobs/ })).toBeVisible()
+
+    // GitLab updates a branch by rebasing it: no merge-commit option.
+    const dock = page.getByRole('region', { name: 'Merge status' })
+    await expect(dock.getByRole('button', { name: 'Choose merge or rebase' })).toHaveCount(0)
+    await dock.getByRole('button', { name: 'Update branch', exact: true }).click()
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toContainText('with a rebase?')
+    await expect(confirm).toContainText('GitLab rebases the branch onto main')
+    await shot(page, '10-gitlab-rebase')
+    await confirm.getByRole('button', { name: 'Update branch' }).click()
+    await expect(confirm).toBeHidden()
+
+    // Approvals, not change requests.
+    await page.getByRole('tab', { name: /Files changed/ }).click()
+    await page.getByRole('button', { name: /Review changes/ }).click()
+    await expect(page.getByRole('radio', { name: /Approve/ })).toBeVisible()
+    await expect(page.getByRole('radio', { name: /Request changes/ })).toHaveCount(0)
+
+    const sent = await page.evaluate(() => window.sourceControlHarness.commands())
+    const plan = sent.find((entry) => entry.operation === 'dev.gitlab.syncBranchPlan')
+    expect(plan?.body).toMatchObject({
+      pullRequestId: 'gl:platform/infra/runner!12',
+      method: 'rebase',
+    })
+    expect(sent.map((entry) => entry.operation)).toContain('dev.gitlab.syncBranchCommit')
+    expect(sent.map((entry) => entry.operation)).toContain('dev.gitlab.account')
+    expect(sent.some((entry) => entry.operation === 'dev.github.syncBranchPlan')).toBe(false)
+  })
+
+  test('one provider signed out leaves the other working', async ({ page }) => {
+    await openHarness(page, '?scenario=gitlab-disconnected')
+    await expect(page.getByRole('heading', { name: 'adea-ai / adea' })).toBeVisible()
+    await expect(page.locator('[data-pr="912"]')).toBeVisible()
+    await expect(page.getByText('GitLab not connected')).toBeVisible()
+    await page
+      .getByRole('complementary', { name: 'Accounts and projects' })
+      .locator('[data-repo-id="repo-runner"]')
+      .click()
+    await expect(page.getByText('glab is not authenticated for this operation')).toBeVisible()
+    await page.getByRole('button', { name: 'Connect account' }).first().click()
+    const dialog = page.getByRole('dialog', { name: 'Git providers' })
+    await expect(dialog).toContainText('glab auth login')
+    await expect(dialog).toContainText('Signed in as octocat on github.com')
   })
 
   test('keyboard reaches the inbox and opens a pull request', async ({ page }) => {

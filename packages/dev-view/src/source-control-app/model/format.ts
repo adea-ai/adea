@@ -63,3 +63,9 @@ export function initial(login: string | undefined): string {
 export function displayLogin(login: string): string {
   return login.replace(/\[bot\]$/, '')
 }
+
+/** A pull request's short reference: `#12` on GitHub, `!12` for a GitLab
+ *  merge request. */
+export function prRef(pr: Readonly<{ id: string; number: number }>): string {
+  return `${pr.id.startsWith('gl:') ? '!' : '#'}${pr.number}`
+}

@@ -29,6 +29,8 @@ export function MergeDockView(props: {
   method?: GitHubMergeMethod
   busy?: string
   canDraft: boolean
+  /** How this provider can update a branch; the first is the default. */
+  updateMethods: readonly ('merge' | 'rebase')[]
   onMethod(method: GitHubMergeMethod): void
   onReview(): void
   onViewChecks(): void
@@ -89,31 +91,33 @@ export function MergeDockView(props: {
               variant="outline"
               size="sm"
               disabled={props.busy !== undefined}
-              onClick={() => props.onUpdateBranch('merge')}
+              onClick={() => props.onUpdateBranch(props.updateMethods[0] ?? 'merge')}
             >
               Update branch
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                as={ActionButton}
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                tooltip="Choose merge or rebase"
-                aria-label="Choose merge or rebase"
-                disabled={props.busy !== undefined}
-              >
-                <ChevronDown aria-hidden="true" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent hideArrow placement="bottom-end">
-                <DropdownMenuItem onSelect={() => props.onUpdateBranch('merge')}>
-                  Update with a merge commit
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => props.onUpdateBranch('rebase')}>
-                  Update with a rebase
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Show when={props.updateMethods.length > 1}>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  as={ActionButton}
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  tooltip="Choose merge or rebase"
+                  aria-label="Choose merge or rebase"
+                  disabled={props.busy !== undefined}
+                >
+                  <ChevronDown aria-hidden="true" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent hideArrow placement="bottom-end">
+                  <DropdownMenuItem onSelect={() => props.onUpdateBranch('merge')}>
+                    Update with a merge commit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => props.onUpdateBranch('rebase')}>
+                    Update with a rebase
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </Show>
           </ButtonGroup>
         </Show>
       </div>

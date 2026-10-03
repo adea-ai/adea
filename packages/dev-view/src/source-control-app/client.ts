@@ -32,6 +32,7 @@ import type {
 
 import { buildDevCommand } from '../browser/command'
 import type { DevRuntimeService } from '../platform'
+import { providerOf, type ScmProvider } from './model/types'
 
 export class ScmError extends Error {
   readonly code: DevErrorCode | 'blocked' | 'unavailable'
@@ -75,6 +76,18 @@ const pr = (pullRequestId: string): Resource => ({
 })
 
 export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
+  /** Which provider serves a repository; set from the runtime catalog. */
+  const repoProviders = new Map<string, ScmProvider>()
+  /** The provider family for an operation: merge request ids carry their
+   *  provider; repository ids are looked up in the catalog. */
+  const op = (name: string, id: string): Operation => {
+    const provider =
+      id.startsWith('gl:') || id.startsWith('gh:')
+        ? providerOf(id)
+        : (repoProviders.get(id) ?? 'github')
+    return `dev.${provider}.${name}` as Operation
+  }
+
   async function call<T>(
     operation: Operation,
     body: Record<string, unknown>,
@@ -134,29 +147,35 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
 
   return {
     scope,
+    /** Record which provider serves each repository. */
+    setRepoProviders: (entries: Iterable<readonly [string, ScmProvider]>) => {
+      repoProviders.clear()
+      for (const [repoId, provider] of entries) repoProviders.set(repoId, provider)
+    },
     // ── Runtime catalog ──
     projects: () => allPages<Project>('dev.project.list', { limit: 500 }),
     repos: () => allPages<Repo>('dev.repo.list', { limit: 500 }),
     worktrees: () => allPages<WorktreeRecord>('dev.worktree.list', { archived: false, limit: 500 }),
     sessions: () => allPages<RuntimeSession>('dev.session.list', { archived: false, limit: 500 }),
 
-    // ── GitHub reads ──
-    account: () => call<GitHubAccount>('dev.github.account', {}),
+    // ── Provider reads (GitHub, or GitLab's mirror) ──
+    account: (provider: ScmProvider = 'github') =>
+      call<GitHubAccount>(`dev.${provider}.account` as Operation, {}),
     repository: (repoId: string, refresh = false) =>
       call<GitHubRepository>(
-        'dev.github.repository',
+        op('repository', repoId),
         { repoId, ...(refresh ? { refresh } : {}) },
         repo(repoId)
       ),
     summaries: (repoId: string, state: 'open' | 'closed' | 'merged', cursor?: string) =>
       call<DevRuntimePage<GitHubPullRequestSummary>>(
-        'dev.github.pullRequestSummaries',
+        op('pullRequestSummaries', repoId),
         { repoId, state, limit: 50, ...(cursor ? { cursor } : {}) },
         repo(repoId)
       ),
     summary: (pullRequestId: string, refresh = false) =>
       call<GitHubPullRequestSummary>(
-        'dev.github.pullRequestSummary',
+        op('pullRequestSummary', pullRequestId),
         { pullRequestId, ...(refresh ? { refresh } : {}) },
         pr(pullRequestId)
       ),
@@ -165,7 +184,7 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
       let cursor: string | undefined
       for (let page = 0; page < 10; page += 1) {
         const result = await call<DevRuntimePage<GitHubTimelineItem>>(
-          'dev.github.timeline',
+          op('timeline', pullRequestId),
           { pullRequestId, limit: 100, ...(cursor ? { cursor } : {}) },
           pr(pullRequestId)
         )
@@ -177,7 +196,7 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
     },
     commits: (pullRequestId: string) =>
       call<DevRuntimePage<GitHubCommitSummary>>(
-        'dev.github.commits',
+        op('commits', pullRequestId),
         { pullRequestId, limit: 100 },
         pr(pullRequestId)
       ),
@@ -186,7 +205,7 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
       let cursor: string | undefined
       for (let page = 0; page < 30; page += 1) {
         const result = await call<DevRuntimePage<GitHubChangedFile>>(
-          'dev.github.files',
+          op('files', pullRequestId),
           { pullRequestId, limit: 100, ...(cursor ? { cursor } : {}) },
           pr(pullRequestId)
         )
@@ -198,37 +217,45 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
     },
     checks: (pullRequestId: string, sha?: string) =>
       call<DevRuntimePage<GitHubCheck>>(
-        'dev.github.checks',
+        op('checks', pullRequestId),
         { pullRequestId, limit: 100, ...(sha ? { sha } : {}) },
         pr(pullRequestId)
       ),
     checkLog: (pullRequestId: string, checkId: string) =>
-      call<GitHubCheckLog>('dev.github.checkLog', { pullRequestId, checkId }, pr(pullRequestId)),
+      call<GitHubCheckLog>(
+        op('checkLog', pullRequestId),
+        { pullRequestId, checkId },
+        pr(pullRequestId)
+      ),
     labels: (repoId: string) =>
-      call<DevRuntimePage<GitHubLabel>>('dev.github.labels', { repoId, limit: 100 }, repo(repoId)),
+      call<DevRuntimePage<GitHubLabel>>(op('labels', repoId), { repoId, limit: 100 }, repo(repoId)),
     assignableUsers: (repoId: string, query: string) =>
       call<DevRuntimePage<GitHubActor>>(
-        'dev.github.assignableUsers',
+        op('assignableUsers', repoId),
         { repoId, limit: 50, ...(query ? { query } : {}) },
         repo(repoId)
       ),
     branches: (repoId: string) =>
-      allPages<GitHubBranch>('dev.github.branches', { repoId, limit: 100 }, repo(repoId)),
+      allPages<GitHubBranch>(op('branches', repoId), { repoId, limit: 100 }, repo(repoId)),
     compare: (repoId: string, baseRef: string, headRef: string) =>
-      call<GitHubCompare>('dev.github.compare', { repoId, baseRef, headRef }, repo(repoId)),
+      call<GitHubCompare>(op('compare', repoId), { repoId, baseRef, headRef }, repo(repoId)),
 
     // ── Conversation writes ──
     comment: (pullRequestId: string, body: string) =>
-      call<GitHubTimelineItem>('dev.github.comment', { pullRequestId, body }, pr(pullRequestId)),
+      call<GitHubTimelineItem>(
+        op('comment', pullRequestId),
+        { pullRequestId, body },
+        pr(pullRequestId)
+      ),
     threadReply: (pullRequestId: string, threadId: string, body: string) =>
       call<GitHubTimelineItem>(
-        'dev.github.threadReply',
+        op('threadReply', pullRequestId),
         { pullRequestId, threadId, body },
         pr(pullRequestId)
       ),
     threadResolve: (pullRequestId: string, threadId: string, resolved: boolean) =>
       call<GitHubTimelineItem>(
-        'dev.github.threadResolve',
+        op('threadResolve', pullRequestId),
         { pullRequestId, threadId, resolved },
         pr(pullRequestId)
       ),
@@ -239,7 +266,7 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
       >
     ) =>
       call<GitHubPullRequestSummary>(
-        'dev.github.metadataUpdate',
+        op('metadataUpdate', pullRequestId),
         { pullRequestId, ...change },
         pr(pullRequestId)
       ),
@@ -251,13 +278,13 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
       comments: readonly GitHubReviewCommentInput[]
     ) =>
       call<GitHubTimelineItem>(
-        'dev.github.submitReview',
+        op('submitReview', pullRequestId),
         { pullRequestId, expectedHeadSha, verdict, body, comments },
         pr(pullRequestId)
       ),
     rerunFailedJobs: (pullRequestId: string, checkId: string) =>
       call<{ runId: string }>(
-        'dev.github.rerunFailedJobs',
+        op('rerunFailedJobs', pullRequestId),
         { pullRequestId, checkId },
         pr(pullRequestId)
       ),
@@ -270,8 +297,8 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
       deleteBranch: boolean
     ) =>
       planned<GitHubPullRequest>(
-        'dev.github.mergePlan',
-        'dev.github.mergeCommit',
+        op('mergePlan', pullRequestId),
+        op('mergeCommit', pullRequestId),
         { pullRequestId, expectedHeadSha, method, deleteBranch },
         pr(pullRequestId)
       ),
@@ -282,15 +309,15 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
       method?: GitHubMergeMethod
     ) =>
       planned<GitHubPullRequestSummary>(
-        'dev.github.autoMergePlan',
-        'dev.github.autoMergeCommit',
+        op('autoMergePlan', pullRequestId),
+        op('autoMergeCommit', pullRequestId),
         { pullRequestId, expectedHeadSha, enabled, ...(method ? { method } : {}) },
         pr(pullRequestId)
       ),
     syncBranch: (pullRequestId: string, expectedHeadSha: string, method: 'merge' | 'rebase') =>
       planned<GitHubPullRequestSummary>(
-        'dev.github.syncBranchPlan',
-        'dev.github.syncBranchCommit',
+        op('syncBranchPlan', pullRequestId),
+        op('syncBranchCommit', pullRequestId),
         { pullRequestId, expectedHeadSha, method },
         pr(pullRequestId)
       ),
@@ -301,13 +328,13 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
       patch: { draft?: boolean; state?: 'open' | 'closed' }
     ) => {
       const current = await call<GitHubPullRequest>(
-        'dev.github.pullRequest',
+        op('pullRequest', pullRequestId),
         { pullRequestId, refresh: true },
         pr(pullRequestId)
       )
       return planned<GitHubPullRequest>(
-        'dev.github.updatePlan',
-        'dev.github.updateCommit',
+        op('updatePlan', pullRequestId),
+        op('updateCommit', pullRequestId),
         { pullRequestId, expectedVersion: current.version, patch },
         pr(pullRequestId)
       )
@@ -321,7 +348,7 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
       body: string
     ) =>
       call<GitHubPullRequest>(
-        'dev.github.createPullRequest',
+        op('createPullRequest', repoId),
         { repoId, headRef, baseRef, title, body, draft: true },
         repo(repoId)
       ),

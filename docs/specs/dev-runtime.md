@@ -1838,7 +1838,7 @@ projection; `unavailable` is empty for the local owner. Scoped capability
 subsets arrive with remote callers (M14 runtime nodes), which authenticate as
 a different identity class than this trusted local channel. The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 186 operation names, exact body shapes, exact reply types, complete required
+all 215 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -4025,16 +4025,75 @@ auth is the user's `gh` CLI context, and Adea stores no GitHub token.
   run and refuses `identity_mismatch` unless the job ran for the pull
   request's head branch.
 
+### GitLab provider (source control app)
+
+`dev.gitlab.*` mirrors the 29 source control operations of `dev.github.*`
+with identical request bodies, the same reply DTOs, and the capability pair
+`dev.gitlab.read`/`dev.gitlab.write`. The host provider
+(`apps/desktop/shell/src/dev-runtime/gitlab/register.ts`) follows the GitHub
+provider's rules, with these differences:
+
+- **Credentials.** GitLab auth is the user's `glab` CLI context (its
+  per-host credential store); Adea stores no GitLab token. `gitlab.com` is
+  trusted; a self-managed host must be trusted explicitly. Request bodies
+  carrying user text ride `glab api --input -` stdin, never argv. A missing
+  binary is `capability_unavailable`; a signed-out CLI is `unauthenticated`.
+- **Identity.** A merge request id is `gl:<full/project/path>!<iid>`: the
+  full path keeps every subgroup. The provider re-derives the project from
+  the registered repository's `origin` before any repository-scoped read.
+- **Mapping.** Merge requests map to `GitHubPullRequestSummary`. GitLab's
+  `Draft:` title prefix becomes the `draft` flag and is stripped from the
+  title; approvals become `approved` reviews and a reviewer who requested
+  changes a `changes_requested` review; `reviewDecision` follows the
+  project's approval rule. The head pipeline's jobs are the checks
+  (`stage / name`); an `allow_failure` job that failed is `neutral`, manual
+  and skipped jobs are `skipped`. Discussions anchored to a diff position
+  are threads (their id is the discussion id); other notes are comments;
+  system notes for approval, merge, close, reopen, draft and ready, review
+  requests, target changes and force pushes become review or lifecycle
+  events, and other system notes are dropped. Job logs drop GitLab's
+  section markers with the terminal escapes.
+- **Checks.** `checks` without a `sha`, or with the merge request's own
+  head, reads the head pipeline; an older `sha` reads that commit's latest
+  pipeline.
+- **Writes.** Reviews post inline comments as positioned discussions
+  against the head's diff refs, then the summary note, then the approval
+  bound to `expectedHeadSha`. Merge binds the planned head through GitLab's
+  `sha` guard and removes the source branch on request (never a fork's).
+  Auto-merge is merge-when-pipeline-succeeds, also bound to the head.
+  Updating a branch is a rebase. Draft and title changes travel through the
+  title prefix. `createPullRequest` opens a draft and reconciles onto the
+  open merge request for the same source and target. Re-running retries the
+  failed jobs of the job's pipeline, only for this merge request's branch.
+- **Refusals.** A `merge` branch update and a `request_changes` review are
+  `unsupported_capability` (a plan blocker for the former); a team reviewer
+  (`org/team`) is `unsupported_capability`. The app hides these actions
+  through per-provider capabilities rather than failing on them.
+
+Pinned by `apps/desktop/tests/dev-runtime-gitlab-provider.test.ts` on a
+scripted `glab`; the opt-in, read-only
+`apps/desktop/tests/live/gitlab-collaboration-live-read.ts` runs every read
+against a real project through the production `glab` transport, or with
+`--anonymous` against a public project over HTTPS (reads GitLab keeps behind
+sign-in then refuse with typed errors).
+
 ### Source control app (client)
 
 `packages/dev-view/src/source-control-app/**` is the rail's Source control
-app. It reaches GitHub only through the operations above and holds no
-provider state of its own beyond these rules:
+app. It reaches GitHub and GitLab only through the operations above and
+holds no provider state of its own beyond these rules:
 
 - **Projects.** The sidebar lists Dev projects whose repository `remote` is
-  on GitHub, grouped by owner (organizations, then the viewer's account);
-  other projects are counted, not listed. Archived projects collapse into one
-  row.
+  on GitHub or GitLab, grouped by owner or group and labelled with the
+  provider (organizations, then the viewer's own account); other projects
+  are counted, not listed. Archived projects collapse into one row.
+- **Providers.** The client picks the operation family from the pull
+  request id (`gh:`/`gl:`) or the repository's catalog provider. Each
+  provider has its own account and viewer; a provider that is signed out
+  shows its reason on its own projects while the other keeps working, and
+  the app is disconnected only when every provider in use is. Capabilities
+  per provider hide what it cannot do: GitLab offers only a rebase update,
+  no request-changes verdict, and no team reviewers.
 - **Session link and agents.** A pull request belongs to the Adea session
   whose non-archived worktree has its head branch checked out in the same
   repository (a live session wins); forks never link. The link is derived on
@@ -4827,6 +4886,15 @@ explicit spawn timeout for the same reason.
 
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
+
+- **2026-10-03 — source control app: GitLab.** Added the 29-operation
+  `dev.gitlab.*` mirror of the source control contract (total operations 215) with `dev.gitlab.read`/`dev.gitlab.write`, the `glab`-backed host
+  provider, and `gl:<path>!<iid>` review request ids (provider literals now
+  `github | gitlab`). New "GitLab provider (source control app)" section; the
+  client section gained per-provider routing, accounts and capabilities.
+  Pinned by `apps/desktop/tests/dev-runtime-gitlab-provider.test.ts`,
+  `packages/types/tests/dev-runtime-github.test.ts`, and the opt-in
+  `apps/desktop/tests/live/gitlab-collaboration-live-read.ts`.
 
 - **2026-10-03 — source control app: pull request collaboration.** Added 20
   `dev.github` operations (total operations 186): the inbox and detail read

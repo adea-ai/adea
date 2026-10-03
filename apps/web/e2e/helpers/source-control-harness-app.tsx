@@ -1,5 +1,6 @@
 // Browser harness for the source control app. A deterministic runtime that
 // answers the Dev Runtime catalog and dev.github.* operations from fixtures
+// (dev.gitlab.* answers from the same fixtures for the GitLab project)
 // shaped like the design's artboards, records every command, and applies
 // mutations to its in-memory state so the UI's re-reads observe them.
 import '../../src/start/globals.css'
@@ -48,6 +49,14 @@ const repos = [
     name: 'dotfiles',
     project: 'proj-dotfiles',
     projectName: 'Dotfiles',
+  },
+  {
+    id: 'repo-runner',
+    owner: 'platform/infra',
+    name: 'runner',
+    project: 'proj-runner',
+    projectName: 'Runner',
+    provider: 'gitlab' as const,
   },
   {
     id: 'repo-old',
@@ -123,9 +132,23 @@ const pico = { login: 'pico', kind: 'bot' as const }
 const atlas = { login: 'atlas', kind: 'bot' as const }
 const viewer = 'octocat'
 
+const providerOfRepo = (repoId: unknown) =>
+  repos.find((repo) => repo.id === repoId)?.provider ?? 'github'
+const hostOf = (provider: 'github' | 'gitlab') => `${provider}.com`
+
 const state = {
   commands: [] as { operation: string; body: Record<string, unknown> }[],
   pulls: [
+    pr(12, 'Cache Go modules between jobs', pico, 'agent/pico/go-cache', 20, {
+      id: 'gl:platform/infra/runner!12',
+      repoId: 'repo-runner',
+      url: 'https://gitlab.com/platform/infra/runner/-/merge_requests/12',
+      mergeMethods: ['merge', 'squash'],
+      reviewDecision: 'approved',
+      reviews: [{ actor: { login: 'dana', kind: 'user' }, state: 'approved' }],
+      mergeState: 'behind',
+      behindBy: 3,
+    }),
     pr(
       912,
       'Add source control shell and provider adapters',
@@ -450,7 +473,18 @@ async function execute(command: DevCommand): Promise<DevReply> {
   const body = command.body as Record<string, unknown>
   state.commands.push({ operation: command.operation, body })
   await new Promise((resolve) => setTimeout(resolve, 20))
-  switch (command.operation) {
+  if (command.operation === 'dev.gitlab.account')
+    return scenario === 'gitlab-disconnected' || scenario === 'disconnected'
+      ? fail(command, 'unauthenticated', 'glab is not authenticated for this operation')
+      : ok(command, {
+          provider: 'gitlab',
+          host: 'gitlab.com',
+          login: 'dana',
+          observedAt: new Date(now).toISOString(),
+        })
+  // The GitLab mirror shares the GitHub bodies and DTOs.
+  const operation = command.operation.replace('dev.gitlab.', 'dev.github.')
+  switch (operation) {
     case 'dev.github.account':
       return scenario === 'disconnected'
         ? fail(
@@ -490,10 +524,10 @@ async function execute(command: DevCommand): Promise<DevReply> {
             lifecycle: 'ready',
             canonicalRoot: `/work/${repo.name}`,
             remote: {
-              provider: 'github',
-              host: 'github.com',
+              provider: repo.provider ?? 'github',
+              host: hostOf(repo.provider ?? 'github'),
               ownerPath: repo.owner,
-              displayUrl: `https://github.com/${repo.owner}/${repo.name}`,
+              displayUrl: `https://${hostOf(repo.provider ?? 'github')}/${repo.owner}/${repo.name}`,
             },
             projectIds: [repo.project],
             version: 1,
@@ -530,8 +564,8 @@ async function execute(command: DevCommand): Promise<DevReply> {
     case 'dev.github.repository':
       return ok(command, {
         repoId: body.repoId,
-        provider: 'github',
-        host: 'github.com',
+        provider: providerOfRepo(body.repoId),
+        host: hostOf(providerOfRepo(body.repoId)),
         owner: 'adea-ai',
         name: String(body.repoId).replace('repo-', ''),
         fullName: 'adea-ai/adea',
@@ -547,9 +581,8 @@ async function execute(command: DevCommand): Promise<DevReply> {
         },
       })
     case 'dev.github.pullRequestSummaries': {
-      if (body.repoId !== 'repo-adea') return ok(command, page([]))
       const wanted = body.state ?? 'open'
-      if (wanted === 'merged')
+      if (wanted === 'merged' && body.repoId === 'repo-adea')
         return ok(
           command,
           page([
@@ -564,7 +597,7 @@ async function execute(command: DevCommand): Promise<DevReply> {
         command,
         page(
           state.pulls
-            .filter((entry) => entry.state === wanted)
+            .filter((entry) => entry.repoId === body.repoId && entry.state === wanted)
             .map(({ body: _body, behindBy: _behind, ...rest }) => rest)
         )
       )

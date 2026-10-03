@@ -274,7 +274,7 @@ export type GitCheckpoint = Readonly<{
 // for a read model: it bumps whenever the server-side `updatedAt` moves.
 
 export type GitHubAccount = Readonly<{
-  provider: 'github'
+  provider: 'github' | 'gitlab'
   host: string
   login: string
   name?: string
@@ -284,7 +284,7 @@ export type GitHubAccount = Readonly<{
 
 export type GitHubRepository = Readonly<{
   repoId: string
-  provider: 'github'
+  provider: 'github' | 'gitlab'
   host: string
   owner: string
   name: string
@@ -1588,6 +1588,10 @@ export function decodeDevMutationPlan(value: unknown): MutationPlan {
 // Stable provider-scoped identifiers minted by the GitHub provider slice
 // (#423): `gh:<owner>/<repo>#<number>` for PRs/issues, `ghm:` for milestones.
 const githubPullRequestIdPattern = /^gh:[A-Za-z0-9-]{1,100}\/[A-Za-z0-9._-]{1,100}#\d{1,9}$/
+/** A review request on either provider: GitHub `gh:<owner>/<repo>#<n>` or
+ *  GitLab `gl:<full/project/path>!<iid>`. */
+const reviewRequestIdPattern =
+  /^(?:gh:[A-Za-z0-9-]{1,100}\/[A-Za-z0-9._-]{1,100}#\d{1,9}|gl:[A-Za-z0-9._-]{1,100}(?:\/[A-Za-z0-9._-]{1,100}){1,19}!\d{1,9})$/
 const githubMilestoneIdPattern = /^ghm:[A-Za-z0-9-]{1,100}\/[A-Za-z0-9._-]{1,100}#\d{1,9}$/
 const authorityBodyKeys = new Set([
   'schemaVersion',
@@ -2577,7 +2581,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
   if (name === 'GitHubAccount') {
     const item = record(value, path)
     exactKeys(item, ['provider', 'host', 'login', 'observedAt'], ['name', 'profileUrl'], path)
-    literal(item.provider, ['github'], `${path}.provider`)
+    literal(item.provider, ['github', 'gitlab'], `${path}.provider`)
     stringValue(item.host, `${path}.host`, 1, 253)
     stringValue(item.login, `${path}.login`, 1, 100)
     if (item.name !== undefined) stringValue(item.name, `${path}.name`, 0, 256)
@@ -2607,7 +2611,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
       path
     )
     stringValue(item.repoId, `${path}.repoId`, 1, 128)
-    literal(item.provider, ['github'], `${path}.provider`)
+    literal(item.provider, ['github', 'gitlab'], `${path}.provider`)
     stringValue(item.host, `${path}.host`, 1, 253)
     stringValue(item.owner, `${path}.owner`, 1, 100)
     stringValue(item.name, `${path}.name`, 1, 100)
@@ -2666,8 +2670,8 @@ function namedType(name: string, value: unknown, path: string): unknown {
       ['body', 'authorLogin', 'reviewDecision', 'aheadBehind', 'reconciled', 'headBranchDeleted'],
       path
     )
-    if (!githubPullRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
-      fail(`${path}.id`, 'expected gh:<owner>/<repo>#<number>')
+    if (!reviewRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected gh:<owner>/<repo>#<number> or gl:<project>!<iid>')
     stringValue(item.repoId, `${path}.repoId`, 1, 128)
     integerValue(item.number, `${path}.number`, 1)
     stringValue(item.host, `${path}.host`, 1, 253)
@@ -4158,6 +4162,16 @@ export function decodeDevReply(value: unknown): DevReply {
     decodeError(item.error)
   } else fail('reply.ok', 'expected boolean')
   return value as DevReply
+}
+
+// GitLab mirrors the GitHub collaboration contract operation for operation:
+// identical bodies and the same review DTOs, so the source control app's
+// screens serve both providers unchanged.
+for (const operation of devOperations) {
+  if (!operation.startsWith('dev.gitlab.')) continue
+  const mirror =
+    devReplyValueDecoders[operation.replace('dev.gitlab.', 'dev.github.') as DevOperation]
+  if (mirror) devReplyValueDecoders[operation] = mirror
 }
 
 export const devOperationDecoders = Object.freeze(

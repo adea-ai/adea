@@ -82,12 +82,17 @@ const GROUPS: readonly Readonly<{ id: InboxGroupId; label: string; hint: string 
  *  their incoming (most recently updated first) order. */
 export function groupInbox(
   prs: readonly PullRequestView[],
-  viewer: string | undefined
+  /** The viewer, or how to find it per pull request when the list mixes
+   *  providers (each has its own signed-in login). */
+  viewer: string | undefined | ((pr: PullRequestView) => string | undefined)
 ): readonly InboxGroup[] {
   const buckets = new Map<InboxGroupId, { pr: PullRequestView; action: RowAction }[]>()
   for (const pr of prs) {
     if (pr.state !== 'open') continue
-    const { group, action } = classifyPullRequest(pr, viewer)
+    const { group, action } = classifyPullRequest(
+      pr,
+      typeof viewer === 'function' ? viewer(pr) : viewer
+    )
     const bucket = buckets.get(group) ?? []
     bucket.push({ pr, action })
     buckets.set(group, bucket)

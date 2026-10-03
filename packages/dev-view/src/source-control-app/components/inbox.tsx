@@ -22,7 +22,7 @@ import { ChevronDown, GitBranch, GitPullRequest, GitPullRequestDraft, Plus } fro
 import { For, Show, createMemo, createResource, createSignal, type JSX } from 'solid-js'
 
 import { errorText } from '../client'
-import { relativeTime, shortSha } from '../model/format'
+import { prRef, relativeTime, shortSha } from '../model/format'
 import {
   classifyPullRequest,
   emptyInboxFilter,
@@ -100,7 +100,7 @@ function PullRequestRow(props: {
           onClick={() => props.actions.openPullRequest(props.pr)}
         >
           <span class="dev-scm-truncate">{props.pr.title}</span>
-          <span class="dev-scm-muted">#{props.pr.number}</span>
+          <span class="dev-scm-muted">{prRef(props.pr)}</span>
         </Button>
         <span class="dev-scm-row__meta">
           <Person actor={props.pr.author} agent={props.pr.authorIsAgent} />
@@ -211,7 +211,7 @@ export function ProjectInbox(props: {
     )
   )
   const options = createMemo(() => filterOptions(open()))
-  const groups = createMemo(() => groupInbox(listed(), props.state.viewer()))
+  const groups = createMemo(() => groupInbox(listed(), (pr) => props.state.viewerFor(pr.id)))
 
   return (
     <>
@@ -362,7 +362,10 @@ export function ProjectInbox(props: {
                         <PullRequestRow
                           pr={pr}
                           {...(pr.state === 'open'
-                            ? { action: classifyPullRequest(pr, props.state.viewer()).action }
+                            ? {
+                                action: classifyPullRequest(pr, props.state.viewerFor(pr.id))
+                                  .action,
+                              }
                             : {})}
                           state={props.state}
                           actions={props.actions}
@@ -419,8 +422,8 @@ export function ShortcutInbox(props: {
       .everyOpen()
       .filter(({ pr }) =>
         props.id === 'ready'
-          ? classifyPullRequest(pr, props.state.viewer()).group === 'ready'
-          : needsViewer(pr, props.state.viewer())
+          ? classifyPullRequest(pr, props.state.viewerFor(pr.id)).group === 'ready'
+          : needsViewer(pr, props.state.viewerFor(pr.id))
       )
   )
   const byProject = createMemo(() => {
@@ -474,7 +477,7 @@ export function ShortcutInbox(props: {
                         {(pr) => (
                           <PullRequestRow
                             pr={pr}
-                            action={classifyPullRequest(pr, props.state.viewer()).action}
+                            action={classifyPullRequest(pr, props.state.viewerFor(pr.id)).action}
                             state={props.state}
                             actions={props.actions}
                           />
