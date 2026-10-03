@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.80.0](https://github.com/adea-ai/adea/compare/v0.79.1...v0.80.0) (2026-10-03)
+
+
+### Features
+
+* **appearance:** offer the accents the selected theme carries ([#969](https://github.com/adea-ai/adea/issues/969)) ([0365d0a](https://github.com/adea-ai/adea/commit/0365d0af815806369de6435bb3966d6c7f30f164))
+* **kanban:** full-width board with collapsible lanes, side-panel create and edit, and optimistic moves ([#986](https://github.com/adea-ai/adea/issues/986)) ([eef4283](https://github.com/adea-ai/adea/commit/eef4283f0d26773dc16db1f0cb3d5b1acbe36c29))
+
+
+### Bug Fixes
+
+* align shared sidebar boundaries and recover microphone checks ([#987](https://github.com/adea-ai/adea/issues/987)) ([50ea157](https://github.com/adea-ai/adea/commit/50ea1572385638eefe6793e0e16bd02c2721479d))
+* **deps:** update adea-ai design system ([#973](https://github.com/adea-ai/adea/issues/973)) ([5c8d3ca](https://github.com/adea-ai/adea/commit/5c8d3ca0b6a4d1740710905a182d5cf1e7ececa7))
+* **desktop:** normalize native settings load and save responses ([#989](https://github.com/adea-ai/adea/issues/989)) ([d300a0f](https://github.com/adea-ai/adea/commit/d300a0fc37bceb0b93fcb54c5cc2763ff22a8456))
+* **desktop:** restore Adea dev update delivery ([#984](https://github.com/adea-ai/adea/issues/984)) ([f214cf1](https://github.com/adea-ai/adea/commit/f214cf1c510f343de61430c8dc1b0c3e059b5838))
+* **desktop:** right-size the help dialog and hand external links to the system browser ([#975](https://github.com/adea-ai/adea/issues/975)) ([1165af2](https://github.com/adea-ai/adea/commit/1165af2e7e19df543e896d6b8c9835c67cbb85ce))
+* **desktop:** verify release version inside installer payload ([#990](https://github.com/adea-ai/adea/issues/990)) ([2eff755](https://github.com/adea-ai/adea/commit/2eff7555e1be395618a687c0d3b5bba4803f92ac))
+* **dev-view:** widen right utility pane default ([#988](https://github.com/adea-ai/adea/issues/988)) ([66d8a14](https://github.com/adea-ai/adea/commit/66d8a14f927fe02ec4d9e6b69d0b1b07c630a26c))
+* **plugins:** consume shared responsive detail cards ([#992](https://github.com/adea-ai/adea/issues/992)) ([2e01d83](https://github.com/adea-ai/adea/commit/2e01d8332d8997848069d93019386a045ce4ab05))
+* **settings:** recover from synchronous desktop bridge failures ([#993](https://github.com/adea-ai/adea/issues/993)) ([a785e4f](https://github.com/adea-ai/adea/commit/a785e4ffa51c99d5561594e61165bab64c0113d7))
+
+
+### CI
+
+* **release:** adopt Code Foundry 1.43.1 batched release flow ([#979](https://github.com/adea-ai/adea/issues/979)) ([b174be6](https://github.com/adea-ai/adea/commit/b174be6e0454393396d3d7556f6edf16da66fbb1))
+
+
+### Maintenance
+
+* **ui:** remove unused private scene and account controls ([#991](https://github.com/adea-ai/adea/issues/991)) ([4e831c7](https://github.com/adea-ai/adea/commit/4e831c7b2730ed77fa4dea7d17ce5c1168cb87ac))
+
 ## [0.79.1](https://github.com/adea-ai/adea/compare/v0.79.0...v0.79.1) (2026-10-03)
 
 
