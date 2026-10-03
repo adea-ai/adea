@@ -2645,19 +2645,18 @@ test('optional apps open actual task and source control views without hiding the
   await library.getByRole('button', { name: 'Enable Source control', exact: true }).click()
   await library.getByRole('button', { name: 'Open Source control', exact: true }).click()
   await expect(page).toHaveURL(/app=source-control/)
-  await expect(page.locator('.dev-workspace--source-control-app')).toBeVisible()
-  await expect(page.locator('.dev-sidebar')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Source Control', exact: true })).toBeVisible()
-  await expect(rail).toBeVisible()
+  // The source control app needs the desktop runtime; the web build says so
+  // instead of rendering an empty inbox.
+  const sourceControl = page.getByRole('main', { name: 'Source control' })
+  await expect(sourceControl).toBeVisible()
+  await expect(sourceControl).toContainText('Source control needs the Adea desktop runtime')
+  await expect(rail.getByRole('button', { name: 'Source control', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  )
   await expect(page.getByRole('button', { name: 'Restore utility pane', exact: true })).toHaveCount(
     0
   )
-  await page
-    .getByLabel('Workspace toolbar')
-    .getByRole('button', { name: 'Collapse contextual sidebar' })
-    .click()
-  await expect(page.locator('.dev-sidebar')).toBeHidden()
-  await expect(rail).toBeVisible()
 })
 
 test('all-off stale links remain in Library while enabling the first app', async ({ page }) => {

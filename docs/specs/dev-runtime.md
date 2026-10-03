@@ -4024,6 +4024,42 @@ auth is the user's `gh` CLI context, and Adea stores no GitHub token.
   run and refuses `identity_mismatch` unless the job ran for the pull
   request's head branch.
 
+### Source control app (client)
+
+`packages/dev-view/src/source-control-app/**` is the rail's Source control
+app. It reaches GitHub only through the operations above and holds no
+provider state of its own beyond these rules:
+
+- **Projects.** The sidebar lists Dev projects whose repository `remote` is
+  on GitHub, grouped by owner (organizations, then the viewer's account);
+  other projects are counted, not listed. Archived projects collapse into one
+  row.
+- **Session link and agents.** A pull request belongs to the Adea session
+  whose non-archived worktree has its head branch checked out in the same
+  repository (a live session wins); forks never link. The link is derived on
+  every sync from `dev.worktree.list` and `dev.session.list` and never
+  stored. An author is an agent when GitHub reports a bot or the pull
+  request has a session link.
+- **Inbox grouping.** Every open pull request lands in exactly one group, in
+  order: draft; the viewer is a requested reviewer without a review on the
+  head; ready (approvals met, checks passing or absent, not behind, no
+  conflicts); blocked (failing checks, requested changes, behind, or
+  conflicts); waiting. The rules are pure functions with unit tests.
+- **Merge dock.** Merge is offered only when every row is green and is
+  confirmed first; otherwise merge-when-ready is offered when the repository
+  allows auto-merge; conflicts, requested changes, failing checks, and
+  drafts disable it with the reason shown.
+- **No agent hand-off.** The app never sends pull request, review, or check
+  text to an agent session; it offers Open session, which selects the
+  session in the Dev view.
+- **Local state.** Browser storage, scoped to the runtime scope, holds the
+  selected project, the details panel per tab, the merge method, the diff
+  layout, the delete-branch choice, viewed files per head, and pending review
+  comments until Submit review. Every read decodes strictly and falls back to
+  defaults.
+- **Sync.** Every 60 seconds and on window focus; a mutation re-reads the
+  pull request and folds it back into the inbox.
+
 ## Process, port, metrics, and usage
 
 A destructive process action requires an Adea launch record plus PID start

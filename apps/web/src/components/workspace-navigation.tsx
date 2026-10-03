@@ -61,7 +61,6 @@ const DevWorkspace = lazyComponent(
           runtime?: WorkspacePlatformServices['devRuntime']
           toolbarMount?: HTMLElement
           sidebarActionMount?: HTMLElement
-          appMode?: 'source-control'
           deepLinkSelection?: () => { projectId?: string; sessionId?: string } | undefined
           onSelectionChange?: (selection: { projectId: string; sessionId: string | null }) => void
         }) => {
@@ -85,7 +84,6 @@ const DevWorkspace = lazyComponent(
               runtime={runtime}
               toolbarMount={entryProps.toolbarMount}
               sidebarActionMount={entryProps.sidebarActionMount}
-              appMode={entryProps.appMode}
               deepLinkSelection={entryProps.deepLinkSelection}
               onSelectionChange={entryProps.onSelectionChange}
             />
@@ -93,6 +91,30 @@ const DevWorkspace = lazyComponent(
         }
       }
     ),
+  { loading: () => <WorkspaceEntryLoading /> }
+)
+
+const SourceControlView = lazyComponent(
+  () =>
+    Promise.all([
+      import('@adea-ai/dev-view/source-control-app'),
+      import('@adea-ai/dev-view/platform'),
+    ]).then(([{ SourceControlApp }, { createUnavailableDevRuntimeService }]) => {
+      return (entryProps: {
+        runtime?: WorkspacePlatformServices['devRuntime']
+        toolbarMount?: HTMLElement
+        onOpenDev(): void
+      }) => (
+        <SourceControlApp
+          runtime={
+            entryProps.runtime ??
+            createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
+          }
+          toolbarMount={entryProps.toolbarMount}
+          onOpenDev={entryProps.onOpenDev}
+        />
+      )
+    }),
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
@@ -757,17 +779,28 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             fallback={
               <Show when={toolbarMount()} fallback={<WorkspaceEntryLoading />}>
                 {(mount) => (
-                  <DevWorkspace
-                    fixture={
-                      import.meta.env.DEV && Reflect.get(currentSearch(), 'devE2e') === 'preserved'
+                  <Show
+                    when={activeAppId() === 'source-control'}
+                    fallback={
+                      <DevWorkspace
+                        fixture={
+                          import.meta.env.DEV &&
+                          Reflect.get(currentSearch(), 'devE2e') === 'preserved'
+                        }
+                        runtime={props.services.devRuntime}
+                        toolbarMount={mount()}
+                        sidebarActionMount={sidebarActionMount()}
+                        deepLinkSelection={devDeepLinkSelection}
+                        onSelectionChange={applyDevSelection}
+                      />
                     }
-                    runtime={props.services.devRuntime}
-                    toolbarMount={mount()}
-                    sidebarActionMount={sidebarActionMount()}
-                    appMode={activeAppId() === 'source-control' ? 'source-control' : undefined}
-                    deepLinkSelection={devDeepLinkSelection}
-                    onSelectionChange={applyDevSelection}
-                  />
+                  >
+                    <SourceControlView
+                      runtime={props.services.devRuntime}
+                      toolbarMount={mount()}
+                      onOpenDev={() => changeApp('dev')}
+                    />
+                  </Show>
                 )}
               </Show>
             }

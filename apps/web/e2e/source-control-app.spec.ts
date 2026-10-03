@@ -1,0 +1,287 @@
+// Source control app: the production SourceControlApp over a deterministic
+// runtime. Covers the sidebar tree and shortcuts, inbox grouping and row
+// actions, filters, the pull request conversation with thread resolution and
+// commenting, the merge dock's plan/commit merge with confirmation, update
+// branch, the review flow with a pending inline comment, checks with the
+// failing log, the new pull request dialog, the disconnected state, and
+// keyboard-only navigation, in dark and light.
+import { expect, test, type Page } from '@playwright/test'
+
+import {
+  SOURCE_CONTROL_HARNESS_PATH,
+  sourceControlHarnessHtml,
+  sourceControlHarnessModuleSource,
+} from './helpers/source-control-harness'
+import { disableTransitions } from './helpers/visual'
+
+const SCREENSHOTS = process.env.SOURCE_CONTROL_SCREENSHOTS
+
+async function openHarness(page: Page, query = '') {
+  await disableTransitions(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.route(new RegExp(`${SOURCE_CONTROL_HARNESS_PATH}(?:\\?.*)?$`), (route) =>
+    route.fulfill({ contentType: 'text/html', body: sourceControlHarnessHtml() })
+  )
+  await page.goto(`${SOURCE_CONTROL_HARNESS_PATH}${query}`)
+  await page.addScriptTag({ type: 'module', content: sourceControlHarnessModuleSource() })
+  await expect
+    .poll(() => page.evaluate(() => Boolean(window.sourceControlHarness)), { timeout: 30_000 })
+    .toBe(true)
+  await expect(page.getByRole('main', { name: 'Source control' })).toBeVisible({ timeout: 30_000 })
+}
+
+async function commands(page: Page): Promise<string[]> {
+  return page.evaluate(() => window.sourceControlHarness.commands().map((entry) => entry.operation))
+}
+
+async function shot(page: Page, name: string) {
+  if (SCREENSHOTS) await page.screenshot({ path: `${SCREENSHOTS}/${name}.png` })
+}
+
+declare global {
+  interface Window {
+    sourceControlHarness: { commands(): { operation: string; body: Record<string, unknown> }[] }
+  }
+}
+
+test.describe('source control app', () => {
+  test('inbox groups pull requests by what they need next', async ({ page }) => {
+    await openHarness(page)
+    const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
+    await expect(sidebar.locator('[data-repo-id="repo-adea"]')).toContainText('adea')
+    await expect(sidebar.getByText('octocat', { exact: true })).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Archived projects' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'adea-ai / adea' })).toBeVisible()
+    for (const group of ['Ready to merge', 'Needs your review', 'Blocked', 'Drafts'])
+      await expect(page.getByRole('heading', { name: group, exact: true })).toBeVisible()
+    const blocked = page.getByRole('region', { name: 'Blocked' })
+    await expect(
+      blocked.getByRole('button', { name: 'Update branch: Collapse rail labels into tooltips' })
+    ).toBeVisible()
+    await expect(
+      blocked.getByRole('button', { name: 'Open: Add GitLab provider adapter' })
+    ).toBeVisible()
+    await expect(
+      page
+        .getByRole('region', { name: 'Drafts' })
+        .getByRole('button', { name: /^Open: Inline review threads/ })
+    ).toBeVisible()
+    await expect(
+      page
+        .getByRole('region', { name: 'Needs your review' })
+        .getByRole('button', { name: /^Review:/ })
+    ).toHaveCount(2)
+    await shot(page, '01-inbox-dark')
+
+    await page.getByRole('searchbox', { name: 'Filter pull requests' }).fill('#904')
+    await expect(page.locator('[data-pr]')).toHaveCount(1)
+    await page.getByRole('searchbox', { name: 'Filter pull requests' }).fill('')
+    await page.getByText('Opened by agents only', { exact: true }).click()
+    await expect(page.getByRole('switch', { name: 'Opened by agents only' })).toBeChecked()
+    await expect(page.locator('[data-pr="911"]')).toHaveCount(0)
+    await expect(page.locator('[data-pr="904"]')).toHaveCount(1)
+
+    await page.getByRole('tab', { name: 'Merged' }).click()
+    await expect(page.getByText('Ship the conversation transcript')).toBeVisible()
+  })
+
+  test('cross-project shortcuts and persisted selection', async ({ page }) => {
+    await openHarness(page)
+    await page.getByRole('button', { name: /^Needs you/ }).click()
+    await expect(page.getByRole('heading', { name: 'Needs you', exact: true })).toBeVisible()
+    await expect(page.locator('[data-pr="904"]')).toBeVisible()
+    await page.getByRole('button', { name: /^Ready to merge/ }).click()
+    await expect(page.locator('[data-pr="912"]')).toBeVisible()
+    await expect(page.locator('[data-pr="904"]')).toHaveCount(0)
+    await page.reload()
+    await page.addScriptTag({
+      type: 'module',
+      content: sourceControlHarnessModuleSource().replace('.tsx', '.tsx?reset=keep'),
+    })
+  })
+
+  test('merging from the inbox confirms, then plans and commits', async ({ page }) => {
+    await openHarness(page)
+    await page
+      .getByRole('button', { name: 'Merge: Add source control shell and provider adapters' })
+      .click()
+    const dialog = page.getByRole('alertdialog')
+    await expect(dialog).toContainText('Squash and merge #912?')
+    await shot(page, '02-merge-confirm')
+    await dialog.getByRole('button', { name: 'Squash and merge' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(
+      page.getByText('Merged #912 and deleted agent/juno/source-control-shell.')
+    ).toBeVisible()
+    const sent = await commands(page)
+    expect(sent.indexOf('dev.github.mergePlan')).toBeGreaterThan(-1)
+    expect(sent.indexOf('dev.github.mergeCommit')).toBeGreaterThan(
+      sent.indexOf('dev.github.mergePlan')
+    )
+  })
+
+  test('conversation, threads, comments and the merge dock', async ({ page }) => {
+    await openHarness(page)
+    await page
+      .getByRole('button', { name: /Migrate workspace store to Solid signals/ })
+      .first()
+      .click()
+    await expect(
+      page.getByRole('heading', { name: /Migrate workspace store to Solid signals/ })
+    ).toBeVisible()
+    await expect(page.getByRole('complementary', { name: 'Pull request details' })).toBeVisible()
+    await expect(
+      page.getByRole('complementary', { name: 'Pull request details' }).getByText('Store migration')
+    ).toBeVisible()
+    const thread = page.getByRole('article', { name: 'Review thread on src/stores/selectors.ts' })
+    await expect(thread).toContainText('Does rooms() ever return undefined')
+    const dock = page.getByRole('region', { name: 'Merge status' })
+    await expect(dock).toContainText('5 commits behind main')
+    await expect(dock.getByRole('button', { name: 'Squash and merge when ready' })).toBeVisible()
+    await shot(page, '03-conversation-dark')
+
+    await thread.getByRole('button', { name: 'Resolve conversation' }).click()
+    await expect(thread.getByText('Resolved', { exact: true })).toBeVisible()
+
+    await page.getByRole('textbox', { name: 'Comment' }).fill('Looks good to me.')
+    await page.getByRole('button', { name: 'Comment', exact: true }).click()
+    await expect(page.getByText('Looks good to me.')).toBeVisible()
+
+    await dock.getByRole('button', { name: 'Update branch', exact: true }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Update branch' }).click()
+    await expect(page.getByText(/Updated agent\/juno\/solid-store-signals from main/)).toBeVisible()
+
+    await dock.getByRole('button', { name: 'Squash and merge when ready' }).click()
+    await expect(page.getByText('Auto-merge enabled.')).toBeVisible()
+    await expect(dock.getByRole('button', { name: 'Cancel auto-merge' })).toBeVisible()
+    const sent = await commands(page)
+    expect(sent).toContain('dev.github.syncBranchCommit')
+    expect(sent).toContain('dev.github.autoMergeCommit')
+    expect(sent).toContain('dev.github.threadResolve')
+  })
+
+  test('review: pending inline comment, then submit with a verdict', async ({ page }) => {
+    await openHarness(page)
+    await page
+      .getByRole('button', { name: /Migrate workspace store to Solid signals/ })
+      .first()
+      .click()
+    await page.getByRole('tab', { name: /Files changed/ }).click()
+    await expect(page.getByRole('article', { name: 'src/stores/workspace.ts' })).toBeVisible()
+    await expect(page.getByText('GitHub does not show this diff')).toBeVisible()
+    await page.getByRole('button', { name: 'Comment on src/stores/workspace.ts line 16' }).click()
+    await page
+      .getByRole('textbox', { name: /Review comment on src\/stores\/workspace.ts line 16/ })
+      .fill('Sort by last activity only?')
+    await page.getByRole('button', { name: 'Add to review' }).click()
+    await expect(page.getByText('Pending', { exact: true })).toBeVisible()
+    await page.getByRole('tab', { name: 'Split' }).click()
+    await shot(page, '04-files-split')
+    await page
+      .getByRole('article', { name: 'src/stores/selectors.ts' })
+      .getByText('Viewed', { exact: true })
+      .click()
+    await expect(page.getByText('1 of 3 files viewed')).toBeVisible()
+
+    await page.getByRole('button', { name: /Review changes/ }).click()
+    await page.getByRole('textbox', { name: 'Review summary' }).fill('One question on ordering.')
+    await page.getByText('Approve', { exact: true }).click()
+    await expect(page.getByRole('radio', { name: /Approve/ })).toBeChecked()
+    await shot(page, '05-review-popover')
+    await page.getByRole('button', { name: 'Submit review' }).click()
+    await expect(page.getByText('Review submitted.')).toBeVisible()
+    const sent = await page.evaluate(() =>
+      window.sourceControlHarness
+        .commands()
+        .find((entry) => entry.operation === 'dev.github.submitReview')
+    )
+    expect(sent?.body).toMatchObject({
+      verdict: 'approve',
+      body: 'One question on ordering.',
+      comments: [
+        {
+          path: 'src/stores/workspace.ts',
+          line: 16,
+          side: 'right',
+          body: 'Sort by last activity only?',
+        },
+      ],
+    })
+  })
+
+  test('checks: failing runs, the failures log and re-running', async ({ page }) => {
+    await openHarness(page)
+    await page
+      .getByRole('button', { name: /Migrate workspace store to Solid signals/ })
+      .first()
+      .click()
+    await page.getByRole('tab', { name: /Checks/ }).click()
+    await expect(
+      page.getByRole('heading', { name: /2 failing, 1 passing, 1 running, 1 skipped/ })
+    ).toBeVisible()
+    const log = page.getByRole('region', { name: 'Log for unit-tests' })
+    await expect(log).toContainText('maps "unapproved" after approval')
+    await expect(log).not.toContainText('case 1\n')
+    await page.getByRole('tab', { name: 'Full log' }).click()
+    await expect(log).toContainText('case 12')
+    await shot(page, '06-checks')
+    await page.getByRole('button', { name: 'Re-run failed jobs' }).click()
+    await expect(page.getByText('Failed jobs are re-running.')).toBeVisible()
+  })
+
+  test('new pull request opens a draft and opens it', async ({ page }) => {
+    await openHarness(page)
+    await page.getByRole('button', { name: 'New pull request' }).click()
+    const dialog = page.getByRole('dialog', { name: 'New pull request' })
+    await expect(dialog.getByText('6 commits · 9 files')).toBeVisible()
+    await expect(dialog.getByRole('textbox', { name: 'Title' })).toHaveValue('New feature')
+    await shot(page, '07-new-pr')
+    await dialog.getByRole('button', { name: 'Create pull request' }).click()
+    await expect(page.getByRole('heading', { name: /New feature/ })).toBeVisible()
+    const sent = await page.evaluate(() =>
+      window.sourceControlHarness
+        .commands()
+        .find((entry) => entry.operation === 'dev.github.createPullRequest')
+    )
+    expect(sent?.body).toMatchObject({
+      headRef: 'agent/juno/new-feature',
+      baseRef: 'main',
+      draft: true,
+    })
+  })
+
+  test('a disconnected GitHub CLI explains how to connect', async ({ page }) => {
+    await openHarness(page, '?scenario=disconnected')
+    await expect(page.getByText('Connect GitHub', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Connect account' }).first().click()
+    const dialog = page.getByRole('dialog', { name: 'Git providers' })
+    await expect(dialog).toContainText('gh auth login')
+    await expect(dialog).toContainText('never stores a GitHub token')
+    await shot(page, '08-providers')
+  })
+
+  test('keyboard reaches the inbox and opens a pull request', async ({ page }) => {
+    await openHarness(page)
+    const target = page.getByRole('button', { name: /Persist split layout sizes per room/ }).first()
+    await target.focus()
+    await page.keyboard.press('Enter')
+    await expect(
+      page.getByRole('heading', { name: /Persist split layout sizes per room/ })
+    ).toBeVisible()
+    await page.getByRole('tab', { name: /Conversation/ }).focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(page.getByRole('tab', { name: /Commits/ })).toBeFocused()
+  })
+
+  test('light theme renders the inbox and conversation', async ({ page }) => {
+    await openHarness(page, '?theme=light')
+    await expect(page.getByRole('heading', { name: 'Ready to merge', exact: true })).toBeVisible()
+    await shot(page, '09-inbox-light')
+    await page
+      .getByRole('button', { name: /Migrate workspace store to Solid signals/ })
+      .first()
+      .click()
+    await expect(page.getByRole('region', { name: 'Merge status' })).toBeVisible()
+    await shot(page, '10-conversation-light')
+  })
+})
