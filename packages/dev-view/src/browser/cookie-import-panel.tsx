@@ -55,10 +55,17 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
   const [busy, setBusy] = createSignal(false)
 
   const [sources, { refetch }] = createResource(async () => {
-    const page = (await props.run('dev.browser.cookieSources', {})) as {
-      items: readonly CookieSource[]
+    // The read is caught here, not left to the resource: a rejected fetcher
+    // makes every JSX read of the resource re-throw, which tears the panel
+    // down before its typed error can render. A failed read is surface state.
+    try {
+      const page = (await props.run('dev.browser.cookieSources', {})) as {
+        items: readonly CookieSource[]
+      }
+      return { items: page.items, failure: undefined }
+    } catch (error) {
+      return { items: [] as readonly CookieSource[], failure: errorMessage(error) }
     }
-    return page.items
   })
 
   async function planFor(source: CookieSource): Promise<void> {
@@ -141,17 +148,17 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
           />
         }
       >
-        <Show when={sources.error}>
-          {(error) => (
+        <Show when={sources()?.failure}>
+          {(message) => (
             <p class="dev-browser__row" role="alert">
-              {errorMessage(error())}
+              {message()}
             </p>
           )}
         </Show>
         <Show when={sources.loading}>
           <span class="dev-terminal-muted">Reading browser profiles…</span>
         </Show>
-        <For each={sources() ?? []}>
+        <For each={sources()?.items ?? []}>
           {(source) => {
             const state = () => cookieSourceState(source)
             return (
@@ -174,7 +181,9 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
             )
           }}
         </For>
-        <Show when={(sources() ?? []).length === 0 && !sources.loading && !sources.error}>
+        <Show
+          when={!sources.loading && !sources()?.failure && (sources()?.items?.length ?? 0) === 0}
+        >
           <span class="dev-terminal-muted">
             No browser profiles with a readable cookie store were detected on this machine.
           </span>
