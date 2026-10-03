@@ -14,6 +14,7 @@ export function ConventionalWorkspaceEntry(props: {
   taskBoardOnly?: boolean
   manageSettings?: boolean
   onConsumeDeepLink?: () => void
+  onOpenTaskBoard?: () => void
   onViewChange: (view: WorkspaceView) => void
   services: WorkspacePlatformServices
 }) {
@@ -25,6 +26,7 @@ export function ConventionalWorkspaceEntry(props: {
         deepLink={props.deepLink}
         manageSettings={props.manageSettings ?? true}
         onConsumeDeepLink={props.onConsumeDeepLink}
+        onOpenTaskBoard={props.onOpenTaskBoard}
         onViewChange={props.onViewChange}
         view="chat"
         services={{ ...props.services, client: props.client }}

@@ -2,6 +2,7 @@ import { createApiClient } from '@adea-ai/api-client'
 import { AlertTriangle, X } from 'lucide-solid'
 import { createEffect, createSignal, lazy, on, onCleanup, Show, Suspense } from 'solid-js'
 import { settledData, usePrefetchChannelMessages } from '@adea-ai/data'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { AgentRoster } from './agent-roster'
@@ -57,7 +58,13 @@ export function ConventionalWorkspaceShell(props: {
   /** Router-backed deep link state. Reactive, so links apply on SPA navigation. */
   deepLink?: () => WorkspaceDeepLink
   restoreFocusRef?: () => HTMLElement | undefined
+  /** Render only the task board, full width with no workspace sidebar: the Kanban app. */
   taskBoardOnly?: boolean
+  /**
+   * Opens the standalone task board, when the host has one. Search results and
+   * deep links to a Task go there; without it the board opens in place.
+   */
+  onOpenTaskBoard?: () => void
   manageSettings?: boolean
   /** Called after a deep link applies — the host removes its params. */
   onConsumeDeepLink?: () => void
@@ -81,6 +88,10 @@ export function ConventionalWorkspaceShell(props: {
   const activeSurface = () => (props.taskBoardOnly ? 'tasks' : chatSurface())
   const setSurface = (surface: 'agents' | 'conversation' | 'tasks') => {
     if (props.taskBoardOnly && surface === 'tasks') return
+    if (surface === 'tasks' && props.onOpenTaskBoard) {
+      props.onOpenTaskBoard()
+      return
+    }
     workspaceStore.getState().setActiveSurface(surface)
     if (props.taskBoardOnly) props.onViewChange?.('chat')
   }
@@ -335,40 +346,42 @@ export function ConventionalWorkspaceShell(props: {
         }
       >
         <Show when={controller.activeWorkspace && controller.workspaceId}>
-          <main class="conventional-workspace">
+          <main
+            class={cn('conventional-workspace', {
+              'conventional-workspace--board': props.taskBoardOnly,
+            })}
+          >
             <a class="conventional-skip-link" href="#workspace-main">
               Skip to workspace content
             </a>
-            <WorkspaceSidebar
-              agents={controller.agents}
-              restoreFocusRef={props.restoreFocusRef}
-              channelBusy={controller.channelBusy}
-              collapsedRoomIds={collapsedRoomIds()}
-              mobileOpen={mobileSidebarOpen()}
-              navigation={controller.navigation()}
-              onArchiveChannel={controller.channelActions.archive}
-              onCreateGroup={() => setDialog('create-group')}
-              onCreateRoom={() => setDialog('create-room')}
-              onRenameChannel={controller.channelActions.rename}
-              onOpenAgents={() => {
-                setSelectedArtifactId(null)
-                setSurface('agents')
-              }}
-              onOpenTasks={() => {
-                setSelectedArtifactId(null)
-                setSurface('tasks')
-              }}
-              onMarkAllRead={() => controller.readStateActions.markAllRead()}
-              onChannelIntent={prefetchChannelMessages}
-              onSelectChannel={selectChannel}
-              onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
-              onToggleRoom={(roomId) => workspaceStore.getState().toggleRoomCollapsed(roomId)}
-              onUpdateRoom={controller.roomActions.update}
-              roomBusy={controller.roomBusy}
-              selectedChannelId={selectedChannelId()}
-              readState={controller.readState}
-              workspaceName={controller.activeWorkspace!.name}
-            />
+            <Show when={!props.taskBoardOnly}>
+              <WorkspaceSidebar
+                agents={controller.agents}
+                restoreFocusRef={props.restoreFocusRef}
+                channelBusy={controller.channelBusy}
+                collapsedRoomIds={collapsedRoomIds()}
+                mobileOpen={mobileSidebarOpen()}
+                navigation={controller.navigation()}
+                onArchiveChannel={controller.channelActions.archive}
+                onCreateGroup={() => setDialog('create-group')}
+                onCreateRoom={() => setDialog('create-room')}
+                onRenameChannel={controller.channelActions.rename}
+                onOpenAgents={() => {
+                  setSelectedArtifactId(null)
+                  setSurface('agents')
+                }}
+                onMarkAllRead={() => controller.readStateActions.markAllRead()}
+                onChannelIntent={prefetchChannelMessages}
+                onSelectChannel={selectChannel}
+                onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
+                onToggleRoom={(roomId) => workspaceStore.getState().toggleRoomCollapsed(roomId)}
+                onUpdateRoom={controller.roomActions.update}
+                roomBusy={controller.roomBusy}
+                selectedChannelId={selectedChannelId()}
+                readState={controller.readState}
+                workspaceName={controller.activeWorkspace!.name}
+              />
+            </Show>
             <section id="workspace-main" class="conventional-main" tabIndex={-1}>
               <Show when={sessionRotated() && !sessionNoticeDismissed()}>
                 <section class="conventional-session-notice" role="alert">

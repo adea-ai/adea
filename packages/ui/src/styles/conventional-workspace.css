@@ -233,8 +233,6 @@
      token feeds the mixed background so it keeps the light hue in both themes,
      while the text token flips. */
   --cw-notice: var(--info);
-  --cw-priority-high-tint: var(--warning-subtle);
-  --cw-priority-high: var(--warning);
   --cw-scrim: color-mix(in oklab, var(--scrim) 58%, transparent);
 }
 
@@ -276,16 +274,23 @@
 .conventional-workspace textarea:not(.conventional-sidebar *) {
   font: inherit;
 }
-.conventional-workspace button:not([data-slot]):not(.conventional-sidebar *) {
-  color: inherit;
-}
-.conventional-workspace button:not(:disabled):not(.conventional-sidebar *),
-.conventional-workspace select:not(:disabled):not(.conventional-sidebar *) {
-  cursor: pointer;
-}
-.conventional-workspace button:disabled:not(.conventional-sidebar *) {
-  cursor: not-allowed;
-  opacity: 0.55;
+/* Resets for legacy unstyled buttons, in the base layer. This sheet is
+   unlayered, and unlayered rules outrank every Tailwind layer whatever their
+   specificity, so here they beat the shared Button's own utilities: a primary
+   button painted the surrounding text colour on its accent fill. In `base`
+   they apply only where no component utility speaks. */
+@layer base {
+  .conventional-workspace button:not([data-slot]):not(.conventional-sidebar *) {
+    color: inherit;
+  }
+  .conventional-workspace button:not(:disabled):not(.conventional-sidebar *),
+  .conventional-workspace select:not(:disabled):not(.conventional-sidebar *) {
+    cursor: pointer;
+  }
+  .conventional-workspace button:disabled:not(.conventional-sidebar *) {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
 }
 .conventional-workspace :focus-visible:not(.conventional-sidebar *) {
   outline: 3px solid var(--cw-focus);
@@ -773,14 +778,138 @@
   overflow: auto;
   padding: clamp(1rem, 3vw, 2.5rem);
 }
-.conventional-tasks {
+/* Kanban: a full-width app, so the board owns the whole main region and every
+   lane runs to the bottom of the window. Colours come from the shared tokens
+   only; lane hues and counts are drawn by the shared Board. */
+.conventional-workspace--board {
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+}
+.conventional-workspace--board .conventional-main {
+  grid-column: 1;
+}
+.conventional-kanban {
   display: flex;
   flex-direction: column;
+  gap: 0.75rem;
   height: 100%;
   min-height: 0;
-  overflow: hidden;
-  padding: clamp(1rem, 3vw, 2.5rem);
+  padding: 1rem 1.25rem 0.75rem;
 }
+.conventional-kanban__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.conventional-kanban__heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.conventional-kanban__heading h1 {
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.5;
+}
+.conventional-kanban__filter {
+  width: min(18rem, 100%);
+}
+.conventional-kanban__filter-result {
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.conventional-kanban__alert {
+  align-items: center;
+}
+.conventional-kanban__board {
+  flex: 1;
+  height: 100%;
+}
+.conventional-kanban-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.conventional-kanban-card__objective {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.conventional-kanban-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.conventional-kanban-card__footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.5rem;
+}
+.conventional-kanban-card__assignee {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+.conventional-kanban-card__assignee > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The task panel shares the Appearance panel's shape; these hooks only lay
+   out the fields inside its body. */
+.conventional-task-panel {
+  display: grid;
+  gap: 1rem;
+  padding-top: 1rem;
+}
+.conventional-task-panel__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.conventional-task-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.conventional-task-panel__dependencies {
+  display: grid;
+  gap: 0.5rem;
+}
+.conventional-task-panel__actions {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.conventional-task-panel__action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.conventional-task-panel__note,
+.conventional-task-panel__status {
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+.conventional-task-panel__status:empty {
+  display: none;
+}
+.conventional-task-panel__status {
+  margin-top: 0.75rem;
+}
+
 .conventional-surface-header {
   display: flex;
   max-width: 78rem;
@@ -803,67 +932,6 @@
   max-width: 78rem;
   margin: auto;
 }
-.conventional-task-board {
-  flex: 1;
-  width: 100%;
-  max-width: 94rem;
-  min-height: 0;
-  margin: auto;
-}
-.conventional-task-card__footer-action {
-  margin-left: auto;
-}
-.conventional-task-card__kind {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  margin-top: 0.1rem;
-  color: var(--cw-muted);
-}
-.conventional-task-card__kind svg {
-  width: 0.9rem;
-  height: 0.9rem;
-}
-.conventional-task-board__error {
-  max-width: 94rem;
-  margin: 0 auto;
-  color: var(--cw-danger);
-  font-size: 0.8rem;
-}
-.conventional-task-card__objective {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--cw-muted);
-  font-size: 0.8rem;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.conventional-task-card__metadata {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  color: var(--cw-muted);
-  font-size: 0.68rem;
-}
-.conventional-task-card__metadata span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.15rem 0.3rem;
-  border-radius: 0.25rem;
-  background: var(--cw-surface-muted);
-}
-.conventional-task-card__metadata span svg {
-  width: 0.75rem;
-  height: 0.75rem;
-  flex: none;
-}
-.conventional-task-card__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
 .conventional-dependency-results {
   display: grid;
   gap: 0.15rem;
@@ -873,146 +941,17 @@
   padding: 0;
   list-style: none;
 }
-.conventional-dependency-results button {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 0.55rem;
-  border: 1px solid transparent;
-  border-radius: 0.4rem;
-  background: transparent;
-  color: var(--cw-text);
-  font-size: 0.82rem;
-  text-align: left;
-}
-.conventional-dependency-results button:hover {
-  background: var(--cw-surface-muted);
-}
-.conventional-dependency-results button[aria-pressed='true'] {
-  border-color: var(--cw-accent);
-  background: var(--cw-accent-soft);
-  color: var(--cw-accent-strong);
-}
-.conventional-dependency-results button svg {
-  width: 0.9rem;
-  height: 0.9rem;
-  flex: none;
-}
-.conventional-dependency-results button span {
-  overflow: hidden;
-  min-width: 0;
-  flex: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .conventional-dependency-results__empty {
   padding: 0.45rem 0.55rem;
   color: var(--cw-muted);
   font-size: 0.82rem;
 }
-.conventional-priority {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  padding: 0.3rem;
-  border-radius: 999px;
-  background: var(--cw-surface-muted);
-  color: var(--cw-muted);
-}
-.conventional-priority svg {
-  width: 0.75rem;
-  height: 0.75rem;
-}
-.conventional-priority--low {
-  background: var(--cw-surface-muted);
-  color: var(--cw-muted);
-}
-.conventional-priority--normal {
-  background: var(--cw-accent-soft);
-  color: var(--cw-accent-strong);
-}
-.conventional-priority--urgent {
-  background: color-mix(in srgb, var(--cw-danger) 12%, transparent);
-  color: var(--cw-danger);
-}
-.conventional-priority--high {
-  background: color-mix(in srgb, var(--cw-priority-high-tint) 12%, transparent);
-  color: var(--cw-priority-high);
-}
 
-.conventional-detail-panel {
-  height: 100%;
-  overflow-y: auto;
-  padding: 1.2rem;
-  background: var(--cw-surface);
-}
-.conventional-task-detail-drawer__content {
-  width: min(29rem, 94vw);
-}
-.conventional-detail-panel > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding-bottom: 0.8rem;
-  border-bottom: 1px solid var(--cw-border);
-}
-.conventional-detail-panel__divider {
-  height: 1px;
-  min-height: 1px;
-  margin: 1rem 0 0;
-  border: 0;
-  background: var(--border, var(--cw-border));
-}
-.conventional-detail-panel label,
 .conventional-inline-form label,
 .conventional-dialog-form label {
   display: grid;
   gap: 0.35rem;
   margin-top: 1rem;
-}
-.conventional-detail-panel fieldset {
-  display: grid;
-  gap: 0.15rem;
-  margin-top: 1rem;
-  padding: 0.8rem;
-  border: 1px solid var(--cw-border);
-  border-radius: 0.45rem;
-}
-.conventional-detail-panel__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.8rem;
-  margin-top: 1rem;
-}
-.conventional-detail-panel__grid > label,
-.conventional-detail-panel__grid > .conventional-detail-panel__field {
-  min-width: 0;
-  margin-top: 0;
-}
-.conventional-detail-panel fieldset legend {
-  padding: 0;
-  color: var(--cw-muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-.conventional-detail-panel fieldset label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.45rem;
-}
-.conventional-detail-panel__field {
-  display: grid;
-  gap: 0.35rem;
-  margin-top: 1rem;
-}
-.conventional-detail-panel__label {
-  color: var(--cw-muted);
-  font-size: 0.78rem;
-  font-weight: 700;
 }
 .conventional-room-picker {
   display: inline-flex;
@@ -1032,28 +971,11 @@
   white-space: nowrap;
   text-align: left;
 }
-.conventional-detail-panel textarea {
-  width: 100%;
-  min-height: 6rem;
-}
-.conventional-detail-panel input:not([type='checkbox']),
 .conventional-inline-form input,
 .conventional-inline-form textarea,
 .conventional-inline-form select,
 .conventional-dialog-form input {
   width: 100%;
-}
-.conventional-detail-panel__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin-top: 1rem;
-}
-.conventional-detail-panel__status {
-  min-height: 1.5rem;
-  margin-top: 0.5rem;
-  color: var(--cw-muted);
-  font-size: 0.75rem;
 }
 .conventional-inline-form {
   max-width: 38rem;

@@ -1,130 +1,171 @@
 import type { AgentSummary, RoomSummary, TaskSummary } from '@adea-ai/types'
 import {
   Archive,
-  ArrowDown,
-  ArrowUp,
   Bot,
-  Bug,
   Check,
   CheckCircle2,
   ChevronDown,
-  ChevronsUp,
   MessageCircle,
-  Minus,
   Play,
   Plus,
   Send,
-  Sparkles,
   Square,
-  Wrench,
-  X,
 } from 'lucide-solid'
 import { createMemo, createSignal, For, Show } from 'solid-js'
+import { Dynamic } from 'solid-js/web'
 
-import { Button } from '@adea-ai/ui/components/ui/button'
-import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
-import { Input } from '@adea-ai/ui/components/ui/input'
-import { Label } from '@adea-ai/ui/components/ui/label'
-import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import {
-  Drawer,
-  DrawerCloseButton,
-  DrawerContent,
-  DrawerTitle,
-} from '@adea-ai/ui/components/ui/drawer'
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@adea-ai/ui/components/ui/alert-dialog'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@adea-ai/ui/components/ui/dropdown-menu'
-import { Separator } from '@adea-ai/ui/components/ui/separator'
+import { FormField } from '@adea-ai/ui/components/ui/field'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@adea-ai/ui/components/ui/sheet'
+import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
-import type { PrivateContentResolver } from './platform'
 import { keyedRows } from './keyed-rows'
+import type { PrivateContentResolver } from './platform'
 import { RoomIcon } from './room-icon'
+import {
+  kindOption,
+  kindOptions,
+  laneFor,
+  priorityOption,
+  priorityOptions,
+} from './task-presentation'
 
-type Props = Readonly<{
+type TaskUpdate = Readonly<{
+  kind?: TaskSummary['kind']
+  objective?: string
+  priority?: TaskSummary['priority']
+  title?: string
+}>
+
+type SharedProps = Readonly<{
   agents: readonly AgentSummary[]
   busy: boolean
-  onArchive: (task: TaskSummary) => Promise<void>
-  onAssign: (task: TaskSummary, agentId: string | null) => Promise<void>
-  onCancel: (task: TaskSummary) => Promise<void>
   onClose: () => void
-  onComplete: (task: TaskSummary) => Promise<void>
-  onDependencies: (task: TaskSummary, dependencyIds: readonly string[]) => Promise<void>
-  onMoveRoom: (task: TaskSummary, roomId: string | null) => Promise<void>
-  onOpenConversation: (task: TaskSummary) => void
-  onQueue: (task: TaskSummary) => Promise<void>
-  onReview: (task: TaskSummary) => Promise<void>
-  onStart: (task: TaskSummary) => Promise<void>
-  onUpdate: (
-    task: TaskSummary,
-    update: Readonly<{
-      kind?: TaskSummary['kind']
-      objective?: string
-      priority?: TaskSummary['priority']
-      title?: string
-    }>
-  ) => Promise<void>
   privateContent?: PrivateContentResolver
   rooms: readonly RoomSummary[]
-  task: TaskSummary
   tasks: readonly TaskSummary[]
 }>
 
-const kindOptions = [
-  { value: 'bug' as const, label: 'Bug', Icon: Bug },
-  { value: 'feature' as const, label: 'Feature', Icon: Sparkles },
-  { value: 'chore' as const, label: 'Chore', Icon: Wrench },
-]
+type CreateProps = SharedProps &
+  Readonly<{
+    mode: 'create'
+    onCreate: (
+      input: Readonly<{
+        kind?: TaskSummary['kind']
+        objective: string
+        priority: TaskSummary['priority']
+        title: string
+      }>
+    ) => Promise<void>
+  }>
 
-const priorityOptions = [
-  { value: 'low' as const, label: 'Low', Icon: ArrowDown },
-  { value: 'normal' as const, label: 'Normal', Icon: Minus },
-  { value: 'high' as const, label: 'High', Icon: ArrowUp },
-  { value: 'urgent' as const, label: 'Urgent', Icon: ChevronsUp },
-]
+type EditProps = SharedProps &
+  Readonly<{
+    mode: 'edit'
+    task: TaskSummary
+    onArchive: (task: TaskSummary) => Promise<void>
+    onAssign: (task: TaskSummary, agentId: string | null) => Promise<void>
+    onCancel: (task: TaskSummary) => Promise<void>
+    onComplete: (task: TaskSummary) => Promise<void>
+    onDependencies: (task: TaskSummary, dependencyIds: readonly string[]) => Promise<void>
+    onMoveRoom: (task: TaskSummary, roomId: string | null) => Promise<void>
+    onOpenConversation: (task: TaskSummary) => void
+    onQueue: (task: TaskSummary) => Promise<void>
+    onReview: (task: TaskSummary) => Promise<void>
+    onStart: (task: TaskSummary) => Promise<void>
+    onUpdate: (task: TaskSummary, update: TaskUpdate) => Promise<void>
+  }>
 
-export function TaskDetail(props: Props) {
-  const [dependencyIds, setDependencyIds] = createSignal<readonly string[]>(
-    props.task.dependencyIds
+const TITLE_LIMIT = 200
+const OBJECTIVE_LIMIT = 20_000
+
+/**
+ * Creates or edits one Task in an end-anchored panel, the same panel shape the
+ * Appearance settings use: a titled header, a scrolling body and a footer that
+ * holds the decision. The board stays where it is behind it, so opening a task
+ * never moves the lanes.
+ *
+ * Edits are a draft until Save. Escape, the close button and Cancel all discard
+ * it, the way every other panel in the product behaves; lifecycle actions
+ * (Start, Complete…) apply at once because they are moves, not edits.
+ */
+export function TaskPanel(props: CreateProps | EditProps) {
+  const editing = () => (props.mode === 'edit' ? props : undefined)
+  const initial = props.mode === 'edit' ? props.task : undefined
+  let version = initial?.version ?? 0
+  const [title, setTitle] = createSignal(initial?.title ?? '')
+  const [objective, setObjective] = createSignal(initial?.objective ?? '')
+  const [kind, setKind] = createSignal<TaskSummary['kind']>(initial?.kind ?? 'feature')
+  const [priority, setPriority] = createSignal<TaskSummary['priority']>(
+    initial?.priority ?? 'normal'
   )
+  const [agentId, setAgentId] = createSignal<string | null>(initial?.agentId ?? null)
+  const [roomId, setRoomId] = createSignal<string | null>(initial?.roomId ?? null)
+  const [dependencyIds, setDependencyIds] = createSignal<readonly string[]>(
+    initial?.dependencyIds ?? []
+  )
+  const [dependencyQuery, setDependencyQuery] = createSignal('')
   const [status, setStatus] = createSignal<string | null>(null)
+  const [titleError, setTitleError] = createSignal<string | undefined>()
   const [saving, setSaving] = createSignal(false)
-  let version = props.task.version
-  const [title, setTitle] = createSignal(props.task.title)
-  const [objective, setObjective] = createSignal(props.task.objective ?? '')
-  const [kind, setKind] = createSignal<TaskSummary['kind']>(props.task.kind ?? 'feature')
-  const [priority, setPriority] = createSignal<TaskSummary['priority']>(props.task.priority)
-  const [agentId, setAgentId] = createSignal<string | null>(props.task.agentId ?? null)
-  const [roomId, setRoomId] = createSignal<string | null>(props.task.roomId ?? null)
+
+  const trimmedTitle = () => title().trim()
+  const trimmedObjective = () => objective().trim()
   const selectedRoom = createMemo(() =>
     roomId() ? props.rooms.find(({ id }) => id === roomId()) : undefined
   )
-  const trimmedTitle = () => title().trim()
-  const trimmedObjective = () => objective().trim()
-  const titleChanged = () => trimmedTitle() !== props.task.title
+  const titleChanged = () => trimmedTitle() !== (initial?.title ?? '')
   const objectiveChanged = () =>
-    (trimmedObjective() || undefined) !== (props.task.objective ?? undefined)
-  const kindChanged = () => kind() !== (props.task.kind ?? 'feature')
-  const priorityChanged = () => priority() !== props.task.priority
-  const agentChanged = () => (agentId() ?? null) !== (props.task.agentId ?? null)
-  const roomChanged = () => (roomId() ?? null) !== (props.task.roomId ?? null)
+    (trimmedObjective() || undefined) !== (initial?.objective ?? undefined)
+  const kindChanged = () => kind() !== (initial?.kind ?? 'feature')
+  const priorityChanged = () => priority() !== (initial?.priority ?? 'normal')
+  const agentChanged = () => agentId() !== (initial?.agentId ?? null)
+  const roomChanged = () => roomId() !== (initial?.roomId ?? null)
   const dependenciesChanged = () =>
     JSON.stringify([...dependencyIds()].toSorted()) !==
-    JSON.stringify([...props.task.dependencyIds].toSorted())
-  const detailsChanged = () =>
-    (titleChanged() && trimmedTitle().length > 0 && trimmedTitle().length <= 200) ||
-    (objectiveChanged() && trimmedObjective().length > 0 && trimmedObjective().length <= 20_000) ||
+    JSON.stringify([...(initial?.dependencyIds ?? [])].toSorted())
+  const dirty = () =>
+    titleChanged() ||
+    objectiveChanged() ||
     kindChanged() ||
-    priorityChanged()
-  const dirty = () => detailsChanged() || agentChanged() || roomChanged() || dependenciesChanged()
-  const [dependencyQuery, setDependencyQuery] = createSignal('')
+    priorityChanged() ||
+    agentChanged() ||
+    roomChanged() ||
+    dependenciesChanged()
+  const fieldsDisabled = () => props.busy || saving()
+
   const dependencyCandidates = createMemo(() =>
     props.tasks.filter(
       (task) =>
-        task.id !== props.task.id &&
+        task.id !== initial?.id &&
+        task.lifecycleState !== 'archived' &&
         task.title.toLowerCase().includes(dependencyQuery().trim().toLowerCase())
     )
   )
@@ -143,33 +184,38 @@ export function TaskDetail(props: Props) {
     setDependencyIds((ids) =>
       ids.includes(taskId) ? ids.filter((id) => id !== taskId) : [...ids, taskId]
     )
-  const run = async (action: () => Promise<void>, message: string) => {
-    setStatus(null)
-    try {
-      await action()
-      version += 1
-      setStatus(message)
-    } catch {
-      setStatus(
-        'This Task changed elsewhere or the request could not be completed. Reload and retry.'
-      )
+
+  const validate = () => {
+    if (!trimmedTitle()) {
+      setTitleError('Give the task a title.')
+      return false
     }
+    if (trimmedTitle().length > TITLE_LIMIT) {
+      setTitleError(`Keep the title under ${TITLE_LIMIT} characters.`)
+      return false
+    }
+    setTitleError(undefined)
+    return true
   }
-  const runImmediate = (task: TaskSummary, action: (task: TaskSummary) => Promise<void>) =>
-    run(() => action({ ...task, version }), '')
-  const handleClose = async () => {
-    if (saving()) return
-    if (!dirty()) {
-      props.onClose()
-      return
-    }
-    if (titleChanged() && trimmedTitle().length === 0) {
-      setStatus('Task title cannot be empty.')
-      return
-    }
+
+  const save = async () => {
+    if (saving() || !validate()) return
     setSaving(true)
     setStatus(null)
     try {
+      if (props.mode === 'create') {
+        await props.onCreate({
+          kind: kind(),
+          objective: trimmedObjective(),
+          priority: priority(),
+          title: trimmedTitle(),
+        })
+        return
+      }
+      if (!dirty()) {
+        props.onClose()
+        return
+      }
       let current: TaskSummary = { ...props.task, version }
       const bump = () => {
         version += 1
@@ -181,13 +227,8 @@ export function TaskDetail(props: Props) {
         priority?: TaskSummary['priority']
         title?: string
       } = {}
-      if (titleChanged() && trimmedTitle().length > 0 && trimmedTitle().length <= 200)
-        update.title = trimmedTitle()
-      if (
-        objectiveChanged() &&
-        trimmedObjective().length > 0 &&
-        trimmedObjective().length <= 20_000
-      )
+      if (titleChanged()) update.title = trimmedTitle()
+      if (objectiveChanged() && trimmedObjective().length <= OBJECTIVE_LIMIT)
         update.objective = trimmedObjective()
       if (kindChanged()) update.kind = kind()
       if (priorityChanged()) update.priority = priority()
@@ -210,338 +251,406 @@ export function TaskDetail(props: Props) {
       props.onClose()
     } catch {
       setStatus(
-        'This Task changed elsewhere or the request could not be completed. Reload and retry.'
+        props.mode === 'create'
+          ? 'The task could not be created. Check the fields and try again.'
+          : 'This task changed elsewhere or the change could not be saved. Close the panel and try again.'
       )
+    } finally {
       setSaving(false)
     }
   }
-  const fieldsDisabled = () => props.busy || saving()
-  const selectableState = () =>
-    props.task.lifecycleState === 'created' ||
-    props.task.lifecycleState === 'queued' ||
-    props.task.lifecycleState === 'in_progress' ||
-    props.task.lifecycleState === 'in_review'
+
+  const runLifecycle = async (action: (task: TaskSummary) => Promise<void>) => {
+    const edit = editing()
+    if (!edit) return false
+    setStatus(null)
+    try {
+      await action({ ...edit.task, version })
+      version += 1
+      return true
+    } catch {
+      setStatus('This task changed elsewhere or the request could not be completed. Try again.')
+      return false
+    }
+  }
+
+  const lane = () => {
+    const edit = editing()
+    return edit ? laneFor(edit.task.lifecycleState) : undefined
+  }
+  const activeState = () => {
+    const state = editing()?.task.lifecycleState
+    return (
+      state === 'created' || state === 'queued' || state === 'in_progress' || state === 'in_review'
+    )
+  }
 
   return (
-    <Drawer
+    <Sheet
       open
-      side="right"
       onOpenChange={(open) => {
-        if (!open) void handleClose()
+        if (!open && !saving()) props.onClose()
       }}
     >
-      <DrawerContent class="conventional-task-detail-drawer__content">
-        <div class="conventional-detail-panel">
-          <header>
-            <div>
-              <span>Task detail</span>
-              <DrawerTitle class="sr-only">{props.task.title}</DrawerTitle>
-            </div>
-            <DrawerCloseButton
-              as={ActionButton}
-              variant="ghost"
-              size="icon-sm"
-              tooltip="Close Task detail"
-              aria-label="Close Task detail"
+      <SheetContent side="end" class="w-lg">
+        <SheetHeader>
+          <SheetTitle>{props.mode === 'create' ? 'New task' : 'Edit task'}</SheetTitle>
+          <SheetDescription>
+            <Show
+              when={lane()}
+              fallback="New tasks start in Planned. Start one to queue it for an agent."
             >
-              <X aria-hidden="true" />
-            </DrawerCloseButton>
-          </header>
-          <Label>
-            Title
-            <Input
-              value={title()}
-              maxLength={200}
-              disabled={fieldsDisabled()}
-              onInput={(event) => setTitle(event.currentTarget.value)}
-            />
-          </Label>
-          <Label>
-            Description
-            <Textarea
-              rows={4}
-              maxLength={20000}
-              placeholder={
-                props.task.objectiveContentRefId && !props.task.objective
-                  ? 'Replace linked content with plain text…'
-                  : undefined
-              }
-              value={objective()}
-              disabled={fieldsDisabled()}
-              onInput={(event) => setObjective(event.currentTarget.value)}
-            />
-          </Label>
-          <Separator class="conventional-detail-panel__divider" />
-          <div class="conventional-detail-panel__grid">
-            <div class="conventional-detail-panel__field">
-              <span class="conventional-detail-panel__label">Type</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  as={Button}
-                  variant="outline"
-                  disabled={fieldsDisabled()}
-                  class="conventional-room-picker"
-                >
-                  <Show when={kind() === 'bug'} fallback={<KindIconFallback kind={kind()} />}>
-                    <Bug aria-hidden="true" />
-                  </Show>
-                  <span>{kind() === 'bug' ? 'Bug' : kind() === 'chore' ? 'Chore' : 'Feature'}</span>
-                  <ChevronDown aria-hidden="true" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  hideArrow
-                  placement="bottom-start"
-                  gutter={4}
-                  class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-                >
-                  <For each={kindOptions}>
-                    {(option) => (
-                      <DropdownMenuItem onSelect={() => setKind(option.value)}>
-                        <option.Icon aria-hidden="true" />
-                        {option.label}
-                      </DropdownMenuItem>
-                    )}
-                  </For>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <div class="conventional-detail-panel__field">
-              <span
-                class="conventional-detail-panel__label"
-                id={`task-detail-priority-label-${props.task.id}`}
-              >
-                Priority
-              </span>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  disabled={fieldsDisabled()}
-                  as={Button}
-                  variant="outline"
-                  class="conventional-room-picker"
-                >
-                  <PriorityIcon priority={priority()} />
-                  <span>
-                    {priority() === 'low'
-                      ? 'Low'
-                      : priority() === 'high'
-                        ? 'High'
-                        : priority() === 'urgent'
-                          ? 'Urgent'
-                          : 'Normal'}
-                  </span>
-                  <ChevronDown aria-hidden="true" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  hideArrow
-                  placement="bottom-start"
-                  gutter={4}
-                  class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-                >
-                  <For each={priorityOptions}>
-                    {(option) => (
-                      <DropdownMenuItem onSelect={() => setPriority(option.value)}>
-                        <option.Icon aria-hidden="true" />
-                        {option.label}
-                      </DropdownMenuItem>
-                    )}
-                  </For>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-          <div class="conventional-detail-panel__grid">
-            <div class="conventional-detail-panel__field">
-              <span class="conventional-detail-panel__label">Room</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  disabled={fieldsDisabled()}
-                  as={Button}
-                  variant="outline"
-                  class="conventional-room-picker"
-                >
-                  <Show when={selectedRoom()}>
-                    {(room) => <RoomIcon functionKey={room().functionKey} />}
-                  </Show>
-                  <span>{selectedRoom()?.name ?? 'No Room'}</span>
-                  <ChevronDown aria-hidden="true" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  hideArrow
-                  placement="bottom-start"
-                  gutter={4}
-                  class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-                >
-                  <DropdownMenuItem onSelect={() => setRoomId(null)}>No Room</DropdownMenuItem>
-                  <For each={roomRows()}>
-                    {(entry) => (
-                      <DropdownMenuItem onSelect={() => setRoomId(entry.item().id)}>
-                        <RoomIcon functionKey={entry.item().functionKey} />
-                        {entry.item().name}
-                      </DropdownMenuItem>
-                    )}
-                  </For>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <div class="conventional-detail-panel__field">
-              <span class="conventional-detail-panel__label">Agent</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  disabled={fieldsDisabled()}
-                  as={Button}
-                  variant="outline"
-                  class="conventional-room-picker"
-                >
-                  <Bot aria-hidden="true" />
-                  <span>
-                    {agentId()
-                      ? (props.agents.find(({ id }) => id === agentId())?.name ??
-                        'Unavailable Agent')
-                      : 'Unassigned'}
-                  </span>
-                  <ChevronDown aria-hidden="true" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  hideArrow
-                  placement="bottom-start"
-                  gutter={4}
-                  class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-                >
-                  <DropdownMenuItem onSelect={() => setAgentId(null)}>Unassigned</DropdownMenuItem>
-                  <For each={agentRows()}>
-                    {(entry) => (
-                      <DropdownMenuItem onSelect={() => setAgentId(entry.item().id)}>
-                        <Bot aria-hidden="true" />
-                        {entry.item().name}
-                      </DropdownMenuItem>
-                    )}
-                  </For>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-          <Separator class="conventional-detail-panel__divider" />
-          <fieldset>
-            <legend>Dependencies</legend>
-            <Input
-              type="search"
-              placeholder="Search tasks…"
-              aria-label="Search tasks to link as dependencies"
-              value={dependencyQuery()}
-              disabled={fieldsDisabled()}
-              onInput={(event) => setDependencyQuery(event.currentTarget.value)}
-            />
-            <ul class="conventional-dependency-results">
-              <For each={dependencyRows()}>
-                {(entry) => {
-                  const selectedDependency = () => dependencyIds().includes(entry.item().id)
-                  return (
-                    <li>
-                      <Button
-                        type="button"
-                        aria-pressed={selectedDependency()}
-                        disabled={fieldsDisabled()}
-                        onClick={() => toggleDependency(entry.item().id)}
-                      >
-                        <Show when={selectedDependency()} fallback={<Plus aria-hidden="true" />}>
-                          <Check aria-hidden="true" />
-                        </Show>
-                        <span>{entry.item().title}</span>
-                      </Button>
-                    </li>
-                  )
+              {(current) => (
+                <span class="conventional-task-panel__state">
+                  <Badge variant="subtle" size="sm">
+                    {current().label}
+                  </Badge>
+                  <span>Changes apply when you save.</span>
+                </span>
+              )}
+            </Show>
+          </SheetDescription>
+        </SheetHeader>
+        <SheetBody>
+          <form
+            id="task-panel-form"
+            class="conventional-task-panel"
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault()
+              void save()
+            }}
+          >
+            <FormField label="Title" error={titleError()}>
+              <Input
+                name="title"
+                value={title()}
+                maxLength={TITLE_LIMIT}
+                autofocus
+                disabled={fieldsDisabled()}
+                aria-invalid={titleError() ? true : undefined}
+                onInput={(event) => {
+                  setTitle(event.currentTarget.value)
+                  if (titleError()) setTitleError(undefined)
                 }}
-              </For>
-              <Show when={!dependencyCandidates().length}>
-                <li class="conventional-dependency-results__empty">No matching tasks.</li>
-              </Show>
-            </ul>
-          </fieldset>
-          <Separator class="conventional-detail-panel__divider" />
-          <Show when={props.task.lifecycleState === 'in_review'}>
-            <p>Waiting on review. A new comment in the linked conversation reopens the Task.</p>
+              />
+            </FormField>
+            <FormField label="Description">
+              <Textarea
+                name="objective"
+                rows={5}
+                maxLength={OBJECTIVE_LIMIT}
+                placeholder={
+                  initial?.objectiveContentRefId && !initial.objective
+                    ? 'Replace linked content with plain text…'
+                    : 'What should be done, and how will you know it is done?'
+                }
+                value={objective()}
+                disabled={fieldsDisabled()}
+                onInput={(event) => setObjective(event.currentTarget.value)}
+              />
+            </FormField>
+            <div class="conventional-task-panel__grid">
+              <FormField label="Type">
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    as={Button}
+                    variant="outline"
+                    disabled={fieldsDisabled()}
+                    class="conventional-room-picker"
+                  >
+                    <Dynamic component={kindOption(kind()).Icon} aria-hidden="true" />
+                    <span>{kindOption(kind()).label}</span>
+                    <ChevronDown aria-hidden="true" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent hideArrow placement="bottom-start" gutter={4}>
+                    <For each={kindOptions}>
+                      {(option) => (
+                        <DropdownMenuItem onSelect={() => setKind(option.value)}>
+                          <option.Icon aria-hidden="true" />
+                          {option.label}
+                        </DropdownMenuItem>
+                      )}
+                    </For>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </FormField>
+              <FormField label="Priority">
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    as={Button}
+                    variant="outline"
+                    disabled={fieldsDisabled()}
+                    class="conventional-room-picker"
+                  >
+                    <Dynamic component={priorityOption(priority()).Icon} aria-hidden="true" />
+                    <span>{priorityOption(priority()).label}</span>
+                    <ChevronDown aria-hidden="true" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent hideArrow placement="bottom-start" gutter={4}>
+                    <For each={priorityOptions}>
+                      {(option) => (
+                        <DropdownMenuItem onSelect={() => setPriority(option.value)}>
+                          <option.Icon aria-hidden="true" />
+                          {option.label}
+                        </DropdownMenuItem>
+                      )}
+                    </For>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </FormField>
+            </div>
+            <Show when={editing()}>
+              <div class="conventional-task-panel__grid">
+                <FormField label="Room">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      disabled={fieldsDisabled()}
+                      as={Button}
+                      variant="outline"
+                      class="conventional-room-picker"
+                    >
+                      <Show when={selectedRoom()}>
+                        {(room) => <RoomIcon functionKey={room().functionKey} />}
+                      </Show>
+                      <span>{selectedRoom()?.name ?? 'No room'}</span>
+                      <ChevronDown aria-hidden="true" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      hideArrow
+                      placement="bottom-start"
+                      gutter={4}
+                      class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+                    >
+                      <DropdownMenuItem onSelect={() => setRoomId(null)}>No room</DropdownMenuItem>
+                      <For each={roomRows()}>
+                        {(entry) => (
+                          <DropdownMenuItem onSelect={() => setRoomId(entry.item().id)}>
+                            <RoomIcon functionKey={entry.item().functionKey} />
+                            {entry.item().name}
+                          </DropdownMenuItem>
+                        )}
+                      </For>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </FormField>
+                <FormField label="Agent">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      disabled={fieldsDisabled()}
+                      as={Button}
+                      variant="outline"
+                      class="conventional-room-picker"
+                    >
+                      <Bot aria-hidden="true" />
+                      <span>
+                        {agentId()
+                          ? (props.agents.find(({ id }) => id === agentId())?.name ??
+                            'Unavailable agent')
+                          : 'Unassigned'}
+                      </span>
+                      <ChevronDown aria-hidden="true" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      hideArrow
+                      placement="bottom-start"
+                      gutter={4}
+                      class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+                    >
+                      <DropdownMenuItem onSelect={() => setAgentId(null)}>
+                        Unassigned
+                      </DropdownMenuItem>
+                      <For each={agentRows()}>
+                        {(entry) => (
+                          <DropdownMenuItem onSelect={() => setAgentId(entry.item().id)}>
+                            <Bot aria-hidden="true" />
+                            {entry.item().name}
+                          </DropdownMenuItem>
+                        )}
+                      </For>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </FormField>
+              </div>
+              <FormField label="Dependencies" group>
+                <div class="conventional-task-panel__dependencies">
+                  <Input
+                    type="search"
+                    placeholder="Search tasks…"
+                    aria-label="Search tasks to link as dependencies"
+                    value={dependencyQuery()}
+                    disabled={fieldsDisabled()}
+                    onInput={(event) => setDependencyQuery(event.currentTarget.value)}
+                  />
+                  <ul class="conventional-dependency-results">
+                    <For each={dependencyRows()}>
+                      {(entry) => {
+                        const linked = () => dependencyIds().includes(entry.item().id)
+                        return (
+                          <li>
+                            <Button
+                              type="button"
+                              variant={linked() ? 'subtle' : 'ghost'}
+                              size="sm"
+                              class="w-full justify-start"
+                              aria-pressed={linked()}
+                              disabled={fieldsDisabled()}
+                              onClick={() => toggleDependency(entry.item().id)}
+                            >
+                              <Show when={linked()} fallback={<Plus aria-hidden="true" />}>
+                                <Check aria-hidden="true" />
+                              </Show>
+                              <span class="truncate">{entry.item().title}</span>
+                            </Button>
+                          </li>
+                        )
+                      }}
+                    </For>
+                    <Show when={!dependencyCandidates().length}>
+                      <li class="conventional-dependency-results__empty">
+                        {dependencyQuery().trim()
+                          ? 'No matching tasks.'
+                          : 'No other tasks to depend on yet.'}
+                      </li>
+                    </Show>
+                  </ul>
+                </div>
+              </FormField>
+            </Show>
+          </form>
+          <Show when={editing()}>
+            {(edit) => (
+              <section class="conventional-task-panel__actions" aria-label="Task actions">
+                <Show when={edit().task.lifecycleState === 'in_review'}>
+                  <p class="conventional-task-panel__note">
+                    Waiting on review. A new comment in the linked conversation reopens the task.
+                  </p>
+                </Show>
+                <div class="conventional-task-panel__action-row">
+                  <Show when={edit().task.lifecycleState === 'created'}>
+                    <Button
+                      type="button"
+                      variant="success"
+                      size="sm"
+                      onClick={() => void runLifecycle(edit().onQueue)}
+                    >
+                      <Play aria-hidden="true" />
+                      Start
+                    </Button>
+                  </Show>
+                  <Show when={edit().task.lifecycleState === 'queued'}>
+                    <Button
+                      type="button"
+                      variant="success"
+                      size="sm"
+                      onClick={() => void runLifecycle(edit().onStart)}
+                    >
+                      <Play aria-hidden="true" />
+                      Begin work
+                    </Button>
+                  </Show>
+                  <Show when={edit().task.lifecycleState === 'in_progress'}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void runLifecycle(edit().onReview)}
+                    >
+                      <Send aria-hidden="true" />
+                      Submit for review
+                    </Button>
+                  </Show>
+                  <Show when={activeState()}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void runLifecycle(edit().onComplete)}
+                    >
+                      <CheckCircle2 aria-hidden="true" />
+                      Complete
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void runLifecycle(edit().onCancel)}
+                    >
+                      <Square aria-hidden="true" />
+                      Cancel task
+                    </Button>
+                  </Show>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => edit().onOpenConversation(edit().task)}
+                  >
+                    <MessageCircle aria-hidden="true" />
+                    Open conversation
+                  </Button>
+                </div>
+              </section>
+            )}
           </Show>
-          <div class="conventional-detail-panel__actions">
-            <Show when={props.task.lifecycleState === 'created'}>
-              <Button type="button" onClick={() => void runImmediate(props.task, props.onQueue)}>
-                <Play aria-hidden="true" />
-                Start
-              </Button>
-            </Show>
-            <Show when={props.task.lifecycleState === 'queued'}>
-              <Button type="button" onClick={() => void runImmediate(props.task, props.onStart)}>
-                <Play aria-hidden="true" />
-                Begin work
-              </Button>
-            </Show>
-            <Show when={props.task.lifecycleState === 'in_progress'}>
-              <Button type="button" onClick={() => void runImmediate(props.task, props.onReview)}>
-                <Send aria-hidden="true" />
-                Submit for review
-              </Button>
-            </Show>
-            <Show when={selectableState()}>
-              <Button type="button" onClick={() => void runImmediate(props.task, props.onComplete)}>
-                <CheckCircle2 aria-hidden="true" />
-                Complete
-              </Button>
-            </Show>
-            <Show when={selectableState()}>
-              <Button type="button" onClick={() => void runImmediate(props.task, props.onCancel)}>
-                <Square aria-hidden="true" />
-                Cancel
-              </Button>
-            </Show>
-            <Button type="button" onClick={() => props.onOpenConversation(props.task)}>
-              <MessageCircle aria-hidden="true" />
-              Open conversation
-            </Button>
-            <Button
-              type="button"
-              onClick={() =>
-                window.confirm('Archive this Task?') &&
-                void runImmediate(props.task, props.onArchive)
-              }
-            >
-              <Archive aria-hidden="true" />
-              Archive
-            </Button>
-          </div>
-          <div class="conventional-detail-panel__status" aria-live="polite">
+          <p class="conventional-task-panel__status" role="status">
             {status()}
-          </div>
-        </div>
-      </DrawerContent>
-    </Drawer>
-  )
-}
-
-function KindIconFallback(props: { kind: TaskSummary['kind'] }) {
-  return (
-    <Show when={props.kind === 'chore'} fallback={<Sparkles aria-hidden="true" />}>
-      <Wrench aria-hidden="true" />
-    </Show>
-  )
-}
-
-function PriorityIcon(props: { priority: TaskSummary['priority'] }) {
-  return (
-    <Show
-      when={props.priority === 'low'}
-      fallback={
-        <Show
-          when={props.priority === 'high'}
-          fallback={
-            <Show when={props.priority === 'urgent'} fallback={<Minus aria-hidden="true" />}>
-              <ChevronsUp aria-hidden="true" />
-            </Show>
-          }
-        >
-          <ArrowUp aria-hidden="true" />
-        </Show>
-      }
-    >
-      <ArrowDown aria-hidden="true" />
-    </Show>
+          </p>
+        </SheetBody>
+        <SheetFooter>
+          <Show when={editing()}>
+            {(edit) => (
+              <AlertDialog>
+                <AlertDialogTrigger
+                  as={Button}
+                  type="button"
+                  variant="ghost"
+                  class="me-auto"
+                  disabled={fieldsDisabled()}
+                >
+                  <Archive aria-hidden="true" />
+                  Archive
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Archive this task?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      “{edit().task.title}” leaves the board. Archived tasks cannot be moved back.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel as={Button} type="button" variant="outline">
+                      Keep task
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      as={Button}
+                      type="button"
+                      variant="destructive"
+                      onClick={() =>
+                        void runLifecycle(edit().onArchive).then((done) => done && props.onClose())
+                      }
+                    >
+                      Archive
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </Show>
+          <Button type="button" variant="outline" disabled={saving()} onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" form="task-panel-form" disabled={fieldsDisabled()}>
+            {props.mode === 'create'
+              ? saving()
+                ? 'Creating…'
+                : 'Create task'
+              : saving()
+                ? 'Saving…'
+                : 'Save'}
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   )
 }

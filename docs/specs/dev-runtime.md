@@ -4214,10 +4214,13 @@ alone is insufficient.
 [Owner correction #757](../research/shell-app-library-owner-corrections.md)
 separates **App Library** from the external **Plugins** marketplace. Library is
 an always-reachable full-screen destination directly below the rail's app
-icons. Virtual, Chat and Dev are bundled and enabled by default. Kanban and
-Source control are compiled optional destinations, enabled explicitly. Kanban
-mounts the existing task board through a route-scoped surface without changing
-the previous Chat surface. Library retains rail reorder and reset controls.
+icons. Virtual, Chat, Dev and Kanban are bundled and enabled by default;
+Source control is a compiled optional destination, enabled explicitly. Kanban
+is the only place tasks are listed (the workspace sidebar has no Tasks entry):
+it mounts the task board full width, with no workspace sidebar, through a
+route-scoped surface without changing the previous Chat surface. A search
+result or link to a task opens Kanban; with Kanban disabled, the board opens
+inside Chat instead. Library retains rail reorder and reset controls.
 Chat’s central conversation surface uses the canonical theme background in
 both light and dark modes, rather than imposing a separate grayscale palette.
 Each reorder moves one enabled app by one visible rail slot, skipping disabled
@@ -4228,8 +4231,9 @@ session into the existing source-control surface at full width, without
 rewriting the Dev pane preferences. Code browsing remains available in Dev.
 
 Enablement reuses the versioned rail order/hidden record, preserving unknown
-IDs and quarantined data. An optional app is enabled only when its compiled
-ID is explicitly in that record's order and is not hidden. Disabling an active
+IDs and quarantined data. A default-on app is enabled unless hidden; an
+optional app is enabled only when its compiled ID is explicitly in that
+record's order and is not hidden. Disabling an active
 app resolves to another enabled app; if every app is disabled, Library remains
 available to re-enable them. Enablement never installs external code, deletes
 app data, replaces a RuntimeSession, or stops its harness. External metadata

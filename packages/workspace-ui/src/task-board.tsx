@@ -1,41 +1,33 @@
 import type { AgentSummary, RoomSummary, TaskSummary } from '@adea-ai/types'
-import {
-  ArrowDown,
-  ArrowUp,
-  Bot,
-  Bug,
-  ChevronsUp,
-  ListTodo,
-  Minus,
-  Play,
-  Plus,
-  Sparkles,
-  Wrench,
-  X,
-} from 'lucide-solid'
+import { Play, Plus, Search, X } from 'lucide-solid'
 import { createMemo, createSignal, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { Avatar, AvatarFallback, initialsFrom } from '@adea-ai/ui/components/ui/avatar'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
 import {
   Board,
   BoardCardBody,
-  BoardCardTitle,
+  BoardCardTrigger,
   type BoardColumn,
   type BoardMove,
 } from '@adea-ai/ui/components/ui/board'
-import { Input } from '@adea-ai/ui/components/ui/input'
-import { Label } from '@adea-ai/ui/components/ui/label'
-import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
-import { Textarea } from '@adea-ai/ui/components/ui/textarea'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
-import { cn } from '@adea-ai/app-ui/lib/utils'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
 import { keyedRows, type KeyedRow } from './keyed-rows'
-import { TaskDetail } from './task-detail'
 import type { PrivateContentResolver } from './platform'
 import { TaskObjective } from './private-task-objective'
 import { RoomIcon } from './room-icon'
-import { WorkspaceEmpty } from './workspace-states'
+import { TaskPanel } from './task-detail'
+import {
+  kindOption,
+  priorityOption,
+  taskLanes,
+  validTransitions,
+  type TaskState,
+} from './task-presentation'
 
 type Props = Readonly<{
   agents: readonly AgentSummary[]
@@ -74,70 +66,9 @@ type Props = Readonly<{
   tasks: readonly TaskSummary[]
 }>
 
-const columns = [
-  { id: 'created' as const, label: 'Planned' },
-  { id: 'queued' as const, label: 'Queued' },
-  { id: 'in_progress' as const, label: 'In-Progress' },
-  { id: 'in_review' as const, label: 'In-Review' },
-  { id: 'completed' as const, label: 'Completed' },
-  { id: 'cancelled' as const, label: 'Cancelled' },
-]
-type TaskState = TaskSummary['lifecycleState']
-
-// Mirrors the server transition map in packages/db/src/tasks.ts. Cards may only
-// be dropped on columns the Task can legally transition to.
-const validTransitions: Record<
-  TaskSummary['lifecycleState'],
-  readonly TaskSummary['lifecycleState'][]
-> = {
-  archived: [],
-  cancelled: ['archived'],
-  completed: ['archived'],
-  created: ['queued', 'in_progress', 'completed', 'cancelled', 'archived'],
-  in_progress: ['in_review', 'completed', 'cancelled', 'archived'],
-  in_review: ['in_progress', 'completed', 'cancelled', 'archived'],
-  queued: ['in_progress', 'completed', 'cancelled', 'archived'],
-}
-
-const priorityIconFor = {
-  high: ArrowUp,
-  low: ArrowDown,
-  normal: Minus,
-  urgent: ChevronsUp,
-} as const
-
-const kindIconFor = {
-  bug: Bug,
-  chore: Wrench,
-  feature: Sparkles,
-} as const
-
-function PriorityTag(props: { priority: TaskSummary['priority'] }) {
-  const Icon = priorityIconFor[props.priority]
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        as="span"
-        class={cn('conventional-priority', {
-          'conventional-priority--low': props.priority === 'low',
-          'conventional-priority--normal': props.priority === 'normal',
-          'conventional-priority--high': props.priority === 'high',
-          'conventional-priority--urgent': props.priority === 'urgent',
-        })}
-        aria-label={`Priority: ${props.priority}`}
-      >
-        <Icon aria-hidden="true" />
-      </TooltipTrigger>
-      <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
-        {props.priority}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
 export function TaskBoard(props: Props) {
   const [creating, setCreating] = createSignal(false)
-  const [error, setError] = createSignal<string | null>(null)
+  const [query, setQuery] = createSignal('')
   const [boardError, setBoardError] = createSignal<string | null>(null)
   const selected = createMemo(() => props.tasks.find(({ id }) => id === props.selectedTaskId))
   const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
@@ -149,26 +80,38 @@ export function TaskBoard(props: Props) {
     in_review: props.onReview,
     queued: props.onQueue,
   }
-  // Board's <For> sees stable wrappers even when the server returns fresh task
-  // objects, so detail triggers and card state survive a workspace refetch.
-  const taskRows = keyedRows(
-    () => props.tasks,
-    (task) => task.id,
-    (previous, next) => previous.version === next.version && previous.updatedAt === next.updatedAt
-  )
-  const boardColumns: BoardColumn[] = columns.map((column) => {
-    const count = createMemo(
-      () => taskRows().filter((entry) => entry.item().lifecycleState === column.id).length
+
+  const matches = (task: TaskSummary, needle: string) => {
+    if (!needle) return true
+    const agent = task.agentId ? agentById().get(task.agentId)?.name : undefined
+    const room = task.roomId ? roomById().get(task.roomId)?.name : undefined
+    return [task.title, task.objective, task.kind, task.priority, agent, room].some((value) =>
+      value?.toLowerCase().includes(needle)
     )
-    return { ...column, meta: <span>{count()}</span> }
+  }
+  const visibleTasks = createMemo(() => {
+    const needle = query().trim().toLowerCase()
+    return props.tasks.filter((task) => matches(task, needle))
   })
+  // Board's <For> sees stable wrappers even when the server returns fresh task
+  // objects, so card DOM and focus survive a refetch. Every new object is still
+  // pushed through: an optimistic move changes the lane without changing the
+  // version, and a version-keyed comparison would hide it until the server
+  // answered.
+  const taskRows = keyedRows(visibleTasks, (task) => task.id)
+  const boardColumns = createMemo<BoardColumn[]>(() =>
+    taskLanes.map((lane) => ({
+      ...lane,
+      count: visibleTasks().filter((task) => task.lifecycleState === lane.id).length,
+    }))
+  )
 
   const queueFromCard = async (task: TaskSummary) => {
     setBoardError(null)
     try {
       await props.onQueue(task)
     } catch {
-      setBoardError('Task could not be queued. It may have changed elsewhere; reload and retry.')
+      setBoardError('This task could not be started. It may have changed elsewhere; try again.')
     }
   }
 
@@ -197,191 +140,189 @@ export function TaskBoard(props: Props) {
     try {
       await action(task)
     } catch {
-      setBoardError('Task could not be moved. It may have changed elsewhere; reload and retry.')
+      setBoardError('This task could not be moved. It may have changed elsewhere; try again.')
     }
   }
 
+  const openTask = (taskId: string) => {
+    setCreating(false)
+    setBoardError(null)
+    props.onSelect(taskId)
+  }
+
   return (
-    <section class="conventional-tasks" aria-labelledby="task-board-title">
-      <header class="conventional-surface-header">
-        <div>
-          <span>Durable product work</span>
-          <h1 id="task-board-title">Tasks</h1>
-          <p>Execution status is intentionally separate from these durable planning records.</p>
+    <section class="conventional-kanban" aria-labelledby="task-board-title">
+      <header class="conventional-kanban__toolbar">
+        <div class="conventional-kanban__heading">
+          <h1 id="task-board-title">Kanban</h1>
+          <Badge variant="subtle" size="sm" aria-label={taskCountLabel()}>
+            {props.tasks.length}
+          </Badge>
         </div>
-        <Button type="button" onClick={() => setCreating(true)}>
+        <InputGroup class="conventional-kanban__filter">
+          <InputGroupAddon>
+            <Search aria-hidden="true" />
+          </InputGroupAddon>
+          <InputGroupInput
+            type="search"
+            placeholder="Filter tasks"
+            aria-label="Filter tasks"
+            value={query()}
+            onInput={(event) => setQuery(event.currentTarget.value)}
+          />
+        </InputGroup>
+        <Show when={query()}>
+          <span class="conventional-kanban__filter-result" role="status">
+            {visibleTasks().length} of {props.tasks.length}
+          </span>
+        </Show>
+        <Button
+          type="button"
+          class="ms-auto"
+          onClick={() => {
+            props.onSelect(null)
+            setCreating(true)
+          }}
+        >
           <Plus aria-hidden="true" />
-          New Task
-          <ListTodo aria-hidden="true" />
+          New task
         </Button>
       </header>
-      <Show when={creating()}>
-        <form
-          class="conventional-inline-form"
-          onSubmit={async (event) => {
-            event.preventDefault()
-            const form = new FormData(event.currentTarget)
-            setError(null)
-            try {
-              await props.onCreate({
-                kind: String(form.get('kind') ?? 'feature') as TaskSummary['kind'],
-                objective: String(form.get('objective') ?? ''),
-                priority: String(form.get('priority') ?? 'normal') as TaskSummary['priority'],
-                title: String(form.get('title') ?? ''),
-              })
-              setCreating(false)
-            } catch {
-              setError('Task could not be created. Check the fields and retry.')
-            }
-          }}
-        >
-          <div class="conventional-inline-form__header">
-            <h2>Create Task</h2>
-            <Button
-              type="button"
-              aria-label="Cancel Task creation"
-              onClick={() => setCreating(false)}
-            >
-              <X aria-hidden="true" />
-            </Button>
-          </div>
-          <Label>
-            Title
-            <Input name="title" required maxLength={160} />
-          </Label>
-          <Label>
-            Objective
-            <Textarea name="objective" required rows={3} maxLength={2_000} />
-          </Label>
-          <Label>
-            Priority
-            <NativeSelect
-              name="priority"
-              value="normal"
-              options={[
-                { value: 'low', label: 'Low' },
-                { value: 'normal', label: 'Normal' },
-                { value: 'high', label: 'High' },
-                { value: 'urgent', label: 'Urgent' },
-              ]}
-            />
-          </Label>
-          <Label>
-            Type
-            <NativeSelect
-              name="kind"
-              value="feature"
-              options={[
-                { value: 'bug', label: 'Bug' },
-                { value: 'feature', label: 'Feature' },
-                { value: 'chore', label: 'Chore' },
-              ]}
-            />
-          </Label>
-          <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
-          <Button type="submit" disabled={props.busy}>
-            {props.busy ? 'Creating…' : 'Create Task'}
-          </Button>
-        </form>
-      </Show>
       <Show when={boardError()}>
         {(message) => (
-          <p role="alert" class="conventional-task-board__error">
-            {message()}
-          </p>
+          <Alert variant="destructive" class="conventional-kanban__alert">
+            <AlertDescription>{message()}</AlertDescription>
+            <ActionButton
+              variant="ghost"
+              size="icon-xs"
+              tooltip="Dismiss"
+              aria-label="Dismiss error"
+              class="ms-auto"
+              onClick={() => setBoardError(null)}
+            >
+              <X aria-hidden="true" />
+            </ActionButton>
+          </Alert>
         )}
       </Show>
-      <Show
-        when={props.tasks.length}
-        fallback={
-          <WorkspaceEmpty
-            title="No Tasks yet"
-            detail="Create a durable Task and link its discussion to a Room thread when useful."
-          />
+      <Board
+        columns={boardColumns()}
+        items={taskRows()}
+        itemId={(entry) => entry.item().id}
+        itemColumn={(entry) => entry.item().lifecycleState}
+        canDrop={canMoveTask}
+        onMove={(move) => void moveTask(move)}
+        label="Task board"
+        collapseEmpty
+        class="conventional-kanban__board"
+        emptyColumn={(column) =>
+          query()
+            ? 'No matching tasks'
+            : column.id === 'created'
+              ? 'New tasks start here'
+              : 'No tasks'
         }
       >
-        <Board
-          columns={boardColumns}
-          items={taskRows()}
-          itemId={(entry) => entry.item().id}
-          itemColumn={(entry) => entry.item().lifecycleState}
-          canDrop={canMoveTask}
-          onMove={(move) => void moveTask(move)}
-          label="Task board"
-          class="conventional-task-board"
-          emptyColumn={() => 'No tasks'}
-        >
-          {(entry) => {
-            const task = entry.item
-            return (
-              <BoardCardBody>
-                <div class="conventional-task-card__header">
-                  <span class="conventional-task-card__kind">
-                    <Dynamic component={kindIconFor[task().kind ?? 'feature']} aria-hidden="true" />
-                  </span>
-                  <BoardCardTitle size="sm" class="min-w-0 flex-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      class="w-full justify-start"
-                      onClick={() => {
-                        setBoardError(null)
-                        props.onSelect(task().id)
-                      }}
-                    >
-                      {task().title}
-                    </Button>
-                  </BoardCardTitle>
-                  <PriorityTag priority={task().priority} />
-                </div>
-                <p class="conventional-task-card__objective">
+        {(entry) => {
+          const task = entry.item
+          const priority = () => priorityOption(task().priority)
+          const kind = () => kindOption(task().kind)
+          const room = () => (task().roomId ? roomById().get(task().roomId!) : undefined)
+          const agentName = () =>
+            task().agentId ? (agentById().get(task().agentId!)?.name ?? 'Unavailable agent') : null
+          return (
+            <BoardCardBody class="conventional-kanban-card">
+              <div class="conventional-kanban-card__header">
+                <BoardCardTrigger aria-haspopup="dialog" onClick={() => openTask(task().id)}>
+                  {task().title}
+                </BoardCardTrigger>
+                <Badge
+                  variant={priority().badge}
+                  size="sm"
+                  aria-label={`Priority: ${priority().label}`}
+                >
+                  <Dynamic component={priority().Icon} aria-hidden="true" />
+                  {priority().label}
+                </Badge>
+              </div>
+              <Show when={task().objective || task().objectiveContentRefId}>
+                <p class="conventional-kanban-card__objective">
                   <TaskObjective privateContent={props.privateContent} task={task()} />
                 </p>
-                <footer class="conventional-task-card__metadata">
-                  <span>
-                    <Bot aria-hidden="true" />
-                    {task().agentId
-                      ? (agentById().get(task().agentId!)?.name ?? 'Unavailable Agent')
-                      : 'Unassigned'}
-                  </span>
-                  <span>
-                    <Show when={task().roomId ? roomById().get(task().roomId!) : undefined}>
-                      {(room) => <RoomIcon functionKey={room().functionKey} />}
-                    </Show>
-                    {task().roomId
-                      ? (roomById().get(task().roomId!)?.name ?? 'Unavailable Room')
-                      : 'No Room'}
-                  </span>
-                  <Show when={task().lifecycleState === 'created'}>
-                    <Button
-                      type="button"
-                      variant="success"
-                      size="xs"
-                      class="conventional-task-card__footer-action"
-                      disabled={props.busy}
-                      onClick={() => void queueFromCard(task())}
-                    >
-                      <Play aria-hidden="true" />
-                      Start
-                    </Button>
+              </Show>
+              <div class="conventional-kanban-card__tags">
+                <Badge variant="subtle" size="sm">
+                  <Dynamic component={kind().Icon} aria-hidden="true" />
+                  {kind().label}
+                </Badge>
+                <Show when={room()}>
+                  {(value) => (
+                    <Badge variant="subtle" size="sm">
+                      <RoomIcon functionKey={value().functionKey} />
+                      {value().name}
+                    </Badge>
+                  )}
+                </Show>
+              </div>
+              <footer class="conventional-kanban-card__footer">
+                <span class="conventional-kanban-card__assignee">
+                  <Show when={agentName()} fallback={<span>Unassigned</span>}>
+                    {(name) => (
+                      <>
+                        <Avatar size="xs">
+                          <AvatarFallback>{initialsFrom(name())}</AvatarFallback>
+                        </Avatar>
+                        <span>{name()}</span>
+                      </>
+                    )}
                   </Show>
-                </footer>
-              </BoardCardBody>
-            )
+                </span>
+                <Show when={task().lifecycleState === 'created'}>
+                  <Button
+                    type="button"
+                    variant="success"
+                    size="xs"
+                    class="relative ms-auto"
+                    disabled={props.busy}
+                    onClick={() => void queueFromCard(task())}
+                  >
+                    <Play aria-hidden="true" />
+                    Start
+                  </Button>
+                </Show>
+              </footer>
+            </BoardCardBody>
+          )
+        }}
+      </Board>
+      <Show when={creating()}>
+        <TaskPanel
+          {...props}
+          mode="create"
+          onClose={() => setCreating(false)}
+          onCreate={async (input) => {
+            await props.onCreate(input)
+            setCreating(false)
           }}
-        </Board>
+        />
       </Show>
-      {/* Keyed: the detail panel's entire editor state — title, objective,
-          kind, priority, agent, room, dependencies, and the `version` it
-          writes back — is initialised from `task` once at setup. An UNKEYED
-          Show reuses that instance when `selected()` changes, so selecting a
-          different task while the drawer is open left task A's draft in task
-          B's panel, and the save would write A's content onto B. Keying
-          remounts on task change, which is what the state actually assumes. */}
+      {/* Keyed: the panel's editor state — title, objective, kind, priority,
+          agent, room, dependencies, and the `version` it writes back — is
+          initialised from `task` once at setup. An UNKEYED Show reuses that
+          instance when `selected()` changes, so selecting a different task
+          while the panel is open left task A's draft in task B's panel, and the
+          save would write A's content onto B. Keying remounts on task change,
+          which is what the state actually assumes. */}
       <Show when={selected()} keyed>
-        {(task) => <TaskDetail {...props} task={task} onClose={() => props.onSelect(null)} />}
+        {(task) => (
+          <TaskPanel {...props} mode="edit" task={task} onClose={() => props.onSelect(null)} />
+        )}
       </Show>
     </section>
   )
+
+  function taskCountLabel() {
+    const count = props.tasks.length
+    return `${count} ${count === 1 ? 'task' : 'tasks'}`
+  }
 }

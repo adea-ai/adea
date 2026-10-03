@@ -95,7 +95,7 @@ export function VirtualRoomControls(props: {
     workspaceStore.getState().setSelectedChannelId(decision.channelId)
   })
 
-  const routeToChat = (surface: 'agents' | 'conversation' | 'tasks') => {
+  const routeToChat = (surface: 'agents' | 'conversation') => {
     workspaceStore.getState().setActiveSurface(surface)
     if (window.matchMedia('(max-width: 48rem)').matches) {
       const sheetWasOpen = sidebarOpen()
@@ -221,7 +221,6 @@ export function VirtualRoomControls(props: {
         onCreateRoom={() => setDialog('create-room')}
         onMarkAllRead={() => markAllReadMutation.mutateAsync().then(() => undefined)}
         onOpenAgents={() => routeToChat('agents')}
-        onOpenTasks={() => routeToChat('tasks')}
         onRenameChannel={renameChannel}
         onSelectChannel={selectChannel}
         onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}

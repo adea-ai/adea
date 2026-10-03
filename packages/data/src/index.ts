@@ -1,4 +1,5 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { TaskSummary } from '@adea-ai/types'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 
 export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
@@ -304,18 +305,61 @@ export const taskQueryOptions = {
   }),
 }
 
+/**
+ * Settles a Task write. The server's copy of the Task replaces the cached row
+ * at once, so a caller awaiting the mutation sees the board in its final state
+ * without waiting for a list refetch; the refetch still runs, in the background,
+ * to pick up anything else the write changed (dependants, ordering).
+ */
 function taskMutationSuccess(queryClient: QueryClient, workspaceId: string) {
   return async (result: Awaited<ReturnType<AgentHqApiClient['getTask']>>) => {
     queryClient.setQueryData(taskQueryKeys.detail(workspaceId, result.task.id), result)
-    await queryClient.invalidateQueries({ queryKey: taskQueryKeys.list(workspaceId) })
+    queryClient.setQueryData<readonly TaskSummary[]>(taskQueryKeys.list(workspaceId), (tasks) =>
+      tasks?.map((task) => (task.id === result.task.id ? result.task : task))
+    )
+    void queryClient.invalidateQueries({ queryKey: taskQueryKeys.list(workspaceId) })
   }
 }
+
+type TaskListSnapshot = Readonly<{ tasks: readonly TaskSummary[] | undefined }>
+
+/**
+ * Applies a Task write to the cached list before the server answers, and puts
+ * the list back if the server refuses it. A card dropped on a lane lands there
+ * immediately; a refused move returns to where it was, and the caller still
+ * receives the error to explain why.
+ */
+function optimisticTaskWrite<Input extends Readonly<{ taskId: string }>>(
+  queryClient: QueryClient,
+  workspaceId: string,
+  patch: (task: TaskSummary, input: Input) => TaskSummary
+) {
+  const listKey = taskQueryKeys.list(workspaceId)
+  return {
+    onMutate: async (input: Input): Promise<TaskListSnapshot> => {
+      await queryClient.cancelQueries({ queryKey: listKey })
+      const tasks = queryClient.getQueryData<readonly TaskSummary[]>(listKey)
+      queryClient.setQueryData<readonly TaskSummary[]>(listKey, (current) =>
+        current?.map((task) => (task.id === input.taskId ? patch(task, input) : task))
+      )
+      return { tasks }
+    },
+    onError: (_error: unknown, _input: Input, snapshot: TaskListSnapshot | undefined) => {
+      if (snapshot) queryClient.setQueryData(listKey, snapshot.tasks)
+    },
+  }
+}
+
+const toLifecycleState =
+  (lifecycleState: TaskSummary['lifecycleState']) =>
+  (task: TaskSummary): TaskSummary => ({ ...task, lifecycleState })
 
 export const taskMutationOptions = {
   archive: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (
       input: Readonly<{ command: Parameters<AgentHqApiClient['archiveTask']>[2]; taskId: string }>
     ) => client.archiveTask(workspaceId, input.taskId, input.command),
+    ...optimisticTaskWrite(queryClient, workspaceId, toLifecycleState('archived')),
     onSuccess: taskMutationSuccess(queryClient, workspaceId),
   }),
   artifacts: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -342,12 +386,21 @@ export const taskMutationOptions = {
         taskId: string
       }>
     ) => client.assignTask(workspaceId, input.taskId, input.agentId, input.command),
+    ...optimisticTaskWrite(
+      queryClient,
+      workspaceId,
+      (task, input: Readonly<{ agentId: string | null; taskId: string }>) => ({
+        ...task,
+        agentId: input.agentId ?? undefined,
+      })
+    ),
     onSuccess: taskMutationSuccess(queryClient, workspaceId),
   }),
   cancel: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (
       input: Readonly<{ command: Parameters<AgentHqApiClient['cancelTask']>[2]; taskId: string }>
     ) => client.cancelTask(workspaceId, input.taskId, input.command),
+    ...optimisticTaskWrite(queryClient, workspaceId, toLifecycleState('cancelled')),
     onSuccess: taskMutationSuccess(queryClient, workspaceId),
   }),
   conversation: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -393,30 +446,42 @@ export const taskMutationOptions = {
         taskId: string
       }>
     ) => client.moveTaskToRoom(workspaceId, input.taskId, input.roomId, input.command),
+    ...optimisticTaskWrite(
+      queryClient,
+      workspaceId,
+      (task, input: Readonly<{ roomId: string | null; taskId: string }>) => ({
+        ...task,
+        roomId: input.roomId ?? undefined,
+      })
+    ),
     onSuccess: taskMutationSuccess(queryClient, workspaceId),
   }),
   queue: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (
       input: Readonly<{ command: Parameters<AgentHqApiClient['queueTask']>[2]; taskId: string }>
     ) => client.queueTask(workspaceId, input.taskId, input.command),
+    ...optimisticTaskWrite(queryClient, workspaceId, toLifecycleState('queued')),
     onSuccess: taskMutationSuccess(queryClient, workspaceId),
   }),
   review: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (
       input: Readonly<{ command: Parameters<AgentHqApiClient['reviewTask']>[2]; taskId: string }>
     ) => client.reviewTask(workspaceId, input.taskId, input.command),
+    ...optimisticTaskWrite(queryClient, workspaceId, toLifecycleState('in_review')),
     onSuccess: taskMutationSuccess(queryClient, workspaceId),
   }),
   start: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (
       input: Readonly<{ command: Parameters<AgentHqApiClient['startTask']>[2]; taskId: string }>
     ) => client.startTask(workspaceId, input.taskId, input.command),
+    ...optimisticTaskWrite(queryClient, workspaceId, toLifecycleState('in_progress')),
     onSuccess: taskMutationSuccess(queryClient, workspaceId),
   }),
   complete: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (
       input: Readonly<{ command: Parameters<AgentHqApiClient['completeTask']>[2]; taskId: string }>
     ) => client.completeTask(workspaceId, input.taskId, input.command),
+    ...optimisticTaskWrite(queryClient, workspaceId, toLifecycleState('completed')),
     onSuccess: taskMutationSuccess(queryClient, workspaceId),
   }),
   update: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -427,6 +492,20 @@ export const taskMutationOptions = {
         update: Parameters<AgentHqApiClient['updateTask']>[2]
       }>
     ) => client.updateTask(workspaceId, input.taskId, input.update, input.command),
+    ...optimisticTaskWrite(
+      queryClient,
+      workspaceId,
+      (
+        task,
+        input: Readonly<{ taskId: string; update: Parameters<AgentHqApiClient['updateTask']>[2] }>
+      ) => ({
+        ...task,
+        kind: input.update.kind ?? task.kind,
+        objective: input.update.objective ?? task.objective,
+        priority: input.update.priority ?? task.priority,
+        title: input.update.title ?? task.title,
+      })
+    ),
     onSuccess: taskMutationSuccess(queryClient, workspaceId),
   }),
 }

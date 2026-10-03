@@ -597,6 +597,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       replace,
     })
   }
+  // Tasks are listed on the Kanban app only. A search result or link to a Task
+  // opens it there; with Kanban turned off the board opens inside Chat instead.
+  const openTaskBoard = () =>
+    resolveWorkspaceApp(railPreferences(), 'kanban')?.id === 'kanban'
+      ? () => changeApp('kanban')
+      : undefined
   const changeView = (nextView: WorkspaceView) => {
     if (resolveWorkspaceApp(railPreferences(), nextView)?.id !== nextView) openAppLibrary()
     else changeApp(nextView)
@@ -788,6 +794,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                           deepLink={deepLink}
                           manageSettings={false}
                           onConsumeDeepLink={consumeDeepLink}
+                          onOpenTaskBoard={openTaskBoard()}
                           onViewChange={changeView}
                           services={props.services}
                         />
@@ -800,6 +807,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                         deepLink={deepLink}
                         manageSettings={false}
                         onConsumeDeepLink={consumeDeepLink}
+                        onOpenTaskBoard={activeAppId() === 'kanban' ? undefined : openTaskBoard()}
                         onViewChange={changeView}
                         services={props.services}
                       />
