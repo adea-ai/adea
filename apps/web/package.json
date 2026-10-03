@@ -40,7 +40,7 @@
     "@adea-ai/spatial": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.99.1",
+    "@adea-ai/ui": "0.99.4",
     "@adea-ai/workspace-ui": "workspace:*",
     "@neondatabase/auth": "0.5.0-beta",
     "@tanstack/solid-router": "1.170.33",
