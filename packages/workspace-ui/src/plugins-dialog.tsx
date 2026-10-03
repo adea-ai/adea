@@ -235,6 +235,7 @@ function PluginDetail(props: {
   }
   return (
     <CatalogDetail
+      sectionsLayout="columns"
       title={props.plugin.name}
       description={props.plugin.description}
       category={props.plugin.category}
@@ -277,65 +278,59 @@ function PluginDetail(props: {
         </div>
       }
     >
-      {/* The detail fields read as one row of columns: the shared sections
-          side by side with vertical dividers instead of stacked cards that
-          each use a fraction of the pane. The hook restyles the sections'
-          card chrome in conventional-workspace.css. */}
-      <div class="plugins-detail-columns">
-        <CatalogDetailSection title="Capabilities">
-          <ul class="grid gap-2 text-sm">
-            <For each={props.plugin.capabilities}>
-              {(capability) => (
-                <li>
-                  <Check aria-hidden="true" /> {capability}
-                </li>
-              )}
-            </For>
-          </ul>
-        </CatalogDetailSection>
-        <CatalogDetailSection title="Connection">
-          <p>
-            <ShieldCheck aria-hidden="true" />{' '}
-            {props.plugin.auth === 'oauth'
-              ? 'OAuth provider'
-              : props.plugin.auth === 'api-key'
-                ? 'API credential provider'
-                : 'Managed by this workspace'}
-          </p>
-          <p class="text-muted-foreground text-sm">
-            Adding enables this provider in Adea. Account authorization and runtime execution stay
-            within the authoritative Control Plane connection.
-          </p>
-        </CatalogDetailSection>
-        <CatalogDetailSection title="Bundle">
-          <p>{props.plugin.surfaces.map((surface) => surface.toLocaleUpperCase()).join(' · ')}</p>
-          <p class="text-muted-foreground text-sm">
-            {props.plugin.sourceUrl
-              ? `Source: ${props.plugin.sourceUrl}.`
-              : `Source: ${props.plugin.sourceId ?? props.plugin.source}.`}
-            {props.plugin.sourceRevision ? ` Commit: ${props.plugin.sourceRevision}.` : ''}
-            {props.plugin.license ? ` License: ${props.plugin.license}.` : ''}
-            {props.plugin.contentResolution === 'metadata-only' ? ' Content is metadata-only.' : ''}
-          </p>
-        </CatalogDetailSection>
-        <Show when={props.plugin.appSurface}>
-          {(app) => (
-            <CatalogDetailSection title="App">
-              <p class="text-muted-foreground text-sm">
-                Platforms: {app().supportedPlatforms.join(', ') || 'unspecified'}.
-                {app().requestedPermissions.length > 0
-                  ? ` Requests: ${app().requestedPermissions.join(', ')}.`
-                  : ' Requests no additional permissions.'}
-                {app().version ? ` Version ${app().version}.` : ''}
-                {app().digest ? ` Digest ${app().digest}.` : ''}
-              </p>
-            </CatalogDetailSection>
-          )}
-        </Show>
-        <Show when={props.plugin.appSurface}>
-          <AppActivationSection activation={activation()} />
-        </Show>
-      </div>
+      <CatalogDetailSection title="Capabilities">
+        <ul class="grid gap-2 text-sm">
+          <For each={props.plugin.capabilities}>
+            {(capability) => (
+              <li>
+                <Check aria-hidden="true" /> {capability}
+              </li>
+            )}
+          </For>
+        </ul>
+      </CatalogDetailSection>
+      <CatalogDetailSection title="Connection">
+        <p>
+          <ShieldCheck aria-hidden="true" />{' '}
+          {props.plugin.auth === 'oauth'
+            ? 'OAuth provider'
+            : props.plugin.auth === 'api-key'
+              ? 'API credential provider'
+              : 'Managed by this workspace'}
+        </p>
+        <p class="text-muted-foreground text-sm">
+          Adding enables this provider in Adea. Account authorization and runtime execution stay
+          within the authoritative Control Plane connection.
+        </p>
+      </CatalogDetailSection>
+      <CatalogDetailSection title="Bundle">
+        <p>{props.plugin.surfaces.map((surface) => surface.toLocaleUpperCase()).join(' · ')}</p>
+        <p class="text-muted-foreground text-sm">
+          {props.plugin.sourceUrl
+            ? `Source: ${props.plugin.sourceUrl}.`
+            : `Source: ${props.plugin.sourceId ?? props.plugin.source}.`}
+          {props.plugin.sourceRevision ? ` Commit: ${props.plugin.sourceRevision}.` : ''}
+          {props.plugin.license ? ` License: ${props.plugin.license}.` : ''}
+          {props.plugin.contentResolution === 'metadata-only' ? ' Content is metadata-only.' : ''}
+        </p>
+      </CatalogDetailSection>
+      <Show when={props.plugin.appSurface}>
+        {(app) => (
+          <CatalogDetailSection title="App">
+            <p class="text-muted-foreground text-sm">
+              Platforms: {app().supportedPlatforms.join(', ') || 'unspecified'}.
+              {app().requestedPermissions.length > 0
+                ? ` Requests: ${app().requestedPermissions.join(', ')}.`
+                : ' Requests no additional permissions.'}
+              {app().version ? ` Version ${app().version}.` : ''}
+              {app().digest ? ` Digest ${app().digest}.` : ''}
+            </p>
+          </CatalogDetailSection>
+        )}
+      </Show>
+      <Show when={props.plugin.appSurface}>
+        <AppActivationSection activation={activation()} />
+      </Show>
     </CatalogDetail>
   )
 }
@@ -426,7 +421,15 @@ export function PluginsDialog(props: {
   // Whether the CATALOG itself failed to load — the one case that replaces the
   // list. An install refusal keeps the list and reports separately.
   const [catalogFailed, setCatalogFailed] = createSignal(false)
-  const [installError, setInstallError] = createSignal<string | undefined>()
+  const [installFailure, setInstallFailure] = createSignal<
+    { pluginId: string; message: string } | undefined
+  >()
+  const installError = () => {
+    const failure = installFailure()
+    return failure && (!selectedId() || selectedId() === failure.pluginId)
+      ? failure.message
+      : undefined
+  }
   const [catalogState, setCatalogState] = createSignal<
     'idle' | 'loading' | 'ready' | 'stale' | 'verification-failure' | 'unavailable'
   >('idle')
@@ -524,9 +527,13 @@ export function PluginsDialog(props: {
       : []),
   ]
 
+  let installRevision = 0
   createEffect(() => {
     const provider = props.provider
+    installRevision += 1
+    setInstallFailure(undefined)
     if (!props.open) return
+    setCatalogFailed(false)
     setStatus('loading')
     setCatalogState('loading')
     let active = true
@@ -555,25 +562,33 @@ export function PluginsDialog(props: {
   })
 
   const close = () => {
+    installRevision += 1
+    setInstallFailure(undefined)
     setFilterOpen(false)
     setSelectedId(null)
     props.onClose()
   }
   const update = async (plugin: WorkspacePlugin) => {
-    if (!props.provider || status() === 'saving') return
-    setInstallError(undefined)
+    const provider = props.provider
+    if (!props.open || !provider || status() === 'saving') return
+    const revision = installRevision
+    const current = () => revision === installRevision && props.open && provider === props.provider
+    setInstallFailure(undefined)
     setStatus('saving')
     try {
-      setPlugins(await props.provider.requestInstall(plugin.id))
+      const items = await provider.requestInstall(plugin.id)
+      if (!current()) return
+      setPlugins(items)
       setStatus('idle')
-      setCatalogState(props.provider.getState?.() ?? 'ready')
+      setCatalogState(provider.getState?.() ?? 'ready')
     } catch (error) {
+      if (!current()) return
       // An install rejection — a stale snapshot, a policy refusal, an unknown
       // release — is NOT a catalog failure. Setting `status` to 'error' routed
       // the whole browser into `PluginListState`, which destroyed a list that
       // had loaded fine and told the user the catalog was unavailable. Report
       // the install failure and keep the catalog on screen.
-      setInstallError(describeInstallFailure(error))
+      setInstallFailure({ pluginId: plugin.id, message: describeInstallFailure(error) })
       setStatus('idle')
     }
   }
