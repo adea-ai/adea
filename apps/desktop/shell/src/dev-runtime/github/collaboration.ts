@@ -484,10 +484,17 @@ export function createCollaborationHandlers(
       const checkId = String(body.checkId)
       if (!CHECK_ID_PATTERN.test(checkId))
         throw ctx.devError('identity_mismatch', 'check id is malformed')
-      const result = await ctx.runGh(
-        ctx.apiArgs(ctx.host, `repos/${parts.owner}/${parts.repo}/actions/jobs/${checkId}/logs`),
-        { maxOutputBytes: LOG_READ_BUDGET }
-      )
+      // Raw logs carry terminal escapes; recent gh refuses to print them
+      // without an explicit opt-in. They are stripped below, so the opt-in
+      // is safe; older gh without the flag gets the plain call.
+      const logPath = `repos/${parts.owner}/${parts.repo}/actions/jobs/${checkId}/logs`
+      let result = await ctx.runGh(ctx.apiArgs(ctx.host, logPath, ['--allow-escape-sequences']), {
+        maxOutputBytes: LOG_READ_BUDGET,
+      })
+      if (result.exitCode !== 0 && /unknown flag/i.test(result.stderr))
+        result = await ctx.runGh(ctx.apiArgs(ctx.host, logPath), {
+          maxOutputBytes: LOG_READ_BUDGET,
+        })
       if (result.exitCode !== 0) {
         const failure = ctx.classifyGh(result, 'check log read')
         if (failure.code === 'not_found')

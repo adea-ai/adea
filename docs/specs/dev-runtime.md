@@ -4802,7 +4802,9 @@ can distinguish intentional spec evolution from drift:
   `updatePlan` patch gained `state` plus two-way draft conversion. New
   "Pull request collaboration (source control app)" section. Pinned by
   `apps/desktop/tests/dev-runtime-github-collaboration.test.ts` and
-  `packages/types/tests/dev-runtime-github.test.ts`.
+  `packages/types/tests/dev-runtime-github.test.ts`; the opt-in, read-only
+  `apps/desktop/tests/live/github-collaboration-live-read.ts` runs every read
+  against a real repository through the production `gh` transport.
 
 - **2026-09-22 — #424: on-device usage adapters and provable cleanup facts.**
   The `usage` surface stopped being truthful-empty where the runtime can prove

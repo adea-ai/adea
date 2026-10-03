@@ -434,11 +434,15 @@ describe('pull request read models', () => {
   })
 
   test('check logs are sanitised and tailed; non-Actions checks are typed', async () => {
-    const { run } = harness((path) => {
+    const { run, calls } = harness((path, call) => {
       if (path === 'repos/acme/widgets/actions/jobs/42/logs')
         return { stdout: `${'x'.repeat(600_000)}\n\u001b[31mFAIL\u001b[0m a.test.ts\r\n` }
       if (path === 'repos/acme/widgets/actions/jobs/43/logs')
         return { stderr: 'HTTP 404: Not Found', exitCode: 1 }
+      if (path === 'repos/acme/widgets/actions/jobs/44/logs')
+        return call.args.includes('--allow-escape-sequences')
+          ? { stderr: 'unknown flag: --allow-escape-sequences', exitCode: 1 }
+          : { stdout: 'old gh log\n' }
       return undefined
     })
     const log = valueOf<{ text: string; truncated: boolean }>(
@@ -449,6 +453,12 @@ describe('pull request read models', () => {
     expect(log.text.length).toBeLessThanOrEqual(524_288)
     const missing = await run('dev.github.checkLog', { pullRequestId: PR_ID, checkId: '43' })
     expect(errorCode(missing)).toBe('not_found')
+    // Recent gh needs an explicit opt-in to print escapes; older gh lacks the flag.
+    expect(calls[0]!.args).toContain('--allow-escape-sequences')
+    const legacy = valueOf<{ text: string }>(
+      await run('dev.github.checkLog', { pullRequestId: PR_ID, checkId: '44' })
+    )
+    expect(legacy.text).toBe('old gh log\n')
   })
 
   test('changed files bound patches and page by offset', async () => {
