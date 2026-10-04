@@ -92,7 +92,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // drops the shared list-row/badge composites for plain hooks, so the
     // caps keep their headroom untouched.
     appLibrary: { rawBytes: 13 * 1024, gzipBytes: 5 * 1024 },
-    devShell: { rawBytes: 128 * 1024, gzipBytes: 40 * 1024 },
+    // Re-baselined 40 → 41 KiB (2026-10-04, #1018): the shared annotation
+    // surface adoption lands its geometry module in the Dev View shell;
+    // measured 41,346 gzip. Raw keeps the 128 KiB cap.
+    devShell: { rawBytes: 128 * 1024, gzipBytes: 41 * 1024 },
     devUtilityPanes: { rawBytes: 168 * 1024, gzipBytes: 56 * 1024 },
     // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
     // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
