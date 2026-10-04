@@ -38,7 +38,7 @@ const report = (input: {
       id: 'capture',
       state: 'unavailable',
       unavailableReason: 'capability_unavailable',
-      missingPiece: 'the native capture helper is deferred',
+      missingPiece: 'the screen-recording preflight could not answer on this host',
       probedAt: '2026-09-19T00:00:00.000Z',
     },
     {
@@ -59,7 +59,7 @@ describe('computer-use capability rows', () => {
     expect(byId.get('input')?.tone).toBe('ready')
     expect(byId.get('input')?.stateLabel).toBe('Available')
     expect(byId.get('capture')?.stateLabel).toBe('Cannot check')
-    expect(byId.get('capture')?.hint).toContain('capture helper')
+    expect(byId.get('capture')?.hint).toContain('preflight')
     expect(byId.get('ax_tree')?.hint).toContain('AX bridge')
   })
 

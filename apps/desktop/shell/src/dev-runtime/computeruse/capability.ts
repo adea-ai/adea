@@ -1,9 +1,10 @@
-// Computer-use capability probing (issue #472). Every capability row is
+// Computer-use capability probing (issues #472/#624). Every capability row is
 // measured, never asserted: input derives from the #471 accessibility probe,
-// and capture / accessibility-tree reading report typed
-// `capability_unavailable` naming the exact missing piece, because this lane
-// deliberately has no native screen-recording helper and no authorized AX
-// bridge yet (donor semantics: Orca's PermissionStatusSnapshot +
+// capture mirrors the #471 screen-recording preflight (granted is available;
+// anything less refuses with the probed state — issue #624), and
+// accessibility-tree reading reports typed `capability_unavailable` naming the
+// exact missing piece, because this lane has no authorized AX bridge (donor
+// semantics: Orca's PermissionStatusSnapshot +
 // ScreenCapturePermissionPreflightSafety "refuse closed unless proven" rule,
 // MIT, revision 403b62a8d8fa6e896a93acc4c15405be0f0b7dc7, translated to the
 // Bun lane; see NOTICE and docs/research/dev-view-donor-audit.md).
@@ -20,9 +21,8 @@ export const INPUT_MISSING_PIECE_UNPROBEABLE =
   'the accessibility permission cannot be probed on this host, so input cannot be proven'
 
 export const CAPTURE_MISSING_PIECE =
-  'no command-line probe or native helper exists for the screen-recording TCC ' +
-  'service in this lane; the native capture helper is deferred, so capture ' +
-  'refuses closed instead of guessing'
+  'the screen-recording preflight could not answer on this host, so capture ' +
+  'cannot be proven; capture refuses closed instead of guessing'
 
 export const AX_TREE_MISSING_PIECE =
   'no authorized accessibility-tree bridge exists in this lane; reading the AX ' +
@@ -85,6 +85,50 @@ function accessibilityRow(
   }
 }
 
+/**
+ * The capture row mirrors the screen-recording preflight exactly: granted
+ * proves available; denied and not_determined ride through as the probed
+ * state; a missing, unprobeable, or non-answering row is typed-unavailable
+ * naming the exact missing piece — never a stand-in for a probed state
+ * (issue #624).
+ */
+function captureRow(snapshot: MacPermissionsSnapshot): ComputerUseCapabilityRow {
+  const probedAt = snapshot.probedAt
+  if (snapshot.hostPlatform !== 'macos') {
+    return {
+      id: 'capture',
+      state: 'unavailable',
+      unavailableReason: 'unsupported_platform',
+      probedAt,
+    }
+  }
+  const screenRecording = snapshot.permissions.find((entry) => entry.id === 'screen_recording')
+  if (!screenRecording) {
+    return {
+      id: 'capture',
+      state: 'unavailable',
+      unavailableReason: 'capability_unavailable',
+      missingPiece: 'the screen-recording permission row is missing from the probe snapshot',
+      permissionId: 'screen_recording',
+      probedAt,
+    }
+  }
+  if (screenRecording.state === 'granted')
+    return { id: 'capture', state: 'available', permissionId: 'screen_recording', probedAt }
+  if (screenRecording.state === 'denied')
+    return { id: 'capture', state: 'denied', permissionId: 'screen_recording', probedAt }
+  if (screenRecording.state === 'not_determined')
+    return { id: 'capture', state: 'not_determined', permissionId: 'screen_recording', probedAt }
+  return {
+    id: 'capture',
+    state: 'unavailable',
+    unavailableReason: screenRecording.unavailableReason ?? 'capability_unavailable',
+    missingPiece: CAPTURE_MISSING_PIECE,
+    permissionId: 'screen_recording',
+    probedAt,
+  }
+}
+
 export function createComputerUseCapabilityService(input: {
   /** The #471 shell permission authority; this lane only consumes it. */
   permissions: MacPermissionService
@@ -100,14 +144,7 @@ export function createComputerUseCapabilityService(input: {
       const snapshot = await input.permissions.snapshot(options)
       const capabilities: ComputerUseCapabilityRow[] = [
         accessibilityRow(snapshot, hostProvidesInputTool()),
-        {
-          id: 'capture',
-          state: 'unavailable',
-          unavailableReason:
-            snapshot.hostPlatform === 'macos' ? 'capability_unavailable' : 'unsupported_platform',
-          ...(snapshot.hostPlatform === 'macos' ? { missingPiece: CAPTURE_MISSING_PIECE } : {}),
-          probedAt: snapshot.probedAt,
-        },
+        captureRow(snapshot),
         {
           id: 'ax_tree',
           state: 'unavailable',

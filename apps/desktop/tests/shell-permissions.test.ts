@@ -44,6 +44,17 @@ const ACCESSIBILITY_ARGV = [
   'tell application "System Events" to count processes',
 ]
 const AUTOMATION_ARGV = ['/usr/bin/osascript', '-e', 'tell application "Finder" to get name']
+// The #624 screen-recording preflight: a non-prompting CoreGraphics
+// preflight for the responsible process, via the JXA ObjC bridge.
+const SCREEN_RECORDING_ARGV = [
+  '/usr/bin/osascript',
+  '-l',
+  'JavaScript',
+  '-e',
+  'ObjC.import("CoreGraphics"); ' +
+    'ObjC.bindFunction("CGPreflightScreenCaptureAccess", ["bool", []]); ' +
+    '$.CGPreflightScreenCaptureAccess()',
+]
 
 function stateFor(service: ReturnType<typeof createMacPermissionService>, id: string) {
   return service.snapshot({ force: true }).then((snapshot) => {
@@ -55,7 +66,13 @@ function stateFor(service: ReturnType<typeof createMacPermissionService>, id: st
 
 describe('macOS permission probes', () => {
   test('probes exactly the permissions this lane supports, with fixed argv', async () => {
-    const runner = scriptedRunner([outcome({}), outcome({}), outcome({})])
+    const runner = scriptedRunner([
+      outcome({}),
+      // The screen-recording preflight answers; notifications and microphone
+      // have no argv to run, so only three calls ever reach the runner.
+      outcome({ stdout: 'false' }),
+      outcome({}),
+    ])
     const service = createMacPermissionService({
       run: runner.run,
       platform: 'darwin',
@@ -65,15 +82,56 @@ describe('macOS permission probes', () => {
 
     expect(snapshot.hostPlatform).toBe('macos')
     expect(snapshot.permissions.map((report) => report.id)).toEqual([...macPermissionIds])
-    // Two real probes ran; the rest are typed-unavailable, never guessed.
-    expect(runner.argvCalls).toEqual([ACCESSIBILITY_ARGV, AUTOMATION_ARGV])
+    // Three real probes ran; the rest are typed-unavailable, never guessed.
+    expect(runner.argvCalls).toEqual([ACCESSIBILITY_ARGV, SCREEN_RECORDING_ARGV, AUTOMATION_ARGV])
     const byId = new Map(snapshot.permissions.map((report) => [report.id, report]))
     expect(byId.get('accessibility')?.state).toBe('granted')
     expect(byId.get('automation_apple_events')?.state).toBe('granted')
-    for (const id of ['screen_recording', 'notifications', 'microphone'] as const) {
+    expect(byId.get('screen_recording')?.state).toBe('denied')
+    for (const id of ['notifications', 'microphone'] as const) {
       const report = byId.get(id)
       expect(report?.state).toBe('unavailable')
       expect(report?.unavailableReason).toBe('capability_unavailable')
+    }
+  })
+
+  test('the screen-recording preflight maps a true answer to granted (#624)', async () => {
+    const runner = scriptedRunner([
+      outcome({}), // accessibility
+      outcome({ stdout: 'true\n' }), // screen_recording
+    ])
+    const service = createMacPermissionService({ run: runner.run, platform: 'darwin' })
+    const report = await stateFor(service, 'screen_recording')
+    expect(report.state).toBe('granted')
+  })
+
+  test('the screen-recording preflight maps a false answer to the fail-closed denied state (#624)', async () => {
+    // The preflight proves only "not granted": an unanswered prompt and an
+    // explicit refusal are indistinguishable to it, so the coarse refused
+    // state is reported and the Settings pane remains the repair path.
+    const runner = scriptedRunner([
+      outcome({}), // accessibility
+      outcome({ stdout: 'false' }), // screen_recording
+    ])
+    const service = createMacPermissionService({ run: runner.run, platform: 'darwin' })
+    const report = await stateFor(service, 'screen_recording')
+    expect(report.state).toBe('denied')
+  })
+
+  test('an unanswerable screen-recording preflight is typed capability_unavailable, never denied (#624)', async () => {
+    for (const failure of [
+      outcome({ exitCode: 1, stderr: 'execution error: Error: no such bundle' }),
+      outcome({ exitCode: null, timedOut: true }),
+      outcome({ exitCode: 0, stdout: 'garbage' }),
+    ]) {
+      const runner = scriptedRunner([
+        outcome({}), // accessibility
+        failure, // screen_recording
+      ])
+      const service = createMacPermissionService({ run: runner.run, platform: 'darwin' })
+      const report = await stateFor(service, 'screen_recording')
+      expect(report.state).toBe('unavailable')
+      expect(report.unavailableReason).toBe('capability_unavailable')
     }
   })
 
@@ -92,8 +150,9 @@ describe('macOS permission probes', () => {
 
   test('maps a probe killed at the deadline to not_determined (prompt pending)', async () => {
     const runner = scriptedRunner([
-      outcome({ exitCode: null, timedOut: true }),
-      outcome({ exitCode: null, timedOut: true }),
+      outcome({ exitCode: null, timedOut: true }), // accessibility
+      outcome({}), // screen_recording (unanswerable, typed unavailable)
+      outcome({ exitCode: null, timedOut: true }), // automation_apple_events
     ])
     const service = createMacPermissionService({ run: runner.run, platform: 'darwin' })
     const snapshot = await service.snapshot({ force: true })
@@ -104,11 +163,12 @@ describe('macOS permission probes', () => {
 
   test('classifies the Apple Events refusal as denied', async () => {
     const runner = scriptedRunner([
-      outcome({}),
+      outcome({}), // accessibility
+      outcome({}), // screen_recording
       outcome({
         exitCode: 1,
         stderr: 'execution error: Not authorized to send Apple events. (-1743)',
-      }),
+      }), // automation_apple_events
     ])
     const service = createMacPermissionService({ run: runner.run, platform: 'darwin' })
     const report = await stateFor(service, 'automation_apple_events')
@@ -117,8 +177,9 @@ describe('macOS permission probes', () => {
 
   test('an unrelated probe failure is typed capability_unavailable, never denied', async () => {
     const runner = scriptedRunner([
-      outcome({ exitCode: 1, stderr: 'kern.osrundeps failed' }),
-      outcome({ spawnFailed: true, exitCode: null }),
+      outcome({ exitCode: 1, stderr: 'kern.osrundeps failed' }), // accessibility
+      outcome({}), // screen_recording
+      outcome({ spawnFailed: true, exitCode: null }), // automation_apple_events
     ])
     const service = createMacPermissionService({ run: runner.run, platform: 'darwin' })
     const snapshot = await service.snapshot({ force: true })
@@ -152,9 +213,9 @@ describe('macOS permission probes', () => {
     const first = service.snapshot()
     const second = service.snapshot()
     expect(await first).toBe(await second)
-    expect(calls).toBe(2) // one per probed permission, not four
+    expect(calls).toBe(3) // one per probed permission, not five
     await service.snapshot({ force: true })
-    expect(calls).toBe(4)
+    expect(calls).toBe(6)
   })
 
   test('openSettings opens only the fixed pane registered for a known id', async () => {

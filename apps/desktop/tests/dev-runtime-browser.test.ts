@@ -371,6 +371,31 @@ describe('screencast flow control', () => {
     expect(delivered.length).toBeLessThanOrEqual(5)
   })
 
+  test('delivered frame sequences stay strictly ordered across throttling', async () => {
+    // Regression (#624): a direct flush must drop the pending newest frame —
+    // otherwise the stale throttled timer delivers an OLDER frame after a
+    // newer one and inverts the sequence order on the wire. Continuous
+    // publishes straddling interval boundaries reproduce the inversion.
+    const delivered: number[] = []
+    const screencast = createLaneScreencast({
+      budget: { maxFps: 30 },
+      onFrame: (published) => {
+        delivered.push(Number(published.sequence))
+      },
+    })
+    const deadline = Date.now() + 150
+    let sequence = 0
+    while (Date.now() < deadline) {
+      sequence += 1
+      screencast.publish(frame(sequence))
+      await Bun.sleep(5)
+    }
+    screencast.close()
+    expect(delivered.length).toBeGreaterThanOrEqual(2)
+    for (let index = 1; index < delivered.length; index += 1)
+      expect(delivered[index]).toBeGreaterThan(delivered[index - 1])
+  })
+
   test('oversized and empty frames are refused outright', () => {
     const screencast = createLaneScreencast()
     expect(screencast.publish(frame(1, 8 * 1024 * 1024 + 1))).toBe('rejected')

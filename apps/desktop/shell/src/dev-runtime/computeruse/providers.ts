@@ -462,6 +462,7 @@ export function computerUseProviderError(error: unknown): ComputerUseProviderErr
         invalid_state: 'invalid_state',
         timeout: 'timeout',
         spawn_failed: 'spawn_failed',
+        limit_exceeded: 'limit_exceeded',
       } as const
     )[error.code]
     return new ComputerUseProviderError(code, error.message, error.retryable, error.remediation)

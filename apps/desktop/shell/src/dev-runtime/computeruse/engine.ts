@@ -4,14 +4,24 @@
 // gates behind the Accessibility TCC service the #471 probe proves; every
 // argv is a fixed template whose only free elements are an escaped
 // AppleScript string literal or an allowlisted integer/token — caller text
-// can never reach a second argv slot, let alone a shell. Capture and AX-tree
-// reading refuse closed with the exact missing piece: this lane has no
-// native screen-recording helper and no authorized AX bridge (spec:
-// "Computer use lanes"; donor preflight rule: Orca
-// ScreenCapturePermissionPreflightSafety, MIT). Tests inject a scripted
-// runner — CI never performs real input.
+// can never reach a second argv slot, let alone a shell. Capture (issue
+// #624) goes through the macOS `screencapture` host tool (CGWindowList) with
+// a fixed argv whose only free element is an engine-generated temp path —
+// never caller text; authority for a capture is proven by the publisher's
+// preflight gate before the engine runs (the tool itself cannot detect a
+// missing Screen Recording grant: it exits 0 and produces wallpaper-only
+// frames on an unpermitted host, so an unproven capture is never started).
+// AX-tree reading refuses closed with the exact missing piece: no authorized
+// AX bridge exists in this lane (spec: "Computer use lanes"; donor preflight
+// rule: Orca ScreenCapturePermissionPreflightSafety, MIT). Tests inject a
+// scripted runner — CI never performs real input or capture.
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import type { HostCommandRunner } from '../../desktop-permissions'
-import { AX_TREE_MISSING_PIECE, CAPTURE_MISSING_PIECE } from './capability'
+import { SCREENCAST_BUDGET_DEFAULTS } from '../browser/screencast'
+import { AX_TREE_MISSING_PIECE } from './capability'
 
 /** Input text shares the stream protocol's 4 KiB text cap (spec). */
 export const INPUT_TEXT_MAX_CHARS = 4096
@@ -24,6 +34,33 @@ export type ComputerUseEventCode =
   | 'invalid_state'
   | 'timeout'
   | 'spawn_failed'
+  | 'limit_exceeded'
+
+/** A captured desktop frame: complete, bounded PNG pixels. */
+export type DesktopFrame = Readonly<{
+  format: 'png'
+  width: number
+  height: number
+  bytes: Uint8Array
+}>
+
+/**
+ * Reads one PNG's IHDR dimensions. Returns undefined for anything that is
+ * not a readable PNG header — the pipeline never guesses dimensions for
+ * bytes it cannot parse.
+ */
+export function pngDimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
+  if (bytes.byteLength < 24) return undefined
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+  for (let index = 0; index < signature.length; index += 1)
+    if (bytes[index] !== signature[index]) return undefined
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  if (view.getUint32(12) !== 0x49484452) return undefined // 'IHDR'
+  const width = view.getUint32(16)
+  const height = view.getUint32(20)
+  if (width === 0 || height === 0) return undefined
+  return { width, height }
+}
 
 export class ComputerUseEngineError extends Error {
   readonly code: ComputerUseEventCode
@@ -168,13 +205,20 @@ export type ComputerUseEngine = Readonly<{
    */
   injectInput(event: ComputerUseInputEvent): Promise<void>
   /**
-   * Captures one desktop frame. Typed-unavailable in this lane until the
-   * deferred native screen-recording helper lands — never a placeholder.
+   * Captures one desktop frame through the macOS `screencapture` host tool.
+   * Authority is proven by the publisher's preflight gate before this runs;
+   * bounds (4096×4096, 8 MiB) are enforced here so an over-bounds capture is
+   * a typed refusal, never an oversized frame downstream.
    */
-  capture(): Promise<never>
+  capture(): Promise<DesktopFrame>
   /** Reads the accessibility tree; typed-unavailable in this lane. */
   readAccessibilityTree(): Promise<never>
 }>
+
+/** The fixed argv template for one full-display PNG capture (#624). */
+export function screenCaptureArgv(targetFile: string): readonly string[] {
+  return ['/usr/sbin/screencapture', '-x', '-t', 'png', targetFile]
+}
 
 export function createHostComputerUseEngine(runner: HostCommandRunner): ComputerUseEngine {
   async function runBounded(argv: readonly string[]) {
@@ -184,7 +228,9 @@ export function createHostComputerUseEngine(runner: HostCommandRunner): Computer
       throw new ComputerUseEngineError(
         'capability_unavailable',
         'the host input tool is unavailable',
-        { retryable: true }
+        {
+          retryable: true,
+        }
       )
     if (outcome.timedOut)
       throw new ComputerUseEngineError('timeout', 'the host input tool did not answer in time', {
@@ -199,15 +245,73 @@ export function createHostComputerUseEngine(runner: HostCommandRunner): Computer
     throw new ComputerUseEngineError('invalid_state', 'the host input tool refused the event')
   }
 
+  /**
+   * One bounded full-display capture: fixed argv, engine-owned temp path,
+   * PNG header dimensions, and the spec's hard bounds. Every failure is
+   * typed; a capture that cannot be proven complete is never returned.
+   */
+  async function capture(): Promise<DesktopFrame> {
+    const directory = await mkdtemp(join(tmpdir(), 'adea-desktop-frame-'))
+    const targetFile = join(directory, 'frame.png')
+    try {
+      const outcome = await runner(screenCaptureArgv(targetFile))
+      if (outcome.spawnFailed)
+        throw new ComputerUseEngineError(
+          'capability_unavailable',
+          'the host screen-capture tool is unavailable',
+          { retryable: true }
+        )
+      if (outcome.timedOut)
+        throw new ComputerUseEngineError(
+          'timeout',
+          'the host screen-capture tool did not answer in time',
+          { retryable: true }
+        )
+      if (outcome.exitCode !== 0) {
+        const detail = outcome.stderr.trim().split('\n', 1)[0]?.slice(0, 160)
+        throw new ComputerUseEngineError(
+          'invalid_state',
+          `the host screen-capture tool refused the capture${detail ? ` (${detail})` : ''}`
+        )
+      }
+      const bytes = new Uint8Array(await readFile(targetFile))
+      const dimensions = pngDimensions(bytes)
+      if (!dimensions)
+        throw new ComputerUseEngineError(
+          'capability_unavailable',
+          'the host screen-capture tool did not produce a readable PNG',
+          { retryable: true }
+        )
+      if (
+        dimensions.width > SCREENCAST_BUDGET_DEFAULTS.maxWidth ||
+        dimensions.height > SCREENCAST_BUDGET_DEFAULTS.maxHeight
+      )
+        throw new ComputerUseEngineError(
+          'limit_exceeded',
+          `the captured desktop is ${dimensions.width}x${dimensions.height}, exceeding the ` +
+            `${SCREENCAST_BUDGET_DEFAULTS.maxWidth}x${SCREENCAST_BUDGET_DEFAULTS.maxHeight} ` +
+            'frame bound; downscaling is not available in this lane'
+        )
+      if (bytes.byteLength > SCREENCAST_BUDGET_DEFAULTS.maxFrameBytes)
+        throw new ComputerUseEngineError(
+          'limit_exceeded',
+          'the captured desktop frame exceeds the 8 MiB frame bound'
+        )
+      return { format: 'png', width: dimensions.width, height: dimensions.height, bytes }
+    } finally {
+      await rm(directory, { recursive: true, force: true }).catch(() => {
+        /* best-effort cleanup */
+      })
+    }
+  }
+
   return {
     async injectInput(event) {
       if (event.kind === 'text') return runBounded(keystrokeTextArgv(event.text))
       return runBounded(keyCodeArgv(event.code, event.modifiers))
     },
 
-    async capture() {
-      throw new ComputerUseEngineError('capability_unavailable', CAPTURE_MISSING_PIECE)
-    },
+    capture,
 
     async readAccessibilityTree() {
       throw new ComputerUseEngineError('capability_unavailable', AX_TREE_MISSING_PIECE)
