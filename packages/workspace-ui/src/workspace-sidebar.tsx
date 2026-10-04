@@ -53,7 +53,7 @@ import {
   SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import { ShortcutKeys } from '@adea-ai/app-ui/components/shortcut-keys'
+import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
 import { wideViewportAtLoad } from '@adea-ai/state'
 
 import { keyedRows } from './keyed-rows'
@@ -458,7 +458,7 @@ export function WorkspaceSidebar(props: Props) {
             >
               <MessageCircle aria-hidden="true" />
               Mark all read
-              <ShortcutKeys keys="⇧⌘A" class="ml-auto" />
+              <KbdChord keys="⇧⌘A" size="compact" class="ml-auto" />
             </SidebarNavButton>
           </div>
           <Show when={actionError()}>
