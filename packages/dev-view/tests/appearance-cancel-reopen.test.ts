@@ -96,7 +96,7 @@ function createProviderHarness(doc: ReturnType<typeof fakeDocument>) {
   }
 }
 
-/** The dialog's reactive surface the E2E flow touches (see appearance-dialog.tsx). */
+/** The dialog's reactive surface the E2E flow touches (see appearance-surface.tsx). */
 type DialogHarness = {
   draft: AppearanceEditor['draft']
   setDraft: (patch: Partial<AppearancePreferencesV2>) => void
@@ -136,7 +136,7 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
           return
         }
         const editor = createAppearanceEditor()
-        // The dialog's snapshot-on-open effect (appearance-dialog.tsx): it
+        // The dialog's snapshot-on-open effect (appearance-surface.tsx): it
         // tracks the committed preferences only, never the draft.
         createEffect(() => {
           const committed = appearance.preferences()
