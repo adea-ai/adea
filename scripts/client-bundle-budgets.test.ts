@@ -59,7 +59,7 @@ function fixture(): ClientChunk[] {
     ),
     chunk(
       'layout-view.js',
-      'import "./shared-shell.js"; import "./layout-helper.js"; const copy = "terminal-bytes-v1 stream";',
+      'import "./shared-shell.js"; import "./layout-helper.js"; const copy = "Developer center panes";',
       10,
       5
     ),

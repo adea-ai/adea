@@ -3,10 +3,10 @@ export {
   ThemeProvider,
   ThemeScript,
   useTheme,
+  useOptionalTheme,
   type ResolvedTheme,
   type Theme,
 } from './components/theme-provider'
-export { WorkspaceBrand, type WorkspaceBrandProps } from './components/workspace-brand'
 export { WorkspaceLogo } from './components/workspace-logo'
 export {
   VersionDialog,

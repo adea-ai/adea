@@ -56,13 +56,23 @@ describe('private application UI boundary', () => {
     expect(theme).not.toContain('background: var(--background)')
   })
 
-  test('keeps raw and wrapper exemptions at the main-branch ratchet baseline', () => {
+  test('does not override shared controls through broad workspace descendant resets', () => {
+    const workspace = source('styles/conventional-workspace.css')
+    expect(workspace).not.toMatch(
+      /\.conventional-workspace\s+(?:button|input|select|textarea|svg|h[1-6]|p|:focus-visible)\b/
+    )
+    expect(workspace).not.toContain('font-family: Inter,')
+    expect(workspace).toContain('font-family: var(--font-ui, var(--font-sans))')
+  })
+
+  test('keeps consumer controls and appearance free of path exemptions', () => {
     type Override = { files: string[]; rules: Record<string, string> }
-    const config = JSON.parse(repositoryFile('.oxlintrc.json')) as { overrides: Override[] }
-    const rawInteractiveExemptions = config.overrides.flatMap(({ files, rules }) =>
+    const config = JSON.parse(repositoryFile('.oxlintrc.json')) as { overrides?: Override[] }
+    const overrides = config.overrides ?? []
+    const rawInteractiveExemptions = overrides.flatMap(({ files, rules }) =>
       rules['adea/no-raw-interactive-elements'] === 'off' ? files : []
     )
-    const wrapperExemptions = config.overrides.flatMap(({ files, rules }) =>
+    const wrapperExemptions = overrides.flatMap(({ files, rules }) =>
       rules['adea/no-interactive-wrappers'] === 'off' ? files : []
     )
     const appearanceRules = [
@@ -71,12 +81,12 @@ describe('private application UI boundary', () => {
       'shadcn/no-inline-styles',
       'shadcn/require-static-classes',
     ]
-    const appearanceExemptions = config.overrides.flatMap(({ files, rules }) =>
+    const appearanceExemptions = overrides.flatMap(({ files, rules }) =>
       appearanceRules.some((rule) => rules[rule] === 'off') ? files : []
     )
 
     expect(rawInteractiveExemptions).toEqual([])
-    expect(wrapperExemptions).toEqual(['packages/dev-view/src/browser/mini-preview.tsx'])
+    expect(wrapperExemptions).toEqual([])
     expect(appearanceExemptions).toEqual([])
   })
 })

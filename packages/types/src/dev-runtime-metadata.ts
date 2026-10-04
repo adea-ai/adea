@@ -6,887 +6,561 @@ import * as operationMetadata from './dev-runtime-operation-metadata/index'
 
 export * from './dev-runtime-operation-metadata/index'
 
+// Keep the dynamic compatibility map compact without widening its public shape.
+function commandMetadata<T extends { capabilities: unknown; resource: unknown }>(
+  definition: T
+): Pick<T, 'capabilities' | 'resource'> {
+  return { capabilities: definition.capabilities, resource: definition.resource }
+}
+
 export const devOperationMetadata = {
-  'dev.browser.annotate': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_annotate.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_annotate.resource,
-  },
-  'dev.browser.attach': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_attach.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_attach.resource,
-  },
-  'dev.browser.cookieImportCommit': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_browser_cookieImportCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_cookieImportCommit.resource,
-  },
-  'dev.browser.cookieImportPlan': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_browser_cookieImportPlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_cookieImportPlan.resource,
-  },
-  'dev.browser.cookieSources': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_cookieSources.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_cookieSources.resource,
-  },
-  'dev.browser.diagnostics': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_diagnostics.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_diagnostics.resource,
-  },
-  'dev.browser.input': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_input.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_input.resource,
-  },
-  'dev.browser.inspect': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_inspect.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_inspect.resource,
-  },
-  'dev.browser.laneClose': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_laneClose.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_laneClose.resource,
-  },
-  'dev.browser.laneCreate': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_laneCreate.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_laneCreate.resource,
-  },
-  'dev.browser.lanes': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_lanes.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_lanes.resource,
-  },
-  'dev.browser.navigate': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_navigate.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_navigate.resource,
-  },
-  'dev.browser.profilePolicies': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_browser_profilePolicies.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_profilePolicies.resource,
-  },
-  'dev.browser.profileReset': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_profileReset.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_profileReset.resource,
-  },
-  'dev.browser.release': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_release.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_release.resource,
-  },
-  'dev.browser.screenshot': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_screenshot.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_screenshot.resource,
-  },
-  'dev.browser.takeover': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_takeover.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_takeover.resource,
-  },
-  'dev.browser.targets': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_targets.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_targets.resource,
-  },
-  'dev.browser.viewport': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_browser_viewport.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_browser_viewport.resource,
-  },
-  'dev.capability.snapshot': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_capability_snapshot.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_capability_snapshot.resource,
-  },
-  'dev.cleanupPolicy.approve': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_approve.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_approve.resource,
-  },
-  'dev.cleanupPolicy.createDraft': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_createDraft.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_createDraft.resource,
-  },
-  'dev.cleanupPolicy.disable': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_disable.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_disable.resource,
-  },
-  'dev.cleanupPolicy.evaluate': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_evaluate.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_evaluate.resource,
-  },
-  'dev.cleanupPolicy.list': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_list.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_list.resource,
-  },
-  'dev.computeruse.attach': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_computeruse_attach.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_computeruse_attach.resource,
-  },
-  'dev.computeruse.capabilities': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_computeruse_capabilities.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_computeruse_capabilities.resource,
-  },
-  'dev.computeruse.consent': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_computeruse_consent.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_computeruse_consent.resource,
-  },
-  'dev.computeruse.input': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_computeruse_input.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_computeruse_input.resource,
-  },
-  'dev.computeruse.laneClose': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_computeruse_laneClose.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_computeruse_laneClose.resource,
-  },
-  'dev.computeruse.laneCreate': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_computeruse_laneCreate.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_computeruse_laneCreate.resource,
-  },
-  'dev.computeruse.lanes': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_computeruse_lanes.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_computeruse_lanes.resource,
-  },
-  'dev.computeruse.release': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_computeruse_release.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_computeruse_release.resource,
-  },
-  'dev.computeruse.takeover': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_computeruse_takeover.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_computeruse_takeover.resource,
-  },
-  'dev.device.attach': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_device_attach.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_device_attach.resource,
-  },
-  'dev.device.input': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_device_input.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_device_input.resource,
-  },
-  'dev.device.capabilities': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_device_capabilities.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_device_capabilities.resource,
-  },
-  'dev.device.list': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_device_list.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_device_list.resource,
-  },
-  'dev.device.screenshot': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_device_screenshot.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_device_screenshot.resource,
-  },
-  'dev.device.sessions': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_device_sessions.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_device_sessions.resource,
-  },
-  'dev.device.start': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_device_start.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_device_start.resource,
-  },
-  'dev.device.stop': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_device_stop.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_device_stop.resource,
-  },
-  'dev.files.copy': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_copy.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_copy.resource,
-  },
-  'dev.files.copyTreeCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_copyTreeCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_copyTreeCommit.resource,
-  },
-  'dev.files.copyTreePlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_copyTreePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_copyTreePlan.resource,
-  },
-  'dev.files.create': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_create.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_create.resource,
-  },
-  'dev.files.delete': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_delete.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_delete.resource,
-  },
-  'dev.files.deleteTreeCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_deleteTreeCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_deleteTreeCommit.resource,
-  },
-  'dev.files.deleteTreePlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_deleteTreePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_deleteTreePlan.resource,
-  },
-  'dev.files.list': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_list.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_list.resource,
-  },
-  'dev.files.openExternal': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_openExternal.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_openExternal.resource,
-  },
-  'dev.files.read': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_read.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_read.resource,
-  },
-  'dev.files.readStream': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_readStream.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_readStream.resource,
-  },
-  'dev.files.rename': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_rename.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_rename.resource,
-  },
-  'dev.files.renameOverwriteCommit': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_files_renameOverwriteCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_renameOverwriteCommit.resource,
-  },
-  'dev.files.renameOverwritePlan': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_files_renameOverwritePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_renameOverwritePlan.resource,
-  },
-  'dev.files.search': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_search.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_search.resource,
-  },
-  'dev.files.stat': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_stat.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_stat.resource,
-  },
-  'dev.files.write': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_write.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_write.resource,
-  },
-  'dev.files.writeStream': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_files_writeStream.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_files_writeStream.resource,
-  },
-  'dev.git.checkpoint': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_checkpoint.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_checkpoint.resource,
-  },
-  'dev.git.checkpointPrune': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_checkpointPrune.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_checkpointPrune.resource,
-  },
-  'dev.git.commit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_commit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_commit.resource,
-  },
-  'dev.git.diff': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_diff.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_diff.resource,
-  },
-  'dev.git.discardCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_discardCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_discardCommit.resource,
-  },
-  'dev.git.discardPlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_discardPlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_discardPlan.resource,
-  },
-  'dev.git.fetch': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_fetch.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_fetch.resource,
-  },
-  'dev.git.history': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_history.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_history.resource,
-  },
-  'dev.git.hunkStagingCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_hunkStagingCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_hunkStagingCommit.resource,
-  },
-  'dev.git.hunkStagingPlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_hunkStagingPlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_hunkStagingPlan.resource,
-  },
-  'dev.git.restoreCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_restoreCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_restoreCommit.resource,
-  },
-  'dev.git.restorePlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_restorePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_restorePlan.resource,
-  },
-  'dev.git.stage': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_stage.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_stage.resource,
-  },
-  'dev.git.status': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_status.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_status.resource,
-  },
-  'dev.git.unstage': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_git_unstage.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_git_unstage.resource,
-  },
-  'dev.github.account': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_account.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_account.resource,
-  },
-  'dev.github.assignableUsers': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_assignableUsers.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_assignableUsers.resource,
-  },
-  'dev.github.autoMergeCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_autoMergeCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_autoMergeCommit.resource,
-  },
-  'dev.github.autoMergePlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_autoMergePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_autoMergePlan.resource,
-  },
-  'dev.github.branches': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_branches.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_branches.resource,
-  },
-  'dev.github.checkLog': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_checkLog.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_checkLog.resource,
-  },
-  'dev.github.checks': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_checks.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_checks.resource,
-  },
-  'dev.github.comment': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_comment.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_comment.resource,
-  },
-  'dev.github.commits': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_commits.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_commits.resource,
-  },
-  'dev.github.compare': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_compare.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_compare.resource,
-  },
-  'dev.github.createPullRequest': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_github_createPullRequest.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_createPullRequest.resource,
-  },
-  'dev.github.files': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_files.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_files.resource,
-  },
-  'dev.github.issues': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_issues.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_issues.resource,
-  },
-  'dev.github.labels': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_labels.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_labels.resource,
-  },
-  'dev.github.mergeCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_mergeCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_mergeCommit.resource,
-  },
-  'dev.github.mergePlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_mergePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_mergePlan.resource,
-  },
-  'dev.github.metadataUpdate': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_metadataUpdate.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_metadataUpdate.resource,
-  },
-  'dev.github.milestones': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_milestones.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_milestones.resource,
-  },
-  'dev.github.pullRequest': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_pullRequest.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_pullRequest.resource,
-  },
-  'dev.github.pullRequestSummaries': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummaries.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummaries.resource,
-  },
-  'dev.github.pullRequestSummary': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummary.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummary.resource,
-  },
-  'dev.github.pullRequests': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_pullRequests.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_pullRequests.resource,
-  },
-  'dev.github.pushCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_pushCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_pushCommit.resource,
-  },
-  'dev.github.pushPlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_pushPlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_pushPlan.resource,
-  },
-  'dev.github.repository': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_repository.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_repository.resource,
-  },
-  'dev.github.rerunFailedJobs': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_rerunFailedJobs.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_rerunFailedJobs.resource,
-  },
-  'dev.github.submitReview': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_submitReview.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_submitReview.resource,
-  },
-  'dev.github.syncBranchCommit': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_github_syncBranchCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_syncBranchCommit.resource,
-  },
-  'dev.github.syncBranchPlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_syncBranchPlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_syncBranchPlan.resource,
-  },
-  'dev.github.threadReply': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_threadReply.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_threadReply.resource,
-  },
-  'dev.github.threadResolve': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_threadResolve.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_threadResolve.resource,
-  },
-  'dev.github.timeline': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_timeline.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_timeline.resource,
-  },
-  'dev.github.updateBranchCommit': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_github_updateBranchCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_updateBranchCommit.resource,
-  },
-  'dev.github.updateBranchPlan': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_github_updateBranchPlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_updateBranchPlan.resource,
-  },
-  'dev.github.updateCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_updateCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_updateCommit.resource,
-  },
-  'dev.github.updatePlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_github_updatePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_github_updatePlan.resource,
-  },
-  'dev.gitlab.account': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_account.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_account.resource,
-  },
-  'dev.gitlab.assignableUsers': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_assignableUsers.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_assignableUsers.resource,
-  },
-  'dev.gitlab.autoMergeCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergeCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergeCommit.resource,
-  },
-  'dev.gitlab.autoMergePlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergePlan.resource,
-  },
-  'dev.gitlab.branches': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_branches.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_branches.resource,
-  },
-  'dev.gitlab.checkLog': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_checkLog.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_checkLog.resource,
-  },
-  'dev.gitlab.checks': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_checks.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_checks.resource,
-  },
-  'dev.gitlab.comment': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_comment.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_comment.resource,
-  },
-  'dev.gitlab.commits': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_commits.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_commits.resource,
-  },
-  'dev.gitlab.compare': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_compare.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_compare.resource,
-  },
-  'dev.gitlab.createPullRequest': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_gitlab_createPullRequest.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_createPullRequest.resource,
-  },
-  'dev.gitlab.files': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_files.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_files.resource,
-  },
-  'dev.gitlab.labels': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_labels.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_labels.resource,
-  },
-  'dev.gitlab.mergeCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_mergeCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_mergeCommit.resource,
-  },
-  'dev.gitlab.mergePlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_mergePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_mergePlan.resource,
-  },
-  'dev.gitlab.metadataUpdate': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_metadataUpdate.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_metadataUpdate.resource,
-  },
-  'dev.gitlab.pullRequest': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequest.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequest.resource,
-  },
-  'dev.gitlab.pullRequestSummaries': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummaries.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummaries.resource,
-  },
-  'dev.gitlab.pullRequestSummary': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummary.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummary.resource,
-  },
-  'dev.gitlab.repository': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_repository.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_repository.resource,
-  },
-  'dev.gitlab.rerunFailedJobs': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_rerunFailedJobs.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_rerunFailedJobs.resource,
-  },
-  'dev.gitlab.submitReview': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_submitReview.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_submitReview.resource,
-  },
-  'dev.gitlab.syncBranchCommit': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchCommit.resource,
-  },
-  'dev.gitlab.syncBranchPlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchPlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchPlan.resource,
-  },
-  'dev.gitlab.threadReply': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_threadReply.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_threadReply.resource,
-  },
-  'dev.gitlab.threadResolve': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_threadResolve.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_threadResolve.resource,
-  },
-  'dev.gitlab.timeline': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_timeline.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_timeline.resource,
-  },
-  'dev.gitlab.updateCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_updateCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_updateCommit.resource,
-  },
-  'dev.gitlab.updatePlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_gitlab_updatePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_gitlab_updatePlan.resource,
-  },
-  'dev.group.create': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_group_create.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_group_create.resource,
-  },
-  'dev.group.delete': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_group_delete.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_group_delete.resource,
-  },
-  'dev.group.list': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_group_list.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_group_list.resource,
-  },
-  'dev.group.reorder': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_group_reorder.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_group_reorder.resource,
-  },
-  'dev.group.update': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_group_update.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_group_update.resource,
-  },
-  'dev.harness.acpClose': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_harness_acpClose.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_harness_acpClose.resource,
-  },
-  'dev.harness.acpConnect': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_harness_acpConnect.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_harness_acpConnect.resource,
-  },
-  'dev.harness.acpConnections': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_harness_acpConnections.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_harness_acpConnections.resource,
-  },
-  'dev.harness.managedPiInstall': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_harness_managedPiInstall.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_harness_managedPiInstall.resource,
-  },
-  'dev.harness.managedPiStatus': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_harness_managedPiStatus.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_harness_managedPiStatus.resource,
-  },
-  'dev.harness.preferenceReset': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_harness_preferenceReset.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_harness_preferenceReset.resource,
-  },
-  'dev.harness.preferenceUpdate': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_harness_preferenceUpdate.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_harness_preferenceUpdate.resource,
-  },
-  'dev.harness.preferences': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_harness_preferences.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_harness_preferences.resource,
-  },
-  'dev.harness.runStatus': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_harness_runStatus.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_harness_runStatus.resource,
-  },
-  'dev.harness.runs': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_harness_runs.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_harness_runs.resource,
-  },
-  'dev.project.archive': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_project_archive.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_project_archive.resource,
-  },
-  'dev.project.bookmarks': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_project_bookmarks.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_project_bookmarks.resource,
-  },
-  'dev.project.clone': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_project_clone.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_project_clone.resource,
-  },
-  'dev.project.create': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_project_create.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_project_create.resource,
-  },
-  'dev.project.get': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_project_get.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_project_get.resource,
-  },
-  'dev.project.import': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_project_import.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_project_import.resource,
-  },
-  'dev.project.list': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_project_list.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_project_list.resource,
-  },
-  'dev.project.reorder': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_project_reorder.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_project_reorder.resource,
-  },
-  'dev.project.scan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_project_scan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_project_scan.resource,
-  },
-  'dev.project.update': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_project_update.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_project_update.resource,
-  },
-  'dev.repo.adopt': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_repo_adopt.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_repo_adopt.resource,
-  },
-  'dev.repo.authorize': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_repo_authorize.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_repo_authorize.resource,
-  },
-  'dev.repo.credentialRefs': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_repo_credentialRefs.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_repo_credentialRefs.resource,
-  },
-  'dev.repo.inspect': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_repo_inspect.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_repo_inspect.resource,
-  },
-  'dev.repo.list': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_repo_list.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_repo_list.resource,
-  },
-  'dev.repo.refresh': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_repo_refresh.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_repo_refresh.resource,
-  },
-  'dev.resources.metrics': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_resources_metrics.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_resources_metrics.resource,
-  },
-  'dev.resources.ports': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_resources_ports.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_resources_ports.resource,
-  },
-  'dev.resources.processes': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_resources_processes.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_resources_processes.resource,
-  },
-  'dev.resources.retainedData': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_resources_retainedData.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_resources_retainedData.resource,
-  },
-  'dev.resources.snapshot': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_resources_snapshot.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_resources_snapshot.resource,
-  },
-  'dev.resources.stopCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_resources_stopCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_resources_stopCommit.resource,
-  },
-  'dev.resources.stopPlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_resources_stopPlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_resources_stopPlan.resource,
-  },
-  'dev.resources.usage': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_resources_usage.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_resources_usage.resource,
-  },
-  'dev.session.archive': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_archive.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_archive.resource,
-  },
-  'dev.session.cancelHarness': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_cancelHarness.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_cancelHarness.resource,
-  },
-  'dev.session.create': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_create.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_create.resource,
-  },
-  'dev.session.events': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_events.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_events.resource,
-  },
-  'dev.session.get': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_get.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_get.resource,
-  },
-  'dev.session.launchDefault': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_launchDefault.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_launchDefault.resource,
-  },
-  'dev.session.launchHarness': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_launchHarness.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_launchHarness.resource,
-  },
-  'dev.session.list': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_list.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_list.resource,
-  },
-  'dev.session.resumeHarness': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_resumeHarness.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_resumeHarness.resource,
-  },
-  'dev.session.transferInput': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_transferInput.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_transferInput.resource,
-  },
-  'dev.session.unarchive': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_session_unarchive.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_session_unarchive.resource,
-  },
-  'dev.terminal.attach': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_attach.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_attach.resource,
-  },
-  'dev.terminal.checkpoint': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_checkpoint.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_checkpoint.resource,
-  },
-  'dev.terminal.create': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_create.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_create.resource,
-  },
-  'dev.terminal.detach': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_detach.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_detach.resource,
-  },
-  'dev.terminal.historyDelete': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_historyDelete.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_historyDelete.resource,
-  },
-  'dev.terminal.input': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_input.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_input.resource,
-  },
-  'dev.terminal.list': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_list.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_list.resource,
-  },
-  'dev.terminal.resize': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_resize.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_resize.resource,
-  },
-  'dev.terminal.search': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_search.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_search.resource,
-  },
-  'dev.terminal.shellProfiles': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_shellProfiles.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_shellProfiles.resource,
-  },
-  'dev.terminal.signal': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_signal.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_signal.resource,
-  },
-  'dev.terminal.terminate': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_terminal_terminate.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_terminal_terminate.resource,
-  },
-  'dev.worktree.archive': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_archive.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_archive.resource,
-  },
-  'dev.worktree.cleanupCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_cleanupCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_cleanupCommit.resource,
-  },
-  'dev.worktree.cleanupJobs': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_cleanupJobs.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_cleanupJobs.resource,
-  },
-  'dev.worktree.cleanupPlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_cleanupPlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_cleanupPlan.resource,
-  },
-  'dev.worktree.cleanupResume': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_cleanupResume.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_cleanupResume.resource,
-  },
-  'dev.worktree.create': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_create.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_create.resource,
-  },
-  'dev.worktree.lease': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_lease.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_lease.resource,
-  },
-  'dev.worktree.list': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_list.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_list.resource,
-  },
-  'dev.worktree.mergeCommit': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_mergeCommit.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_mergeCommit.resource,
-  },
-  'dev.worktree.mergePlan': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_mergePlan.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_mergePlan.resource,
-  },
-  'dev.worktree.releaseLease': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_releaseLease.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_releaseLease.resource,
-  },
-  'dev.worktree.retryBootstrap': {
-    capabilities:
-      operationMetadata.devOperationMetadataFor_dev_worktree_retryBootstrap.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_retryBootstrap.resource,
-  },
-  'dev.worktree.unarchive': {
-    capabilities: operationMetadata.devOperationMetadataFor_dev_worktree_unarchive.capabilities,
-    resource: operationMetadata.devOperationMetadataFor_dev_worktree_unarchive.resource,
-  },
+  'dev.browser.annotate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_annotate
+  ),
+  'dev.browser.attach': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_attach
+  ),
+  'dev.browser.cookieImportCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_cookieImportCommit
+  ),
+  'dev.browser.cookieImportPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_cookieImportPlan
+  ),
+  'dev.browser.cookieSources': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_cookieSources
+  ),
+  'dev.browser.diagnostics': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_diagnostics
+  ),
+  'dev.browser.input': commandMetadata(operationMetadata.devOperationMetadataFor_dev_browser_input),
+  'dev.browser.inspect': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_inspect
+  ),
+  'dev.browser.laneClose': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_laneClose
+  ),
+  'dev.browser.laneCreate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_laneCreate
+  ),
+  'dev.browser.lanes': commandMetadata(operationMetadata.devOperationMetadataFor_dev_browser_lanes),
+  'dev.browser.navigate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_navigate
+  ),
+  'dev.browser.profilePolicies': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_profilePolicies
+  ),
+  'dev.browser.profileReset': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_profileReset
+  ),
+  'dev.browser.release': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_release
+  ),
+  'dev.browser.screenshot': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_screenshot
+  ),
+  'dev.browser.takeover': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_takeover
+  ),
+  'dev.browser.targets': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_targets
+  ),
+  'dev.browser.viewport': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_browser_viewport
+  ),
+  'dev.capability.snapshot': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_capability_snapshot
+  ),
+  'dev.cleanupPolicy.approve': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_approve
+  ),
+  'dev.cleanupPolicy.createDraft': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_createDraft
+  ),
+  'dev.cleanupPolicy.disable': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_disable
+  ),
+  'dev.cleanupPolicy.evaluate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_evaluate
+  ),
+  'dev.cleanupPolicy.list': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_list
+  ),
+  'dev.computeruse.attach': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_computeruse_attach
+  ),
+  'dev.computeruse.capabilities': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_computeruse_capabilities
+  ),
+  'dev.computeruse.consent': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_computeruse_consent
+  ),
+  'dev.computeruse.input': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_computeruse_input
+  ),
+  'dev.computeruse.laneClose': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_computeruse_laneClose
+  ),
+  'dev.computeruse.laneCreate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_computeruse_laneCreate
+  ),
+  'dev.computeruse.lanes': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_computeruse_lanes
+  ),
+  'dev.computeruse.release': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_computeruse_release
+  ),
+  'dev.computeruse.takeover': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_computeruse_takeover
+  ),
+  'dev.device.attach': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_attach),
+  'dev.device.input': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_input),
+  'dev.device.capabilities': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_device_capabilities
+  ),
+  'dev.device.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_list),
+  'dev.device.screenshot': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_device_screenshot
+  ),
+  'dev.device.sessions': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_device_sessions
+  ),
+  'dev.device.start': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_start),
+  'dev.device.stop': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_stop),
+  'dev.files.copy': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_copy),
+  'dev.files.copyTreeCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_files_copyTreeCommit
+  ),
+  'dev.files.copyTreePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_files_copyTreePlan
+  ),
+  'dev.files.create': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_create),
+  'dev.files.delete': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_delete),
+  'dev.files.deleteTreeCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_files_deleteTreeCommit
+  ),
+  'dev.files.deleteTreePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_files_deleteTreePlan
+  ),
+  'dev.files.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_list),
+  'dev.files.openExternal': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_files_openExternal
+  ),
+  'dev.files.read': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_read),
+  'dev.files.readStream': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_files_readStream
+  ),
+  'dev.files.rename': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_rename),
+  'dev.files.renameOverwriteCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_files_renameOverwriteCommit
+  ),
+  'dev.files.renameOverwritePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_files_renameOverwritePlan
+  ),
+  'dev.files.search': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_search),
+  'dev.files.stat': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_stat),
+  'dev.files.write': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_write),
+  'dev.files.writeStream': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_files_writeStream
+  ),
+  'dev.git.checkpoint': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_git_checkpoint
+  ),
+  'dev.git.checkpointPrune': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_git_checkpointPrune
+  ),
+  'dev.git.commit': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_commit),
+  'dev.git.diff': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_diff),
+  'dev.git.discardCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_git_discardCommit
+  ),
+  'dev.git.discardPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_git_discardPlan
+  ),
+  'dev.git.fetch': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_fetch),
+  'dev.git.history': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_history),
+  'dev.git.hunkStagingCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_git_hunkStagingCommit
+  ),
+  'dev.git.hunkStagingPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_git_hunkStagingPlan
+  ),
+  'dev.git.restoreCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_git_restoreCommit
+  ),
+  'dev.git.restorePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_git_restorePlan
+  ),
+  'dev.git.stage': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_stage),
+  'dev.git.status': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_status),
+  'dev.git.unstage': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_unstage),
+  'dev.github.account': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_account
+  ),
+  'dev.github.assignableUsers': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_assignableUsers
+  ),
+  'dev.github.autoMergeCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_autoMergeCommit
+  ),
+  'dev.github.autoMergePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_autoMergePlan
+  ),
+  'dev.github.branches': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_branches
+  ),
+  'dev.github.checkLog': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_checkLog
+  ),
+  'dev.github.checks': commandMetadata(operationMetadata.devOperationMetadataFor_dev_github_checks),
+  'dev.github.comment': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_comment
+  ),
+  'dev.github.commits': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_commits
+  ),
+  'dev.github.compare': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_compare
+  ),
+  'dev.github.createPullRequest': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_createPullRequest
+  ),
+  'dev.github.files': commandMetadata(operationMetadata.devOperationMetadataFor_dev_github_files),
+  'dev.github.issues': commandMetadata(operationMetadata.devOperationMetadataFor_dev_github_issues),
+  'dev.github.labels': commandMetadata(operationMetadata.devOperationMetadataFor_dev_github_labels),
+  'dev.github.mergeCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_mergeCommit
+  ),
+  'dev.github.mergePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_mergePlan
+  ),
+  'dev.github.metadataUpdate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_metadataUpdate
+  ),
+  'dev.github.milestones': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_milestones
+  ),
+  'dev.github.pullRequest': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_pullRequest
+  ),
+  'dev.github.pullRequestSummaries': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummaries
+  ),
+  'dev.github.pullRequestSummary': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummary
+  ),
+  'dev.github.pullRequests': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_pullRequests
+  ),
+  'dev.github.pushCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_pushCommit
+  ),
+  'dev.github.pushPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_pushPlan
+  ),
+  'dev.github.repository': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_repository
+  ),
+  'dev.github.rerunFailedJobs': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_rerunFailedJobs
+  ),
+  'dev.github.submitReview': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_submitReview
+  ),
+  'dev.github.syncBranchCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_syncBranchCommit
+  ),
+  'dev.github.syncBranchPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_syncBranchPlan
+  ),
+  'dev.github.threadReply': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_threadReply
+  ),
+  'dev.github.threadResolve': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_threadResolve
+  ),
+  'dev.github.timeline': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_timeline
+  ),
+  'dev.github.updateBranchCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_updateBranchCommit
+  ),
+  'dev.github.updateBranchPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_updateBranchPlan
+  ),
+  'dev.github.updateCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_updateCommit
+  ),
+  'dev.github.updatePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_updatePlan
+  ),
+  'dev.gitlab.account': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_account
+  ),
+  'dev.gitlab.assignableUsers': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_assignableUsers
+  ),
+  'dev.gitlab.autoMergeCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergeCommit
+  ),
+  'dev.gitlab.autoMergePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergePlan
+  ),
+  'dev.gitlab.branches': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_branches
+  ),
+  'dev.gitlab.checkLog': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_checkLog
+  ),
+  'dev.gitlab.checks': commandMetadata(operationMetadata.devOperationMetadataFor_dev_gitlab_checks),
+  'dev.gitlab.comment': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_comment
+  ),
+  'dev.gitlab.commits': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_commits
+  ),
+  'dev.gitlab.compare': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_compare
+  ),
+  'dev.gitlab.createPullRequest': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_createPullRequest
+  ),
+  'dev.gitlab.files': commandMetadata(operationMetadata.devOperationMetadataFor_dev_gitlab_files),
+  'dev.gitlab.labels': commandMetadata(operationMetadata.devOperationMetadataFor_dev_gitlab_labels),
+  'dev.gitlab.mergeCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_mergeCommit
+  ),
+  'dev.gitlab.mergePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_mergePlan
+  ),
+  'dev.gitlab.metadataUpdate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_metadataUpdate
+  ),
+  'dev.gitlab.pullRequest': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequest
+  ),
+  'dev.gitlab.pullRequestSummaries': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummaries
+  ),
+  'dev.gitlab.pullRequestSummary': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummary
+  ),
+  'dev.gitlab.repository': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_repository
+  ),
+  'dev.gitlab.rerunFailedJobs': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_rerunFailedJobs
+  ),
+  'dev.gitlab.submitReview': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_submitReview
+  ),
+  'dev.gitlab.syncBranchCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchCommit
+  ),
+  'dev.gitlab.syncBranchPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchPlan
+  ),
+  'dev.gitlab.threadReply': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_threadReply
+  ),
+  'dev.gitlab.threadResolve': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_threadResolve
+  ),
+  'dev.gitlab.timeline': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_timeline
+  ),
+  'dev.gitlab.updateCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_updateCommit
+  ),
+  'dev.gitlab.updatePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_gitlab_updatePlan
+  ),
+  'dev.group.create': commandMetadata(operationMetadata.devOperationMetadataFor_dev_group_create),
+  'dev.group.delete': commandMetadata(operationMetadata.devOperationMetadataFor_dev_group_delete),
+  'dev.group.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_group_list),
+  'dev.group.reorder': commandMetadata(operationMetadata.devOperationMetadataFor_dev_group_reorder),
+  'dev.group.update': commandMetadata(operationMetadata.devOperationMetadataFor_dev_group_update),
+  'dev.harness.acpClose': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_acpClose
+  ),
+  'dev.harness.acpConnect': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_acpConnect
+  ),
+  'dev.harness.acpConnections': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_acpConnections
+  ),
+  'dev.harness.managedPiInstall': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_managedPiInstall
+  ),
+  'dev.harness.managedPiStatus': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_managedPiStatus
+  ),
+  'dev.harness.preferenceReset': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_preferenceReset
+  ),
+  'dev.harness.preferenceUpdate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_preferenceUpdate
+  ),
+  'dev.harness.preferences': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_preferences
+  ),
+  'dev.harness.runStatus': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_runStatus
+  ),
+  'dev.harness.runs': commandMetadata(operationMetadata.devOperationMetadataFor_dev_harness_runs),
+  'dev.project.archive': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_project_archive
+  ),
+  'dev.project.bookmarks': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_project_bookmarks
+  ),
+  'dev.project.clone': commandMetadata(operationMetadata.devOperationMetadataFor_dev_project_clone),
+  'dev.project.create': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_project_create
+  ),
+  'dev.project.get': commandMetadata(operationMetadata.devOperationMetadataFor_dev_project_get),
+  'dev.project.import': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_project_import
+  ),
+  'dev.project.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_project_list),
+  'dev.project.reorder': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_project_reorder
+  ),
+  'dev.project.scan': commandMetadata(operationMetadata.devOperationMetadataFor_dev_project_scan),
+  'dev.project.update': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_project_update
+  ),
+  'dev.repo.adopt': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_adopt),
+  'dev.repo.authorize': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_repo_authorize
+  ),
+  'dev.repo.credentialRefs': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_repo_credentialRefs
+  ),
+  'dev.repo.inspect': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_inspect),
+  'dev.repo.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_list),
+  'dev.repo.refresh': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_refresh),
+  'dev.resources.metrics': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_metrics
+  ),
+  'dev.resources.ports': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_ports
+  ),
+  'dev.resources.processes': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_processes
+  ),
+  'dev.resources.retainedData': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_retainedData
+  ),
+  'dev.resources.snapshot': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_snapshot
+  ),
+  'dev.resources.stopCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_stopCommit
+  ),
+  'dev.resources.stopPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_stopPlan
+  ),
+  'dev.resources.usage': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_usage
+  ),
+  'dev.session.archive': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_session_archive
+  ),
+  'dev.session.cancelHarness': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_session_cancelHarness
+  ),
+  'dev.session.create': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_session_create
+  ),
+  'dev.session.events': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_session_events
+  ),
+  'dev.session.get': commandMetadata(operationMetadata.devOperationMetadataFor_dev_session_get),
+  'dev.session.launchDefault': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_session_launchDefault
+  ),
+  'dev.session.launchHarness': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_session_launchHarness
+  ),
+  'dev.session.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_session_list),
+  'dev.session.resumeHarness': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_session_resumeHarness
+  ),
+  'dev.session.transferInput': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_session_transferInput
+  ),
+  'dev.session.unarchive': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_session_unarchive
+  ),
+  'dev.terminal.attach': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_attach
+  ),
+  'dev.terminal.checkpoint': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_checkpoint
+  ),
+  'dev.terminal.create': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_create
+  ),
+  'dev.terminal.detach': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_detach
+  ),
+  'dev.terminal.historyDelete': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_historyDelete
+  ),
+  'dev.terminal.input': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_input
+  ),
+  'dev.terminal.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_terminal_list),
+  'dev.terminal.resize': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_resize
+  ),
+  'dev.terminal.search': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_search
+  ),
+  'dev.terminal.shellProfiles': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_shellProfiles
+  ),
+  'dev.terminal.signal': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_signal
+  ),
+  'dev.terminal.terminate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_terminal_terminate
+  ),
+  'dev.worktree.archive': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_archive
+  ),
+  'dev.worktree.cleanupCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_cleanupCommit
+  ),
+  'dev.worktree.cleanupJobs': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_cleanupJobs
+  ),
+  'dev.worktree.cleanupPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_cleanupPlan
+  ),
+  'dev.worktree.cleanupResume': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_cleanupResume
+  ),
+  'dev.worktree.create': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_create
+  ),
+  'dev.worktree.lease': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_lease
+  ),
+  'dev.worktree.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_worktree_list),
+  'dev.worktree.mergeCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_mergeCommit
+  ),
+  'dev.worktree.mergePlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_mergePlan
+  ),
+  'dev.worktree.releaseLease': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_releaseLease
+  ),
+  'dev.worktree.retryBootstrap': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_retryBootstrap
+  ),
+  'dev.worktree.unarchive': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_unarchive
+  ),
 } as const

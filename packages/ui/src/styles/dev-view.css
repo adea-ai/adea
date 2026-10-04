@@ -222,14 +222,6 @@
   flex: none;
 }
 
-.dev-terminal-placeholder {
-  padding: 0.9rem;
-  overflow: auto;
-  font-family: var(--font-code, var(--font-mono));
-  font-size: var(--text-code);
-  line-height: 1.65;
-}
-
 .dev-terminal-muted,
 .dev-empty-state p,
 .dev-utility-panel p {
@@ -242,20 +234,6 @@
   justify-items: center;
   padding: 2rem;
   text-align: center;
-}
-
-.dev-empty-state svg {
-  width: 2rem;
-  height: 2rem;
-  color: var(--dev-muted);
-}
-
-.dev-empty-state h1 {
-  margin: 0.8rem 0 0.2rem;
-  font-family: inherit;
-  font-size: calc(0.95rem * var(--font-ui-scale, 1));
-  font-weight: 650;
-  line-height: 1.2;
 }
 
 .dev-empty-state p {
@@ -300,40 +278,7 @@
 }
 
 .dev-utility > .dev-utility-splitter {
-  position: absolute;
   z-index: var(--z-docked);
-  inset-block: 0;
-  width: 24rem;
-  pointer-events: none;
-}
-
-.dev-utility-splitter--left {
-  inset-inline-start: 0;
-}
-
-.dev-utility-splitter--right {
-  inset-inline-start: auto;
-  inset-inline-end: 0;
-}
-
-.dev-utility-splitter__handle {
-  z-index: var(--z-docked);
-  pointer-events: auto;
-}
-
-/* The shared grip rung is 1rem tall; the utility pane's resize affordance
-   triples it so the drag target is findable without pixel hunting, while a
-   narrow translucent chip keeps it quiet next to the pane content (the grip
-   glyph it replaces read as a wide solid button). */
-.dev-utility-splitter__handle > div {
-  height: 3rem;
-  width: 0.375rem;
-  border-color: transparent;
-  background: color-mix(in srgb, var(--dev-border) 55%, transparent);
-}
-
-.dev-utility-splitter__handle > div > svg {
-  display: none;
 }
 
 .dev-row-badge {

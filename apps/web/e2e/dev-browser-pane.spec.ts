@@ -259,7 +259,9 @@ test('BrowserPane preserves independent viewport results when switching lanes', 
   page,
 }) => {
   const pane = await mountBrowserPane(page, '?lanes=multiple')
-  const laneTabs = pane.getByRole('tablist', { name: 'Browser lanes' }).getByRole('tab')
+  const laneButtons = pane.getByRole('group', { name: 'Browser lanes' }).getByRole('button')
+  await expect(laneButtons.nth(0)).toHaveAttribute('aria-current', 'true')
+  await expect(laneButtons.nth(1)).not.toHaveAttribute('aria-current')
   const viewportCommands = () =>
     page.evaluate(() =>
       window.browserPaneHarness
@@ -274,7 +276,9 @@ test('BrowserPane preserves independent viewport results when switching lanes', 
     browserLaneId: 'browser-pane-fixture-lane',
   })
 
-  await laneTabs.nth(1).click()
+  await laneButtons.nth(1).click()
+  await expect(laneButtons.nth(1)).toHaveAttribute('aria-current', 'true')
+  await expect(laneButtons.nth(0)).not.toHaveAttribute('aria-current')
   const secondRequest = await page.evaluate(() => window.browserPaneHarness.deferNextViewport())
   await pane.getByRole('button', { name: 'Pixel 8' }).click()
   await expect.poll(async () => (await viewportCommands()).length).toBe(2)
@@ -293,7 +297,7 @@ test('BrowserPane preserves independent viewport results when switching lanes', 
   )
   await expect(pane).toContainText('CSS viewport 412 × 915')
 
-  await laneTabs.nth(0).click()
+  await laneButtons.nth(0).click()
   await expect(pane).toContainText('CSS viewport 393 × 852')
 })
 
@@ -737,6 +741,11 @@ test('BrowserPane submits a dragged region bound to lane, target, and generation
 
   const deferredId = await page.evaluate(() => window.browserPaneHarness.deferNextAnnotate())
   await annotate.getByRole('button', { name: 'Submit annotation' }).click()
+  await expect(annotate.getByRole('button', { name: 'Region (R)', exact: true })).toBeDisabled()
+  await expect(annotate.getByRole('button', { name: 'Note (N)', exact: true })).toBeDisabled()
+  await surface.press('Enter')
+  await surface.press('ArrowRight')
+  await expect(draft).toContainText('Region at 20,20')
 
   const commands = await annotateCommands(page)
   expect(commands).toHaveLength(1)
@@ -775,6 +784,53 @@ test('BrowserPane submits a dragged region bound to lane, target, and generation
   await expect(result).toContainText('annotation 00000000')
   await expect(result).toContainText('screenshot 00000000')
   await expect(result.locator('img')).toHaveCount(0)
+
+  // Successful completion must release the pending gate for the next draft.
+  await dragRegion(page, surface, { x: 0.1, y: 0.1 }, { x: 0.4, y: 0.4 })
+  await expect(annotate.getByRole('button', { name: 'Submit annotation' })).toBeEnabled()
+  await annotate.getByRole('button', { name: 'Submit annotation' }).click()
+  await expect.poll(async () => (await annotateCommands(page)).length).toBe(2)
+})
+
+test('BrowserPane starts and adjusts an annotation without a pointer', async ({ page }) => {
+  const { surface } = await mountAnnotateSurface(page)
+  await surface.focus()
+  await surface.press('Space')
+  await surface.press('ArrowRight')
+  await surface.press('Enter')
+  await expect.poll(async () => (await annotateCommands(page)).length).toBe(1)
+  const commands = await annotateCommands(page)
+  const annotation = commands[0].body.annotation as Record<string, number | string>
+  expect(annotation.kind).toBe('rect')
+  expect(annotation.x).toBeCloseTo(0.26, 2)
+  expect(annotation.y).toBeCloseTo(0.25, 2)
+  expect(annotation.width).toBeCloseTo(0.5, 2)
+  expect(annotation.height).toBeCloseTo(0.5, 2)
+})
+
+test('BrowserPane ignores a cancelled annotation failure and accepts a new draft', async ({
+  page,
+}) => {
+  const { annotate, surface } = await mountAnnotateSurface(page)
+  await dragRegion(page, surface, { x: 0.2, y: 0.2 }, { x: 0.6, y: 0.5 })
+  const deferredId = await page.evaluate(() => window.browserPaneHarness.deferNextAnnotate())
+  await annotate.getByRole('button', { name: 'Submit annotation' }).click()
+  await surface.press('Escape')
+  await page.evaluate(
+    (id) =>
+      window.browserPaneHarness.rejectAnnotate(id, {
+        code: 'invalid_state',
+        retryable: false,
+        message: 'Obsolete annotation failed',
+      }),
+    deferredId
+  )
+
+  await dragRegion(page, surface, { x: 0.1, y: 0.1 }, { x: 0.4, y: 0.4 })
+  await expect(annotate.getByRole('alert', { name: 'Annotation error' })).toHaveCount(0)
+  await expect(annotate.getByRole('button', { name: 'Submit annotation' })).toBeEnabled()
+  await annotate.getByRole('button', { name: 'Submit annotation' }).click()
+  await expect.poll(async () => (await annotateCommands(page)).length).toBe(2)
 })
 
 test('BrowserPane adjusts a region with arrow keys and submits with Enter', async ({ page }) => {
@@ -1088,3 +1144,22 @@ test('BrowserPane and ResourcesPane project the shared UI, Content, and Code fon
   await page.evaluate(() => window.browserPaneHarness.resetFonts())
   await expect(resourceContent).toHaveCSS('font-size', '14px')
 })
+
+for (const [pane, title, description] of [
+  ['layout-editor', 'Choose a file to edit', 'Select a file from the Files panel.'],
+  ['layout-terminal', 'Terminal unavailable', 'Connect an available runtime to use terminals.'],
+  ['layout-terminal-available', 'Open a terminal', 'Open a terminal in the selected session.'],
+] as const) {
+  test(`shared empty state gives ${pane} actionable guidance`, async ({ page }) => {
+    await page.route('**' + BROWSER_PANE_HARNESS_PATH + '**', (route) =>
+      route.fulfill({ contentType: 'text/html', body: browserPaneHarnessHtml() })
+    )
+    await page.goto(`${BROWSER_PANE_HARNESS_PATH}?pane=${pane}`)
+    await page.addScriptTag({ type: 'module', content: browserPaneHarnessModuleSource() })
+    const empty = page.locator('[data-slot="empty"]')
+    await expect(empty).toBeVisible()
+    await expect(empty.getByRole('heading', { name: title, level: 2 })).toBeVisible()
+    await expect(empty.locator('[data-slot="empty-description"]')).toHaveText(description)
+    await expect(page.getByText('dev runtime status')).toHaveCount(0)
+  })
+}

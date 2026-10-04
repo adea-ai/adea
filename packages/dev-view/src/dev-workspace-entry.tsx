@@ -100,7 +100,6 @@ import { DevSidebarShell } from './sidebar/dev-sidebar-shell'
 import type { DevSessionBadgeState } from './sidebar/badges'
 import {
   announcementForMove,
-  moveIdInOrder,
   reorderGroups,
   reorderGroupsRelativeTo,
   reorderProjects,
@@ -109,11 +108,7 @@ import {
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { ButtonGroup } from '@adea-ai/ui/components/ui/button-group'
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from '@adea-ai/ui/components/ui/resizable'
+import { PixelResizeHandle } from '@adea-ai/ui/components/layout/contextual-sidebar'
 import {
   SideRail,
   SideRailContent,
@@ -347,10 +342,8 @@ const initialLayout = () =>
     pane: 'terminal',
   })
 
-const utilitySizeStepsFor = (side: 'left' | 'right') => utilitySizeSteps[side]
-
 const snapUtilitySize = (size: number, side: 'left' | 'right') => {
-  const steps = utilitySizeStepsFor(side)
+  const steps = utilitySizeSteps[side]
   if (!Number.isFinite(size))
     return side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize
   return steps.reduce(
@@ -737,15 +730,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // their worktree from this rather than taking the first ready one on the
   // node, which staged and committed against a different worktree than the one
   // being displayed whenever a node had more than one.
-  const selectedSessionWorktreeId = createMemo(() => {
-    const sessionId = selectedSession()
-    if (!sessionId) return undefined
-    for (const group of projection()?.groups ?? [])
-      for (const project of group.projects)
-        for (const session of project.sessions)
-          if (session.id === sessionId) return session.worktreeId || undefined
-    return undefined
-  })
   const selectedSessionRecord = createMemo(() => {
     const sessionId = selectedSession()
     if (!sessionId) return undefined
@@ -754,6 +738,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         for (const session of project.sessions) if (session.id === sessionId) return session
     return undefined
   })
+  const selectedSessionWorktreeId = createMemo(
+    () => selectedSessionRecord()?.worktreeId || undefined
+  )
   const selectedProjectLabel = createMemo(() => {
     const projectId = selectedProject()
     if (!projectId) return undefined
@@ -976,14 +963,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
 
   const moveGroupHandler = (id: string, direction: 'up' | 'down') => {
     const current = groups()
-    const moved = Boolean(
-      moveIdInOrder(
-        current.map((group) => group.id),
-        id,
-        direction
-      )
-    )
     const next = reorderGroups(current, id, direction)
+    const moved = next !== current
     applyGroups(next)
     const position = next.findIndex((group) => group.id === id) + 1
     const label = current.find((group) => group.id === id)?.name ?? id
@@ -1004,26 +985,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     void executeReorder('dev.group.reorder', { orderedGroupIds: next.map((group) => group.id) })
   }
 
-  const moveProjectHandler = (groupId: string, id: string, direction: 'up' | 'down') => {
-    const current = groups()
-    const group = current.find((candidate) => candidate.id === groupId)
-    const next = reorderProjects(current, groupId, id, direction)
-    applyGroups(next)
-    const position =
-      next.find((candidate) => candidate.id === groupId)?.projects.findIndex((p) => p.id === id) ??
-      -1
-    const label = group?.projects.find((project) => project.id === id)?.name ?? id
-    const total = group?.projects.length ?? 0
-    const moved = Boolean(
-      group &&
-      moveIdInOrder(
-        group.projects.map((project) => project.id),
-        id,
-        direction
-      )
-    )
-    if (position >= 0) setAnnouncement(announcementForMove(label, position + 1, total, moved))
-    if (!moved || fixtureMode()) return
+  const commitProjectReorder = (groupId: string, next: ReturnType<typeof groups>) => {
     const expectedGroupVersion = reorderVersionOf(groupId)
     if (expectedGroupVersion === undefined) {
       setAnnouncement(
@@ -1040,6 +1002,22 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     })
   }
 
+  const moveProjectHandler = (groupId: string, id: string, direction: 'up' | 'down') => {
+    const current = groups()
+    const group = current.find((candidate) => candidate.id === groupId)
+    const next = reorderProjects(current, groupId, id, direction)
+    applyGroups(next)
+    const position =
+      next.find((candidate) => candidate.id === groupId)?.projects.findIndex((p) => p.id === id) ??
+      -1
+    const label = group?.projects.find((project) => project.id === id)?.name ?? id
+    const total = group?.projects.length ?? 0
+    const moved = next !== current
+    if (position >= 0) setAnnouncement(announcementForMove(label, position + 1, total, moved))
+    if (!moved || fixtureMode()) return
+    commitProjectReorder(groupId, next)
+  }
+
   const dropProjectHandler = (groupId: string, id: string, targetId: string) => {
     const current = groups()
     const group = current.find((candidate) => candidate.id === groupId)
@@ -1053,20 +1031,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     if (position >= 0)
       setAnnouncement(announcementForMove(label, position + 1, group?.projects.length ?? 0, true))
     if (fixtureMode()) return
-    const expectedGroupVersion = reorderVersionOf(groupId)
-    if (expectedGroupVersion === undefined) {
-      setAnnouncement(
-        'Reorder needs the connected provider to expose group versions; nothing was changed on the runtime.'
-      )
-      return
-    }
-    void executeReorder('dev.project.reorder', {
-      groupId,
-      orderedProjectIds:
-        next.find((candidate) => candidate.id === groupId)?.projects.map((project) => project.id) ??
-        [],
-      expectedGroupVersion,
-    })
+    commitProjectReorder(groupId, next)
   }
 
   /*
@@ -1644,48 +1609,19 @@ function UtilityResizeHandle(props: {
   size: number
   onResize(size: number): void
 }) {
-  const steps = utilitySizeStepsFor(props.side)
-  const max = steps[steps.length - 1]
-  const sizeRatio = () => props.size / max
-  const rulerSizes = () =>
-    props.side === 'left' ? [sizeRatio(), 1 - sizeRatio()] : [1 - sizeRatio(), sizeRatio()]
-  const resizedSize = (sizes: readonly number[]) =>
-    Math.round((props.side === 'left' ? (sizes[0] ?? 0) : 1 - (sizes[0] ?? 1)) * max)
-
+  const steps = utilitySizeSteps[props.side]
   return (
-    <ResizablePanelGroup
-      orientation="horizontal"
-      sizes={rulerSizes()}
-      keyboardDelta="48px"
-      class={cn('dev-utility-splitter', {
-        'dev-utility-splitter--left': props.side === 'left',
-        'dev-utility-splitter--right': props.side === 'right',
-      })}
-      onSizesChange={(sizes) => {
-        const nextSize = snapUtilitySize(resizedSize(sizes), props.side)
-        if (nextSize !== props.size) props.onResize(nextSize)
-      }}
-    >
-      <ResizablePanel
-        minSize={props.side === 'left' ? steps[0] / max : 0}
-        maxSize={props.side === 'left' ? 1 : (max - steps[0]) / max}
-        aria-hidden="true"
-      />
-      <ResizableHandle
-        withHandle
-        label={`Resize ${props.side} utility pane`}
-        aria-controls={`dev-utility-panel-${props.side}`}
-        aria-valuemin={steps[0]}
-        aria-valuemax={max}
-        aria-valuenow={props.size}
-        class="dev-utility-splitter__handle"
-      />
-      <ResizablePanel
-        minSize={props.side === 'left' ? 0 : steps[0] / max}
-        maxSize={1}
-        aria-hidden="true"
-      />
-    </ResizablePanelGroup>
+    <PixelResizeHandle
+      side={props.side}
+      value={props.size}
+      minimum={steps[0]}
+      maximum={steps[steps.length - 1]!}
+      step={48}
+      label={`Resize ${props.side} utility pane`}
+      controls={`dev-utility-panel-${props.side}`}
+      class="dev-utility-splitter"
+      onChange={props.onResize}
+    />
   )
 }
 

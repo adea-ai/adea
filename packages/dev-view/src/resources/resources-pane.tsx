@@ -148,10 +148,10 @@ export function ResourcesPane(props: ResourcesPaneProps) {
           type="button"
           variant="outline"
           size="icon-sm"
+          aria-label="Refresh resources"
           tooltip={
             serviceReady() ? 'Refresh runtime resources' : 'Connect a runtime to refresh resources'
           }
-          aria-label="Refresh resources"
           disabled={!serviceReady()}
           onClick={refresh}
         >
@@ -187,7 +187,8 @@ export function ResourcesPane(props: ResourcesPaneProps) {
                       <Show when={row.stoppable}>
                         <Button
                           type="button"
-                          class="dev-resources__stop"
+                          variant="destructive"
+                          size="sm"
                           disabled={stopBusy()}
                           onClick={() => void requestStop(row.record)}
                         >
@@ -325,7 +326,8 @@ export function ResourcesPane(props: ResourcesPaneProps) {
           <div class="dev-resources__confirm-actions">
             <Button
               type="button"
-              class="dev-resources__stop"
+              variant="destructive"
+              size="sm"
               disabled={stopBusy()}
               onClick={() => void commitStop()}
             >
@@ -333,7 +335,8 @@ export function ResourcesPane(props: ResourcesPaneProps) {
             </Button>
             <Button
               type="button"
-              class="dev-resources__cancel"
+              variant="outline"
+              size="sm"
               disabled={stopBusy()}
               onClick={() => setPendingPlan(undefined)}
             >

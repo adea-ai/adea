@@ -53,7 +53,7 @@ import {
   SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import { ShortcutKeys } from '@adea-ai/app-ui/components/shortcut-keys'
+import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
 import { wideViewportAtLoad } from '@adea-ai/state'
 
 import { keyedRows } from './keyed-rows'
@@ -425,19 +425,21 @@ export function WorkspaceSidebar(props: Props) {
         </Show>
         <SidebarNavHeader>
           <SidebarNavTitle as="h1">{props.workspaceName}</SidebarNavTitle>
-          {/* No tooltip: a focus tooltip would register a top-most dismissable
-              layer inside the sheet and swallow the next Escape, leaving the
-              modal navigation open. The sheet itself is the affordance; the
-              button keeps its accessible name. */}
-          {/* oxlint-disable-next-line adea/require-action-button-tooltip */}
           <ActionButton
             type="button"
             variant="ghost"
             size="icon-md"
             touchTarget="comfortable"
             aria-label="Close workspace navigation"
+            tooltip="Close workspace navigation"
             class="conventional-sidebar__close"
             onClick={() => props.onToggleMobile(false)}
+            onKeyDown={(event) => {
+              // The tooltip's dismiss layer takes the Escape on capture and
+              // closes only itself, so the sheet closes here too instead of
+              // waiting for a second keystroke.
+              if (event.key === 'Escape') props.onToggleMobile(false)
+            }}
           >
             <PanelLeftClose aria-hidden="true" />
           </ActionButton>
@@ -458,7 +460,7 @@ export function WorkspaceSidebar(props: Props) {
             >
               <MessageCircle aria-hidden="true" />
               Mark all read
-              <ShortcutKeys keys="⇧⌘A" class="ml-auto" />
+              <KbdChord keys="⇧⌘A" size="compact" class="ml-auto" />
             </SidebarNavButton>
           </div>
           <Show when={actionError()}>

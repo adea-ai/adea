@@ -99,6 +99,15 @@ Plugins detail fields use published `CatalogDetail sectionsLayout="columns"`: on
 
 An install refusal stays attached to its plugin and remains visible after returning to the catalog. Closing Plugins clears that attempt; late responses from a closed dialog or replaced provider cannot overwrite the reopened dialog.
 
+Icon actions retain their shared ActionButton tooltips in both the inline sidebar and mobile modal navigation. The shared tooltip dismissal contract lets one Escape close navigation and restore the contextual-toggle focus, including after keyboard focus reveals a row action’s explanation.
+
+The navigation container leaves its outer edge unclipped so the shared pixel
+resize handle receives pointer input along its full height. Content scrolling
+and clipping belong to the inner sidebar content. Width changes persist after
+pointer release and reload, alongside the keyboard resize path.
+
+Workspace containers do not reset descendant controls’ typography, focus outlines, disabled appearance, or SVG dimensions. Those contracts come from the published primitives and their size/variant props, consistently in the inline and virtual sidebars and the rest of the workspace.
+
 ## Settings provider failures
 
 The local/private content health check treats synchronous host bridge failures
