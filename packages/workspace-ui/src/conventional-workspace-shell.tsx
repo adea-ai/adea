@@ -15,7 +15,7 @@ import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import type { SearchResult } from './workspace-utility-dialogs'
 import type { WorkspacePlatformServices } from './platform'
 import type { WorkspaceView } from './workspace-view-toggle'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
@@ -400,13 +400,16 @@ export function ConventionalWorkspaceShell(props: {
                       previous workspace if it&apos;s still available.
                     </p>
                   </div>
-                  <Button
+                  <ActionButton
                     type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    tooltip="Dismiss this session notice"
                     aria-label="Dismiss session notice"
                     onClick={() => setSessionNoticeDismissed(true)}
                   >
                     <X aria-hidden="true" />
-                  </Button>
+                  </ActionButton>
                 </section>
               </Show>
               <Show

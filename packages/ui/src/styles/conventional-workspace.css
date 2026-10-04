@@ -454,25 +454,7 @@
   font-size: calc(0.8rem * var(--font-ui-scale, 1));
   line-height: 1.45;
 }
-.conventional-session-notice button {
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  place-items: center;
-  border: 0;
-  border-radius: 0.35rem;
-  background: transparent;
-  color: var(--cw-muted);
-  cursor: pointer;
-}
-.conventional-session-notice button:hover {
-  background: color-mix(in srgb, var(--cw-notice) 18%, transparent);
-  color: var(--cw-text);
-}
-.conventional-session-notice button svg {
-  width: 1rem;
-  height: 1rem;
-}
+
 .conventional-workspace--loading {
   grid-template: 1fr / 1fr;
   place-items: center;
