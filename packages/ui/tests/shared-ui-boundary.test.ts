@@ -21,12 +21,23 @@ describe('private application UI boundary', () => {
       "@import 'tailwindcss';",
       "@import '@adea-ai/ui/base.css';",
       "@import '@adea-ai/ui/theme.css';",
+      "@import '@adea-ai/ui/appearance-font-settings.css';",
+      "@import '@adea-ai/ui/fonts.css';",
       "@import './base.css';",
       "@import './theme.css';",
     ].map((statement) => globals.indexOf(statement))
 
     expect(orderedImports.every((index) => index >= 0)).toBe(true)
     expect(orderedImports).toEqual(orderedImports.toSorted((left, right) => left - right))
+    const webGlobals = repositoryFile('apps/web/src/start/globals.css')
+    expect(webGlobals).toContain("@import '@adea-ai/ui/appearance-font-settings.css';")
+    expect(
+      webGlobals.indexOf("@import '@adea-ai/ui/appearance-font-settings.css';")
+    ).toBeGreaterThan(webGlobals.indexOf("@import '@adea-ai/ui/theme.css';"))
+    expect(webGlobals).toContain("@import '@adea-ai/ui/fonts.css';")
+    expect(webGlobals.indexOf("@import '@adea-ai/ui/fonts.css';")).toBeGreaterThan(
+      webGlobals.indexOf("@import '@adea-ai/ui/theme.css';")
+    )
   })
 
   test('leaves shared state, scrollbar, and animation styles to the published base layer', () => {

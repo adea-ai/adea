@@ -1,7 +1,14 @@
 import { render } from 'solid-js/web'
 
+import {
+  applyAppearanceFontSettings,
+  DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS,
+  type AppearanceEditorFontSettings,
+} from '@adea-ai/ui/lib/appearance-font-settings'
+
 import { BrowserPane } from '../../../../packages/dev-view/src/browser/browser-pane'
 import { DevicesPane } from '../../../../packages/dev-view/src/devices/devices-pane'
+import { ResourcesPane } from '../../../../packages/dev-view/src/resources/resources-pane'
 import type { DevRuntimeService } from '../../../../packages/dev-view/src/platform'
 import {
   browserPaneFixtureScope,
@@ -17,6 +24,7 @@ import type {
   DevError,
   DevReply,
   PortRecord,
+  ResourceSnapshot,
   ScreenshotRef,
 } from '@adea-ai/types/dev-runtime'
 
@@ -244,6 +252,29 @@ const runtime = {
       }
       case 'dev.resources.ports':
         return reply(command, { items: [port] })
+      case 'dev.resources.snapshot':
+        return reply(command, {
+          processes: [
+            {
+              id: 'browser-pane-fixture-process',
+              scope,
+              runtimeSessionId: lane.runtimeSessionId,
+              ownerKind: 'browser',
+              ownerId: lane.id,
+              pid: 4100,
+              startIdentity: 'browser-pane-fixture-process-start',
+              executableIdentity: 'browser-pane-fixture-browser',
+              generation: lane.generation,
+              state: 'running',
+            },
+          ],
+          ports: [port],
+          metrics: [],
+          retainedData: [],
+          observedAt: new Date(0).toISOString(),
+        } satisfies ResourceSnapshot)
+      case 'dev.resources.usage':
+        return reply(command, { items: [] })
       case 'dev.device.list':
         if (new URLSearchParams(window.location.search).get('inventory') === 'failed') {
           return errorReply(command, {
@@ -392,6 +423,12 @@ const runtime = {
 let dispose: (() => void) | undefined
 
 const harness = {
+  setFonts(settings: AppearanceEditorFontSettings): void {
+    applyAppearanceFontSettings(document.documentElement, settings)
+  },
+  resetFonts(): void {
+    applyAppearanceFontSettings(document.documentElement, DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS)
+  },
   report(): BrowserPaneHarnessReport {
     return {
       commands: commands.map(({ operation, body, resource }) => ({
@@ -437,13 +474,12 @@ declare global {
 const root = document.getElementById('harness-root')
 if (!root) throw new Error('browser pane harness root missing')
 
-dispose = render(
-  () =>
-    new URLSearchParams(window.location.search).get('pane') === 'devices' ? (
-      <DevicesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
-    ) : (
-      <BrowserPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
-    ),
-  root
-)
+dispose = render(() => {
+  const pane = new URLSearchParams(window.location.search).get('pane')
+  if (pane === 'devices')
+    return <DevicesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+  if (pane === 'resources')
+    return <ResourcesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+  return <BrowserPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+}, root)
 window.browserPaneHarness = harness

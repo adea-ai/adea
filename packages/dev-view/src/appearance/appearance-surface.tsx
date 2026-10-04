@@ -40,13 +40,7 @@ import {
   normalizeCustomAccent,
 } from './theme-record-adapter'
 
-// The published catalogue is the palette authority. The local shape is kept
-// here only as a narrow UI projection so importing the catalogue barrel cannot
-// ship every theme adapter into the appearance chunk. A parity test compares
-// these fields against @adea-ai/themes' canonical ACCENTS. This projection is
-// the fallback row: the offered swatches are the pair's own accents (see the
-// accentOptions memo) — the brand presets only stand in when a selected id
-// has no record to derive from.
+// The shared catalogue owns every preset; theme-specific slots are offered separately.
 const appearanceAccentOptions = Object.freeze(accentPresets.map((accent) => ({ ...accent })))
 
 function customAccentValue(accent: string): string {
@@ -80,11 +74,6 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   const [libraryOpen, setLibraryOpen] = createSignal(false)
 
   const miniatures = createMemo(() => draftVariants(editor.draft()))
-  // The offered accents are the selected pair's own slots, derived by the
-  // catalogue from the same records the editor previews — so the swatches
-  // change with the theme and every offered id is one the pair can honor.
-  // The brand presets stand in only when a selection has no record to
-  // derive from (an id the catalogue dropped, say), never as a second row.
   // Imported themes: refreshed through the registry subscription so the
   // picker and this dialog track imports and removals without prop drilling.
   const [library, setLibrary] = createSignal(
@@ -102,12 +91,12 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   }
   const [importStatus, setImportStatus] = createSignal('')
 
-  const accentOptions = createMemo(() => {
+  const themeAccentOptions = createMemo(() => {
     const draft = editor.draft()
     const records = themes()
     const light = records.find((record) => record.id === draft.lightThemeId)
     const dark = records.find((record) => record.id === draft.darkThemeId)
-    return light && dark ? themeAccentPresets(light, dark) : appearanceAccentOptions
+    return light && dark ? themeAccentPresets(light, dark) : []
   })
 
   const importThemeFile = async (file: File) => {
@@ -253,7 +242,10 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     get themes() {
       return themes()
     },
-    accentOptions: accentOptions(),
+    accentOptions: appearanceAccentOptions,
+    get themeAccentOptions() {
+      return themeAccentOptions()
+    },
     get customAccentValue() {
       return customAccent() || DEFAULT_CUSTOM_ACCENT
     },

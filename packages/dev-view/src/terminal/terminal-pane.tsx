@@ -84,7 +84,8 @@ import {
   type TerminalStreamSocket,
 } from './transport'
 import { terminalConnectionErrorMessage } from './connection-errors'
-import { observeTerminalTheme } from './theme-binding'
+import { observeTerminalTheme, createTerminalFontBinding } from './theme-binding'
+import { withTerminalSelectionPreserved } from './selection-preserver'
 import './terminal-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
@@ -173,7 +174,6 @@ export function TerminalPane(props: TerminalPaneProps) {
   )
 
   const terminal = new Terminal({
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
     allowProposedApi: true,
     // OSC 8 hyperlinks open only through the consented seam below.
     linkHandler: {
@@ -396,13 +396,48 @@ export function TerminalPane(props: TerminalPaneProps) {
     previousIntegration = after
   })
 
+  let resizeReported = false
+  let terminalDisposed = false
+  function fitAndReportResize(updateFont?: () => void): void {
+    if (terminalDisposed) return
+    const cols = terminal.cols
+    const rows = terminal.rows
+    withTerminalSelectionPreserved(terminal, () => {
+      updateFont?.()
+      fit.fit()
+    })
+    // xterm can clear selection during resize, then suppress the event when
+    // restoring identical bounds. Synchronize from the restored model too.
+    setHasSelection(terminal.hasSelection())
+    if (
+      props.resizeEnabled !== false &&
+      (!resizeReported || terminal.cols !== cols || terminal.rows !== rows)
+    ) {
+      resizeReported = true
+      // The transport retains the latest dimensions until an authenticated
+      // current-generation connection can send the resize control frame.
+      transport.resize(terminal.cols, terminal.rows)
+    }
+  }
+
   onMount(() => {
     const element = surface()
     if (!element) return
     terminal.open(element)
+    const fontBinding = createTerminalFontBinding(element.ownerDocument.fonts, (typography) => {
+      const familyChanged = typography.fontFamily !== terminal.options.fontFamily
+      const sizeChanged = typography.fontSize !== terminal.options.fontSize
+      if (!familyChanged && !sizeChanged) return
+      fitAndReportResize(() => {
+        if (familyChanged) terminal.options.fontFamily = typography.fontFamily
+        if (sizeChanged) terminal.options.fontSize = typography.fontSize
+      })
+    })
+    onCleanup(() => fontBinding.dispose())
     onCleanup(
-      observeTerminalTheme(element, (theme) => {
+      observeTerminalTheme(element, (theme, styles) => {
         terminal.options.theme = theme
+        fontBinding.update(styles)
         const currentSearch = search()
         if (currentSearch.open && currentSearch.query) {
           const selection = terminal.getSelectionPosition()
@@ -455,7 +490,7 @@ export function TerminalPane(props: TerminalPaneProps) {
         setPolicyVersion((version) => version + 1)
       }
     }
-    fit.fit()
+    fitAndReportResize()
     // OSC 7 and standard OSC 133 arrive in the display stream only when the
     // user's own shell emits them (the Adea wrapper's frames are verified and
     // stripped server-side). They feed the cwd hint and the integration
@@ -506,22 +541,11 @@ export function TerminalPane(props: TerminalPaneProps) {
     onCleanup(unsubscribe ?? (() => undefined))
   })
 
-  let resizeReported = false
   const observer = new ResizeObserver(() => {
-    const element = surface()
-    if (!element) return
-    const cols = terminal.cols
-    const rows = terminal.rows
-    fit.fit()
-    if (
-      props.resizeEnabled !== false &&
-      (!resizeReported || terminal.cols !== cols || terminal.rows !== rows)
-    ) {
-      resizeReported = true
-      transport.resize(terminal.cols, terminal.rows)
-    }
+    if (surface()) fitAndReportResize()
   })
   onCleanup(() => {
+    terminalDisposed = true
     observer.disconnect()
     transport.dispose()
     terminal.dispose()

@@ -40,7 +40,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // every other view keep their caps. The aggregate lands at 2,584,317 raw /
   // 774,540 gzip across 103 files; raw keeps ~1% headroom, gzip moves to
   // 768 KiB (~1.5%), and file count keeps its 5-file step.
-  total: { rawBytes: 2_610_000, gzipBytes: 768 * 1024, fileCount: 108 },
+  // The appearance font adoption (2026-10-04, #1016) shares the font
+  // preferences across chat, browser/resources, permissions, source control,
+  // files, and terminals: the aggregate lands at 2,613,405 raw / 783,567 gzip
+  // across 103 files; raw keeps ~2% headroom, gzip moves 768 -> 780 KiB
+  // (~2.4%), and file count keeps its 108 cap.
+  total: { rawBytes: 2_670_000, gzipBytes: 780 * 1024, fileCount: 108 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the

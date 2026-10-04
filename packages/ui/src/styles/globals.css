@@ -4,5 +4,7 @@
 @import 'tailwindcss';
 @import '@adea-ai/ui/base.css';
 @import '@adea-ai/ui/theme.css';
+@import '@adea-ai/ui/appearance-font-settings.css';
+@import '@adea-ai/ui/fonts.css';
 @import './base.css';
 @import './theme.css';

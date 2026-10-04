@@ -13,7 +13,8 @@
   flex-direction: column;
   gap: 1rem;
   color: var(--foreground);
-  font-size: 0.875rem;
+  font-family: var(--font-ui, var(--font-sans));
+  font-size: calc(0.875rem * var(--font-ui-scale, 1));
 }
 
 .dev-permissions__header {
@@ -29,6 +30,9 @@
   flex: 1;
   margin: 0;
   color: var(--muted-foreground);
+  font-family: var(--font-content, var(--font-sans));
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height, 1.5);
 }
 
 .dev-permissions__notice {
@@ -37,6 +41,9 @@
   border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
   border-radius: 0.5rem;
   color: var(--muted-foreground);
+  font-family: var(--font-content, var(--font-sans));
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height, 1.5);
 }
 
 .dev-permissions__group {
@@ -54,7 +61,7 @@
   margin: 0;
   padding: 0.5rem 1rem;
   background: color-mix(in srgb, var(--muted) 60%, transparent);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -88,7 +95,7 @@
 
 .dev-permissions__title {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--font-ui-scale, 1));
   font-weight: 500;
 }
 
@@ -96,7 +103,7 @@
   padding: 0.05rem 0.5rem;
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   border-radius: 999px;
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--font-ui-scale, 1));
   font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -123,15 +130,13 @@
 }
 
 .dev-permissions__purpose,
-.dev-permissions__hint {
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-}
-
+.dev-permissions__hint,
 .dev-permissions__consequence {
   margin: 0;
-  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  font-family: var(--font-content, var(--font-sans));
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height, 1.5);
 }
 
 .dev-permissions__consequence[data-active='true'] {

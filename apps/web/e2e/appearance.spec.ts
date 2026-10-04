@@ -52,6 +52,44 @@ function inlineTerminalBackground(page: Page) {
   )
 }
 
+for (const saved of [undefined, { version: 99, fonts: { ui: { family: 'geist', size: 32 } } }]) {
+  test(`System defaults apply before hydration with ${saved ? 'unsupported' : 'no'} saved preferences`, async ({
+    page,
+  }) => {
+    const fonts: string[] = []
+    page.on('request', (request) => {
+      if (request.resourceType() === 'font') fonts.push(request.url())
+    })
+    await page.addInitScript((preferences) => {
+      localStorage.removeItem('appearance')
+      localStorage.removeItem('theme')
+      if (preferences) localStorage.setItem('appearance', JSON.stringify(preferences))
+    }, saved)
+    // Keep the real server-rendered head and stylesheet, while preventing
+    // hydration from concealing a missing prepaint projection.
+    await page.route('**/*', (route) =>
+      route.request().resourceType() === 'script' ? route.abort() : route.continue()
+    )
+    await page.goto('/?view=chat')
+    await expect(page.locator('html')).toHaveAttribute('data-font-settings', '')
+    const projected = await page.evaluate(async () => {
+      await document.fonts.ready
+      await new Promise<void>((frameReady) => requestAnimationFrame(() => frameReady()))
+      const style = document.documentElement.style
+      return ['ui', 'content', 'code'].map((axis) => ({
+        family: style.getPropertyValue(`--font-${axis}`),
+        size: style.getPropertyValue(`--font-${axis}-size`),
+      }))
+    })
+    expect(projected).toEqual([
+      { family: 'var(--font-family-system)', size: '14px' },
+      { family: 'var(--font-family-system)', size: '14px' },
+      { family: 'var(--font-family-system-mono)', size: '12px' },
+    ])
+    expect(fonts).toEqual([])
+  })
+}
+
 test.describe('appearance', () => {
   test.beforeEach(async ({ page }) => {
     // A pinned preference from a previous visit must not leak between
@@ -204,7 +242,7 @@ test.describe('appearance', () => {
     const panel = await openAppearance(page)
     const accent = accentGroup(panel)
 
-    await accent.getByRole('radio', { name: 'Blue' }).press('Space')
+    await accent.getByRole('radio', { name: 'Blue', exact: true }).press('Space')
     await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
     await expect(
       editor(panel).getByText('Blue · Controls, glyphs, selections, code, and activity.')

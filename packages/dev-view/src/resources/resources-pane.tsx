@@ -212,7 +212,9 @@ export function ResourcesPane(props: ResourcesPaneProps) {
                     <li class="dev-resources__row">
                       <span class="dev-resources__row-main">
                         <span class="dev-resources__row-title">
-                          {port.host}:{port.port}
+                          <span class="dev-resources__code">
+                            {port.host}:{port.port}
+                          </span>
                         </span>
                         <span class="dev-resources__row-detail">
                           {port.owner} · {port.state}
@@ -266,7 +268,8 @@ export function ResourcesPane(props: ResourcesPaneProps) {
                         </span>
                         <Show when={card.failure !== undefined}>
                           <span class="dev-resources__row-detail dev-resources__row-detail--error">
-                            {card.failure!.code}: {card.failure!.message}
+                            <span class="dev-resources__code">{card.failure!.code}</span>:{' '}
+                            {card.failure!.message}
                           </span>
                         </Show>
                       </span>
@@ -307,15 +310,17 @@ export function ResourcesPane(props: ResourcesPaneProps) {
       </Show>
       <Show when={stopError() !== undefined}>
         <p class="dev-resources__error" role="alert">
-          {stopError()!.code}: {stopError()!.message}
+          <span class="dev-resources__code">{stopError()!.code}</span>: {stopError()!.message}
         </p>
       </Show>
       <Show when={pendingPlan() !== undefined}>
         <div class="dev-resources__confirm" role="alertdialog" aria-label="Confirm stop">
           <p>
-            Stop pid {pendingPlan()!.record.pid} ({pendingPlan()!.record.ownerKind}{' '}
-            {pendingPlan()!.record.ownerId})? The supervision engine re-verifies ownership before
-            signalling.
+            Stop pid <span class="dev-resources__owner">{pendingPlan()!.record.pid}</span> (
+            <span class="dev-resources__owner">
+              {pendingPlan()!.record.ownerKind} {pendingPlan()!.record.ownerId}
+            </span>
+            )? The supervision engine re-verifies ownership before signalling.
           </p>
           <div class="dev-resources__confirm-actions">
             <Button

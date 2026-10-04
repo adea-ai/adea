@@ -112,6 +112,106 @@ test.describe('terminal pane (real xterm surface)', () => {
     expect(pageErrors).toEqual([])
   })
 
+  for (const bufferType of ['normal', 'alternate'] as const) {
+    test(`${bufferType} code font changes refit the PTY without replacing terminal state`, async ({
+      page,
+    }) => {
+      const pane = await openHarness(page)
+      await page.addStyleTag({
+        content: '.dev-terminal-pane { width: 960px !important; height: 540px !important; }',
+      })
+      await expect.poll(async () => (await report(page)).resizes.length).toBeGreaterThan(0)
+      const fixedSurfaceSize = await pane.evaluate((element) => {
+        const { width, height } = element.getBoundingClientRect()
+        return { width, height }
+      })
+      const editor = pane.getByLabel('Compose terminal input')
+      await editor.fill('unsent font draft')
+      if (bufferType === 'alternate') {
+        await page.evaluate(() => window.__adeaTerminalPaneHarness.write('\u001b[?1049h'))
+      }
+      await page.evaluate(() => window.__adeaTerminalPaneHarness.write('font-selection-marker\r\n'))
+      const marker = pane.locator('.xterm-rows').getByText('font-selection-marker')
+      await expect(marker).toBeVisible()
+      const box = (await marker.boundingBox())!
+      await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2)
+      const copy = pane.locator('.dev-terminal-copy-button').first()
+      await expect(copy).toBeEnabled()
+      const originalTerminal = (await pane.locator('.xterm-helper-textarea').elementHandle())!
+      const beforeCodeFont = await report(page)
+      const fontResponse = page.waitForResponse(
+        (response) =>
+          response.url().includes('jetbrains-mono') &&
+          response.url().includes('.woff') &&
+          response.ok()
+      )
+      await page.evaluate(() => window.__adeaTerminalPaneHarness.setCodeFont('jetbrains-mono', 16))
+      await fontResponse
+      await expect
+        .poll(async () => (await report(page)).resizes.length)
+        .toBeGreaterThan(beforeCodeFont.resizes.length)
+      await expect(pane.locator('.xterm-rows')).toHaveCSS('font-size', '16px')
+      await expect(pane.locator('.xterm-rows')).toHaveCSS('font-family', /JetBrains Mono/)
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              document.fonts.check('16px "JetBrains Mono"') &&
+              [...document.fonts].some(
+                (font) => font.family.includes('JetBrains Mono') && font.status === 'loaded'
+              )
+          )
+        )
+        .toBe(true)
+      await expect(marker).toBeVisible()
+      await expect(editor).toHaveValue('unsent font draft')
+      await expect(copy).toBeEnabled()
+      expect(await originalTerminal.evaluate((element) => element.isConnected)).toBe(true)
+      const afterCodeFont = await report(page)
+      expect(afterCodeFont.sockets).toBe(1)
+      expect(afterCodeFont.resizes.at(-1)?.generation).toBe(beforeCodeFont.generation)
+      expect([afterCodeFont.resizes.at(-1)?.cols, afterCodeFont.resizes.at(-1)?.rows]).not.toEqual([
+        beforeCodeFont.resizes.at(-1)?.cols,
+        beforeCodeFont.resizes.at(-1)?.rows,
+      ])
+      expect(
+        await pane.evaluate((element) => {
+          const { width, height } = element.getBoundingClientRect()
+          return { width, height }
+        })
+      ).toEqual(fixedSurfaceSize)
+      await copy.click()
+      expect((await report(page)).copies).toEqual(['font-selection-marker'])
+
+      const beforeSystemFont = await report(page)
+      await page.evaluate(() => window.__adeaTerminalPaneHarness.setCodeFont('system', 12))
+      await expect
+        .poll(async () => (await report(page)).resizes.length)
+        .toBeGreaterThan(beforeSystemFont.resizes.length)
+      await expect(pane.locator('.xterm-rows')).toHaveCSS('font-size', '12px')
+      await expect(pane.locator('.xterm-rows')).not.toHaveCSS('font-family', /JetBrains Mono/)
+      await expect(editor).toHaveValue('unsent font draft')
+      const afterSystemFont = await report(page)
+      expect(afterSystemFont.sockets).toBe(1)
+      expect(afterSystemFont.resizes.at(-1)?.generation).toBe(beforeSystemFont.generation)
+      expect([
+        afterSystemFont.resizes.at(-1)?.cols,
+        afterSystemFont.resizes.at(-1)?.rows,
+      ]).not.toEqual([beforeSystemFont.resizes.at(-1)?.cols, beforeSystemFont.resizes.at(-1)?.rows])
+      expect(
+        await pane.evaluate((element) => {
+          const { width, height } = element.getBoundingClientRect()
+          return { width, height }
+        })
+      ).toEqual(fixedSurfaceSize)
+      expect(await originalTerminal.evaluate((element) => element.isConnected)).toBe(true)
+      await expect(pane.locator('.xterm-rows')).toContainText('font-selection-marker')
+      await expect(copy).toBeEnabled()
+      expect(consoleErrors).toEqual([])
+      expect(pageErrors).toEqual([])
+    })
+  }
+
   test('canonical palette changes preserve terminal output, editor draft and stream identity', async ({
     page,
   }) => {

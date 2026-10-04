@@ -8,6 +8,7 @@
 // and keyboard-only navigation, in dark and light.
 import { expect, test, type Page } from '@playwright/test'
 import axe from 'axe-core'
+import type { AppearanceEditorFontSettings } from '@adea-ai/ui/lib/appearance-font-settings'
 
 import {
   SOURCE_CONTROL_HARNESS_PATH,
@@ -63,17 +64,82 @@ async function commands(page: Page): Promise<string[]> {
   return page.evaluate(() => window.sourceControlHarness.commands().map((entry) => entry.operation))
 }
 
+async function expectFontLoaded(page: Page, family: string) {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (name) =>
+          [...document.fonts].some(
+            (face) => face.family.includes(name) && face.status === 'loaded'
+          ),
+        family
+      )
+    )
+    .toBe(true)
+}
+
 async function shot(page: Page, name: string) {
   if (SCREENSHOTS) await page.screenshot({ path: `${SCREENSHOTS}/${name}.png` })
 }
 
 declare global {
   interface Window {
-    sourceControlHarness: { commands(): { operation: string; body: Record<string, unknown> }[] }
+    sourceControlHarness: {
+      commands(): { operation: string; body: Record<string, unknown> }[]
+      setFonts(settings: AppearanceEditorFontSettings): void
+      resetFonts(): void
+    }
   }
 }
 
 test.describe('source control app', () => {
+  test('source control maps UI, Content, and Code preferences to captions, discussion, and diffs', async ({
+    page,
+  }) => {
+    await openHarness(page)
+    await page
+      .getByRole('button', { name: /Migrate workspace store to Solid signals/ })
+      .first()
+      .click()
+
+    const thread = page.getByRole('article', { name: 'Review thread on src/stores/selectors.ts' })
+    const uiCaption = thread.locator('.dev-scm-caption').first()
+    const content = thread.locator('.dev-scm-card__body')
+    const code = thread.locator('.dev-scm-diff')
+    await expect(thread).toBeVisible()
+
+    const settings = {
+      ui: { family: 'space-grotesk', size: 28 },
+      content: { family: 'geist', size: 18 },
+      code: { family: 'jetbrains-mono', size: 16 },
+    } as const
+    await page.evaluate((fonts) => window.sourceControlHarness.setFonts(fonts), settings)
+    await expectFontLoaded(page, 'Space Grotesk')
+    await expectFontLoaded(page, 'Geist')
+    await expectFontLoaded(page, 'JetBrains Mono')
+    await expect(uiCaption).toHaveCSS('font-size', '24px')
+    await expect(uiCaption).toHaveCSS('font-family', /Space Grotesk/)
+    await expect(content).toHaveCSS('font-size', '18px')
+    await expect(content).toHaveCSS('font-family', /Geist/)
+    await expect(code).toHaveCSS('font-size', '16px')
+    await expect(code).toHaveCSS('font-family', /JetBrains Mono/)
+
+    const smallerCodeSettings = {
+      ...settings,
+      code: { family: 'jetbrains-mono', size: 12 },
+    } as const
+    await page.evaluate((fonts) => window.sourceControlHarness.setFonts(fonts), smallerCodeSettings)
+    await expect(code).toHaveCSS('font-size', '12px')
+    await expect(uiCaption).toHaveCSS('font-size', '24px')
+    await expect(content).toHaveCSS('font-size', '18px')
+
+    await page.evaluate(() => window.sourceControlHarness.resetFonts())
+    await expect(code).toHaveCSS('font-size', '12px')
+    await expect(content).toHaveCSS('font-size', '14px')
+    await expect(uiCaption).toHaveCSS('font-size', '12px')
+    await expect(thread.getByText('Does rooms() ever return undefined')).toBeVisible()
+  })
+
   test('inbox groups pull requests by what they need next', async ({ page }) => {
     await openHarness(page)
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })

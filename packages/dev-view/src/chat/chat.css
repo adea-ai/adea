@@ -51,7 +51,7 @@
 
 .dev-chat__heading h2 {
   overflow: hidden;
-  font-size: 0.95rem;
+  font-size: calc(0.95rem * var(--font-ui-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -60,7 +60,7 @@
 .dev-chat__notice,
 .dev-chat__composer p {
   color: var(--dev-muted, var(--muted-foreground));
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 
 .dev-chat__status {
@@ -69,7 +69,7 @@
   gap: 0.35rem;
   margin-inline-start: auto;
   color: var(--dev-muted, var(--muted-foreground));
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
   white-space: nowrap;
 }
 
@@ -123,7 +123,7 @@
 
 .dev-chat__row-header {
   color: var(--dev-muted, var(--muted-foreground));
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
   font-weight: 650;
   letter-spacing: 0.02em;
 }
@@ -134,6 +134,8 @@
 }
 
 .dev-chat__text {
+  font-family: var(--font-content, var(--font-sans));
+  font-size: var(--text-content);
   margin: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -147,7 +149,7 @@
 .dev-chat__action-status {
   margin: 0;
   color: var(--dev-muted, var(--muted-foreground));
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 
 .dev-chat__composer {
@@ -163,7 +165,7 @@
   flex-wrap: wrap;
   gap: 0.4rem 0.6rem;
   color: var(--dev-muted, var(--muted-foreground));
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 
 .dev-chat__composer-controls select {
@@ -184,5 +186,5 @@
 .dev-chat__empty {
   margin: auto;
   color: var(--dev-muted, var(--muted-foreground));
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--font-ui-scale, 1));
 }
