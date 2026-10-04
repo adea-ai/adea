@@ -33,3 +33,32 @@ test('interactive controls show the pointer cursor', async ({ page }) => {
   expect(menuCursors.length).toBeGreaterThan(0)
   expect(new Set(menuCursors)).toEqual(new Set(['pointer']))
 })
+
+// Resize separators are focusable drag controls, not buttons, so the button
+// sweep above cannot see them; the Dev utility splitter regressed to the
+// default arrow while every sidebar ruler showed the pointer.
+test('resize separators show the pointer cursor on chat and dev surfaces', async ({ page }) => {
+  const separatorCursors = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('[role="separator"]')]
+        .filter((element) => element.getClientRects().length > 0)
+        .map((element) => ({
+          label: element.getAttribute('aria-label') ?? '-',
+          cursor: getComputedStyle(element).cursor,
+        }))
+    )
+
+  await page.goto('/?view=chat')
+  const chatHandle = page.getByRole('separator', { name: 'Resize workspace navigation' })
+  await expect(chatHandle).toBeVisible({ timeout: 60_000 })
+  const chatSeparators = await separatorCursors()
+  expect(chatSeparators.length).toBeGreaterThan(0)
+  expect(chatSeparators.every(({ cursor }) => cursor === 'pointer')).toBe(true)
+
+  await page.goto('/?view=dev')
+  const devHandle = page.getByRole('separator', { name: 'Resize projects and sessions sidebar' })
+  await expect(devHandle).toBeVisible({ timeout: 60_000 })
+  const devSeparators = await separatorCursors()
+  expect(devSeparators.length).toBeGreaterThan(0)
+  expect(devSeparators.every(({ cursor }) => cursor === 'pointer')).toBe(true)
+})

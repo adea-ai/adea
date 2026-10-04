@@ -279,6 +279,10 @@
 
 .dev-utility > .dev-utility-splitter {
   z-index: var(--z-docked);
+  /* The same shared edge ruler the sidebar resize handles wrap; the ruler is
+     pointer-events-none except for its handle and the cursor inherits, so the
+     pointer parity every other workspace drag affordance shows starts here. */
+  cursor: pointer;
 }
 
 .dev-row-badge {
