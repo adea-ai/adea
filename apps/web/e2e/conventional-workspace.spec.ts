@@ -1254,13 +1254,27 @@ test('opens the Task panel beside the board and restores focus on dismissal', as
   // The panel shares the Appearance panel's shape: header, scrolling body, footer.
   const body = detail.locator('[data-slot="sheet-body"]')
   await expect(body).toHaveCSS('overflow-y', 'auto')
-  await expect(detail.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
+  // Nothing to save until something changes.
+  await expect(detail.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
   const rootFontSize = await page
     .locator('html')
     .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))
   expect(
     await detail.evaluate((element) => Number.parseFloat(getComputedStyle(element).width))
   ).toBeCloseTo(32 * rootFontSize, 1)
+  // Docked inside the main view: below the top bar, one equal gap from the top
+  // bar, the end edge and the bottom of the window.
+  const topBar = await page.getByLabel('Workspace toolbar').boundingBox()
+  // Measure the settled panel, not a frame of its slide-in.
+  await detail.evaluate((element) =>
+    Promise.all(element.getAnimations().map((animation) => animation.finished))
+  )
+  const panelBox = (await detail.boundingBox())!
+  const viewport = page.viewportSize()!
+  const gap = viewport.width - (panelBox.x + panelBox.width)
+  expect(gap).toBeGreaterThan(0)
+  expect(panelBox.y - (topBar!.y + topBar!.height)).toBeCloseTo(gap, 0)
+  expect(viewport.height - (panelBox.y + panelBox.height)).toBeCloseTo(gap, 0)
   await detail.getByRole('textbox', { name: 'Title', exact: true }).focus()
   await expect(page.getByRole('tooltip')).toHaveCount(0)
   await expect(page).toHaveScreenshot('workspace-task-detail.png', { animations: 'disabled' })
@@ -1268,7 +1282,7 @@ test('opens the Task panel beside the board and restores focus on dismissal', as
   await page.setViewportSize({ width: 390, height: 480 })
   expect(
     await detail.evaluate((element) => Number.parseFloat(getComputedStyle(element).width))
-  ).toBeCloseTo(390 * 0.85, 0)
+  ).toBeCloseTo(390 - 2 * gap, 0)
   await expect
     .poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))
     .toBe(true)
@@ -1321,10 +1335,13 @@ test('creates a Task from a side panel without moving the board', async ({ page 
   const panel = page.getByRole('dialog', { name: 'New task', exact: true })
   await expect(panel).toBeVisible()
   expect(await board.boundingBox()).toEqual(before)
-  // An empty title is refused in place, with the reason announced.
-  await panel.getByRole('button', { name: 'Create task', exact: true }).click()
-  await expect(panel.getByRole('alert')).toHaveText('Give the task a title.')
+  // Create is offered only once the task has a title.
+  const create = panel.getByRole('button', { name: 'Create task', exact: true })
+  await expect(create).toBeDisabled()
+  await panel.getByRole('textbox', { name: 'Title', exact: true }).fill('   ')
+  await expect(create).toBeDisabled()
   await panel.getByRole('textbox', { name: 'Title', exact: true }).fill('Write release notes')
+  await expect(create).toBeEnabled()
   try {
     await panel.getByRole('button', { name: 'Create task', exact: true }).click()
     await expect(panel).toHaveCount(0)
@@ -1339,6 +1356,70 @@ test('creates a Task from a side panel without moving the board', async ({ page 
     for (const release of refetch.waiting) release()
     refetch.waiting.clear()
   }
+})
+
+test('edits a Task with first-click selects and closes on Save without reopening', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  const updates: unknown[] = []
+  const boardTasks = tasks.map((task) => ({ ...task }))
+  await page.route('**/api/v1/workspaces/**/tasks**', async (route) => {
+    const url = new URL(route.request().url())
+    const method = route.request().method()
+    if (method === 'GET' && url.pathname.endsWith('/tasks'))
+      return route.fulfill({ contentType: 'application/json', json: boardTasks })
+    if (method !== 'PATCH' || !url.pathname.endsWith('/tasks/task-launch')) return route.fallback()
+    updates.push(route.request().postDataJSON())
+    const index = boardTasks.findIndex(({ id }) => id === 'task-launch')
+    const task = {
+      ...boardTasks[index]!,
+      priority: 'urgent',
+      version: boardTasks[index]!.version + 1,
+    }
+    boardTasks.splice(index, 1, task)
+    return route.fulfill({ contentType: 'application/json', json: { task } })
+  })
+  await page.goto('/?view=chat&app=kanban')
+  const card = page.getByRole('button', { name: 'Launch planning', exact: true })
+  await card.click()
+  const detail = page.getByRole('dialog', { name: 'Edit task', exact: true })
+  const save = detail.getByRole('button', { name: 'Save', exact: true })
+  await expect(save).toBeDisabled()
+
+  // The Priority select opens on the first click and stays open.
+  await detail.getByRole('button', { name: /^Priority/ }).click()
+  const listbox = page.getByRole('listbox')
+  await expect(listbox).toBeVisible()
+  await page.waitForTimeout(300)
+  await expect(listbox).toBeVisible()
+  await listbox.getByRole('option', { name: 'Urgent', exact: true }).click()
+  await expect(detail.getByRole('button', { name: /^Priority/ })).toContainText('Urgent')
+  await expect(detail.getByText('Unsaved changes', { exact: true })).toBeVisible()
+  await expect(save).toBeEnabled()
+
+  // Save closes the panel once, for good: count every dialog that mounts after it.
+  await page.evaluate(() => {
+    const seen = { count: 0 }
+    ;(window as unknown as { kanbanDialogMounts: typeof seen }).kanbanDialogMounts = seen
+    new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (node instanceof HTMLElement && node.querySelector('[role="dialog"]')) seen.count++
+    }).observe(document.body, { childList: true, subtree: true })
+  })
+  await save.click()
+  await expect(detail).toHaveCount(0)
+  await expect(page.getByLabel('Priority: Urgent')).toBeVisible()
+  await expect.poll(() => updates.length).toBe(1)
+  await page.waitForTimeout(500)
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { kanbanDialogMounts: { count: number } }).kanbanDialogMounts.count
+    )
+  ).toBe(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
 test('Task board preserves task data and moves cards with keyboard and drag', async ({

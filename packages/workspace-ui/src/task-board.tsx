@@ -236,11 +236,7 @@ export function TaskBoard(props: Props) {
                 <BoardCardTrigger aria-haspopup="dialog" onClick={() => openTask(task().id)}>
                   {task().title}
                 </BoardCardTrigger>
-                <Badge
-                  variant={priority().badge}
-                  size="sm"
-                  aria-label={`Priority: ${priority().label}`}
-                >
+                <Badge variant={priority().badge} aria-label={`Priority: ${priority().label}`}>
                   <Dynamic component={priority().Icon} aria-hidden="true" />
                   {priority().label}
                 </Badge>
@@ -251,13 +247,13 @@ export function TaskBoard(props: Props) {
                 </p>
               </Show>
               <div class="conventional-kanban-card__tags">
-                <Badge variant="subtle" size="sm">
+                <Badge variant={kind().badge} aria-label={`Type: ${kind().label}`}>
                   <Dynamic component={kind().Icon} aria-hidden="true" />
                   {kind().label}
                 </Badge>
                 <Show when={room()}>
                   {(value) => (
-                    <Badge variant="subtle" size="sm">
+                    <Badge variant="subtle">
                       <RoomIcon functionKey={value().functionKey} />
                       {value().name}
                     </Badge>
@@ -300,22 +296,27 @@ export function TaskBoard(props: Props) {
           {...props}
           mode="create"
           onClose={() => setCreating(false)}
+          onError={setBoardError}
           onCreate={async (input) => {
             await props.onCreate(input)
             setCreating(false)
           }}
         />
       </Show>
-      {/* Keyed: the panel's editor state — title, objective, kind, priority,
-          agent, room, dependencies, and the `version` it writes back — is
-          initialised from `task` once at setup. An UNKEYED Show reuses that
-          instance when `selected()` changes, so selecting a different task
-          while the panel is open left task A's draft in task B's panel, and the
-          save would write A's content onto B. Keying remounts on task change,
-          which is what the state actually assumes. */}
-      <Show when={selected()} keyed>
-        {(task) => (
-          <TaskPanel {...props} mode="edit" task={task} onClose={() => props.onSelect(null)} />
+      {/* Keyed on the task's id, not the task object. The panel's draft is
+          initialised once at setup, so a different task must remount it — but
+          every write hands back a fresh object for the *same* task, and keying
+          on the object remounted the open panel on each one: it flickered shut
+          and open on Save. */}
+      <Show when={selected()?.id} keyed>
+        {(taskId) => (
+          <TaskPanel
+            {...props}
+            mode="edit"
+            task={props.tasks.find(({ id }) => id === taskId)!}
+            onClose={() => props.onSelect(null)}
+            onError={setBoardError}
+          />
         )}
       </Show>
     </section>

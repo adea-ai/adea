@@ -870,7 +870,33 @@
 .conventional-task-panel {
   display: grid;
   gap: 1rem;
-  padding-top: 1rem;
+}
+/* A Select's label, matching FormField's label so every field reads alike. */
+.conventional-task-panel__field {
+  display: grid;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.conventional-task-panel__label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.25;
+}
+.conventional-task-panel__option {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+.conventional-task-panel__option svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  color: var(--muted-foreground);
+}
+.conventional-task-panel__unsaved {
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
 }
 .conventional-task-panel__state {
   display: inline-flex;
@@ -952,24 +978,6 @@
   display: grid;
   gap: 0.35rem;
   margin-top: 1rem;
-}
-.conventional-room-picker {
-  display: inline-flex;
-  width: 100%;
-  justify-content: flex-start;
-  gap: 0.5rem;
-}
-.conventional-room-picker svg {
-  width: 1rem;
-  height: 1rem;
-}
-.conventional-room-picker span {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
 }
 .conventional-inline-form input,
 .conventional-inline-form textarea,
