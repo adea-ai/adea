@@ -16,6 +16,9 @@ function hasConsumerSuppression(
   source: string,
   scriptKind: ts.ScriptKind = ts.ScriptKind.TSX
 ): boolean {
+  // Most consumer files contain no suppression directive. Avoid parsing those
+  // files; candidate comments still take the full syntax-aware path below.
+  if (!/(?:oxlint|eslint)-disable\b/.test(source)) return false
   const fileName =
     scriptKind === ts.ScriptKind.TS
       ? 'consumer.ts'
