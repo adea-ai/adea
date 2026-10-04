@@ -60,8 +60,10 @@ import {
   type ResponsiveOrientation,
   type ResponsivePresetId,
 } from './responsive-presets'
+import { AnnotationSurface } from '@adea-ai/ui/components/ui/annotation-surface'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ListRowControl } from '@adea-ai/ui/components/composites/list-row'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 
@@ -203,8 +205,8 @@ export function BrowserPane(props: BrowserPaneProps) {
   const [annotationResult, setAnnotationResult] = createSignal<BrowserAnnotation>()
   const [annotationError, setAnnotationError] = createSignal<DevError>()
   const [annotationBusy, setAnnotationBusy] = createSignal(false)
+  const [annotationInteractionEpoch, setAnnotationInteractionEpoch] = createSignal(0)
   let latestAnnotationRequest = 0
-  let annotateSurfaceRef: HTMLDivElement | undefined
   let annotateButtonRef: HTMLButtonElement | undefined
 
   const liveRegion = (): AnnotationRectDraft | undefined => {
@@ -230,31 +232,10 @@ export function BrowserPane(props: BrowserPaneProps) {
       hasPageTarget: Boolean(activePageTarget()),
     })
 
-  function writeRegionCustomProps(draft: AnnotationRectDraft | undefined): void {
-    const surface = annotateSurfaceRef
-    if (!surface) return
-    if (draft) {
-      surface.style.setProperty('--dev-annotate-region-x', String(draft.x * 100))
-      surface.style.setProperty('--dev-annotate-region-y', String(draft.y * 100))
-      surface.style.setProperty('--dev-annotate-region-w', String(draft.width * 100))
-      surface.style.setProperty('--dev-annotate-region-h', String(draft.height * 100))
-    } else {
-      for (const name of [
-        '--dev-annotate-region-x',
-        '--dev-annotate-region-y',
-        '--dev-annotate-region-w',
-        '--dev-annotate-region-h',
-      ])
-        surface.style.removeProperty(name)
-    }
-  }
-
-  createEffect(() => {
-    writeRegionCustomProps(annotateMode() && annotateTool() === 'region' ? liveRegion() : undefined)
-  })
-
   function clearAnnotationDraft(): void {
     latestAnnotationRequest += 1
+    setAnnotationInteractionEpoch((epoch) => epoch + 1)
+    setAnnotationBusy(false)
     setDragPoints(undefined)
     setRegionDraft(undefined)
     setNoteAnchor(undefined)
@@ -268,49 +249,6 @@ export function BrowserPane(props: BrowserPaneProps) {
     annotateButtonRef?.focus()
   }
 
-  function surfacePoint(event: PointerEvent): AnnotationPoint {
-    const surface = annotateSurfaceRef
-    if (!surface) return { x: 0, y: 0 }
-    const bounds = surface.getBoundingClientRect()
-    const width = bounds.width || 1
-    const height = bounds.height || 1
-    return {
-      x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / width)),
-      y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / height)),
-    }
-  }
-
-  function handleSurfacePointerDown(event: PointerEvent): void {
-    if (annotationBusy()) return
-    event.preventDefault()
-    const point = surfacePoint(event)
-    if (annotateTool() === 'region') {
-      setRegionDraft(undefined)
-      setDragPoints({ start: point, current: point })
-      if (annotateSurfaceRef) annotateSurfaceRef.setPointerCapture(event.pointerId)
-    } else {
-      setNoteAnchor(point)
-    }
-  }
-
-  function handleSurfacePointerMove(event: PointerEvent): void {
-    const drag = dragPoints()
-    if (!drag) return
-    setDragPoints({ start: drag.start, current: surfacePoint(event) })
-  }
-
-  function handleSurfacePointerUp(event: PointerEvent): void {
-    const drag = dragPoints()
-    if (!drag) return
-    const region = dragRegion(drag.start, surfacePoint(event))
-    setDragPoints(undefined)
-    setRegionDraft(isRegionSubmittable(region) ? region : undefined)
-  }
-
-  function handleSurfacePointerCancel(): void {
-    setDragPoints(undefined)
-  }
-
   function handleSurfaceKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -321,6 +259,8 @@ export function BrowserPane(props: BrowserPaneProps) {
       exitAnnotateMode()
       return
     }
+    // Escape can retire a pending draft; other keys cannot alter its geometry.
+    if (annotationBusy() || annotateReason()) return
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault()
       void submitAnnotation()
@@ -365,7 +305,7 @@ export function BrowserPane(props: BrowserPaneProps) {
     const target = activePageTarget()
     const draft = activeDraft()
     const currentScope = scope()
-    if (!lane || !target || !draft || !currentScope || annotateReason()) return
+    if (annotationBusy() || !lane || !target || !draft || !currentScope || annotateReason()) return
     const request = annotationRequest({ lane, target, draft })
     const requestId = ++latestAnnotationRequest
     setAnnotationBusy(true)
@@ -388,20 +328,29 @@ export function BrowserPane(props: BrowserPaneProps) {
       })
   }
 
-  // A pending annotation is bound to one lane generation and page target; any
-  // context change discards the draft the way it clears the screenshot.
+  // A pending annotation belongs to one runtime and authoritative context.
+  // Equivalent resource refreshes retain the draft; A-to-B-to-A retires replies.
+  let previousAnnotationContext: { runtime: DevRuntimeService; key: string } | undefined
   createEffect(() => {
-    const laneId = activeLane()?.id
-    const generation = activeLane()?.generation
-    const targetId = activePageTarget()?.id
-    void laneId
-    void generation
-    void targetId
-    setDragPoints(undefined)
-    setRegionDraft(undefined)
-    setNoteAnchor(undefined)
-    setNoteText('')
-    setAnnotationError(undefined)
+    const currentRuntime = runtime()
+    const key = JSON.stringify([
+      browserScopeKey(scope()),
+      props.runtimeSessionId,
+      currentRuntime.state().status,
+      activeLane()?.id,
+      activeLane()?.generation,
+      activeLane()?.state,
+      activeLane()?.automationOwner,
+      activePageTarget()?.id,
+    ])
+    if (
+      previousAnnotationContext?.runtime === currentRuntime &&
+      previousAnnotationContext.key === key
+    )
+      return
+    previousAnnotationContext = { runtime: currentRuntime, key }
+    clearAnnotationDraft()
+    setAnnotationResult(undefined)
   })
 
   async function execute<T>(
@@ -830,6 +779,7 @@ export function BrowserPane(props: BrowserPaneProps) {
   onCleanup(() => {
     screenshotMounted = false
     latestScreenshotRequest += 1
+    latestAnnotationRequest += 1
   })
 
   function handleUrlKeyDown(event: KeyboardEvent): void {
@@ -984,32 +934,41 @@ export function BrowserPane(props: BrowserPaneProps) {
               The frame is viewport geometry, not page pixels: the host captures the screenshot when
               the annotation is submitted.
             </p>
-            {/* oxlint-disable-next-line adea/no-interactive-wrappers -- the region surface is a drawing widget, not a control; keyboard access is the surface's own handler set */}
-            <div
-              ref={(element) => (annotateSurfaceRef = element)}
-              class={cn('dev-browser__annotate-surface', {
-                'dev-browser__annotate-surface--dragging': Boolean(dragPoints()),
-              })}
-              data-tool={annotateTool()}
-              tabindex={0}
-              role="application"
-              aria-roledescription="annotation surface"
-              aria-label={`Annotate frame for ${target().url}. Drag to mark a region; arrow keys adjust; Enter submits; Escape cancels.`}
-              onPointerDown={handleSurfacePointerDown}
-              onPointerMove={handleSurfacePointerMove}
-              onPointerUp={handleSurfacePointerUp}
-              onPointerCancel={handleSurfacePointerCancel}
+            <AnnotationSurface
+              label={`Annotate frame for ${target().url}. Space starts a mark; drag to mark a region; arrow keys adjust; Enter submits; Escape cancels.`}
+              tool={annotateTool() === 'region' ? 'region' : 'point'}
+              region={annotateTool() === 'region' ? liveRegion() : undefined}
+              resetKey={annotationInteractionEpoch()}
+              interactive={!annotationBusy() && !annotateReason()}
+              hint={
+                !activeDraft()
+                  ? annotateTool() === 'region'
+                    ? 'Drag across the frame or press Space to mark a region.'
+                    : 'Click the frame or press Space to anchor a note.'
+                  : undefined
+              }
+              onPoint={(point) => {
+                if (screenshotMounted && !annotationBusy() && !annotateReason())
+                  setNoteAnchor(point)
+              }}
+              onDragChange={(drag, phase) => {
+                if (!screenshotMounted) return
+                if (phase === 'cancel') {
+                  setDragPoints(undefined)
+                  return
+                }
+                if (!drag || annotationBusy() || annotateReason()) return
+                if (phase === 'end' || phase === 'keyboard') {
+                  const region = dragRegion(drag.start, drag.current)
+                  setDragPoints(undefined)
+                  setRegionDraft(isRegionSubmittable(region) ? region : undefined)
+                } else {
+                  if (phase === 'start') setRegionDraft(undefined)
+                  setDragPoints(drag)
+                }
+              }}
               onKeyDown={handleSurfaceKeyDown}
-            >
-              <span class="dev-browser__annotate-region" aria-hidden="true" />
-              <Show when={!activeDraft()}>
-                <span class="dev-browser__annotate-hint">
-                  {annotateTool() === 'region'
-                    ? 'Drag across the frame to mark a region.'
-                    : 'Click the frame to anchor a note.'}
-                </span>
-              </Show>
-            </div>
+            />
             <p class="dev-browser__row-meta" role="status" aria-live="polite">
               {describeDraft(activeDraft())}
             </p>
@@ -1019,6 +978,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                 variant={annotateTool() === 'region' ? 'secondary' : 'outline'}
                 size="sm"
                 aria-pressed={annotateTool() === 'region'}
+                disabled={annotationBusy()}
                 onClick={() => setAnnotateTool('region')}
               >
                 Region (R)
@@ -1028,6 +988,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                 variant={annotateTool() === 'note' ? 'secondary' : 'outline'}
                 size="sm"
                 aria-pressed={annotateTool() === 'note'}
+                disabled={annotationBusy()}
                 onClick={() => setAnnotateTool('note')}
               >
                 Note (N)
@@ -1068,6 +1029,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                   id="dev-browser-annotation-note"
                   type="text"
                   aria-label="Note text"
+                  disabled={annotationBusy() || Boolean(annotateReason())}
                   maxLength={MAX_NOTE_LENGTH}
                   autocomplete="off"
                   spellcheck={false}
@@ -1165,17 +1127,14 @@ export function BrowserPane(props: BrowserPaneProps) {
           </Show>
 
           <p class="dev-browser__section-title">Lanes</p>
-          {/* oxlint-disable-next-line adea/no-interactive-wrappers -- lane selection awaits the shared Tabs adoption */}
-          <div role="tablist" aria-label="Browser lanes">
+          <div role="group" aria-label="Browser lanes">
             <For each={lanes()?.items ?? []}>
               {(lane) => (
-                <Button
-                  type="button"
-                  role="tab"
-                  variant={lane.id === activeLane()?.id ? 'secondary' : 'outline'}
-                  size="sm"
-                  aria-selected={lane.id === activeLane()?.id}
-                  class="w-full justify-start"
+                <ListRowControl
+                  as="button"
+                  selected={lane.id === activeLane()?.id}
+                  description={`${lane.state} · takeover ${lane.automationOwner}`}
+                  class="w-full"
                   onClick={() => {
                     invalidateInspection()
                     clearScreenshotContext()
@@ -1184,13 +1143,8 @@ export function BrowserPane(props: BrowserPaneProps) {
                     void refetchDiagnostics()
                   }}
                 >
-                  <span class="dev-browser__row-main">
-                    <span>{LANE_KIND_LABEL[lane.kind]}</span>
-                    <span class="dev-browser__row-meta">
-                      {lane.state} · takeover {lane.automationOwner}
-                    </span>
-                  </span>
-                </Button>
+                  {LANE_KIND_LABEL[lane.kind]}
+                </ListRowControl>
               )}
             </For>
             <Show when={(lanes()?.items.length ?? 0) === 0}>

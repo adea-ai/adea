@@ -2505,11 +2505,22 @@ test.describe('touch workspace sidebar actions', () => {
     await expect(sidebarButtons.last()).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(sidebarButtons.first()).toBeFocused()
+    const closeNavigation = sidebar.getByRole('button', { name: 'Close workspace navigation' })
+    await closeNavigation.focus()
+    await expect(page.getByRole('tooltip', { name: 'Close workspace navigation' })).toBeVisible()
 
     await page.keyboard.press('Escape')
     await expect(sidebar).not.toBeVisible()
     await expect(navigationToggle).toBeFocused()
 
+    await navigationToggle.press('Enter')
+    await expect(sidebar).toBeVisible()
+    const roomOptions = sidebar.getByRole('button', { name: 'Room options for Product' })
+    await roomOptions.focus()
+    await expect(page.getByRole('tooltip', { name: 'Room options for Product' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(sidebar).not.toBeVisible()
+    await expect(navigationToggle).toBeFocused()
     await navigationToggle.press('Enter')
     await expect(sidebar).toBeVisible()
 

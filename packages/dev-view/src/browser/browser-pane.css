@@ -386,73 +386,8 @@
   padding: 0.15rem 0.5rem 0.35rem;
 }
 
-.dev-browser__annotate-surface {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  width: 100%;
-  touch-action: none;
-  border: 1px solid var(--border);
-  border-radius: 0.35rem;
-  background: repeating-linear-gradient(
-    45deg,
-    color-mix(in srgb, var(--muted) 55%, transparent) 0 8px,
-    transparent 8px 16px
-  );
-  cursor: crosshair;
-}
-
-.dev-browser__annotate-surface:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
-  outline-offset: 1px;
-}
-
-.dev-browser__annotate-surface[data-tool='note'] {
-  cursor: cell;
-}
-
-.dev-browser__annotate-surface--dragging {
-  cursor: grabbing;
-}
-
-.dev-browser__annotate-region {
-  position: absolute;
-  left: calc(var(--dev-annotate-region-x, 0) * 1%);
-  top: calc(var(--dev-annotate-region-y, 0) * 1%);
-  width: calc(var(--dev-annotate-region-w, 0) * 1%);
-  height: calc(var(--dev-annotate-region-h, 0) * 1%);
-  border: 1px solid color-mix(in srgb, var(--ring) 82%, transparent);
-  border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--ring) 18%, transparent);
-  pointer-events: none;
-}
-
-.dev-browser__annotate-hint {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--muted-foreground);
-  font-size: calc(0.75rem * var(--font-ui-scale, 1));
-  pointer-events: none;
-}
-
 .dev-browser__annotate-note {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-}
-
-.dev-browser__annotate-note input {
-  min-width: 0;
-  height: 1.75rem;
-  padding: 0 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 0.35rem;
-  background: var(--background);
-  color: var(--foreground);
-}
-
-.dev-browser__annotate-note input:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
-  outline-offset: 1px;
 }

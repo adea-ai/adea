@@ -151,7 +151,7 @@
 
 /*
  * The search entry advertises its chord as outlined key caps under the icon
- * (ShortcutKeys); the row above stays a standard rail item.
+ * (shared KbdChord); the row above stays a standard rail item.
  */
 .global-rail__search-item {
   display: flex;
@@ -172,12 +172,6 @@
  */
 [data-slot='side-rail-tip'] {
   z-index: calc(var(--z-menu) - 1);
-}
-
-/* The selected workspace radio dot reads as the accent, not as text. */
-.global-rail__workspace-menu [role='menuitemradio'] svg,
-.global-rail__account-menu [role='menuitemradio'] svg {
-  color: var(--primary);
 }
 
 /*
@@ -263,50 +257,8 @@
 .conventional-workspace *::after {
   box-sizing: border-box;
 }
-/* These resets tame the workspace's own raw markup. The shared sidebar is a
-   design-system component with its own typography, icon sizing, cursors and
-   focus rings, and it also mounts outside this container (the virtual view),
-   so applying the resets to it would make the same component render
-   differently per view — hence the `.conventional-sidebar` exclusions. */
-.conventional-workspace button:not(.conventional-sidebar *),
-.conventional-workspace input:not(.conventional-sidebar *),
-.conventional-workspace select:not(.conventional-sidebar *),
-.conventional-workspace textarea:not(.conventional-sidebar *) {
-  font: inherit;
-}
-/* Resets for legacy unstyled buttons, in the base layer. This sheet is
-   unlayered, and unlayered rules outrank every Tailwind layer whatever their
-   specificity, so here they beat the shared Button's own utilities: a primary
-   button painted the surrounding text colour on its accent fill. In `base`
-   they apply only where no component utility speaks. */
-@layer base {
-  .conventional-workspace button:not([data-slot]):not(.conventional-sidebar *) {
-    color: inherit;
-  }
-  .conventional-workspace button:not(:disabled):not(.conventional-sidebar *),
-  .conventional-workspace select:not(:disabled):not(.conventional-sidebar *) {
-    cursor: pointer;
-  }
-  .conventional-workspace button:disabled:not(.conventional-sidebar *) {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
-}
-.conventional-workspace :focus-visible:not(.conventional-sidebar *) {
-  outline: 3px solid var(--cw-focus);
-  outline-offset: 2px;
-}
-.conventional-workspace svg:not(.conventional-sidebar *) {
-  width: 1.1rem;
-  height: 1.1rem;
-  flex: none;
-}
-.conventional-workspace h1,
-.conventional-workspace h2,
-.conventional-workspace p {
-  margin: 0;
-}
-
+/* Shared controls own typography, focus, disabled states, and icon sizes.
+   Host selectors below express product layout rather than frame-wide resets. */
 .conventional-skip-link {
   position: fixed;
   z-index: 100;
@@ -344,7 +296,7 @@
 .conventional-sidebar__quick-actions button {
   width: 100%;
 }
-/* The mark-all-read chord rides the shared ShortcutKeys caps; the button
+/* The mark-all-read chord rides the shared KbdChord caps; the button
    keeps its accessible name and aria-keyshortcuts. */
 .conventional-sidebar__content {
   scrollbar-gutter: stable;

@@ -1,5 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
+import {
+  settingsSectionLabels,
+  settingsSections,
+} from '../../../packages/workspace-ui/src/settings-section'
 
 /**
  * Pins the Input & notifications regression (round 4): mounting that section
@@ -56,6 +60,32 @@ async function openSettingsHarness(
   )
   return errors
 }
+
+test('every settings section survives missing desktop services and repeated navigation', async ({
+  page,
+}) => {
+  const errors = await openSettingsHarness(page, undefined, true, false, true)
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await expect(dialog).toBeVisible()
+  for (const section of [...settingsSections, ...settingsSections.toReversed()]) {
+    const tab = dialog.getByRole('tab', {
+      name: settingsSectionLabels[section],
+      exact: true,
+    })
+    await tab.click()
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator(`#settings-panel-${section}`)).toBeVisible()
+    await expect(dialog).toBeVisible()
+    expect(errors).toEqual([])
+  }
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await page.getByRole('button', { name: 'Open settings fixture', exact: true }).click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('tab', { name: 'Input & notifications', exact: true }).click()
+  await expect(page.locator('#settings-panel-input-notifications')).toBeVisible()
+  expect(errors).toEqual([])
+})
 
 test('a rejected microphone permission check stays recoverable and retries', async ({ page }) => {
   const errors = await openSettingsHarness(page, 'retry')

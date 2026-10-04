@@ -16,7 +16,7 @@ import {
   SideRailItem,
   SideRailSection,
 } from '@adea-ai/ui/components/layout/side-rail'
-import { ShortcutKeys } from '@adea-ai/app-ui/components/shortcut-keys'
+import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import {
   BriefcaseBusiness,
@@ -239,7 +239,7 @@ export function GlobalWorkspaceRail(props: {
             >
               <Search aria-hidden="true" />
             </SideRailItem>
-            <ShortcutKeys keys="⌘K" class="global-rail__search-keys" />
+            <KbdChord keys="⌘K" size="compact" class="global-rail__search-keys" />
           </div>
         </SideRailSection>
 

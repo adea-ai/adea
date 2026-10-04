@@ -69,6 +69,19 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole('main')).toBeVisible({ timeout: 20_000 })
 })
 
+test('the unavailable resources refresh action explains its disabled state', async ({ page }) => {
+  await page.getByRole('button', { name: 'Runtime resources', exact: true }).click()
+  const resources = page.getByRole('region', { name: 'Runtime resources' })
+  await expect(resources.getByText('Runtime unavailable', { exact: true })).toBeVisible()
+  const refresh = resources.getByRole('button', { name: 'Refresh resources', exact: true })
+  await expect(refresh).toBeDisabled()
+  await refresh.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('Connect a runtime to refresh resources')
+  await refresh.focus()
+  await refresh.press('Enter')
+  await expect(resources.getByText('Runtime unavailable', { exact: true })).toBeVisible()
+})
+
 test('the permissions section is reachable and states typed statuses, never guesses', async ({
   page,
 }) => {

@@ -1175,19 +1175,31 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                             />
                           </Show>
                           <Show when={renaming() !== row.node.relativePath}>
-                            <Button
+                            <ActionButton
                               type="button"
+                              variant="ghost"
+                              size="icon-sm"
                               class="dev-files__delete"
+                              tooltip={`Rename ${row.node.relativePath}`}
                               aria-label={`Rename ${row.node.relativePath}`}
                               onClick={() => beginRename(row.node)}
                             >
                               <Pencil aria-hidden="true" />
-                            </Button>
+                            </ActionButton>
                           </Show>
                           <Show when={row.hasChildren && renaming() !== row.node.relativePath}>
-                            <Button
+                            <ActionButton
                               type="button"
+                              variant="ghost"
+                              size="icon-sm"
                               class="dev-files__delete"
+                              tooltip={
+                                pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
+                                pendingTree()?.summary ===
+                                  `${row.node.relativePath} → ${row.node.relativePath}-copy`
+                                  ? `Confirm copy ${row.node.relativePath}`
+                                  : `Copy ${row.node.relativePath}`
+                              }
                               aria-label={
                                 pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
                                 pendingTree()?.summary ===
@@ -1198,7 +1210,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                               onClick={() => void planTreeCopy(row.node)}
                             >
                               <Copy aria-hidden="true" />
-                            </Button>
+                            </ActionButton>
                           </Show>
                           <Show
                             when={
@@ -1210,6 +1222,8 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                                 <Button
                                   type="button"
                                   class="dev-files__delete"
+                                  variant="destructive"
+                                  size="xs"
                                   aria-label={
                                     confirmDelete() === row.node.relativePath ||
                                     pendingTree()?.summary === row.node.relativePath
@@ -1232,6 +1246,8 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                             <Button
                               type="button"
                               class="dev-files__delete"
+                              variant="destructive"
+                              size="xs"
                               aria-label={`Confirm overwrite ${overwriteTarget()}`}
                               onClick={() => void commitOverwriteRename()}
                             >

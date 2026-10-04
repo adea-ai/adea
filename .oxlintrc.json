@@ -112,12 +112,6 @@
   },
   "overrides": [
     {
-      "files": ["packages/dev-view/src/browser/mini-preview.tsx"],
-      "rules": {
-        "adea/no-interactive-wrappers": "off"
-      }
-    },
-    {
       "files": [
         "apps/desktop/shell/src/dev-runtime/**",
         "apps/desktop/shell/tests/**",
