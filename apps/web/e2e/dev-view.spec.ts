@@ -328,6 +328,9 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
 
   await page.getByRole('button', { name: 'Split pane' }).click()
   await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
+  // The balanced automatic split recomputes ratios (docs/specs/dev-runtime.md),
+  // so the parked 55% row gives way to equal shares; the resize below proves a
+  // user ratio survives a view switch after the last structural change.
   await page.getByRole('button', { name: 'Close terminal pane' }).last().click()
   await expect(page.locator('[data-pane-id]')).toHaveCount(2)
   // Closing the trailing pane returns focus to the surviving neighbour.
@@ -335,6 +338,13 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(page.getByRole('button', { name: 'Reopen closed pane' })).toBeEnabled()
   await page.getByRole('button', { name: 'Reopen closed pane' }).click()
   await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
+  const centerSeparators = page.getByRole('separator', { name: 'Resize workspace panes' })
+  // The balanced grid stacks a column root over the row branch; horizontal
+  // handles are the row's ArrowLeft/ArrowRight surface.
+  const rowSeparator = centerSeparators.and(page.locator('[data-orientation="horizontal"]'))
+  await rowSeparator.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(rowSeparator).toHaveAttribute('aria-valuenow', '55')
 
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
   const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })

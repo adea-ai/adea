@@ -1235,14 +1235,22 @@ renderer are consumed from the published `@adea-ai/ui` split-layout entries.
 A fresh session starts with one terminal leaf. Selecting a file creates an
 editor beside the focused pane when no editor exists, and later files reuse
 that editor. Explicit splitting retains the focused pane's kind and an editor's
-file target. A new terminal leaf receives a new owner and does not inherit a live
+file target. The toolbar's automatic split adopts the shared balanced reflow
+(`splitPaneBalanced`): the new pane joins the focused pane in reading order
+while the center rebuilds as a balanced row-major grid — one row up to two
+panes, then two rows of at most four — recomputing ratios and recycling split
+IDs across rebuilt branches. Adding a pane can therefore redistribute existing
+pane widths, and resize actions resolve against the current tree. A new terminal
+leaf receives a new owner and does not inherit a live
 terminal resource binding; opening its process still requires the runtime's
-normal authority. Saved split layouts restore unchanged; the initial view does
+normal authority. Saved split layouts — including band-shaped layouts stored by
+earlier builds — restore unchanged; the initial view does
 not reserve an empty editor pane.
 Adea injects terminal/editor leaf payloads, the final terminal placeholder,
 scoped preference decoding/storage, keyboard move commands, and 5% resize
 snapping. Shared UI owns constrained separators, internal pane drag payloads,
-owner cleanup, and close focus return. Splitting, moving, or resizing surviving
+the balanced automatic reflow, owner cleanup, and close focus return. Splitting,
+moving, or resizing surviving
 leaves must preserve their terminal/editor DOM owners and local interaction
 state; none of these visual transitions grants runtime authority.
 The central renderer loads through its own boundary while the sidebar,

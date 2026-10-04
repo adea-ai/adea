@@ -1,19 +1,20 @@
 import { describe, expect, test } from 'bun:test'
 
+import type { PaneNode } from '@adea-ai/types/dev-runtime'
+
 import {
   closePane,
   countLeaves,
   createLayoutState,
+  layoutDepth,
   listLeaves,
   movePane,
   neighborLeaf,
   normalizeLayout,
   focusPane,
-  paneGrid,
-  preferredSplitDirection,
   resizeSplit,
   splitPane,
-  splitPaneEvenly,
+  splitPaneBalanced,
   swapPanes,
   undoClosePane,
 } from '../src/layout/operations'
@@ -23,6 +24,22 @@ const leaf = (id: string, pane: 'terminal' | 'editor' = 'terminal') => ({
   id,
   pane,
 })
+
+/** The visible grid a layout renders, counted in whole panes per axis. */
+const paneGrid = (node: PaneNode): { rows: number; columns: number } => {
+  if (node.kind === 'leaf') return { rows: 1, columns: 1 }
+  const first = paneGrid(node.children[0])
+  const second = paneGrid(node.children[1])
+  return node.direction === 'row'
+    ? { rows: Math.max(first.rows, second.rows), columns: first.columns + second.columns }
+    : { rows: first.rows + second.rows, columns: Math.max(first.columns, second.columns) }
+}
+
+const collectSplitIds = (node: PaneNode): string[] =>
+  node.kind === 'leaf' ? [] : [node.id, ...node.children.flatMap(collectSplitIds)]
+
+const collectSplitRatios = (node: PaneNode): number[] =>
+  node.kind === 'leaf' ? [] : [node.ratio, ...node.children.flatMap(collectSplitRatios)]
 
 describe('strict binary Dev layout', () => {
   test('splits before or after the target in deterministic reading order', () => {
@@ -245,38 +262,49 @@ describe('layout normalization and neighbors', () => {
   })
 })
 
-describe('split direction toward two rows of four columns', () => {
-  test('a single pane opens a second column', () => {
-    expect(preferredSplitDirection(leaf('one'))).toBe('row')
-  })
-
-  test('a layout that is still one band starts the second row', () => {
-    const row = splitPane(createLayoutState(leaf('one')), 'one', {
-      direction: 'row',
+describe('splitPaneBalanced', () => {
+  test('two panes share one row at half', () => {
+    const split = splitPaneBalanced(createLayoutState(leaf('one')), 'one', {
       placement: 'after',
       leaf: leaf('two'),
-      splitId: 'row-split',
+      splitId: 'split',
     })
-    expect(paneGrid(row.center)).toEqual({ rows: 1, columns: 2 })
-    expect(preferredSplitDirection(row.center)).toBe('column')
+    const root = split.center
+    if (root.kind !== 'split') throw new Error('expected split root')
+    expect(root.direction).toBe('row')
+    expect(root.id).toBe('split')
+    expect(root.ratio).toBe(0.5)
+    expect(split.focusedLeafId).toBe('two')
+    expect(split.closed).toHaveLength(0)
   })
 
-  test('once two bands exist the split widens a row', () => {
-    const stacked = splitPane(createLayoutState(leaf('one')), 'one', {
-      direction: 'column',
+  test('the third pane starts a second row in reading order', () => {
+    let state = splitPaneBalanced(createLayoutState(leaf('one')), 'one', {
       placement: 'after',
       leaf: leaf('two'),
-      splitId: 'column-split',
+      splitId: 'row-1',
     })
-    expect(paneGrid(stacked.center)).toEqual({ rows: 2, columns: 1 })
-    expect(preferredSplitDirection(stacked.center)).toBe('row')
+    state = splitPaneBalanced(state, 'two', {
+      placement: 'after',
+      leaf: leaf('three'),
+      splitId: 'column-1',
+    })
+    expect(listLeaves(state.center).map((item) => item.id)).toEqual(['one', 'two', 'three'])
+    const root = state.center
+    if (root.kind !== 'split' || root.direction !== 'column')
+      throw new Error('expected column root')
+    expect(root.id).toBe('column-1')
+    expect(root.ratio).toBe(0.5)
+    const row = root.children[0]
+    if (row.kind !== 'split' || row.direction !== 'row') throw new Error('expected row split')
+    expect(row.ratio).toBe(0.5)
+    expect(paneGrid(state.center)).toEqual({ rows: 2, columns: 2 })
   })
 
-  test('splitting the focused pane to the cap stays within two bands', () => {
+  test('splitting to the cap yields two rows of four equal shares within depth', () => {
     let state = createLayoutState(leaf('pane-1'))
     for (let index = 2; index <= 8; index += 1) {
-      state = splitPaneEvenly(state, state.focusedLeafId, {
-        direction: preferredSplitDirection(state.center),
+      state = splitPaneBalanced(state, state.focusedLeafId, {
         placement: 'after',
         leaf: leaf(`pane-${index}`),
         splitId: `split-${index}`,
@@ -284,93 +312,84 @@ describe('split direction toward two rows of four columns', () => {
       expect(paneGrid(state.center).rows).toBeLessThanOrEqual(2)
     }
     expect(countLeaves(state.center)).toBe(8)
-    expect(paneGrid(state.center).rows).toBe(2)
+    expect(paneGrid(state.center)).toEqual({ rows: 2, columns: 4 })
+    expect(layoutDepth(state.center)).toBeLessThanOrEqual(8)
+    // Equal widths within each row and equal heights across the two rows.
+    expect(collectSplitRatios(state.center)).toEqual([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
   })
-})
 
-describe('splitPaneEvenly', () => {
-  test('a fresh band keeps an even half-and-half split', () => {
-    const split = splitPaneEvenly(createLayoutState(leaf('one')), 'one', {
-      direction: 'row',
-      placement: 'after',
-      leaf: leaf('two'),
+  test('placement before inserts ahead of the target in reading order', () => {
+    const split = splitPaneBalanced(createLayoutState(leaf('one')), 'one', {
+      placement: 'before',
+      leaf: leaf('editor', 'editor'),
       splitId: 'split',
     })
-    const root = split.center
-    if (root.kind !== 'split') throw new Error('expected split root')
-    expect(root.ratio).toBe(0.5)
+    expect(listLeaves(split.center).map((item) => item.id)).toEqual(['editor', 'one'])
+    expect(split.focusedLeafId).toBe('editor')
   })
 
-  test('a row grown past two panes equalizes every leaf in the band', () => {
-    let state = splitPaneEvenly(createLayoutState(leaf('one')), 'one', {
-      direction: 'row',
+  test('surviving leaves keep their objects and split IDs are recycled once each', () => {
+    // The shared renderer keys pane owners on the leaf id, so identical leaf
+    // objects across the rebuild are what keep a split from remounting a live
+    // terminal renderer.
+    const original = { kind: 'leaf' as const, id: 'one', pane: 'terminal' as const }
+    let state = splitPaneBalanced(createLayoutState(original), 'one', {
+      placement: 'after',
+      leaf: leaf('two'),
+      splitId: 'split-a',
+    })
+    state = splitPaneBalanced(state, 'two', {
+      placement: 'after',
+      leaf: leaf('three'),
+      splitId: 'split-b',
+    })
+    expect(listLeaves(state.center)[0]).toBe(original)
+    expect(listLeaves(state.center).map((item) => item.id)).toEqual(['one', 'two', 'three'])
+    expect(collectSplitIds(state.center).toSorted()).toEqual(['split-a', 'split-b'])
+  })
+
+  test('adding a pane rebalances a user-resized layout into equal shares', () => {
+    let state = splitPaneBalanced(createLayoutState(leaf('one')), 'one', {
       placement: 'after',
       leaf: leaf('two'),
       splitId: 'row-1',
     })
-    state = splitPaneEvenly(state, 'two', {
-      direction: 'column',
+    state = resizeSplit(state, 'row-1', 0.9)
+    state = splitPaneBalanced(state, 'two', {
       placement: 'after',
       leaf: leaf('three'),
       splitId: 'column-1',
     })
-    state = splitPaneEvenly(state, 'three', {
-      direction: 'row',
-      placement: 'after',
-      leaf: leaf('four'),
-      splitId: 'row-2',
-    })
-    state = splitPaneEvenly(state, 'four', {
-      direction: 'row',
-      placement: 'after',
-      leaf: leaf('five'),
-      splitId: 'row-3',
-    })
-    // The bottom band grew one pane at a time; its chain of row splits takes
-    // the 1/3, then 1/4, ratios instead of halving into a sliver.
-    const root = state.center
-    if (root.kind !== 'split') throw new Error('expected row root')
-    const column = root.children[1]
-    if (column.kind !== 'split' || column.direction !== 'column')
-      throw new Error('expected column split')
-    expect(root.ratio).toBe(0.5)
-    expect(column.ratio).toBe(0.5)
-    const band = column.children[1]
-    if (band.kind !== 'split' || band.direction !== 'row') throw new Error('expected row band')
-    expect(band.ratio).toBeCloseTo(1 / 3)
-    const inner = band.children[1]
-    if (inner.kind !== 'split') throw new Error('expected inner row split')
-    expect(inner.ratio).toBe(0.5)
+    // The automatic reflow recomputes ratios (docs/specs/dev-runtime.md), so a
+    // parked 0.9 width gives way to two equal rows of equal-width leaves.
+    expect(collectSplitRatios(state.center)).toEqual([0.5, 0.5])
   })
 
-  test('ratios outside the joined band are untouched', () => {
-    let state = splitPaneEvenly(createLayoutState(leaf('one')), 'one', {
-      direction: 'row',
-      placement: 'after',
-      leaf: leaf('two'),
-      splitId: 'row-1',
-    })
-    state = splitPane(state, 'two', {
-      direction: 'column',
-      placement: 'after',
-      leaf: leaf('three'),
-      splitId: 'column-1',
-    })
-    state = resizeSplit(state, 'row-1', 0.7)
-    state = splitPaneEvenly(state, 'three', {
-      direction: 'column',
-      placement: 'after',
-      leaf: leaf('four'),
-      splitId: 'column-2',
-    })
-    const root = state.center
-    if (root.kind !== 'split') throw new Error('expected row root')
-    const column = root.children[1]
-    if (column.kind !== 'split') throw new Error('expected column split')
-    // The column band evened — L2 takes a third, the new pair two thirds —
-    // while the user's 0.7 resize of the row split outside it stands.
-    expect(root.ratio).toBe(0.7)
-    expect(column.ratio).toBeCloseTo(1 / 3)
+  test('an unknown target returns the same state and the cap still refuses', () => {
+    const state = createLayoutState(leaf('one'))
+    expect(
+      splitPaneBalanced(state, 'ghost', {
+        placement: 'after',
+        leaf: leaf('two'),
+        splitId: 'split',
+      })
+    ).toBe(state)
+
+    let full = createLayoutState(leaf('pane-1'))
+    for (let index = 2; index <= 8; index += 1) {
+      full = splitPaneBalanced(full, full.focusedLeafId, {
+        placement: 'after',
+        leaf: leaf(`pane-${index}`),
+        splitId: `split-${index}`,
+      })
+    }
+    expect(() =>
+      splitPaneBalanced(full, full.focusedLeafId, {
+        placement: 'after',
+        leaf: leaf('pane-9'),
+        splitId: 'split-9',
+      })
+    ).toThrow('limit_exceeded')
   })
 })
 
