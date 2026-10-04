@@ -877,3 +877,34 @@ Runtime identities, redaction, completion evidence, response promises and
 privileged callbacks remain app-owned. Production tool folding and packaged
 native acceptance remain pending; the shared port and keyed consumer adoption
 are already implemented.
+
+### Donor destination drift audit (2026-10-04)
+
+Ledger rows above are append-only history; this section records where their
+named destinations live today. No provenance, pinned revision, license, or
+NOTICE obligation changed — only paths.
+
+- The #425 appearance row names
+  `packages/dev-view/src/appearance/appearance-dialog.tsx` and
+  `packages/ui/src/components/theme-preview.tsx`. The dialog file was renamed
+  to `packages/dev-view/src/appearance/appearance-surface.tsx` (exports
+  `AppearancePanel`/`AppearanceControl`) in #659 (commit `4aea03eb7`), and the
+  local theme preview was removed in #760 (commit `5162c7db5`); the Zeron-derived
+  preview composition now ships in the published
+  `@adea-ai/ui` `appearance-editor` composite that `appearance-surface.tsx`
+  consumes, with the Zeron MIT notice carried by the published package.
+- The source manifest's planned destinations
+  `packages/dev-view/src/sidebar/{project-tree,project-row,worktree-row}.tsx`
+  (#398), `apps/desktop/shell/src/dev-runtime/sessions/**` (#400), and
+  `packages/dev-view/src/github/**` (#423) never landed under those names: the
+  project/worktree rows compose inside `sidebar/dev-sidebar-shell.tsx` plus
+  `sidebar/repo-registry-{model,panel}.tsx`, the durable session store is
+  `dev-runtime/project-session/register.ts` with run history in
+  `dev-runtime/harness/runs.ts`, and the PR/checks/work-item UI is
+  `packages/dev-view/src/source-control-app/**` (#1003). The full report with
+  per-file evidence is [the drift report](./dev-view-donor-drift-2026-10-04.md).
+- Adea now consumes `@adea-ai/ui` 0.110.0, which publishes the shared Tree
+  (`components/composites/tree`), CatalogBrowser, appearance-editor, and the
+  conversation paste-token/atomic-composer/transcript-composition entries the
+  ledger described as pending in earlier checkpoints; those checkpoint
+  statements describe their own dates and are not current claims.
