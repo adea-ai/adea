@@ -242,7 +242,7 @@ test.describe('appearance', () => {
     const panel = await openAppearance(page)
     const accent = accentGroup(panel)
 
-    await accent.getByRole('radio', { name: 'Blue' }).press('Space')
+    await accent.getByRole('radio', { name: 'Blue', exact: true }).press('Space')
     await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
     await expect(
       editor(panel).getByText('Blue · Controls, glyphs, selections, code, and activity.')
