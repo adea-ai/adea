@@ -61,7 +61,11 @@ function PanePlaceholder(props: { terminal: boolean; unavailable: boolean }) {
     <Empty>
       <EmptyHeader>
         <EmptyTitle role="heading" aria-level={2}>
-          {props.terminal ? 'Terminal unavailable' : 'Choose a file to edit'}
+          {props.terminal
+            ? props.unavailable
+              ? 'Terminal unavailable'
+              : 'Open a terminal'
+            : 'Choose a file to edit'}
         </EmptyTitle>
         <EmptyDescription>
           {props.terminal

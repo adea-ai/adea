@@ -3197,3 +3197,33 @@ test('App Library tiles retain readable content and actions in narrow and enlarg
     }
   }
 })
+
+test('workspace navigation captures full-height pointer resizing and persists the width', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  await page.setViewportSize({ width: 1280, height: 840 })
+  await page.goto('/?view=chat')
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  const handle = page.getByRole('separator', { name: 'Resize workspace navigation' })
+  await expect(sidebar).toBeVisible()
+  const before = await sidebar.evaluate((element) => element.getBoundingClientRect().width)
+  const box = (await handle.boundingBox())!
+  const x = box.x + box.width / 2
+  const y = box.y + box.height / 3
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await expect(handle).toHaveAttribute('data-dragging', '')
+  await page.mouse.move(x + 80, y, { steps: 6 })
+  await expect
+    .poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width))
+    .toBeGreaterThan(before + 60)
+  await page.mouse.up()
+  await expect(handle).not.toHaveAttribute('data-dragging', '')
+  const resized = await sidebar.evaluate((element) => element.getBoundingClientRect().width)
+  await page.reload()
+  await expect(sidebar).toBeVisible()
+  await expect
+    .poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width))
+    .toBe(resized)
+})

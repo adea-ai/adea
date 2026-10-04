@@ -279,7 +279,6 @@
   flex: none;
   grid-row: 1;
   min-width: 0;
-  overflow: hidden;
   /* Sidebar chrome uses the shared UI role in every workspace view. */
   font-family: var(--font-ui, var(--font-sans));
 }

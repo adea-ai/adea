@@ -1148,7 +1148,7 @@ test('BrowserPane and ResourcesPane project the shared UI, Content, and Code fon
 for (const [pane, title, description] of [
   ['layout-editor', 'Choose a file to edit', 'Select a file from the Files panel.'],
   ['layout-terminal', 'Terminal unavailable', 'Connect an available runtime to use terminals.'],
-  ['layout-terminal-available', 'Terminal unavailable', 'Open a terminal in the selected session.'],
+  ['layout-terminal-available', 'Open a terminal', 'Open a terminal in the selected session.'],
 ] as const) {
   test(`shared empty state gives ${pane} actionable guidance`, async ({ page }) => {
     await page.route('**' + BROWSER_PANE_HARNESS_PATH + '**', (route) =>
