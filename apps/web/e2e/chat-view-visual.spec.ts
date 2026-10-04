@@ -69,6 +69,12 @@ for (const state of states) {
         await expect(page.locator('section.dev-chat')).toBeVisible()
         await forceResolvedTheme(page, theme)
 
+        // This fixture has no authoritative Control Plane decision seam.
+        // Preserve the ordinary composer without offering unwired launch controls.
+        await expect(page.locator('#dev-chat-composer-agent')).toHaveCount(0)
+        await expect(page.locator('#dev-chat-composer-mode')).toHaveCount(0)
+        await expect(page.getByRole('button', { name: 'Resolve launch decision' })).toHaveCount(0)
+
         if (state === 'conversation') {
           await expect(page.getByRole('article')).toHaveCount(5)
           await expect(page.getByText('The plan is ready.', { exact: false }).first()).toBeVisible()

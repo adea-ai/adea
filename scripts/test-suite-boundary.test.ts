@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { runInNewContext } from 'node:vm'
 
 const root = resolve(import.meta.dir, '..')
 const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
@@ -222,6 +223,47 @@ describe('test suite boundaries', () => {
     expect(existsSync(resolve(root, 'scripts/manual-release.mjs'))).toBeFalse()
     expect(existsSync(resolve(root, 'scripts/release-runners.mjs'))).toBeFalse()
     expect(existsSync(resolve(root, 'scripts/native-smoke.mjs'))).toBeFalse()
+  })
+
+  test('verifies dev release assets when canonical release notes are skipped', () => {
+    const workflow = readFileSync(resolve(root, '.github/workflows/release-assets.yml'), 'utf8')
+    const verifyAssetsJob = workflow.slice(workflow.indexOf('\n  verify-assets:\n'))
+    const guard = verifyAssetsJob.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1] ?? ''
+    const javascriptGuard = guard.replaceAll(
+      'needs.publish-release-notes',
+      "needs['publish-release-notes']"
+    )
+    const hasStatusCheck = /\b(?:always|cancelled|failure|success)\s*\(/.test(javascriptGuard)
+    const effectiveGuard = hasStatusCheck ? javascriptGuard : `success() && (${javascriptGuard})`
+    const shouldVerify = (
+      eventTag: string,
+      inputTag: string,
+      desktopResult: string,
+      notesResult: string,
+      isCancelled: boolean
+    ) =>
+      runInNewContext(effectiveGuard, {
+        cancelled: () => isCancelled,
+        github: { event: { release: { tag_name: eventTag } } },
+        inputs: { tag: inputTag },
+        needs: {
+          'validate-release': { result: 'success' },
+          desktop: { result: desktopResult },
+          'publish-release-notes': { result: notesResult },
+        },
+        success: () => desktopResult === 'success' && notesResult === 'success',
+      })
+
+    // GitHub injects success() unless a status-check function is present. The
+    // simulated success() is false when the Dev-only notes job is skipped.
+    // Explicit !cancelled() permits that case without admitting failed or
+    // cancelled releases.
+    expect(shouldVerify('', 'v1.43.0-dev.47', 'success', 'skipped', false)).toBe(true)
+    expect(shouldVerify('v1.43.0', '', 'success', 'success', false)).toBe(true)
+    expect(shouldVerify('', 'v1.43.0-dev.47', 'failure', 'skipped', false)).toBe(false)
+    expect(shouldVerify('', 'v1.43.0-dev.47', 'success', 'skipped', true)).toBe(false)
+    expect(shouldVerify('', 'v1.43.0-dev.47', 'success', 'failure', false)).toBe(false)
+    expect(shouldVerify('', '', 'success', 'skipped', false)).toBe(false)
   })
 
   test('dispatches the desktop asset lane for dev releases created with GITHUB_TOKEN', () => {
