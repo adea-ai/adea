@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { runInNewContext } from 'node:vm'
 
 const root = resolve(import.meta.dir, '..')
 const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
@@ -228,16 +229,36 @@ describe('test suite boundaries', () => {
     const workflow = readFileSync(resolve(root, '.github/workflows/release-assets.yml'), 'utf8')
     const verifyAssetsJob = workflow.slice(workflow.indexOf('\n  verify-assets:\n'))
     const guard = verifyAssetsJob.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1] ?? ''
-
-    // Without an explicit status function, GitHub injects success() and skips
-    // this job when the dev-only release-notes job is skipped. !cancelled()
-    // lets the explicit dependency-result checks below decide eligibility.
-    expect(guard.startsWith('!cancelled() && ')).toBe(true)
-    expect(guard).toContain("(github.event.release.tag_name || inputs.tag) != ''")
-    expect(guard).toContain("needs.desktop.result == 'success'")
-    expect(guard).toContain(
-      "needs.publish-release-notes.result == 'success' || needs.publish-release-notes.result == 'skipped'"
+    const javascriptGuard = guard.replaceAll(
+      'needs.publish-release-notes',
+      "needs['publish-release-notes']"
     )
+    const shouldVerify = (
+      eventTag: string,
+      inputTag: string,
+      desktopResult: string,
+      notesResult: string,
+      isCancelled: boolean
+    ) =>
+      runInNewContext(javascriptGuard, {
+        cancelled: () => isCancelled,
+        github: { event: { release: { tag_name: eventTag } } },
+        inputs: { tag: inputTag },
+        needs: {
+          desktop: { result: desktopResult },
+          'publish-release-notes': { result: notesResult },
+        },
+      })
+
+    // This evaluates the workflow expression against the relevant dependency
+    // outcomes: Dev notes are skipped by design, while failed packaging or a
+    // cancelled run must never enter asset verification.
+    expect(shouldVerify('', 'v1.43.0-dev.47', 'success', 'skipped', false)).toBe(true)
+    expect(shouldVerify('v1.43.0', '', 'success', 'success', false)).toBe(true)
+    expect(shouldVerify('', 'v1.43.0-dev.47', 'failure', 'skipped', false)).toBe(false)
+    expect(shouldVerify('', 'v1.43.0-dev.47', 'success', 'skipped', true)).toBe(false)
+    expect(shouldVerify('', 'v1.43.0-dev.47', 'success', 'failure', false)).toBe(false)
+    expect(shouldVerify('', '', 'success', 'skipped', false)).toBe(false)
   })
 
   test('dispatches the desktop asset lane for dev releases created with GITHUB_TOKEN', () => {
