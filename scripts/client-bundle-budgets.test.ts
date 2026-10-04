@@ -203,7 +203,7 @@ test('enforces each route budget independently of the full-client total', () => 
 
 test('enforces a separate budget for the aggregate of other lazy Dev panes', () => {
   const report = inspectClientBundle(fixture())
-  report.views.devUtilityPanes.rawBytes = 168 * 1024 + 1
+  report.views.devUtilityPanes.rawBytes = CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes.rawBytes + 1
 
   expect(() => assertClientBundleBudgets(report)).toThrow(
     'Dev utility panes exceeds raw byte budget'
