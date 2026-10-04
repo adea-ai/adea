@@ -224,6 +224,22 @@ describe('test suite boundaries', () => {
     expect(existsSync(resolve(root, 'scripts/native-smoke.mjs'))).toBeFalse()
   })
 
+  test('verifies dev release assets when canonical release notes are skipped', () => {
+    const workflow = readFileSync(resolve(root, '.github/workflows/release-assets.yml'), 'utf8')
+    const verifyAssetsJob = workflow.slice(workflow.indexOf('\n  verify-assets:\n'))
+    const guard = verifyAssetsJob.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1] ?? ''
+
+    // Without an explicit status function, GitHub injects success() and skips
+    // this job when the dev-only release-notes job is skipped. !cancelled()
+    // lets the explicit dependency-result checks below decide eligibility.
+    expect(guard.startsWith('!cancelled() && ')).toBe(true)
+    expect(guard).toContain("(github.event.release.tag_name || inputs.tag) != ''")
+    expect(guard).toContain("needs.desktop.result == 'success'")
+    expect(guard).toContain(
+      "needs.publish-release-notes.result == 'success' || needs.publish-release-notes.result == 'skipped'"
+    )
+  })
+
   test('dispatches the desktop asset lane for dev releases created with GITHUB_TOKEN', () => {
     const workflow = readFileSync(resolve(root, '.github/workflows/dev-build.yml'), 'utf8')
     expect(workflow).toContain('permissions:')

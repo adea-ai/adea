@@ -464,7 +464,10 @@ jobs:
   verify-assets:
     name: Verify desktop assets
     needs: [validate-release, desktop, publish-release-notes]
-    if: ${{ (github.event.release.tag_name || inputs.tag) != '' && needs.desktop.result == 'success' && (needs.publish-release-notes.result == 'success' || needs.publish-release-notes.result == 'skipped') }}
+    # Dev releases intentionally skip canonical notes; !cancelled() replaces
+    # GitHub's implicit success() while the explicit result checks keep the
+    # verifier gated on successful packaging and an accepted notes outcome.
+    if: ${{ !cancelled() && (github.event.release.tag_name || inputs.tag) != '' && needs.desktop.result == 'success' && (needs.publish-release-notes.result == 'success' || needs.publish-release-notes.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
