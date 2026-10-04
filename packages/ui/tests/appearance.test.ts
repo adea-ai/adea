@@ -53,6 +53,18 @@ function fakeDocument() {
         removeProperty: (name: string) => void delete style[name],
       },
       dataset,
+      setAttribute: (name: string, value: string) => {
+        const key = name
+          .slice(5)
+          .replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+        dataset[key] = value
+      },
+      removeAttribute: (name: string) => {
+        const key = name
+          .slice(5)
+          .replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+        delete dataset[key]
+      },
       classList: {
         toggle: (name: string, force: boolean) => {
           if (force) classes.add(name)
@@ -436,10 +448,39 @@ describe('document application', () => {
     // Same document, back to the default variant.
     applyAppearanceToDocument(document as unknown as Document, back)
     expect(dataset.theme).toBe('adea-dark')
+    expect(style['--font-ui']).toBe('var(--font-family-system)')
+    expect(style['--font-content']).toBe('var(--font-family-system)')
+    expect(style['--font-code']).toBe('var(--font-family-system-mono)')
+    expect(style['--font-ui-size']).toBe('14px')
+    expect(style['--font-content-size']).toBe('14px')
+    expect(style['--font-code-size']).toBe('12px')
+    expect(style['--font-ui-scale']).toBe('1')
+    expect(style['--font-content-scale']).toBe('1')
+    expect(style['--font-code-scale']).toBe('1')
+    expect(style['--ui-tracking']).toBe('normal')
+    expect(style['--ui-word-spacing']).toBe('normal')
     // No token from the previous variant may survive: the stylesheet owns them
-    // again, and leaving them inline silently repaints the whole app.
+    // again, and leaving them inline silently repaints the whole app. The font
+    // role projection is host-owned; assert its exact default values above.
+    const fontRoleTokens = new Set([
+      '--font-ui',
+      '--font-content',
+      '--font-code',
+      '--font-ui-size',
+      '--font-content-size',
+      '--font-code-size',
+      '--font-ui-scale',
+      '--font-content-scale',
+      '--font-code-scale',
+      '--ui-tracking',
+      '--ui-word-spacing',
+    ])
     for (const name of Object.keys(style)) {
-      if (name.startsWith('--') && !name.startsWith('--surface-alpha')) {
+      if (
+        name.startsWith('--') &&
+        !name.startsWith('--surface-alpha') &&
+        !fontRoleTokens.has(name)
+      ) {
         expect(style[name], `stale inline token ${name} survived the revert`).toBeUndefined()
       }
     }
@@ -649,6 +690,63 @@ function runScript(storage: Record<string, string>, systemDark = false, osReduce
 }
 
 describe('the no-flash preload script', () => {
+  test('saved text roles match the mounted provider before first paint', () => {
+    const preferences = {
+      ...defaultAppearancePreferences,
+      fonts: {
+        ui: { family: 'geist', size: 16 },
+        content: { family: 'space-grotesk', size: 18 },
+        code: { family: 'jetbrains-mono', size: 13 },
+      },
+    } as const
+    const prepaint = runScript({ [APPEARANCE_STORAGE_KEY]: JSON.stringify(preferences) })
+    const mounted = fakeDocument()
+    applyAppearanceToDocument(
+      mounted.document as unknown as Document,
+      resolveAppearanceState(preferences, {
+        systemAppearance: 'light',
+        osReducedTransparency: false,
+        nativeTranslucency: false,
+      })
+    )
+    for (const axis of ['ui', 'content', 'code']) {
+      expect(prepaint.dataset[`${axis}Font`]).toBe(mounted.dataset[`${axis}Font`])
+      expect(prepaint.style[`--font-${axis}-size`]).toBe(mounted.style[`--font-${axis}-size`])
+      expect(prepaint.style[`--font-${axis}-scale`]).toBe(mounted.style[`--font-${axis}-scale`])
+    }
+  })
+
+  test('an unsupported preference version cannot project saved font overrides', () => {
+    const { style, dataset } = runScript({
+      [APPEARANCE_STORAGE_KEY]: JSON.stringify({
+        version: 99,
+        fonts: { ui: { family: 'geist', size: 32 } },
+      }),
+    })
+    expect(dataset.uiFont).toBeUndefined()
+    expect(style['--font-ui-size']).toBe('14px')
+    expect(style['--font-ui']).toBe('var(--font-family-system)')
+  })
+
+  test('fresh installs project System font defaults before styles paint', () => {
+    const prepaint = runScript({})
+    const mounted = fakeDocument()
+    applyAppearanceToDocument(
+      mounted.document as unknown as Document,
+      resolveAppearanceState(defaultAppearancePreferences, {
+        systemAppearance: 'light',
+        osReducedTransparency: false,
+        nativeTranslucency: false,
+      })
+    )
+    for (const axis of ['ui', 'content', 'code']) {
+      expect(prepaint.style[`--font-${axis}`]).toBe(mounted.style[`--font-${axis}`])
+      expect(prepaint.style[`--font-${axis}-size`]).toBe(mounted.style[`--font-${axis}-size`])
+      expect(prepaint.style[`--font-${axis}-scale`]).toBe('1')
+      expect(prepaint.dataset[`${axis}Font`]).toBeUndefined()
+    }
+  })
+
   test('a stored v2 preference restores the palette before first paint', () => {
     const { dataset, classes, style } = runScript({
       [APPEARANCE_STORAGE_KEY]: JSON.stringify({
@@ -734,4 +832,26 @@ describe('flat token map', () => {
     expect(slate['--editor-comment']).toBeDefined()
     expect(slate['--chart-6']).toBeDefined()
   })
+})
+
+test('font preferences recover through the shared contract and round-trip device storage', () => {
+  const storage = memoryStorage()
+  const normalized = normalizeAppearancePreferences({
+    ...defaultAppearancePreferences,
+    fonts: {
+      ui: { family: 'geist', size: 16 },
+      content: { family: 'missing-font', size: -2 },
+      code: { family: 'jetbrains-mono', size: 18 },
+    },
+  }).value
+  expect(normalized.fonts).toEqual({
+    ui: { family: 'geist', size: 16 },
+    content: { family: 'system', size: 10 },
+    code: { family: 'jetbrains-mono', size: 18 },
+  })
+  writeAppearancePreferences(storage, normalized)
+  expect(readAppearancePreferences(storage)).toEqual(normalized)
+  expect(normalizeAppearancePreferences(defaultAppearancePreferences).value).toEqual(
+    defaultAppearancePreferences
+  )
 })

@@ -26,7 +26,7 @@
 
 .dev-onboarding__eyebrow {
   color: var(--dev-muted, var(--muted-foreground));
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
   font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -34,11 +34,13 @@
 
 .dev-onboarding__panel h1 {
   margin: 0;
-  font-size: clamp(1.35rem, 2.4vw, 1.8rem);
+  font-size: calc(clamp(1.35rem, 2.4vw, 1.8rem) * var(--font-ui-scale, 1));
   line-height: 1.2;
 }
 
 .dev-onboarding__message {
+  font-family: var(--font-content, var(--font-sans));
+  font-size: var(--text-content);
   line-height: 1.5;
 }
 
@@ -46,12 +48,7 @@
   padding-block: 0.5rem;
   border-block: 1px solid var(--dev-border, var(--border));
   color: var(--dev-muted, var(--muted-foreground));
-  font-size: 0.85rem;
-}
-
-.dev-onboarding__label {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: calc(0.85rem * var(--font-ui-scale, 1));
 }
 
 .dev-onboarding__prompt {
@@ -62,7 +59,6 @@
   border-radius: var(--radius-md);
   color: inherit;
   background: var(--background);
-  font: inherit;
   resize: vertical;
 }
 
@@ -80,5 +76,6 @@
 
 .dev-onboarding__notice {
   color: var(--destructive);
-  font-size: 0.85rem;
+  font-family: var(--font-content, var(--font-sans));
+  font-size: var(--text-content);
 }

@@ -111,8 +111,8 @@ Why it is worth a gate: with it, restyling is a token swap and dark mode is a
 second set of declarations. Without it, every hardcoded value is a small rewrite
 that nobody schedules.
 
-The built-in palettes are the complete published `@adea-ai/themes` 0.8.1
-catalogue, led by the `adea-light`/`adea-dark` pair. Every theme passes the host's
+The built-in palettes are the complete published `@adea-ai/themes` catalogue
+pinned in this package’s manifest, led by the `adea-light`/`adea-dark` pair. Every theme passes the host's
 4.5:1 editor floor; no palette is waived. Build-time generation consumes the
 published `@adea-ai/ui/lib/themes` framework projection plus the catalogue's
 terminal/editor adapters. The generated stylesheet includes default and named
@@ -134,3 +134,10 @@ after changing the published source; `bun run --cwd packages/ui themes:check`
 verifies the committed generated files are current.
 
 The unused AccountDrawer, SceneSettings, and OnScreenControls copies and their test-only harnesses are removed. The global account menu composes the published AccountMenu. The external Agent Sim scene engine owns its live scene settings and movement controls and depends on published UI, not this private package. The app retains its `data-agent-hq-on-screen-controls` viewport positioning hook for that engine. Do not restore these unused copies or add generic controls to the host adapter package.
+
+The appearance adapter opts into published `@adea-ai/ui/fonts.css` so every offered non-System family has a self-hosted face. System remains the default for UI, content, and code; browser evidence must show it downloads no font assets and that selecting a bundled family loads that actual face. The host does not copy font files or declarations.
+
+The application loads `@adea-ai/ui/appearance-font-settings.css` after shared
+`theme.css` to project the UI, Content, and Code typography roles before first
+paint. This opt-in role stylesheet is separate from optional `fonts.css` font
+faces, so generic shared component consumers keep their existing CSS cost.

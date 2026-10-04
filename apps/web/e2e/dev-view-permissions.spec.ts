@@ -28,6 +28,42 @@ async function openPermissions(page: Page) {
   return pane
 }
 
+async function setAppearanceFontRoles(page: Page) {
+  const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
+  await expect(async () => {
+    if (await popup.isVisible().catch(() => false)) return
+    await page.getByRole('button', { name: 'Appearance settings', exact: true }).click()
+    await expect(popup).toBeVisible()
+  }).toPass({ timeout: 60_000 })
+
+  for (const [role, family, size] of [
+    ['UI', 'Space Grotesk', '28'],
+    ['Content', 'Geist', '18'],
+    ['Code', 'JetBrains Mono', '16'],
+  ] as const) {
+    await popup.getByRole('button', { name: `${role} font family`, exact: true }).click()
+    const menu = page.getByRole('menu', { name: `${role} font family`, exact: true })
+    await menu.getByRole('menuitemradio', { name: family, exact: true }).click()
+    await expect(menu).toBeHidden()
+    const input = popup.getByRole('spinbutton', {
+      name: `${role} font size in pixels`,
+    })
+    await input.fill(size)
+    await input.press('Tab')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (axis) => document.documentElement.style.getPropertyValue(`--font-${axis}-size`),
+          role.toLowerCase()
+        )
+      )
+      .toBe(`${size}px`)
+  }
+
+  await popup.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(popup).toBeHidden()
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/?view=chat')
   await expect(page.getByRole('main')).toBeVisible({ timeout: 20_000 })
@@ -73,4 +109,52 @@ test('asking a lane that cannot open System Settings reports it instead of faili
   await expect(pane.getByRole('status')).toContainText(
     /could not open system settings for .* from this lane/i
   )
+})
+
+test('appearance font roles change computed typography in Resources and Permissions', async ({
+  page,
+}) => {
+  await setAppearanceFontRoles(page)
+
+  await page.getByRole('button', { name: 'Runtime resources', exact: true }).click()
+  const resources = page.getByRole('region', { name: 'Runtime resources' })
+  await expect(resources).toBeVisible()
+  const resourceUi = resources.locator('.dev-resources__title')
+  const resourceContent = resources
+    .locator('.dev-resources__note, .dev-resources__unavailable')
+    .first()
+  await expect(resourceContent).toBeVisible()
+  await expect(resourceUi).toHaveCSS('font-size', '32px')
+  await expect(resourceUi).toHaveCSS('font-family', /Space Grotesk/)
+  await expect(resourceContent).toHaveCSS('font-size', '18px')
+  await expect(resourceContent).toHaveCSS('font-family', /Geist/)
+  // Fonts are loaded on demand: check the actual UI/content consumers after
+  // opening Resources. Real terminal and browser tests cover code consumers.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        ['Space Grotesk', 'Geist'].every((family) =>
+          [...document.fonts].some(
+            (face) => face.family.includes(family) && face.status === 'loaded'
+          )
+        )
+      )
+    )
+    .toBe(true)
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        document.documentElement.style.getPropertyValue('--font-code-size').trim()
+      )
+    )
+    .toBe('16px')
+
+  await page.getByRole('button', { name: 'Runtime resources', exact: true }).click()
+  const permissions = await openPermissions(page)
+  const permissionTitle = permissions.locator('.dev-permissions__title').first()
+  const permissionPurpose = permissions.locator('.dev-permissions__purpose').first()
+  await expect(permissionTitle).toHaveCSS('font-size', '28px')
+  await expect(permissionTitle).toHaveCSS('font-family', /Space Grotesk/)
+  await expect(permissionPurpose).toHaveCSS('font-size', '18px')
+  await expect(permissionPurpose).toHaveCSS('font-family', /Geist/)
 })

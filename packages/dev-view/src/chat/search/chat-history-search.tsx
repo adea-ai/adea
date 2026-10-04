@@ -57,9 +57,9 @@ export function ChatHistorySearch(props: ChatHistorySearchProps): JSX.Element {
             {(row) => (
               <li>
                 <Button type="button" onClick={() => props.onJump?.(row.jump)}>
-                  <span>{row.title}</span>
-                  <span>{row.kind}</span>
-                  <span>{row.preview}</span>
+                  <span class="dev-history-search__title">{row.title}</span>
+                  <span class="dev-history-search__kind">{row.kind}</span>
+                  <span class="dev-history-search__preview">{row.preview}</span>
                 </Button>
                 <Show when={row.resumable}>
                   <Button type="button" onClick={() => props.onResume?.(row)}>
