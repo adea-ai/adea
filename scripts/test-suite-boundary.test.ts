@@ -233,6 +233,8 @@ describe('test suite boundaries', () => {
       'needs.publish-release-notes',
       "needs['publish-release-notes']"
     )
+    const hasStatusCheck = /\b(?:always|cancelled|failure|success)\s*\(/.test(javascriptGuard)
+    const effectiveGuard = hasStatusCheck ? javascriptGuard : `success() && (${javascriptGuard})`
     const shouldVerify = (
       eventTag: string,
       inputTag: string,
@@ -240,19 +242,22 @@ describe('test suite boundaries', () => {
       notesResult: string,
       isCancelled: boolean
     ) =>
-      runInNewContext(javascriptGuard, {
+      runInNewContext(effectiveGuard, {
         cancelled: () => isCancelled,
         github: { event: { release: { tag_name: eventTag } } },
         inputs: { tag: inputTag },
         needs: {
+          'validate-release': { result: 'success' },
           desktop: { result: desktopResult },
           'publish-release-notes': { result: notesResult },
         },
+        success: () => desktopResult === 'success' && notesResult === 'success',
       })
 
-    // This evaluates the workflow expression against the relevant dependency
-    // outcomes: Dev notes are skipped by design, while failed packaging or a
-    // cancelled run must never enter asset verification.
+    // GitHub injects success() unless a status-check function is present. The
+    // simulated success() is false when the Dev-only notes job is skipped.
+    // Explicit !cancelled() permits that case without admitting failed or
+    // cancelled releases.
     expect(shouldVerify('', 'v1.43.0-dev.47', 'success', 'skipped', false)).toBe(true)
     expect(shouldVerify('v1.43.0', '', 'success', 'success', false)).toBe(true)
     expect(shouldVerify('', 'v1.43.0-dev.47', 'failure', 'skipped', false)).toBe(false)
