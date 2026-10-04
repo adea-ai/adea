@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.81.0](https://github.com/adea-ai/adea/compare/v0.80.1...v0.81.0) (2026-10-04)
+
+
+### Features
+
+* **desktop:** device-local guest identity — the Dev Runtime works with no account ([#1006](https://github.com/adea-ai/adea/issues/1006)) ([67899e8](https://github.com/adea-ai/adea/commit/67899e8d5204b7c13364c6e33f70c37c302c5c36))
+* **desktop:** publish bounded computer-use screen frames behind a typed screen-recording gate ([#1010](https://github.com/adea-ai/adea/issues/1010)) ([f54b5b2](https://github.com/adea-ai/adea/commit/f54b5b2564daf3a616c3d8f1c8145fe7144eb02e))
+* **source-control:** source control app view ([#1003](https://github.com/adea-ai/adea/issues/1003)) ([6dfaf57](https://github.com/adea-ai/adea/commit/6dfaf5787edc6052a4b2fa7c38556802bd1f435d))
+
+
+### Bug Fixes
+
+* **release:** run desktop asset verification for Dev releases ([#1012](https://github.com/adea-ai/adea/issues/1012)) ([59753d3](https://github.com/adea-ai/adea/commit/59753d311c488fbd62d92ac414b233589b7282d2))
+* **workspace:** keep a boot-opened mobile sheet open across the sidebar mounting ([#1007](https://github.com/adea-ai/adea/issues/1007)) ([a47a3fb](https://github.com/adea-ai/adea/commit/a47a3fbbddf4bd795ed854464ec326b9082c0cde))
+
+
+### Documentation
+
+* share UI artifact guidance across agents ([#1002](https://github.com/adea-ai/adea/issues/1002)) ([08702cc](https://github.com/adea-ai/adea/commit/08702cce8a0222046a54c3480d57364f27053c98))
+
+
+### Tests
+
+* **dev-view:** render the cookie import flow and decode its wire replies ([#999](https://github.com/adea-ai/adea/issues/999)) ([b592b37](https://github.com/adea-ai/adea/commit/b592b37810922bc2ca4aee4b0910a5e0dd6bd1c2))
+* **shell:** verify [#757](https://github.com/adea-ai/adea/issues/757) window-toolbar and App Library acceptance on fresh main and record the evidence ([#1009](https://github.com/adea-ai/adea/issues/1009)) ([08911c1](https://github.com/adea-ai/adea/commit/08911c17d450d16b8c764eccb6189fa3318eccd9))
+
+
+### Maintenance
+
+* **deps:** track @adea-ai/ui 0.106.1 ([#1008](https://github.com/adea-ai/adea/issues/1008)) ([6f79100](https://github.com/adea-ai/adea/commit/6f7910060812fd19ec386840ac7c09d49c7e91d2))
+* **deps:** update toolchain and dependencies to latest ([#1004](https://github.com/adea-ai/adea/issues/1004)) ([c2592cb](https://github.com/adea-ai/adea/commit/c2592cb0cc7a65412d46cb5477e873d63d5748ef))
+* **web:** consolidate deep-linkable selection onto the router ([#1001](https://github.com/adea-ai/adea/issues/1001)) ([a53368c](https://github.com/adea-ai/adea/commit/a53368c6882a0694a8af0ba72bd05e795f3a2f96))
+
 ## [0.80.1](https://github.com/adea-ai/adea/compare/v0.80.0...v0.80.1) (2026-10-03)
 
 
