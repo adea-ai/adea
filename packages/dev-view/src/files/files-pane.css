@@ -33,7 +33,7 @@
 
 .dev-files__quickopen-empty {
   padding: 0.35rem 0.5rem;
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 
 .dev-files__toolbar {
@@ -53,7 +53,7 @@
   border-radius: 0.35rem;
   background: var(--background);
   color: var(--foreground);
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--font-ui-scale, 1));
 }
 
 .dev-files__filter:focus-visible {
@@ -101,7 +101,7 @@
   border: 0;
   background: transparent;
   color: var(--foreground);
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--font-ui-scale, 1));
   text-align: start;
 }
 
@@ -132,8 +132,8 @@
   border-radius: 0.25rem;
   background: color-mix(in srgb, var(--warning) 22%, transparent);
   color: var(--foreground);
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 0.65rem;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
 }
 
 .dev-files__delete {
@@ -171,13 +171,13 @@
   gap: 0.35rem;
   padding: 0.25rem 0.5rem;
   border-block-end: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--font-ui-scale, 1));
 }
 
 .dev-sc__section-title {
   padding: 0.25rem 0.5rem 0;
   color: var(--muted-foreground);
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--font-ui-scale, 1));
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -211,8 +211,8 @@
   border-radius: 0.35rem;
   background: var(--background);
   color: var(--foreground);
-  font-family: inherit;
-  font-size: 0.8rem;
+  font-family: var(--font-content, var(--font-sans));
+  font-size: var(--text-content);
   resize: vertical;
 }
 
@@ -223,8 +223,8 @@
   padding: 0.25rem 0.5rem;
   border-block-start: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
   background: color-mix(in srgb, var(--muted) 38%, transparent);
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 0.7rem;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
   white-space: pre;
 }
 
@@ -261,7 +261,7 @@
   border-radius: 0.25rem;
   background: color-mix(in srgb, var(--secondary) 45%, transparent);
   color: var(--foreground);
-  font-size: 0.65rem;
+  font-size: calc(0.65rem * var(--font-ui-scale, 1));
 }
 
 .dev-sc__hunk-action:hover {
@@ -285,7 +285,7 @@
   gap: 0.35rem;
   padding: 0.25rem 0.5rem;
   border-block-end: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 
 .dev-editor__banner--conflict {
@@ -304,7 +304,11 @@
 
 .dev-editor__surface .cm-editor {
   height: 100%;
-  font-size: 0.8rem;
+  font-size: var(--text-code);
+}
+
+.dev-editor__surface .cm-scroller {
+  font-family: var(--font-code, var(--font-mono));
 }
 
 .dev-editor__surface .cm-editor.cm-focused {
@@ -318,7 +322,7 @@
   flex-direction: column;
   overflow: auto;
   border-block-end: 1px solid var(--dev-border);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 
 .dev-files__search-head {
@@ -350,10 +354,14 @@
 
 .dev-files__search-path {
   color: var(--dev-muted);
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
 }
 
 .dev-files__search-preview {
   overflow: hidden;
+  font-family: var(--font-content, var(--font-sans));
+  font-size: var(--text-content);
   text-overflow: ellipsis;
   white-space: pre;
 }
