@@ -70,10 +70,9 @@ import {
   listLeaves,
   neighborLeaf,
   normalizeLayout,
-  preferredSplitDirection,
   resizeSplit,
   splitPane,
-  splitPaneEvenly,
+  splitPaneBalanced,
   undoClosePane,
   movePane,
   type DevLayoutState,
@@ -1284,8 +1283,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           updateLayout((state) => {
             const focused = listLeaves(state.center).find((leaf) => leaf.id === state.focusedLeafId)
             if (!focused) return state
-            return splitPaneEvenly(state, state.focusedLeafId, {
-              direction: preferredSplitDirection(state.center),
+            return splitPaneBalanced(state, state.focusedLeafId, {
               placement: 'after',
               leaf: {
                 kind: 'leaf',

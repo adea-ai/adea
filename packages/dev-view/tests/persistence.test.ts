@@ -89,4 +89,75 @@ describe('Dev layout persistence', () => {
     expect(raw).not.toContain('terminal output')
     expect(raw).not.toContain('processId')
   })
+
+  test('a balanced split layout round-trips through the stored document', () => {
+    const balanced = {
+      ...preferences,
+      center: {
+        kind: 'split' as const,
+        id: 'split-b',
+        direction: 'column' as const,
+        ratio: 0.5,
+        children: [
+          {
+            kind: 'split' as const,
+            id: 'split-a',
+            direction: 'row' as const,
+            ratio: 0.5,
+            children: [
+              { kind: 'leaf' as const, id: 'pane-1', pane: 'terminal' as const },
+              { kind: 'leaf' as const, id: 'pane-2', pane: 'terminal' as const },
+            ],
+          },
+          { kind: 'leaf' as const, id: 'pane-3', pane: 'terminal' as const },
+        ],
+      },
+      focusTargetId: 'pane-1',
+    }
+    expect(decodeLayoutPreferences(serializeLayoutPreferences(balanced))).toEqual({
+      state: 'ready',
+      value: balanced,
+    })
+  })
+
+  test('a pre-balanced stored band layout restores unchanged', () => {
+    // Ratios stored by older builds that evened only the joined band are still
+    // valid strict-binary documents; adoption never rewrites layouts on load.
+    const legacyBand = {
+      ...preferences,
+      center: {
+        kind: 'split' as const,
+        id: 'row-1',
+        direction: 'column' as const,
+        ratio: 0.5,
+        children: [
+          { kind: 'leaf' as const, id: 'pane-1', pane: 'terminal' as const },
+          {
+            kind: 'split' as const,
+            id: 'row-2',
+            direction: 'row' as const,
+            ratio: 1 / 3,
+            children: [
+              { kind: 'leaf' as const, id: 'pane-2', pane: 'terminal' as const },
+              {
+                kind: 'split' as const,
+                id: 'row-3',
+                direction: 'row' as const,
+                ratio: 0.5,
+                children: [
+                  { kind: 'leaf' as const, id: 'pane-3', pane: 'terminal' as const },
+                  { kind: 'leaf' as const, id: 'pane-4', pane: 'editor' as const },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      focusTargetId: 'pane-3',
+    }
+    expect(decodeLayoutPreferences(serializeLayoutPreferences(legacyBand))).toEqual({
+      state: 'ready',
+      value: legacyBand,
+    })
+  })
 })
