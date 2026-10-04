@@ -1,5 +1,5 @@
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
-import { createSignal, For, onCleanup, onMount } from 'solid-js'
+import { createMemo, createSignal, For, onCleanup, onMount } from 'solid-js'
 import { ChatView } from './chat-view'
 import type { ChatDraftChange } from './chat-composer'
 import type {
@@ -261,7 +261,9 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const deferred = new URLSearchParams(window.location.search).has('chatDraftTest')
   const fallbackDraftModel = new URLSearchParams(window.location.search).has('chatDraftFallback')
   const pending: Set<PendingSend> = new Set()
-  let activeConversation: ChatConversation
+  const activeConversation = createMemo(() =>
+    conversation(state, events, draft().text, generation(), draft().blocks)
+  )
 
   const resolvePending = (error?: Error) => {
     const next = pending.values().next().value as PendingSend | undefined
@@ -304,7 +306,7 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const currentModel =
     model ??
     draftModel(
-      () => activeConversation,
+      activeConversation,
       pending,
       deferred,
       () => draftRevision(),
@@ -334,16 +336,9 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
       <div class="dev-chat-visual-fixture__stage">
         <For each={[mountKey()]}>
           {() => {
-            activeConversation = conversation(
-              state,
-              events,
-              draft().text,
-              generation(),
-              draft().blocks
-            )
             return (
               <ChatView
-                conversation={activeConversation}
+                conversation={activeConversation()}
                 model={currentModel}
                 authority="chat"
                 connected={state !== 'reconnect'}

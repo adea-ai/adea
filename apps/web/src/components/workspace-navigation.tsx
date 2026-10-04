@@ -809,9 +809,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
               when={view() === 'virtual'}
               fallback={
                 <Show
-                  when={
-                    import.meta.env.DEV && currentSearch().chatE2e === 'visual' && !props.chatEntry
-                  }
+                  when={import.meta.env.DEV && currentSearch().chatE2e === 'visual'}
                   fallback={
                     props.chatEntry && activeAppId() !== 'kanban' ? (
                       props.chatEntry(

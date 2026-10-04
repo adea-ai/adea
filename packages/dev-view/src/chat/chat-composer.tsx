@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show, type JSX } from 'solid-js'
+import { createComputed, createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js'
 import { AtomicChatComposer } from '@adea-ai/ui/components/conversation/atomic'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Label } from '@adea-ai/ui/components/ui/label'
@@ -78,7 +78,79 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const [resolvedLocation, setResolvedLocation] = createSignal<string | undefined>(undefined)
   const [resolving, setResolving] = createSignal(false)
   const [resolutionStatus, setResolutionStatus] = createSignal<string>()
+  const [sendStatus, setSendStatus] = createSignal<string>()
   let localDraftRevision = 0
+  let mounted = true
+  let latestDecisionRequestRevision = 0
+  let previousDecisionIdentity: readonly unknown[] | undefined
+  let previousSendIdentity: readonly unknown[] | undefined
+  const [decisionEpoch, setDecisionEpoch] = createSignal(0)
+  const [sendContextEpoch, setSendContextEpoch] = createSignal(0)
+  const currentSendKey = () =>
+    [
+      props.conversation.scope.accountId,
+      props.conversation.scope.workspaceId,
+      props.conversation.scope.runtimeNodeId,
+      props.conversation.runtimeSessionId,
+      props.conversation.generation,
+    ].join('\u0000')
+  const decisionContext = () => {
+    const request = props.decisionRequest
+    const consumer = props.decisionConsumer
+    if (
+      typeof request !== 'function' ||
+      typeof consumer?.client?.resolve !== 'function' ||
+      typeof consumer.onResolved !== 'function'
+    )
+      return undefined
+    return { request, consumer }
+  }
+  const decisionReady = () => decisionContext() !== undefined
+  const currentDecisionIdentity = () => {
+    const consumer = props.decisionConsumer
+    return [
+      props.decisionRequest,
+      consumer,
+      consumer?.client,
+      consumer?.client?.resolve,
+      consumer?.onResolved,
+      consumer?.onOutcome,
+      props.conversation.scope.accountId,
+      props.conversation.scope.workspaceId,
+      props.conversation.scope.runtimeNodeId,
+      props.conversation.runtimeSessionId,
+      props.conversation.generation,
+      props.conversation.projectId,
+      props.conversation.repoId,
+      props.conversation.worktreeId,
+      props.authority,
+    ] as const
+  }
+  createComputed(() => {
+    const identity = currentDecisionIdentity()
+    const changed =
+      previousDecisionIdentity === undefined ||
+      identity.length !== previousDecisionIdentity.length ||
+      identity.some((value, index) => !Object.is(value, previousDecisionIdentity?.[index]))
+    if (!changed) return
+    if (previousDecisionIdentity !== undefined) latestDecisionRequestRevision += 1
+    previousDecisionIdentity = identity
+    setDecisionEpoch((epoch) => epoch + 1)
+  })
+  createComputed(() => {
+    const identity = [currentSendKey()] as const
+    if (
+      previousSendIdentity !== undefined &&
+      identity.every((value, index) => Object.is(value, previousSendIdentity?.[index]))
+    )
+      return
+    if (previousSendIdentity !== undefined) setSendContextEpoch((epoch) => epoch + 1)
+    previousSendIdentity = identity
+  })
+  onCleanup(() => {
+    mounted = false
+    latestDecisionRequestRevision += 1
+  })
   const currentDraftKey = () =>
     `${chatDraftScopeKey(props.conversation.scope)}:${props.conversation.runtimeSessionId}:${props.conversation.generation}`
   createEffect(() => {
@@ -88,15 +160,32 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
       normalizeChatDraft({ text: props.conversation.draft, blocks: props.conversation.draftBlocks })
     )
   })
+  let observedDecisionEpoch: number | undefined
+  createEffect(() => {
+    const epoch = decisionEpoch()
+    const ready = decisionReady()
+    if (observedDecisionEpoch !== undefined && observedDecisionEpoch !== epoch) {
+      setResolving(false)
+      setResolvedLocation(undefined)
+      setResolutionStatus(undefined)
+    }
+    observedDecisionEpoch = epoch
+    if (ready) return
+    if (mode() !== 'auto') {
+      setMode('auto')
+      props.onModeChange?.('auto')
+    }
+    setResolvedLocation(undefined)
+    setResolutionStatus(undefined)
+  })
+  let observedSendContextEpoch: number | undefined
+  createEffect(() => {
+    const epoch = sendContextEpoch()
+    if (observedSendContextEpoch !== undefined && observedSendContextEpoch !== epoch)
+      setSendStatus(undefined)
+    observedSendContextEpoch = epoch
+  })
   const authority = () => props.authority ?? 'chat'
-  const currentSendKey = () =>
-    [
-      props.conversation.scope.accountId,
-      props.conversation.scope.workspaceId,
-      props.conversation.scope.runtimeNodeId,
-      props.conversation.runtimeSessionId,
-      props.conversation.generation,
-    ].join('\u0000')
   const sending = () => {
     void sendRevision()
     return sendRequests.isPending(currentSendKey())
@@ -118,11 +207,32 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     props.onModeChange?.(next)
   }
   const resolve = async () => {
-    if (!props.decisionConsumer || !props.decisionRequest || draft().text.trim().length === 0) {
+    const context = decisionContext()
+    if (!context) {
       setResolutionStatus(
         'Decision layer is unavailable. Retry after the Control Plane is connected.'
       )
       return
+    }
+    if (draft().text.trim().length === 0) {
+      setResolutionStatus('A launch objective is required.')
+      return
+    }
+    const requestRevision = ++latestDecisionRequestRevision
+    const contextEpoch = decisionEpoch()
+    const identity = currentDecisionIdentity()
+    const isCurrent = () => {
+      const currentContext = decisionContext()
+      const currentIdentity = currentDecisionIdentity()
+      return (
+        mounted &&
+        requestRevision === latestDecisionRequestRevision &&
+        contextEpoch === decisionEpoch() &&
+        currentContext?.request === context.request &&
+        currentContext.consumer === context.consumer &&
+        identity.length === currentIdentity.length &&
+        identity.every((value, index) => Object.is(value, currentIdentity[index]))
+      )
     }
     setResolving(true)
     setResolutionStatus(undefined)
@@ -142,8 +252,25 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                 : {}),
             }
           : {}
-      const request = props.decisionRequest({ mode: mode(), objective, explicitPins })
-      const outcome = await resolveAndLaunchComposer(props.decisionConsumer, request)
+      const request = context.request({ mode: mode(), objective, explicitPins })
+      if (!isCurrent()) return
+      const guardedConsumer: ComposerDecisionConsumer = {
+        client: {
+          resolve: (decisionRequest) => {
+            if (!isCurrent()) throw new Error('Decision request is no longer current.')
+            return context.consumer.client.resolve(decisionRequest)
+          },
+        },
+        onOutcome: (outcome) => {
+          if (isCurrent()) context.consumer.onOutcome?.(outcome)
+        },
+        onResolved: async (resolution, decisionRequest) => {
+          if (!isCurrent()) return
+          await context.consumer.onResolved(resolution, decisionRequest)
+        },
+      }
+      const outcome = await resolveAndLaunchComposer(guardedConsumer, request)
+      if (!isCurrent()) return
       if (outcome.kind === 'resolved') {
         // Which location actually runs is the resolution's answer, not the
         // user's request: show it rather than implying the pin was honoured by
@@ -152,9 +279,12 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
         setResolutionStatus('Launch decision received.')
       } else setResolutionStatus(outcome.message)
     } catch (error) {
-      setResolutionStatus(error instanceof Error ? error.message : 'Decision layer is unavailable.')
+      if (isCurrent())
+        setResolutionStatus(
+          error instanceof Error ? error.message : 'Decision layer is unavailable.'
+        )
     } finally {
-      setResolving(false)
+      if (mounted && requestRevision === latestDecisionRequestRevision) setResolving(false)
     }
   }
   const submit = async (input: {
@@ -167,6 +297,9 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     const submittedDraft = normalizeChatDraft({ text: input.text, blocks: input.blocks })
     const deliver = submitMode === 'steer' ? props.onSteer : props.onSend
     if (disabled() || submittedDraft.text.trim().length === 0 || !deliver) return
+    const submittedSendContextEpoch = sendContextEpoch()
+    const isCurrentSend = () => mounted && submittedSendContextEpoch === sendContextEpoch()
+    setSendStatus(undefined)
     const submittedIdentity: ChatDraftIdentity = {
       runtimeSessionId: props.conversation.runtimeSessionId,
       generation: props.conversation.generation,
@@ -196,16 +329,18 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
         }),
         deliver,
         clear: () => {
+          if (!isCurrentSend()) return
           const empty: ChatDraftValue = { text: '', blocks: [] }
           setDraft(empty)
           props.onDraftChange?.(empty, submittedIdentity, submittedDraftRevision)
         },
       })
     } catch (error) {
-      setResolutionStatus(error instanceof Error ? error.message : 'Message could not be sent.')
+      if (isCurrentSend())
+        setSendStatus(error instanceof Error ? error.message : 'Message could not be sent.')
     } finally {
       finishSend()
-      setSendRevision((revision) => revision + 1)
+      if (mounted) setSendRevision((revision) => revision + 1)
     }
   }
 
@@ -237,89 +372,93 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
           send: typeof props.onSend === 'function' && draft().text.trim().length > 0,
         }}
         context={
-          <div>
-            <div class="dev-chat__composer-controls" aria-label="Launch mode">
-              <Label for="dev-chat-composer-agent">Agent</Label>
-              <Show
-                when={props.agentProfiles && props.agentProfiles.length > 0}
-                fallback={<span>{props.agentProfile?.label ?? 'Select an agent profile'}</span>}
-              >
+          <Show when={decisionReady()}>
+            <div>
+              <div class="dev-chat__composer-controls" aria-label="Launch mode">
+                <Label for="dev-chat-composer-agent">Agent</Label>
+                <Show
+                  when={props.agentProfiles && props.agentProfiles.length > 0}
+                  fallback={<span>{props.agentProfile?.label ?? 'Select an agent profile'}</span>}
+                >
+                  <NativeSelect
+                    id="dev-chat-composer-agent"
+                    value={props.agentProfile?.id ?? ''}
+                    onChange={(event) => props.onAgentProfileChange?.(event.currentTarget.value)}
+                    options={[
+                      { value: '', label: 'Select an agent profile' },
+                      ...(props.agentProfiles ?? []).map((profile) => ({
+                        value: profile.id,
+                        label: profile.label,
+                      })),
+                    ]}
+                  />
+                </Show>
+                <Label for="dev-chat-composer-mode">Mode</Label>
                 <NativeSelect
-                  id="dev-chat-composer-agent"
-                  value={props.agentProfile?.id ?? ''}
-                  onChange={(event) => props.onAgentProfileChange?.(event.currentTarget.value)}
+                  id="dev-chat-composer-mode"
+                  value={mode()}
+                  onChange={(event) => selectMode(event.currentTarget.value as ComposerMode)}
                   options={[
-                    { value: '', label: 'Select an agent profile' },
-                    ...(props.agentProfiles ?? []).map((profile) => ({
-                      value: profile.id,
-                      label: profile.label,
-                    })),
+                    { value: 'auto', label: 'Auto' },
+                    { value: 'customize', label: 'Customize' },
                   ]}
                 />
-              </Show>
-              <Label for="dev-chat-composer-mode">Mode</Label>
-              <NativeSelect
-                id="dev-chat-composer-mode"
-                value={mode()}
-                onChange={(event) => selectMode(event.currentTarget.value as ComposerMode)}
-                options={[
-                  { value: 'auto', label: 'Auto' },
-                  { value: 'customize', label: 'Customize' },
-                ]}
-              />
-            </div>
-            <Show when={mode() === 'customize' && props.customization}>
-              {(customization) => (
-                <div class="dev-chat__composer-controls" aria-label="Customize launch pins">
-                  <Label for="dev-chat-composer-harness">Harness</Label>
-                  <NativeSelect
-                    id="dev-chat-composer-harness"
-                    value={customization().harnessId ?? ''}
-                    onChange={(event) =>
-                      customization().onHarnessChange?.(event.currentTarget.value)
-                    }
-                    options={[
-                      { value: '', label: 'Control Plane default' },
-                      ...customization().harnessOptions.map((option) => ({
-                        value: option.id,
-                        label: option.label,
-                      })),
-                    ]}
-                  />
-                  <Label for="dev-chat-composer-model">Model</Label>
-                  <NativeSelect
-                    id="dev-chat-composer-model"
-                    value={customization().modelId ?? ''}
-                    onChange={(event) => customization().onModelChange?.(event.currentTarget.value)}
-                    options={[
-                      { value: '', label: 'Control Plane default' },
-                      ...customization().modelOptions.map((option) => ({
-                        value: option.id,
-                        label: option.label,
-                      })),
-                    ]}
-                  />
-                  <Show when={(customization().runtimeOptions ?? []).length > 0}>
-                    <Label for="dev-chat-composer-runtime">Location</Label>
+              </div>
+              <Show when={mode() === 'customize' && props.customization}>
+                {(customization) => (
+                  <div class="dev-chat__composer-controls" aria-label="Customize launch pins">
+                    <Label for="dev-chat-composer-harness">Harness</Label>
                     <NativeSelect
-                      id="dev-chat-composer-runtime"
-                      value={customization().runtimeDefinitionId ?? ''}
+                      id="dev-chat-composer-harness"
+                      value={customization().harnessId ?? ''}
                       onChange={(event) =>
-                        customization().onRuntimeChange?.(event.currentTarget.value)
+                        customization().onHarnessChange?.(event.currentTarget.value)
                       }
                       options={[
                         { value: '', label: 'Control Plane default' },
-                        ...(customization().runtimeOptions ?? []).map((option) => ({
+                        ...customization().harnessOptions.map((option) => ({
                           value: option.id,
                           label: option.label,
                         })),
                       ]}
                     />
-                  </Show>
-                </div>
-              )}
-            </Show>
-          </div>
+                    <Label for="dev-chat-composer-model">Model</Label>
+                    <NativeSelect
+                      id="dev-chat-composer-model"
+                      value={customization().modelId ?? ''}
+                      onChange={(event) =>
+                        customization().onModelChange?.(event.currentTarget.value)
+                      }
+                      options={[
+                        { value: '', label: 'Control Plane default' },
+                        ...customization().modelOptions.map((option) => ({
+                          value: option.id,
+                          label: option.label,
+                        })),
+                      ]}
+                    />
+                    <Show when={(customization().runtimeOptions ?? []).length > 0}>
+                      <Label for="dev-chat-composer-runtime">Location</Label>
+                      <NativeSelect
+                        id="dev-chat-composer-runtime"
+                        value={customization().runtimeDefinitionId ?? ''}
+                        onChange={(event) =>
+                          customization().onRuntimeChange?.(event.currentTarget.value)
+                        }
+                        options={[
+                          { value: '', label: 'Control Plane default' },
+                          ...(customization().runtimeOptions ?? []).map((option) => ({
+                            value: option.id,
+                            label: option.label,
+                          })),
+                        ]}
+                      />
+                    </Show>
+                  </div>
+                )}
+              </Show>
+            </div>
+          </Show>
         }
         notices={
           <div>
@@ -331,29 +470,32 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                 {(reason) => reason()}
               </Show>
             </p>
-            <Show when={resolvedLocation()}>
+            <Show when={decisionReady() && resolvedLocation()}>
               {(label) => (
                 <p class="dev-chat__composer-location" aria-live="polite">
                   Running on {label()}
                 </p>
               )}
             </Show>
-            <Show when={mode() === 'customize'}>
+            <Show when={decisionReady() && mode() === 'customize'}>
               <p>Customize pins are submitted to the Control Plane and remain authoritative.</p>
             </Show>
-            <Show when={resolutionStatus()}>{(status) => <p role="alert">{status()}</p>}</Show>
+            <Show when={decisionReady() && resolutionStatus()}>
+              {(status) => <p role="alert">{status()}</p>}
+            </Show>
+            <Show when={sendStatus()}>{(status) => <p role="alert">{status()}</p>}</Show>
             <Show when={props.busy && steerUnavailable()}>
               <p role="status">Steer is unavailable on this host.</p>
             </Show>
           </div>
         }
         leadingActions={
-          <Show when={props.decisionConsumer}>
+          <Show when={decisionReady()}>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              disabled={disabled() || resolving()}
+              disabled={disabled() || resolving() || draft().text.trim().length === 0}
               onClick={() => void resolve()}
             >
               {resolving() ? 'Resolving…' : 'Resolve & launch'}

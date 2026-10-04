@@ -2,7 +2,12 @@ import { createEffect, For, on, onCleanup, onMount, Show, createSignal, type JSX
 
 import type { ChatConversation, ChatConversationModel, TranscriptAccumulator } from './model'
 import { createTranscriptAccumulator, transcriptWindow } from './model'
-import { ChatComposer, type ChatDraftChange, type ChatInputAuthority } from './chat-composer'
+import {
+  ChatComposer,
+  type ChatComposerProps,
+  type ChatDraftChange,
+  type ChatInputAuthority,
+} from './chat-composer'
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'
 import { statusLabel } from './presentation'
 import './chat.css'
@@ -22,6 +27,8 @@ export type ChatViewProps = Readonly<{
   onStop?: () => void | Promise<void>
   onDraftChange?: ChatDraftChange
   draftRevision?: number
+  decisionRequest?: ChatComposerProps['decisionRequest']
+  decisionConsumer?: ChatComposerProps['decisionConsumer']
   onResolveApproval?: ChatTranscriptProps['onResolveApproval']
   onResolveQuestion?: ChatTranscriptProps['onResolveQuestion']
   onJumpToTerminal?: () => void
@@ -233,6 +240,8 @@ export function ChatView(props: ChatViewProps): JSX.Element {
                 onSteer={props.onSteer}
                 onStop={props.onStop || props.model ? stop : undefined}
                 onDraftChange={changeDraft}
+                decisionRequest={props.decisionRequest}
+                decisionConsumer={props.decisionConsumer}
                 createPasteBlockId={() =>
                   props.model?.createPasteBlockId?.(
                     props.conversation.runtimeSessionId,
