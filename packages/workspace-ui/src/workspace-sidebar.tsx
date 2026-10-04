@@ -12,7 +12,6 @@ import {
   Hash,
   Link2,
   MessageCircle,
-  PanelLeftClose,
   Pencil,
   Plus,
   Users,
@@ -425,22 +424,6 @@ export function WorkspaceSidebar(props: Props) {
         </Show>
         <SidebarNavHeader>
           <SidebarNavTitle as="h1">{props.workspaceName}</SidebarNavTitle>
-          {/* No tooltip: a focus tooltip would register a top-most dismissable
-              layer inside the sheet and swallow the next Escape, leaving the
-              modal navigation open. The sheet itself is the affordance; the
-              button keeps its accessible name. */}
-          {/* oxlint-disable-next-line adea/require-action-button-tooltip */}
-          <ActionButton
-            type="button"
-            variant="ghost"
-            size="icon-md"
-            touchTarget="comfortable"
-            aria-label="Close workspace navigation"
-            class="conventional-sidebar__close"
-            onClick={() => props.onToggleMobile(false)}
-          >
-            <PanelLeftClose aria-hidden="true" />
-          </ActionButton>
         </SidebarNavHeader>
 
         <SidebarNavContent class="conventional-sidebar__content">
@@ -750,7 +733,7 @@ export function WorkspaceSidebar(props: Props) {
           <SheetContent
             side="start"
             class="conventional-sidebar-sheet"
-            closeButton={false}
+            closeLabel="Close workspace navigation"
             restoreFocusRef={props.restoreFocusRef}
           >
             <SheetTitle class="sr-only">{props.workspaceName} navigation</SheetTitle>
