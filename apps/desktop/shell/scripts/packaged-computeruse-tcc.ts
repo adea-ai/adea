@@ -187,8 +187,9 @@ function bundleBunRunner(bunPath: string): HostCommandRunner {
 }
 
 /** Recording engine stand-in: keeps the admitted-frame path honest without
- *  ever synthesizing real input (CI and packaged lanes never perform real
- *  input; the real host engine stays unattached for the whole proof). */
+ *  ever synthesizing real input or capturing real pixels (CI and packaged
+ *  lanes never perform real input or capture; the real host engine stays
+ *  unattached for the whole proof). */
 function recordingEngine(): ComputerUseEngine & { injected: ComputerUseInputEvent[] } {
   const injected: ComputerUseInputEvent[] = []
   return {
@@ -197,7 +198,7 @@ function recordingEngine(): ComputerUseEngine & { injected: ComputerUseInputEven
       injected.push(event)
     },
     async capture(): Promise<never> {
-      throw new Error('capture stays typed-unavailable in this lane')
+      throw new Error('the evidence lane never attaches a real capture source')
     },
     async readAccessibilityTree(): Promise<never> {
       throw new Error('ax_tree stays typed-unavailable in this lane')
@@ -476,9 +477,35 @@ async function main(): Promise<number> {
     'the input capability row mirrors the REAL accessibility probe state (never a state the probe did not show)',
     mirrorDetail
   )
+  // The capture row mirrors the REAL screen-recording preflight (#624),
+  // windowed the same way as the input row: it may never claim a state the
+  // probe did not show in the same round.
+  const captureMirror: { probe: string; report: string }[] = []
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const snapshot = await proofService.snapshot({ force: true })
+    const probeState =
+      snapshot.permissions.find((entry) => entry.id === 'screen_recording')?.state ?? 'row-missing'
+    const reportReply = await execute('dev.computeruse.capabilities', {})
+    const captureRow = reportReply.ok
+      ? ((reportReply.value as { capabilities: { id: string; state: string }[] }).capabilities.find(
+          (row) => row.id === 'capture'
+        ) ?? null)
+      : null
+    captureMirror.push({
+      probe: probeState,
+      report: captureRow?.state ?? errorCode(reportReply),
+    })
+  }
+  const captureMirrored = captureMirror.every(({ probe, report }) => {
+    if (probe === 'granted') return report === 'available'
+    if (probe === 'denied') return report === 'denied'
+    if (probe === 'not_determined') return report === 'not_determined'
+    return report === 'unavailable' // unprobeable or missing row
+  })
   check(
-    gatedReport?.capabilities.find((row) => row.id === 'capture')?.state === 'unavailable',
-    'capture stays typed-unavailable (native helper deferred), never stubbed'
+    captureMirrored,
+    'the capture capability row mirrors the REAL screen-recording preflight state (never a state the probe did not show)',
+    captureMirror.map(({ probe, report }) => `${probe}->${report}`).join(', ')
   )
 
   // Lane lifecycle through the gate.
@@ -591,8 +618,10 @@ async function main(): Promise<number> {
     errorCode(forgedInput)
   )
 
-  // Read-direction attach mints a typed grant (the capture stream closes
-  // incompatible at the gateway until the native helper lands).
+  // Read-direction attach mints a typed grant (the capture stream itself is
+  // gated on a fresh screen-recording preflight at attach — #624 — and this
+  // evidence lane's engine seam carries a recording stand-in, so no frame
+  // source is ever attached here).
   const attachGeneration = runtime.lanes.get(lane.id).generation
   const attachReply = await execute(
     'dev.computeruse.attach',

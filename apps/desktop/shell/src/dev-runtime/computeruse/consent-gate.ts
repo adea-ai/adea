@@ -91,6 +91,14 @@ export type ComputerUseConsentGate = Readonly<{
    * the freshness window.
    */
   verifyFresh(consentId: string): Promise<void>
+  /**
+   * The observation fence (#624): re-checks the permission state behind a
+   * live consent record WITHOUT requiring consumption — frame publication
+   * never consumes the single-use record (that is the input grant's act).
+   * Refuses when the record is unknown, expired, or the snapshot no longer
+   * matches its digest; otherwise refreshes the freshness window.
+   */
+  verifyObservation(consentId: string): Promise<void>
   /** Kill switch: drops every record for a lane immediately. */
   revokeForLane(laneId: string): void
   /** Secret-free refusal counters for security telemetry. */
@@ -129,6 +137,23 @@ export function createConsentGate(input: {
   function refuse(code: ComputerUseGateErrorDetails['code'], message: string, retryable = false) {
     rejections.set(code, (rejections.get(code) ?? 0) + 1)
     return new ComputerUseGateError({ code, message, retryable })
+  }
+
+  /** Shared freshness re-verification behind `verifyFresh`/`verifyObservation`. */
+  async function reverify(record: ConsentRecord): Promise<void> {
+    const freshThrough = freshUntil.get(record.consentId) ?? 0
+    if (now() < freshThrough) return
+    const snapshot = await input.permissions.snapshot({ force: true })
+    const accessibility = snapshot.permissions.find((entry) => entry.id === 'accessibility')
+    if (snapshot.hostPlatform !== 'macos' || !accessibility || accessibility.state !== 'granted')
+      throw refuse('permission_denied', 'the accessibility grant behind this consent moved')
+    const digest = input.capabilities.permissionDigest(snapshot)
+    if (digest !== record.permissionDigest)
+      throw refuse(
+        'permission_denied',
+        'the permission state behind this consent changed since it was issued'
+      )
+    freshUntil.set(record.consentId, now() + freshnessMs)
   }
 
   return {
@@ -246,19 +271,18 @@ export function createConsentGate(input: {
       if (!record) throw refuse('not_found', 'consent record is unknown or already dropped')
       if (record.consumed === false)
         throw refuse('permission_denied', 'consent record was never consumed')
-      const freshThrough = freshUntil.get(consentId) ?? 0
-      if (now() < freshThrough) return
-      const snapshot = await input.permissions.snapshot({ force: true })
-      const accessibility = snapshot.permissions.find((entry) => entry.id === 'accessibility')
-      if (snapshot.hostPlatform !== 'macos' || !accessibility || accessibility.state !== 'granted')
-        throw refuse('permission_denied', 'the accessibility grant behind this consent moved')
-      const digest = input.capabilities.permissionDigest(snapshot)
-      if (digest !== record.permissionDigest)
-        throw refuse(
-          'permission_denied',
-          'the permission state behind this consent changed since it was issued'
-        )
-      freshUntil.set(consentId, now() + freshnessMs)
+      await reverify(record)
+    },
+
+    async verifyObservation(consentId) {
+      const record = records.get(consentId)
+      if (!record) throw refuse('not_found', 'consent record is unknown or already dropped')
+      if (record.expiresAt <= nowIso())
+        throw refuse('permission_denied', 'consent record has expired', true)
+      // Consumption is deliberately NOT required: observation never consumes
+      // the single-use record (that is the input grant's act), but it must
+      // re-derive the same permission freshness.
+      await reverify(record)
     },
 
     revokeForLane(laneId) {
