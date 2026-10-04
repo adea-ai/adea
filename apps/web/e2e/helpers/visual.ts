@@ -49,4 +49,5 @@ export const test = base.extend({
 })
 
 export { expect }
+export type { Locator } from '@playwright/test'
 export type { Page }

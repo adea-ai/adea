@@ -118,6 +118,9 @@ export type DevProjectFixture = Readonly<{
   sessions: readonly Readonly<{
     id: string
     title: string
+    /** Mirrors the projection record so fixtures resolve canonical bindings. */
+    worktreeId?: string
+    terminalId?: string
     /** Canonical RuntimeSession lifecycle states (register-backed). */
     state:
       | 'preparing'
@@ -214,6 +217,7 @@ export const devViewFixtureGroups: readonly DevGroupFixture[] = [
             id: 'fixture-shell',
             title: 'Dev View foundation',
             state: 'active',
+            generation: 1,
             badges: {
               harness: 'working',
               dirty: true,
@@ -221,7 +225,7 @@ export const devViewFixtureGroups: readonly DevGroupFixture[] = [
               ports: [3000],
             },
           },
-          { id: 'fixture-runtime', title: 'Runtime contracts', state: 'ready' },
+          { id: 'fixture-runtime', title: 'Runtime contracts', state: 'ready', generation: 1 },
         ],
       },
       {
@@ -234,12 +238,14 @@ export const devViewFixtureGroups: readonly DevGroupFixture[] = [
             id: 'fixture-tools-session',
             title: 'Other project session',
             state: 'ready',
+            generation: 1,
             badges: { checks: 'failed', harness: 'awaiting_input' },
           },
           {
             id: 'fixture-archived',
             title: 'Archived discovery',
             state: 'archived',
+            generation: 1,
           },
         ],
       },
@@ -616,7 +622,10 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const selectedSessionRecord = createMemo(() => {
     const sessionId = selectedSession()
     if (!sessionId) return undefined
-    for (const group of projection()?.groups ?? [])
+    // The record comes from the same list the selection resolved against, so
+    // fixture mounts (no runtime projection) still publish a canonical
+    // binding with the session's generation.
+    for (const group of groups())
       for (const project of group.projects)
         for (const session of project.sessions) if (session.id === sessionId) return session
     return undefined

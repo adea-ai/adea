@@ -39,8 +39,18 @@ window.__adeaDesktop = {
 }
 let closes = 0
 let delayed = false
-let resolveList: (() => void) | undefined
+const heldLists: Array<{ resolve(): void; reject(error: unknown): void }> = []
 let refuse = false
+function discardHeldLists(): void {
+  if (!delayed) return
+  delayed = false
+  for (const held of heldLists.splice(0)) {
+    held.reject({
+      ok: false,
+      error: { code: 'unavailable', retryable: true, message: 'Selection changed.' },
+    })
+  }
+}
 const sessions: RuntimeSession[] = [firstId, secondId].map((id, index) => ({
   id,
   scope,
@@ -104,10 +114,13 @@ const runtime: DevRuntimeService = {
       command.operation === 'dev.session.unarchive'
     )
       archiveCommands.push(command)
-    if (command.operation === 'dev.session.list' && delayed) {
-      delayed = false
-      await new Promise<void>((resolve) => {
-        resolveList = resolve
+    // Hold the live session lists so the pending-attach window stays
+    // observable. The archive shelf's own list (archived: true) is not part of
+    // the attach path and never holds. A newer selection discards the held
+    // lists: a late attach must not replace it.
+    if (command.operation === 'dev.session.list' && delayed && command.body.archived !== true) {
+      await new Promise<void>((resolve, reject) => {
+        heldLists.push({ resolve, reject })
       })
     }
     if (command.operation === 'dev.session.list' && refuse)
@@ -230,13 +243,18 @@ window.desktopRuntimeChatHarness = {
     delayed = true
   },
   resolveAttach: () => {
-    resolveList?.()
-    resolveList = undefined
+    delayed = false
+    for (const held of heldLists.splice(0)) held.resolve()
   },
   refuseAttach: (value: boolean) => {
     refuse = value
   },
-  selectFirst: () => workspaceStore.getState().setSelectedRuntimeSessionId(firstId),
+  selectFirst: () => {
+    // A newer selection supersedes the held attach: discard it and let this
+    // selection attach immediately.
+    discardHeldLists()
+    workspaceStore.getState().setSelectedRuntimeSessionId(firstId)
+  },
   selectSecond: () => workspaceStore.getState().setSelectedRuntimeSessionId(secondId),
   // setDraft drops the write unless the identity's scopeKey matches the host's
   // scopeKey(scope) — the exact value chatDraftScopeKey builds in

@@ -39,6 +39,8 @@ import { archiveTimeLabel, type ArchiveShelfState } from './archive-shelf-model'
 export function ArchiveShelf(props: {
   state: ArchiveShelfState
   handoffMessage?: string
+  /** The shelf disclosure toggled; hosts reload deferred loads on expand. */
+  onExpanded?(expanded: boolean): void
   onRestore(runtimeSessionId: string): void
   onRequestDelete(runtimeSessionId: string): void
   onCancelDelete(): void
@@ -78,7 +80,13 @@ export function ArchiveShelf(props: {
         class="w-full justify-start"
         aria-expanded={expanded()}
         aria-controls="dev-archive-shelf-content"
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() =>
+          setExpanded((value) => {
+            const next = !value
+            props.onExpanded?.(next)
+            return next
+          })
+        }
       >
         <Archive aria-hidden="true" /> Archived sessions
         <Show when={props.state.items.length > 0}>

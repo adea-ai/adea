@@ -6,28 +6,30 @@ async function exerciseContextualSidebarToggle(page: Page) {
     name: 'Collapse contextual sidebar',
     exact: true,
   })
+  const closeSheet = page.getByRole('button', { name: 'Close', exact: true })
   const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
 
   if (await expandSidebar.isVisible()) {
     await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
     await expect(projectsSidebar).toBeHidden()
+    // Narrow widths present the contextual sidebar as the shared modal sheet:
+    // the global toggle flips to its collapse name and goes inert while the
+    // sheet is up, and the sheet's own close returns focus to the opener.
     await expandSidebar.click()
     await expect(collapseSidebar).toHaveAttribute('aria-expanded', 'true')
-    await expect(collapseSidebar).toBeFocused()
+    await expect(projectsSidebar).toBeVisible()
+    await closeSheet.click()
+    await expect(projectsSidebar).toBeHidden()
+    await expect(expandSidebar).toBeFocused()
+    await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
+    await expandSidebar.click()
+    await expect(projectsSidebar).toBeVisible()
+    await closeSheet.click()
+    await expect(projectsSidebar).toBeHidden()
+    await expect(expandSidebar).toBeFocused()
   } else {
-    await expect(collapseSidebar).toHaveAttribute('aria-expanded', 'true')
     await expect(projectsSidebar).toBeVisible()
   }
-
-  await expect(projectsSidebar).toBeVisible()
-  await collapseSidebar.click()
-  await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
-  await expect(expandSidebar).toBeFocused()
-  await expect(projectsSidebar).toBeHidden()
-  await expandSidebar.click()
-  await expect(collapseSidebar).toHaveAttribute('aria-expanded', 'true')
-  await expect(collapseSidebar).toBeFocused()
-  await expect(projectsSidebar).toBeVisible()
 }
 
 function devToolbarControl(page: Page, name: string) {
@@ -296,11 +298,17 @@ async function expectDevTopbarBoundary(page: Page, width: number) {
     element.textContent =
       'A workspace name long enough to test title clipping without hiding toolbar actions'
   })
-  await expect(sidebar).toBeVisible()
-  await assertBoundary(width > 768 ? sidebar : rail)
-  await page.getByRole('button', { name: 'Collapse contextual sidebar', exact: true }).click()
-  await expect(sidebar).toBeHidden()
+  if (width > 768) {
+    // Wide widths keep the inline sidebar: its edge owns the boundary until
+    // the collapse toggle hides it.
+    await expect(sidebar).toBeVisible()
+    await assertBoundary(sidebar)
+    await page.getByRole('button', { name: 'Collapse contextual sidebar', exact: true }).click()
+  }
+  // Collapsed (or drawer-presented) sidebars leave the outer rail as the
+  // boundary; Dev actions stay in flow after it.
   await assertBoundary(rail)
+  await expect(sidebar).toBeHidden()
 }
 
 for (const width of [768, 1024, 1440]) {
@@ -767,6 +775,11 @@ test('the archive shelf restores losslessly and deletes only behind an explicit 
     const expand = page.getByRole('button', { name: 'Expand contextual sidebar', exact: true })
     if (await expand.isVisible()) await expand.click()
     await expect(item).toBeVisible()
+    // The mobile sheet slides in before it rests; measure only the settled
+    // row so the slide never reads as a clipped label.
+    await expect
+      .poll(async () => (await item.boundingBox())?.x ?? Number.NEGATIVE_INFINITY)
+      .toBeGreaterThanOrEqual(0)
     const bounds = await item.evaluate((element) => {
       const row = element.getBoundingClientRect()
       const controls = [...element.querySelectorAll('button')].map((button) => {

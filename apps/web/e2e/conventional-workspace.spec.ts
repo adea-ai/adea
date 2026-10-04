@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 
 // The visual helpers install transition suppression for every capture; see
 // helpers/visual.ts for the race this closes.
-import { expect, test, type Page } from './helpers/visual'
+import { expect, test, type Locator, type Page } from './helpers/visual'
 
 import { canonicalThemeCssTokens } from '../../../packages/ui/src/components/canonical-theme-css-data'
 import { verifyRegistryArtifacts } from '../../../packages/workspace-ui/src/marketplace-catalog'
@@ -1552,7 +1552,8 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await expect(navigation.getByRole('region', { name: 'Rooms' })).toBeVisible()
   await expect(navigation.getByRole('region', { name: 'Conversations' })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-narrow-light.png', { animations: 'disabled' })
-  await navigation.getByRole('button', { name: 'Close workspace navigation' }).click()
+  // The published sheet owns the close chrome next to the navigation aside.
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
   const contextualToggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
   // Finish the sheet's close/focus-restoration transition before opening the
   // next overlay, so Search captures a persistent opener rather than its
@@ -2211,8 +2212,19 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   // edge — is interaction state rather than rendering identity. Park it on the
   // non-interactive top-bar title before every capture.
   await page.mouse.move(600, 24)
-  await page.waitForTimeout(250)
-  const virtualSidebarShot = await virtualSidebar.screenshot({ animations: 'disabled' })
+  // The shared navigation content now scrolls (quick actions plus the archive
+  // shelf), so the overlay scrollbar can paint over the resize edge's
+  // antialiased columns in exactly one view. Both captures therefore clip the
+  // trailing edge off and compare the composition itself byte for byte.
+  const clippedSidebarCapture = async (element: Locator) => {
+    const box = await element.boundingBox()
+    expect(box).not.toBeNull()
+    return page.screenshot({
+      animations: 'disabled',
+      clip: { x: box!.x, y: box!.y, width: box!.width - 6, height: box!.height },
+    })
+  }
+  const virtualSidebarShot = await clippedSidebarCapture(virtualSidebar)
 
   await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
   await expect(page.getByText('Direct Conversation', { exact: true })).toBeVisible()
@@ -2220,8 +2232,7 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
     resizedWidth
   )
   await page.mouse.move(600, 24)
-  await page.waitForTimeout(250)
-  const wideChatSidebar = await chatSidebar.screenshot({ animations: 'disabled' })
+  const wideChatSidebar = await clippedSidebarCapture(chatSidebar)
   expect(virtualSidebarShot).toEqual(wideChatSidebar)
 
   await page.getByRole('button', { name: /^Product( |$)/ }).click()
@@ -2410,7 +2421,9 @@ test.describe('touch workspace sidebar actions', () => {
         const panel = element.getBoundingClientRect()
         const title = element.querySelector('h1')
         const titleBounds = title?.getBoundingClientRect()
-        const close = element.querySelector('.conventional-sidebar__close')
+        // The published sheet owns the close chrome; it sits in the dialog,
+        // not inside the navigation aside.
+        const close = document.querySelector('[role="dialog"] [aria-label="Close"]')
         const closeBounds = close?.getBoundingClientRect()
         const actionButtons = Array.from(
           element.querySelectorAll('[data-slot="sidebar-nav-row-actions"] button')
@@ -2486,7 +2499,8 @@ test.describe('touch workspace sidebar actions', () => {
       .toBeGreaterThanOrEqual(0)
     const chatLayout = await assertSidebarFits()
 
-    await sidebar.getByRole('button', { name: 'Close workspace navigation' }).tap()
+    // The published sheet owns the close chrome next to the navigation aside.
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).tap()
     await page
       .getByRole('navigation', { name: 'Global navigation' })
       .getByRole('button', { name: 'Virtual view', exact: true })
@@ -2536,7 +2550,11 @@ test.describe('touch workspace sidebar actions', () => {
     await expect(sidebarButtons.first()).toBeFocused()
 
     await page.keyboard.press('Shift+Tab')
-    await expect(sidebarButtons.last()).toBeFocused()
+    // The sheet's own close is the dialog's trailing focusable, so the wrap
+    // backwards from the navigation content reaches it first.
+    await expect(
+      page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true })
+    ).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(sidebarButtons.first()).toBeFocused()
 
@@ -2635,12 +2653,16 @@ test.describe('touch workspace sidebar actions', () => {
     await expect(sidebar).toBeVisible()
 
     await page.setViewportSize({ width: 1280, height: 844 })
-    await expect(sidebar).toBeVisible()
+    // Crossing to a wide viewport reparents the navigation into the inline
+    // desktop aside; the mobile sheet instance stays mounted but hidden, so
+    // target the desktop instance for the inline assertions.
+    const inlineSidebar = page.locator('aside[data-contextual-sidebar="desktop"]')
+    await expect(inlineSidebar).toBeVisible()
     await expect(
       page.getByRole('separator', { name: 'Resize workspace navigation' })
     ).toBeAttached()
     await expect
-      .poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width))
+      .poll(() => inlineSidebar.evaluate((element) => element.getBoundingClientRect().width))
       .toBe(320)
   })
 })

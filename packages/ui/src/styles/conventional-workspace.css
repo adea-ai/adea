@@ -317,6 +317,13 @@
   /* Sidebar chrome uses the shared UI role in every workspace view. */
   font-family: var(--font-ui, var(--font-sans));
 }
+/* The published resize ruler is an absolutely positioned pointer-events-none
+   overlay across the sidebar's full width; only its 1px handle accepts the
+   pointer. Lift it above the adjacent conversation surface so the edge stays
+   grabbable — the Dev utility splitter carries the same --z-docked lift. */
+.conventional-sidebar > [data-corvu-resizable-root] {
+  z-index: var(--z-docked);
+}
 .conventional-sidebar__close {
   display: none;
 }

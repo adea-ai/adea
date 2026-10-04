@@ -20,6 +20,8 @@ test('production WorkspaceNavigation reports its resolved Dev selection and clea
     'apps/web/e2e/helpers/workspace-navigation-presentation-harness-app.tsx'
   )
   await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + app}'` })
+  // The module graph loads asynchronously; wait for the harness global.
+  await page.waitForFunction(() => Boolean(window.workspaceNavigationPresentationHarness))
 
   const report = () => page.evaluate(() => window.workspaceNavigationPresentationHarness.report())
   const calls = async () => (await report()).calls
@@ -88,6 +90,8 @@ test('WorkspaceNavigation invalidates the shared utility identity on Chat and Vi
     'apps/web/e2e/helpers/workspace-navigation-presentation-harness-app.tsx'
   )
   await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + app}'` })
+  // The module graph loads asynchronously; wait for the harness global.
+  await page.waitForFunction(() => Boolean(window.workspaceNavigationPresentationHarness))
   const report = () => page.evaluate(() => window.workspaceNavigationPresentationHarness.report())
 
   await expect.poll(async () => (await report()).utility.view).toBe('dev')
@@ -116,6 +120,8 @@ test('WorkspaceNavigation lazily mounts scoped utilities across sessionless Chat
     'apps/web/e2e/helpers/workspace-navigation-presentation-harness-app.tsx'
   )
   await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + app}'` })
+  // The module graph loads asynchronously; wait for the harness global.
+  await page.waitForFunction(() => Boolean(window.workspaceNavigationPresentationHarness))
   const report = () => page.evaluate(() => window.workspaceNavigationPresentationHarness.report())
 
   await page.evaluate(() => window.workspaceNavigationPresentationHarness.showChat())
@@ -186,6 +192,8 @@ test('Chat and Virtual sidebars share the archive footer and restore with the li
     'apps/web/e2e/helpers/workspace-navigation-presentation-harness-app.tsx'
   )
   await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + app}'` })
+  // The module graph loads asynchronously; wait for the harness global.
+  await page.waitForFunction(() => Boolean(window.workspaceNavigationPresentationHarness))
   const report = () => page.evaluate(() => window.workspaceNavigationPresentationHarness.report())
   const workspaceScope = {
     accountId: '00000000-0000-4000-8000-000000000001',
@@ -237,7 +245,10 @@ test('Chat and Virtual sidebars share the archive footer and restore with the li
   const virtualSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   const virtualArchiveAction = virtualSidebar.getByRole('button', { name: /Archived sessions/ })
   await expect(virtualArchiveAction).toBeVisible()
-  await virtualArchiveAction.click()
+  // The shelf disclosure persists across view switches; only expand it when
+  // the Chat iteration left it collapsed.
+  if ((await virtualArchiveAction.getAttribute('aria-expanded')) !== 'true')
+    await virtualArchiveAction.click()
   const virtualArchivedRow = virtualSidebar
     .getByRole('list', { name: 'Archived sessions', exact: true })
     .getByRole('listitem')
@@ -276,6 +287,8 @@ test('discards a pending Chat archive page after switching to Virtual', async ({
     'apps/web/e2e/helpers/workspace-navigation-presentation-harness-app.tsx'
   )
   await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + app}'` })
+  // The module graph loads asynchronously; wait for the harness global.
+  await page.waitForFunction(() => Boolean(window.workspaceNavigationPresentationHarness))
   const report = () => page.evaluate(() => window.workspaceNavigationPresentationHarness.report())
 
   await page.evaluate(() => window.workspaceNavigationPresentationHarness.delayNextArchiveList())

@@ -278,6 +278,14 @@
   cursor: pointer;
 }
 
+/* The contextual project sidebar's published resize ruler is an absolutely
+   positioned pointer-events-none overlay across the sidebar's full width; only
+   its 1px handle accepts the pointer. Lift it above the Dev center so the edge
+   stays grabbable, matching the utility splitter's --z-docked lift. */
+.dev-sidebar [data-corvu-resizable-root] {
+  z-index: var(--z-docked);
+}
+
 .dev-row-badge {
   /* A solid pill pairs the badge text with the workspace background instead
      of whatever row wash it sits on, so every status tone keeps 4.5:1 on

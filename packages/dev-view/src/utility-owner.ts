@@ -541,6 +541,7 @@ export function createSharedDevUtilityOwner(
 
   const documentForCurrentBinding = () => {
     const current = boundPreferences()
+
     if (!current) return undefined
     const loaded = preferences()
     if (
