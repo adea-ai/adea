@@ -17,7 +17,8 @@ async function openSettingsHarness(
   microphoneMode: 'retry' | 'delayed' | undefined = undefined,
   desktopPreferences = false,
   desktopWriteFailure = false,
-  missingDesktopBridge = false
+  missingDesktopBridge = false,
+  themeProvider = false
 ): Promise<Error[]> {
   const path = '/__workspace-settings'
   const errors: Error[] = []
@@ -52,6 +53,10 @@ async function openSettingsHarness(
       .locator('#harness-root')
       .evaluate((element) => element.setAttribute('data-missing-desktop-bridge', ''))
   }
+  if (themeProvider)
+    await page
+      .locator('#harness-root')
+      .evaluate((element) => element.setAttribute('data-theme-provider', ''))
   await page.evaluate(
     async (url) => {
       await import(url)
@@ -75,6 +80,10 @@ test('every settings section survives missing desktop services and repeated navi
     await tab.click()
     await expect(tab).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator(`#settings-panel-${section}`)).toBeVisible()
+    if (section === 'appearance')
+      await expect(dialog.getByRole('status')).toHaveText(
+        'Appearance settings are unavailable in this view.'
+      )
     await expect(dialog).toBeVisible()
     expect(errors).toEqual([])
   }
@@ -84,6 +93,20 @@ test('every settings section survives missing desktop services and repeated navi
   await expect(dialog).toBeVisible()
   await dialog.getByRole('tab', { name: 'Input & notifications', exact: true }).click()
   await expect(page.locator('#settings-panel-input-notifications')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('the appearance fallback updates its host theme when a provider is present', async ({
+  page,
+}) => {
+  const errors = await openSettingsHarness(page, undefined, false, false, false, true)
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await dialog.getByRole('tab', { name: 'Appearance', exact: true }).click()
+  await dialog.getByLabel('Dark', { exact: true }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await dialog.getByLabel('Light', { exact: true }).click()
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+  await expect(dialog.getByText('Appearance settings are unavailable in this view.')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 

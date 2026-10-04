@@ -3,6 +3,7 @@ export {
   ThemeProvider,
   ThemeScript,
   useTheme,
+  useOptionalTheme,
   type ResolvedTheme,
   type Theme,
 } from './components/theme-provider'

@@ -2,6 +2,8 @@ import type { AgentSummary, WorkspaceSummary } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
+import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
+import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import {
   SettingsNavigation,
@@ -89,7 +91,8 @@ export function WorkspaceSettingsDialog(props: {
    * The full appearance editor, injected by the host as an accessor
    * (dev-view's `AppearancePanel`) so it mounts only while this section is
    * the active one. Omitted falls back to the simple theme toggle, which is
-   * what a host without the editor can offer.
+   * what a host without the editor can offer. A host without an appearance
+   * provider reports the unavailable preference instead of throwing.
    */
   appearancePanel?: () => JSX.Element
   /** The desktop bridge permission service; omitted (web-only) renders the
@@ -98,6 +101,7 @@ export function WorkspaceSettingsDialog(props: {
   services?: WorkspacePlatformServices
   workspace: WorkspaceSummary
 }) {
+  const themeContext = useOptionalTheme()
   const [section, setSection] = createSignal<SettingsSection>('account')
   const [preferences, setPreferences] = createSignal<WorkspacePreferences>(
     defaultWorkspacePreferences
@@ -362,7 +366,16 @@ export function WorkspaceSettingsDialog(props: {
                   title="Color theme"
                   detail="Follow the system or explicitly choose light or dark."
                 >
-                  <ThemeToggle />
+                  <Show
+                    when={themeContext}
+                    fallback={
+                      <EmptyDescription role="status">
+                        Appearance settings are unavailable in this view.
+                      </EmptyDescription>
+                    }
+                  >
+                    <ThemeToggle />
+                  </Show>
                 </SettingsRow>
               </>
             }

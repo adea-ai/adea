@@ -4341,6 +4341,12 @@ variants rather than private control colors, padding, or shape overrides.
 
 ## Appearance and App Library
 
+The settings dialog can mount without application providers. Its Appearance
+fallback uses the persisted theme control when the host supplies a theme
+provider; otherwise it reports that appearance settings are unavailable in
+this view. Missing preference ownership must not throw, reset the document's
+theme, or prevent navigation to other settings sections.
+
 Client preference schema:
 
 ```ts

@@ -3,6 +3,7 @@ import { createSignal } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { render } from 'solid-js/web'
 import { WorkspaceSettingsDialog } from '@adea-ai/workspace-ui/workspace-settings'
+import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import type { TranscriptionProvider, WorkspacePreferences } from '@adea-ai/workspace-ui/platform'
 import { createDesktopSettingsProvider } from '../../src/lib/desktop-platform-services'
@@ -97,4 +98,14 @@ function Harness() {
   )
 }
 
-render(() => <Harness />, document.querySelector('#harness-root')!)
+render(
+  () =>
+    document.querySelector('#harness-root')?.hasAttribute('data-theme-provider') ? (
+      <ThemeProvider>
+        <Harness />
+      </ThemeProvider>
+    ) : (
+      <Harness />
+    ),
+  document.querySelector('#harness-root')!
+)
