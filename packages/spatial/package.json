@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/spatial",
-  "version": "0.81.0",
+  "version": "0.82.0",
   "description": "Scene and asset manifest contracts plus the shell-to-engine spatial protocol for Adea workspaces: scene mount manifests, spawn URL helpers, and scene telemetry schemas. Pure types — no rendering, no binaries.",
   "keywords": [
     "assets",

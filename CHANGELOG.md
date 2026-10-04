@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.82.0](https://github.com/adea-ai/adea/compare/v0.81.0...v0.82.0) (2026-10-04)
+
+
+### Features
+
+* **appearance:** adopt shared fonts across app views ([#1016](https://github.com/adea-ai/adea/issues/1016)) ([694c6cc](https://github.com/adea-ai/adea/commit/694c6ccb0d766916946823b5c2c3d9a50ec2d4bc))
+
+
+### Bug Fixes
+
+* **chat:** gate decision controls and fence stale composer replies ([#1011](https://github.com/adea-ai/adea/issues/1011)) ([dd2486b](https://github.com/adea-ai/adea/commit/dd2486b2ad0eb677d85f34404c7c9b6e7f46257c))
+* **deps:** update dependency @adea-ai/ui to v0.109.1 ([#1019](https://github.com/adea-ai/adea/issues/1019)) ([1f0916e](https://github.com/adea-ai/adea/commit/1f0916e0c1d394e2a48791715256c9247b5f67cf))
+* **deps:** update dependency @adea-ai/ui to v0.110.0 ([#1020](https://github.com/adea-ai/adea/issues/1020)) ([205cc1d](https://github.com/adea-ai/adea/commit/205cc1d3444c179d28a6a44259a2095abe89886a))
+* **kanban:** docked task panel, first-click selects, dirty-aware Save without flicker, coloured tags ([#1015](https://github.com/adea-ai/adea/issues/1015)) ([6689190](https://github.com/adea-ai/adea/commit/6689190e3d174b1de00503abbc18eff85bbfce62))
+* **ui:** use shared action controls for utility icons ([#1017](https://github.com/adea-ai/adea/issues/1017)) ([81b6266](https://github.com/adea-ai/adea/commit/81b6266cfff64e7878eac6c8fbd5c170bf03c64b))
+
+
+### Maintenance
+
+* **ui:** enforce shared composition and adopt annotation surface ([#1018](https://github.com/adea-ai/adea/issues/1018)) ([d99f6e7](https://github.com/adea-ai/adea/commit/d99f6e761cc152d4413d8af6553427783d397ff6))
+
 ## [0.81.0](https://github.com/adea-ai/adea/compare/v0.80.1...v0.81.0) (2026-10-04)
 
 
