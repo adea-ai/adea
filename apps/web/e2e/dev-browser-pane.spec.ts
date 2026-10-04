@@ -1144,3 +1144,22 @@ test('BrowserPane and ResourcesPane project the shared UI, Content, and Code fon
   await page.evaluate(() => window.browserPaneHarness.resetFonts())
   await expect(resourceContent).toHaveCSS('font-size', '14px')
 })
+
+for (const [pane, title, description] of [
+  ['layout-editor', 'Choose a file to edit', 'Select a file from the Files panel.'],
+  ['layout-terminal', 'Terminal unavailable', 'Connect an available runtime to use terminals.'],
+  ['layout-terminal-available', 'Terminal unavailable', 'Open a terminal in the selected session.'],
+] as const) {
+  test(`shared empty state gives ${pane} actionable guidance`, async ({ page }) => {
+    await page.route('**' + BROWSER_PANE_HARNESS_PATH + '**', (route) =>
+      route.fulfill({ contentType: 'text/html', body: browserPaneHarnessHtml() })
+    )
+    await page.goto(`${BROWSER_PANE_HARNESS_PATH}?pane=${pane}`)
+    await page.addScriptTag({ type: 'module', content: browserPaneHarnessModuleSource() })
+    const empty = page.locator('[data-slot="empty"]')
+    await expect(empty).toBeVisible()
+    await expect(empty.getByRole('heading', { name: title, level: 2 })).toBeVisible()
+    await expect(empty.locator('[data-slot="empty-description"]')).toHaveText(description)
+    await expect(page.getByText('dev runtime status')).toHaveCount(0)
+  })
+}

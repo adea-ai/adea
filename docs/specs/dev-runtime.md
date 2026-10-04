@@ -55,6 +55,11 @@ No privileged Dev command may use them until M10 authenticates the channel and
 every request. Loopback address, same origin, hidden URL, CEF embedding, or
 knowledge of an object ID MUST NOT grant permission.
 
+Pane placeholders use the shared Empty composition and concise domain guidance:
+files point to the Files panel, while terminals distinguish unavailable runtimes
+from sessions without an open terminal. Transport implementation details are not
+presented as terminal output.
+
 ## Package boundary
 
 - `packages/types/src/dev-runtime.ts`: IDs, enums, request/response/event DTOs,
@@ -1875,6 +1880,10 @@ callers bind their exact operation entry; the shared builder uses the operation
 carried by that entry together with its capability and resource requirements.
 These generated forms carry the same registry facts and do not create a second
 authorization source.
+The dynamic map projects each named binding through one shared helper, retaining
+exactly `capabilities` and `resource` with their literal types. This avoids
+repeating the projection code for every operation while keeping per-operation
+imports independent and the wire/registry contracts unchanged.
 
 No body accepts `unknown`, an open record, a shell command string, an absolute
 path where a `WorkspacePath` is required, or identity/capability/channel
@@ -5962,3 +5971,7 @@ variant. These presentation controls retain the existing runtime fences and plan
 authority; a tooltip or visual variant does not authorize an operation.
 
 Browser lane selection uses published `ListRowControl` buttons in a labelled group. The selected lane has the shared selected treatment and `aria-current`; keyboard activation uses native button semantics. Lane state and ownership remain domain descriptions, and choosing a lane preserves the existing inspection invalidation and scoped target/diagnostic refresh behavior.
+
+Utility pane resize controls use the published `PixelResizeHandle`, including its
+shared grip, full-height pointer target, cancellation handling, and keyboard
+controls. Adea retains only the utility width steps and saved preferences.

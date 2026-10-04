@@ -116,7 +116,7 @@ export const CLIENT_BUNDLE_BUDGETS = {
 }
 
 const DEV_ENTRY_MARKERS = ['Developer workspace panes', 'No runtime projects available.']
-const DEV_LAYOUT_MARKER = 'terminal-bytes-v1 stream'
+const DEV_LAYOUT_MARKER = 'Developer center panes'
 
 function chunkName(file) {
   return path.posix.basename(file)

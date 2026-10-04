@@ -1,7 +1,8 @@
 import type { PaneLeaf } from '@adea-ai/types/dev-runtime'
 import { SplitLayout } from '@adea-ai/ui/components/layout/split-layout'
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import type { Accessor, JSX } from 'solid-js'
-import { Files, PanelRightOpen, TerminalSquare } from 'lucide-solid'
+import { Files, TerminalSquare } from 'lucide-solid'
 import { Show, createMemo } from 'solid-js'
 
 import type { DevLayoutState } from './operations'
@@ -43,27 +44,34 @@ function PaneContent(props: {
       when={content().pane === 'terminal'}
       fallback={
         props.renderEditorLeaf?.(content()) ?? (
-          <div class="dev-empty-state">
-            <PanelRightOpen aria-hidden="true" />
-            <h1>Choose a file to edit</h1>
-            <p>File authority will arrive through the authenticated Dev Runtime.</p>
-          </div>
+          <PanePlaceholder terminal={false} unavailable={props.unavailable} />
         )
       }
     >
       {props.renderTerminalLeaf?.(content()) ?? (
-        <div class="dev-terminal-placeholder">
-          <p>$ dev runtime status</p>
-          <p class="dev-terminal-muted">
-            Terminal output rides the authenticated terminal-bytes-v1 stream; this provider does not
-            expose the attach seam yet, so no PTY is bound to this pane.
-          </p>
-          <Show when={props.unavailable}>
-            <p>Capability state: unavailable</p>
-          </Show>
-        </div>
+        <PanePlaceholder terminal unavailable={props.unavailable} />
       )}
     </Show>
+  )
+}
+
+/** The app supplies domain guidance; shared Empty owns the presentation. */
+function PanePlaceholder(props: { terminal: boolean; unavailable: boolean }) {
+  return (
+    <Empty>
+      <EmptyHeader>
+        <EmptyTitle role="heading" aria-level={2}>
+          {props.terminal ? 'Terminal unavailable' : 'Choose a file to edit'}
+        </EmptyTitle>
+        <EmptyDescription>
+          {props.terminal
+            ? props.unavailable
+              ? 'Connect an available runtime to use terminals.'
+              : 'Open a terminal in the selected session.'
+            : 'Select a file from the Files panel.'}
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   )
 }
 

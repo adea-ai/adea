@@ -8,6 +8,8 @@ import {
 
 import { BrowserPane } from '../../../../packages/dev-view/src/browser/browser-pane'
 import { DevicesPane } from '../../../../packages/dev-view/src/devices/devices-pane'
+import { DevLayoutView } from '../../../../packages/dev-view/src/layout/layout-view'
+import { createLayoutState } from '../../../../packages/dev-view/src/layout/operations'
 import { ResourcesPane } from '../../../../packages/dev-view/src/resources/resources-pane'
 import type { DevRuntimeService } from '../../../../packages/dev-view/src/platform'
 import {
@@ -476,6 +478,21 @@ if (!root) throw new Error('browser pane harness root missing')
 
 dispose = render(() => {
   const pane = new URLSearchParams(window.location.search).get('pane')
+  if (pane?.startsWith('layout-'))
+    return (
+      <DevLayoutView
+        state={createLayoutState({
+          kind: 'leaf',
+          id: 'placeholder',
+          pane: pane === 'layout-editor' ? 'editor' : 'terminal',
+        })}
+        unavailable={pane !== 'layout-terminal-available'}
+        onClose={() => 'placeholder'}
+        onFocus={() => {}}
+        onResize={() => {}}
+        onMoveTo={() => {}}
+      />
+    )
   if (pane === 'devices')
     return <DevicesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
   if (pane === 'resources')
