@@ -1265,6 +1265,10 @@ test('opens the Task panel beside the board and restores focus on dismissal', as
   // Docked inside the main view: below the top bar, one equal gap from the top
   // bar, the end edge and the bottom of the window.
   const topBar = await page.getByLabel('Workspace toolbar').boundingBox()
+  // Measure the settled panel, not a frame of its slide-in.
+  await detail.evaluate((element) =>
+    Promise.all(element.getAnimations().map((animation) => animation.finished))
+  )
   const panelBox = (await detail.boundingBox())!
   const viewport = page.viewportSize()!
   const gap = viewport.width - (panelBox.x + panelBox.width)
