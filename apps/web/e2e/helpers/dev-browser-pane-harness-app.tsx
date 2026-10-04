@@ -1,3 +1,4 @@
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 
 import {
@@ -18,7 +19,9 @@ import {
   cookieImportCommitReply,
   cookieImportPlanReply,
   cookieSourcesReply,
+  type CookieFixtureLane,
 } from './dev-browser-pane-cookie-fixtures'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import type {
   BrowserLane,
   BrowserTarget,
@@ -31,6 +34,7 @@ import type {
 } from '@adea-ai/types/dev-runtime'
 
 import type { BrowserPaneHarnessReport } from './dev-browser-pane-harness'
+import type { DevUtilityContextReader } from '../../../../packages/dev-view/src/utility-context'
 
 const scope = browserPaneFixtureScope
 let lane: BrowserLane = {
@@ -76,6 +80,34 @@ const deferredAnnotations = new Map<
   number,
   { command: DevCommand; resolve(reply: DevReply): void }
 >()
+let nextDeferredCookiePlanId: number | undefined
+let nextDeferredCookiePlanSequence = 0
+const deferredCookiePlans = new Map<
+  number,
+  {
+    command: DevCommand
+    lane: CookieFixtureLane
+    mode: ReturnType<typeof cookieFixtureMode>
+    resolve(reply: DevReply): void
+  }
+>()
+let nextDeferredCookieCommitId: number | undefined
+let nextDeferredCookieCommitSequence = 0
+const deferredCookieCommits = new Map<
+  number,
+  {
+    command: DevCommand
+    lane: CookieFixtureLane
+    mode: ReturnType<typeof cookieFixtureMode>
+    resolve(reply: DevReply): void
+  }
+>()
+const initialSessionId = lane.runtimeSessionId
+const [canonicalSession, setCanonicalSession] = createSignal({
+  runtimeSessionId: initialSessionId,
+  sessionGeneration: 7,
+  revision: 1,
+})
 
 function browserLanes(): readonly BrowserLane[] {
   return new URLSearchParams(window.location.search).get('lanes') === 'multiple'
@@ -85,6 +117,10 @@ function browserLanes(): readonly BrowserLane[] {
 
 function cookiesFixtureMode() {
   return cookieFixtureMode(new URLSearchParams(window.location.search))
+}
+
+function cookieLaneSnapshot(): CookieFixtureLane {
+  return { id: lane.id, generation: lane.generation, state: lane.state }
 }
 
 const port: PortRecord = {
@@ -199,6 +235,42 @@ const deferredControls = {
     nextDeferredAnnotateSequence += 1
     nextDeferredAnnotateId = nextDeferredAnnotateSequence
     return nextDeferredAnnotateSequence
+  },
+  deferNextCookiePlan(): number {
+    nextDeferredCookiePlanSequence += 1
+    nextDeferredCookiePlanId = nextDeferredCookiePlanSequence
+    return nextDeferredCookiePlanSequence
+  },
+  resolveCookiePlan(requestId: number): void {
+    const pending = deferredCookiePlans.get(requestId)
+    if (!pending) throw new Error(`deferred cookie plan ${requestId} is not pending`)
+    deferredCookiePlans.delete(requestId)
+    pending.resolve(cookieImportPlanReply(pending.command, pending.lane, pending.mode))
+  },
+  deferNextCookieCommit(): number {
+    nextDeferredCookieCommitSequence += 1
+    nextDeferredCookieCommitId = nextDeferredCookieCommitSequence
+    return nextDeferredCookieCommitSequence
+  },
+  resolveCookieCommit(requestId: number): void {
+    const pending = deferredCookieCommits.get(requestId)
+    if (!pending) throw new Error(`deferred cookie commit ${requestId} is not pending`)
+    deferredCookieCommits.delete(requestId)
+    pending.resolve(cookieImportCommitReply(pending.command, pending.lane, pending.mode))
+  },
+  switchSession(): void {
+    setCanonicalSession((current) => {
+      const runtimeSessionId =
+        current.runtimeSessionId === initialSessionId
+          ? 'browser-pane-fixture-session-2'
+          : initialSessionId
+      lane = { ...lane, runtimeSessionId }
+      return {
+        runtimeSessionId,
+        sessionGeneration: current.sessionGeneration + 1,
+        revision: current.revision + 1,
+      }
+    })
   },
   resolveAnnotate(requestId: number, value: unknown): void {
     const pending = deferredAnnotations.get(requestId)
@@ -326,10 +398,30 @@ const runtime = {
         return reply(command, { items: [] })
       case 'dev.browser.cookieSources':
         return cookieSourcesReply(command, cookiesFixtureMode())
-      case 'dev.browser.cookieImportPlan':
+      case 'dev.browser.cookieImportPlan': {
+        if (nextDeferredCookiePlanId !== undefined) {
+          const requestId = nextDeferredCookiePlanId
+          nextDeferredCookiePlanId = undefined
+          const laneSnapshot = cookieLaneSnapshot()
+          const mode = cookiesFixtureMode()
+          return await new Promise<DevReply>((resolve) => {
+            deferredCookiePlans.set(requestId, { command, lane: laneSnapshot, mode, resolve })
+          })
+        }
         return cookieImportPlanReply(command, lane, cookiesFixtureMode())
-      case 'dev.browser.cookieImportCommit':
+      }
+      case 'dev.browser.cookieImportCommit': {
+        if (nextDeferredCookieCommitId !== undefined) {
+          const requestId = nextDeferredCookieCommitId
+          nextDeferredCookieCommitId = undefined
+          const laneSnapshot = cookieLaneSnapshot()
+          const mode = cookiesFixtureMode()
+          return await new Promise<DevReply>((resolve) => {
+            deferredCookieCommits.set(requestId, { command, lane: laneSnapshot, mode, resolve })
+          })
+        }
         return cookieImportCommitReply(command, lane, cookiesFixtureMode())
+      }
       case 'dev.browser.navigate': {
         const url = command.body.url
         if (typeof url === 'string') currentUrl = url
@@ -422,6 +514,20 @@ const runtime = {
   },
 } as unknown as DevRuntimeService
 
+const utilityContext: DevUtilityContextReader = () => {
+  const session = canonicalSession()
+  return {
+    view: 'dev',
+    runtime,
+    scope,
+    projectId: 'browser-pane-fixture-project',
+    runtimeSessionId: session.runtimeSessionId,
+    sessionGeneration: session.sessionGeneration,
+    worktreeId: 'browser-pane-fixture-worktree',
+    revision: session.revision,
+  }
+}
+
 let dispose: (() => void) | undefined
 
 const harness = {
@@ -475,6 +581,8 @@ declare global {
 
 const root = document.getElementById('harness-root')
 if (!root) throw new Error('browser pane harness root missing')
+const showContextControl =
+  new URLSearchParams(window.location.search).get('context-control') === 'enabled'
 
 dispose = render(() => {
   const pane = new URLSearchParams(window.location.search).get('pane')
@@ -493,10 +601,29 @@ dispose = render(() => {
         onMoveTo={() => {}}
       />
     )
-  if (pane === 'devices')
-    return <DevicesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
-  if (pane === 'resources')
-    return <ResourcesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
-  return <BrowserPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+  return (
+    <>
+      {showContextControl && (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => deferredControls.switchSession()}
+          >
+            Switch runtime session
+          </Button>
+          <output data-testid="canonical-session">{canonicalSession().runtimeSessionId}</output>
+        </>
+      )}
+      {pane === 'devices' ? (
+        <DevicesPane context={utilityContext} />
+      ) : pane === 'resources' ? (
+        <ResourcesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+      ) : (
+        <BrowserPane context={utilityContext} />
+      )}
+    </>
+  )
 }, root)
 window.browserPaneHarness = harness

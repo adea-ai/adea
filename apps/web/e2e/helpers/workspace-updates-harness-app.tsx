@@ -1,9 +1,11 @@
 import '../../src/start/globals.css'
-import { createSignal, Show } from 'solid-js'
+import { createSignal, onMount } from 'solid-js'
 import { render } from 'solid-js/web'
 import { AccountMenu } from '../../../../packages/workspace-ui/src/account-menu'
 import { VersionDialog } from '../../src/components/version-dialog'
+import { getDesktopUpdateStatus } from '../../src/lib/desktop-update'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { noteUpdatePhase } from '@adea-ai/workspace-ui/update-pending'
 import type { UpdateChannelSetting } from '@adea-ai/workspace-ui/platform'
 
 /**
@@ -15,11 +17,15 @@ import type { UpdateChannelSetting } from '@adea-ai/workspace-ui/platform'
  * this way for its fast downloads) until the harness settles it.
  */
 const updaterState = {
-  phase: 'current' as string,
+  phase:
+    new URLSearchParams(window.location.search).get('initial') === 'available'
+      ? 'available'
+      : 'current',
   channel: 'stable' as UpdateChannelSetting,
   channelCheckMode: false,
   releaseInstall: undefined as (() => void) | undefined,
 }
+let statusReads = 0
 
 const channelService = {
   async channel() {
@@ -56,6 +62,7 @@ function updateSnapshot() {
   invoke: async (command: string) => {
     if (command === 'adea_app_version') return '1.0.0'
     if (command === 'desktop_update_status') {
+      statusReads += 1
       return updateSnapshot()
     }
     if (command === 'desktop_update_check') {
@@ -85,6 +92,9 @@ function updateSnapshot() {
 // the spec settles an in-flight install through this hook instead (the same
 // route the shared dialog's own fixture uses).
 ;(window as unknown as { updatesHarness?: unknown }).updatesHarness = {
+  statusReads() {
+    return statusReads
+  },
   settleInstall() {
     const release = updaterState.releaseInstall
     updaterState.releaseInstall = undefined
@@ -96,6 +106,14 @@ function Harness() {
   const [open, setOpen] = createSignal(false)
   const [updatesEnabled, setUpdatesEnabled] = createSignal(true)
   const [opener, setOpener] = createSignal<HTMLButtonElement>()
+  // Mirror DesktopWorkspaceEntry's one native boot probe. The dialog is now
+  // mounted closed before its visual module is loaded, so this fixture keeps
+  // the existing update-pending badge contract explicit.
+  onMount(() => {
+    void getDesktopUpdateStatus()
+      .then((snapshot) => noteUpdatePhase(snapshot.phase))
+      .catch(() => noteUpdatePhase(undefined))
+  })
   return (
     <>
       <output id="updates-opener">{opener()?.getAttribute('aria-label') ?? 'missing'}</output>
@@ -130,14 +148,12 @@ function Harness() {
           onSignOut={() => undefined}
         />
       </div>
-      <Show when={open()}>
-        <VersionDialog
-          channelService={channelService}
-          restoreFocusRef={opener}
-          open={open()}
-          onOpenChange={setOpen}
-        />
-      </Show>
+      <VersionDialog
+        channelService={channelService}
+        restoreFocusRef={opener}
+        open={open()}
+        onOpenChange={setOpen}
+      />
     </>
   )
 }

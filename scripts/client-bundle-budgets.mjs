@@ -117,6 +117,7 @@ export const CLIENT_BUNDLE_BUDGETS = {
 
 const DEV_ENTRY_MARKERS = ['Developer workspace panes', 'No runtime projects available.']
 const DEV_LAYOUT_MARKER = 'Developer center panes'
+const SHARED_UTILITY_HOST_MARKER = 'Shared developer utilities'
 
 function chunkName(file) {
   return path.posix.basename(file)
@@ -152,6 +153,21 @@ function resolveRelativeChunk(importer, specifier) {
   return resolved === '..' || resolved.startsWith('../') ? undefined : resolved
 }
 
+function dynamicChunkTargets(importers, chunksByFile) {
+  const targets = new Set()
+  for (const importer of importers) {
+    const chunk = chunksByFile.get(importer)
+    if (!chunk) throw new Error(`Missing JavaScript chunk ${importer}`)
+    for (const specifier of dynamicImports(chunk.source)) {
+      const target = resolveRelativeChunk(importer, specifier)
+      if (!target) continue
+      if (!chunksByFile.has(target)) continue
+      targets.add(target)
+    }
+  }
+  return [...targets].map((file) => chunksByFile.get(file))
+}
+
 function staticClosure(roots, chunksByFile) {
   const pending = roots.map(({ file }) => file)
   const visited = new Set()
@@ -170,6 +186,29 @@ function staticClosure(roots, chunksByFile) {
         pending.push(resolved)
       } else if (resolved.endsWith('.js')) {
         throw new Error(`${file} statically imports missing JavaScript chunk ${resolved}`)
+      }
+    }
+  }
+
+  return visited
+}
+
+/** Follow a requested route and all of its nested lazy imports exactly once. */
+function asyncClosure(roots, chunksByFile, preloadedFiles = new Set()) {
+  const pending = roots.map(({ file }) => file)
+  const visited = new Set()
+  const expanded = new Set()
+
+  while (pending.length > 0) {
+    const file = pending.pop()
+    if (visited.has(file)) continue
+    const staticFiles = staticClosure([{ file }], chunksByFile)
+    for (const staticFile of staticFiles) visited.add(staticFile)
+    for (const staticFile of staticFiles) {
+      if (preloadedFiles.has(staticFile) || expanded.has(staticFile)) continue
+      expanded.add(staticFile)
+      for (const target of dynamicChunkTargets([staticFile], chunksByFile)) {
+        if (!visited.has(target.file)) pending.push(target.file)
       }
     }
   }
@@ -235,10 +274,27 @@ function routeDelta(label, roots, startupFiles, chunksByFile, additionallyExclud
   )
 }
 
+function asyncRouteDelta(
+  label,
+  roots,
+  startupFiles,
+  chunksByFile,
+  additionallyExcluded = new Set()
+) {
+  for (const root of roots) {
+    if (startupFiles.has(root.file)) {
+      throw new Error(`${root.file} statically loads the ${label} entry`)
+    }
+  }
+  const preloadedFiles = new Set([...startupFiles, ...additionallyExcluded])
+  const routeFiles = asyncClosure(roots, chunksByFile, preloadedFiles)
+  return measure(new Set([...routeFiles].filter((file) => !preloadedFiles.has(file))), chunksByFile)
+}
+
 /**
- * Measure the initial workspace graph and the incremental static graph for
- * each built-in view. Dynamic imports remain lazy and count only when their
- * view or pane is opened; shared startup chunks are charged once to startup.
+ * Measure startup plus incremental view and pane graphs. Dynamic imports
+ * remain lazy and count only when their route or pane opens; shared startup
+ * chunks are charged once to startup.
  */
 export function inspectClientBundle(input) {
   if (!Array.isArray(input) || input.length === 0)
@@ -277,6 +333,9 @@ export function inspectClientBundle(input) {
     ({ source }) => DEV_ENTRY_MARKERS.every((marker) => source.includes(marker)),
     'Dev View entry'
   )
+  if (startupFiles.has(devEntry.file)) {
+    throw new Error('Workspace startup statically loads the Dev View entry')
+  }
   const devLayout = uniqueChunk(
     chunks,
     ({ source }) => source.includes(DEV_LAYOUT_MARKER),
@@ -291,17 +350,56 @@ export function inspectClientBundle(input) {
   const codeEditor = chunkByPrefix(chunks, 'code-editor-', 'Dev code editor')
   const editorMirror = chunkByPrefix(chunks, 'editor-mirror-', 'Dev editor renderer')
   const fileStream = chunkByPrefix(chunks, 'file-stream-', 'Dev editor file stream')
-  const devUtilityPaneRoots = dynamicImports(devEntry.source)
-    .map((specifier) => resolveRelativeChunk(devEntry.file, specifier))
-    .filter(
-      (file) =>
-        file &&
-        chunksByFile.has(file) &&
-        ![devLayout.file, runtimeTerminalPane.file, codeEditor.file].includes(file)
+  const repoRegistryPanel = chunkByPrefix(
+    chunks,
+    'repo-registry-panel-',
+    'Dev repository registry panel'
+  )
+  const sharedUtilityHost = uniqueChunk(
+    chunks,
+    ({ source }) => source.includes(SHARED_UTILITY_HOST_MARKER),
+    'shared utility host'
+  )
+  if (startupFiles.has(sharedUtilityHost.file)) {
+    throw new Error('Shared utility host is statically loaded by workspace startup')
+  }
+  const startupDynamicTargets = dynamicChunkTargets(startupFiles, chunksByFile)
+  const sharedUtilityOpenRoots = startupDynamicTargets.filter((root) => {
+    const closure = staticClosure([root], chunksByFile)
+    // Dev imports the same host for its standalone fallback. Opening a
+    // contextual utility must not charge the separate Dev route or its panes.
+    return closure.has(sharedUtilityHost.file) && !closure.has(devEntry.file)
+  })
+  if (sharedUtilityOpenRoots.length !== 1) {
+    throw new Error(
+      `Expected one on-demand shared utility host route, found ${sharedUtilityOpenRoots.length}`
     )
-    .map((file) => chunksByFile.get(file))
-  if (devUtilityPaneRoots.length === 0) {
-    throw new Error('Dev View entry has no dynamically attributed utility panes')
+  }
+  // Dev's own lazy panes are direct Dev-entry imports. The shared host's lazy
+  // pane roots are discovered only through its static module closure; scanning
+  // every Dev descendant would misattribute dialogs such as project import.
+  const devUtilityPaneRoots = [
+    ...dynamicChunkTargets([devEntry.file], chunksByFile).filter(
+      ({ file }) =>
+        ![
+          devLayout.file,
+          runtimeTerminalPane.file,
+          codeEditor.file,
+          repoRegistryPanel.file,
+        ].includes(file)
+    ),
+    ...dynamicChunkTargets(
+      [...staticClosure([sharedUtilityHost], chunksByFile)].filter(
+        (file) => !startupFiles.has(file)
+      ),
+      chunksByFile
+    ),
+  ]
+  const uniqueDevUtilityPaneRoots = [
+    ...new Map(devUtilityPaneRoots.map((root) => [root.file, root])).values(),
+  ]
+  if (uniqueDevUtilityPaneRoots.length === 0) {
+    throw new Error('Dev View has no dynamically attributed utility panes')
   }
   assertDynamicRouteClosure(
     [runtimeTerminalPane, terminalPane],
@@ -323,15 +421,24 @@ export function inspectClientBundle(input) {
     chat: routeDelta('Chat view', [chatRoot], startupFiles, chunksByFile),
     appLibrary: routeDelta('App Library route', [libraryRoot], startupFiles, chunksByFile),
     devShell: routeDelta('Dev View', [devEntry, devLayout], startupFiles, chunksByFile),
-    devUtilityPanes: routeDelta(
+    devUtilityPanes: asyncRouteDelta(
       'Dev utility panes',
-      devUtilityPaneRoots,
+      uniqueDevUtilityPaneRoots,
       startupFiles,
       chunksByFile,
       new Set([
         ...staticClosure([devEntry, devLayout, terminalPane, runtimeTerminalPane], chunksByFile),
         ...staticClosure([devEntry, devLayout, codeEditor, editorMirror, fileStream], chunksByFile),
       ])
+    ),
+    // Chat and Virtual open this host from the workspace shell. Count the
+    // shell's actual dynamic edge, its static host code, and all nested lazy
+    // pane chunks once, excluding dependencies already downloaded at startup.
+    sharedUtilityOpen: asyncRouteDelta(
+      'shared utility host',
+      sharedUtilityOpenRoots,
+      startupFiles,
+      chunksByFile
     ),
     devTerminal: routeDelta(
       'Dev terminal route',
@@ -381,6 +488,11 @@ export function assertClientBundleBudgets(report) {
   assertByteBudget(
     'Dev utility panes',
     report.views.devUtilityPanes,
+    CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes
+  )
+  assertByteBudget(
+    'Shared utility open',
+    report.views.sharedUtilityOpen,
     CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes
   )
   assertByteBudget(

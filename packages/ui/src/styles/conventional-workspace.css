@@ -1,13 +1,3 @@
-/* Designer views (room designer) are full-bleed: the global rail collapses
-   and the viewport surface stretches edge to edge; the top bar drops the
-   contextual-sidebar toggle (nothing left for it to control). */
-.workspace-frame[data-designer-mode='true'] {
-  --workspace-rail-width: 0rem;
-}
-.workspace-frame[data-designer-mode='true'] .global-rail {
-  display: none;
-}
-
 .workspace-frame {
   --workspace-rail-width: var(--rail-width);
   --workspace-topbar-height: 3rem;
@@ -48,6 +38,51 @@
   min-height: 0;
   overflow: hidden;
 }
+
+.workspace-contextual-utility-frame {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-contextual-utility-frame__view {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-contextual-utility-frame__view > .workspace-shell--contextual {
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-contextual-utility-frame__view > .conventional-workspace {
+  width: 100%;
+  height: calc(100svh - var(--workspace-topbar-height));
+}
+
+.workspace-contextual-utility-frame--utility-full > .workspace-contextual-utility-frame__view {
+  display: none;
+}
+
+.workspace-contextual-utility-frame--utility-full > .dev-utility--cross-view-full {
+  flex: 1 1 auto;
+  width: auto;
+  border-inline-start: 0;
+}
+
+@media (max-width: 70rem) {
+  .workspace-contextual-utility-frame--utility-full > .dev-utility--cross-view-full {
+    inset-inline: 0;
+  }
+}
+
 .workspace-switching {
   position: absolute;
   inset-block-start: 1rem;
@@ -282,13 +317,6 @@
   /* Sidebar chrome uses the shared UI role in every workspace view. */
   font-family: var(--font-ui, var(--font-sans));
 }
-/* The shared ruler is pointer-events-none except for its handle, and cursor
-   inherits, so this covers the whole drag affordance without touching the
-   shared package. Pointer parity is a deliberate product gate. */
-.conventional-sidebar__resize {
-  z-index: 6;
-  cursor: pointer;
-}
 .conventional-sidebar__close {
   display: none;
 }
@@ -405,7 +433,6 @@
   font-size: calc(0.8rem * var(--font-ui-scale, 1));
   line-height: 1.45;
 }
-
 .conventional-workspace--loading {
   grid-template: 1fr / 1fr;
   place-items: center;
@@ -1463,10 +1490,7 @@
   .conventional-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
-  .conventional-sidebar--inline {
-    display: none;
-  }
-  .conventional-sidebar__resize {
+  .conventional-sidebar--inline[data-contextual-sidebar='desktop'] {
     display: none;
   }
   .conventional-sidebar__close {
@@ -1476,7 +1500,7 @@
     width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
     max-width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
   }
-  .conventional-sidebar--sheet {
+  .conventional-sidebar[data-contextual-sidebar='mobile'] {
     --sidebar-width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
     width: 100%;
     max-width: 100%;
@@ -1529,10 +1553,14 @@
 
 /* Sidebar collapse works at every width: a closed navigation aside collapses
    its grid column instead of only sliding off-canvas on small screens. */
-.conventional-workspace:has(> .conventional-sidebar--inline:not(.conventional-sidebar--open)) {
+.conventional-workspace:has(
+  > .conventional-sidebar--inline[data-contextual-sidebar='desktop']:not(
+      .conventional-sidebar--open
+    )
+) {
   grid-template-columns: 0 minmax(0, 1fr);
 }
-.conventional-sidebar--inline:not(.conventional-sidebar--open) {
+.conventional-sidebar--inline[data-contextual-sidebar='desktop']:not(.conventional-sidebar--open) {
   visibility: hidden;
 }
 

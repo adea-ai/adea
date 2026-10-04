@@ -178,8 +178,13 @@ Issue: [#395](https://github.com/adea-ai/adea/issues/395)
 ### Implement
 
 1. Add `Dev` below Chat in `GlobalWorkspaceRail`; lazy-load `packages/dev-view`.
-2. Port KiroCrew's rail/context/sidebar component boundaries and row affordances
-   to Solid while retaining Adea's existing rail tokens and accessible controls.
+2. Port KiroCrew's rail and row affordances to Solid while retaining Adea's
+   existing rail tokens and accessible controls. Use the published
+   `@adea-ai/ui` `ContextualSidebar` and `PixelResizeHandle` for the reusable
+   contextual shell; do not rebuild its header, scrolling/footer slots,
+   responsive Sheet, focus behavior, or resize composition in an app adapter.
+   Adea supplies each view's navigation and archive content and owns open state,
+   width persistence, and projection into the workspace frame.
 3. Copy bb's pure split insertion/removal/resize normalization algorithms into
    `packages/dev-view/src/layout/`, narrowing the model from global n-ary leaves
    to strict binary `split | leaf` nodes scoped to
@@ -202,6 +207,18 @@ Issue: [#395](https://github.com/adea-ai/adea/issues/395)
 8. Add keyboard separators, logical focus return, 44×44 px touch targets where
    applicable, reduced motion, zoom/reflow tests, full-width/focus modes, and
    mount/unmount tests proving global listeners are cleaned up.
+
+For the shared contextual sidebar, pass the host's `wideViewportAtLoad` seed,
+controlled `onOpenChange`, and global toggle through `restoreFocusRef`. Preserve
+an intentional narrow-boot open state, clear stale wide-loaded open state when
+entering the mobile breakpoint, and return focus to the opener when the mobile
+Sheet closes. Close the mobile Sheet after selecting a Chat/Virtual channel or
+a Dev session/different project, while leaving the current project's disclosure
+usable. Nested mobile menus must use `ContextualSidebarRenderContext.portalMount()`
+so they stay inside the Sheet's accessibility tree. Focus mode and full-width
+utility surfaces suppress conflicting contextual content without disposing the
+shared owner. Verify those transitions and focus return in browser coverage;
+source composition alone is not acceptance evidence.
 
 ### Do not carry forward
 

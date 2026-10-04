@@ -27,6 +27,14 @@ export function forbiddenClientModule(id) {
   )
 }
 
+/** Native-only hosts must be absent from the rendered production web graph. */
+/** @param {string} id */
+export function desktopOnlyClientModule(id) {
+  return /\/apps\/web\/src\/components\/(?:desktop-workspace-entry|desktop-first-run-chat|version-dialog)\.tsx$/.test(
+    id.replaceAll('\\', '/')
+  )
+}
+
 export const PRIVATE_ENV_NAMES = [
   'DATABASE_URL',
   'DATABASE_URL_UNPOOLED',

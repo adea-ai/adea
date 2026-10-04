@@ -28,6 +28,17 @@ import { For, Show, createEffect, createResource, createSignal, onCleanup } from
 
 import './browser-pane.css'
 import type { DevRuntimeService } from '../platform'
+import {
+  createDevUtilityFenceSource,
+  devUtilityContextKey,
+  DevUtilityContextChangedError,
+  hasDevUtilitySession,
+  isDevUtilityContextChanged,
+  sameDevUtilityScope,
+  type DevUtilityContextReader,
+  type DevUtilityFence,
+} from '../utility-context'
+import { executeDevUtilityCommand, readDevUtilityCommand } from '../utility-command'
 import { resolveAnnotationSubmission } from './annotation-model'
 import {
   MAX_NOTE_LENGTH,
@@ -44,7 +55,6 @@ import {
   isRegionSubmittable,
   nudgeRegion,
 } from './annotation-surface-model'
-import { buildDevCommand } from './command'
 import { CookieImportPanel } from './cookie-import-panel'
 import {
   buildBrowserNavigationRequest,
@@ -74,19 +84,22 @@ const LANE_KIND_LABEL: Record<BrowserLane['kind'], string> = {
 }
 
 export type BrowserPaneProps = {
-  runtime: DevRuntimeService
-  runtimeSessionId?: string
+  context: DevUtilityContextReader
 }
 
-type LanePage = { items: readonly BrowserLane[]; nextCursor?: string }
-type TargetsPage = { items: readonly BrowserTarget[] }
-type PortsPage = { items: readonly PortRecord[] }
+type LanePage = { contextKey?: string; items: readonly BrowserLane[]; nextCursor?: string }
+type TargetsPage = { contextKey?: string; items: readonly BrowserTarget[] }
+type PortsPage = { contextKey?: string; items: readonly PortRecord[] }
 type DiagnosticsPage = {
+  contextKey?: string
+  laneId?: string
+  laneGeneration?: number
   items: readonly { id: string; level: string; category: string; message: string }[]
 }
 type ScreenshotContext = {
   runtime: DevRuntimeService
   runtimeStatus: string
+  contextRevision: number
   scopeKey?: string
   requestedSessionId?: string
   laneId?: string
@@ -126,6 +139,7 @@ function browserScopeKey(value: Scope | undefined): string | undefined {
 function screenshotContextKey(context: ScreenshotContext): string {
   return JSON.stringify([
     context.runtimeStatus,
+    context.contextRevision,
     context.scopeKey,
     context.requestedSessionId,
     context.laneId,
@@ -157,10 +171,13 @@ function commandError(error: unknown): DevError {
 }
 
 export function BrowserPane(props: BrowserPaneProps) {
-  const runtime = () => props.runtime
-  const scope = () => runtime().preferenceScope?.()
+  const utilityContext = () => props.context()
+  const runtime = () => utilityContext().runtime
+  const scope = () => utilityContext().scope
+  const fences = createDevUtilityFenceSource(utilityContext)
+  onCleanup(() => fences.dispose())
   const [activeLaneId, setActiveLaneId] = createSignal<string | undefined>(undefined)
-  const [error, writeError] = createSignal<DevError | undefined>(undefined)
+  const [paneError, writeError] = createSignal<DevError | undefined>(undefined)
   let errorRevision = 0
   function setError(value: DevError | undefined): void {
     errorRevision += 1
@@ -223,7 +240,7 @@ export function BrowserPane(props: BrowserPaneProps) {
 
   const annotateReason = () =>
     annotationDisabledReason({
-      serviceReady: serviceReady(),
+      serviceReady: runtime().state().status === 'ready',
       targetsLoading: targets.loading,
       hasLane: Boolean(activeLane()),
       laneState: activeLane()?.state,
@@ -304,24 +321,56 @@ export function BrowserPane(props: BrowserPaneProps) {
     const lane = activeLane()
     const target = activePageTarget()
     const draft = activeDraft()
-    const currentScope = scope()
-    if (annotationBusy() || !lane || !target || !draft || !currentScope || annotateReason()) return
+    const fence = captureSessionFence()
+    if (
+      !fence ||
+      !fence.isCurrent() ||
+      annotationBusy() ||
+      !lane ||
+      !target ||
+      !draft ||
+      lane.runtimeSessionId !== fence.context.runtimeSessionId ||
+      !sameDevUtilityScope(lane.scope, fence.context.scope) ||
+      annotateReason()
+    )
+      return
     const request = annotationRequest({ lane, target, draft })
     const requestId = ++latestAnnotationRequest
     setAnnotationBusy(true)
     setAnnotationError(undefined)
-    execute<BrowserAnnotation>(request.operation, request.body, request.resource)
+    executeDevUtilityCommand<BrowserAnnotation>(
+      fence,
+      request.operation,
+      request.body,
+      request.resource
+    )
       .then((value) => {
-        if (requestId !== latestAnnotationRequest) return
+        if (requestId !== latestAnnotationRequest || !fence.isCurrent()) return
         const currentLane = activeLane()
         const currentTarget = activePageTarget()
-        if (currentLane?.id !== lane.id || currentLane.generation !== lane.generation) return
-        if (currentTarget?.id !== target.id) return
+        if (
+          currentLane?.id !== lane.id ||
+          currentLane.generation !== lane.generation ||
+          currentLane.runtimeSessionId !== fence.context.runtimeSessionId ||
+          !sameDevUtilityScope(currentLane.scope, fence.context.scope)
+        )
+          return
+        if (
+          currentTarget?.id !== target.id ||
+          currentTarget.generation !== target.generation ||
+          currentTarget.url !== target.url
+        )
+          return
         setAnnotationResult(value)
         clearAnnotationDraft()
       })
       .catch((reply) => {
-        if (requestId === latestAnnotationRequest) setAnnotationError(commandError(reply))
+        if (
+          requestId === latestAnnotationRequest &&
+          fence.isCurrent() &&
+          !isDevUtilityContextChanged(reply)
+        )
+          setAnnotationError(commandError(reply))
       })
       .finally(() => {
         if (requestId === latestAnnotationRequest) setAnnotationBusy(false)
@@ -330,18 +379,22 @@ export function BrowserPane(props: BrowserPaneProps) {
 
   // A pending annotation belongs to one runtime and authoritative context.
   // Equivalent resource refreshes retain the draft; A-to-B-to-A retires replies.
+  // The context epoch keeps a Dev→Chat→Dev roundtrip from reviving a draft the
+  // spec requires a view switch to invalidate.
   let previousAnnotationContext: { runtime: DevRuntimeService; key: string } | undefined
   createEffect(() => {
     const currentRuntime = runtime()
     const key = JSON.stringify([
       browserScopeKey(scope()),
-      props.runtimeSessionId,
+      utilityContext().runtimeSessionId,
+      utilityContext().revision,
       currentRuntime.state().status,
       activeLane()?.id,
       activeLane()?.generation,
       activeLane()?.state,
       activeLane()?.automationOwner,
       activePageTarget()?.id,
+      activePageTarget()?.url,
     ])
     if (
       previousAnnotationContext?.runtime === currentRuntime &&
@@ -353,39 +406,75 @@ export function BrowserPane(props: BrowserPaneProps) {
     setAnnotationResult(undefined)
   })
 
-  async function execute<T>(
-    operation: Parameters<typeof buildDevCommand>[0]['operation'],
-    body: Record<string, unknown>,
-    resource?: { kind: string; id: string; generation: number }
-  ): Promise<T> {
-    const activeScope = scope()
-    if (!activeScope) throw new Error('unauthenticated')
-    const reply = await runtime().execute(
-      buildDevCommand({ operation, scope: activeScope, body, ...(resource ? { resource } : {}) })
-    )
-    if (!reply.ok) throw reply
-    return reply.value as T
+  function captureSessionFence(): DevUtilityFence | undefined {
+    return fences.capture('session')
   }
 
-  const serviceReady = () => runtime().state().status === 'ready'
-  const [lanes, { refetch: refetchLanes }] = createResource(serviceReady, async (ready) => {
-    if (!ready) return { items: [] as BrowserLane[] }
-    return execute<LanePage>(
-      'dev.browser.lanes',
-      props.runtimeSessionId ? { runtimeSessionId: props.runtimeSessionId } : {}
-    )
-  })
+  const utilityContextKey = () => {
+    const current = utilityContext()
+    return current.runtime.state().status === 'ready' && hasDevUtilitySession(current)
+      ? devUtilityContextKey(current)
+      : undefined
+  }
+  const [lanes, { refetch: refetchLanes }] = createResource(
+    utilityContextKey,
+    async (key): Promise<LanePage> => {
+      const fence = captureSessionFence()
+      if (!key || !fence || devUtilityContextKey(fence.context) !== key)
+        return { items: [] as BrowserLane[] }
+      const page = await readDevUtilityCommand<LanePage>(fence, 'dev.browser.lanes', {
+        runtimeSessionId: fence.context.runtimeSessionId!,
+      })
+      if (!page) return { items: [] as BrowserLane[] }
+      return {
+        ...page,
+        contextKey: key,
+        items: page.items.filter(
+          (lane) =>
+            lane.runtimeSessionId === fence.context.runtimeSessionId &&
+            sameDevUtilityScope(lane.scope, fence.context.scope)
+        ),
+      }
+    }
+  )
 
   const activeLane = () => {
-    const items = lanes()?.items ?? []
-    const current = items.find((lane) => lane.id === activeLaneId())
-    return current ?? items[0]
+    const current = utilityContext()
+    if (!hasDevUtilitySession(current)) return undefined
+    const page = lanes()
+    const items = page && page.contextKey === utilityContextKey() ? page.items : []
+    const scoped = items.filter(
+      (lane) =>
+        lane.runtimeSessionId === current.runtimeSessionId &&
+        sameDevUtilityScope(lane.scope, current.scope)
+    )
+    return scoped.find((lane) => lane.id === activeLaneId()) ?? scoped[0]
+  }
+
+  const laneItems = () =>
+    lanes()?.contextKey === utilityContextKey() ? (lanes()?.items ?? []) : []
+
+  const targetItems = () =>
+    targets()?.contextKey === utilityContextKey() ? (targets()?.items ?? []) : []
+
+  const diagnosticItems = () => {
+    const lane = activeLane()
+    const page = diagnostics()
+    return lane &&
+      page &&
+      page.contextKey === utilityContextKey() &&
+      page.laneId === lane.id &&
+      page.laneGeneration === lane.generation
+      ? page.items
+      : []
   }
 
   const activePageTarget = () => {
     const lane = activeLane()
     if (!lane) return undefined
-    return targets()?.items.find(
+    const page = targets()
+    if (!page || page.contextKey !== utilityContextKey()) return undefined
+    return page.items.find(
       (target) =>
         target.type === 'page' &&
         target.browserLaneId === lane.id &&
@@ -407,77 +496,145 @@ export function BrowserPane(props: BrowserPaneProps) {
     setInspectionResult(undefined)
   }
 
-  const [targets, { refetch: refetchTargets }] = createResource(activeLane, async (lane) => {
-    if (!lane) return { items: [] as BrowserTarget[] }
-    // The contract for `dev.browser.targets` is
-    // `{ browserLaneId; cursor?; limit? }` with the generation carried by the
-    // RESOURCE binding. Sending `expectedGeneration` in the body made the
-    // strict decoder reject it as an unknown key, so every Targets fetch was
-    // refused and the browser pane's primary read never worked.
-    return execute<TargetsPage>(
-      'dev.browser.targets',
-      { browserLaneId: lane.id },
-      { kind: 'browser_lane', id: lane.id, generation: lane.generation }
-    )
-  })
+  const [targets, { refetch: refetchTargets }] = createResource(
+    () => {
+      const key = utilityContextKey()
+      const lane = activeLane()
+      return key && lane ? JSON.stringify([key, lane.id, lane.generation]) : undefined
+    },
+    async (key): Promise<TargetsPage> => {
+      const lane = activeLane()
+      const fence = captureSessionFence()
+      if (
+        !key ||
+        !lane ||
+        !fence ||
+        lane.runtimeSessionId !== fence.context.runtimeSessionId ||
+        !sameDevUtilityScope(lane.scope, fence.context.scope) ||
+        key !== JSON.stringify([devUtilityContextKey(fence.context), lane.id, lane.generation])
+      )
+        return { items: [] as BrowserTarget[] }
+      // The contract carries generation in the resource binding, not the body.
+      const page = await readDevUtilityCommand<TargetsPage>(
+        fence,
+        'dev.browser.targets',
+        { browserLaneId: lane.id },
+        { kind: 'browser_lane', id: lane.id, generation: lane.generation }
+      )
+      if (!page) return { items: [] as BrowserTarget[] }
+      return {
+        ...page,
+        contextKey: devUtilityContextKey(fence.context),
+        items: page.items.filter(
+          (target) => target.browserLaneId === lane.id && target.generation === lane.generation
+        ),
+      }
+    }
+  )
 
-  const [ports] = createResource(serviceReady, async (ready) => {
-    if (!ready) return { items: [] as PortRecord[] }
+  const [ports] = createResource(utilityContextKey, async (key): Promise<PortsPage> => {
+    const fence = captureSessionFence()
+    if (!key || !fence || devUtilityContextKey(fence.context) !== key)
+      return { items: [] as PortRecord[] }
     // The Ports menu consumes the read-only port projection; ownership
     // comes from the host's launch records, never from the scan itself.
-    return execute<PortsPage>('dev.resources.ports', {})
+    const page = await readDevUtilityCommand<PortsPage>(fence, 'dev.resources.ports', {
+      runtimeSessionId: fence.context.runtimeSessionId!,
+    })
+    if (!page) return { items: [] as PortRecord[] }
+    return {
+      ...page,
+      contextKey: key,
+      items: page.items.filter(
+        (port) =>
+          port.runtimeSessionId === fence.context.runtimeSessionId &&
+          sameDevUtilityScope(port.scope, fence.context.scope)
+      ),
+    }
   })
 
   const [diagnostics, { refetch: refetchDiagnostics }] = createResource(
-    activeLane,
-    async (lane) => {
-      if (!lane) return { items: [] as DiagnosticsPage['items'] }
-      return execute<DiagnosticsPage>(
+    () => {
+      const key = utilityContextKey()
+      const lane = activeLane()
+      return key && lane ? JSON.stringify([key, lane.id, lane.generation]) : undefined
+    },
+    async (key): Promise<DiagnosticsPage> => {
+      const lane = activeLane()
+      const fence = captureSessionFence()
+      if (
+        !key ||
+        !lane ||
+        !fence ||
+        lane.runtimeSessionId !== fence.context.runtimeSessionId ||
+        !sameDevUtilityScope(lane.scope, fence.context.scope) ||
+        key !== JSON.stringify([devUtilityContextKey(fence.context), lane.id, lane.generation])
+      )
+        return { items: [] as DiagnosticsPage['items'] }
+      const page = await readDevUtilityCommand<DiagnosticsPage>(
+        fence,
         'dev.browser.diagnostics',
         { browserLaneId: lane.id, expectedGeneration: lane.generation },
         { kind: 'browser_lane', id: lane.id, generation: lane.generation }
       )
+      return {
+        ...(page ?? { items: [] as DiagnosticsPage['items'] }),
+        contextKey: devUtilityContextKey(fence.context),
+        laneId: lane.id,
+        laneGeneration: lane.generation,
+      }
     }
   )
 
   const portRows = (): readonly PreviewableServer[] =>
     mergeServers({
-      scanner: (ports()?.items ?? []).map((port) => ({
-        host: port.host,
-        port: port.port,
-        url:
-          port.preview?.url ??
-          `http://${port.host === '127.0.0.1' ? 'localhost' : port.host}:${port.port}/`,
-        processName: null,
-        owner: port.owner,
-        health: port.state === 'observed' ? 'listening' : 'stale',
-        ...(port.runtimeSessionId ? { runtimeSessionId: port.runtimeSessionId } : {}),
-        ...(port.preview ? { preview: port.preview } : {}),
-      })),
+      scanner: (ports()?.contextKey === utilityContextKey() ? (ports()?.items ?? []) : [])
+        .filter(
+          (port) =>
+            port.runtimeSessionId === utilityContext().runtimeSessionId &&
+            sameDevUtilityScope(port.scope, utilityContext().scope)
+        )
+        .map((port) => ({
+          host: port.host,
+          port: port.port,
+          url:
+            port.preview?.url ??
+            `http://${port.host === '127.0.0.1' ? 'localhost' : port.host}:${port.port}/`,
+          processName: null,
+          owner: port.owner,
+          health: port.state === 'observed' ? 'listening' : 'stale',
+          ...(port.runtimeSessionId ? { runtimeSessionId: port.runtimeSessionId } : {}),
+          ...(port.preview ? { preview: port.preview } : {}),
+        })),
       configuredUrls: [],
     })
 
   const portNavigationRequest = (row: PreviewableServer) =>
-    buildPortNavigationRequest(row, lanes()?.items ?? [], activeLane())
+    buildPortNavigationRequest(row, laneItems(), activeLane())
 
   function currentUrl(): string {
     return activePageTarget()?.url ?? ''
   }
 
   function dispatchNavigation(request: BrowserNavigationRequest): void {
+    const fence = captureSessionFence()
+    if (!fence) return
     invalidateInspection()
     clearScreenshotContext()
-    execute<{
+    executeDevUtilityCommand<{
       browserLaneId: string
       targetId: string
       finalUrl: string
       status?: number
-    }>(request.operation, request.body, request.resource)
+    }>(fence, request.operation, request.body, request.resource)
       .then(() => {
+        if (!fence.isCurrent()) return
         setError(undefined)
         void refetchTargets()
       })
-      .catch((reply) => setError(commandError(reply)))
+      .catch((reply) => {
+        if (fence.isCurrent() && !isDevUtilityContextChanged(reply)) setError(commandError(reply))
+      })
   }
 
   function navigateToUrl(value: string, lane = activeLane()): void {
@@ -503,14 +660,23 @@ export function BrowserPane(props: BrowserPaneProps) {
     const lane = activeLane()
     const target = activePageTarget()
     const selector = inspectionSelector().trim()
-    if (!lane || !target || targets.loading || selector.length === 0 || selector.length > 512)
+    const fence = captureSessionFence()
+    if (
+      !fence ||
+      !lane ||
+      !target ||
+      targets.loading ||
+      selector.length === 0 ||
+      selector.length > 512
+    )
       return
 
     const requestId = ++latestInspectionRequest
     setInspectionBusy(true)
     setInspectionResult(undefined)
     setError(undefined)
-    execute<BrowserInspection>(
+    executeDevUtilityCommand<BrowserInspection>(
+      fence,
       'dev.browser.inspect',
       {
         browserLaneId: lane.id,
@@ -521,7 +687,7 @@ export function BrowserPane(props: BrowserPaneProps) {
       { kind: 'browser_lane', id: lane.id, generation: lane.generation }
     )
       .then((value) => {
-        if (requestId !== latestInspectionRequest) return
+        if (requestId !== latestInspectionRequest || !fence.isCurrent()) return
         const currentLane = activeLane()
         const currentTarget = activePageTarget()
         if (
@@ -539,58 +705,68 @@ export function BrowserPane(props: BrowserPaneProps) {
         })
       })
       .catch((reply) => {
-        if (requestId === latestInspectionRequest) setError(commandError(reply))
+        if (
+          requestId === latestInspectionRequest &&
+          fence.isCurrent() &&
+          !isDevUtilityContextChanged(reply)
+        )
+          setError(commandError(reply))
       })
       .finally(() => {
-        if (requestId === latestInspectionRequest) setInspectionBusy(false)
+        if (requestId === latestInspectionRequest && fence.isCurrent()) setInspectionBusy(false)
       })
   }
 
   async function createLane(kind: BrowserLane['kind']): Promise<void> {
+    const fence = captureSessionFence()
+    if (!fence) return
     clearScreenshotContext()
-    const session = props.runtimeSessionId
-    if (!session) {
-      setError({ code: 'invalid_state', retryable: false, message: 'no active runtime session' })
-      return
-    }
+    const session = fence.context.runtimeSessionId!
     // `profilePolicyId` is REQUIRED by the contract. Omitting it made the
     // strict decoder refuse every lane creation, so `activeLane()` stayed
     // undefined and Take over / Screenshot / Cookies / mini-preview were
     // permanently disabled.
-    const policies = await execute<{ items: readonly ProfilePolicy[] }>(
-      'dev.browser.profilePolicies',
-      {}
-    )
-    const policy = policies.items[0]
-    if (!policy) {
-      setError({
-        code: 'capability_unavailable',
-        retryable: false,
-        message: 'no browser profile policy is available on this host',
+    try {
+      const policies = await executeDevUtilityCommand<{ items: readonly ProfilePolicy[] }>(
+        fence,
+        'dev.browser.profilePolicies',
+        {}
+      )
+      if (!fence.isCurrent()) return
+      const policy = policies.items.find((item) =>
+        sameDevUtilityScope(item.scope, fence.context.scope)
+      )
+      if (!policy) {
+        setError({
+          code: 'capability_unavailable',
+          retryable: false,
+          message: 'no browser profile policy is available on this host',
+        })
+        return
+      }
+      await executeDevUtilityCommand<BrowserLane>(fence, 'dev.browser.laneCreate', {
+        profilePolicyId: policy.id,
+        runtimeSessionId: session,
+        kind,
       })
-      return
+      if (!fence.isCurrent()) return
+      setError(undefined)
+      void refetchLanes()
+    } catch (reply) {
+      if (fence.isCurrent() && !isDevUtilityContextChanged(reply)) setError(commandError(reply))
     }
-    execute<BrowserLane>('dev.browser.laneCreate', {
-      profilePolicyId: policy.id,
-      runtimeSessionId: session,
-      kind,
-    })
-      .then((lane) => {
-        setError(undefined)
-        setActiveLaneId(lane.id)
-        void refetchLanes()
-      })
-      .catch((reply) => setError(commandError(reply)))
   }
 
   function takeoverOrRelease(): void {
+    const fence = captureSessionFence()
     const lane = activeLane()
-    if (!lane) return
+    if (!fence || !lane) return
     invalidateInspection()
     clearScreenshotContext()
     const operation =
       lane.automationOwner === 'human_takeover' ? 'dev.browser.release' : 'dev.browser.takeover'
-    execute<BrowserLane>(
+    executeDevUtilityCommand<BrowserLane>(
+      fence,
       operation,
       {
         browserLaneId: lane.id,
@@ -599,13 +775,18 @@ export function BrowserPane(props: BrowserPaneProps) {
       { kind: 'browser_lane', id: lane.id, generation: lane.generation }
     )
       .then(() => {
+        if (!fence.isCurrent()) return
         setError(undefined)
         void refetchLanes()
       })
-      .catch((reply) => setError(commandError(reply)))
+      .catch((reply) => {
+        if (fence.isCurrent() && !isDevUtilityContextChanged(reply)) setError(commandError(reply))
+      })
   }
 
   function screenshot(): void {
+    const fence = captureSessionFence()
+    if (!fence) return
     const context = screenshotContext()
     const lane = activeLane()
     const target = activePageTarget()
@@ -619,12 +800,14 @@ export function BrowserPane(props: BrowserPaneProps) {
     const stillCurrent = (): boolean => {
       return (
         screenshotMounted &&
+        fence.isCurrent() &&
         requestId === latestScreenshotRequest &&
         sameScreenshotContext(context, screenshotContext())
       )
     }
 
-    execute<ScreenshotRef>(
+    executeDevUtilityCommand<ScreenshotRef>(
+      fence,
       'dev.browser.screenshot',
       {
         browserLaneId: lane.id,
@@ -645,7 +828,8 @@ export function BrowserPane(props: BrowserPaneProps) {
         setError(undefined)
       })
       .catch((reply) => {
-        if (stillCurrent()) setScreenshotError(commandError(reply))
+        if (stillCurrent() && !isDevUtilityContextChanged(reply))
+          setScreenshotError(commandError(reply))
       })
       .finally(() => {
         if (stillCurrent()) setScreenshotBusy(false)
@@ -664,14 +848,16 @@ export function BrowserPane(props: BrowserPaneProps) {
   ): void {
     invalidateInspection()
     clearScreenshotContext()
+    const fence = captureSessionFence()
     const lane = activeLane()
-    if (!lane) return
+    if (!fence || !lane) return
     const viewport = resolvePresetViewport(presetById(nextPreset), nextOrientation)
     const width = Math.round(viewport.width * nextZoomScale)
     const height = Math.round(viewport.height * nextZoomScale)
     const requestId = (latestViewportRequests.get(lane.id) ?? 0) + 1
     latestViewportRequests.set(lane.id, requestId)
-    execute<BrowserLane>(
+    executeDevUtilityCommand<BrowserLane>(
+      fence,
       'dev.browser.viewport',
       {
         browserLaneId: lane.id,
@@ -684,8 +870,8 @@ export function BrowserPane(props: BrowserPaneProps) {
       { kind: 'browser_lane', id: lane.id, generation: lane.generation }
     )
       .then(() => {
-        if (requestId !== latestViewportRequests.get(lane.id)) return
-        const currentLane = lanes()?.items.find((item) => item.id === lane.id)
+        if (requestId !== latestViewportRequests.get(lane.id) || !fence.isCurrent()) return
+        const currentLane = laneItems().find((item) => item.id === lane.id)
         if (currentLane?.generation !== lane.generation) return
         setAppliedViewports((current) =>
           new Map(current).set(lane.id, {
@@ -703,7 +889,12 @@ export function BrowserPane(props: BrowserPaneProps) {
         if (activeLane()?.id === lane.id) setError(undefined)
       })
       .catch(async (reply) => {
-        if (requestId !== latestViewportRequests.get(lane.id)) return
+        if (
+          requestId !== latestViewportRequests.get(lane.id) ||
+          !fence.isCurrent() ||
+          isDevUtilityContextChanged(reply)
+        )
+          return
         const failure = commandError(reply)
         const revisionBeforeRefresh = errorRevision
         if (failure.code === 'stale_generation') {
@@ -713,9 +904,9 @@ export function BrowserPane(props: BrowserPaneProps) {
             // Keep the original typed command error if the lane refresh fails.
           }
         }
-        if (requestId !== latestViewportRequests.get(lane.id)) return
+        if (requestId !== latestViewportRequests.get(lane.id) || !fence.isCurrent()) return
         if (errorRevision !== revisionBeforeRefresh) return
-        const currentLane = lanes()?.items.find((item) => item.id === lane.id)
+        const currentLane = laneItems().find((item) => item.id === lane.id)
         if (activeLane()?.id !== lane.id) return
         if (currentLane?.generation === lane.generation) {
           setError(failure)
@@ -724,22 +915,23 @@ export function BrowserPane(props: BrowserPaneProps) {
   }
 
   function screenshotContext(): ScreenshotContext {
-    const currentRuntime = runtime()
-    const currentScope = currentRuntime.preferenceScope?.()
+    const current = utilityContext()
+    const currentRuntime = current.runtime
+    const currentScope = current.scope
     const lane = activeLane()
     const target = activePageTarget()
     const viewport = viewportForActiveLane()
     const currentScopeKey = browserScopeKey(currentScope)
     const laneScopeKey = browserScopeKey(lane?.scope)
     const scopeMatches = currentScopeKey !== undefined && laneScopeKey === currentScopeKey
-    const sessionMatches =
-      !props.runtimeSessionId || lane?.runtimeSessionId === props.runtimeSessionId
+    const sessionMatches = lane?.runtimeSessionId === current.runtimeSessionId
 
     return {
       runtime: currentRuntime,
       runtimeStatus: currentRuntime.state().status,
+      contextRevision: current.revision,
       scopeKey: currentScopeKey,
-      requestedSessionId: props.runtimeSessionId,
+      requestedSessionId: current.runtimeSessionId,
       laneId: lane?.id,
       laneScopeKey,
       laneSessionId: lane?.runtimeSessionId,
@@ -751,6 +943,7 @@ export function BrowserPane(props: BrowserPaneProps) {
       viewportKey: JSON.stringify(viewport ?? null),
       canCapture:
         currentRuntime.state().status === 'ready' &&
+        hasDevUtilitySession(current) &&
         Boolean(lane && scopeMatches && sessionMatches && target && !targets.loading),
     }
   }
@@ -1068,344 +1261,378 @@ export function BrowserPane(props: BrowserPaneProps) {
       </Show>
 
       <Show
-        when={availability().status === 'ready'}
+        when={hasDevUtilitySession(utilityContext())}
         fallback={
-          <p class="dev-empty-state">Browser lanes are unavailable: {unavailabilityReason()}</p>
+          <p class="dev-empty-state" role="status">
+            Browser utilities are unavailable until this view is bound to a canonical runtime
+            session.
+          </p>
         }
       >
-        <div class="dev-browser__menu">
-          <Show when={error()}>
-            {(shown) => (
-              <p class="dev-terminal-muted" role="alert">
-                {shown().code}: {shown().message}
-              </p>
-            )}
-          </Show>
-          <Show when={screenshotError()}>
-            {(shown) => (
-              <p class="dev-terminal-muted" role="alert" aria-label="Screenshot error">
-                {shown().code}: {shown().message}
-              </p>
-            )}
-          </Show>
-          <Show when={screenshotBusy() && !screenshotResult()}>
-            <p role="status" aria-label="Screenshot capture">
-              Capturing screenshot…
-            </p>
-          </Show>
-          <Show
-            when={(() => {
-              const result = screenshotResult()
-              const context = screenshotContext()
-              return result &&
-                result.runtime === context.runtime &&
-                result.contextKey === screenshotContextKey(context)
-                ? result
-                : undefined
-            })()}
-          >
-            {(state) => (
-              <div
-                class="dev-browser__inspection-result"
-                role="status"
-                aria-label="Screenshot result"
-                aria-busy={screenshotBusy()}
-              >
-                <strong>Screenshot reference</strong>
-                <span>Reference: {state().reference.id}</span>
-                <span>
-                  Dimensions: {state().reference.width} × {state().reference.height}
-                </span>
-                <span>Content type: {state().reference.contentType}</span>
-                <span>Expires: {state().reference.expiresAt}</span>
-                <span>Redacted: {String(state().reference.redacted)}</span>
-                <Show when={screenshotBusy()}>
-                  <span>Capturing a newer screenshot…</span>
-                </Show>
-              </div>
-            )}
-          </Show>
-
-          <p class="dev-browser__section-title">Lanes</p>
-          <div role="group" aria-label="Browser lanes">
-            <For each={lanes()?.items ?? []}>
-              {(lane) => (
-                <ListRowControl
-                  as="button"
-                  selected={lane.id === activeLane()?.id}
-                  description={`${lane.state} · takeover ${lane.automationOwner}`}
-                  class="w-full"
-                  onClick={() => {
-                    invalidateInspection()
-                    clearScreenshotContext()
-                    setActiveLaneId(lane.id)
-                    void refetchTargets()
-                    void refetchDiagnostics()
-                  }}
-                >
-                  {LANE_KIND_LABEL[lane.kind]}
-                </ListRowControl>
+        <Show
+          when={availability().status === 'ready'}
+          fallback={
+            <p class="dev-empty-state">Browser lanes are unavailable: {unavailabilityReason()}</p>
+          }
+        >
+          <div class="dev-browser__menu">
+            <Show when={paneError()}>
+              {(shown) => (
+                <p class="dev-terminal-muted" role="alert">
+                  {shown().code}: {shown().message}
+                </p>
               )}
-            </For>
-            <Show when={(lanes()?.items.length ?? 0) === 0}>
-              <div class="dev-browser__row">
-                <span class="dev-terminal-muted">No lanes yet — create one to start.</span>
-              </div>
             </Show>
-          </div>
-          <div class="dev-browser__actions">
-            <For each={['human_embedded', 'task_owned', 'user_context'] as const}>
-              {(kind) => (
-                <Button type="button" variant="outline" size="sm" onClick={() => createLane(kind)}>
-                  New {LANE_KIND_LABEL[kind]}
-                </Button>
+            <Show when={screenshotError()}>
+              {(shown) => (
+                <p class="dev-terminal-muted" role="alert" aria-label="Screenshot error">
+                  {shown().code}: {shown().message}
+                </p>
               )}
-            </For>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!activeLane() || activeLane()?.kind === 'human_embedded'}
-              onClick={takeoverOrRelease}
+            </Show>
+            <Show when={screenshotBusy() && !screenshotResult()}>
+              <p role="status" aria-label="Screenshot capture">
+                Capturing screenshot…
+              </p>
+            </Show>
+            <Show
+              when={(() => {
+                const result = screenshotResult()
+                const context = screenshotContext()
+                return result &&
+                  result.runtime === context.runtime &&
+                  result.contextKey === screenshotContextKey(context)
+                  ? result
+                  : undefined
+              })()}
             >
-              {activeLane()?.automationOwner === 'human_takeover'
-                ? 'Release capture (Esc)'
-                : 'Take over'}
-            </Button>
-          </div>
+              {(state) => (
+                <div
+                  class="dev-browser__inspection-result"
+                  role="status"
+                  aria-label="Screenshot result"
+                  aria-busy={screenshotBusy()}
+                >
+                  <strong>Screenshot reference</strong>
+                  <span>Reference: {state().reference.id}</span>
+                  <span>
+                    Dimensions: {state().reference.width} × {state().reference.height}
+                  </span>
+                  <span>Content type: {state().reference.contentType}</span>
+                  <span>Expires: {state().reference.expiresAt}</span>
+                  <span>Redacted: {String(state().reference.redacted)}</span>
+                  <Show when={screenshotBusy()}>
+                    <span>Capturing a newer screenshot…</span>
+                  </Show>
+                </div>
+              )}
+            </Show>
 
-          <p class="dev-browser__section-title">Ports</p>
-          <For each={portRows()}>
-            {(row) => (
+            <p class="dev-browser__section-title">Lanes</p>
+            <div role="group" aria-label="Browser lanes">
+              <For each={laneItems()}>
+                {(lane) => (
+                  <ListRowControl
+                    as="button"
+                    selected={lane.id === activeLane()?.id}
+                    description={`${lane.state} · takeover ${lane.automationOwner}`}
+                    class="w-full"
+                    onClick={() => {
+                      invalidateInspection()
+                      clearScreenshotContext()
+                      setActiveLaneId(lane.id)
+                      void refetchTargets()
+                      void refetchDiagnostics()
+                    }}
+                  >
+                    {LANE_KIND_LABEL[lane.kind]}
+                  </ListRowControl>
+                )}
+              </For>
+              <Show when={laneItems().length === 0}>
+                <div class="dev-browser__row">
+                  <span class="dev-terminal-muted">No lanes yet — create one to start.</span>
+                </div>
+              </Show>
+            </div>
+            <div class="dev-browser__actions">
+              <For each={['human_embedded', 'task_owned', 'user_context'] as const}>
+                {(kind) => (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => createLane(kind)}
+                  >
+                    New {LANE_KIND_LABEL[kind]}
+                  </Button>
+                )}
+              </For>
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                class="w-full justify-start"
-                disabled={!portNavigationRequest(row)}
-                onClick={() => {
-                  const request = portNavigationRequest(row)
-                  if (!request) return
-                  setActiveLaneId(request.lane.id)
-                  setUrlFocused(false)
-                  dispatchNavigation(request)
-                }}
+                disabled={!activeLane() || activeLane()?.kind === 'human_embedded'}
+                onClick={takeoverOrRelease}
               >
-                <span class="dev-browser__row-main">
-                  <span>{row.processName ?? 'Listening'}</span>
-                  <span class="dev-browser__row-meta">
-                    {row.host}:{row.port} · {row.owner}
-                    {row.health === 'stale' ? ' · stale' : ''}
-                  </span>
-                </span>
-                <span
-                  class={cn('dev-row-badge', {
-                    'dev-row-badge--success': isPreviewableRow(row),
-                    'dev-row-badge--failure': row.health === 'stale',
-                  })}
-                >
-                  {row.owner === 'adea' ? 'preview' : 'external'}
-                </span>
+                {activeLane()?.automationOwner === 'human_takeover'
+                  ? 'Release capture (Esc)'
+                  : 'Take over'}
               </Button>
-            )}
-          </For>
+            </div>
 
-          <p class="dev-browser__section-title">Targets</p>
-          <For each={targets()?.items ?? []}>
-            {(target) => (
-              <div class="dev-browser__row">
-                <span class="dev-browser__row-main">
-                  <span class={target.title ? undefined : 'dev-browser__target-url'}>
-                    {target.title || target.url}
-                  </span>
-                  <span class="dev-browser__row-meta">{target.type}</span>
-                </span>
-              </div>
-            )}
-          </For>
-
-          <p class="dev-browser__section-title">Inspect</p>
-          <form class="dev-browser__inspect" onSubmit={inspectSelector}>
-            <Label for="dev-browser-inspection-selector">CSS selector</Label>
-            <Input
-              id="dev-browser-inspection-selector"
-              type="text"
-              aria-label="CSS selector"
-              maxLength={512}
-              autocomplete="off"
-              spellcheck={false}
-              value={inspectionSelector()}
-              onInput={(event) => {
-                setInspectionSelector(event.currentTarget.value)
-                invalidateInspection()
-              }}
-            />
-            <p class="dev-browser__row-meta">
-              Queries the active page by selector; this does not pick from the preview.
-            </p>
-            <Button
-              type="submit"
-              variant="outline"
-              size="sm"
-              disabled={
-                !activeLane() ||
-                !activePageTarget() ||
-                targets.loading ||
-                inspectionSelector().trim().length === 0 ||
-                inspectionSelector().trim().length > 512 ||
-                inspectionBusy()
-              }
-            >
-              {inspectionBusy() ? 'Inspecting…' : 'Inspect selector'}
-            </Button>
-          </form>
-          <Show
-            when={(() => {
-              const result = inspectionResult()
-              const lane = activeLane()
-              const target = activePageTarget()
-              return result &&
-                lane?.id === result.laneId &&
-                lane.generation === result.generation &&
-                target?.id === result.targetId
-                ? result
-                : undefined
-            })()}
-          >
-            {(state) => (
-              <div
-                class="dev-browser__inspection-result"
-                role="status"
-                aria-label="Inspection result"
-              >
-                <Show when={state().value.nodeId} fallback={<span>No matching element.</span>}>
-                  <span>
-                    {state().value.role ?? 'Element'}
-                    {state().value.name ? ` · ${state().value.name}` : ''}
-                  </span>
-                  <Show when={state().value.bounds}>
-                    {(bounds) => (
-                      <span>
-                        x {bounds().x} · y {bounds().y} · width {bounds().width} · height{' '}
-                        {bounds().height}
-                      </span>
-                    )}
-                  </Show>
-                </Show>
-              </div>
-            )}
-          </Show>
-
-          <p class="dev-browser__section-title">Responsive</p>
-          <div class="dev-browser__actions">
-            <For each={RESPONSIVE_PRESETS}>
-              {(preset) => (
+            <p class="dev-browser__section-title">Ports</p>
+            <For each={portRows()}>
+              {(row) => (
                 <Button
                   type="button"
-                  variant={
-                    preset.id === viewportForActiveLane()?.presetId ? 'secondary' : 'outline'
-                  }
+                  variant="ghost"
                   size="sm"
-                  aria-pressed={preset.id === viewportForActiveLane()?.presetId}
-                  disabled={!activeLane()}
-                  onClick={() => applyResponsivePreset(preset.id, preset.defaultOrientation)}
+                  class="w-full justify-start"
+                  disabled={!portNavigationRequest(row)}
+                  onClick={() => {
+                    const request = portNavigationRequest(row)
+                    if (!request) return
+                    setActiveLaneId(request.lane.id)
+                    setUrlFocused(false)
+                    dispatchNavigation(request)
+                  }}
                 >
-                  {preset.label}
+                  <span class="dev-browser__row-main">
+                    <span>{row.processName ?? 'Listening'}</span>
+                    <span class="dev-browser__row-meta">
+                      {row.host}:{row.port} · {row.owner}
+                      {row.health === 'stale' ? ' · stale' : ''}
+                    </span>
+                  </span>
+                  <span
+                    class={cn('dev-row-badge', {
+                      'dev-row-badge--success': isPreviewableRow(row),
+                      'dev-row-badge--failure': row.health === 'stale',
+                    })}
+                  >
+                    {row.owner === 'adea' ? 'preview' : 'external'}
+                  </span>
                 </Button>
               )}
             </For>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!activeLane()}
-              onClick={() => {
-                const current = viewportForActiveLane()
-                const next: ResponsiveOrientation =
-                  current?.orientation === 'portrait' || !current ? 'landscape' : 'portrait'
-                applyResponsivePreset(current?.presetId ?? 'responsive', next, current?.zoomScale)
-              }}
-            >
-              Rotate
-            </Button>
-            <ActionButton
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              aria-label="Zoom out"
-              tooltip="Zoom out the responsive preview."
-              disabled={!activeLane()}
-              onClick={() => {
-                const current = viewportForActiveLane()
-                const scale = Math.max(0.5, Math.round(((current?.zoomScale ?? 1) - 0.1) * 10) / 10)
-                applyResponsivePreset(
-                  current?.presetId ?? 'responsive',
-                  current?.orientation ?? 'portrait',
-                  scale
-                )
-              }}
-            >
-              −
-            </ActionButton>
-            <span class="dev-browser__row-meta">
-              {Math.round((viewportForActiveLane()?.zoomScale ?? 1) * 100)}%
-            </span>
-            <ActionButton
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              aria-label="Zoom in"
-              tooltip="Zoom in the responsive preview."
-              disabled={!activeLane()}
-              onClick={() => {
-                const current = viewportForActiveLane()
-                const scale = Math.min(2, Math.round(((current?.zoomScale ?? 1) + 0.1) * 10) / 10)
-                applyResponsivePreset(
-                  current?.presetId ?? 'responsive',
-                  current?.orientation ?? 'portrait',
-                  scale
-                )
-              }}
-            >
-              +
-            </ActionButton>
-            <Show
-              when={viewportForActiveLane()}
-              fallback={
-                <span class="dev-browser__row-meta">Select a preset to set the viewport.</span>
-              }
-            >
-              {(viewport) => (
-                <span class="dev-browser__row-meta">
-                  CSS viewport {viewport().width} × {viewport().height} · DPR{' '}
-                  {viewport().deviceScaleFactor} · UA {viewport().mobile ? 'mobile' : 'desktop'}
-                </span>
-              )}
-            </Show>
-          </div>
 
-          <p class="dev-browser__section-title">Diagnostics</p>
-          <div class="dev-browser__diagnostics" aria-label="Console and network diagnostics">
-            <For each={diagnostics()?.items ?? []}>
-              {(entry) => (
-                <div class="dev-browser__diagnostic" data-level={entry.level}>
-                  <span class="dev-browser__row-meta">{entry.category}</span>
-                  <span>{entry.message}</span>
+            <p class="dev-browser__section-title">Targets</p>
+            <For each={targetItems()}>
+              {(target) => (
+                <div class="dev-browser__row">
+                  <span class="dev-browser__row-main">
+                    <span class={target.title ? undefined : 'dev-browser__target-url'}>
+                      {target.title || target.url}
+                    </span>
+                    <span class="dev-browser__row-meta">{target.type}</span>
+                  </span>
                 </div>
               )}
             </For>
-            <Show when={(diagnostics()?.items.length ?? 0) === 0}>
-              <span class="dev-terminal-muted">No console or network events.</span>
+
+            <p class="dev-browser__section-title">Inspect</p>
+            <form class="dev-browser__inspect" onSubmit={inspectSelector}>
+              <Label for="dev-browser-inspection-selector">CSS selector</Label>
+              <Input
+                id="dev-browser-inspection-selector"
+                type="text"
+                aria-label="CSS selector"
+                maxLength={512}
+                autocomplete="off"
+                spellcheck={false}
+                value={inspectionSelector()}
+                onInput={(event) => {
+                  setInspectionSelector(event.currentTarget.value)
+                  invalidateInspection()
+                }}
+              />
+              <p class="dev-browser__row-meta">
+                Queries the active page by selector; this does not pick from the preview.
+              </p>
+              <Button
+                type="submit"
+                variant="outline"
+                size="sm"
+                disabled={
+                  !activeLane() ||
+                  !activePageTarget() ||
+                  targets.loading ||
+                  inspectionSelector().trim().length === 0 ||
+                  inspectionSelector().trim().length > 512 ||
+                  inspectionBusy()
+                }
+              >
+                {inspectionBusy() ? 'Inspecting…' : 'Inspect selector'}
+              </Button>
+            </form>
+            <Show
+              when={(() => {
+                const result = inspectionResult()
+                const lane = activeLane()
+                const target = activePageTarget()
+                return result &&
+                  lane?.id === result.laneId &&
+                  lane.generation === result.generation &&
+                  target?.id === result.targetId
+                  ? result
+                  : undefined
+              })()}
+            >
+              {(state) => (
+                <div
+                  class="dev-browser__inspection-result"
+                  role="status"
+                  aria-label="Inspection result"
+                >
+                  <Show when={state().value.nodeId} fallback={<span>No matching element.</span>}>
+                    <span>
+                      {state().value.role ?? 'Element'}
+                      {state().value.name ? ` · ${state().value.name}` : ''}
+                    </span>
+                    <Show when={state().value.bounds}>
+                      {(bounds) => (
+                        <span>
+                          x {bounds().x} · y {bounds().y} · width {bounds().width} · height{' '}
+                          {bounds().height}
+                        </span>
+                      )}
+                    </Show>
+                  </Show>
+                </div>
+              )}
             </Show>
+
+            <p class="dev-browser__section-title">Responsive</p>
+            <div class="dev-browser__actions">
+              <For each={RESPONSIVE_PRESETS}>
+                {(preset) => (
+                  <Button
+                    type="button"
+                    variant={
+                      preset.id === viewportForActiveLane()?.presetId ? 'secondary' : 'outline'
+                    }
+                    size="sm"
+                    aria-pressed={preset.id === viewportForActiveLane()?.presetId}
+                    disabled={!activeLane()}
+                    onClick={() => applyResponsivePreset(preset.id, preset.defaultOrientation)}
+                  >
+                    {preset.label}
+                  </Button>
+                )}
+              </For>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!activeLane()}
+                onClick={() => {
+                  const current = viewportForActiveLane()
+                  const next: ResponsiveOrientation =
+                    current?.orientation === 'portrait' || !current ? 'landscape' : 'portrait'
+                  applyResponsivePreset(current?.presetId ?? 'responsive', next, current?.zoomScale)
+                }}
+              >
+                Rotate
+              </Button>
+              <ActionButton
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-label="Zoom out"
+                tooltip="Zoom out the responsive preview."
+                disabled={!activeLane()}
+                onClick={() => {
+                  const current = viewportForActiveLane()
+                  const scale = Math.max(
+                    0.5,
+                    Math.round(((current?.zoomScale ?? 1) - 0.1) * 10) / 10
+                  )
+                  applyResponsivePreset(
+                    current?.presetId ?? 'responsive',
+                    current?.orientation ?? 'portrait',
+                    scale
+                  )
+                }}
+              >
+                −
+              </ActionButton>
+              <span class="dev-browser__row-meta">
+                {Math.round((viewportForActiveLane()?.zoomScale ?? 1) * 100)}%
+              </span>
+              <ActionButton
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-label="Zoom in"
+                tooltip="Zoom in the responsive preview."
+                disabled={!activeLane()}
+                onClick={() => {
+                  const current = viewportForActiveLane()
+                  const scale = Math.min(2, Math.round(((current?.zoomScale ?? 1) + 0.1) * 10) / 10)
+                  applyResponsivePreset(
+                    current?.presetId ?? 'responsive',
+                    current?.orientation ?? 'portrait',
+                    scale
+                  )
+                }}
+              >
+                +
+              </ActionButton>
+              <Show
+                when={viewportForActiveLane()}
+                fallback={
+                  <span class="dev-browser__row-meta">Select a preset to set the viewport.</span>
+                }
+              >
+                {(viewport) => (
+                  <span class="dev-browser__row-meta">
+                    CSS viewport {viewport().width} × {viewport().height} · DPR{' '}
+                    {viewport().deviceScaleFactor} · UA {viewport().mobile ? 'mobile' : 'desktop'}
+                  </span>
+                )}
+              </Show>
+            </div>
+
+            <p class="dev-browser__section-title">Diagnostics</p>
+            <div class="dev-browser__diagnostics" aria-label="Console and network diagnostics">
+              <For each={diagnosticItems()}>
+                {(entry) => (
+                  <div class="dev-browser__diagnostic" data-level={entry.level}>
+                    <span class="dev-browser__row-meta">{entry.category}</span>
+                    <span>{entry.message}</span>
+                  </div>
+                )}
+              </For>
+              <Show when={diagnosticItems().length === 0}>
+                <span class="dev-terminal-muted">No console or network events.</span>
+              </Show>
+            </div>
           </div>
-        </div>
+        </Show>
       </Show>
 
-      <Show when={cookiesOpen() && activeLane()}>
+      <Show when={cookiesOpen() && activeLane()} keyed>
         <CookieImportPanel
           laneId={activeLane()!.id}
           generation={activeLane()!.generation}
-          run={execute}
+          run={(operation, body, resource) => {
+            const fence = captureSessionFence()
+            const lane = activeLane()
+            if (
+              !fence ||
+              !fence.isCurrent() ||
+              !lane ||
+              lane.runtimeSessionId !== fence.context.runtimeSessionId ||
+              !sameDevUtilityScope(lane.scope, fence.context.scope) ||
+              (resource !== undefined &&
+                (resource.kind !== 'browser_lane' ||
+                  resource.id !== lane.id ||
+                  resource.generation !== lane.generation))
+            )
+              return Promise.reject(new DevUtilityContextChangedError())
+            return executeDevUtilityCommand(fence, operation, body, resource)
+          }}
           onClose={() => setCookiesOpen(false)}
         />
       </Show>

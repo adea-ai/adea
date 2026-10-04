@@ -1269,6 +1269,103 @@ and full-width state are local preferences only. A persisted focus target must
 identify a center leaf; a split-node target is corrupt and falls back to the
 first valid leaf.
 
+The workspace shell owns one scoped V2 layout controller and utility-selection
+state across Dev, Chat, and Virtual. The Dev entry consumes that owner and
+remains the only mount for the Dev center, projection, capability snapshot,
+and session selection. Chat and Virtual mount a lazy right
+utility host on first open; it reuses the Browser, Devices, Agents, and History
+panes without mounting a second Dev entry or creating another layout writer.
+The shared archive-shelf owner serves the Dev footer and the existing shared
+workspace navigation footers in Chat and Virtual. Desktop Chat's direct
+project/session sidebar uses that same owner and shelf. These surfaces continue
+to use the published shared navigation and its existing domain renderers for
+general project, room, and session navigation.
+
+Archive command construction, pagination, and response validation load on demand;
+the shell owner retains shelf state, request revisions, and context fences.
+A pending load MUST capture existing authority before runtime readiness or code
+loading and revalidate it before dispatch, so a scope or view roundtrip cannot
+revive an old operation. Reactive scope transitions advance a synchronous,
+monotonic owner revision, including transitions with no intervening pane read.
+The first scope published by readiness is accepted only if there was no owner
+view/binding transition and no additional scope transition. An unchanged scope
+may move from unavailable to ready without being treated as a new authority.
+The archive shelf reads pages of up to 500 sessions and follows cursors for at
+most 20 pages. Every row on every page MUST be archived and match the active
+runtime scope. A malformed row, a mismatched scope, an invalid or repeated
+cursor, or reaching the page cap with another cursor MUST report an incomplete
+load; it MUST NOT present the partial rows as a complete listing. A restore
+must find the selected row in that scope's current shelf, retain its listed
+generation, read the exact RuntimeSession with that generation and a nonempty
+worktree binding, and unarchive with the same expected generation. List, get, and unarchive results are fenced
+by the active view and runtime scope; switching views or changing scope while
+an operation is pending MUST discard its result. The same shelf state and
+restore path back each Chat, Virtual, and Dev footer; room and channel IDs
+never supply a session identity for archive operations.
+
+Session identity is explicit and view-local. Dev publishes only the current
+projection-validated selection. Desktop Chat publishes
+`conversation.runtimeSessionId` only after the selected canonical conversation
+has attached and its scope, project, session, and generation match the
+projection. A desktop presentation hint is not runtime authority. Virtual
+room, channel, and route IDs MUST NOT be converted into or used as a fallback
+for a RuntimeSession ID. Without an authoritative binding, Devices MAY read
+runtime-scope inventory and capability state, while Browser lanes, device
+sessions and mutations, Activity, Agents, and History MUST report their
+session-bound surface unavailable and MUST NOT issue session-bound commands.
+
+Every contextual runtime read or action captures the active view, runtime
+scope, project, RuntimeSession ID, generation, worktree, and runtime status
+before dispatch. It MUST discard a result or follow-up action when that
+identity changes or its host is disposed. Returned session resources MUST
+match both scope and RuntimeSession ID before rendering or mutation. A view
+switch invalidates pending work even when the user later returns to the same
+session. Sessionless utility visibility may be changed in Chat or Virtual, but
+it is not written to a session document until a canonical binding exists; an
+open right utility may then carry forward into that session's V2 document.
+
+The shell utility owner advances a durable context epoch synchronously on view and canonical binding transitions. Returning to the same view or session does not revive a request fence captured before an intervening transition, even when no pane reads the intermediate context. Repeated publication of the unchanged canonical binding does not invalidate active work.
+
+Utility icon actions use the shared `ActionButton` with accessible names and explanatory
+tooltips. Resources refresh stays disabled until the runtime is ready and explains the
+connection requirement in its tooltip. File rename and copy use shared ghost icon
+actions; pending tree copy uses the same confirmation label in its tooltip and accessible
+name. Labelled delete and overwrite confirmations use the shared destructive button
+variant. These presentation controls retain the existing runtime fences and plan/commit
+authority; a tooltip or visual variant does not authorize an operation.
+
+The shared utility owner and Dev center import structural pane preferences without loading
+pane icon components. Side and title lookups use the data-only pane catalogue; icon projection
+belongs to the utility host. Scoped layout storage, decoding, and migration load on
+demand after a canonical session binding exists. Utility defaults and user
+edits remain synchronous while that code loads. Pending utility or center/focus
+edits merge over the saved document by pane and field; loading MUST preserve
+saved fields the user did not change. Explicit actions retain their intent even
+when the requested value matches the default before hydration. Each load belongs
+to its captured scope, project, and session.
+Changing identity or disposing the owner MUST prevent a late load from publishing
+into the current view; pending edits flush only to their captured storage key.
+A pending edit is also journaled under its captured V2 storage key with a
+`pending-patch.v1` suffix and an owner-specific sequence/nonce. Recovery validates
+the complete document and exact identity through the V2 decoder, then applies
+only the allowlisted fields recorded as changed. A journal is removed only after
+a successful V2 write and an exact raw-value match; failed writes remain
+retryable. Invalid or future journal envelopes remain available for recovery
+without being applied. Storage adapters provide the CRUD methods and key
+enumeration used to recover these journals.
+A failed load retains those edits and exposes an unavailable state with an
+explicit retry in the shared utility sidebar. If the storage backend also rejects
+the initial journal write, edits remain in the live owner but cannot be guaranteed
+after disposal until a write succeeds. Successful hydration publishes preferences,
+load state, and revision together for the active identity, with listener cleanup
+already registered; synchronous observers that switch or dispose the owner MUST
+NOT permit stale publication or leave a visibility listener attached. Hydration
+advances the layout revision once for the active identity. Scoped persistence imports the published read-only
+split-layout tree entry for limits and traversal, keeping pane-editing code
+behind the Dev entry's boundary. Client bundle attribution includes lazy pane imports
+from shared utility hosts under the Dev shell, excluding unrelated startup
+routes; moving a pane into the common host cannot hide its download cost.
+
 ### Worktree
 
 ```text
@@ -1714,6 +1811,24 @@ calls the authenticated unarchive contract, and deletion still requires
 confirmation and reports the missing host contract rather than fabricating
 success. An unavailable provider can leave only the filter and archive controls
 visible; it does not make the sidebar disconnected or authorize mock data.
+
+`DevSidebarNavigation` and the Chat/Virtual `WorkspaceSidebar` use the published
+`@adea-ai/ui` `ContextualSidebar` and `PixelResizeHandle` composition. Shared UI
+owns the responsive desktop/mobile shell, heading, scrolling and footer slots,
+collapse semantics, and edge resize handle. Adea owns the view-specific rows and
+archive content, the controlled open state, the persisted width preference, and
+projection of that width into the workspace frame. The shared component does
+not read Adea state or storage. Hosts pass the initial `wideViewportAtLoad` seed
+and update the same host state through `onOpenChange`; a desktop-open state is
+cleared when a wide-loaded view enters the mobile breakpoint, while an
+intentional open at narrow boot is retained. Closing the mobile sheet returns
+focus to the global sidebar opener through `restoreFocusRef`. Selecting a Chat
+or Virtual channel, or a Dev session or different project, closes the mobile
+sheet; activating the current Dev project still operates its disclosure without
+dismissing the navigation. Nested row menus use the context's `portalMount()` so
+they remain inside the mobile dialog's accessibility tree. Dev focus mode and
+full-width utility surfaces suppress conflicting contextual navigation while
+the shared owner remains mounted; the global rail remains visible.
 
 ### Browser lane
 
@@ -2710,6 +2825,17 @@ Per-worktree shell history uses relative identifiers under the owner-only
 runtime root. Persisted absolute history directories are never deletion
 authority. Resolve and revalidate containment/file identity immediately before
 history deletion.
+
+Device inventory and harness preference rows use the published `ListRowControl`
+composition; harness and activity state labels and dots use `StatusChip`. Device actions,
+canonical run facts, preference resolution, and state-to-tone mapping stay in
+Dev Runtime adapters.
+
+The right utility pane uses one `SharedDevUtilityHost` in Dev, Chat, and
+Virtual. Its rail, heading actions, resize surface, and lazy pane renderers
+share the same component and shell-owned context; Dev does not retain a
+separate copy of the right utility frame. Closing the panel returns focus to
+the corresponding global toolbar opener in every view.
 
 ### Terminal UX
 
@@ -4504,16 +4630,30 @@ slot's browser/devices/agents/history panes, reopening the pane last shown —
 rides the trailing mount after the workspace actions, separated by a vertical
 divider, and both hide while no view supplies it. Dev keeps this collapse
 control available while a utility pane is full width. Dev pane actions
-mount only while Dev owns the active surface. The shell-owned Browser sidebar
-must also be available from Chat, Dev, and Virtual; that cross-view host is a
-separate pending integration and is not established by the Dev mount described
-here. Expanding is a per-panel concern: the full-width control lives in each
+mount only while Dev owns the active surface. Chat, Dev, and Virtual consume
+the same contextual utility owner and lazy Browser/Devices/Agents/History host,
+with view-specific session binding and the shared trailing collapse control.
+The integrated global shell owns that right slot and toggle once across all
+three main views; standalone Dev integrations lazy-load the same host locally
+only when a right utility is visible. Shell-owned Dev must not load a second
+utility host merely by mounting its center. Focus
+mode and a full-width left Dev utility hide the right slot without disposing
+the shared owner. Standalone Source Control and Kanban retain their own content
+and suspend these contextual utility bindings.
+The utility resize divider spans the pane border with the shared centered grip;
+its ruler matches each side's maximum width so the hit target stays on that edge. Expanding is a per-panel concern: the full-width control lives in each
 utility pane's heading, and focus mode stays on its keyboard chord with no
 top-bar control.
 The outer rail remains visible in every view, including focus mode. Virtual
 has its own contextual room navigation, independent of engine entitlement.
-The room-designer entry retains that navigation and its common toolbar controls
-even when the private engine is unavailable.
+Room and Character designer entries use the same global app container and retain
+the global rail even when the private engine is unavailable. Both designers hide
+the left and right contextual sidebars and their toolbar collapse toggles. The
+utility owner suspends its active view while a designer or App Library hides
+the contextual surfaces; entering and leaving that surface invalidates pending
+archive operations even when the user returns to the same Virtual view.
+The shared sidebar layout accepts view-owned content; future app views can replace
+that content without rebuilding the container or its resize/collapse behavior.
 Unavailable-engine content in these contextual shells uses the host's single
 main landmark and fills its viewport, without nesting a second full-screen shell.
 Collapsed contextual navigation is excluded from keyboard focus and the

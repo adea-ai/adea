@@ -1,21 +1,75 @@
 import { expect, test } from '@playwright/test'
 import { resolve } from 'node:path'
 
+const harnessModule =
+  '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-updates-harness-app.tsx')
+
+async function mountWorkspaceUpdatesHarness(page: import('@playwright/test').Page, query = '') {
+  await page.goto(`/__workspace-updates${query}`)
+  await page.evaluate(async (url) => {
+    await import(url)
+  }, harnessModule)
+}
+
 test.beforeEach(async ({ page }) => {
-  const path = '/__workspace-updates'
-  await page.route('**' + path, (route) =>
+  await page.route('**/__workspace-updates**', (route) =>
     route.fulfill({
       contentType: 'text/html',
       body: '<html><body><div id="harness-root"></div></body></html>',
     })
   )
-  await page.goto(path)
-  await page.evaluate(
-    async (url) => {
-      await import(url)
-    },
-    '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-updates-harness-app.tsx')
+  await mountWorkspaceUpdatesHarness(page)
+})
+
+test('keeps the boot badge seed while delaying the visual dialog until first open', async ({
+  page,
+}) => {
+  const sharedDialogRequests: string[] = []
+  page.on('request', (request) => {
+    const pathname = new URL(request.url()).pathname
+    if (/\/components\/composites\/update-dialog\/update-dialog\.(?:tsx|js)$/.test(pathname))
+      sharedDialogRequests.push(pathname)
+  })
+  await mountWorkspaceUpdatesHarness(page, '?initial=available')
+
+  const statusReads = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            updatesHarness?: { statusReads(): number }
+          }
+        ).updatesHarness?.statusReads() ?? -1
+    )
+  const sharedDialogModuleLoads = () => sharedDialogRequests.length
+
+  await expect.poll(statusReads).toBe(1)
+  const trigger = page.getByRole('button', {
+    name: 'User settings, update available',
+    exact: true,
+  })
+  await expect(trigger).toBeVisible()
+  await expect(page.locator('.global-rail__account-trigger .global-rail__update-dot')).toHaveCount(
+    1
   )
+  await expect.poll(sharedDialogModuleLoads).toBe(0)
+
+  const openUpdates = async () => {
+    await trigger.click()
+    await page.getByRole('menuitem', { name: 'Updates, update available', exact: true }).click()
+    return page.getByRole('dialog', { name: 'Version & updates', exact: true })
+  }
+  const dialog = await openUpdates()
+  await expect(dialog).toBeVisible()
+  await expect.poll(sharedDialogModuleLoads).toBe(1)
+  await expect.poll(statusReads).toBe(2)
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  const reopenedDialog = await openUpdates()
+  await expect(reopenedDialog).toBeVisible()
+  await expect.poll(sharedDialogModuleLoads).toBe(1)
+  await expect.poll(statusReads).toBe(3)
 })
 
 for (const selection of ['pointer', 'keyboard'] as const) {

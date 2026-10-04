@@ -682,8 +682,8 @@ test('BrowserPane invalidates a pending screenshot on unmount', async ({ page })
 
 // ── #718: the annotation surface ─────────────────────────────────────────────
 
-async function mountAnnotateSurface(page: import('@playwright/test').Page) {
-  const pane = await mountBrowserPane(page)
+async function mountAnnotateSurface(page: import('@playwright/test').Page, query = '') {
+  const pane = await mountBrowserPane(page, query)
   await pane.getByRole('button', { name: 'Annotate frame' }).click()
   const annotate = pane.getByRole('region', { name: 'Annotate frame' })
   await expect(annotate).toBeVisible()
@@ -920,6 +920,39 @@ test('BrowserPane reports a typed annotate failure without clearing the draft', 
   await expect(annotate.getByRole('status').filter({ hasText: /Region at/ })).toBeVisible()
 })
 
+test('BrowserPane discards a late annotation completion after the canonical session changes', async ({
+  page,
+}) => {
+  const { pane, annotate, surface } = await mountAnnotateSurface(page, '?context-control=enabled')
+  await dragRegion(page, surface, { x: 0.2, y: 0.2 }, { x: 0.6, y: 0.5 })
+  const requestId = await page.evaluate(() => window.browserPaneHarness.deferNextAnnotate())
+  await annotate.getByRole('button', { name: 'Submit annotation' }).click()
+  await expect.poll(async () => (await annotateCommands(page)).length).toBe(1)
+
+  await page.getByRole('button', { name: 'Switch runtime session' }).click()
+  await expect(page.getByTestId('canonical-session')).toHaveText('browser-pane-fixture-session-2')
+  await expect(pane.getByRole('region', { name: 'Annotate frame' })).toBeVisible()
+
+  await page.evaluate(
+    (id) =>
+      window.browserPaneHarness.resolveAnnotate(id, {
+        targetId: 'browser-pane-fixture-target',
+        kind: 'rect',
+        x: 0.2,
+        y: 0.2,
+        width: 0.4,
+        height: 0.3,
+        id: '00000000-0000-4000-8000-00000000a001',
+        screenshotId: '00000000-0000-4000-8000-00000000b002',
+        createdAt: '2099-01-01T00:00:00.000Z',
+      }),
+    requestId
+  )
+
+  await expect(pane.getByRole('status', { name: 'Annotation result' })).toHaveCount(0)
+  await expect(pane.getByRole('alert', { name: 'Annotation error' })).toHaveCount(0)
+})
+
 // ── Cookie import (#646): sources → preview → confirm ──────────────────────
 // The harness serves decoder-exact fixture replies for the three cookie
 // operations (pinned in apps/web/test/browser-pane-cookie-fixtures.test.ts),
@@ -930,6 +963,75 @@ function chromePreviewButton(pane: import('@playwright/test').Locator) {
     .locator('.dev-browser__diagnostic', { hasText: 'Google Chrome — Default' })
     .getByRole('button', { name: 'Preview import' })
 }
+
+test('BrowserPane discards a late cookie plan after the canonical session changes', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page, '?context-control=enabled')
+  await pane.getByRole('button', { name: 'Import cookies' }).click()
+  await expect(chromePreviewButton(pane)).toBeEnabled()
+
+  const requestId = await page.evaluate(() => window.browserPaneHarness.deferNextCookiePlan())
+  await chromePreviewButton(pane).click()
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () =>
+          window.browserPaneHarness
+            .report()
+            .commands.filter((command) => command.operation === 'dev.browser.cookieImportPlan')
+            .length
+      )
+    )
+    .toBe(1)
+
+  await page.getByRole('button', { name: 'Switch runtime session' }).click()
+  await expect(page.getByTestId('canonical-session')).toHaveText('browser-pane-fixture-session-2')
+  await expect(chromePreviewButton(pane)).toBeVisible()
+  await expect(pane.locator('.dev-browser__cookies-preview')).toHaveCount(0)
+
+  await page.evaluate((id) => window.browserPaneHarness.resolveCookiePlan(id), requestId)
+  await expect(pane.locator('.dev-browser__cookies-preview')).toHaveCount(0)
+  await expect(pane.getByText('12 cookies to import')).toHaveCount(0)
+})
+
+test('BrowserPane does not show a late cookie commit after the lane generation changes', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page)
+  await pane.getByRole('button', { name: 'Import cookies' }).click()
+  await chromePreviewButton(pane).click()
+  const preview = pane.locator('.dev-browser__cookies-preview')
+  await expect(preview).toContainText('12 cookies to import')
+
+  // A closed lane makes this fixture commit succeed if its old response is
+  // applied. The subsequent takeover changes generation while that response
+  // is held, so the old keyed panel must not publish its result into the new
+  // generation's cookie surface.
+  await page.evaluate(() => window.browserPaneHarness.closeFixtureLane())
+  const requestId = await page.evaluate(() => window.browserPaneHarness.deferNextCookieCommit())
+  await pane.getByRole('button', { name: 'Import to this lane' }).click()
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () =>
+          window.browserPaneHarness
+            .report()
+            .commands.filter((command) => command.operation === 'dev.browser.cookieImportCommit')
+            .length
+      )
+    )
+    .toBe(1)
+
+  await pane.getByRole('button', { name: 'Release capture (Esc)' }).click()
+  await expect(pane.getByText('gen 8', { exact: true })).toBeVisible()
+  await expect(chromePreviewButton(pane)).toBeVisible()
+  await expect(pane.locator('.dev-browser__cookies-preview')).toHaveCount(0)
+
+  await page.evaluate((id) => window.browserPaneHarness.resolveCookieCommit(id), requestId)
+  await expect(pane.getByText('12 cookies imported · 3 skipped.')).toHaveCount(0)
+  await expect(pane.locator('.dev-browser__cookies-preview')).toHaveCount(0)
+})
 
 test('BrowserPane cookie import renders typed sources, previews the value-free plan, and commits a stopped lane', async ({
   page,

@@ -191,22 +191,3 @@
   font-family: var(--font-ui, var(--font-sans));
   font-size: calc(0.8125rem * var(--font-ui-scale, 1));
 }
-
-.dev-activity__badge {
-  flex-shrink: 0;
-  border-radius: 9999px;
-  padding: 0 0.375rem;
-  font-family: var(--font-ui, var(--font-sans));
-  font-size: calc(0.6875rem * var(--font-ui-scale, 1));
-  border: 1px solid var(--border);
-  color: var(--muted-foreground);
-}
-
-.dev-activity__badge--attention {
-  color: var(--destructive);
-  border-color: var(--destructive);
-}
-
-.dev-activity__badge--running {
-  color: var(--foreground);
-}

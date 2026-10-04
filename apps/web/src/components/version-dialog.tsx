@@ -2,13 +2,13 @@ import type { Accessor } from 'solid-js'
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
-import {
-  VersionDialog as SharedVersionDialog,
-  type VersionDialogAdapter,
-  type VersionDialogChannelActions,
+import type {
+  VersionDialogAdapter,
+  VersionDialogChannelActions,
 } from '@adea-ai/app-ui/components/version-dialog'
 import { noteUpdatePhase } from '@adea-ai/workspace-ui/update-pending'
 import type { UpdateChannelSetting, UpdatesService } from '@adea-ai/workspace-ui/platform'
+import lazyComponent from './lazy-component'
 
 import {
   checkDesktopUpdate,
@@ -21,6 +21,10 @@ import { withSyntheticDownloadProgress } from '../lib/desktop-update-progress'
 import packageJson from '../../package.json'
 
 const packageVersion = packageJson.version
+
+const SharedVersionDialog = lazyComponent(() =>
+  import('@adea-ai/app-ui/components/version-dialog').then((module) => module.VersionDialog)
+)
 
 /**
  * Mirror every updater answer into the shared update-pending state the rail
@@ -163,6 +167,15 @@ export function VersionDialog(props: {
   open?: boolean
   restoreFocusRef?: Accessor<HTMLElement | undefined>
 }) {
+  // Keep the native status/badge probe owned by DesktopWorkspaceEntry. Load
+  // the visual updater only once the user opens it, then keep that same
+  // mounted component across closes so reopen state and focus behavior match
+  // the eagerly-mounted dialog.
+  const [hasOpened, setHasOpened] = createSignal(props.open ?? false)
+  createEffect(() => {
+    if (props.open) setHasOpened(true)
+  })
+
   const channelService = props.channelService
   const channelControl = channelService
     ? (actions: VersionDialogChannelActions) => (
@@ -171,14 +184,16 @@ export function VersionDialog(props: {
     : undefined
 
   return (
-    <SharedVersionDialog
-      adapter={desktopUpdateAdapter}
-      appIcon="/icon.svg"
-      channelControl={channelControl}
-      fallbackVersion={packageVersion}
-      onOpenChange={props.onOpenChange}
-      open={props.open}
-      restoreFocusRef={props.restoreFocusRef}
-    />
+    <Show when={hasOpened()}>
+      <SharedVersionDialog
+        adapter={desktopUpdateAdapter}
+        appIcon="/icon.svg"
+        channelControl={channelControl}
+        fallbackVersion={packageVersion}
+        onOpenChange={props.onOpenChange}
+        open={props.open}
+        restoreFocusRef={props.restoreFocusRef}
+      />
+    </Show>
   )
 }

@@ -137,6 +137,24 @@
       "solid": "./src/resources/resources-sheet.tsx",
       "development": "./src/resources/resources-sheet.tsx",
       "import": "./dist/resources/resources-sheet.js"
+    },
+    "./utility-owner": {
+      "types": "./dist/utility-owner.d.ts",
+      "solid": "./src/utility-owner.ts",
+      "development": "./src/utility-owner.ts",
+      "import": "./dist/utility-owner.js"
+    },
+    "./utility-host": {
+      "types": "./dist/utility-host.d.ts",
+      "solid": "./src/utility-host.tsx",
+      "development": "./src/utility-host.tsx",
+      "import": "./dist/utility-host.js"
+    },
+    "./utility-archive-shelf": {
+      "types": "./dist/utility-archive-shelf.d.ts",
+      "solid": "./src/utility-archive-shelf.tsx",
+      "development": "./src/utility-archive-shelf.tsx",
+      "import": "./dist/utility-archive-shelf.js"
     }
   },
   "scripts": {

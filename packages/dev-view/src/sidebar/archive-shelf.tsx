@@ -29,12 +29,12 @@ import { For, Show, createEffect, createSignal } from 'solid-js'
 import { archiveTimeLabel, type ArchiveShelfState } from './archive-shelf-model'
 
 /**
- * The paged archived shelf pinned to the bottom of the Dev sidebar (ADR 0009
- * product composition). Restore rides the real `dev.session.unarchive`
- * contract and is lossless, so it needs no confirmation; deletion is
- * destructive and always passes an explicit confirmation step, and its commit
- * reports the missing `dev.session.delete` host contract as a typed handoff
- * rather than pretending to succeed.
+ * The paged archived shelf pinned to the bottom of the shared project/session
+ * navigation in Dev, Chat, and Virtual (ADR 0009 product composition). Restore
+ * rides the real `dev.session.unarchive` contract and is lossless, so it needs
+ * no confirmation; deletion is destructive and always passes an explicit
+ * confirmation step, and its commit reports the missing `dev.session.delete`
+ * host contract as a typed handoff rather than pretending to succeed.
  */
 export function ArchiveShelf(props: {
   state: ArchiveShelfState
