@@ -39,6 +39,33 @@ async function mountDevicesPane(page: import('@playwright/test').Page, query = '
   return pane
 }
 
+async function mountResourcesPane(page: import('@playwright/test').Page) {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('**' + BROWSER_PANE_HARNESS_PATH + '**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: browserPaneHarnessHtml() })
+  )
+  await page.goto(`${BROWSER_PANE_HARNESS_PATH}?pane=resources`)
+  await page.addScriptTag({ type: 'module', content: browserPaneHarnessModuleSource() })
+  const pane = page.getByRole('region', { name: 'Runtime resources' })
+  await expect(pane).toBeVisible()
+  await expect(pane.locator('.dev-resources__code')).toHaveText('localhost:5173')
+  return pane
+}
+
+async function expectFontLoaded(page: import('@playwright/test').Page, family: string) {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (name) =>
+          [...document.fonts].some(
+            (face) => face.family.includes(name) && face.status === 'loaded'
+          ),
+        family
+      )
+    )
+    .toBe(true)
+}
+
 function screenshotReference(id: string, redacted = false): ScreenshotRef {
   return {
     id,
@@ -988,4 +1015,76 @@ test('BrowserPane cookie import refuses the commit while the plan carries a bloc
     'the lane engine still owns this profile; close the lane before importing'
   )
   await expect(pane.getByRole('button', { name: 'Import to this lane' })).toBeDisabled()
+})
+
+test('BrowserPane and ResourcesPane project the shared UI, Content, and Code font roles', async ({
+  page,
+}) => {
+  const { pane, annotate, surface } = await mountAnnotateSurface(page)
+  const uiRow = pane.locator('.dev-browser__row').first()
+  await expect(uiRow).toHaveCSS('font-size', '12.8px')
+
+  const settings = {
+    ui: { family: 'space-grotesk', size: 28 },
+    content: { family: 'geist', size: 18 },
+    code: { family: 'jetbrains-mono', size: 16 },
+  } as const
+  await page.evaluate((fonts) => window.browserPaneHarness.setFonts(fonts), settings)
+  await expectFontLoaded(page, 'Space Grotesk')
+  await expect(uiRow).toHaveCSS('font-size', '25.6px')
+  await expect(uiRow).toHaveCSS('font-family', /Space Grotesk/)
+
+  const selector = pane.getByRole('textbox', { name: 'CSS selector' })
+  await selector.fill('button')
+  await pane.getByRole('button', { name: 'Inspect selector' }).click()
+  const inspection = pane.getByRole('status', { name: 'Inspection result' })
+  await expect(inspection).toContainText('Submit request')
+  await expectFontLoaded(page, 'JetBrains Mono')
+  await expect(inspection).toHaveCSS('font-size', '16px')
+  await expect(inspection).toHaveCSS('font-family', /JetBrains Mono/)
+
+  await expect(annotate).toBeVisible()
+  await annotate.getByRole('button', { name: 'Note (N)' }).click()
+  // Notes annotate a point in the frame; text alone is not an annotation.
+  await surface.click({ position: { x: 40, y: 40 } })
+  const note = annotate.getByRole('textbox', { name: 'Note text' })
+  await note.fill('This annotation uses readable content typography.')
+  await note.press('Enter')
+  const annotation = annotate.getByRole('status', { name: 'Annotation result' })
+  await expect(annotation).toBeVisible()
+  await expectFontLoaded(page, 'Geist')
+  await expect(annotation).toHaveCSS('font-size', '18px')
+  await expect(annotation).toHaveCSS('font-family', /Geist/)
+
+  const smallerCodeSettings = { ...settings, code: { family: 'jetbrains-mono', size: 12 } } as const
+  await page.evaluate((fonts) => window.browserPaneHarness.setFonts(fonts), smallerCodeSettings)
+  await expect(inspection).toHaveCSS('font-size', '12px')
+  await expect(uiRow).toHaveCSS('font-size', '25.6px')
+  await expect(annotation).toHaveCSS('font-size', '18px')
+
+  await page.evaluate(() => window.browserPaneHarness.resetFonts())
+  await expect(annotation).toHaveCSS('font-size', '14px')
+  await expect(inspection).toHaveCSS('font-size', '12px')
+
+  const resources = await mountResourcesPane(page)
+  const resourceUi = resources.locator('.dev-resources__row-detail').first()
+  const resourceContent = resources.locator('.dev-resources__note').first()
+  const resourceCode = resources.locator('.dev-resources__code').first()
+  await page.evaluate((fonts) => window.browserPaneHarness.setFonts(fonts), settings)
+  await expectFontLoaded(page, 'Space Grotesk')
+  await expectFontLoaded(page, 'Geist')
+  await expectFontLoaded(page, 'JetBrains Mono')
+  await expect(resourceUi).toHaveCSS('font-size', '24px')
+  await expect(resourceUi).toHaveCSS('font-family', /Space Grotesk/)
+  await expect(resourceContent).toHaveCSS('font-size', '18px')
+  await expect(resourceContent).toHaveCSS('font-family', /Geist/)
+  await expect(resourceCode).toHaveCSS('font-size', '16px')
+  await expect(resourceCode).toHaveCSS('font-family', /JetBrains Mono/)
+
+  await page.evaluate((fonts) => window.browserPaneHarness.setFonts(fonts), smallerCodeSettings)
+  await expect(resourceCode).toHaveCSS('font-size', '12px')
+  await expect(resourceUi).toHaveCSS('font-size', '24px')
+  await expect(resourceContent).toHaveCSS('font-size', '18px')
+  await page.evaluate(() => window.browserPaneHarness.resetFonts())
+  await expect(resourceContent).toHaveCSS('font-size', '14px')
 })

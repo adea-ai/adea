@@ -7,6 +7,7 @@ import viteSolid from 'vite-plugin-solid'
 import tailwindcss from '@tailwindcss/postcss'
 import { forbiddenClientModule, PUBLIC_ENV_NAMES } from './start/client-policy.mjs'
 import { selectiveUiSourcePlugin } from './start/ui-tailwind-sources'
+import { publicFontAssetDirectories } from './start/public-font-assets'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url)).replaceAll('\\', '/')
@@ -130,7 +131,17 @@ export default defineConfig(({ command }) => ({
     },
   },
   publicDir: 'public',
-  server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 3000), strictPort: false },
+  server: {
+    host: '127.0.0.1',
+    port: Number(process.env.PORT ?? 3000),
+    strictPort: false,
+    // Linked dependency assets may live outside the workspace. Grant only the
+    // four public font asset directories, never the package manager cache.
+    fs: {
+      strict: true,
+      allow: [repositoryRoot, ...(command === 'serve' ? publicFontAssetDirectories() : [])],
+    },
+  },
   resolve: {
     dedupe: ['solid-js'],
     // `server-only` throws from its default entry; only Next's react-server

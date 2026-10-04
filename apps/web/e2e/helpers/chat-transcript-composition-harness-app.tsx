@@ -2,6 +2,11 @@ import '../../src/start/globals.css'
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { ChatTranscript } from '@adea-ai/dev-view/chat'
+import {
+  applyAppearanceFontSettings,
+  DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS,
+  type AppearanceEditorFontSettings,
+} from '@adea-ai/ui/lib/appearance-font-settings'
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
 function event(id: string, kind: RuntimeEvent['kind'], text: string): RuntimeEvent {
@@ -27,6 +32,10 @@ const [events, setEvents] = createSignal<readonly RuntimeEvent[]>([question])
 const [resetKey, setResetKey] = createSignal('session-1:1')
 
 window.chatTranscriptCompositionHarness = {
+  setFonts: (fonts: AppearanceEditorFontSettings) =>
+    applyAppearanceFontSettings(document.documentElement, fonts),
+  resetFonts: () =>
+    applyAppearanceFontSettings(document.documentElement, DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS),
   prepend: () => setEvents([event('tool-1', 'tool.completed', 'Opaque tool result'), question]),
   reset: () => setResetKey('session-1:2'),
 }
@@ -38,6 +47,11 @@ render(
 
 declare global {
   interface Window {
-    chatTranscriptCompositionHarness: { prepend(): void; reset(): void }
+    chatTranscriptCompositionHarness: {
+      prepend(): void
+      reset(): void
+      setFonts(fonts: AppearanceEditorFontSettings): void
+      resetFonts(): void
+    }
   }
 }

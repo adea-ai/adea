@@ -7,6 +7,12 @@ Run it from the repository root with `portless` to use the stable
 `https://adea.localhost` development URL. The direct fallback is
 `PORT=3004 bun run dev`.
 
+Development keeps Vite's strict filesystem boundary and permits the four public
+font asset directories resolved through the published UI package. This supports
+linked package installations without granting access to the package manager's
+cache or other files outside the workspace. Production still bundles font assets
+through the normal CSS imports.
+
 Production web output excludes the native workspace bootstrap and desktop-first-run
 Chat. The desktop SPA build retains those components; both builds share the same
 source and keep the runtime bridge check. Local Vite development retains the components for isolated transport fixtures;

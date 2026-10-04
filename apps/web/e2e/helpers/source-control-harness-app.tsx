@@ -14,6 +14,11 @@ import type {
   GitHubTimelineItem,
   Scope,
 } from '@adea-ai/types/dev-runtime'
+import {
+  applyAppearanceFontSettings,
+  DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS,
+  type AppearanceEditorFontSettings,
+} from '@adea-ai/ui/lib/appearance-font-settings'
 import { render } from 'solid-js/web'
 
 import { SourceControlApp } from '../../../../packages/dev-view/src/source-control-app/app'
@@ -792,10 +797,19 @@ const runtime: DevRuntimeService = {
 
 declare global {
   interface Window {
-    sourceControlHarness: { commands(): { operation: string; body: Record<string, unknown> }[] }
+    sourceControlHarness: {
+      commands(): { operation: string; body: Record<string, unknown> }[]
+      setFonts(settings: AppearanceEditorFontSettings): void
+      resetFonts(): void
+    }
   }
 }
-window.sourceControlHarness = { commands: () => state.commands }
+window.sourceControlHarness = {
+  commands: () => state.commands,
+  setFonts: (settings) => applyAppearanceFontSettings(document.documentElement, settings),
+  resetFonts: () =>
+    applyAppearanceFontSettings(document.documentElement, DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS),
+}
 
 if (params.get('reset') !== 'keep') {
   try {
