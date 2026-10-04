@@ -5889,3 +5889,13 @@ files in the same commit:
 
 Until those files exist, the matching implementation issue remains open; prose
 alone is not evidence of implemented behavior.
+
+### Shared utility action controls
+
+Utility icon actions use the shared `ActionButton` with accessible names and explanatory
+tooltips. Resources refresh stays disabled until the runtime is ready and explains the
+connection requirement in its tooltip. File rename and copy use shared ghost icon
+actions; pending tree copy uses the same confirmation label in its tooltip and accessible
+name. Labelled delete and overwrite confirmations use the shared destructive button
+variant. These presentation controls retain the existing runtime fences and plan/commit
+authority; a tooltip or visual variant does not authorize an operation.

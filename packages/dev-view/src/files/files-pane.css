@@ -138,12 +138,6 @@
 
 .dev-files__delete {
   flex-shrink: 0;
-  padding: 0 0.3rem;
-  border: 0;
-  border-radius: 0.25rem;
-  background: transparent;
-  color: var(--muted-foreground);
-  font-size: 0.65rem;
   opacity: 0;
 }
 
@@ -156,10 +150,7 @@
   opacity: 1;
 }
 
-.dev-files__delete:hover,
 .dev-files__delete[aria-label^='Confirm delete'] {
-  background: color-mix(in srgb, var(--destructive) 18%, transparent);
-  color: var(--destructive);
   opacity: 1;
 }
 

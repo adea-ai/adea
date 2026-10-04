@@ -32,6 +32,7 @@ import {
 } from './resources-model'
 import './resources-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
 export type ResourcesPaneProps = {
   runtime: DevRuntimeService
@@ -143,15 +144,19 @@ export function ResourcesPane(props: ResourcesPaneProps) {
     <div class="dev-resources" role="region" aria-label="Runtime resources">
       <div class="dev-resources__header">
         <span class="dev-resources__title">Runtime resources</span>
-        <Button
+        <ActionButton
           type="button"
-          class="dev-resources__refresh"
+          variant="outline"
+          size="icon-sm"
+          tooltip={
+            serviceReady() ? 'Refresh runtime resources' : 'Connect a runtime to refresh resources'
+          }
           aria-label="Refresh resources"
           disabled={!serviceReady()}
           onClick={refresh}
         >
           <RefreshCw aria-hidden="true" />
-        </Button>
+        </ActionButton>
       </div>
       <Show
         when={serviceReady()}
