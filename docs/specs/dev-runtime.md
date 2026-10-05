@@ -4474,9 +4474,10 @@ session-scoped, generation-fenced `dev.session.cancelHarness` command and
 are disabled while the session generation is unknown. The workspace top bar
 carries the runtime-resources action on every view; its detail sheet shows the
 process/port inventory, metric summaries, provider usage cards, and the
-retained-data breakdown with cleanup context, anchoring top-right below the
-bar wherever the host mounts it. Lanes without a Dev runtime channel render
-the typed unavailable state; absent capability renders as typed states.
+retained-data breakdown with cleanup context, docked by the shared inset
+Sheet to the workspace's end edge below the bar on every host. Lanes without
+a Dev runtime channel render the typed unavailable state; absent capability
+renders as typed states.
 The resource refresh icon uses the shared explanatory `ActionButton`; an
 unavailable runtime keeps the action inert while its tooltip explains how to
 enable it. Stop and cancel actions use shared destructive and outline button

@@ -162,7 +162,9 @@ test('appearance font roles change computed typography in Resources and Permissi
     )
     .toBe('16px')
 
-  await page.getByRole('button', { name: 'Runtime resources', exact: true }).click()
+  // The shared sheet is modal, so the top-bar trigger no longer toggles it
+  // closed — dismissal is the sheet's own close affordance.
+  await page.getByRole('button', { name: 'Close runtime resources' }).click()
   const permissions = await openPermissions(page)
   const permissionTitle = permissions.locator('.dev-permissions__title').first()
   const permissionPurpose = permissions.locator('.dev-permissions__purpose').first()

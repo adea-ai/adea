@@ -1,14 +1,15 @@
 /*
  * Copyright (c) 2026 Adea contributors.
  *
- * Resources sheet chrome (#424): the dismissible panel that hosts the lazy
- * ResourcesPane. The host owns the open state and the trigger button, so any
- * view can offer runtime resources — the sheet only anchors top-right below
- * the top bar and reports Escape.
+ * Resources sheet chrome (#424): the host owns the open state and the trigger
+ * button, so any view can offer runtime resources. The panel itself is the
+ * shared Sheet (Kobalte dialog, end-edge inset docking): Escape, outside
+ * click, and focus restoration are the primitive's, the geometry rides the
+ * dialog scale, and the pane keeps every row and action it had in the old
+ * fixed popover.
  */
-import { X } from 'lucide-solid'
 import { Suspense, lazy } from 'solid-js'
-import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Sheet, SheetBody, SheetContent } from '@adea-ai/ui/components/ui/sheet'
 
 import { createUnavailableDevRuntimeService, type DevRuntimeService } from '../platform'
 import './resources-pane.css'
@@ -35,33 +36,33 @@ export type ResourcesSheetProps = {
 
 export function ResourcesSheet(props: ResourcesSheetProps) {
   return (
-    <div
-      class="dev-resources-sheet"
-      role="dialog"
-      aria-label="Runtime resources"
-      onKeyDown={(event: KeyboardEvent) => {
-        if (event.key === 'Escape') props.onClose()
+    // `open` is always true here: the host conditionally mounts the sheet, so
+    // dismissing (Escape, outside click, close button) reports through
+    // onOpenChange and the host unmounts.
+    <Sheet
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose()
       }}
     >
-      <div class="dev-resources-sheet__bar">
-        <span>Runtime resources</span>
-        <ActionButton
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          tooltip="Close runtime resources"
-          aria-label="Close runtime resources"
-          onClick={props.onClose}
-        >
-          <X aria-hidden="true" />
-        </ActionButton>
-      </div>
-      <Suspense fallback={<p class="dev-resources__note">Loading…</p>}>
-        <ResourcesPane
-          runtime={props.runtime ?? unavailableRuntime}
-          runtimeSessionId={props.runtimeSessionId}
-        />
-      </Suspense>
-    </div>
+      {/* The pane header carries the visible "Runtime resources" title and the
+          refresh action, so the sheet only names the dialog and reserves the
+          corner where its close button sits (the dev-resources-sheet hook). */}
+      <SheetContent
+        side="end"
+        class="dev-resources-sheet"
+        aria-label="Runtime resources"
+        closeLabel="Close runtime resources"
+      >
+        <SheetBody>
+          <Suspense fallback={<p class="dev-resources__note">Loading…</p>}>
+            <ResourcesPane
+              runtime={props.runtime ?? unavailableRuntime}
+              runtimeSessionId={props.runtimeSessionId}
+            />
+          </Suspense>
+        </SheetBody>
+      </SheetContent>
+    </Sheet>
   )
 }
