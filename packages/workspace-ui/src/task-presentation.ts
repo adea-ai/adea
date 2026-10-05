@@ -1,5 +1,6 @@
 import type { TaskSummary } from '@adea-ai/types'
 import type { BoardColumn } from '@adea-ai/ui/components/ui/board'
+import type { MenuSwatchTone } from '@adea-ai/ui/components/ui/select'
 import {
   ArrowDown,
   ArrowUp,
@@ -72,3 +73,11 @@ export const kindOption = (kind: TaskSummary['kind'] | undefined) =>
 
 export const priorityOption = (priority: TaskSummary['priority']) =>
   priorityOptions.find((option) => option.value === priority) ?? priorityOptions[2]!
+
+/**
+ * The menu swatch ladder speaks the Badge tone vocabulary — the dot a dropdown
+ * row shows is the tint its card badge carries. The grey tints (secondary,
+ * outline) carry no status meaning, so they read as neutral dots.
+ */
+export const swatchTone = (badge: BadgeTone): MenuSwatchTone =>
+  badge === 'secondary' || badge === 'outline' ? 'neutral' : badge
