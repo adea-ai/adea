@@ -858,10 +858,19 @@ test('centers creation dialogs in the viewport', async ({ page }) => {
     { width: 1280, height: 720 },
   ]) {
     await page.setViewportSize(viewport)
-    // The published composition keeps the closed mobile sheet instance
-    // mounted next to the desktop aside, so scope to whichever aside is
-    // actually presented at this viewport.
-    const navigation = page.locator('aside[data-contextual-sidebar]:visible')
+    // The published composition renders two structural variants: the desktop
+    // aside in the workspace frame, and a mobile aside inside the sheet's
+    // dialog content — which some platforms keep mounted (and laid out) after
+    // the sheet closes. Select the variant the viewport actually presents:
+    // the desktop aside above 48rem, and below it the mobile aside inside the
+    // open sheet's dialog (its wrapper carries data-expanded only while the
+    // sheet is open) — never a visibility probe, which is platform-dependent.
+    const navigation =
+      viewport.width > 768
+        ? page.locator('aside[data-contextual-sidebar="desktop"]')
+        : page
+            .locator('[role="dialog"][data-expanded]')
+            .locator('aside[data-contextual-sidebar="mobile"]')
     if (!(await navigation.isVisible())) {
       // Crossing below 48rem closed the shared navigation and the frame-only
       // opener is display:none in that layout, so reopen through the top-bar
