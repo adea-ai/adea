@@ -32,10 +32,15 @@ export const utilityPaneById = new Map(utilityPaneDefinitions.map((item) => [ite
 
 export const utilitySizeSteps = {
   left: [240, 288, 336, 384],
-  right: [240, 288, 336, 384, 448],
+  right: [240, 288, 336, 384, 448, 512],
 } as const
 export const defaultLeftUtilitySize = 336
-export const defaultRightUtilitySize = 448
+// The right host (Browser/Devices/Agents/History) opens clearly wider than the
+// 336 left anchor: 512 is the shared top resize step, so the default never
+// pins the pane below the widest size the handle offers. Stored widths always
+// win (decode keeps any stored size >= 0), so this moves only first-run and
+// reset layouts.
+export const defaultRightUtilitySize = 512
 
 export const defaultUtilityPreferences = (): DevUtilityPreference[] =>
   utilityPaneDefinitions.map((item, order) => ({
