@@ -133,7 +133,14 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the shell-owned utility owner while the standalone fallback still
     // constructs it eagerly. Raw ratchets to the next whole KiB (~1.4%
     // headroom); gzip to the next whole KiB above the measurement.
-    devShell: { rawBytes: 131 * 1024, gzipBytes: 46 * 1024 },
+    // Re-measured for the add-project authorize surface and the pane empty
+    // states (2026-10-05, #1033): 135,786 raw / 47,334 gzip across 25 files
+    // locally, 135,885 raw in the pinned CI build — the authorize form and
+    // its sidebar opener registration, the terminal/files select-a-project
+    // empty states, and the Minimize2/Play/Square/FilePlus/FolderPlus icons
+    // join the shell. Raw ratchets to the next whole KiB; gzip to the next
+    // whole KiB above the measurement, same as the #1018 re-baseline.
+    devShell: { rawBytes: 133 * 1024, gzipBytes: 47 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested
