@@ -8,6 +8,10 @@ the contract to read before touching the desktop flows in
 `apps/desktop/shell/src/commands.ts`, or the client runtime in
 `apps/web/src/lib/desktop-runtime.ts`.
 
+**Pending redesign:** [ADR 0011](../decisions/0011-unified-workspace-projects.md)
+adds a membership-checked device workspace scope for the Dev runtime. It does
+not change the sign-in handoff below.
+
 > **Implementation note (2026-09-13):** the desktop shell is Electrobun (Bun +
 > CEF); see [ADR 0006](../decisions/0006-browser-lanes-and-desktop-shell.md).
 > Rust module paths below refer to the previous shell. The shell implements the

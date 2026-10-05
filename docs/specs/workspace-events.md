@@ -9,6 +9,10 @@ the workspace events route, or `packages/data/src/events.ts`.
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
+**Pending redesign:** [ADR 0011](../decisions/0011-unified-workspace-projects.md)
+renames the room family to projects and adds `workspace.updated`. The registry
+below stays authoritative until that change lands with its amendment.
+
 ## The log is authoritative; delivery is not
 
 `workspace_events` is append-only product state. Clients synchronize from it and

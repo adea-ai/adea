@@ -15,6 +15,10 @@ Read this page before touching any routed Dev Runtime path in `AGENTS.md`.
 - Browser caller and frame-transport boundary: [browser caller gaps](../research/dev-browser-caller-gaps.md)
 - Threat model: [Dev View threat model](../security/dev-view-threat-model.md)
 - Delivery order: [M12 implementation plan](../plans/m12-dev-view.md)
+- Pending redesign: [ADR 0011](../decisions/0011-unified-workspace-projects.md)
+  removes project groups, binds the Dev scope to the selected cloud workspace,
+  and makes the primary checkout a worktree record. The sections below stay
+  normative until each change lands with its amendment.
 
 **Changelog discipline:** behavior described here and its tests change in the
 same commit. M12 code cannot weaken an M10/M11 authority; if this page and an
