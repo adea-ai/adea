@@ -7,6 +7,7 @@ async function exerciseContextualSidebarToggle(page: Page) {
   // label happens to be live at retry time.
   const toggle = page.getByRole('button', { name: /^(Expand|Collapse) contextual sidebar$/ })
   const closeSheet = page.getByRole('button', { name: 'Close', exact: true })
+  const openSheetDialog = page.locator('[role="dialog"][data-expanded]')
   const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
 
   // Boot responses and the sheet's close/focus-restoration transition can
@@ -16,17 +17,53 @@ async function exerciseContextualSidebarToggle(page: Page) {
   // Each click is bounded to the probe interval: a landed click renames the
   // toggle immediately, and an unbounded retry would wait the whole timeout
   // against the renamed-away label.
+  // Failure diagnostics for the loaded-runner signature: when the button
+  // probe exhausts, report whether the toggle is missing, present behind the
+  // open sheet's aria-hidden modal, or present and reading a stale state —
+  // this lands in the lane log and names the mechanism definitively.
+  const logToggleState = async (phase: string) => {
+    console.error(
+      `[contextual-toggle-diag] ${phase}: ${JSON.stringify(
+        await page.evaluate(() => {
+          const node = document.querySelector('button[aria-label*="contextual sidebar"]')
+          return {
+            toggle: node ? node.outerHTML.slice(0, 140) : null,
+            ariaExpanded: node?.getAttribute('aria-expanded') ?? null,
+            behindModal: Boolean(node?.closest('[aria-hidden="true"], [inert]')),
+            openSheetDialog: document.querySelector('[role="dialog"][data-expanded]') !== null,
+          }
+        })
+      )}`
+    )
+  }
+
   const openSheet = async () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await toggle.click({ timeout: 2_000 }).catch(() => undefined)
+      // The state signal: the open sheet's dialog. The toolbar behind the
+      // modal can be aria-hidden on loaded runners, which makes every button
+      // probe report the toggle gone exactly while the sheet is up — the
+      // dialog attribute cannot churn with toolbar re-renders.
       try {
-        await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 2_000 })
+        await expect(openSheetDialog).toBeVisible({ timeout: 2_000 })
         return
       } catch {
-        // The click was lost or is still settling; retry on the live node.
+        const observed = await page
+          .evaluate(() => {
+            const node = document.querySelector('button[aria-label*="contextual sidebar"]')
+            return {
+              toggle: node ? node.outerHTML.slice(0, 120) : null,
+              ariaExpanded: node?.getAttribute('aria-expanded') ?? null,
+              behindModal: Boolean(node?.closest('[aria-hidden="true"], [inert]')),
+              openSheetDialog: document.querySelector('[role="dialog"][data-expanded]') !== null,
+            }
+          })
+          .catch(() => 'evaluate-failed')
+        console.error(`[contextual-toggle-diag] attempt ${attempt}: ${JSON.stringify(observed)}`)
       }
     }
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await logToggleState('open probe exhausted')
+    await expect(openSheetDialog).toBeVisible()
   }
 
   if (await toggle.isVisible()) {
@@ -45,14 +82,18 @@ async function exerciseContextualSidebarToggle(page: Page) {
     await openSheet()
     await expect(projectsSidebar).toBeVisible()
     // The close chrome unmounts with the sheet; bound it like the open click
-    // and let the hidden assertion decide.
+    // and let the hidden assertion decide. Focus and aria-expanded assertions
+    // wait until after the sheet is down: behind the open modal the toolbar
+    // probe is the one that lies.
     await closeSheet.click({ timeout: 2_000 }).catch(() => undefined)
+    await expect(openSheetDialog).toBeHidden()
     await expect(projectsSidebar).toBeHidden()
     await expect(toggle).toBeFocused()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     await openSheet()
     await expect(projectsSidebar).toBeVisible()
     await closeSheet.click({ timeout: 2_000 }).catch(() => undefined)
+    await expect(openSheetDialog).toBeHidden()
     await expect(projectsSidebar).toBeHidden()
     await expect(toggle).toBeFocused()
   } else {
