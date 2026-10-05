@@ -967,12 +967,15 @@
   background: transparent;
 }
 
+/* Every .conventional-dialog renders inside the shared dialog positioner
+   (fixed inset-0 grid place-items-center), which owns centering and the
+   viewport bounds. Sizing the box in-flow — content height capped by
+   max-height — keeps small dialogs content-sized everywhere; the previous
+   fixed + inset + height:fit-content composition stretched small dialogs to
+   the window in the desktop shell (block-axis fit-content does not hold
+   there), which is exactly what this rule must never do. */
 .conventional-dialog {
-  position: fixed;
-  inset: 1rem;
-  margin: auto;
   box-sizing: border-box;
-  height: fit-content;
   min-height: 0;
   width: min(34rem, calc(100% - 4rem));
   max-width: min(34rem, calc(100% - 4rem));
