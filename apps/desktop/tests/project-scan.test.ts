@@ -165,6 +165,34 @@ describe('monorepo scanner (prune-first walker)', () => {
     }
   })
 
+  test('a nested .gitignore prunes mid-descent without touching siblings', () => {
+    // Undeclared descent is where nested ignore files bite: services/ is
+    // walked, and its OWN .gitignore prunes generated/ while the rule stack
+    // inherits downward. The contrast scan proves the fixture would find the
+    // generated package without the ignore file.
+    const build = (withNestedIgnore: boolean): string => {
+      const root = makeRepo()
+      if (withNestedIgnore) write(root, 'services/.gitignore', 'generated/\n')
+      write(root, 'services/api/package.json', JSON.stringify({ name: 'api' }))
+      write(root, 'services/generated/tool/package.json', JSON.stringify({ name: 'tool' }))
+      write(root, 'services/other/package.json', JSON.stringify({ name: 'other' }))
+      return root
+    }
+    const pruned = build(true)
+    const unpruned = build(false)
+    try {
+      expect(names(scanDirectoryRoot({ canonicalRoot: pruned }).entries)).toEqual(['api', 'other'])
+      expect(names(scanDirectoryRoot({ canonicalRoot: unpruned }).entries)).toEqual([
+        'api',
+        'other',
+        'tool',
+      ])
+    } finally {
+      rmSync(pruned, { recursive: true, force: true })
+      rmSync(unpruned, { recursive: true, force: true })
+    }
+  })
+
   test('malformed manifests surface as diagnostics with fallback names, not failures', () => {
     const root = makeRepo()
     try {
