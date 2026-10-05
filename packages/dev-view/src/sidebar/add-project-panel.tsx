@@ -13,7 +13,8 @@
  * install/bootstrap commands.
  */
 import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
-import { createSignal, lazy, Show, Suspense } from 'solid-js'
+import { FolderPlus } from 'lucide-solid'
+import { createSignal, lazy, onMount, Show, Suspense } from 'solid-js'
 
 export type AddProjectPanelProps = Readonly<{
   scope: Scope
@@ -22,6 +23,8 @@ export type AddProjectPanelProps = Readonly<{
   knownProjectNames: readonly string[]
   onImported(): void
   announce(message: string): void
+  /** Registers an opener so center-pane empty states can expand this panel. */
+  registerOpen?: (open: () => void) => void
 }>
 
 const AddProjectForm = lazy(() =>
@@ -32,14 +35,28 @@ export function AddProjectPanel(props: AddProjectPanelProps) {
   // Once opened, retain the form owner while details hides it so scan and draft
   // state survive collapse without repeating the runtime requests.
   const [visited, setVisited] = createSignal(false)
+  let details: HTMLDetailsElement | undefined
+  onMount(() => {
+    props.registerOpen?.(() => {
+      if (!details) return
+      details.open = true
+      details.querySelector('summary')?.focus()
+    })
+  })
   return (
     <details
+      ref={(element) => {
+        details = element
+      }}
       class="dev-tree-group"
       onToggle={(event) => {
         if (event.currentTarget.open) setVisited(true)
       }}
     >
-      <summary class="dev-tree-row dev-tree-row--group">Add project</summary>
+      <summary class="dev-tree-row dev-tree-row--group">
+        <FolderPlus aria-hidden="true" />
+        Add project
+      </summary>
       <Show when={visited()}>
         <Suspense
           fallback={

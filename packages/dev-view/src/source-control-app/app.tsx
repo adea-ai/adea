@@ -26,7 +26,17 @@ import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import { Switch as Toggle } from '@adea-ai/ui/components/ui/switch'
 import { Toaster, toast } from '@adea-ai/ui/components/ui/toast'
 import { RefreshCw } from 'lucide-solid'
-import { For, Match, Show, Switch, createMemo, createSignal, onMount, type JSX } from 'solid-js'
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  onMount,
+  type JSX,
+} from 'solid-js'
 import { Portal } from 'solid-js/web'
 
 import type { DevRuntimeService } from '../platform'
@@ -40,7 +50,13 @@ import { SourceControlSidebar } from './components/sidebar'
 import { prRef, relativeTime, shortSha } from './model/format'
 import { mergeMethodLabel, preferredMethod } from './model/merge-dock'
 import { createAppStorage, type KeyValueStorage } from './model/persistence'
-import { hostNameOf, providerLabel, type LinkedSession, type PullRequestView } from './model/types'
+import {
+  hostNameOf,
+  providerLabel,
+  type LinkedSession,
+  type PullRequestView,
+  type ScmProvider,
+} from './model/types'
 import { createSourceControlState, type SourceControlState } from './state'
 import './source-control-app.css'
 
@@ -206,6 +222,26 @@ function ConnectedApp(
     if (tone === 'error') toast.error(message, { region: TOAST_REGION })
     else toast.success(message, { region: TOAST_REGION })
   }
+
+  /** Re-check one provider from the Git providers dialog and say what
+   *  happened: the row chip flips with the state, and a toast carries the
+   *  signed-in identity or the typed refusal — a bare loading flicker left
+   *  "Check again" looking like a no-op. */
+  const checkProviderWithFeedback = async (provider: ScmProvider) => {
+    const result = await state.checkProvider(provider)
+    if (result.status === 'connected')
+      notify(`Connected to ${providerLabel[provider]} as ${result.account.login}`)
+    else notify(`${providerLabel[provider]}: ${result.reason}`, 'error')
+  }
+
+  // Opening the dialog answers "which is it?" for every listed provider:
+  // both are checked immediately, so a row reads Connected/Not connected with
+  // a reason instead of an indefinite "not checked".
+  createEffect(() => {
+    if (!providersOpen()) return
+    void state.checkProvider('github')
+    void state.checkProvider('gitlab')
+  })
 
   const actions: AppActions = {
     openPullRequest: (pr, tab = 'conversation') =>
@@ -438,8 +474,7 @@ function ConnectedApp(
           github: state.activeProjects().filter((row) => row.provider === 'github').length,
           gitlab: state.activeProjects().filter((row) => row.provider === 'gitlab').length,
         }}
-        checking={state.syncing()}
-        onCheck={() => void state.sync()}
+        onCheck={(provider) => void checkProviderWithFeedback(provider)}
         onClose={() => setProvidersOpen(false)}
       />
       <Show when={newPr()}>

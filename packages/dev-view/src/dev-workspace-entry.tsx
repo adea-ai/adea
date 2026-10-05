@@ -31,6 +31,7 @@ import {
   FolderTree,
   GitBranch,
   Maximize2,
+  Minimize2,
   PanelRightClose,
   PanelRightOpen,
   SquareX,
@@ -51,6 +52,7 @@ import {
 import { Portal } from 'solid-js/web'
 
 import { createDevKeyboardController } from './keyboard'
+import { SelectProjectEmptyState } from './select-project-empty'
 import { buildDevCommandFromMetadata } from './browser/command-core'
 import {
   closePane,
@@ -988,6 +990,10 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // The right collapse control remains available when its pane is full width;
   // the pane's own heading owns the separate restore-width action.
   let rightUtilityOpener: HTMLButtonElement | undefined
+  /** Registered by the sidebar's add-project panel; center-pane empty states
+   *  use it to expand the authorize surface (no-op when the panel is absent). */
+  let openAddProjectPanel: (() => void) | undefined
+  const addProjectFromEmptyState = () => openAddProjectPanel?.()
   const sidebarToggleControl = () => {
     // Captures visiblePaneOf from the component scope.
     // oxlint-disable-next-line unicorn/consistent-function-scoping
@@ -1182,6 +1188,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                 )}
                 onImported={() => void loadProjection()}
                 announce={setAnnouncement}
+                registerOpen={(open) => {
+                  openAddProjectPanel = open
+                }}
               />
             ) : undefined
           }
@@ -1235,6 +1244,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             onToggleFullWidth={setPaneFullWidth}
             onResize={setPaneSize}
             onOpenFile={openFileInEditorLeaf}
+            onAddProject={addProjectFromEmptyState}
           />
         </Show>
         <section
@@ -1272,9 +1282,11 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                   )
                 if (!runtimeSessionId)
                   return (
-                    <p class="dev-pane-state__line" role="status" data-state="unavailable">
-                      No live runtime session is selected.
-                    </p>
+                    <SelectProjectEmptyState
+                      message="Select a project from the sidebar to begin."
+                      hint="The terminal runs inside a project's session worktree."
+                      onAddProject={activeScope() ? addProjectFromEmptyState : undefined}
+                    />
                   )
                 if (!worktreeId)
                   return (
@@ -1430,6 +1442,8 @@ function FileSourceControlSlot(props: {
   onCollapse(): void
   onToggleFullWidth(pane: DevUtilityPane, fullWidth: boolean): void
   onResize(pane: DevUtilityPane, size: number): void
+  /** Expands the sidebar's authorize panel from the Files empty state. */
+  onAddProject?: () => void
 }) {
   const visibleItem = () =>
     props.visiblePane ? utilityPaneById.get(props.visiblePane.pane) : undefined
@@ -1449,6 +1463,7 @@ function FileSourceControlSlot(props: {
           runtime={props.runtime}
           worktreeId={props.sessionWorktreeId}
           onOpenFile={props.onOpenFile}
+          onAddProject={props.onAddProject}
         />
       ) : (
         <PaneProviderState
@@ -1513,7 +1528,9 @@ function FileSourceControlSlot(props: {
               props.onToggleFullWidth(props.visiblePane!.pane, !props.visiblePane!.fullWidth)
             }
           >
-            <Maximize2 aria-hidden="true" />
+            <Show when={props.visiblePane?.fullWidth} fallback={<Maximize2 aria-hidden="true" />}>
+              <Minimize2 aria-hidden="true" />
+            </Show>
           </ActionButton>
           <ActionButton
             type="button"

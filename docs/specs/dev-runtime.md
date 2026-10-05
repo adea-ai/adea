@@ -429,8 +429,11 @@ type GroupMutableFields = {
 }
 
 // A RootBookmark is a durable grant that a directory or repository root has
-// been authorized by the owner. M10's authorized-root flow mints and revokes
-// bookmarks; M12 consumes them but cannot mint one.
+// been authorized by the owner. The host mints bookmarks through
+// `dev.project.authorizeRoot` (the add-project authorize dialog over the
+// scope-bound channel; the roots authority records its own single-use
+// issuance so no caller supplies an approval reference) and revokes them;
+// every other slice only consumes the resulting grants.
 type RootBookmark = {
   id: string
   scope: Scope
@@ -2954,6 +2957,22 @@ register's bookmark-binding check remains authoritative — and the sidebar's
 session rows render the canonical `RuntimeSession` lifecycle from the register
 (states outside the historical `active`/`ready`/`archived` set render a
 neutral dot with their own accessible name, never a coerced state).
+
+### Root authorization
+
+`dev.project.authorizeRoot` is the production mint path for the authorized
+roots the add-project surface consumes. The body names an absolute host path
+(and an optional label); the reply is the re-read `RootBookmark`. The roots
+authority observes the kind (`repository` when the canonical root contains
+`.git`, `directory` otherwise), defaults the label to the canonical
+basename, canonicalizes symlinked spellings, and stays idempotent for an
+already-active root. Owner consent is proven host-side: the authority records
+its own fresh, single-use, action-bound issuance (60-second window) through
+the owner-approval ledger immediately before `mint` consumes it, so a caller
+can never supply or replay an approval reference and every authorization
+leaves durable evidence. The presented path is validated before the issuance
+so a refused authorization never strands a ledger entry; the command
+capability is `dev.project.manage`.
 
 ## Project archive/update and the repository registry
 
@@ -5898,6 +5917,12 @@ can distinguish intentional spec evolution from drift:
 As implementation lands, each row MUST be replaced or augmented with exact test
 files in the same commit:
 
+- `apps/desktop/tests/dev-runtime-roots.test.ts` — the root-bookmark
+  authority: `authorize` mints a `RootBookmark` from an absolute host path
+  with a host-recorded single-use issuance (kind observed from `.git`,
+  canonicalized path, idempotent re-authorization), refuses missing or
+  non-directory paths before any ledger write, and `dev.project.authorizeRoot`
+  serves the add-project surface through the scope-bound channel;
 - `scripts/docs-boundary.test.ts` — this spec is routed and links resolve;
 - M10 channel/desktop boundary tests — no loopback or browsed-page privilege;
 - `packages/types` contract/property tests — envelope and state decoders;
@@ -6128,3 +6153,6 @@ Browser lane selection uses published `ListRowControl` buttons in a labelled gro
 Utility pane resize controls use the published `PixelResizeHandle`, including its
 shared grip, full-height pointer target, cancellation handling, and keyboard
 controls. Adea retains only the utility width steps and saved preferences.
+Host CSS restyles the presented grip on Dev surfaces into a tall, skinny,
+translucent rung (icon dropped, hover wash softened) without touching the hit
+target, drag semantics, or keyboard controls.

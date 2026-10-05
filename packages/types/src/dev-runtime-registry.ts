@@ -1128,6 +1128,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'project', idField: 'projectId' },
     stream: null,
   },
+  'dev.project.authorizeRoot': {
+    body: '{ absolutePath: string(1..4096); label?: string(1..128) }',
+    capabilities: ['dev.project.manage'],
+    reply: 'RootBookmark',
+    resource: null,
+    stream: null,
+  },
   'dev.project.bookmarks': {
     body: "{ kind?: 'directory'|'repository'; cursor?: string; limit?: integer(1..500) }",
     capabilities: ['dev.project.read'],

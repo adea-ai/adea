@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.83.0](https://github.com/adea-ai/adea/compare/v0.82.0...v0.83.0) (2026-10-05)
+
+
+### Features
+
+* **ui:** share the cross-view sidebar shell and developer utilities ([#1026](https://github.com/adea-ai/adea/issues/1026)) ([f8d6662](https://github.com/adea-ai/adea/commit/f8d66625839f6f090be88a07e2ea58b74793ceb3))
+
+
+### Bug Fixes
+
+* **desktop:** advertise the platform modifier in the settings shortcut label ([#1029](https://github.com/adea-ai/adea/issues/1029)) ([5ac2732](https://github.com/adea-ai/adea/commit/5ac2732d9e33c31416b22a62486593fb93edd93e))
+* **dev-view:** adopt balanced automatic splits from the shared layout ([#1024](https://github.com/adea-ai/adea/issues/1024)) ([bf54db5](https://github.com/adea-ai/adea/commit/bf54db5051d62851d6a29b88eb08925a150c283c))
+* shell chrome — wider utility default, scene-below-chrome z-order, resources sheet, pinned screen-recording deep link ([#1032](https://github.com/adea-ai/adea/issues/1032)) ([d1754d6](https://github.com/adea-ai/adea/commit/d1754d6183cf356e126d9cbe8930614eb484e4f7))
+* **ui:** give the Dev utility splitter the pointer cursor every drag affordance shows ([#1023](https://github.com/adea-ai/adea/issues/1023)) ([7acdb81](https://github.com/adea-ai/adea/commit/7acdb81a7a033c7927223b7f74c2b131551c1d24))
+* **updates,appearance:** trim the update dialog and gate the appearance Save on a dirty draft ([#1030](https://github.com/adea-ai/adea/issues/1030)) ([2931c25](https://github.com/adea-ai/adea/commit/2931c25afa66a76c412e9f324815fc62020cf1bb))
+
+
+### Documentation
+
+* apply the reserved-file donor-drift edits deferred from [#1022](https://github.com/adea-ai/adea/issues/1022) ([#1027](https://github.com/adea-ai/adea/issues/1027)) ([67cec4a](https://github.com/adea-ai/adea/commit/67cec4ab9e7d0cbd332fd717ca300f53335304bd))
+* audit dev-view donor mapping drift (2026-10-04) ([#1022](https://github.com/adea-ai/adea/issues/1022)) ([ccffa7f](https://github.com/adea-ai/adea/commit/ccffa7f5ab7784e4bc90d09085df8a1928be6ffe))
+
+
+### Tests
+
+* **scan:** a nested .gitignore prunes mid-descent, proven by contrast ([#666](https://github.com/adea-ai/adea/issues/666)) ([#1031](https://github.com/adea-ai/adea/issues/1031)) ([c0e961b](https://github.com/adea-ai/adea/commit/c0e961b03ae12fe1a437cadd1d8a3dba2406c7af))
+
+
+### Maintenance
+
+* **deps:** track @adea-ai/ui 0.110.1 ([#1025](https://github.com/adea-ai/adea/issues/1025)) ([91cd9e2](https://github.com/adea-ai/adea/commit/91cd9e24647a7e456ebae2cd8dfe23bb38b0cc9f))
+
 ## [0.82.0](https://github.com/adea-ai/adea/compare/v0.81.0...v0.82.0) (2026-10-04)
 
 

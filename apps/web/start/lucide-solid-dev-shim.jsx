@@ -20,6 +20,9 @@
  * `vite serve`, so `vite build` keeps resolving the `solid` condition directly
  * and tree-shakes the barrel as before.
  */
+export { default as FilePlus } from 'lucide-solid/icons/file-plus'
+export { default as FolderPlus } from 'lucide-solid/icons/folder-plus'
+export { default as Minimize2 } from 'lucide-solid/icons/minimize-2'
 export { default as AlertTriangle } from 'lucide-solid/icons/triangle-alert'
 export { default as AlertCircle } from 'lucide-solid/icons/circle-alert'
 export { default as TriangleAlert } from 'lucide-solid/icons/triangle-alert'

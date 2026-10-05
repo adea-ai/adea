@@ -71,3 +71,35 @@ test('first open loads once and collapse preserves scan, confirmation, and group
     '["dev.project.bookmarks","dev.group.list","dev.project.scan","dev.group.create","dev.project.import"]'
   )
 })
+
+test('authorizing a folder mints a root, lists it, and scans it', async ({ page }) => {
+  await page.locator('summary').click()
+  const path = page.getByRole('textbox', { name: 'Folder path to authorize' })
+  await expect(path).toBeVisible()
+  await path.fill('/srv/checkout')
+  await page.getByRole('button', { name: 'Authorize folder' }).click()
+  await expect(page.getByTestId('announcement')).toHaveText(
+    'Authorized Checkout. Scanning it for projects…'
+  )
+  // The authorize command ran, the bookmark list refreshed, and the new root
+  // was selected and scanned without a second manual step.
+  await expect(page.getByTestId('operations')).toHaveText(
+    '["dev.project.bookmarks","dev.group.list","dev.project.authorizeRoot","dev.project.bookmarks","dev.project.scan"]'
+  )
+  const root = page.getByRole('combobox', { name: 'Authorized root to scan', includeHidden: true })
+  await expect(root).toBeVisible()
+  await expect(root).toHaveValue('authorized')
+  await expect(page.getByRole('checkbox', { name: 'Fixture projectbun' })).toBeVisible()
+})
+
+test('a refused authorization explains itself and keeps the draft path', async ({ page }) => {
+  await page.locator('summary').click()
+  const path = page.getByRole('textbox', { name: 'Folder path to authorize' })
+  await path.fill('/etc/disallowed')
+  await page.getByRole('button', { name: 'Authorize folder' }).click()
+  await expect(page.getByRole('alert')).toHaveText('/etc/disallowed is not authorized for import')
+  await expect(path).toHaveValue('/etc/disallowed')
+  await expect(page.getByTestId('operations')).toHaveText(
+    '["dev.project.bookmarks","dev.group.list","dev.project.authorizeRoot"]'
+  )
+})

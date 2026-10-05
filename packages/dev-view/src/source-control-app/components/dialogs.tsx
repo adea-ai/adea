@@ -391,9 +391,7 @@ function ProviderAccountRow(props: {
                 when={connected()}
                 fallback={
                   props.account.status === 'loading'
-                    ? props.projectCount > 0
-                      ? `Checking the ${props.row.cli}…`
-                      : `No ${name()} projects yet`
+                    ? `Checking the ${props.row.cli}…`
                     : props.account.status === 'disconnected'
                       ? props.account.reason
                       : ''
@@ -413,9 +411,7 @@ function ProviderAccountRow(props: {
               connected()
                 ? 'Connected'
                 : props.account.status === 'loading'
-                  ? props.projectCount > 0
-                    ? 'Checking'
-                    : 'Not checked'
+                  ? 'Checking'
                   : 'Not connected'
             }
           />
@@ -458,8 +454,7 @@ export function ProvidersDialog(props: {
   open: boolean
   accounts: Readonly<Record<ScmProvider, AccountState>>
   projectCounts: Readonly<Record<ScmProvider, number>>
-  checking: boolean
-  onCheck(): void
+  onCheck(provider: ScmProvider): void
   onClose(): void
 }): JSX.Element {
   return (
@@ -477,8 +472,8 @@ export function ProvidersDialog(props: {
               row={row}
               account={props.accounts[row.provider]}
               projectCount={props.projectCounts[row.provider]}
-              checking={props.checking}
-              onCheck={() => props.onCheck()}
+              checking={props.accounts[row.provider].status === 'loading'}
+              onCheck={() => props.onCheck(row.provider)}
             />
           )}
         </For>
