@@ -221,6 +221,7 @@
   display: grid;
   place-content: center;
   justify-items: center;
+  gap: 0.5rem;
   padding: 2rem;
   text-align: center;
 }
@@ -229,6 +230,10 @@
   max-width: 24rem;
   margin: 0;
   font-size: calc(0.78rem * var(--font-ui-scale, 1));
+}
+
+.dev-empty-state__hint {
+  color: var(--dev-muted);
 }
 
 .dev-utility {
@@ -272,6 +277,32 @@
      pointer-events-none except for its handle and the cursor inherits, so the
      pointer parity every other workspace drag affordance shows starts here. */
   cursor: pointer;
+}
+
+/* The shared resizable grip renders as a small bordered chip; the owner wants
+   the drag affordance barely there. The grip becomes a tall, skinny,
+   translucent rung (its icon dropped) while the separator keeps the full hit
+   target, the pointer cursor, and a quieter hover wash on the 1px line. The
+   sidebar ruler is the published ContextualSidebar's classless handle, so it
+   is addressed through its corvu root inside the Dev sidebar. */
+.dev-sidebar [data-corvu-resizable-root] [role='separator'] > div,
+.dev-utility-splitter [role='separator'] > div {
+  /* The 1px separator would flex-shrink the rung to its border box. */
+  flex: none;
+  height: 2.75rem;
+  width: 0.375rem;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.dev-sidebar [data-corvu-resizable-root] [role='separator'] > div svg,
+.dev-utility-splitter [role='separator'] > div svg {
+  display: none;
+}
+
+.dev-sidebar [data-corvu-resizable-root] [role='separator']:hover,
+.dev-utility-splitter [role='separator']:hover {
+  background: color-mix(in srgb, var(--primary) 45%, transparent);
 }
 
 /* The contextual project sidebar's published resize ruler is an absolutely
