@@ -3147,7 +3147,11 @@ test('Chat conversation surface follows the shared light and dark theme backgrou
       .getByRole('radiogroup', { name: 'Appearance mode', exact: true })
       .getByText(mode, { exact: true })
       .click()
-    await appearance.getByRole('button', { name: 'Save', exact: true }).click()
+    // Save persists only a dirty draft: the legacy theme key pins light, so
+    // the Light iteration is already committed and leaves Save disabled with
+    // the mode already on the document; Dark is a real change and saves.
+    const save = appearance.getByRole('button', { name: 'Save', exact: true })
+    if (await save.isEnabled()) await save.click()
     await page.keyboard.press('Escape')
     await expect(settings).toBeHidden()
     await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', mode.toLowerCase())

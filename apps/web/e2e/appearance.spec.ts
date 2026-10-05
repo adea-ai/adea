@@ -333,6 +333,30 @@ test.describe('appearance', () => {
     await expect(page.locator('html')).toHaveAttribute('data-reduce-transparency', 'true')
   })
 
+  test('Save stays disabled until the draft changes and re-arms after a revert', async ({
+    page,
+  }) => {
+    const panel = await openAppearance(page)
+    const save = panel.getByRole('button', { name: 'Save' })
+
+    // A fresh open has nothing to write: the action is disabled and says why.
+    // The published reason line is a name-from-author live region, so it is
+    // matched by its text rather than an accessible name.
+    await expect(save).toBeDisabled()
+    const saveReason = panel.getByText('No changes to save yet.')
+    await expect(saveReason).toBeVisible()
+
+    // The first edit enables Save and clears the reason.
+    await modeGroup(panel).getByText('Dark', { exact: true }).click()
+    await expect(save).toBeEnabled()
+    await expect(saveReason).toHaveCount(0)
+
+    // Reverting back to the opening snapshot disables Save again.
+    await modeGroup(panel).getByText('System', { exact: true }).click()
+    await expect(save).toBeDisabled()
+    await expect(saveReason).toBeVisible()
+  })
+
   test('appearance is keyboard-operable with radiogroup arrow keys', async ({ page }) => {
     const panel = await openAppearance(page)
     const mode = modeGroup(panel)
