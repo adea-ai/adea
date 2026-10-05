@@ -1,4 +1,6 @@
 import type {
+  CapabilitySnapshot,
+  DevErrorCode,
   DevLayoutPreferencesV2,
   DevUtilityPane,
   DevUtilityPreference,
@@ -8,6 +10,40 @@ import type {
 import { batch, createComputed, createEffect, createSignal, onCleanup, untrack } from 'solid-js'
 
 import type { DevRuntimeService } from './platform'
+
+/**
+ * A runtime service for shells that boot without a Dev Runtime channel: every
+ * authority reports unavailable, and the owner fences every dispatch behind
+ * runtime readiness, so the contextual surfaces degrade to their provider
+ * states without pulling the Dev contract into the startup chunk.
+ */
+export function createUnavailableDevUtilityRuntime(
+  reason: DevErrorCode = 'unavailable'
+): DevRuntimeService {
+  return {
+    state: () => ({ status: 'unavailable', reason }),
+    preferenceScope: () => undefined,
+    capabilitySnapshot: async (scope): Promise<CapabilitySnapshot> => ({
+      scope,
+      granted: [],
+      unavailable: [],
+      channelGeneration: 0,
+      observedAt: new Date().toISOString(),
+    }),
+    execute: async (command) => ({
+      schemaVersion: 1,
+      operation: command.operation,
+      requestId: command.requestId,
+      ok: false,
+      error: {
+        code: reason,
+        retryable: false,
+        message: 'Dev Runtime is unavailable until its authenticated command channel is ready.',
+        observedAt: new Date().toISOString(),
+      },
+    }),
+  }
+}
 import type { LayoutStorage, PendingLayoutPatchJournal } from './layout/storage'
 import { createPendingLayoutJournalKey } from './layout/storage-keys'
 import {

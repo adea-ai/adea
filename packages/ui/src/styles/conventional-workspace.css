@@ -320,12 +320,12 @@
 /* The published resize ruler is an absolutely positioned pointer-events-none
    overlay across the sidebar's full width; only its 1px handle accepts the
    pointer. Lift it above the adjacent conversation surface so the edge stays
-   grabbable — the Dev utility splitter carries the same --z-docked lift. */
+   grabbable, and give it the pointer cursor every workspace drag affordance
+   shows — the ruler is pointer-events-none except for its handle, so the
+   cursor inherits (#1023's splitter parity). */
 .conventional-sidebar > [data-corvu-resizable-root] {
   z-index: var(--z-docked);
-}
-.conventional-sidebar__close {
-  display: none;
+  cursor: pointer;
 }
 .conventional-sidebar__quick-actions button {
   width: 100%;
@@ -1499,9 +1499,6 @@
   }
   .conventional-sidebar--inline[data-contextual-sidebar='desktop'] {
     display: none;
-  }
-  .conventional-sidebar__close {
-    display: grid;
   }
   .conventional-sidebar-sheet {
     width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));

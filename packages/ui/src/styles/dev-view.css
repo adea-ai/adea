@@ -190,10 +190,6 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 18%, transparent);
 }
 
-.dev-status-dot--archived {
-  background: var(--muted-foreground);
-}
-
 .dev-center {
   flex: 1 1 auto;
   min-width: 0;
@@ -281,9 +277,11 @@
 /* The contextual project sidebar's published resize ruler is an absolutely
    positioned pointer-events-none overlay across the sidebar's full width; only
    its 1px handle accepts the pointer. Lift it above the Dev center so the edge
-   stays grabbable, matching the utility splitter's --z-docked lift. */
+   stays grabbable, matching the utility splitter's --z-docked lift and pointer
+   cursor. */
 .dev-sidebar [data-corvu-resizable-root] {
   z-index: var(--z-docked);
+  cursor: pointer;
 }
 
 .dev-row-badge {

@@ -29,9 +29,9 @@ import {
   writeRailPreferences,
 } from '@adea-ai/workspace-ui/rail-preferences'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
-import { createUnavailableDevRuntimeService } from '@adea-ai/dev-view/platform'
 import {
   createSharedDevUtilityOwner,
+  createUnavailableDevUtilityRuntime,
   type SharedDevUtilityOwner,
 } from '@adea-ai/dev-view/utility-owner'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
@@ -387,9 +387,7 @@ function appLibraryMoveAnnouncementFor(
 // the preference (contributions from other builds) never reach the rail.
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
-  const unavailableRuntime = createUnavailableDevRuntimeService({
-    reason: 'channel_unauthenticated',
-  })
+  const unavailableRuntime = createUnavailableDevUtilityRuntime('channel_unauthenticated')
   const utilityRuntime = props.services.devRuntime ?? {
     ...unavailableRuntime,
     preferenceScope: () =>
