@@ -257,3 +257,16 @@ test('input denial prevents terminal listing, while missing manage disables resi
     (await report(page)).commands.filter((item) => item.operation === 'dev.terminal.resize')
   ).toEqual([])
 })
+
+test('a workspace with no selected project asks for one instead of reporting a runtime error', async ({
+  page,
+}) => {
+  await openHarness(page, 'no-session')
+  await expect(page.getByText('Select a project from the sidebar to begin.')).toBeVisible()
+  await expect(page.getByText('Select a project to browse files.')).toBeVisible()
+  const addProject = page.getByRole('button', { name: 'Add project' })
+  await expect(addProject.first()).toBeVisible()
+  // The action expands the sidebar's authorize panel rather than dying quietly.
+  await addProject.first().click()
+  await expect(page.getByRole('textbox', { name: 'Folder path to authorize' })).toBeVisible()
+})

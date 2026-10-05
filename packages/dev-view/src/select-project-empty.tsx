@@ -1,0 +1,34 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * Licensed under the Apache License, Version 2.0.
+ *
+ * Center-pane empty states for views that need a selected project before they
+ * can show anything (terminal, files). The add-project action expands the
+ * sidebar's authorize panel through the opener the workspace entry registers;
+ * when no panel is mounted the action is omitted rather than rendered dead.
+ */
+import { FolderPlus } from 'lucide-solid'
+import { Show } from 'solid-js'
+
+import { Button } from '@adea-ai/ui/components/ui/button'
+
+export function SelectProjectEmptyState(props: {
+  message: string
+  hint?: string
+  onAddProject?: () => void
+}) {
+  return (
+    <div class="dev-empty-state" role="status">
+      <p>{props.message}</p>
+      <Show when={props.hint}>
+        <p class="dev-empty-state__hint">{props.hint}</p>
+      </Show>
+      <Show when={props.onAddProject}>
+        <Button type="button" variant="outline" size="sm" onClick={() => props.onAddProject?.()}>
+          <FolderPlus aria-hidden="true" />
+          Add project
+        </Button>
+      </Show>
+    </div>
+  )
+}

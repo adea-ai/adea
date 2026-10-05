@@ -8,7 +8,7 @@
  */
 import type { FileEntry, Scope } from '@adea-ai/types/dev-runtime'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import { Copy, File as FileIcon, Folder, Pencil, RefreshCw, Search } from 'lucide-solid'
+import { Copy, File as FileIcon, FilePlus, Folder, Pencil, RefreshCw, Search } from 'lucide-solid'
 import {
   For,
   Show,
@@ -22,6 +22,7 @@ import {
 } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
+import { SelectProjectEmptyState } from '../select-project-empty'
 import {
   fuzzyQuickOpen,
   markerBadge,
@@ -80,6 +81,8 @@ export type FilesPaneProps = Readonly<{
     identity: FileEntry['identity']
     rootIdentity: WorktreeContext['rootIdentity']
   }) => void
+  /** Expands the sidebar's authorize panel from the no-project empty state. */
+  onAddProject?: () => void
 }>
 
 const LIST_PAGE = 500
@@ -1055,9 +1058,11 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         <Show
           when={worktree()}
           fallback={
-            <p class="dev-empty-state">
-              No ready worktree context exists on this runtime node yet.
-            </p>
+            <SelectProjectEmptyState
+              message="Select a project to browse files."
+              hint="Files come from the selected session's worktree."
+              onAddProject={props.onAddProject}
+            />
           }
         >
           <div class="dev-files__actions">
@@ -1065,6 +1070,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
               when={creating()}
               fallback={
                 <Button type="button" variant="outline" size="sm" onClick={() => setCreating(true)}>
+                  <FilePlus aria-hidden="true" />
                   New file
                 </Button>
               }
