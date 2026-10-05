@@ -1004,6 +1004,12 @@
       "body": "{ projectId: string; expectedVersion: integer; archived: boolean }",
       "reply": "Project"
     },
+    "dev.project.authorizeRoot": {
+      "capabilities": ["dev.project.manage"],
+      "resource": null,
+      "body": "{ absolutePath: string(1..4096); label?: string(1..128) }",
+      "reply": "RootBookmark"
+    },
     "dev.project.bookmarks": {
       "capabilities": ["dev.project.read"],
       "resource": null,

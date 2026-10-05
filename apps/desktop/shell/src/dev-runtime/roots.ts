@@ -7,7 +7,7 @@
 // effect: no string-prefix authorization, no ambient absolute paths, symlinked
 // spellings rejected, and identity drift marked stale instead of trusted.
 import { lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   DevAuthorityError,
   isUuid,
@@ -56,6 +56,10 @@ export type PathKind = 'file' | 'directory' | 'special'
 
 const MAX_PAGE_LIMIT = 500
 const DEFAULT_PAGE_LIMIT = 100
+const AUTHORIZE_ROOT_ACTION = 'authorize a root bookmark'
+/** Host-minted authorizations bind a short-lived issuance so a leaked
+ *  reference is worthless outside the command that created it. */
+const AUTHORIZE_APPROVAL_LIFETIME_MS = 60_000
 
 /** A malformed id and a foreign-scope id read identically: not found. */
 function findBookmark(
@@ -184,7 +188,7 @@ export function createRootBookmarkAuthority(options: {
     absolutePath: string
     approval?: OwnerApproval
   }): RootBookmarkRecord {
-    const approval = requireApproval(input.approval, 'authorize a root bookmark')
+    const approval = requireApproval(input.approval, AUTHORIZE_ROOT_ACTION)
     const label = requireLabel(input.label, 'root bookmark')
     if (input.kind !== 'directory' && input.kind !== 'repository') {
       throw new DevAuthorityError(
@@ -232,11 +236,11 @@ export function createRootBookmarkAuthority(options: {
       // Idempotency does not waive the owner-approval contract. Consume the
       // fresh, action-bound approval even for a durable no-op so a forged
       // structural record can never receive a successful mutation response.
-      approvalVerifier.consume(approval, input.scope, 'authorize a root bookmark')
+      approvalVerifier.consume(approval, input.scope, AUTHORIZE_ROOT_ACTION)
       return existing
     }
     if (existing && existing.state === 'stale') {
-      approvalVerifier.consume(approval, input.scope, 'authorize a root bookmark')
+      approvalVerifier.consume(approval, input.scope, AUTHORIZE_ROOT_ACTION)
       // Owner re-authorization of the same canonical root refreshes identity.
       const refreshed: RootBookmarkRecord = {
         ...existing,
@@ -250,7 +254,7 @@ export function createRootBookmarkAuthority(options: {
       return refreshed
     }
 
-    approvalVerifier.consume(approval, input.scope, 'authorize a root bookmark')
+    approvalVerifier.consume(approval, input.scope, AUTHORIZE_ROOT_ACTION)
     const record: RootBookmarkRecord = {
       id: newRecordId(),
       scope: { ...input.scope },
@@ -270,6 +274,65 @@ export function createRootBookmarkAuthority(options: {
       approvalMethod: approval.method,
     })
     return record
+  }
+
+  /** Authorize one host directory as a root bookmark on the caller's scope —
+   *  the production add-project entry point served by
+   *  `dev.project.authorizeRoot`. The owner's confirmation arrives over the
+   *  scope-bound channel from the trusted window's authorize dialog; this
+   *  authority then records its own fresh, single-use, action-bound issuance
+   *  immediately before minting, so a caller can never supply or replay an
+   *  approval reference and every authorization leaves durable ledger
+   *  evidence. The presented path is validated before the issuance so a bad
+   *  path cannot strand a ledger entry. Kind is observed, not asserted: a
+   *  root containing `.git` is a repository, anything else a directory. */
+  function authorize(input: {
+    scope: DevScope
+    absolutePath: string
+    label?: string
+  }): RootBookmarkRecord {
+    if (
+      typeof input.absolutePath !== 'string' ||
+      input.absolutePath.length < 1 ||
+      input.absolutePath.length > 4096 ||
+      input.absolutePath.includes('\0') ||
+      !input.absolutePath.startsWith('/')
+    ) {
+      throw new DevAuthorityError('invalid_state', 'root bookmark requires an absolute host path')
+    }
+    const presented = lstatSync(input.absolutePath, { throwIfNoEntry: false })
+    if (!presented) throw new DevAuthorityError('not_found', 'root path does not exist')
+    let canonicalRoot: string
+    try {
+      canonicalRoot = realpathSync(input.absolutePath)
+    } catch {
+      throw new DevAuthorityError('not_found', 'root path does not resolve to a directory')
+    }
+    const canonical = statSync(canonicalRoot, { throwIfNoEntry: false })
+    if (!canonical)
+      throw new DevAuthorityError('not_found', 'root path does not resolve to a directory')
+    if (!canonical.isDirectory()) {
+      throw new DevAuthorityError('special_file_rejected', 'root path must be a directory')
+    }
+    const kind = lstatSync(join(canonicalRoot, '.git'), { throwIfNoEntry: false })
+      ? 'repository'
+      : 'directory'
+    const issuedAt = nowIso()
+    const approval: OwnerApproval = {
+      method: 'owner_dialog',
+      reference: `authorize-root-${newRecordId()}`,
+      scope: { ...input.scope },
+      issuedAt,
+      expiresAt: new Date(Date.parse(issuedAt) + AUTHORIZE_APPROVAL_LIFETIME_MS).toISOString(),
+    }
+    approvalVerifier.recordIssuance(approval, input.scope, AUTHORIZE_ROOT_ACTION)
+    return mint({
+      scope: input.scope,
+      label: input.label ?? basename(canonicalRoot),
+      kind,
+      absolutePath: input.absolutePath,
+      approval,
+    })
   }
 
   function revoke(input: {
@@ -406,7 +469,7 @@ export function createRootBookmarkAuthority(options: {
   }
 
   mkdirSync(storeDir, { recursive: true, mode: 0o700 })
-  return Object.freeze({ mint, revoke, validate, resolvePath, list })
+  return Object.freeze({ mint, authorize, revoke, validate, resolvePath, list })
 }
 
 export type RootBookmarkAuthority = ReturnType<typeof createRootBookmarkAuthority>

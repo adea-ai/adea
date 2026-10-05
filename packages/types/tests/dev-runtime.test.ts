@@ -96,10 +96,10 @@ describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
     // 165 before dev.device.capabilities, 166 before the source control
     // app's 20 pull request collaboration operations, 186 before its 29
-    // GitLab mirrors: the registry ratchet moves only when an operation is
-    // deliberately added, and the decoder-key check below is what keeps the
-    // list and the decoders in step.
-    expect(devOperations).toHaveLength(215)
+    // GitLab mirrors, 215 before dev.project.authorizeRoot: the registry
+    // ratchet moves only when an operation is deliberately added, and the
+    // decoder-key check below is what keeps the list and the decoders in step.
+    expect(devOperations).toHaveLength(216)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({

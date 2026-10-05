@@ -7,10 +7,10 @@
  * Composition follows the add flows substantially translated from KiroCrew's
  * ChatSidebar and Orca's AddRepoDialog (donor audit #398), rebuilt for Solid,
  * Adea tokens, and the authority boundary: this component issues only
- * `dev.project.bookmarks`, `dev.project.scan`, `dev.group.list`,
- * `dev.group.create`, and `dev.project.import` commands. Scan results are
- * previews requiring confirmation; nothing here ever executes
- * install/bootstrap commands.
+ * `dev.project.bookmarks`, `dev.project.authorizeRoot`, `dev.project.scan`,
+ * `dev.group.list`, `dev.group.create`, and `dev.project.import` commands.
+ * Scan results are previews requiring confirmation; nothing here ever
+ * executes install/bootstrap commands.
  */
 import type {
   DevCommand,
@@ -19,6 +19,7 @@ import type {
   ProjectScanEntry,
 } from '@adea-ai/types/dev-runtime'
 import { For, Show, createSignal, onMount } from 'solid-js'
+import { FolderPlus } from 'lucide-solid'
 
 import type { AddProjectPanelProps } from './add-project-panel'
 
@@ -53,6 +54,9 @@ export function AddProjectForm(props: AddProjectPanelProps) {
   const [bookmarks, setBookmarks] = createSignal<readonly ScanBookmarkRow[]>([])
   const [bookmarksError, setBookmarksError] = createSignal('')
   const [selectedBookmarkId, setSelectedBookmarkId] = createSignal('')
+  const [folderPath, setFolderPath] = createSignal('')
+  const [authorizing, setAuthorizing] = createSignal(false)
+  const [authorizeError, setAuthorizeError] = createSignal('')
   const [scan, setScan] = createSignal<ScanState>({ status: 'idle' })
   const [confirmed, setConfirmed] = createSignal<ReadonlySet<string>>(new Set<string>())
   const [targetGroupId, setTargetGroupId] = createSignal('')
@@ -71,21 +75,26 @@ export function AddProjectForm(props: AddProjectPanelProps) {
 
   const run = async (command: DevCommand): Promise<DevReply> => props.execute(command)
 
+  const loadBookmarks = async (): Promise<void> => {
+    const bookmarksReply = await run(buildCommand('dev.project.bookmarks', {})).catch(
+      () => undefined
+    )
+    if (!bookmarksReply) {
+      setBookmarksError('Authorized roots are unavailable on this runtime.')
+      return
+    }
+    if (!bookmarksReply.ok) {
+      setBookmarksError(`Authorized roots are unavailable: ${bookmarksReply.error.message}`)
+      return
+    }
+    const page = bookmarksReply.value as { items: readonly Record<string, unknown>[] }
+    setBookmarks(bookmarkRows(page.items))
+    setBookmarksError('')
+  }
+
   onMount(() => {
     void (async () => {
-      const bookmarksReply = await run(buildCommand('dev.project.bookmarks', {})).catch(
-        () => undefined
-      )
-      if (!bookmarksReply) {
-        setBookmarksError('Authorized roots are unavailable on this runtime.')
-        return
-      }
-      if (!bookmarksReply.ok) {
-        setBookmarksError(`Authorized roots are unavailable: ${bookmarksReply.error.message}`)
-        return
-      }
-      const page = bookmarksReply.value as { items: readonly Record<string, unknown>[] }
-      setBookmarks(bookmarkRows(page.items))
+      await loadBookmarks()
       const groupsReply = await run(buildCommand('dev.group.list', {})).catch(() => undefined)
       if (groupsReply?.ok) {
         const groupPage = groupsReply.value as { items: readonly Record<string, unknown>[] }
@@ -99,6 +108,28 @@ export function AddProjectForm(props: AddProjectPanelProps) {
       }
     })()
   })
+
+  /** Authorize one absolute host path as a project root, then scan it. The
+   *  runtime proves owner consent host-side over the scope-bound channel;
+   *  this form only presents the path and the resulting previews. */
+  const authorizeFolder = async (): Promise<void> => {
+    const absolutePath = folderPath().trim()
+    if (absolutePath === '' || authorizing()) return
+    setAuthorizing(true)
+    setAuthorizeError('')
+    const reply = await run(buildCommand('dev.project.authorizeRoot', { absolutePath }))
+    setAuthorizing(false)
+    if (!reply.ok) {
+      setAuthorizeError(reply.error.message)
+      return
+    }
+    const record = reply.value as { id: string; label: string }
+    setFolderPath('')
+    props.announce(`Authorized ${record.label}. Scanning it for projects…`)
+    await loadBookmarks()
+    setSelectedBookmarkId(record.id)
+    await requestScan(record.id)
+  }
 
   const requestScan = async (rootBookmarkId: string) => {
     setScan({ status: 'scanning' })
@@ -185,6 +216,37 @@ export function AddProjectForm(props: AddProjectPanelProps) {
 
   return (
     <>
+      <div role="group" aria-label="Authorize a project folder">
+        <p class="dev-tree-empty">
+          Authorize a folder on this machine, then import the projects found inside it.
+        </p>
+        <Label class="dev-tree-row dev-tree-row--project">
+          <span class="sr-only">Folder path to authorize</span>
+          <Input
+            type="text"
+            value={folderPath()}
+            placeholder="/absolute/path/to/project"
+            onInput={(event) => setFolderPath(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void authorizeFolder()
+            }}
+          />
+        </Label>
+        <Show when={authorizeError()}>
+          <p class="dev-tree-empty" role="alert">
+            {authorizeError()}
+          </p>
+        </Show>
+        <Button
+          type="button"
+          class="dev-button dev-button--secondary"
+          disabled={authorizing() || folderPath().trim() === ''}
+          onClick={() => void authorizeFolder()}
+        >
+          <FolderPlus aria-hidden="true" />
+          {authorizing() ? 'Authorizing…' : 'Authorize folder'}
+        </Button>
+      </div>
       <Show when={bookmarksError()}>
         <p class="dev-tree-empty" role="alert">
           {bookmarksError()}
@@ -194,7 +256,9 @@ export function AddProjectForm(props: AddProjectPanelProps) {
         <Show
           when={bookmarks().length > 0}
           fallback={
-            <p class="dev-tree-empty">No authorized roots yet. Authorize a folder first.</p>
+            <p class="dev-tree-empty">
+              No authorized roots yet. An authorized folder is listed here for scanning.
+            </p>
           }
         >
           <p class="dev-tree-empty">
