@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createCommandSurface } from '../shell/src/commands'
+import { SETTINGS_PANES, createMacPermissionService } from '../shell/src/desktop-permissions'
 import {
   downloadUpdateArchive,
   extractUpdateArchive,
@@ -128,6 +129,47 @@ describe('desktop shell command surface', () => {
         error: 'unknown command: desktop_surprise',
         ok: false,
       })
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
+  test('deep-links the screen-recording repair to the exact Screen Capture pane', async () => {
+    // The permissions row's "Open System Settings" affordance must land on the
+    // Screen Recording pane, never generic Settings and never a client-supplied
+    // URL. This exercises the registry entry with the real desktop-permissions
+    // service behind it (only the host runner is scripted), so a dropped
+    // command registration or a drifted anchor fails here.
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
+    const argvCalls: Array<readonly string[]> = []
+    try {
+      const invoke = createCommandSurface(dataDir, {
+        macPermissions: createMacPermissionService({
+          platform: 'darwin',
+          run: async (argv) => {
+            argvCalls.push(argv)
+            return { exitCode: 0, stdout: '', stderr: '', timedOut: false, spawnFailed: false }
+          },
+        }),
+      })
+
+      await expect(
+        invoke('desktop_permissions_open_settings', { permissionId: 'screen_recording' })
+      ).resolves.toEqual({
+        ok: true,
+        value: { permissionId: 'screen_recording', settingsUrl: SETTINGS_PANES.screen_recording },
+      })
+      expect(argvCalls).toEqual([['/usr/bin/open', SETTINGS_PANES.screen_recording]])
+      expect(SETTINGS_PANES.screen_recording).toBe(
+        'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+      )
+
+      // An unknown id is refused before the opener runs, so no client string
+      // ever reaches argv.
+      await expect(
+        invoke('desktop_permissions_open_settings', { permissionId: 'nope' })
+      ).resolves.toEqual({ ok: false, error: 'unknown permission id' })
+      expect(argvCalls).toHaveLength(1)
     } finally {
       rmSync(dataDir, { force: true, recursive: true })
     }
