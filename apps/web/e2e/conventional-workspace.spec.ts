@@ -1409,10 +1409,27 @@ test('edits a Task with first-click selects and closes on Save without reopening
   const save = detail.getByRole('button', { name: 'Save', exact: true })
   await expect(save).toBeDisabled()
 
+  // The Type and Priority rows carry the tint their card badge speaks as a
+  // leading swatch dot (aria-hidden; the word carries the meaning).
+  await detail.getByRole('button', { name: /^Type/ }).click()
+  const typeListbox = page.getByRole('listbox', { name: 'Type' })
+  await expect(typeListbox).toBeVisible()
+  const typeSwatch = (name: string) =>
+    typeListbox.getByRole('option', { name, exact: true }).locator('span[aria-hidden="true"]')
+  await expect(typeSwatch('Feature')).toHaveClass(/bg-info/)
+  await expect(typeSwatch('Bug')).toHaveClass(/bg-destructive/)
+  await expect(typeSwatch('Chore')).toHaveClass(/bg-muted-foreground/)
+  await typeListbox.getByRole('option', { name: 'Feature', exact: true }).click()
+
   // The Priority select opens on the first click and stays open.
   await detail.getByRole('button', { name: /^Priority/ }).click()
-  const listbox = page.getByRole('listbox')
+  const listbox = page.getByRole('listbox', { name: 'Priority' })
   await expect(listbox).toBeVisible()
+  const prioritySwatch = (name: string) =>
+    listbox.getByRole('option', { name, exact: true }).locator('span[aria-hidden="true"]')
+  await expect(prioritySwatch('Urgent')).toHaveClass(/bg-destructive/)
+  await expect(prioritySwatch('High')).toHaveClass(/bg-warning/)
+  await expect(prioritySwatch('Normal')).toHaveClass(/bg-muted-foreground/)
   await page.waitForTimeout(300)
   await expect(listbox).toBeVisible()
   await listbox.getByRole('option', { name: 'Urgent', exact: true }).click()

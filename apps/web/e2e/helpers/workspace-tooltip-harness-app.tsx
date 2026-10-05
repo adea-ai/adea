@@ -1,7 +1,13 @@
 import '../../src/start/globals.css'
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import { TooltipProvider } from '@adea-ai/ui/components/ui/tooltip'
+import { Search } from 'lucide-solid'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@adea-ai/ui/components/ui/tooltip'
 import { AgentStatus, AgentStatusBadge } from '../../../../packages/workspace-ui/src/agent-status'
 import type { AgentSummary } from '@adea-ai/types'
 import { Button } from '@adea-ai/ui/components/ui/button'
@@ -39,6 +45,16 @@ render(
       </Button>
       <Button onClick={() => setCurrentAgent(agent)}>Restore agent</Button>
       <Button>Next action</Button>
+      <section aria-label="Icon action">
+        <Tooltip>
+          <TooltipTrigger aria-label="Search this conversation">
+            <Search aria-hidden="true" />
+          </TooltipTrigger>
+          <TooltipContent icon={<Search aria-hidden="true" />}>
+            Search this conversation (Mod+F)
+          </TooltipContent>
+        </Tooltip>
+      </section>
     </TooltipProvider>
   ),
   document.querySelector('#harness-root')!
