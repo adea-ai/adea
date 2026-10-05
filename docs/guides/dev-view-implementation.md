@@ -301,8 +301,11 @@ Issue: [#398](https://github.com/adea-ai/adea/issues/398)
    results; add the spec's symlink, cancellation, depth/count/byte/time budgets.
    Do not translate the 1,662-line file into one TypeScript file.
 2. Adapt Orca row/group/repository semantics to
-   `packages/dev-view/src/sidebar/`; use project intent → repository → worktree →
-   runtime session rather than flattening identities.
+   `packages/dev-view/src/sidebar/dev-sidebar-shell.tsx` with the rows composing
+   inside the shell and the registry split across
+   `sidebar/repo-registry-model.ts` and `sidebar/repo-registry-panel.tsx`; use
+   project intent → repository → worktree → runtime session rather than
+   flattening identities.
 3. Use bb's normalized relationship idea, but keep durable truth on the
    authorized host/Control Plane and UI selection in `packages/state` only.
 4. Implement the Add menu with recent, picker/import, clone URL, GitHub,
@@ -386,13 +389,16 @@ affordance, truncated label/status, and trailing actions through shared
 `Tree`/`TreeRow` slots. Shared UI owns tree semantics and keyboard focus; the
 host retains the file projection, expansion and activation policy,
 `DevRuntimeService` calls, variable-height range math, and scroll anchoring
-through `VirtualWindow`. The shared Tree exports are still pending UI PR #179:
-Adea currently consumes `@adea-ai/ui` 0.89.1, which does not include those
-exports. Source checks therefore do not establish package type/build or packed
-consumer compatibility; those gates, the browser/axe run, and bundle budgets
-must be completed after publication and dependency adoption. The registered
-component-scoped fixture uses the production `FilesPane` with fixture transport
-and does not prove reachability through the mounted application route.
+through `VirtualWindow`. The shared Tree is published: Adea consumes
+`@adea-ai/ui` 0.110.1, whose `components/composites/tree` and
+`components/layout/virtual-window` entries ship the Tree/TreeRow/VirtualWindow
+exports, and `packages/dev-view/src/files/files-pane.tsx` consumes them since
+0.110.0. Source checks therefore establish package type/build and packed
+consumer compatibility; the remaining pending gate is the mounted-route
+browser/axe acceptance and the bundle budgets for the mounted route, not
+publication. The registered component-scoped fixture uses the production
+`FilesPane` with fixture transport and does not prove reachability through the
+mounted application route.
 
 Preserve information hierarchy, file/status rows, editor/diff switching, and
 diff review interactions. Replace React effects/context with Solid owners and
@@ -537,8 +543,10 @@ Issue: [#423](https://github.com/adea-ai/adea/issues/423)
    M10 credential references and `DevRuntimeService`.
 2. Adapt t3code's host-neutral DTOs and local git integration, but do not scrape
    `gh` text or leak configurable credentials to arbitrary usage/provider URLs.
-3. Port KiroCrew's PR/issue/check information hierarchy to Solid; sanitize all
-   remote text and never insert it into prompts or shell automatically.
+3. Port KiroCrew's PR/issue/check information hierarchy to Solid into
+   `packages/dev-view/src/source-control-app/**` (the landed UI destination);
+   sanitize all remote text and never insert it into prompts or shell
+   automatically.
 4. Add ETag/cursor caching, enterprise-host trust, idempotent PR reconciliation,
    and authoritative reread after mutation.
 5. Use plan/commit with expected SHAs for push/update/merge. Force means exact

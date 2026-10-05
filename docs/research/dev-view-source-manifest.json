@@ -243,13 +243,12 @@
       "issue": 398,
       "destinations": [
         "apps/desktop/shell/src/dev-runtime/projects/**",
-        "packages/dev-view/src/sidebar/project-tree.tsx",
-        "packages/dev-view/src/sidebar/project-row.tsx",
-        "packages/dev-view/src/sidebar/worktree-row.tsx",
+        "packages/dev-view/src/sidebar/dev-sidebar-shell.tsx",
+        "packages/dev-view/src/sidebar/repo-registry-model.ts",
+        "packages/dev-view/src/sidebar/repo-registry-panel.tsx",
         "packages/dev-view/src/sidebar/add-project-panel.tsx",
         "packages/dev-view/src/sidebar/add-project-form.tsx",
-        "packages/dev-view/src/sidebar/scan-preview-model.ts",
-        "packages/dev-view/src/sidebar/dev-sidebar-shell.tsx"
+        "packages/dev-view/src/sidebar/scan-preview-model.ts"
       ],
       "units": [
         {
@@ -408,7 +407,7 @@
       "issue": 400,
       "destinations": [
         "apps/desktop/shell/src/dev-runtime/harness/**",
-        "apps/desktop/shell/src/dev-runtime/sessions/**",
+        "apps/desktop/shell/src/dev-runtime/project-session/**",
         "packages/dev-view/src/agents/**",
         "packages/dev-view/src/history/**"
       ],
@@ -590,7 +589,7 @@
       "issue": 423,
       "destinations": [
         "apps/desktop/shell/src/dev-runtime/github/**",
-        "packages/dev-view/src/github/**"
+        "packages/dev-view/src/source-control-app/**"
       ],
       "units": [
         {
@@ -822,7 +821,9 @@
         "package.json",
         "scripts/**dev-view**",
         "apps/web/e2e/**dev-view**",
-        "apps/desktop/**dev-view**"
+        "apps/desktop/tests/dev-*.test.ts",
+        "apps/desktop/tests/worktree-*.test.ts",
+        "apps/web/e2e/dev-view-*.spec.ts"
       ],
       "units": [],
       "validatesSlices": [395, 396, 397, 398, 399, 400, 422, 423, 424, 425],
