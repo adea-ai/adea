@@ -6,6 +6,7 @@
 // `GIT_OPTIONAL_LOCKS=0` so read paths never take the index lock. Time and
 // output budgets are enforced by the runner; the default child limits follow
 // the Dev Runtime limits registry (60 seconds and 10 MiB per git child).
+import { statSync } from 'node:fs'
 import { WorktreeError, type WorktreeErrorCode } from './errors'
 
 export type GitRunOptions = Readonly<{
@@ -34,6 +35,35 @@ export function gitChildEnv(): Record<string, string> {
     GIT_TERMINAL_PROMPT: '0',
     GIT_OPTIONAL_LOCKS: '0',
   }
+}
+
+/** Resolve a CLI executable by name for a spawn from this GUI process. A
+ *  Dock-launched app inherits launchd's minimal PATH
+ *  (/usr/bin:/bin:/usr/sbin:/sbin), so user-installed CLIs — Homebrew's
+ *  /opt/homebrew/bin above all — are invisible to a bare name even though a
+ *  login shell finds them; the discovery layer's family resolver probes the
+ *  same candidate directories for harness CLIs for exactly this reason. PATH
+ *  is searched first so an explicit local override still wins, then the
+ *  user-local bins, then Homebrew. Returns the absolute path, or null when no
+ *  candidate exists — callers fall back to the bare name so the spawn ENOENT
+ *  keeps its typed "not installed" classification. */
+export function resolveCliExecutable(name: string): string | null {
+  const home = process.env.HOME
+  const pathDirs = (process.env.PATH ?? '').split(':').filter((part) => part.length > 0)
+  const candidateDirs = [
+    ...pathDirs,
+    ...(home ? [`${home}/.local/bin`, `${home}/bin`] : []),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+  ]
+  for (const dir of candidateDirs) {
+    try {
+      if (statSync(`${dir}/${name}`, { throwIfNoEntry: false })?.isFile()) return `${dir}/${name}`
+    } catch {
+      // An unreadable directory must not abort the search.
+    }
+  }
+  return null
 }
 
 function classifyGitFailure(stderr: string): WorktreeErrorCode {

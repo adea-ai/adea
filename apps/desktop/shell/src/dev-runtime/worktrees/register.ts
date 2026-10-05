@@ -633,6 +633,26 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
       }
     },
 
+    'dev.project.authorizeRoot': (command) => {
+      const body = devOperationDecoders['dev.project.authorizeRoot'].request(command.body)
+      const record = input.roots.authorize({
+        scope: input.scope,
+        absolutePath: body.absolutePath as string,
+        ...(body.label !== undefined ? { label: body.label as string } : {}),
+      })
+      return {
+        id: record.id,
+        scope: record.scope,
+        label: record.label,
+        kind: record.kind,
+        canonicalRoot: record.canonicalRoot,
+        rootIdentity: record.rootIdentity,
+        state: record.state,
+        generation: record.generation,
+        version: record.version,
+      }
+    },
+
     'dev.project.bookmarks': (command) => {
       const body = devOperationDecoders['dev.project.bookmarks'].request(command.body)
       const result = input.roots.list({

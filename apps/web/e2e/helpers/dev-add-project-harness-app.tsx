@@ -9,8 +9,25 @@ function Harness() {
   const [operations, setOperations] = createSignal<string[]>([])
   const [announcement, setAnnouncement] = createSignal('')
   const [imports, setImports] = createSignal(0)
+  const [authorized, setAuthorized] = createSignal(false)
   const execute = async (command: DevCommand): Promise<DevReply> => {
     setOperations((current) => [...current, command.operation])
+    if (
+      command.operation === 'dev.project.authorizeRoot' &&
+      (command.body as { absolutePath?: string }).absolutePath === '/etc/disallowed'
+    ) {
+      return {
+        schemaVersion: 1,
+        operation: command.operation,
+        requestId: command.requestId,
+        ok: false,
+        error: {
+          code: 'unauthorized_root',
+          retryable: false,
+          message: '/etc/disallowed is not authorized for import',
+        },
+      }
+    }
     let value: unknown
     switch (command.operation) {
       case 'dev.project.bookmarks':
@@ -23,7 +40,28 @@ function Harness() {
               canonicalRoot: '/srv/work',
               state: 'active',
             },
+            ...(authorized()
+              ? [
+                  {
+                    id: 'authorized',
+                    label: 'Checkout',
+                    kind: 'repository',
+                    canonicalRoot: '/srv/checkout',
+                    state: 'active',
+                  },
+                ]
+              : []),
           ],
+        }
+        break
+      case 'dev.project.authorizeRoot':
+        setAuthorized(true)
+        value = {
+          id: 'authorized',
+          label: 'Checkout',
+          kind: 'repository',
+          canonicalRoot: '/srv/checkout',
+          state: 'active',
         }
         break
       case 'dev.group.list':
@@ -31,7 +69,7 @@ function Harness() {
         break
       case 'dev.project.scan':
         value = {
-          rootBookmarkId: 'root',
+          rootBookmarkId: command.body.rootBookmarkId === 'authorized' ? 'authorized' : 'root',
           items: [
             {
               name: 'Fixture project',

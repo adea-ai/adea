@@ -410,6 +410,9 @@ export const devOperationMetadata = {
   'dev.project.archive': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_project_archive
   ),
+  'dev.project.authorizeRoot': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_project_authorizeRoot
+  ),
   'dev.project.bookmarks': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_project_bookmarks
   ),

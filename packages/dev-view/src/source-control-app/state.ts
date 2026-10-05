@@ -265,6 +265,9 @@ export function createSourceControlState(options: {
 
   let inFlight: Promise<void> | undefined
   async function loadAccount(provider: ScmProvider): Promise<void> {
+    // Flip to an explicit checking state first: the providers dialog's rows
+    // and chips read this, and "checking" must never render as "not checked".
+    setAccounts((current) => new Map(current).set(provider, { status: 'loading' }))
     let next: AccountState
     try {
       next = { status: 'connected', account: await client.account(provider) }
@@ -273,6 +276,19 @@ export function createSourceControlState(options: {
       next = { status: 'disconnected', reason: errorText(error), code }
     }
     setAccounts((current) => new Map(current).set(provider, next))
+  }
+
+  /** Re-check one provider right now and report the resulting state, so the
+   *  Check-again action can explain what happened instead of silently
+   *  flickering. The check always settles, so the result is connected or
+   *  disconnected — never the pre-check loading state. */
+  async function checkProvider(
+    provider: ScmProvider
+  ): Promise<Extract<AccountState, { status: 'connected' | 'disconnected' }>> {
+    await loadAccount(provider)
+    const settled = account(provider)
+    if (settled.status === 'loading') throw new Error('account check did not settle')
+    return settled
   }
 
   /** Re-read the accounts, catalog, and every active repository. */
@@ -390,6 +406,7 @@ export function createSourceControlState(options: {
     syncedAt,
     tick,
     sync,
+    checkProvider,
     loadRepo,
     absorb,
     startPolling,

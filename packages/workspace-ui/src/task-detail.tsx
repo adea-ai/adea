@@ -35,6 +35,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  type MenuSwatchTone,
 } from '@adea-ai/ui/components/ui/select'
 import {
   Sheet,
@@ -50,7 +51,7 @@ import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import { keyedRows } from './keyed-rows'
 import type { PrivateContentResolver } from './platform'
 import { RoomIcon } from './room-icon'
-import { kindOptions, laneFor, priorityOptions } from './task-presentation'
+import { kindOptions, laneFor, priorityOptions, swatchTone } from './task-presentation'
 
 type TaskUpdate = Readonly<{
   kind?: TaskSummary['kind']
@@ -104,7 +105,13 @@ const TITLE_LIMIT = 200
 const OBJECTIVE_LIMIT = 20_000
 const NONE = ''
 
-type PickerOption = Readonly<{ value: string; label: string; Icon: () => JSX.Element }>
+type PickerOption = Readonly<{
+  value: string
+  label: string
+  Icon: () => JSX.Element
+  /** The card-badge tint this option shows as a leading dot; absent for pickers without a tone. */
+  swatch?: MenuSwatchTone
+}>
 
 /**
  * A labelled Select. The shared Select does not read FormField's context, so
@@ -134,7 +141,7 @@ function PickerField(
         optionTextValue="label"
         disabled={props.disabled}
         itemComponent={(item) => (
-          <SelectItem item={item.item}>
+          <SelectItem item={item.item} swatch={item.item.rawValue.swatch}>
             <span class="conventional-task-panel__option">
               <Dynamic component={item.item.rawValue.Icon} />
               {item.item.rawValue.label}
@@ -161,14 +168,15 @@ function PickerField(
 const iconOption = (
   value: string,
   label: string,
-  Icon: (props: { 'aria-hidden'?: 'true' }) => JSX.Element
-): PickerOption => ({ value, label, Icon: () => <Icon aria-hidden="true" /> })
+  Icon: (props: { 'aria-hidden'?: 'true' }) => JSX.Element,
+  swatch?: MenuSwatchTone
+): PickerOption => ({ value, label, Icon: () => <Icon aria-hidden="true" />, swatch })
 
 const kindPickerOptions = kindOptions.map((option) =>
-  iconOption(option.value, option.label, option.Icon)
+  iconOption(option.value, option.label, option.Icon, swatchTone(option.badge))
 )
 const priorityPickerOptions = priorityOptions.map((option) =>
-  iconOption(option.value, option.label, option.Icon)
+  iconOption(option.value, option.label, option.Icon, swatchTone(option.badge))
 )
 
 /**

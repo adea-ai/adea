@@ -48,7 +48,12 @@ import type {
 import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority } from '../channel/authority'
 import { createDurableJsonStore } from '../host-store'
-import { GIT_CHILD_TIMEOUT_MS, gitChildEnv, runGit } from '../worktrees/git-run'
+import {
+  GIT_CHILD_TIMEOUT_MS,
+  gitChildEnv,
+  resolveCliExecutable,
+  runGit,
+} from '../worktrees/git-run'
 import type { FileIdentityValue } from '../worktrees/identity'
 import {
   applyDraftState,
@@ -123,11 +128,13 @@ export type GhRunner = (
  *  credentials from its own host-scoped configuration under HOME, so token
  *  values never pass through this process's argv or env. stdin is ignored
  *  unless the caller supplies a request body, so an interactive gh prompt
- *  fails typed instead of hanging the pipeline. */
+ *  fails typed instead of hanging the pipeline. The executable goes through
+ *  the shared CLI resolver: launchd's PATH hides Homebrew installs from a
+ *  Dock-launched app. */
 export const defaultRunGh: GhRunner = async (args, options) => {
   let proc: Bun.Subprocess<'ignore' | Uint8Array, 'pipe', 'pipe'>
   try {
-    proc = Bun.spawn(['gh', ...args], {
+    proc = Bun.spawn([resolveCliExecutable('gh') ?? 'gh', ...args], {
       env: { ...gitChildEnv(), GH_PROMPT_DISABLED: '1' },
       stdin: options?.stdin !== undefined ? new TextEncoder().encode(options.stdin) : 'ignore',
       stdout: 'pipe',

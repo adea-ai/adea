@@ -10,7 +10,7 @@ import type {
   DeviceInventoryItem,
   DeviceSession,
 } from '@adea-ai/types/dev-runtime'
-import { MonitorSmartphone, Smartphone, Tablet } from 'lucide-solid'
+import { MonitorSmartphone, Play, Smartphone, Square, Tablet } from 'lucide-solid'
 import { For, Show, createResource, createSignal, onCleanup } from 'solid-js'
 
 import { findResponsiveInventoryItem, groupDeviceInventory } from './device-model'
@@ -249,6 +249,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                     disabled={!hasDevUtilitySession(context())}
                     onClick={startResponsive}
                   >
+                    <Play aria-hidden="true" />
                     Start responsive session
                   </Button>
                 }
@@ -260,6 +261,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                     size="sm"
                     onClick={() => stopDevice(session())}
                   >
+                    <Square aria-hidden="true" />
                     Stop responsive session ({session().state})
                   </Button>
                 )}
@@ -339,6 +341,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                                         }
                                         onClick={() => startDevice(item)}
                                       >
+                                        <Play aria-hidden="true" />
                                         Start
                                       </Button>
                                     }
@@ -356,6 +359,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                                         if (session) stopDevice(session)
                                       }}
                                     >
+                                      <Square aria-hidden="true" />
                                       Stop
                                     </Button>
                                   </Show>

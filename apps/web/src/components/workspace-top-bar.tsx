@@ -29,6 +29,12 @@ export function WorkspaceTopBar(props: {
    * separated from the workspace actions by a divider.
    */
   sidebarMount(element: HTMLDivElement): void
+  /**
+   * Whether the active view mounts a right-sidebar control into the trailing
+   * slot. Views without one leave the slot empty, and an empty slot renders
+   * no divider either — a divider ahead of nothing just reads as noise.
+   */
+  showSidebarDivider: boolean
 }) {
   const router = useRouter()
   const sidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
@@ -180,11 +186,14 @@ export function WorkspaceTopBar(props: {
         </ActionButton>
         {/* The trailing slot mirrors the leading one: divider first, then the
             active view's right-sidebar toggle (Dev portals its utility-pane
-            control). Views without a right pane leave the mount empty and own
-            the contextual sidebar through the leading toggle, so exactly one
-            control speaks for each side on every view. */}
+            control). Views without a right pane leave the mount empty — and
+            the divider hidden — and own the contextual sidebar through the
+            leading toggle, so exactly one control speaks for each side on
+            every view. */}
         <div class="workspace-topbar__sidebar">
-          <Separator orientation="vertical" class="workspace-topbar__sidebar-divider" />
+          <Show when={props.showSidebarDivider}>
+            <Separator orientation="vertical" class="workspace-topbar__sidebar-divider" />
+          </Show>
           <div class="workspace-topbar__sidebar-mount" ref={props.sidebarMount} />
         </div>
       </TopBarSection>
