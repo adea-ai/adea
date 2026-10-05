@@ -1,53 +1,60 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 async function exerciseContextualSidebarToggle(page: Page) {
-  const expandSidebar = page.getByRole('button', { name: 'Expand contextual sidebar', exact: true })
-  const collapseSidebar = page.getByRole('button', {
-    name: 'Collapse contextual sidebar',
-    exact: true,
-  })
+  // The toggle renames between its expand and collapse variants the moment
+  // the store flips, so every locator uses the variant-agnostic anchored
+  // name and reads the store's answer from aria-expanded — never from which
+  // label happens to be live at retry time.
+  const toggle = page.getByRole('button', { name: /^(Expand|Collapse) contextual sidebar$/ })
   const closeSheet = page.getByRole('button', { name: 'Close', exact: true })
   const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
 
   // Boot responses and the sheet's close/focus-restoration transition can
   // replace the toggle node between hit-testing and its handler running (the
   // same lost-click race the workspace-navigation spec documents for its
-  // press), so the open interaction retries until the store answers. Each
-  // click is bounded to the probe interval: when the click lands, the toggle
-  // renames to its collapse variant, and polling the expand name would wait
-  // out the whole timeout against a locator that no longer exists.
+  // press), so the open interaction retries until aria-expanded answers.
+  // Each click is bounded to the probe interval: a landed click renames the
+  // toggle immediately, and an unbounded retry would wait the whole timeout
+  // against the renamed-away label.
   const openSheet = async () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await expandSidebar.click({ timeout: 2_000 }).catch(() => undefined)
+      await toggle.click({ timeout: 2_000 }).catch(() => undefined)
       try {
-        await expect(collapseSidebar).toBeVisible({ timeout: 2_000 })
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 2_000 })
         return
       } catch {
         // The click was lost or is still settling; retry on the live node.
       }
     }
-    await expect(collapseSidebar).toBeVisible()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   }
 
-  if (await expandSidebar.isVisible()) {
-    await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
+  if (await toggle.isVisible()) {
+    // Branch on the store's answer, not the label: the collapsed contract
+    // (modal sheet dance) applies whenever the store reports closed, at any
+    // viewport; an already-expanded sidebar — inline at wide widths — only
+    // owes the visibility assertion.
+    if ((await toggle.getAttribute('aria-expanded')) !== 'false') {
+      await expect(projectsSidebar).toBeVisible()
+      return
+    }
     await expect(projectsSidebar).toBeHidden()
     // Narrow widths present the contextual sidebar as the shared modal sheet:
-    // the global toggle flips to its collapse name and goes inert while the
-    // sheet is up, and the sheet's own close returns focus to the opener.
+    // the global toggle goes inert while the sheet is up, and the sheet's own
+    // close returns focus to the opener.
     await openSheet()
     await expect(projectsSidebar).toBeVisible()
     // The close chrome unmounts with the sheet; bound it like the open click
     // and let the hidden assertion decide.
     await closeSheet.click({ timeout: 2_000 }).catch(() => undefined)
     await expect(projectsSidebar).toBeHidden()
-    await expect(expandSidebar).toBeFocused()
-    await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
+    await expect(toggle).toBeFocused()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     await openSheet()
     await expect(projectsSidebar).toBeVisible()
     await closeSheet.click({ timeout: 2_000 }).catch(() => undefined)
     await expect(projectsSidebar).toBeHidden()
-    await expect(expandSidebar).toBeFocused()
+    await expect(toggle).toBeFocused()
   } else {
     await expect(projectsSidebar).toBeVisible()
   }
