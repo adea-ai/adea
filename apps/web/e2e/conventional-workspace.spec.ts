@@ -3033,8 +3033,9 @@ test('themed shell and Library remain usable across desktop and narrow layouts',
   const light = await toolbar.evaluate((element) => getComputedStyle(element).backgroundColor)
   await page.screenshot({ path: testInfo.outputPath('library-light-desktop.png') })
   await page.getByRole('button', { name: 'User settings', exact: true }).click()
-  // Not `exact`: the shared account item appends its `⌘,` chord glyph to the
-  // accessible name, which workspace-guest.spec.ts asserts is displayed.
+  // Not `exact`: the shared account item appends the platform chord glyph
+  // (`⌘,` or `Ctrl,`) to the accessible name, which workspace-guest.spec.ts
+  // asserts is displayed.
   await page.getByRole('menuitem', { name: 'Settings' }).click()
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
   await settings.getByRole('tab', { name: 'Appearance', exact: true }).click()

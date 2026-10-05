@@ -11,6 +11,8 @@ import {
 } from '@adea-ai/ui/components/ui/dialog'
 import { createMemo } from 'solid-js'
 
+import { platformModifierKey } from './keyboard-shortcuts'
+
 export type WorkspaceHelpCenterProps = {
   appName?: string
   /** Hands project links to the system browser on desktop shells. */
@@ -19,16 +21,9 @@ export type WorkspaceHelpCenterProps = {
   open: boolean
 }
 
-/** The modifier glyph the running OS renders for Meta: ⌘ on Apple, Ctrl elsewhere. */
-function metaKeyLabel(): string {
-  // The dialog is a client-only lazy boundary; the guard keeps SSR renders honest.
-  const platform = typeof navigator === 'undefined' ? '' : navigator.platform
-  return /Mac|iPhone|iPad/.test(platform) ? '⌘' : 'Ctrl'
-}
-
 /** The keyboard shortcuts the workspace shell actually binds. */
 function workspaceShortcuts(): readonly HelpShortcut[] {
-  const mod = metaKeyLabel()
+  const mod = platformModifierKey()
   return [
     { label: 'Open workspace search', keys: [mod, 'K'] },
     { label: 'Search the conversation', keys: [mod, 'F'] },

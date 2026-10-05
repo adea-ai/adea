@@ -122,7 +122,9 @@ test('a guest can use a workspace before opening the optional persistence flow',
   // shortcuts-and-resources dialog; both are available to guests.
   await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeEnabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Updates' })).toHaveCount(0)
-  await expect(accountMenu.getByRole('menuitem', { name: 'Settings' })).toContainText('⌘,')
+  // The settings chord follows the running OS — ⌘, on Apple platforms, Ctrl,
+  // elsewhere — so the glyph is matched, not spelled.
+  await expect(accountMenu.getByRole('menuitem', { name: 'Settings' })).toContainText(/(⌘|Ctrl),/)
   await accountMenu.getByRole('menuitem', { name: 'About' }).click()
   const about = page.getByRole('dialog', { name: 'About Adea' })
   await expect(about).toBeVisible()

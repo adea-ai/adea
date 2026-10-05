@@ -22,6 +22,7 @@ import {
 import { For, Show, onCleanup, type JSX } from 'solid-js'
 
 import { accountMenuItemsForPlatform } from './account-menu-model'
+import { settingsShortcutLabel } from './keyboard-shortcuts'
 import { updatePending } from './update-pending'
 
 type AccountMenuProps = {
@@ -60,7 +61,9 @@ export function AccountMenu(props: AccountMenuProps) {
       id: item.id,
       label: item.label,
       disabled: item.id === 'help' ? !props.onOpenHelp : item.disabled,
-      shortcut: item.id === 'settings' ? '\u2318,' : undefined,
+      // The advertised chord follows the running OS — the settings binding
+      // accepts Meta and Ctrl alike, so Windows and Linux see Ctrl, not ⌘.
+      shortcut: item.id === 'settings' ? settingsShortcutLabel() : undefined,
       icon: ITEM_ICONS[item.id],
       onSelect:
         item.id === 'about'
