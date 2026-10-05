@@ -42,7 +42,11 @@ function toUpdateState(update: SharedDesktopUpdate): UpdateState {
     error: update.error,
     phase: update.phase,
     releaseDate: update.release_date,
-    releaseNotes: update.release_notes,
+    // The update surface no longer renders the per-release notes section, so
+    // the native feed's notes are dropped at the bridge rather than forwarded:
+    // a null releaseNotes keeps the published composite's
+    // "What changed in this release" section hidden.
+    releaseNotes: null,
     releaseUrl: update.github_url,
     restartRequired: update.restart_required,
     totalBytes: update.total_bytes,

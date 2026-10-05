@@ -154,9 +154,6 @@ function UpdateChannelControl(props: {
         />
       </SettingsRow>
       <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
-      <p class="text-sm text-muted-foreground">
-        Changing the channel checks for updates right away.
-      </p>
     </div>
   )
 }

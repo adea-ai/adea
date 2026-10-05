@@ -59,7 +59,9 @@ describe('VersionDialog update adapter', () => {
       error: null,
       phase: 'available',
       releaseDate: '2026-09-27T10:15:00Z',
-      releaseNotes: '## New release',
+      // The update surface no longer renders per-release notes: the native
+      // feed's notes are dropped at the bridge, never forwarded.
+      releaseNotes: null,
       releaseUrl: 'https://github.com/adea-ai/adea/releases/tag/v0.62.0',
       restartRequired: false,
       totalBytes: 8192,
@@ -73,7 +75,7 @@ describe('VersionDialog update adapter', () => {
       error: 'signature verification failed',
       phase: 'failed',
       releaseDate: '2026-09-27T10:15:00Z',
-      releaseNotes: '## New release',
+      releaseNotes: null,
       releaseUrl: 'https://github.com/adea-ai/adea/releases/tag/v0.62.0',
       restartRequired: false,
       totalBytes: 8192,

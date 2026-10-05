@@ -198,7 +198,10 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   }
 
   const save = () => {
-    if (accentStatus()) return
+    // The published action is disabled until the draft differs from the
+    // snapshot (saveDisabledReason below); this guard keeps a no-op open→close
+    // from writing even if the action were invoked through another path.
+    if (accentStatus() || !editor.dirty()) return
     const committed = editor.save()
     appearance.update(committed)
     appearance.preview(undefined)
@@ -251,6 +254,14 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     },
     get customAccentError() {
       return accentStatus()
+    },
+    // The published composite disables Save while a reason is set and renders
+    // it as the action row's status line. Save stays unavailable until the
+    // draft differs from the snapshot the editor opened with, so a no-op
+    // open→close never writes; the reason clears (and Save enables) on the
+    // first edit and returns when the draft is reverted to the snapshot.
+    get saveDisabledReason() {
+      return editor.dirty() ? undefined : 'No changes to save yet.'
     },
     surfaceCapability: {
       frosted: true,
