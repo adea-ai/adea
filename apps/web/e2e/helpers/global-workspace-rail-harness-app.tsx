@@ -11,12 +11,20 @@ const work: WorkspaceSummary = {
   id: 'workspace-work',
   name: 'Work',
   scene: 'work',
+  accent: null,
+  logo: { kind: 'monogram' as const },
+  sortOrder: 0,
+  version: 1,
   updatedAt: timestamp,
 }
 const home: WorkspaceSummary = {
   id: 'workspace-home',
   name: 'Home',
   scene: 'home',
+  accent: null,
+  logo: { kind: 'monogram' as const },
+  sortOrder: 1,
+  version: 1,
   updatedAt: timestamp,
 }
 

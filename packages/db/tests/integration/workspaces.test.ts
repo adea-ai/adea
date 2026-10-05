@@ -14,6 +14,8 @@ import {
   recordWorkspaceAuthorizationDecision,
   removeWorkspaceMembership,
   reopenWorkspace,
+  updateWorkspace,
+  WorkspaceVersionConflictError,
 } from '../../src/workspaces'
 import {
   claimTemporaryUserSession,
@@ -422,5 +424,127 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
       await connection.db.delete(users).where(eq(users.id, temporary.principal.userId))
     }
     await connection.db.delete(users).where(eq(users.id, registered.userId))
+  })
+
+  test("orders a user's workspaces by their own position and appends new ones", async () => {
+    const temporary = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `order-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const bootstrapped = await ensureBootstrapWorkspaces(connection.db, temporary.principal)
+    const created = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `pink-${crypto.randomUUID()}`,
+      name: 'Pink Binder',
+      owner: temporary.principal,
+    })
+
+    expect(bootstrapped.map(({ name, sortOrder }) => [name, sortOrder])).toEqual([
+      ['Home', 0],
+      ['Work', 1],
+    ])
+    expect(created.workspace).toMatchObject({
+      accent: null,
+      logo: { kind: 'monogram' },
+      sortOrder: 2,
+      version: 1,
+    })
+
+    // Updating a workspace must not move it: order is the member's choice.
+    const [home] = bootstrapped
+    await updateWorkspace(connection.db, home!.id, temporary.principal, {
+      expectedVersion: home!.version,
+      update: { name: 'Personal' },
+    })
+    expect(
+      (await listWorkspacesForUser(connection.db, temporary.principal)).map(({ name }) => name)
+    ).toEqual(['Personal', 'Work', 'Pink Binder'])
+  })
+
+  test('applies a versioned identity update and records one event', async () => {
+    const temporary = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `identity-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `identity-${crypto.randomUUID()}`,
+      name: 'Nifty League',
+      owner: temporary.principal,
+    })
+
+    const updated = await updateWorkspace(connection.db, workspace.id, temporary.principal, {
+      expectedVersion: 1,
+      update: {
+        accent: 'green',
+        logo: { kind: 'emoji', value: '🎮' },
+        name: 'Nifty',
+        scene: 'work',
+      },
+    })
+    expect(updated).toMatchObject({
+      accent: 'green',
+      logo: { kind: 'emoji', value: '🎮' },
+      name: 'Nifty',
+      scene: 'work',
+      version: 2,
+    })
+    expect(await getWorkspaceForUser(connection.db, workspace.id, temporary.principal)).toEqual(
+      updated
+    )
+
+    await expect(
+      updateWorkspace(connection.db, workspace.id, temporary.principal, {
+        expectedVersion: 1,
+        update: { name: 'Stale' },
+      })
+    ).rejects.toBeInstanceOf(WorkspaceVersionConflictError)
+
+    const cleared = await updateWorkspace(connection.db, workspace.id, temporary.principal, {
+      expectedVersion: 2,
+      update: { accent: null, logo: { kind: 'monogram' } },
+    })
+    expect(cleared).toMatchObject({ accent: null, logo: { kind: 'monogram' }, version: 3 })
+
+    const events = await connection.db
+      .select({ payload: workspaceEvents.payload })
+      .from(workspaceEvents)
+      .where(
+        and(
+          eq(workspaceEvents.workspaceId, workspace.id),
+          eq(workspaceEvents.eventType, 'workspace.updated')
+        )
+      )
+    expect(events).toHaveLength(2)
+    expect(events[0]!.payload).toEqual({ actorUserId: temporary.principal.userId })
+  })
+
+  test('refuses an update from a non-member and to an archived workspace', async () => {
+    const owner = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `owner-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const stranger = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `stranger-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `private-${crypto.randomUUID()}`,
+      name: 'Private',
+      owner: owner.principal,
+    })
+
+    await expect(
+      updateWorkspace(connection.db, workspace.id, stranger.principal, {
+        expectedVersion: 1,
+        update: { name: 'Taken' },
+      })
+    ).rejects.toThrow('Workspace unavailable')
+
+    await archiveWorkspace(connection.db, workspace.id, owner.principal)
+    await expect(
+      updateWorkspace(connection.db, workspace.id, owner.principal, {
+        expectedVersion: 1,
+        update: { name: 'Archived' },
+      })
+    ).rejects.toThrow('Workspace unavailable')
   })
 })

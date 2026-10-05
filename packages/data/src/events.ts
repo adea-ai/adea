@@ -7,6 +7,7 @@ import {
   readStateQueryKeys,
   roomQueryKeys,
   taskQueryKeys,
+  workspaceQueryKeys,
 } from './index'
 
 /**
@@ -110,7 +111,14 @@ export function queryKeysForEvent(
     case 'task':
       return [taskQueryKeys.all(workspaceId)]
     case 'workspace':
-      return [['workspaces', workspaceId]]
+      // Name, logo and accent live on the summaries the list and detail
+      // queries return, which sit outside the per-workspace prefix. Bootstrap
+      // is a session-establishing POST and is never refetched by an event.
+      return [
+        ['workspaces', workspaceId],
+        workspaceQueryKeys.list,
+        workspaceQueryKeys.detail(workspaceId),
+      ]
     default:
       // Unknown families refresh the workspace scope rather than being dropped.
       return [['workspaces', workspaceId]]

@@ -703,11 +703,48 @@ export const workspaceMutationOptions = {
     mutationFn: (input: Parameters<AgentHqApiClient['createWorkspace']>[0]) =>
       client.createWorkspace(input),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['createWorkspace']>>) => {
-      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.all })
+      queryClient.setQueryData(
+        workspaceQueryKeys.bootstrap,
+        (current: Awaited<ReturnType<AgentHqApiClient['bootstrapWorkspace']>> | undefined) =>
+          current && !current.workspaces.some(({ id }) => id === result.workspace.id)
+            ? { ...current, workspaces: [...current.workspaces, result.workspace] }
+            : current
+      )
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.list })
       queryClient.setQueryData(workspaceQueryKeys.detail(result.workspace.id), {
         workspace: result.workspace,
         agents: [],
         tasks: [],
+      })
+    },
+  }),
+  update: (client: AgentHqApiClient, queryClient: QueryClient) => ({
+    mutationFn: (
+      input: Readonly<{
+        update: Parameters<AgentHqApiClient['updateWorkspace']>[1]
+        workspaceId: string
+      }>
+    ) => client.updateWorkspace(input.workspaceId, input.update),
+    onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['updateWorkspace']>>) => {
+      // Bootstrap establishes the session and is never refetched for a field
+      // change, so its copy of the summary is patched in place.
+      queryClient.setQueryData(
+        workspaceQueryKeys.bootstrap,
+        (current: Awaited<ReturnType<AgentHqApiClient['bootstrapWorkspace']>> | undefined) =>
+          current && {
+            ...current,
+            activeWorkspace:
+              current.activeWorkspace.id === result.workspace.id
+                ? result.workspace
+                : current.activeWorkspace,
+            workspaces: current.workspaces.map((workspace) =>
+              workspace.id === result.workspace.id ? result.workspace : workspace
+            ),
+          }
+      )
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.list })
+      await queryClient.invalidateQueries({
+        queryKey: workspaceQueryKeys.detail(result.workspace.id),
       })
     },
   }),
@@ -741,6 +778,16 @@ export const workspaceQueryOptions = {
 
 export function useWorkspaceBootstrapQuery(client: AgentHqApiClient) {
   return useQuery(() => workspaceQueryOptions.bootstrap(client))
+}
+
+export function useCreateWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.create(client, queryClient))
+}
+
+export function useUpdateWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.update(client, queryClient))
 }
 
 export function useRoomListQuery(

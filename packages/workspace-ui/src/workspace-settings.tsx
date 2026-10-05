@@ -1,4 +1,4 @@
-import type { AgentSummary, WorkspaceSummary } from '@adea-ai/types'
+import type { AgentSummary, WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
@@ -24,6 +24,7 @@ import {
 import { createEffect, createSignal, For, lazy, onCleanup, onMount, Show, type JSX } from 'solid-js'
 
 import { CapabilityList } from './capability-card'
+import { WorkspaceIdentitySettings } from './workspace-identity-settings'
 import { keyedRows } from './keyed-rows'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import {
@@ -86,6 +87,10 @@ export function WorkspaceSettingsDialog(props: {
   onOpenAgents: () => void
   onSignIn: () => void
   onSignOut: () => void
+  /** Saves a versioned workspace identity change; omitted renders read-only. */
+  onUpdateWorkspace?: (
+    update: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
+  ) => Promise<void>
   open: boolean
   /**
    * The full appearance editor, injected by the host as an accessor
@@ -392,16 +397,12 @@ export function WorkspaceSettingsDialog(props: {
             <MonitorCog aria-hidden="true" />
             <div>
               <h3>{settingsSectionLabels.workspace}</h3>
-              <p>Opinionated Room defaults for the active workspace.</p>
+              <p>How this workspace looks and where it opens.</p>
             </div>
           </header>
-          <SettingsRow
-            title={props.workspace.name}
-            detail={`${props.workspace.scene === 'work' ? 'Work' : 'Home'} scene · Rooms remain the primary navigation.`}
-          />
-          <SettingsRow
-            title="Room defaults"
-            detail="Primary Channels stay implicit; additional Channels are progressively disclosed. Arbitrary sidebar sections are intentionally unavailable in M2."
+          <WorkspaceIdentitySettings
+            workspace={props.workspace}
+            {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
           />
         </TabsContent>
         <TabsContent value="agents" id="settings-panel-agents" class="conventional-settings-panel">
