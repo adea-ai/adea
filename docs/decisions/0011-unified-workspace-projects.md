@@ -110,6 +110,8 @@ Collapsed workspaces and the "Needs you" strip read two counts-only sources:
 
 ### Memory, connections and sharing are workspace-owned
 
+The detailed model is [ADR 0012](0012-workspace-memory-connections-sharing.md).
+
 - **Memory** entries are private local content (ADR 0003): stored encrypted in
   the local content store keyed by workspace; the cloud holds `ContentRef`
   metadata only. A harness launch receives only the active workspace's memory.
