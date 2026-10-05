@@ -847,8 +847,9 @@ export type RepoInspection = Readonly<{
 }>
 
 // A RootBookmark is a durable grant that a directory or repository root has
-// been authorized by the owner. M10's authorized-root flow mints and revokes
-// bookmarks; M12 consumes them but cannot mint one.
+// been authorized by the owner. The host mints bookmarks through
+// `dev.project.authorizeRoot` (the add-project authorize dialog), revokes
+// them, and every other slice only consumes the resulting grants.
 export type RootBookmark = Readonly<{
   id: string
   scope: Scope
@@ -3685,6 +3686,7 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.group.update': (value) => decodeGroup(value),
   'dev.group.delete': (value) => decodeGroup(value),
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
+  'dev.project.authorizeRoot': (value) => decodeRootBookmark(value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
   // Repository registry (#398 follow-up): adopt/authorize/refresh reply with
   // the re-read Repo record, inspect with fresh read-only facts, and list

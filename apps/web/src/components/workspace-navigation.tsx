@@ -797,6 +797,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         showDevActions={activeAppId() === 'dev'}
         resources={<RuntimeResourcesControl runtime={props.services.devRuntime} />}
         sidebarMount={setSidebarActionMount}
+        showSidebarDivider={contextualUtilitiesAvailable()}
         sidebarToggleRef={setSidebarOpener}
       />
       <Show when={contextualUtilitiesAvailable() && sidebarActionMount()}>

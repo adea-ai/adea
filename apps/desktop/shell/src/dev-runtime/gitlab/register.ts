@@ -44,7 +44,7 @@ import type {
 } from '../../../../../../packages/types/src/dev-runtime'
 import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority } from '../channel/authority'
-import { gitChildEnv, runGit } from '../worktrees/git-run'
+import { gitChildEnv, resolveCliExecutable, runGit } from '../worktrees/git-run'
 import { BODY_MAX, PATCH_MAX, cleanText, graphqlData } from '../github/graphql'
 import {
   arr,
@@ -113,11 +113,13 @@ export type GlabRunner = (
 ) => Promise<GlabRunResult>
 
 /** Bounded, argv-only glab runner; glab resolves credentials from its own
- *  host-scoped configuration, so no token passes through argv or env. */
+ *  host-scoped configuration, so no token passes through argv or env. The
+ *  executable goes through the shared CLI resolver: launchd's PATH hides
+ *  Homebrew installs from a Dock-launched app. */
 export const defaultRunGlab: GlabRunner = async (args, options) => {
   let proc: Bun.Subprocess<'ignore' | Uint8Array, 'pipe', 'pipe'>
   try {
-    proc = Bun.spawn(['glab', ...args], {
+    proc = Bun.spawn([resolveCliExecutable('glab') ?? 'glab', ...args], {
       env: { ...gitChildEnv(), GLAB_NO_PROMPT: '1', NO_COLOR: '1' },
       stdin: options?.stdin !== undefined ? new TextEncoder().encode(options.stdin) : 'ignore',
       stdout: 'pipe',

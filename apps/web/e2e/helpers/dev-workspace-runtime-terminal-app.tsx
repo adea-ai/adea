@@ -141,38 +141,43 @@ const runtime: DevRuntimeService = {
   preferenceScope: () => scope,
   projection: async () => ({
     observedAt: new Date().toISOString(),
-    groups: [
-      {
-        id: 'group-fixture',
-        name: 'Fixture group',
-        projects: [
-          {
-            id: projectId,
-            name: 'Terminal integration project',
-            repository: 'fixture/repository',
-            branch: 'main',
-            sessions: [
-              {
-                id: primarySessionId,
-                title: 'Primary session',
-                worktreeId: primaryWorktreeId,
-                state: 'active',
-                generation: 5,
-                terminalId: primaryTerminalId,
-              },
-              {
-                id: otherSessionId,
-                title: 'Other session',
-                worktreeId: otherWorktreeId,
-                state: 'active',
-                generation: 6,
-                terminalId: otherTerminalId,
-              },
-            ],
-          },
-        ],
-      },
-    ],
+    // The no-session scenario is a project-less runtime: the add-project
+    // empty states are exactly what a fresh machine must show.
+    groups:
+      scenario === 'no-session'
+        ? []
+        : [
+            {
+              id: 'group-fixture',
+              name: 'Fixture group',
+              projects: [
+                {
+                  id: projectId,
+                  name: 'Terminal integration project',
+                  repository: 'fixture/repository',
+                  branch: 'main',
+                  sessions: [
+                    {
+                      id: primarySessionId,
+                      title: 'Primary session',
+                      worktreeId: primaryWorktreeId,
+                      state: 'active',
+                      generation: 5,
+                      terminalId: primaryTerminalId,
+                    },
+                    {
+                      id: otherSessionId,
+                      title: 'Other session',
+                      worktreeId: otherWorktreeId,
+                      state: 'active',
+                      generation: 6,
+                      terminalId: otherTerminalId,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
   }),
   capabilitySnapshot: async (requestScope) => makeSnapshot(requestScope),
   execute: async (command) => {
@@ -385,7 +390,9 @@ declare global {
 function mount() {
   const container = document.getElementById('harness-root')
   if (!container) throw new Error('harness root missing')
-  workspaceStore.getState().setSelectedDevProjectId(projectId)
+  // The no-session scenario leaves the store unseeded so the center panes
+  // render their "select a project" empty states, not a bound terminal.
+  if (scenario !== 'no-session') workspaceStore.getState().setSelectedDevProjectId(projectId)
   render(
     () => (
       <DevWorkspaceEntry

@@ -449,3 +449,52 @@ describe('root bookmark authority', () => {
     }
   })
 })
+
+describe('root bookmark authorize (dev.project.authorizeRoot mint path)', () => {
+  test('mints from an absolute path with a host-recorded single-use issuance', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-roots-authorize-'))
+    try {
+      const repo = join(dataDir, 'checkout')
+      mkdirSync(join(repo, '.git'), { recursive: true })
+      const roots = authority(dataDir)
+      const minted = roots.authorize({ scope, absolutePath: repo })
+      expect(minted.state).toBe('active')
+      expect(minted.kind).toBe('repository')
+      expect(minted.label).toBe('checkout')
+      expect(minted.canonicalRoot).toBe(realpathSync(repo))
+      // A directory without .git observes as a plain directory root.
+      const plain = join(dataDir, 'plain')
+      mkdirSync(plain)
+      const directoryRoot = roots.authorize({ scope, absolutePath: plain })
+      expect(directoryRoot.kind).toBe('directory')
+      // An already-active root re-authorizes idempotently: same record back.
+      const labelled = roots.authorize({ scope, absolutePath: plain, label: 'Workspace' })
+      expect(labelled.id).toBe(directoryRoot.id)
+      // Idempotent re-authorization returns the same active record.
+      const again = roots.authorize({ scope, absolutePath: repo })
+      expect(again.id).toBe(minted.id)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('refuses missing or non-directory paths before any ledger write', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-roots-authorize-bad-'))
+    try {
+      const roots = authority(dataDir)
+      expectCode(
+        () => roots.authorize({ scope, absolutePath: join(dataDir, 'missing') }),
+        'not_found'
+      )
+      const file = join(dataDir, 'file.txt')
+      writeFileSync(file, 'x')
+      expectCode(() => roots.authorize({ scope, absolutePath: file }), 'special_file_rejected')
+      expectCode(() => roots.authorize({ scope, absolutePath: 'relative/path' }), 'invalid_state')
+      // No stranded approvals: a refused authorization never reaches the
+      // issuance ledger, so the verifier's store is never even created.
+      expect(existsSync(join(dataDir, 'dev-runtime', 'approvals', 'consumed.json'))).toBe(false)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+})

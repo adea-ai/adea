@@ -130,6 +130,15 @@
   flex-direction: column;
 }
 
+/* The device-kind icon rides the row at the same 1rem size as every other
+   dev-view row surface; lucide's 24px default inflated the row past its
+   Start/Stop controls and left them visibly short against the content. */
+.dev-browser__row svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
 .dev-browser__inspect {
   display: flex;
   flex-direction: column;
