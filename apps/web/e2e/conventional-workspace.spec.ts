@@ -879,7 +879,10 @@ test('centers creation dialogs in the viewport', async ({ page }) => {
       // retries until the navigation answers.
       const toggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
       for (let attempt = 0; attempt < 3 && !(await navigation.isVisible()); attempt += 1) {
-        if (await toggle.isVisible()) await toggle.click()
+        // Bound the click like the probe: a landed click renames the toggle
+        // to its collapse variant, and an unbounded retry would wait the
+        // whole timeout against the renamed-away locator.
+        await toggle.click({ timeout: 2_000 }).catch(() => undefined)
         await expect(navigation)
           .toBeVisible({ timeout: 2_000 })
           .catch(() => undefined)

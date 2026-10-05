@@ -12,16 +12,18 @@ async function exerciseContextualSidebarToggle(page: Page) {
   // Boot responses and the sheet's close/focus-restoration transition can
   // replace the toggle node between hit-testing and its handler running (the
   // same lost-click race the workspace-navigation spec documents for its
-  // press), so the open interaction retries until the store answers. The
-  // close interaction targets the sheet's own chrome and does not race.
+  // press), so the open interaction retries until the store answers. Each
+  // click is bounded to the probe interval: when the click lands, the toggle
+  // renames to its collapse variant, and polling the expand name would wait
+  // out the whole timeout against a locator that no longer exists.
   const openSheet = async () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await expandSidebar.click()
+      await expandSidebar.click({ timeout: 2_000 }).catch(() => undefined)
       try {
         await expect(collapseSidebar).toBeVisible({ timeout: 2_000 })
         return
       } catch {
-        // The toggle was replaced mid-click; retry on the live node.
+        // The click was lost or is still settling; retry on the live node.
       }
     }
     await expect(collapseSidebar).toBeVisible()
@@ -35,13 +37,15 @@ async function exerciseContextualSidebarToggle(page: Page) {
     // sheet is up, and the sheet's own close returns focus to the opener.
     await openSheet()
     await expect(projectsSidebar).toBeVisible()
-    await closeSheet.click()
+    // The close chrome unmounts with the sheet; bound it like the open click
+    // and let the hidden assertion decide.
+    await closeSheet.click({ timeout: 2_000 }).catch(() => undefined)
     await expect(projectsSidebar).toBeHidden()
     await expect(expandSidebar).toBeFocused()
     await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
     await openSheet()
     await expect(projectsSidebar).toBeVisible()
-    await closeSheet.click()
+    await closeSheet.click({ timeout: 2_000 }).catch(() => undefined)
     await expect(projectsSidebar).toBeHidden()
     await expect(expandSidebar).toBeFocused()
   } else {
@@ -790,7 +794,18 @@ test('the archive shelf restores losslessly and deletes only behind an explicit 
       })
     }
     const expand = page.getByRole('button', { name: 'Expand contextual sidebar', exact: true })
-    if (await expand.isVisible()) await expand.click()
+    // The crossing can replace the toggle mid-click (the documented lost-click
+    // race), so reopen with bounded retries until the sheet answers and the
+    // row is back in view.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expand.click({ timeout: 2_000 }).catch(() => undefined)
+      try {
+        await expect(item).toBeVisible({ timeout: 4_000 })
+        break
+      } catch {
+        // Retry on the live node.
+      }
+    }
     await expect(item).toBeVisible()
     // The mobile sheet slides in before it rests; measure only the settled
     // row so the slide never reads as a clipped label.
