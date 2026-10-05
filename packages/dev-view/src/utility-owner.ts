@@ -103,6 +103,20 @@ type LayoutPatch = {
   layout?: Pick<DevLayoutPreferencesV2, 'center' | 'focusMode' | 'focusTargetId'>
 }
 
+/**
+ * Patch keys index plain objects, and the pane strings arrive from decoded
+ * persisted preferences, so only known panes may become keys — a crafted
+ * `__proto__` entry must never reach `utilityPatch[pane]`.
+ */
+const KNOWN_UTILITY_PANES: ReadonlySet<string> = new Set<DevUtilityPane>([
+  'files',
+  'source_control',
+  'browser',
+  'devices',
+  'agents',
+  'history',
+])
+
 function mergeLayoutPatch(value: DevLayoutPreferencesV2, patch?: LayoutPatch) {
   return {
     ...value,
@@ -640,6 +654,7 @@ export function createSharedDevUtilityOwner(
       const fields = ['visible', 'size', 'lastNonzeroSize', 'fullWidth', 'order', 'side'] as const
       const utilityPatch = patch.utility ?? {}
       for (const item of value.utility) {
+        if (!KNOWN_UTILITY_PANES.has(item.pane)) continue
         const before = previousByPane.get(item.pane)
         if (!before) continue
         const changed = utilityPatch[item.pane] ?? {}
@@ -652,6 +667,7 @@ export function createSharedDevUtilityOwner(
         DevUtilityPane,
         UtilityPreferencePatch,
       ][]) {
+        if (!KNOWN_UTILITY_PANES.has(pane)) continue
         utilityPatch[pane] = { ...utilityPatch[pane], ...intent }
       }
       if (Object.keys(utilityPatch).length > 0) patch.utility = utilityPatch
