@@ -57,9 +57,9 @@ const deferredViewports = new Map<number, { command: DevCommand; resolve(reply: 
 const queuedViewportIds: number[] = []
 
 function browserLanes(): readonly BrowserLane[] {
-  return new URLSearchParams(window.location.search).get('lanes') === 'multiple'
-    ? [lane, alternateLane]
-    : [lane]
+  const mode = new URLSearchParams(window.location.search).get('lanes')
+  if (mode === 'empty') return []
+  return mode === 'multiple' ? [lane, alternateLane] : [lane]
 }
 
 const port: PortRecord = {

@@ -73,7 +73,7 @@ describe('private application UI boundary', () => {
     )
 
     expect(rawInteractiveExemptions).toEqual([])
-    expect(wrapperExemptions).toEqual(['packages/dev-view/src/browser/mini-preview.tsx'])
+    expect(wrapperExemptions).toEqual([])
     expect(appearanceExemptions).toEqual([])
   })
 })

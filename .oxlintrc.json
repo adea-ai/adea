@@ -108,14 +108,6 @@
     "adea/no-class-list": "error",
     "adea/no-interactive-wrappers": "error"
   },
-  "overrides": [
-    {
-      "files": ["packages/dev-view/src/browser/mini-preview.tsx"],
-      "rules": {
-        "adea/no-interactive-wrappers": "off"
-      }
-    }
-  ],
   "ignorePatterns": [
     "node_modules/**",
     ".wrangler/**",

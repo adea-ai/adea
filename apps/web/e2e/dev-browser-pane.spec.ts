@@ -262,6 +262,117 @@ test('BrowserPane preserves independent viewport results when switching lanes', 
   await expect(pane).toContainText('CSS viewport 393 × 852')
 })
 
+test('BrowserPane lane tabs select with keyboard and keep focus on the active lane', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page, '?lanes=multiple')
+  const laneTabs = pane.getByRole('tablist', { name: 'Browser lanes' }).getByRole('tab')
+  const firstLane = laneTabs.nth(0)
+  const secondLane = laneTabs.nth(1)
+
+  await firstLane.focus()
+  await expect(firstLane).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+
+  await expect(secondLane).toBeFocused()
+  await expect(secondLane).toHaveAttribute('aria-selected', 'true')
+  await expect(firstLane).toHaveAttribute('aria-selected', 'false')
+  await expect(pane.getByRole('tabpanel')).toBeVisible()
+
+  await pane.getByRole('button', { name: 'Pixel 8' }).click()
+  const commands = await page.evaluate(() =>
+    window.browserPaneHarness
+      .report()
+      .commands.filter((command) => command.operation === 'dev.browser.viewport')
+  )
+  expect(commands.at(-1)?.resource).toMatchObject({
+    kind: 'browser_lane',
+    id: 'browser-pane-fixture-lane-2',
+    generation: 9,
+  })
+})
+
+test('BrowserPane lane tabs stack above a full-width panel at narrow and wide widths', async ({
+  page,
+}) => {
+  const pane = await mountBrowserPane(page, '?lanes=multiple')
+  const laneList = pane.getByRole('tablist', { name: 'Browser lanes' })
+  const laneTabs = laneList.getByRole('tab')
+  const activeLaneTab = laneTabs.first()
+  const panel = pane.getByRole('tabpanel')
+
+  await expect(panel).toBeVisible()
+  const activeLaneTabId = await activeLaneTab.getAttribute('id')
+  if (!activeLaneTabId) throw new Error('Active browser lane tab did not receive an id')
+  await expect(panel).toHaveAttribute('aria-labelledby', activeLaneTabId)
+  expect(
+    await page.evaluate((id) => document.getElementById(id)?.getAttribute('role'), activeLaneTabId)
+  ).toBe('tab')
+
+  for (const width of [320, 1280]) {
+    await page.setViewportSize({ width, height: 900 })
+    const [paneBounds, listBounds, panelBounds] = await Promise.all([
+      pane.boundingBox(),
+      laneList.boundingBox(),
+      panel.boundingBox(),
+    ])
+    if (!paneBounds || !listBounds || !panelBounds) {
+      throw new Error(`Browser lane tabs did not lay out at ${width}px`)
+    }
+
+    const paneRight = paneBounds.x + paneBounds.width
+    for (const bounds of [listBounds, panelBounds]) {
+      expect(bounds.x).toBeGreaterThanOrEqual(paneBounds.x - 1)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(paneRight + 1)
+    }
+    expect(listBounds.width).toBeGreaterThan(0)
+    expect(panelBounds.width).toBeGreaterThan(0)
+    expect(Math.abs(listBounds.width - panelBounds.width)).toBeLessThanOrEqual(1)
+    expect(panelBounds.y).toBeGreaterThanOrEqual(listBounds.y + listBounds.height - 1)
+
+    for (const tab of await laneTabs.all()) {
+      const fitsSharedTrigger = await tab.evaluate(
+        (element) => element.scrollHeight <= element.clientHeight + 1
+      )
+      expect(fitsSharedTrigger, `lane label fits shared trigger at ${width}px`).toBe(true)
+    }
+  }
+})
+
+test('BrowserPane empty lanes state has a name, creation actions, and no orphaned tab panel', async ({
+  page,
+}) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  const pane = await mountBrowserPane(page, '?lanes=empty')
+  const emptyLanes = pane.getByRole('group', { name: 'Browser lanes', exact: true })
+
+  await expect(emptyLanes).toBeVisible()
+  await expect(emptyLanes).toHaveAccessibleName('Browser lanes')
+  await expect(emptyLanes).toContainText('No lanes yet — create one to start.')
+  await expect(pane.getByRole('tablist')).toHaveCount(0)
+  await expect(pane.getByRole('tabpanel')).toHaveCount(0)
+  for (const name of [
+    'New Human · embedded',
+    'New Task-owned agent',
+    'New User context · external',
+  ]) {
+    await expect(emptyLanes.getByRole('button', { name, exact: true })).toBeVisible()
+  }
+
+  const unresolvedLabelReferences = await pane
+    .locator('[aria-labelledby]')
+    .evaluateAll((elements) =>
+      elements.flatMap((element) =>
+        (element.getAttribute('aria-labelledby') ?? '')
+          .split(/\s+/)
+          .filter((id) => id && !document.getElementById(id))
+      )
+    )
+  expect(unresolvedLabelReferences).toEqual([])
+  expect(pageErrors).toEqual([])
+})
+
 test('BrowserPane refreshes before surfacing a stale viewport generation error', async ({
   page,
 }) => {

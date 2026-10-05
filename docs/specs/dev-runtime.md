@@ -3654,6 +3654,12 @@ focus or substitute a target-list refresh. The current operation contract has no
 back/forward history commands, so those controls remain disabled and must not
 present a target refresh as browser history.
 
+Lane selection uses the shared single-select Tabs composition. Its vertical
+arrow-key navigation keeps focus on the selected lane, and selecting another
+lane clears stale inspection and screenshot context before refreshing the
+generation-bound target and diagnostic projections. This changes only the
+client's selected lane; it does not mutate the host lane or its ownership.
+
 The browser pane's DOM inspector uses an explicit CSS selector against the
 active page target. It sends `dev.browser.inspect` with the selected target ID,
 the lane's expected generation, and a lane-resource binding; it does not claim

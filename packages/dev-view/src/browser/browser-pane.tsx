@@ -48,13 +48,13 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 
 const LANE_KIND_LABEL: Record<BrowserLane['kind'], string> = {
   human_embedded: 'Human · embedded',
   task_owned: 'Task-owned agent',
   user_context: 'User context · external',
 }
-
 export type BrowserPaneProps = {
   runtime: DevRuntimeService
   runtimeSessionId?: string
@@ -223,6 +223,15 @@ export function BrowserPane(props: BrowserPaneProps) {
     latestInspectionRequest += 1
     setInspectionBusy(false)
     setInspectionResult(undefined)
+  }
+
+  function selectLane(laneId: string): void {
+    if (!lanes()?.items.some((lane) => lane.id === laneId)) return
+    invalidateInspection()
+    clearScreenshotContext()
+    setActiveLaneId(laneId)
+    void refetchTargets()
+    void refetchDiagnostics()
   }
 
   const [targets, { refetch: refetchTargets }] = createResource(activeLane, async (lane) => {
@@ -618,6 +627,15 @@ export function BrowserPane(props: BrowserPaneProps) {
     const state = runtime().state()
     return state.status === 'unavailable' ? state.reason : 'loading'
   }
+  const laneCreationActions = () => (
+    <For each={['human_embedded', 'task_owned', 'user_context'] as const}>
+      {(kind) => (
+        <Button type="button" variant="outline" size="sm" onClick={() => createLane(kind)}>
+          New {LANE_KIND_LABEL[kind]}
+        </Button>
+      )}
+    </For>
+  )
 
   return (
     <section class="dev-browser" aria-label="Browser">
@@ -785,284 +803,306 @@ export function BrowserPane(props: BrowserPaneProps) {
             )}
           </Show>
 
-          <p class="dev-browser__section-title">Lanes</p>
-          {/* oxlint-disable-next-line adea/no-interactive-wrappers -- lane selection awaits the shared Tabs adoption */}
-          <div role="tablist" aria-label="Browser lanes">
-            <For each={lanes()?.items ?? []}>
-              {(lane) => (
-                <Button
-                  type="button"
-                  role="tab"
-                  variant={lane.id === activeLane()?.id ? 'secondary' : 'outline'}
-                  size="sm"
-                  aria-selected={lane.id === activeLane()?.id}
-                  class="w-full justify-start"
-                  onClick={() => {
-                    invalidateInspection()
-                    clearScreenshotContext()
-                    setActiveLaneId(lane.id)
-                    void refetchTargets()
-                    void refetchDiagnostics()
-                  }}
-                >
-                  <span class="dev-browser__row-main">
-                    <span>{LANE_KIND_LABEL[lane.kind]}</span>
-                    <span class="dev-browser__row-meta">
-                      {lane.state} · takeover {lane.automationOwner}
-                    </span>
-                  </span>
-                </Button>
-              )}
-            </For>
-            <Show when={(lanes()?.items.length ?? 0) === 0}>
-              <div class="dev-browser__row">
-                <span class="dev-terminal-muted">No lanes yet — create one to start.</span>
-              </div>
+          <Tabs
+            class="data-[orientation=vertical]:flex-col"
+            value={activeLane()?.id ?? ''}
+            onChange={selectLane}
+            orientation="vertical"
+          >
+            <p class="dev-browser__section-title">Lanes</p>
+            <Show when={activeLane()}>
+              <TabsList class="flex w-full flex-col items-stretch gap-1" aria-label="Browser lanes">
+                <For each={lanes()?.items ?? []}>
+                  {(lane) => (
+                    <TabsTrigger value={lane.id} class="w-full justify-start">
+                      <span class="dev-browser__row-main flex-row items-center gap-2">
+                        <span class="shrink-0">{LANE_KIND_LABEL[lane.kind]}</span>
+                        <span class="dev-browser__row-meta min-w-0 flex-1">
+                          {lane.state} · takeover {lane.automationOwner}
+                        </span>
+                      </span>
+                    </TabsTrigger>
+                  )}
+                </For>
+              </TabsList>
             </Show>
-          </div>
-          <div class="dev-browser__actions">
-            <For each={['human_embedded', 'task_owned', 'user_context'] as const}>
-              {(kind) => (
-                <Button type="button" variant="outline" size="sm" onClick={() => createLane(kind)}>
-                  New {LANE_KIND_LABEL[kind]}
-                </Button>
-              )}
-            </For>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!activeLane() || activeLane()?.kind === 'human_embedded'}
-              onClick={takeoverOrRelease}
-            >
-              {activeLane()?.automationOwner === 'human_takeover'
-                ? 'Release capture (Esc)'
-                : 'Take over'}
-            </Button>
-          </div>
-
-          <p class="dev-browser__section-title">Ports</p>
-          <For each={portRows()}>
-            {(row) => (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                class="w-full justify-start"
-                disabled={!portNavigationRequest(row)}
-                onClick={() => {
-                  const request = portNavigationRequest(row)
-                  if (!request) return
-                  setActiveLaneId(request.lane.id)
-                  setUrlFocused(false)
-                  dispatchNavigation(request)
-                }}
-              >
-                <span class="dev-browser__row-main">
-                  <span>{row.processName ?? 'Listening'}</span>
-                  <span class="dev-browser__row-meta">
-                    {row.host}:{row.port} · {row.owner}
-                    {row.health === 'stale' ? ' · stale' : ''}
-                  </span>
-                </span>
-                <span
-                  class={cn('dev-row-badge', {
-                    'dev-row-badge--success': isPreviewableRow(row),
-                    'dev-row-badge--failure': row.health === 'stale',
-                  })}
+            <Show
+              when={activeLane()}
+              fallback={
+                <Show
+                  when={lanes.loading}
+                  fallback={
+                    <div role="group" aria-label="Browser lanes">
+                      <div class="dev-browser__row">
+                        <span class="dev-terminal-muted">No lanes yet — create one to start.</span>
+                      </div>
+                      <div class="dev-browser__actions">{laneCreationActions()}</div>
+                    </div>
+                  }
                 >
-                  {row.owner === 'adea' ? 'preview' : 'external'}
-                </span>
-              </Button>
-            )}
-          </For>
-
-          <p class="dev-browser__section-title">Targets</p>
-          <For each={targets()?.items ?? []}>
-            {(target) => (
-              <div class="dev-browser__row">
-                <span class="dev-browser__row-main">
-                  <span>{target.title || target.url}</span>
-                  <span class="dev-browser__row-meta">{target.type}</span>
-                </span>
-              </div>
-            )}
-          </For>
-
-          <p class="dev-browser__section-title">Inspect</p>
-          <form class="dev-browser__inspect" onSubmit={inspectSelector}>
-            <Label for="dev-browser-inspection-selector">CSS selector</Label>
-            <Input
-              id="dev-browser-inspection-selector"
-              type="text"
-              aria-label="CSS selector"
-              maxLength={512}
-              autocomplete="off"
-              spellcheck={false}
-              value={inspectionSelector()}
-              onInput={(event) => {
-                setInspectionSelector(event.currentTarget.value)
-                invalidateInspection()
-              }}
-            />
-            <p class="dev-browser__row-meta">
-              Queries the active page by selector; this does not pick from the preview.
-            </p>
-            <Button
-              type="submit"
-              variant="outline"
-              size="sm"
-              disabled={
-                !activeLane() ||
-                !activePageTarget() ||
-                targets.loading ||
-                inspectionSelector().trim().length === 0 ||
-                inspectionSelector().trim().length > 512 ||
-                inspectionBusy()
+                  <p class="dev-browser__row" role="status">
+                    Loading browser lanes…
+                  </p>
+                </Show>
               }
             >
-              {inspectionBusy() ? 'Inspecting…' : 'Inspect selector'}
-            </Button>
-          </form>
-          <Show
-            when={(() => {
-              const result = inspectionResult()
-              const lane = activeLane()
-              const target = activePageTarget()
-              return result &&
-                lane?.id === result.laneId &&
-                lane.generation === result.generation &&
-                target?.id === result.targetId
-                ? result
-                : undefined
-            })()}
-          >
-            {(state) => (
-              <div
-                class="dev-browser__inspection-result"
-                role="status"
-                aria-label="Inspection result"
-              >
-                <Show when={state().value.nodeId} fallback={<span>No matching element.</span>}>
-                  <span>
-                    {state().value.role ?? 'Element'}
-                    {state().value.name ? ` · ${state().value.name}` : ''}
+              <TabsContent value={activeLane()?.id ?? ''}>
+                <div class="dev-browser__actions">
+                  {laneCreationActions()}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!activeLane() || activeLane()?.kind === 'human_embedded'}
+                    onClick={takeoverOrRelease}
+                  >
+                    {activeLane()?.automationOwner === 'human_takeover'
+                      ? 'Release capture (Esc)'
+                      : 'Take over'}
+                  </Button>
+                </div>
+
+                <p class="dev-browser__section-title">Ports</p>
+                <For each={portRows()}>
+                  {(row) => (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      class="w-full justify-start"
+                      disabled={!portNavigationRequest(row)}
+                      onClick={() => {
+                        const request = portNavigationRequest(row)
+                        if (!request) return
+                        setActiveLaneId(request.lane.id)
+                        setUrlFocused(false)
+                        dispatchNavigation(request)
+                      }}
+                    >
+                      <span class="dev-browser__row-main">
+                        <span>{row.processName ?? 'Listening'}</span>
+                        <span class="dev-browser__row-meta">
+                          {row.host}:{row.port} · {row.owner}
+                          {row.health === 'stale' ? ' · stale' : ''}
+                        </span>
+                      </span>
+                      <span
+                        class={cn('dev-row-badge', {
+                          'dev-row-badge--success': isPreviewableRow(row),
+                          'dev-row-badge--failure': row.health === 'stale',
+                        })}
+                      >
+                        {row.owner === 'adea' ? 'preview' : 'external'}
+                      </span>
+                    </Button>
+                  )}
+                </For>
+
+                <p class="dev-browser__section-title">Targets</p>
+                <For each={targets()?.items ?? []}>
+                  {(target) => (
+                    <div class="dev-browser__row">
+                      <span class="dev-browser__row-main">
+                        <span>{target.title || target.url}</span>
+                        <span class="dev-browser__row-meta">{target.type}</span>
+                      </span>
+                    </div>
+                  )}
+                </For>
+
+                <p class="dev-browser__section-title">Inspect</p>
+                <form class="dev-browser__inspect" onSubmit={inspectSelector}>
+                  <Label for="dev-browser-inspection-selector">CSS selector</Label>
+                  <Input
+                    id="dev-browser-inspection-selector"
+                    type="text"
+                    aria-label="CSS selector"
+                    maxLength={512}
+                    autocomplete="off"
+                    spellcheck={false}
+                    value={inspectionSelector()}
+                    onInput={(event) => {
+                      setInspectionSelector(event.currentTarget.value)
+                      invalidateInspection()
+                    }}
+                  />
+                  <p class="dev-browser__row-meta">
+                    Queries the active page by selector; this does not pick from the preview.
+                  </p>
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      !activeLane() ||
+                      !activePageTarget() ||
+                      targets.loading ||
+                      inspectionSelector().trim().length === 0 ||
+                      inspectionSelector().trim().length > 512 ||
+                      inspectionBusy()
+                    }
+                  >
+                    {inspectionBusy() ? 'Inspecting…' : 'Inspect selector'}
+                  </Button>
+                </form>
+                <Show
+                  when={(() => {
+                    const result = inspectionResult()
+                    const lane = activeLane()
+                    const target = activePageTarget()
+                    return result &&
+                      lane?.id === result.laneId &&
+                      lane.generation === result.generation &&
+                      target?.id === result.targetId
+                      ? result
+                      : undefined
+                  })()}
+                >
+                  {(state) => (
+                    <div
+                      class="dev-browser__inspection-result"
+                      role="status"
+                      aria-label="Inspection result"
+                    >
+                      <Show
+                        when={state().value.nodeId}
+                        fallback={<span>No matching element.</span>}
+                      >
+                        <span>
+                          {state().value.role ?? 'Element'}
+                          {state().value.name ? ` · ${state().value.name}` : ''}
+                        </span>
+                        <Show when={state().value.bounds}>
+                          {(bounds) => (
+                            <span>
+                              x {bounds().x} · y {bounds().y} · width {bounds().width} · height{' '}
+                              {bounds().height}
+                            </span>
+                          )}
+                        </Show>
+                      </Show>
+                    </div>
+                  )}
+                </Show>
+
+                <p class="dev-browser__section-title">Responsive</p>
+                <div class="dev-browser__actions">
+                  <For each={RESPONSIVE_PRESETS}>
+                    {(preset) => (
+                      <Button
+                        type="button"
+                        variant={
+                          preset.id === viewportForActiveLane()?.presetId ? 'secondary' : 'outline'
+                        }
+                        size="sm"
+                        aria-pressed={preset.id === viewportForActiveLane()?.presetId}
+                        disabled={!activeLane()}
+                        onClick={() => applyResponsivePreset(preset.id, preset.defaultOrientation)}
+                      >
+                        {preset.label}
+                      </Button>
+                    )}
+                  </For>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!activeLane()}
+                    onClick={() => {
+                      const current = viewportForActiveLane()
+                      const next: ResponsiveOrientation =
+                        current?.orientation === 'portrait' || !current ? 'landscape' : 'portrait'
+                      applyResponsivePreset(
+                        current?.presetId ?? 'responsive',
+                        next,
+                        current?.zoomScale
+                      )
+                    }}
+                  >
+                    Rotate
+                  </Button>
+                  <ActionButton
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    aria-label="Zoom out"
+                    tooltip="Zoom out the responsive preview."
+                    disabled={!activeLane()}
+                    onClick={() => {
+                      const current = viewportForActiveLane()
+                      const scale = Math.max(
+                        0.5,
+                        Math.round(((current?.zoomScale ?? 1) - 0.1) * 10) / 10
+                      )
+                      applyResponsivePreset(
+                        current?.presetId ?? 'responsive',
+                        current?.orientation ?? 'portrait',
+                        scale
+                      )
+                    }}
+                  >
+                    −
+                  </ActionButton>
+                  <span class="dev-browser__row-meta">
+                    {Math.round((viewportForActiveLane()?.zoomScale ?? 1) * 100)}%
                   </span>
-                  <Show when={state().value.bounds}>
-                    {(bounds) => (
-                      <span>
-                        x {bounds().x} · y {bounds().y} · width {bounds().width} · height{' '}
-                        {bounds().height}
+                  <ActionButton
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    aria-label="Zoom in"
+                    tooltip="Zoom in the responsive preview."
+                    disabled={!activeLane()}
+                    onClick={() => {
+                      const current = viewportForActiveLane()
+                      const scale = Math.min(
+                        2,
+                        Math.round(((current?.zoomScale ?? 1) + 0.1) * 10) / 10
+                      )
+                      applyResponsivePreset(
+                        current?.presetId ?? 'responsive',
+                        current?.orientation ?? 'portrait',
+                        scale
+                      )
+                    }}
+                  >
+                    +
+                  </ActionButton>
+                  <Show
+                    when={viewportForActiveLane()}
+                    fallback={
+                      <span class="dev-browser__row-meta">
+                        Select a preset to set the viewport.
+                      </span>
+                    }
+                  >
+                    {(viewport) => (
+                      <span class="dev-browser__row-meta">
+                        CSS viewport {viewport().width} × {viewport().height} · DPR{' '}
+                        {viewport().deviceScaleFactor} · UA{' '}
+                        {viewport().mobile ? 'mobile' : 'desktop'}
                       </span>
                     )}
                   </Show>
-                </Show>
-              </div>
-            )}
-          </Show>
-
-          <p class="dev-browser__section-title">Responsive</p>
-          <div class="dev-browser__actions">
-            <For each={RESPONSIVE_PRESETS}>
-              {(preset) => (
-                <Button
-                  type="button"
-                  variant={
-                    preset.id === viewportForActiveLane()?.presetId ? 'secondary' : 'outline'
-                  }
-                  size="sm"
-                  aria-pressed={preset.id === viewportForActiveLane()?.presetId}
-                  disabled={!activeLane()}
-                  onClick={() => applyResponsivePreset(preset.id, preset.defaultOrientation)}
-                >
-                  {preset.label}
-                </Button>
-              )}
-            </For>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!activeLane()}
-              onClick={() => {
-                const current = viewportForActiveLane()
-                const next: ResponsiveOrientation =
-                  current?.orientation === 'portrait' || !current ? 'landscape' : 'portrait'
-                applyResponsivePreset(current?.presetId ?? 'responsive', next, current?.zoomScale)
-              }}
-            >
-              Rotate
-            </Button>
-            <ActionButton
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              aria-label="Zoom out"
-              tooltip="Zoom out the responsive preview."
-              disabled={!activeLane()}
-              onClick={() => {
-                const current = viewportForActiveLane()
-                const scale = Math.max(0.5, Math.round(((current?.zoomScale ?? 1) - 0.1) * 10) / 10)
-                applyResponsivePreset(
-                  current?.presetId ?? 'responsive',
-                  current?.orientation ?? 'portrait',
-                  scale
-                )
-              }}
-            >
-              −
-            </ActionButton>
-            <span class="dev-browser__row-meta">
-              {Math.round((viewportForActiveLane()?.zoomScale ?? 1) * 100)}%
-            </span>
-            <ActionButton
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              aria-label="Zoom in"
-              tooltip="Zoom in the responsive preview."
-              disabled={!activeLane()}
-              onClick={() => {
-                const current = viewportForActiveLane()
-                const scale = Math.min(2, Math.round(((current?.zoomScale ?? 1) + 0.1) * 10) / 10)
-                applyResponsivePreset(
-                  current?.presetId ?? 'responsive',
-                  current?.orientation ?? 'portrait',
-                  scale
-                )
-              }}
-            >
-              +
-            </ActionButton>
-            <Show
-              when={viewportForActiveLane()}
-              fallback={
-                <span class="dev-browser__row-meta">Select a preset to set the viewport.</span>
-              }
-            >
-              {(viewport) => (
-                <span class="dev-browser__row-meta">
-                  CSS viewport {viewport().width} × {viewport().height} · DPR{' '}
-                  {viewport().deviceScaleFactor} · UA {viewport().mobile ? 'mobile' : 'desktop'}
-                </span>
-              )}
-            </Show>
-          </div>
-
-          <p class="dev-browser__section-title">Diagnostics</p>
-          <div class="dev-browser__diagnostics" aria-label="Console and network diagnostics">
-            <For each={diagnostics()?.items ?? []}>
-              {(entry) => (
-                <div class="dev-browser__diagnostic" data-level={entry.level}>
-                  <span class="dev-browser__row-meta">{entry.category}</span>
-                  <span>{entry.message}</span>
                 </div>
-              )}
-            </For>
-            <Show when={(diagnostics()?.items.length ?? 0) === 0}>
-              <span class="dev-terminal-muted">No console or network events.</span>
+
+                <p class="dev-browser__section-title">Diagnostics</p>
+                <div class="dev-browser__diagnostics" aria-label="Console and network diagnostics">
+                  <For each={diagnostics()?.items ?? []}>
+                    {(entry) => (
+                      <div class="dev-browser__diagnostic" data-level={entry.level}>
+                        <span class="dev-browser__row-meta">{entry.category}</span>
+                        <span>{entry.message}</span>
+                      </div>
+                    )}
+                  </For>
+                  <Show when={(diagnostics()?.items.length ?? 0) === 0}>
+                    <span class="dev-terminal-muted">No console or network events.</span>
+                  </Show>
+                </div>
+              </TabsContent>
             </Show>
-          </div>
+          </Tabs>
         </div>
       </Show>
 

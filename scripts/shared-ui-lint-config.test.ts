@@ -25,6 +25,7 @@ describe('shared UI lint configuration', () => {
         '  return <>',
         '    <button type="button" />',
         '    <div classList={{ active: true }} />',
+        '    <div role="tablist" aria-label="Browser lanes"><KobalteRoot role="tab" onClick={() => {}} /></div>',
         '    <KobalteRoot />',
         '  </>',
         '}',
@@ -55,5 +56,6 @@ describe('shared UI lint configuration', () => {
     expect(rules).toContain('adea(no-class-list)')
     expect(rules).toContain('adea(no-raw-interactive-elements)')
     expect(rules).toContain('adea(no-primitive-library-imports)')
+    expect(rules).toContain('adea(no-interactive-wrappers)')
   })
 })
