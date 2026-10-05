@@ -86,6 +86,19 @@ if (process.platform !== 'darwin' && process.platform !== 'linux') {
 
 const startedAt = new Date()
 const laneStarted = performance.now()
+// The budget binds on BOTH clocks and stops on whichever reaches it first.
+// #1037: over a 27-hour run the monotonic clock lagged wall clock by ~3.1
+// hours (the artifact recorded startedAt→finishedAt 27.07h against
+// elapsedMs 23.999h), so a monotonic-only break silently overshoots — the
+// wall clock governs the "24-hour" claim, the monotonic clock guards
+// against wall-clock steps, and whichever expires first stops the run.
+const wallStartedMs = Date.now()
+function budgetElapsed() {
+  return {
+    monotonicMs: performance.now() - laneStarted,
+    wallMs: Date.now() - wallStartedMs,
+  }
+}
 const samples = []
 const failures = []
 const verified = []
@@ -974,7 +987,10 @@ try {
       phase += 1
       await noAckResyncPhase(mainClient, phase)
     }
-    if (durationMs > 0 && performance.now() - laneStarted >= durationMs) break
+    if (durationMs > 0) {
+      const elapsed = budgetElapsed()
+      if (Math.min(elapsed.monotonicMs, elapsed.wallMs) >= durationMs) break
+    }
   }
   sampleUntil = 0
   await samplerDone
@@ -994,10 +1010,11 @@ try {
 
   await crashRestartPhase(sidecar)
   mainClient.close()
+  const finalElapsed = budgetElapsed()
   console.log(
     `TERMINAL-SOAK rounds=${roundLedger.length} bytes=${received.bytes} frames=${received.frames} ` +
       `probes=${probeCount} storms=${stormCount} churn=${churnCount} ` +
-      `elapsedMs=${Math.round(performance.now() - laneStarted)}`
+      `elapsedMs=${Math.round(finalElapsed.monotonicMs)} wallMs=${Math.round(finalElapsed.wallMs)}`
   )
 } catch (cause) {
   fail('lane', cause instanceof Error ? (cause.stack ?? cause.message) : String(cause))
@@ -1009,16 +1026,24 @@ try {
   // "24-hour" soak that stops after one round reports success. Fail loudly so
   // an acceptance claim is only made when the budget actually bound.
   const laneElapsedMs = Math.round(performance.now() - laneStarted)
+  const wallElapsedMs = Math.round(Date.now() - wallStartedMs)
+  // #1037: the two clocks can diverge over a long run (the 2026-10-05
+  // acceptance run recorded 24.0h monotonic against 27.1h wall), so the
+  // divergence is part of the artifact — a budget bound on the faster clock
+  // is still a budget, but the record has to show which clock governed.
+  const clockDivergenceMs = Math.abs(wallElapsedMs - laneElapsedMs)
   // A run that already failed (an integrity assertion, a thrown setup error)
   // did not stop because the budget was short; reporting a second, misleading
   // failure on top of the real one is how a 24-hour soak ends up looking like
   // a round-cap problem.
   const stoppedForFailures = failures.length > 0
-  const budgetHonored = durationMs === 0 || laneElapsedMs >= durationMs || stoppedForFailures
+  const budgetHonored =
+    durationMs === 0 || Math.min(laneElapsedMs, wallElapsedMs) >= durationMs || stoppedForFailures
   if (!budgetHonored) {
     exitCode = 1
     console.error(
-      `TERMINAL-SOAK FAIL: ${roundLedger.length} rounds ended the run after ${laneElapsedMs}ms, ` +
+      `TERMINAL-SOAK FAIL: ${roundLedger.length} rounds ended the run after ` +
+        `${laneElapsedMs}ms monotonic / ${wallElapsedMs}ms wall, ` +
         `short of the ${durationMs}ms budget` +
         (roundsRequested ? ` (ADEA_DEV_RUNTIME_TERMINAL_SOAK_ROUNDS=${rounds})` : '') +
         '; raise ADEA_DEV_RUNTIME_TERMINAL_SOAK_ROUNDS or the duration budget'
@@ -1033,13 +1058,22 @@ try {
     command: 'bun scripts/dev-runtime-terminal-soak.mjs',
     status: exitCode === 0 ? 'passed' : 'failed',
     startedAt,
+    // The live summary path is overwritten by every run of the lane; the
+    // stamp preserves a long acceptance run's record from the next short
+    // verification (#1037).
+    stamp: startedAt.toISOString().replace(/[:.]/g, '-'),
     details: {
       rounds: roundLedger.length,
       requestedRounds: rounds,
       durationBudgetMs: durationMs,
       budgetHonored,
       floodLines,
-      elapsedMs: Math.round(performance.now() - laneStarted),
+      elapsedMs: laneElapsedMs,
+      wallElapsedMs,
+      finishedAtWall: new Date().toISOString(),
+      clockDivergenceMs,
+      clockDivergenceRatio:
+        laneElapsedMs > 0 ? Number((clockDivergenceMs / laneElapsedMs).toFixed(4)) : 0,
       integrity: {
         receivedBytes: received.bytes,
         receivedFrames: received.frames,

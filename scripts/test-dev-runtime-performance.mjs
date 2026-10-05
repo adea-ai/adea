@@ -215,7 +215,13 @@ try {
       oldStart: hunk * 3 + 1,
       path: {
         ...benchmarkScope,
-        relativePath: `apps/app-${(hunk / 100) | 0}/src-${hunk % 100}.ts`,
+        // 100 files × 100 hunks per file: the path derives ONLY from the
+        // file index, so every consecutive block of 100 hunks accumulates on
+        // one file for the splitter to group. The original fixture derived
+        // the path from both indices — a bijection onto 10,000 single-hunk
+        // files, against which `groups.length === 100` could never pass
+        // (#677: the lane had never had a green run).
+        relativePath: `apps/app-${hunk % 100}/src.ts`,
       },
     })
   }
