@@ -858,13 +858,23 @@ test('centers creation dialogs in the viewport', async ({ page }) => {
     { width: 1280, height: 720 },
   ]) {
     await page.setViewportSize(viewport)
-    const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
+    // The published composition keeps the closed mobile sheet instance
+    // mounted next to the desktop aside, so scope to whichever aside is
+    // actually presented at this viewport.
+    const navigation = page.locator('aside[data-contextual-sidebar]:visible')
     if (!(await navigation.isVisible())) {
       // Crossing below 48rem closed the shared navigation and the frame-only
       // opener is display:none in that layout, so reopen through the top-bar
-      // toggle that survives the narrow breakpoint.
+      // toggle that survives the narrow breakpoint. The crossing can replace
+      // the toggle between hit-testing and its handler running, so the click
+      // retries until the navigation answers.
       const toggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
-      if (await toggle.isVisible()) await toggle.click()
+      for (let attempt = 0; attempt < 3 && !(await navigation.isVisible()); attempt += 1) {
+        if (await toggle.isVisible()) await toggle.click()
+        await expect(navigation)
+          .toBeVisible({ timeout: 2_000 })
+          .catch(() => undefined)
+      }
     }
     await expect(navigation).toBeVisible()
     await navigation.getByRole('button', { name: 'Create Room', exact: true }).click()

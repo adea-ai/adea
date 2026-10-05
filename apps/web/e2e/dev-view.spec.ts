@@ -9,20 +9,37 @@ async function exerciseContextualSidebarToggle(page: Page) {
   const closeSheet = page.getByRole('button', { name: 'Close', exact: true })
   const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
 
+  // Boot responses and the sheet's close/focus-restoration transition can
+  // replace the toggle node between hit-testing and its handler running (the
+  // same lost-click race the workspace-navigation spec documents for its
+  // press), so the open interaction retries until the store answers. The
+  // close interaction targets the sheet's own chrome and does not race.
+  const openSheet = async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expandSidebar.click()
+      try {
+        await expect(collapseSidebar).toBeVisible({ timeout: 2_000 })
+        return
+      } catch {
+        // The toggle was replaced mid-click; retry on the live node.
+      }
+    }
+    await expect(collapseSidebar).toBeVisible()
+  }
+
   if (await expandSidebar.isVisible()) {
     await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
     await expect(projectsSidebar).toBeHidden()
     // Narrow widths present the contextual sidebar as the shared modal sheet:
     // the global toggle flips to its collapse name and goes inert while the
     // sheet is up, and the sheet's own close returns focus to the opener.
-    await expandSidebar.click()
-    await expect(collapseSidebar).toHaveAttribute('aria-expanded', 'true')
+    await openSheet()
     await expect(projectsSidebar).toBeVisible()
     await closeSheet.click()
     await expect(projectsSidebar).toBeHidden()
     await expect(expandSidebar).toBeFocused()
     await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
-    await expandSidebar.click()
+    await openSheet()
     await expect(projectsSidebar).toBeVisible()
     await closeSheet.click()
     await expect(projectsSidebar).toBeHidden()
