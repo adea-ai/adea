@@ -134,7 +134,7 @@ test('WorkspaceNavigation lazily mounts scoped utilities across sessionless Chat
   await page.getByRole('button', { name: 'Expand utility sidebar', exact: true }).click()
   const utilityHost = page.getByLabel('Shared developer utilities')
   await expect(utilityHost).toBeVisible()
-  await expect(utilityHost).toHaveClass(/dev-utility--size-448/)
+  await expect(utilityHost).toHaveClass(/dev-utility--size-512/)
   await expect(
     page.getByText(
       'Browser utilities are unavailable until this view is bound to a canonical runtime session.'

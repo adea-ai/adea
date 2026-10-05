@@ -48,7 +48,7 @@ const canonicalUtilitySides: Readonly<Record<DevUtilityPane, 'left' | 'right'>> 
 /** Left panes (files/source control) retain their existing default step. */
 const defaultLeftUtilitySize = 336
 /** Right panes (browser/devices/agents/history) get the wider step. */
-const defaultRightUtilitySize = 448
+const defaultRightUtilitySize = 512
 
 /**
  * Utility panes sharing an edge are one resizable surface: restoring a stored

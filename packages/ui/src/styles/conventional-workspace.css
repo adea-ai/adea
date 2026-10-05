@@ -57,6 +57,15 @@
   overflow: hidden;
 }
 
+/* The shared right sidebar paints above the agent-sim scene layer. The scene
+ * (.virtual-view-engine) is one stacking context on --z-agent-sim, below the
+ * chrome scale (packages/ui/src/styles/theme.css); this lift keeps any
+ * fixed-position pack UI inside that layer from covering the sidebar. The
+ * sub-70rem floating pane already rides --z-docked for the same reason. */
+.workspace-contextual-utility-frame > .dev-utility--right {
+  z-index: var(--z-docked);
+}
+
 .workspace-contextual-utility-frame__view > .workspace-shell--contextual {
   width: 100%;
   height: 100%;

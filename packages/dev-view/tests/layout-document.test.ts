@@ -216,12 +216,12 @@ describe('V1 to V2 layout migration', () => {
     // Absent widths seed the side's default: right-side panes inherit the
     // Browser anchor's wider default.
     expect(migrated.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
-      size: 448,
-      lastNonzeroSize: 448,
+      size: 512,
+      lastNonzeroSize: 512,
     })
     expect(migrated.utility.find((entry) => entry.pane === 'devices')).toMatchObject({
-      size: 448,
-      lastNonzeroSize: 448,
+      size: 512,
+      lastNonzeroSize: 512,
     })
 
     const collapsed = migrateLayoutPreferencesV1(v1)

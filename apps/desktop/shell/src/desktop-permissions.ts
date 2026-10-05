@@ -54,6 +54,13 @@ export const PROBE_TIMEOUT_MS = 3_000
  * 13–15 resolves to the current System Settings panes; `open` receives only
  * these exact strings (docs/specs/dev-runtime.md, "macOS permissions
  * onboarding").
+ *
+ * Screen Recording uses the `com.apple.preference.security?Privacy_ScreenCapture`
+ * anchor: it is the form System Settings resolves onto the Privacy & Security →
+ * Screen Recording pane (verified `open` accepting it on macOS 13–15 and on the
+ * current host release). The `com.apple.preference.privacy?Privacy_ScreenCapture`
+ * spelling is an accepted alias for the same pane, kept out of the table so the
+ * shell holds exactly one anchor per permission.
  */
 export const SETTINGS_PANES: Readonly<Record<MacPermissionId, string>> = Object.freeze({
   accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',

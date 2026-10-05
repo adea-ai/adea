@@ -3181,9 +3181,9 @@ repeating those two destinations in a vertical rail. Browser, Devices, Agents,
 and History use the published collapsed SideRail, including its selected
 accent and hover/focus labels. Utility separators use the shared resizable
 handle with a full-height pointer target and centered grip; their ruler maps
-the persisted 240–384 CSS-pixel left-pane range and 240–448 CSS-pixel right-pane
+the persisted 240–384 CSS-pixel left-pane range and 240–512 CSS-pixel right-pane
 range and remains keyboard operable. An empty layout defaults left utility
-panes to 336 CSS pixels and right utility panes, including Browser, to 448 CSS
+panes to 336 CSS pixels and right utility panes, including Browser, to 512 CSS
 pixels to fit their lane and viewport controls. This default fills missing
 preferences only; saved widths continue through the existing migration and
 snap rules.
@@ -4474,9 +4474,10 @@ session-scoped, generation-fenced `dev.session.cancelHarness` command and
 are disabled while the session generation is unknown. The workspace top bar
 carries the runtime-resources action on every view; its detail sheet shows the
 process/port inventory, metric summaries, provider usage cards, and the
-retained-data breakdown with cleanup context, anchoring top-right below the
-bar wherever the host mounts it. Lanes without a Dev runtime channel render
-the typed unavailable state; absent capability renders as typed states.
+retained-data breakdown with cleanup context, docked by the shared inset
+Sheet to the workspace's end edge below the bar on every host. Lanes without
+a Dev runtime channel render the typed unavailable state; absent capability
+renders as typed states.
 The resource refresh icon uses the shared explanatory `ActionButton`; an
 unavailable runtime keeps the action inert while its tooltip explains how to
 enable it. Stop and cancel actions use shared destructive and outline button
