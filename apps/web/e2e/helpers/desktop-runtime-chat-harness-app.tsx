@@ -1,10 +1,12 @@
 import '../../src/start/globals.css'
-import { createSignal, Show } from 'solid-js'
+import { createRoot, createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { workspaceStore } from '@adea-ai/state'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
 import type { DevCommand, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
+import { createSharedDevUtilityOwner } from '@adea-ai/dev-view/utility-owner'
+import { SharedUtilityArchiveShelf } from '@adea-ai/dev-view/utility-archive-shelf'
 import { DesktopFirstRunChat } from '../../src/components/desktop-first-run-chat'
 import { createDesktopChatModelHost } from '../../src/lib/desktop-chat-host'
 
@@ -17,7 +19,15 @@ const projectId = '00000000-0000-4000-8000-000000000004'
 const firstId = '00000000-0000-4000-8000-000000000005'
 const secondId = '00000000-0000-4000-8000-000000000006'
 const calls: string[] = []
+const archiveCommands: DevCommand[] = []
 const presentations: (string | null)[] = []
+const utilityHandoffs: Array<{
+  scope: Scope
+  projectId: string
+  runtimeSessionId: string
+  sessionGeneration: number
+  worktreeId?: string
+} | null> = []
 window.__adeaDesktop = {
   invoke: async (command, args) => {
     if (command !== 'desktop_chat_presentation')
@@ -29,8 +39,18 @@ window.__adeaDesktop = {
 }
 let closes = 0
 let delayed = false
-let resolveList: (() => void) | undefined
+const heldLists: Array<{ resolve(): void; reject(error: unknown): void }> = []
 let refuse = false
+function discardHeldLists(): void {
+  if (!delayed) return
+  delayed = false
+  for (const held of heldLists.splice(0)) {
+    held.reject({
+      ok: false,
+      error: { code: 'unavailable', retryable: true, message: 'Selection changed.' },
+    })
+  }
+}
 const sessions: RuntimeSession[] = [firstId, secondId].map((id, index) => ({
   id,
   scope,
@@ -44,6 +64,19 @@ const sessions: RuntimeSession[] = [firstId, secondId].map((id, index) => ({
   generation: 3,
   version: 2,
 }))
+let archivedSessionAvailable = true
+const archivedSession: RuntimeSession = {
+  id: '00000000-0000-4000-8000-000000000009',
+  scope,
+  projectId,
+  repoId: '00000000-0000-4000-8000-000000000007',
+  worktreeId: '00000000-0000-4000-8000-000000000008',
+  displayName: 'Archived desktop conversation',
+  archived: true,
+  projection: 'structured',
+  generation: 9,
+  version: 4,
+}
 const runtime: DevRuntimeService = {
   state: () => ({ status: 'ready' }),
   preferenceScope: () => scope,
@@ -75,10 +108,19 @@ const runtime: DevRuntimeService = {
   },
   execute: async (command: DevCommand) => {
     calls.push(command.operation)
-    if (command.operation === 'dev.session.list' && delayed) {
-      delayed = false
-      await new Promise<void>((resolve) => {
-        resolveList = resolve
+    if (
+      command.operation === 'dev.session.list' ||
+      command.operation === 'dev.session.get' ||
+      command.operation === 'dev.session.unarchive'
+    )
+      archiveCommands.push(command)
+    // Hold the live session lists so the pending-attach window stays
+    // observable. The archive shelf's own list (archived: true) is not part of
+    // the attach path and never holds. A newer selection discards the held
+    // lists: a late attach must not replace it.
+    if (command.operation === 'dev.session.list' && delayed && command.body.archived !== true) {
+      await new Promise<void>((resolve, reject) => {
+        heldLists.push({ resolve, reject })
       })
     }
     if (command.operation === 'dev.session.list' && refuse)
@@ -86,28 +128,48 @@ const runtime: DevRuntimeService = {
         ok: false,
         error: { code: 'unavailable', message: 'Refused', retryable: true },
       } as never
-    const value =
-      command.operation === 'dev.project.list'
-        ? {
-            items: [
-              {
-                id: projectId,
-                scope,
-                name: 'Canonical project',
-                groupIds: [],
-                repoIds: [sessions[0]!.repoId],
-                lifecycle: 'ready',
-                version: 1,
-              },
-            ],
-          }
-        : command.operation === 'dev.group.list'
-          ? { items: [] }
-          : command.operation === 'dev.session.list'
-            ? { items: sessions }
-            : command.operation === 'dev.session.events'
-              ? { resource: { generation: 3 }, fromSequence: '0' }
-              : undefined
+    let value: unknown = undefined
+    if (command.operation === 'dev.session.list') {
+      value =
+        command.body.archived === true
+          ? archivedSessionAvailable
+            ? { items: [archivedSession] }
+            : { items: [] }
+          : { items: sessions }
+    } else if (command.operation === 'dev.session.get') {
+      value = archivedSession
+    } else if (command.operation === 'dev.session.unarchive') {
+      archivedSessionAvailable = false
+      value = {
+        id: '00000000-0000-4000-8000-000000000010',
+        scope,
+        runtimeSessionId: archivedSession.id,
+        worktreeId: archivedSession.worktreeId,
+        state: 'restored',
+        archivedAt: '2026-10-03T00:00:00.000Z',
+        archivedBy: 'e2e',
+        generation: archivedSession.generation,
+        restoredAt: '2026-10-03T00:00:00.000Z',
+      }
+    } else if (command.operation === 'dev.project.list') {
+      value = {
+        items: [
+          {
+            id: projectId,
+            scope,
+            name: 'Canonical project',
+            groupIds: [],
+            repoIds: [sessions[0]!.repoId],
+            lifecycle: 'ready',
+            version: 1,
+          },
+        ],
+      }
+    } else if (command.operation === 'dev.group.list') {
+      value = { items: [] }
+    } else if (command.operation === 'dev.session.events') {
+      value = { resource: { generation: 3 }, fromSequence: '0' }
+    }
     if (!value) throw new Error(`Unexpected operation: ${command.operation}`)
     return {
       schemaVersion: 1,
@@ -129,6 +191,13 @@ const runtime: DevRuntimeService = {
   }),
 }
 const host = createDesktopChatModelHost(runtime)
+let disposeUtilityOwner: () => void = () => undefined
+const utilityOwner = createRoot((dispose) => {
+  disposeUtilityOwner = dispose
+  const owner = createSharedDevUtilityOwner(runtime)
+  owner.setView('chat')
+  return owner
+})
 const client = {
   getWorkspace: () => {
     throw new Error('Returning Chat must not depend on onboarding authorities')
@@ -139,18 +208,28 @@ workspaceStore.getState().setSelectedDevProjectId(projectId)
 workspaceStore.getState().setSelectedRuntimeSessionId(firstId)
 workspaceStore.getState().setMobileSidebarOpen(true)
 const root = document.getElementById('harness-root')!
+window.addEventListener('pagehide', () => {
+  utilityOwner.dispose()
+  disposeUtilityOwner()
+})
 render(
   () => (
     <Show when={mounted()} fallback={<p>Dev surface</p>}>
       <DesktopFirstRunChat
         runtime={runtime}
         modelHost={host}
+        utilityOwner={utilityOwner}
+        archiveAction={<SharedUtilityArchiveShelf owner={utilityOwner} />}
         client={client}
         fallback={<p>Legacy team chat</p>}
         workspaceId={scope.workspaceId}
         temporary={false}
         onSignIn={() => undefined}
         onOpenDev={() => setMounted(false)}
+        onCanonicalConversation={(binding) => {
+          utilityHandoffs.push(binding ?? null)
+          utilityOwner.handoffCanonicalChatConversation(binding)
+        }}
       />
     </Show>
   ),
@@ -164,13 +243,18 @@ window.desktopRuntimeChatHarness = {
     delayed = true
   },
   resolveAttach: () => {
-    resolveList?.()
-    resolveList = undefined
+    delayed = false
+    for (const held of heldLists.splice(0)) held.resolve()
   },
   refuseAttach: (value: boolean) => {
     refuse = value
   },
-  selectFirst: () => workspaceStore.getState().setSelectedRuntimeSessionId(firstId),
+  selectFirst: () => {
+    // A newer selection supersedes the held attach: discard it and let this
+    // selection attach immediately.
+    discardHeldLists()
+    workspaceStore.getState().setSelectedRuntimeSessionId(firstId)
+  },
   selectSecond: () => workspaceStore.getState().setSelectedRuntimeSessionId(secondId),
   // setDraft drops the write unless the identity's scopeKey matches the host's
   // scopeKey(scope) — the exact value chatDraftScopeKey builds in
@@ -187,7 +271,9 @@ window.desktopRuntimeChatHarness = {
     ),
   report: () => ({
     calls: [...calls],
+    archiveCommands: [...archiveCommands],
     presentations: [...presentations],
+    utilityHandoffs: [...utilityHandoffs],
     closes,
     selected: workspaceStore.getState().selectedRuntimeSessionId,
     draft: host
@@ -209,7 +295,15 @@ declare global {
       saveDraft(draft: string): unknown
       report(): {
         calls: string[]
+        archiveCommands: DevCommand[]
         presentations: (string | null)[]
+        utilityHandoffs: Array<{
+          scope: Scope
+          projectId: string
+          runtimeSessionId: string
+          sessionGeneration: number
+          worktreeId?: string
+        } | null>
         closes: number
         selected: string | null
         draft?: string

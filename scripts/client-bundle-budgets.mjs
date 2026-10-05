@@ -45,7 +45,18 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // files, and terminals: the aggregate lands at 2,613,405 raw / 783,567 gzip
   // across 103 files; raw keeps ~2% headroom, gzip moves 768 -> 780 KiB
   // (~2.4%), and file count keeps its 108 cap.
-  total: { rawBytes: 2_670_000, gzipBytes: 780 * 1024, fileCount: 108 },
+  // Re-measured for the cross-view sidebar shell (2026-10-04): the shared
+  // utility host, archive operations, and storage-module splits add 24 lazy
+  // chunks (104 → 127 files measured against the same build of main) while
+  // startup drops two files and 5.4 KiB gzip — more, smaller lazy chunks is
+  // the point of the change. File count ratchets 108 → 132 (5-file step);
+  // the aggregate byte totals keep their caps.
+  // Aggregate gzip re-measured for the same change: 2,631,666 raw /
+  // 797,562 gzip against main's 774,540 — the published sidebar composition
+  // and the shared archive shelf add real bytes, and the dialog/form chunks
+  // that left startup are no longer deduped into it. Gzip moves 780 → 790 KiB
+  // (~1.4% headroom); raw keeps its cap (~1.4% headroom at 2,631,666).
+  total: { rawBytes: 2_670_000, gzipBytes: 790 * 1024, fileCount: 132 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -53,8 +64,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // room markup, so the route delta carries the sidebar and sidebar-nav
     // composites plus the shared Sheet: 77,771 raw / 26,357 gzip across 11
     // files (merged with main). Ratcheted past the measured value so the gate keeps ~3%
-    // headroom instead of pinning to the build.
-    virtual: { rawBytes: 80 * 1024, gzipBytes: 27 * 1024 },
+    // headroom instead of pinning to the build. Re-measured for the
+    // cross-view sidebar shell (2026-10-04): 79,803 raw / 27,561 gzip — the
+    // published ContextualSidebar + PixelResizeHandle composition replaces
+    // the app-local resize handle (the same corvu-core swap Chat documents).
+    // Raw keeps its cap; gzip ratchets to the next whole KiB (~4% headroom;
+    // the old cap left 87 bytes of headroom).
+    virtual: { rawBytes: 80 * 1024, gzipBytes: 28 * 1024 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and
@@ -70,7 +86,19 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // carries the sheet module graph plus the rail drag-and-drop reorder and
     // launchpad additions: 235,489 raw / 71,808 gzip measured after merging main. Ratcheted to
     // the next rounding step rather than pinning to the build.
-    chat: { rawBytes: 240 * 1024, gzipBytes: 74 * 1024 },
+    // Re-measured for the cross-view sidebar shell (2026-10-04): 257,431 raw /
+    // 83,946 gzip across 36 files. Three drivers, measured against the same
+    // build of main (237,734 / 74,907): (1) Chat/Virtual adopt the published
+    // ContextualSidebar + PixelResizeHandle composition, so the corvu
+    // resizable core lands on this route for the first time (+8.3 KiB gzip,
+    // offset by dropping the app-local sidebar-nav-resize-handle) — Dev has
+    // carried that core since #1018; (2) the shared dialog/form chunks moved
+    // out of startup into this route's delta as the navigation entry stopped
+    // importing them eagerly (startup dropped 231,994 → 226,633 gzip, so the
+    // Chat journey total is nearly flat); (3) the shared archive shelf footer
+    // and update badges add ~2.3 KiB. Raw ratchets to the next 2 KiB step
+    // (~1% headroom); gzip to the next whole KiB with the usual ~3.7%.
+    chat: { rawBytes: 254 * 1024, gzipBytes: 85 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
@@ -94,9 +122,27 @@ export const CLIENT_BUNDLE_BUDGETS = {
     appLibrary: { rawBytes: 13 * 1024, gzipBytes: 5 * 1024 },
     // Re-baselined 40 → 41 KiB (2026-10-04, #1018): the shared annotation
     // surface adoption lands its geometry module in the Dev View shell;
-    // measured 41,346 gzip. Raw keeps the 128 KiB cap.
-    devShell: { rawBytes: 128 * 1024, gzipBytes: 41 * 1024 },
-    devUtilityPanes: { rawBytes: 168 * 1024, gzipBytes: 56 * 1024 },
+    // measured 41,346 gzip. Re-measured for the cross-view sidebar shell
+    // (2026-10-04): 132,313 raw / 45,745 gzip across 22 files against the
+    // same build of main (127,347 / 40,998). The shell delta now carries the
+    // shared dialog/form chunks that left startup (−5.4 KiB gzip there, so
+    // the Dev journey total moves 272,992 → 272,378 gzip — slightly better),
+    // plus the genuinely new shared archive shelf (1.6 KiB gzip), the
+    // published ContextualSidebar composition around DevSidebarNavigation
+    // (+1.5 KiB), the shared StatusChip/Badge/ListRowControl adoptions, and
+    // the shell-owned utility owner while the standalone fallback still
+    // constructs it eagerly. Raw ratchets to the next whole KiB (~1.4%
+    // headroom); gzip to the next whole KiB above the measurement.
+    devShell: { rawBytes: 131 * 1024, gzipBytes: 46 * 1024 },
+    // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
+    // / 58,778 gzip across 19 files under the async-closure methodology this
+    // gate now uses (Dev entry roots plus the shared utility host's nested
+    // lazy pane imports). The rebase adopted #1018's shared AnnotationSurface
+    // and ListRowControl/StatusChip compositions inside the shared panes,
+    // which is what pushed past the 168 KiB / 56 KiB drafted here. Raw
+    // ratchets to the next 2 KiB step (~3% headroom); gzip to the next whole
+    // KiB step (~4.5%).
+    devUtilityPanes: { rawBytes: 174 * 1024, gzipBytes: 60 * 1024 },
     // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
     // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
     // carries ~2.2% headroom instead of leaving the cap pinned to the build.
@@ -109,14 +155,20 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // `validateType` parses at runtime, and every reply decoder), and the 49
     // pull request operations (20 `dev.github`, 29 `dev.gitlab` mirrors) add
     // 32,406 raw over main's 812,684, landing at 845,090 raw / 214,466 gzip.
-    // 832 KiB raw keeps the same ~0.8% headroom; gzip stays under its cap.
-    devTerminal: { rawBytes: 832 * 1024, gzipBytes: 211 * 1024 },
+    // 832 KiB raw keeps the same ~0.8% headroom; gzip re-measured for the
+    // cross-view sidebar shell (2026-10-04): 846,161 raw / 220,890 gzip —
+    // this route's closure contains the Dev shell, so it inherits the same
+    // partition shift and shared-composition cost documented there (main
+    // measured 839,726 / 215,424 in the same build). Raw keeps its cap;
+    // gzip ratchets to the next whole KiB step (~2.5% headroom).
+    devTerminal: { rawBytes: 832 * 1024, gzipBytes: 221 * 1024 },
     devEditor: { rawBytes: 512 * 1024, gzipBytes: 160 * 1024 },
   },
 }
 
 const DEV_ENTRY_MARKERS = ['Developer workspace panes', 'No runtime projects available.']
 const DEV_LAYOUT_MARKER = 'Developer center panes'
+const SHARED_UTILITY_HOST_MARKER = 'Shared developer utilities'
 
 function chunkName(file) {
   return path.posix.basename(file)
@@ -152,6 +204,21 @@ function resolveRelativeChunk(importer, specifier) {
   return resolved === '..' || resolved.startsWith('../') ? undefined : resolved
 }
 
+function dynamicChunkTargets(importers, chunksByFile) {
+  const targets = new Set()
+  for (const importer of importers) {
+    const chunk = chunksByFile.get(importer)
+    if (!chunk) throw new Error(`Missing JavaScript chunk ${importer}`)
+    for (const specifier of dynamicImports(chunk.source)) {
+      const target = resolveRelativeChunk(importer, specifier)
+      if (!target) continue
+      if (!chunksByFile.has(target)) continue
+      targets.add(target)
+    }
+  }
+  return [...targets].map((file) => chunksByFile.get(file))
+}
+
 function staticClosure(roots, chunksByFile) {
   const pending = roots.map(({ file }) => file)
   const visited = new Set()
@@ -170,6 +237,29 @@ function staticClosure(roots, chunksByFile) {
         pending.push(resolved)
       } else if (resolved.endsWith('.js')) {
         throw new Error(`${file} statically imports missing JavaScript chunk ${resolved}`)
+      }
+    }
+  }
+
+  return visited
+}
+
+/** Follow a requested route and all of its nested lazy imports exactly once. */
+function asyncClosure(roots, chunksByFile, preloadedFiles = new Set()) {
+  const pending = roots.map(({ file }) => file)
+  const visited = new Set()
+  const expanded = new Set()
+
+  while (pending.length > 0) {
+    const file = pending.pop()
+    if (visited.has(file)) continue
+    const staticFiles = staticClosure([{ file }], chunksByFile)
+    for (const staticFile of staticFiles) visited.add(staticFile)
+    for (const staticFile of staticFiles) {
+      if (preloadedFiles.has(staticFile) || expanded.has(staticFile)) continue
+      expanded.add(staticFile)
+      for (const target of dynamicChunkTargets([staticFile], chunksByFile)) {
+        if (!visited.has(target.file)) pending.push(target.file)
       }
     }
   }
@@ -235,10 +325,27 @@ function routeDelta(label, roots, startupFiles, chunksByFile, additionallyExclud
   )
 }
 
+function asyncRouteDelta(
+  label,
+  roots,
+  startupFiles,
+  chunksByFile,
+  additionallyExcluded = new Set()
+) {
+  for (const root of roots) {
+    if (startupFiles.has(root.file)) {
+      throw new Error(`${root.file} statically loads the ${label} entry`)
+    }
+  }
+  const preloadedFiles = new Set([...startupFiles, ...additionallyExcluded])
+  const routeFiles = asyncClosure(roots, chunksByFile, preloadedFiles)
+  return measure(new Set([...routeFiles].filter((file) => !preloadedFiles.has(file))), chunksByFile)
+}
+
 /**
- * Measure the initial workspace graph and the incremental static graph for
- * each built-in view. Dynamic imports remain lazy and count only when their
- * view or pane is opened; shared startup chunks are charged once to startup.
+ * Measure startup plus incremental view and pane graphs. Dynamic imports
+ * remain lazy and count only when their route or pane opens; shared startup
+ * chunks are charged once to startup.
  */
 export function inspectClientBundle(input) {
   if (!Array.isArray(input) || input.length === 0)
@@ -277,6 +384,9 @@ export function inspectClientBundle(input) {
     ({ source }) => DEV_ENTRY_MARKERS.every((marker) => source.includes(marker)),
     'Dev View entry'
   )
+  if (startupFiles.has(devEntry.file)) {
+    throw new Error('Workspace startup statically loads the Dev View entry')
+  }
   const devLayout = uniqueChunk(
     chunks,
     ({ source }) => source.includes(DEV_LAYOUT_MARKER),
@@ -291,17 +401,56 @@ export function inspectClientBundle(input) {
   const codeEditor = chunkByPrefix(chunks, 'code-editor-', 'Dev code editor')
   const editorMirror = chunkByPrefix(chunks, 'editor-mirror-', 'Dev editor renderer')
   const fileStream = chunkByPrefix(chunks, 'file-stream-', 'Dev editor file stream')
-  const devUtilityPaneRoots = dynamicImports(devEntry.source)
-    .map((specifier) => resolveRelativeChunk(devEntry.file, specifier))
-    .filter(
-      (file) =>
-        file &&
-        chunksByFile.has(file) &&
-        ![devLayout.file, runtimeTerminalPane.file, codeEditor.file].includes(file)
+  const repoRegistryPanel = chunkByPrefix(
+    chunks,
+    'repo-registry-panel-',
+    'Dev repository registry panel'
+  )
+  const sharedUtilityHost = uniqueChunk(
+    chunks,
+    ({ source }) => source.includes(SHARED_UTILITY_HOST_MARKER),
+    'shared utility host'
+  )
+  if (startupFiles.has(sharedUtilityHost.file)) {
+    throw new Error('Shared utility host is statically loaded by workspace startup')
+  }
+  const startupDynamicTargets = dynamicChunkTargets(startupFiles, chunksByFile)
+  const sharedUtilityOpenRoots = startupDynamicTargets.filter((root) => {
+    const closure = staticClosure([root], chunksByFile)
+    // Dev imports the same host for its standalone fallback. Opening a
+    // contextual utility must not charge the separate Dev route or its panes.
+    return closure.has(sharedUtilityHost.file) && !closure.has(devEntry.file)
+  })
+  if (sharedUtilityOpenRoots.length !== 1) {
+    throw new Error(
+      `Expected one on-demand shared utility host route, found ${sharedUtilityOpenRoots.length}`
     )
-    .map((file) => chunksByFile.get(file))
-  if (devUtilityPaneRoots.length === 0) {
-    throw new Error('Dev View entry has no dynamically attributed utility panes')
+  }
+  // Dev's own lazy panes are direct Dev-entry imports. The shared host's lazy
+  // pane roots are discovered only through its static module closure; scanning
+  // every Dev descendant would misattribute dialogs such as project import.
+  const devUtilityPaneRoots = [
+    ...dynamicChunkTargets([devEntry.file], chunksByFile).filter(
+      ({ file }) =>
+        ![
+          devLayout.file,
+          runtimeTerminalPane.file,
+          codeEditor.file,
+          repoRegistryPanel.file,
+        ].includes(file)
+    ),
+    ...dynamicChunkTargets(
+      [...staticClosure([sharedUtilityHost], chunksByFile)].filter(
+        (file) => !startupFiles.has(file)
+      ),
+      chunksByFile
+    ),
+  ]
+  const uniqueDevUtilityPaneRoots = [
+    ...new Map(devUtilityPaneRoots.map((root) => [root.file, root])).values(),
+  ]
+  if (uniqueDevUtilityPaneRoots.length === 0) {
+    throw new Error('Dev View has no dynamically attributed utility panes')
   }
   assertDynamicRouteClosure(
     [runtimeTerminalPane, terminalPane],
@@ -323,15 +472,24 @@ export function inspectClientBundle(input) {
     chat: routeDelta('Chat view', [chatRoot], startupFiles, chunksByFile),
     appLibrary: routeDelta('App Library route', [libraryRoot], startupFiles, chunksByFile),
     devShell: routeDelta('Dev View', [devEntry, devLayout], startupFiles, chunksByFile),
-    devUtilityPanes: routeDelta(
+    devUtilityPanes: asyncRouteDelta(
       'Dev utility panes',
-      devUtilityPaneRoots,
+      uniqueDevUtilityPaneRoots,
       startupFiles,
       chunksByFile,
       new Set([
         ...staticClosure([devEntry, devLayout, terminalPane, runtimeTerminalPane], chunksByFile),
         ...staticClosure([devEntry, devLayout, codeEditor, editorMirror, fileStream], chunksByFile),
       ])
+    ),
+    // Chat and Virtual open this host from the workspace shell. Count the
+    // shell's actual dynamic edge, its static host code, and all nested lazy
+    // pane chunks once, excluding dependencies already downloaded at startup.
+    sharedUtilityOpen: asyncRouteDelta(
+      'shared utility host',
+      sharedUtilityOpenRoots,
+      startupFiles,
+      chunksByFile
     ),
     devTerminal: routeDelta(
       'Dev terminal route',
@@ -381,6 +539,11 @@ export function assertClientBundleBudgets(report) {
   assertByteBudget(
     'Dev utility panes',
     report.views.devUtilityPanes,
+    CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes
+  )
+  assertByteBudget(
+    'Shared utility open',
+    report.views.sharedUtilityOpen,
     CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes
   )
   assertByteBudget(

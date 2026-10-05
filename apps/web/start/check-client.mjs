@@ -2,7 +2,11 @@ import { readFile, readdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join, relative } from 'node:path'
 import { gzipSync } from 'node:zlib'
-import { forbiddenClientModule, PRIVATE_ENV_NAMES } from './client-policy.mjs'
+import {
+  desktopOnlyClientModule,
+  forbiddenClientModule,
+  PRIVATE_ENV_NAMES,
+} from './client-policy.mjs'
 import {
   assertClientBundleBudgets,
   inspectClientBundle,
@@ -34,11 +38,7 @@ const fixtureModules = renderedModules.filter((id) =>
 )
 if (fixtureModules.length)
   throw new Error(`Test terminal fixture in production output: ${fixtureModules.join(', ')}`)
-const desktopOnlyWorkspaceModules = renderedModules.filter(
-  (id) =>
-    id.endsWith('/apps/web/src/components/desktop-workspace-entry.tsx') ||
-    id.endsWith('/apps/web/src/components/desktop-first-run-chat.tsx')
-)
+const desktopOnlyWorkspaceModules = renderedModules.filter(desktopOnlyClientModule)
 if (desktopOnlyWorkspaceModules.length)
   throw new Error(`Desktop-only workspace in web output: ${desktopOnlyWorkspaceModules.join(', ')}`)
 

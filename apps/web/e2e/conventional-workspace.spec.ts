@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 
 // The visual helpers install transition suppression for every capture; see
 // helpers/visual.ts for the race this closes.
-import { expect, test, type Page } from './helpers/visual'
+import { expect, test, type Locator, type Page } from './helpers/visual'
 
 import { canonicalThemeCssTokens } from '../../../packages/ui/src/components/canonical-theme-css-data'
 import { verifyRegistryArtifacts } from '../../../packages/workspace-ui/src/marketplace-catalog'
@@ -858,13 +858,35 @@ test('centers creation dialogs in the viewport', async ({ page }) => {
     { width: 1280, height: 720 },
   ]) {
     await page.setViewportSize(viewport)
-    const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
+    // The published composition renders two structural variants: the desktop
+    // aside in the workspace frame, and a mobile aside inside the sheet's
+    // dialog content — which some platforms keep mounted (and laid out) after
+    // the sheet closes. Select the variant the viewport actually presents:
+    // the desktop aside above 48rem, and below it the mobile aside inside the
+    // open sheet's dialog (its wrapper carries data-expanded only while the
+    // sheet is open) — never a visibility probe, which is platform-dependent.
+    const navigation =
+      viewport.width > 768
+        ? page.locator('aside[data-contextual-sidebar="desktop"]')
+        : page
+            .locator('[role="dialog"][data-expanded]')
+            .locator('aside[data-contextual-sidebar="mobile"]')
     if (!(await navigation.isVisible())) {
       // Crossing below 48rem closed the shared navigation and the frame-only
       // opener is display:none in that layout, so reopen through the top-bar
-      // toggle that survives the narrow breakpoint.
+      // toggle that survives the narrow breakpoint. The crossing can replace
+      // the toggle between hit-testing and its handler running, so the click
+      // retries until the navigation answers.
       const toggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
-      if (await toggle.isVisible()) await toggle.click()
+      for (let attempt = 0; attempt < 3 && !(await navigation.isVisible()); attempt += 1) {
+        // Bound the click like the probe: a landed click renames the toggle
+        // to its collapse variant, and an unbounded retry would wait the
+        // whole timeout against the renamed-away locator.
+        await toggle.click({ timeout: 2_000 }).catch(() => undefined)
+        await expect(navigation)
+          .toBeVisible({ timeout: 2_000 })
+          .catch(() => undefined)
+      }
     }
     await expect(navigation).toBeVisible()
     await navigation.getByRole('button', { name: 'Create Room', exact: true }).click()
@@ -1552,7 +1574,8 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await expect(navigation.getByRole('region', { name: 'Rooms' })).toBeVisible()
   await expect(navigation.getByRole('region', { name: 'Conversations' })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-narrow-light.png', { animations: 'disabled' })
-  await navigation.getByRole('button', { name: 'Close workspace navigation' }).click()
+  // The published sheet owns the close chrome next to the navigation aside.
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
   const contextualToggle = page.getByRole('button', { name: 'Expand contextual sidebar' })
   // Finish the sheet's close/focus-restoration transition before opening the
   // next overlay, so Search captures a persistent opener rather than its
@@ -2078,32 +2101,66 @@ test('integrated chrome keeps the global rail while Virtual navigation collapses
   expect(bounds).toEqual({ sameWidth: true, below: true })
 })
 
-test('Virtual room designer runs full-bleed without the contextual sidebar', async ({ page }) => {
-  await mockConnectedWorkspace(page)
-  await page.goto('/?view=virtual&roomDesigner=1')
-  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
-  await expect(page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })).toBeVisible()
-  // Edit mode drops the contextual sidebar on purpose: the designer fills the
-  // viewport, and the top bar plus the designer's own close are the way back.
-  await expect(sidebar).toHaveCount(0)
-  await expect(page.getByRole('main')).toHaveCount(1)
-  const fallback = page.getByRole('status', { name: 'Virtual view unavailable' })
-  expect(
-    await fallback.evaluate((element) => {
-      const viewport = element.closest('.workspace-scene-viewport')!
-      return {
-        fillsViewport:
-          element.getBoundingClientRect().height === viewport.getBoundingClientRect().height,
-        height: element.getBoundingClientRect().height,
-      }
+for (const designer of ['roomDesigner', 'characterDesigner'] as const) {
+  test(`Virtual ${designer} keeps the global rail without contextual sidebars`, async ({
+    page,
+  }) => {
+    await mockConnectedWorkspace(page)
+    await page.goto(`/?view=chat&${designer}=1`)
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+    await expect(
+      page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })
+    ).toBeVisible()
+    // Edit mode drops the contextual sidebar on purpose: the designer fills the
+    // viewport, and the top bar plus the designer's own close are the way back.
+    await expect(sidebar).toHaveCount(0)
+    await expect(page.getByRole('main')).toHaveCount(1)
+    const fallback = page.getByRole('status', { name: 'Virtual view unavailable' })
+    expect(
+      await fallback.evaluate((element) => {
+        const viewport = element.closest('.workspace-scene-viewport')!
+        return {
+          fillsViewport:
+            element.getBoundingClientRect().height === viewport.getBoundingClientRect().height,
+          height: element.getBoundingClientRect().height,
+        }
+      })
+    ).toEqual({ fillsViewport: true, height: expect.any(Number) })
+    expect(
+      await fallback.evaluate((element) => element.getBoundingClientRect().height)
+    ).toBeGreaterThan(600)
+    const rail = page.getByRole('navigation', { name: 'Global navigation' })
+    await expect(rail).toBeVisible()
+    await expect(
+      page.getByRole('complementary', { name: 'Shared developer utilities' })
+    ).toHaveCount(0)
+    const toolbar = page.getByLabel('Workspace toolbar')
+    await expect(
+      toolbar.getByRole('button', { name: /(?:Collapse|Expand) (?:contextual|utility) sidebar/ })
+    ).toHaveCount(0)
+    const bounds = await page.locator('.workspace-frame').evaluate((frame) => {
+      const railBounds = frame.querySelector('.global-rail')!.getBoundingClientRect()
+      const surface = frame.querySelector('.workspace-frame__surface')!.getBoundingClientRect()
+      return { railWidth: railBounds.width, gap: Math.abs(surface.left - railBounds.right) }
     })
-  ).toEqual({ fillsViewport: true, height: expect.any(Number) })
-  expect(
-    await fallback.evaluate((element) => element.getBoundingClientRect().height)
-  ).toBeGreaterThan(600)
-  // The global rail is part of the hidden chrome in edit mode.
-  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toHaveCount(0)
-})
+    expect(bounds.railWidth).toBeGreaterThan(0)
+    expect(bounds.gap).toBeLessThanOrEqual(1)
+    await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
+    await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
+    await expect(rail).toBeVisible()
+    await expect(page).not.toHaveURL(/(?:roomDesigner|characterDesigner)=1/)
+    await page.goBack()
+    await expect(page).toHaveURL(new RegExp(`${designer}=1`))
+    await expect(
+      page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })
+    ).toBeVisible()
+    await expect(sidebar).toHaveCount(0)
+    await expect(rail).toBeVisible()
+    await expect(
+      toolbar.getByRole('button', { name: /(?:Collapse|Expand) (?:contextual|utility) sidebar/ })
+    ).toHaveCount(0)
+  })
+}
 
 test('Chat and Virtual use the same resizable sidebar and preserve selection and thread state', async ({
   page,
@@ -2177,8 +2234,19 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   // edge — is interaction state rather than rendering identity. Park it on the
   // non-interactive top-bar title before every capture.
   await page.mouse.move(600, 24)
-  await page.waitForTimeout(250)
-  const virtualSidebarShot = await virtualSidebar.screenshot({ animations: 'disabled' })
+  // The shared navigation content now scrolls (quick actions plus the archive
+  // shelf), so the overlay scrollbar can paint over the resize edge's
+  // antialiased columns in exactly one view. Both captures therefore clip the
+  // trailing edge off and compare the composition itself byte for byte.
+  const clippedSidebarCapture = async (element: Locator) => {
+    const box = await element.boundingBox()
+    expect(box).not.toBeNull()
+    return page.screenshot({
+      animations: 'disabled',
+      clip: { x: box!.x, y: box!.y, width: box!.width - 6, height: box!.height },
+    })
+  }
+  const virtualSidebarShot = await clippedSidebarCapture(virtualSidebar)
 
   await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
   await expect(page.getByText('Direct Conversation', { exact: true })).toBeVisible()
@@ -2186,8 +2254,7 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
     resizedWidth
   )
   await page.mouse.move(600, 24)
-  await page.waitForTimeout(250)
-  const wideChatSidebar = await chatSidebar.screenshot({ animations: 'disabled' })
+  const wideChatSidebar = await clippedSidebarCapture(chatSidebar)
   expect(virtualSidebarShot).toEqual(wideChatSidebar)
 
   await page.getByRole('button', { name: /^Product( |$)/ }).click()
@@ -2376,7 +2443,9 @@ test.describe('touch workspace sidebar actions', () => {
         const panel = element.getBoundingClientRect()
         const title = element.querySelector('h1')
         const titleBounds = title?.getBoundingClientRect()
-        const close = element.querySelector('.conventional-sidebar__close')
+        // The published sheet owns the close chrome; it sits in the dialog,
+        // not inside the navigation aside.
+        const close = document.querySelector('[role="dialog"] [aria-label="Close"]')
         const closeBounds = close?.getBoundingClientRect()
         const actionButtons = Array.from(
           element.querySelectorAll('[data-slot="sidebar-nav-row-actions"] button')
@@ -2452,7 +2521,8 @@ test.describe('touch workspace sidebar actions', () => {
       .toBeGreaterThanOrEqual(0)
     const chatLayout = await assertSidebarFits()
 
-    await sidebar.getByRole('button', { name: 'Close workspace navigation' }).tap()
+    // The published sheet owns the close chrome next to the navigation aside.
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).tap()
     await page
       .getByRole('navigation', { name: 'Global navigation' })
       .getByRole('button', { name: 'Virtual view', exact: true })
@@ -2502,7 +2572,11 @@ test.describe('touch workspace sidebar actions', () => {
     await expect(sidebarButtons.first()).toBeFocused()
 
     await page.keyboard.press('Shift+Tab')
-    await expect(sidebarButtons.last()).toBeFocused()
+    // The sheet's own close is the dialog's trailing focusable, so the wrap
+    // backwards from the navigation content reaches it first.
+    await expect(
+      page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true })
+    ).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(sidebarButtons.first()).toBeFocused()
 
@@ -2601,12 +2675,16 @@ test.describe('touch workspace sidebar actions', () => {
     await expect(sidebar).toBeVisible()
 
     await page.setViewportSize({ width: 1280, height: 844 })
-    await expect(sidebar).toBeVisible()
+    // Crossing to a wide viewport reparents the navigation into the inline
+    // desktop aside; the mobile sheet instance stays mounted but hidden, so
+    // target the desktop instance for the inline assertions.
+    const inlineSidebar = page.locator('aside[data-contextual-sidebar="desktop"]')
+    await expect(inlineSidebar).toBeVisible()
     await expect(
       page.getByRole('separator', { name: 'Resize workspace navigation' })
     ).toBeAttached()
     await expect
-      .poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width))
+      .poll(() => inlineSidebar.evaluate((element) => element.getBoundingClientRect().width))
       .toBe(320)
   })
 })

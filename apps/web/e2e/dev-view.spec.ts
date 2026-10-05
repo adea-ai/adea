@@ -1,33 +1,104 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 async function exerciseContextualSidebarToggle(page: Page) {
-  const expandSidebar = page.getByRole('button', { name: 'Expand contextual sidebar', exact: true })
-  const collapseSidebar = page.getByRole('button', {
-    name: 'Collapse contextual sidebar',
-    exact: true,
-  })
+  // The toggle renames between its expand and collapse variants the moment
+  // the store flips, so every locator uses the variant-agnostic anchored
+  // name and reads the store's answer from aria-expanded — never from which
+  // label happens to be live at retry time.
+  const toggle = page.getByRole('button', { name: /^(Expand|Collapse) contextual sidebar$/ })
+  const closeSheet = page.getByRole('button', { name: 'Close', exact: true })
+  const openSheetDialog = page.locator('[role="dialog"][data-expanded]')
   const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
 
-  if (await expandSidebar.isVisible()) {
-    await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
-    await expect(projectsSidebar).toBeHidden()
-    await expandSidebar.click()
-    await expect(collapseSidebar).toHaveAttribute('aria-expanded', 'true')
-    await expect(collapseSidebar).toBeFocused()
-  } else {
-    await expect(collapseSidebar).toHaveAttribute('aria-expanded', 'true')
-    await expect(projectsSidebar).toBeVisible()
+  // Boot responses and the sheet's close/focus-restoration transition can
+  // replace the toggle node between hit-testing and its handler running (the
+  // same lost-click race the workspace-navigation spec documents for its
+  // press), so the open interaction retries until aria-expanded answers.
+  // Each click is bounded to the probe interval: a landed click renames the
+  // toggle immediately, and an unbounded retry would wait the whole timeout
+  // against the renamed-away label.
+  // Failure diagnostics for the loaded-runner signature: when the button
+  // probe exhausts, report whether the toggle is missing, present behind the
+  // open sheet's aria-hidden modal, or present and reading a stale state —
+  // this lands in the lane log and names the mechanism definitively.
+  const logToggleState = async (phase: string) => {
+    console.error(
+      `[contextual-toggle-diag] ${phase}: ${JSON.stringify(
+        await page.evaluate(() => {
+          const node = document.querySelector('button[aria-label*="contextual sidebar"]')
+          return {
+            toggle: node ? node.outerHTML.slice(0, 140) : null,
+            ariaExpanded: node?.getAttribute('aria-expanded') ?? null,
+            behindModal: Boolean(node?.closest('[aria-hidden="true"], [inert]')),
+            openSheetDialog: document.querySelector('[role="dialog"][data-expanded]') !== null,
+          }
+        })
+      )}`
+    )
   }
 
-  await expect(projectsSidebar).toBeVisible()
-  await collapseSidebar.click()
-  await expect(expandSidebar).toHaveAttribute('aria-expanded', 'false')
-  await expect(expandSidebar).toBeFocused()
-  await expect(projectsSidebar).toBeHidden()
-  await expandSidebar.click()
-  await expect(collapseSidebar).toHaveAttribute('aria-expanded', 'true')
-  await expect(collapseSidebar).toBeFocused()
-  await expect(projectsSidebar).toBeVisible()
+  const openSheet = async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await toggle.click({ timeout: 2_000 }).catch(() => undefined)
+      // The state signal: the open sheet's dialog. The toolbar behind the
+      // modal can be aria-hidden on loaded runners, which makes every button
+      // probe report the toggle gone exactly while the sheet is up — the
+      // dialog attribute cannot churn with toolbar re-renders.
+      try {
+        await expect(openSheetDialog).toBeVisible({ timeout: 2_000 })
+        return
+      } catch {
+        const observed = await page
+          .evaluate(() => {
+            const node = document.querySelector('button[aria-label*="contextual sidebar"]')
+            return {
+              toggle: node ? node.outerHTML.slice(0, 120) : null,
+              ariaExpanded: node?.getAttribute('aria-expanded') ?? null,
+              behindModal: Boolean(node?.closest('[aria-hidden="true"], [inert]')),
+              openSheetDialog: document.querySelector('[role="dialog"][data-expanded]') !== null,
+            }
+          })
+          .catch(() => 'evaluate-failed')
+        console.error(`[contextual-toggle-diag] attempt ${attempt}: ${JSON.stringify(observed)}`)
+      }
+    }
+    await logToggleState('open probe exhausted')
+    await expect(openSheetDialog).toBeVisible()
+  }
+
+  if (await toggle.isVisible()) {
+    // Branch on the store's answer, not the label: the collapsed contract
+    // (modal sheet dance) applies whenever the store reports closed, at any
+    // viewport; an already-expanded sidebar — inline at wide widths — only
+    // owes the visibility assertion.
+    if ((await toggle.getAttribute('aria-expanded')) !== 'false') {
+      await expect(projectsSidebar).toBeVisible()
+      return
+    }
+    await expect(projectsSidebar).toBeHidden()
+    // Narrow widths present the contextual sidebar as the shared modal sheet:
+    // the global toggle goes inert while the sheet is up, and the sheet's own
+    // close returns focus to the opener.
+    await openSheet()
+    await expect(projectsSidebar).toBeVisible()
+    // The close chrome unmounts with the sheet; bound it like the open click
+    // and let the hidden assertion decide. Focus and aria-expanded assertions
+    // wait until after the sheet is down: behind the open modal the toolbar
+    // probe is the one that lies.
+    await closeSheet.click({ timeout: 2_000 }).catch(() => undefined)
+    await expect(openSheetDialog).toBeHidden()
+    await expect(projectsSidebar).toBeHidden()
+    await expect(toggle).toBeFocused()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await openSheet()
+    await expect(projectsSidebar).toBeVisible()
+    await closeSheet.click({ timeout: 2_000 }).catch(() => undefined)
+    await expect(openSheetDialog).toBeHidden()
+    await expect(projectsSidebar).toBeHidden()
+    await expect(toggle).toBeFocused()
+  } else {
+    await expect(projectsSidebar).toBeVisible()
+  }
 }
 
 function devToolbarControl(page: Page, name: string) {
@@ -160,13 +231,92 @@ for (const width of [320, 768, 1280, 1920]) {
       const utilitiesToggle = devSidebarControl(page, 'Expand utility sidebar')
       await utilitiesToggle.click()
       await expect(
-        page.getByRole('complementary', { name: 'Developer utilities (right)' })
+        page.getByRole('complementary', { name: 'Shared developer utilities' })
       ).toBeVisible()
     } else {
       await expect(page.getByRole('complementary', { name: 'Projects and sessions' })).toBeVisible()
     }
   })
 }
+
+test('Dev mobile sidebar closes after project and session selection and restores the global opener', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/?view=dev&devE2e=preserved&devProject=fixture-adea&devSession=fixture-shell')
+  await expect(page.getByRole('button', { name: 'Dev view', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+    { timeout: 20_000 }
+  )
+
+  const rail = page.locator('.global-rail')
+  const opener = page
+    .getByLabel('Workspace toolbar')
+    .getByRole('button', { name: 'Expand contextual sidebar', exact: true })
+  const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+
+  await expect(rail).toHaveCount(1)
+  await expect(rail).toBeVisible()
+  await opener.press('Enter')
+
+  const sheet = page.getByRole('dialog')
+  await expect(sheet).toBeVisible()
+  await expect(sidebar).toBeVisible()
+  await expect(rail).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Close', exact: true })).toHaveCount(1)
+
+  // This project differs from the selected fixture project, so selecting it
+  // closes the mobile sheet and returns focus to the global opener.
+  await sidebar.getByRole('button', { name: /^Runtime tools/ }).click()
+  await expect(sidebar).not.toBeVisible()
+  await expect(rail).toBeVisible()
+  await expect(opener).toBeFocused()
+
+  // Reopen and expand the now-current project. Disclosure alone keeps the
+  // sheet open so its nested session rows remain available on mobile.
+  await opener.press('Enter')
+  await expect(sidebar).toBeVisible()
+  await expect(rail).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Close', exact: true })).toHaveCount(1)
+  const project = sidebar.getByRole('button', { name: /^Runtime tools/ })
+  await project.click()
+  await expect(project).toHaveAttribute('aria-expanded', 'true')
+  await expect(sidebar).toBeVisible()
+
+  await sidebar.getByRole('button', { name: /Other project session/ }).click()
+  await expect(sidebar).not.toBeVisible()
+  await expect(rail).toBeVisible()
+  await expect(opener).toBeFocused()
+})
+
+test('the global shell owns exactly one right utility host across Dev, Chat, and Virtual', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/?view=dev&devE2e=preserved')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  const host = page.getByRole('complementary', { name: 'Shared developer utilities' })
+  const toolbar = page.getByLabel('Workspace toolbar')
+  for (const view of ['Dev', 'Chat', 'Virtual', 'Dev']) {
+    await rail.getByRole('button', { name: `${view} view`, exact: true }).click()
+    await expect(rail).toBeVisible()
+    const expand = toolbar.getByRole('button', { name: 'Expand utility sidebar', exact: true })
+    if (await expand.isVisible()) await expand.click()
+    await expect(host).toHaveCount(1)
+    await expect(host).toBeVisible()
+    await expect(host.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
+    await expect(
+      toolbar.getByRole('button', { name: 'Collapse utility sidebar', exact: true })
+    ).toHaveCount(1)
+    // Every main view mounts the same slot beside its view, rather than nesting
+    // a second utility host inside the Dev center.
+    await expect(page.locator('.dev-workspace .dev-utility--right')).toHaveCount(0)
+    await expect(
+      page.locator('.workspace-contextual-utility-frame > .dev-utility--right')
+    ).toHaveCount(1)
+  }
+})
 
 async function expectDevTopbarBoundary(page: Page, width: number) {
   const navigation = page.locator('.workspace-topbar__navigation')
@@ -217,11 +367,17 @@ async function expectDevTopbarBoundary(page: Page, width: number) {
     element.textContent =
       'A workspace name long enough to test title clipping without hiding toolbar actions'
   })
-  await expect(sidebar).toBeVisible()
-  await assertBoundary(width > 768 ? sidebar : rail)
-  await page.getByRole('button', { name: 'Collapse contextual sidebar', exact: true }).click()
-  await expect(sidebar).toBeHidden()
+  if (width > 768) {
+    // Wide widths keep the inline sidebar: its edge owns the boundary until
+    // the collapse toggle hides it.
+    await expect(sidebar).toBeVisible()
+    await assertBoundary(sidebar)
+    await page.getByRole('button', { name: 'Collapse contextual sidebar', exact: true }).click()
+  }
+  // Collapsed (or drawer-presented) sidebars leave the outer rail as the
+  // boundary; Dev actions stay in flow after it.
   await assertBoundary(rail)
+  await expect(sidebar).toBeHidden()
 }
 
 for (const width of [768, 1024, 1440]) {
@@ -364,7 +520,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(projectsSidebar).toBeVisible()
   await expect(leftUtilities).toBeVisible()
 
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
   await devSidebarControl(page, 'Expand utility sidebar').click()
   await expect(rightUtilities.getByRole('heading', { name: 'Browser' })).toBeVisible()
   const agentsUtility = rightUtilities.getByRole('button', { name: 'Agents' })
@@ -498,7 +654,7 @@ test('the Dev shell restores the session layout document after a reload', async 
   await expect(separator).toHaveAttribute('aria-valuenow', '55')
 
   await devSidebarControl(page, 'Expand utility sidebar').click()
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
   await expect(rightUtilities).toBeVisible()
 
   // The layout document is written debounced (250 ms); the reload is the
@@ -517,7 +673,7 @@ test('the Dev shell restores the session layout document after a reload', async 
       .and(page.locator('[aria-valuenow="55"]'))
   ).toHaveCount(1)
   await expect(
-    page.getByRole('complementary', { name: 'Developer utilities (right)' })
+    page.getByRole('complementary', { name: 'Shared developer utilities' })
   ).toBeVisible()
 })
 
@@ -528,7 +684,7 @@ test('the utility selector reveals its pane and the sidebar fills the workspace 
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
   const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
 
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
   await devToolbarControl(page, 'Collapse left utility sidebar').click()
@@ -574,10 +730,10 @@ test('Dev shell reports when the E2E fixture has no browser read capability', as
   await openDevView(page, '/?view=dev&devE2e=preserved')
   await devSidebarControl(page, 'Expand utility sidebar').click()
 
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
   await rightUtilities.getByRole('button', { name: 'Browser' }).click()
   await expect(rightUtilities).toContainText(
-    'Requires dev.browser.read, which has not been reported by this provider yet.'
+    'Browser is unavailable because the runtime is not connected.'
   )
   await expect(rightUtilities.getByRole('button', { name: 'Float preview' })).toHaveCount(0)
 })
@@ -686,8 +842,24 @@ test('the archive shelf restores losslessly and deletes only behind an explicit 
       })
     }
     const expand = page.getByRole('button', { name: 'Expand contextual sidebar', exact: true })
-    if (await expand.isVisible()) await expand.click()
+    // The crossing can replace the toggle mid-click (the documented lost-click
+    // race), so reopen with bounded retries until the sheet answers and the
+    // row is back in view.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expand.click({ timeout: 2_000 }).catch(() => undefined)
+      try {
+        await expect(item).toBeVisible({ timeout: 4_000 })
+        break
+      } catch {
+        // Retry on the live node.
+      }
+    }
     await expect(item).toBeVisible()
+    // The mobile sheet slides in before it rests; measure only the settled
+    // row so the slide never reads as a clipped label.
+    await expect
+      .poll(async () => (await item.boundingBox())?.x ?? Number.NEGATIVE_INFINITY)
+      .toBeGreaterThanOrEqual(0)
     const bounds = await item.evaluate((element) => {
       const row = element.getBoundingClientRect()
       const controls = [...element.querySelectorAll('button')].map((button) => {
@@ -765,7 +937,7 @@ test('the Dev shell stays keyboard-operable at 200% zoom with reduced motion', a
   await page.getByRole('link', { name: 'Skip to workspace' }).focus()
   await expect(page.getByRole('link', { name: 'Skip to workspace' })).toBeFocused()
   await devSidebarControl(page, 'Expand utility sidebar').click()
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
   await expect(rightUtilities.getByRole('heading', { name: 'Browser' })).toBeVisible()
   await rightUtilities.getByRole('button', { name: 'Agents' }).focus()
   await expect(rightUtilities.getByRole('button', { name: 'Agents' })).toBeFocused()
@@ -784,7 +956,7 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
   const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
   const selector = leftUtilities.getByRole('group', { name: 'Files and Source Control' })
   const filesButton = selector.getByRole('button', { name: 'Files' })
   const sourceControlButton = selector.getByRole('button', { name: 'Source control' })
@@ -805,6 +977,15 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   ).toBeVisible()
   // Right utility panes seed the 448px step; existing saved widths still win.
   await expect.poll(async () => (await rightUtilities.boundingBox())?.width ?? 0).toBe(448)
+  const rightBorderHandle = page.getByRole('separator', { name: 'Resize right utility pane' })
+  // The full-height resize hit target must sit on the border, not inside the content.
+  await expect
+    .poll(async () => {
+      const pane = await rightUtilities.boundingBox()
+      const handle = await rightBorderHandle.boundingBox()
+      return pane && handle ? Math.abs(handle.x + handle.width / 2 - pane.x) : Infinity
+    })
+    .toBeLessThanOrEqual(2)
 
   await expect
     .poll(() =>

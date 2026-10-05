@@ -21,7 +21,12 @@ function fixture(): ClientChunk[] {
   return [
     chunk('client-main.js', 'import "./runtime.js"; import("./chat-entry.js");', 10, 5),
     chunk('workspace-mount-main.js', 'import "./shared-shell.js";', 10, 5),
-    chunk('workspace-navigation-entry-main.js', 'import "./shared-shell.js";', 10, 5),
+    chunk(
+      'workspace-navigation-entry-main.js',
+      'import "./shared-shell.js"; import("./utility-host-route.js");',
+      10,
+      5
+    ),
     chunk('runtime.js', 'export const ready = true;', 4, 2),
     chunk('shared-shell.js', 'export const shell = true;', 12, 6),
     chunk(
@@ -53,7 +58,7 @@ function fixture(): ClientChunk[] {
     chunk('input-library.js', 'export const input = true;', 2, 1),
     chunk(
       'src-dev.js',
-      'import "./shared-shell.js"; import "./dev-helper.js"; import("./layout-view.js"); import("./other-pane.js"); import("./runtime-terminal-pane-main.js"); import("./code-editor-main.js"); const a = "Developer workspace panes"; const b = "No runtime projects available.";',
+      'import "./shared-shell.js"; import "./dev-helper.js"; import "./utility-host-main.js"; import("./layout-view.js"); import("./other-pane.js"); import("./runtime-terminal-pane-main.js"); import("./code-editor-main.js"); import("./repo-registry-panel-main.js"); const a = "Developer workspace panes"; const b = "No runtime projects available.";',
       20,
       10
     ),
@@ -63,7 +68,25 @@ function fixture(): ClientChunk[] {
       10,
       5
     ),
-    chunk('dev-helper.js', 'export const dev = true;', 4, 2),
+    chunk('dev-helper.js', 'import("./add-project-form-main.js"); export const dev = true;', 4, 2),
+    chunk('utility-host-route.js', 'import "./utility-host-main.js";', 2, 1),
+    chunk(
+      'utility-host-main.js',
+      'import "./shared-shell.js"; import("./browser-pane.js"); import("./devices-pane.js"); const label = "Shared developer utilities";',
+      3,
+      2
+    ),
+    chunk(
+      'browser-pane.js',
+      'import "./utility-common.js"; import("./browser-deep-pane.js"); export const browser = true;',
+      11,
+      6
+    ),
+    chunk('devices-pane.js', 'import "./utility-common.js"; export const devices = true;', 7, 4),
+    chunk('utility-common.js', 'export const shared = true;', 4, 2),
+    chunk('browser-deep-pane.js', 'export const nested = true;', 5, 3),
+    chunk('add-project-form-main.js', 'export const addProject = true;', 101, 51),
+    chunk('repo-registry-panel-main.js', 'export const registry = true;', 103, 53),
     chunk('layout-helper.js', 'export const layout = true;', 2, 1),
     chunk('other-pane.js', 'import "./shared-shell.js"; import "./other-pane-helper.js";', 5, 3),
     chunk('other-pane-helper.js', 'export const pane = true;', 4, 2),
@@ -98,10 +121,11 @@ test('measures the workspace startup graph separately from each lazy view', () =
   expect(report.views.virtual).toMatchObject({ rawBytes: 15, gzipBytes: 9 })
   expect(report.views.chat).toMatchObject({ rawBytes: 30, gzipBytes: 15 })
   expect(report.views.appLibrary).toMatchObject({ rawBytes: 8, gzipBytes: 4 })
-  expect(report.views.devShell).toMatchObject({ rawBytes: 36, gzipBytes: 18 })
-  expect(report.views.devUtilityPanes).toMatchObject({ rawBytes: 9, gzipBytes: 5 })
-  expect(report.views.devTerminal).toMatchObject({ rawBytes: 65, gzipBytes: 33 })
-  expect(report.views.devEditor).toMatchObject({ rawBytes: 79, gzipBytes: 41 })
+  expect(report.views.devShell).toMatchObject({ rawBytes: 39, gzipBytes: 20 })
+  expect(report.views.devUtilityPanes).toMatchObject({ rawBytes: 36, gzipBytes: 20 })
+  expect(report.views.sharedUtilityOpen).toMatchObject({ rawBytes: 32, gzipBytes: 18 })
+  expect(report.views.devTerminal).toMatchObject({ rawBytes: 68, gzipBytes: 35 })
+  expect(report.views.devEditor).toMatchObject({ rawBytes: 82, gzipBytes: 43 })
   expect(report.total.fileCount).toBe(fixture().length)
 })
 
@@ -151,15 +175,22 @@ test('fails if an attributed editor child adds a nested lazy chunk', () => {
   )
 })
 
-test('fails closed when no other lazy Dev utility panes can be attributed', () => {
-  const chunks = fixture().map((item) =>
-    item.file === 'src-dev.js'
-      ? { ...item, source: item.source.replace('import("./other-pane.js");', '') }
-      : item
-  )
+test('fails closed when no lazy Dev utility panes can be attributed', () => {
+  const chunks = fixture().map((item) => {
+    if (item.file === 'src-dev.js')
+      return { ...item, source: item.source.replace('import("./other-pane.js");', '') }
+    if (item.file === 'utility-host-main.js')
+      return {
+        ...item,
+        source: item.source
+          .replace('import("./browser-pane.js"); ', '')
+          .replace('import("./devices-pane.js"); ', ''),
+      }
+    return item
+  })
 
   expect(() => inspectClientBundle(chunks)).toThrow(
-    'Dev View entry has no dynamically attributed utility panes'
+    'Dev View has no dynamically attributed utility panes'
   )
 })
 
@@ -172,10 +203,19 @@ test('enforces each route budget independently of the full-client total', () => 
 
 test('enforces a separate budget for the aggregate of other lazy Dev panes', () => {
   const report = inspectClientBundle(fixture())
-  report.views.devUtilityPanes.rawBytes = 168 * 1024 + 1
+  report.views.devUtilityPanes.rawBytes = CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes.rawBytes + 1
 
   expect(() => assertClientBundleBudgets(report)).toThrow(
     'Dev utility panes exceeds raw byte budget'
+  )
+})
+
+test('enforces the existing utility-pane cap when the shared host opens', () => {
+  const report = inspectClientBundle(fixture())
+  report.views.sharedUtilityOpen.rawBytes = CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes.rawBytes + 1
+
+  expect(() => assertClientBundleBudgets(report)).toThrow(
+    'Shared utility open exceeds raw byte budget'
   )
 })
 
@@ -191,4 +231,75 @@ test('retains aggregate raw, gzip, and file-count ceilings', () => {
   const overFiles = inspectClientBundle(fixture())
   overFiles.total.fileCount = CLIENT_BUNDLE_BUDGETS.total.fileCount + 1
   expect(() => assertClientBundleBudgets(overFiles)).toThrow('Client JavaScript chunk-count budget')
+})
+
+test('measures the shared utility host on open without charging Chat or Virtual startup', () => {
+  const report = inspectClientBundle(fixture())
+
+  expect(report.views.chat.files).not.toContain('utility-host-route.js')
+  expect(report.views.virtual.files).not.toContain('utility-host-route.js')
+  expect(report.views.sharedUtilityOpen).toMatchObject({
+    rawBytes: 32,
+    gzipBytes: 18,
+    fileCount: 6,
+  })
+  expect(report.views.sharedUtilityOpen.files).toEqual(
+    expect.arrayContaining([
+      'utility-host-route.js',
+      'utility-host-main.js',
+      'browser-pane.js',
+      'devices-pane.js',
+      'utility-common.js',
+      'browser-deep-pane.js',
+    ])
+  )
+})
+
+test('opening shared utilities excludes the separate Dev route using the same host', () => {
+  const chunks = fixture().map((item) =>
+    item.file === 'workspace-navigation-entry-main.js'
+      ? { ...item, source: `${item.source} import("./src-dev.js");` }
+      : item
+  )
+  const report = inspectClientBundle(chunks)
+  expect(report.views.sharedUtilityOpen).toMatchObject({ rawBytes: 32, gzipBytes: 18 })
+  expect(report.views.sharedUtilityOpen.files).not.toContain('src-dev.js')
+  expect(report.views.sharedUtilityOpen.files).not.toContain('layout-view.js')
+  expect(report.views.sharedUtilityOpen.files).not.toContain('runtime-terminal-pane-main.js')
+})
+
+test('attributes only Dev utility pane roots and excludes add-project and registry routes', () => {
+  const chunks = fixture().map((item) =>
+    item.file === 'shared-shell.js'
+      ? { ...item, source: 'import("./settings-page.js"); export const shell = true;' }
+      : item
+  )
+  chunks.push(chunk('settings-page.js', 'export const settings = true;', 100, 50))
+  const report = inspectClientBundle(chunks)
+  expect(report.views.devUtilityPanes).toMatchObject({ rawBytes: 36, gzipBytes: 20 })
+  expect(report.views.devUtilityPanes.files).not.toContain('add-project-form-main.js')
+  expect(report.views.devUtilityPanes.files).not.toContain('repo-registry-panel-main.js')
+  expect(report.views.sharedUtilityOpen.files).not.toContain('add-project-form-main.js')
+  expect(report.views.sharedUtilityOpen.files).not.toContain('repo-registry-panel-main.js')
+})
+
+test('counts a lazy standalone utility host once with its nested panes', () => {
+  const chunks = fixture().map((item) =>
+    item.file === 'src-dev.js'
+      ? {
+          ...item,
+          source: item.source.replace(
+            'import "./utility-host-main.js";',
+            'import("./utility-host-main.js");'
+          ),
+        }
+      : item
+  )
+  const report = inspectClientBundle(chunks)
+  expect(report.views.devShell.files).not.toContain('utility-host-main.js')
+  expect(report.views.devUtilityPanes).toMatchObject({ rawBytes: 39, gzipBytes: 22 })
+  expect(
+    report.views.devUtilityPanes.files.filter((file) => file === 'utility-host-main.js')
+  ).toHaveLength(1)
+  expect(report.views.devUtilityPanes.files).toContain('browser-deep-pane.js')
 })

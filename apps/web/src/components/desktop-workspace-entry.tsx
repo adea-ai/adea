@@ -3,7 +3,7 @@
 // shell session bootstrap (guest credential, PKCE sign-in) and the start
 // surface; the workspace itself renders through the shared
 // `WorkspaceNavigation`.
-import { createEffect, createMemo, createSignal, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from 'solid-js'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { DesktopSession } from '@adea-ai/auth/desktop'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
@@ -31,6 +31,7 @@ import {
 import { createDeferredPluginsProvider, WorkspaceNavigation } from './workspace-navigation'
 import { DesktopFirstRunChat } from './desktop-first-run-chat'
 import { createDesktopChatModelHost } from '../lib/desktop-chat-host'
+import { createSharedDevUtilityOwner } from '@adea-ai/dev-view/utility-owner'
 import type { WorkspaceShellProps } from './workspace-shell'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
@@ -56,6 +57,7 @@ const statusMark: Record<AppStatus, string> = {
 export function DesktopWorkspaceEntry(props: {
   virtual: boolean
   virtualProps: WorkspaceShellProps
+  characterDesigner?: boolean
   roomDesigner?: boolean
 }) {
   const runtime = desktopRuntime()
@@ -261,6 +263,7 @@ export function DesktopWorkspaceEntry(props: {
           busy={busy()}
           client={client()!}
           plugins={plugins}
+          characterDesigner={props.characterDesigner ?? false}
           roomDesigner={props.roomDesigner ?? false}
           session={session()}
           onBeginSignIn={beginSignIn}
@@ -283,6 +286,7 @@ function DesktopWorkspace(props: {
   busy: boolean
   client: AgentHqApiClient
   plugins: ReturnType<typeof createDeferredPluginsProvider>
+  characterDesigner: boolean
   roomDesigner: boolean
   session: DesktopSession | undefined
   onBeginSignIn: () => Promise<void>
@@ -299,6 +303,11 @@ function DesktopWorkspace(props: {
   // would also rebuild the dev runtime service on every busy/version update.
   const devRuntime = createDesktopDevRuntimeService()
   const chatModelHost = createDesktopChatModelHost(devRuntime)
+  const utilityOwner = createSharedDevUtilityOwner(
+    devRuntime,
+    typeof window === 'undefined' ? undefined : window.localStorage
+  )
+  onCleanup(() => utilityOwner.dispose())
   const services = (): WorkspacePlatformServices => ({
     account: {
       authenticated: signedIn(),
@@ -333,8 +342,10 @@ function DesktopWorkspace(props: {
         onSignOut: () => void props.onSignOut(),
       }}
       activeWorkspace={props.activeWorkspace}
-      chatEntry={(fallback) => (
+      chatEntry={(fallback, archiveAction, sidebarOpener) => (
         <DesktopFirstRunChat
+          sidebarOpener={sidebarOpener}
+          archiveAction={archiveAction}
           client={props.client}
           fallback={fallback}
           onOpenDev={() => {
@@ -345,6 +356,10 @@ function DesktopWorkspace(props: {
           }}
           runtime={devRuntime}
           modelHost={chatModelHost}
+          utilityOwner={utilityOwner}
+          onCanonicalConversation={(binding) =>
+            utilityOwner.handoffCanonicalChatConversation(binding)
+          }
           onSignIn={props.onBeginSignIn}
           temporary={!signedIn()}
           workspaceId={props.activeWorkspace.id}
@@ -353,9 +368,11 @@ function DesktopWorkspace(props: {
       client={props.client}
       onAuthorizeWorkspace={(workspaceId) => localContentAuthority.authorizeWorkspace(workspaceId)}
       platform="desktop"
+      characterDesigner={props.characterDesigner}
       roomDesigner={props.roomDesigner}
       services={services()}
       updates={{ open: props.updatesOpen, onOpenChange: props.onUpdatesOpenChange }}
+      utilityOwner={utilityOwner}
       virtual={props.virtual}
       virtualProps={props.virtualProps}
       workspaces={props.workspaces}

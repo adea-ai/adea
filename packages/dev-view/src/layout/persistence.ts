@@ -23,7 +23,8 @@ import {
   MAX_SPLIT_RATIO,
   MIN_SPLIT_RATIO,
   listLeaves,
-} from './operations'
+} from '@adea-ai/ui/components/layout/split-layout/tree'
+export { layoutStorageKey, layoutStorageKeyV2 } from './storage-keys'
 
 export type LayoutDecodeResult =
   | Readonly<{ state: 'ready'; value: DevLayoutPreferencesV1 }>
@@ -198,39 +199,6 @@ export function serializeLayoutPreferences(value: DevLayoutPreferencesV1): strin
   if (decoded.state !== 'ready')
     throw new TypeError('corrupt_state: invalid Dev layout preferences')
   return JSON.stringify(decoded.value)
-}
-
-/** The V1 storage key remains readable so the client can migrate #447 values. */
-export function layoutStorageKey(
-  scope: Scope,
-  projectId: string,
-  runtimeSessionId: string
-): string {
-  return `adea.dev-layout.v1:${[
-    scope.accountId,
-    scope.workspaceId,
-    scope.runtimeNodeId,
-    projectId,
-    runtimeSessionId,
-  ]
-    .map(encodeURIComponent)
-    .join(':')}`
-}
-
-export function layoutStorageKeyV2(
-  scope: Scope,
-  projectId: string,
-  runtimeSessionId: string
-): string {
-  return `adea.dev-layout.v2:${[
-    scope.accountId,
-    scope.workspaceId,
-    scope.runtimeNodeId,
-    projectId,
-    runtimeSessionId,
-  ]
-    .map(encodeURIComponent)
-    .join(':')}`
 }
 
 function isUtilityPane(value: unknown): value is DevUtilityPane {
