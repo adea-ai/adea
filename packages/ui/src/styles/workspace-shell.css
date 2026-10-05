@@ -1,6 +1,13 @@
 .virtual-view-engine {
   position: absolute;
   inset: 0;
+  /* One stacking context for the whole agent-sim subtree, on the scene token
+   * that sits below every chrome layer (packages/ui/src/styles/theme.css).
+   * The engine pack's internal UI — canvas, HUD, on-screen action buttons —
+   * carries z-indexes we do not own; confining them here keeps them from
+   * competing with the shared sidebar, rail, and overlay scale, while any
+   * fixed-position pack UI still paints inside this layer, below chrome. */
+  z-index: var(--z-agent-sim);
 }
 
 /* Room Designer owns the viewport while it is open. Keep the global rail

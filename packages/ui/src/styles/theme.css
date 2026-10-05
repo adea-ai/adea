@@ -11,6 +11,21 @@
   --surface-alpha: 1;
   --surface-frost: 0.92;
   --surface-translucent: 0.8;
+
+  /* The Agent Sim scene layer. It sits BELOW every chrome layer on the
+   * published scale so the engine's own on-screen controls (which carry
+   * pack-internal z-indexes we do not own) can never paint over Adea
+   * surfaces. Resolved paint order, lowest first:
+   *   --z-agent-sim (5)  the agent-sim scene + its on-screen controls
+   *   --z-docked    (10) utility splitters, floating utility panes
+   *   --z-sticky    (20) global rail, sticky chrome
+   *   --z-drawer   (110) shared sheet/drawer overlays
+   *   --z-dialog   (120) dialogs, inset sheets
+   *   --z-menu     (140) dropdown/popover menus
+   *   --z-tooltip  (160) tooltips
+   * `.virtual-view-engine` consumes this token to become one stacking
+   * context, confining the pack's internal z-indexes to the scene layer. */
+  --z-agent-sim: 5;
 }
 
 /* Surface glass amounts. The provider resolves the effective surface and the
