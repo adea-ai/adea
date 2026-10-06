@@ -5722,6 +5722,17 @@ Deep links are the frozen `x-apple.systempreferences` anchors
 that exact URL through fixed-argv `open`. No client string ever reaches argv,
 and no arbitrary URL can be opened.
 
+Screen Recording has one extra fixed step before its pane: macOS creates a
+Screen Recording TCC entry only after the app itself calls the requesting API,
+so `open`ing the pane never puts Adea in the pane's list (owner report:
+opening System Settings "doesn't create the request"). Opening Screen
+Recording settings therefore first dispatches the prompting
+`CGRequestScreenCaptureAccess` through the same fixed-argv JXA discipline —
+attributed to the packaged shell's bundle, a silent no-op once granted, and no
+prompt after an explicit refusal — ignores the answer, and then opens the
+pane. No other permission dispatches a request, and no request runs on a
+non-macOS host.
+
 The page (`packages/dev-view/src/permissions/**`, a Solid pane with a pure
 DOM-free model) groups rows into System control and System interactions,
 shows per-permission purpose and the feature-level consequence of denial

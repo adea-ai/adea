@@ -15,7 +15,9 @@
 //   the user" to `not_determined` instead of blocking the shell.
 // - Deep links live only in the frozen SETTINGS_PANES table below; clients
 //   name a permission id and the shell opens that fixed URL through `open`.
-//   No client string ever reaches argv.
+//   No client string ever reaches argv. Opening Screen Recording settings
+//   first dispatches the prompting CoreGraphics request so macOS creates the
+//   TCC entry — the pane alone never does.
 import {
   isMacPermissionId,
   macPermissionIds,
@@ -103,6 +105,31 @@ const SCREEN_RECORDING_PREFLIGHT_ARGV = [
   'ObjC.import("CoreGraphics"); ' +
     'ObjC.bindFunction("CGPreflightScreenCaptureAccess", ["bool", []]); ' +
     '$.CGPreflightScreenCaptureAccess()',
+] as const
+
+/**
+ * The fixed JXA expression that ASKS macOS for Screen Recording. macOS only
+ * creates a Screen Recording TCC entry for an app after that app itself calls
+ * the requesting API — `open`ing the System Settings pane never does, which is
+ * why a fresh install used to find the pane empty of Adea (owner report,
+ * "Open system settings to request screen recording doesn't create the
+ * request"). `CGRequestScreenCaptureAccess` (macOS 10.15+) registers the
+ * request with TCC — attributed to the responsible process, i.e. the packaged
+ * shell's bundle, exactly like the preflight — and surfaces the system consent
+ * prompt when it was never answered; with a grant already recorded it is a
+ * silent no-op, and after an explicit refusal macOS shows no prompt (the pane
+ * remains the repair path). The request is dispatched best-effort before the
+ * pane opens: its answer is ignored, and a deadline kill cannot retract a
+ * request already registered with TCC.
+ */
+const SCREEN_RECORDING_REQUEST_ARGV = [
+  '/usr/bin/osascript',
+  '-l',
+  'JavaScript',
+  '-e',
+  'ObjC.import("CoreGraphics"); ' +
+    'ObjC.bindFunction("CGRequestScreenCaptureAccess", ["bool", []]); ' +
+    '$.CGRequestScreenCaptureAccess()',
 ] as const
 
 /**
@@ -336,6 +363,14 @@ export function createMacPermissionService(input: {
       if (!isMacPermissionId(permissionId)) throw new Error('unknown permission id')
       const settingsUrl = panes[permissionId]
       if (!settingsUrl) throw new Error('no settings pane is registered for this permission')
+      // Screen Recording: ask before showing the pane. The pane's list only
+      // contains apps that called the requesting API themselves, so a bare
+      // `open` left it without an Adea row and nothing to toggle. The request
+      // is bounded by the same injected runner discipline as every probe and
+      // its outcome is ignored — dispatching it is the point, not its answer.
+      if (permissionId === 'screen_recording' && isMac) {
+        await run(SCREEN_RECORDING_REQUEST_ARGV)
+      }
       const outcome = await run(['/usr/bin/open', settingsUrl])
       if (outcome.spawnFailed || (outcome.exitCode !== null && outcome.exitCode !== 0)) {
         throw new Error(
