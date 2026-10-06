@@ -22,6 +22,7 @@
 // No secrets, paths beyond the resolved command, or output content ever enter
 // the audit trail: the adapter returns identity facts only.
 import type { ComponentSpec } from './component-manifest'
+import { createBootAdoptionJournal, type BootAdoptionJournal } from './boot-diagnostics'
 import type { ProcessIdentity } from './records'
 import type { CurrentProcessIdentity, SupervisionAdapter } from './supervisor'
 
@@ -120,22 +121,79 @@ export function observeIdentity(pid: number): CurrentProcessIdentity | null {
   }
 }
 
+/**
+ * Creates the real (packaged-lane) supervision adapter. `diagnostics.dataDir`
+ * opts the adapter into the durable boot-adoption journal (issue #1039):
+ * every spawn's argv, environment KEY NAMES (never values), cwd, and pid —
+ * plus the child's exit — land in `<dataDir>/dev-runtime/supervision/
+ * boot-adoption.jsonl`, so a packaged boot whose sidecar never publishes
+ * names its failing step from durable facts instead of silence.
+ */
 export function createProcessAdapter(
-  commands: Record<string, ComponentCommand>
+  commands: Record<string, ComponentCommand>,
+  diagnostics?: { dataDir?: string }
 ): SupervisionAdapter {
+  const journal: BootAdoptionJournal | undefined = diagnostics?.dataDir
+    ? createBootAdoptionJournal(diagnostics.dataDir)
+    : undefined
   return {
     async spawn(spec: ComponentSpec) {
       const command = commands[spec.id]
       if (!command) throw new Error(`no packaged command registered for component ${spec.id}`)
-      const child = Bun.spawn(command.argv, {
-        // argv arrays go to Bun.spawn verbatim — never interpolated shell
-        // text — and the environment is the positive allowlist plus the
-        // declared additions, never the shell's inherited whole.
-        env: buildComponentEnv(process.env, command.env),
-        cwd: command.cwd,
-        stdout: 'ignore',
-        stderr: 'ignore',
+      const env = buildComponentEnv(process.env, command.env)
+      // Journal facts only: argv, environment key names (never values), cwd.
+      const spawnFacts = {
+        argv: command.argv,
+        envKeys: Object.keys(env),
+        cwd: command.cwd ?? null,
+      }
+      let child: Bun.Subprocess
+      const spawnedAt = Date.now()
+      try {
+        child = Bun.spawn(command.argv, {
+          // argv arrays go to Bun.spawn verbatim — never interpolated shell
+          // text — and the environment is the positive allowlist plus the
+          // declared additions, never the shell's inherited whole.
+          env,
+          cwd: command.cwd,
+          stdout: 'ignore',
+          stderr: 'ignore',
+        })
+      } catch (error) {
+        journal?.append({
+          kind: 'spawn-failed',
+          at: new Date().toISOString(),
+          mode: 'engine',
+          error: error instanceof Error ? error.message : String(error),
+          ...spawnFacts,
+        })
+        throw error
+      }
+      journal?.append({
+        kind: 'spawn',
+        at: new Date(spawnedAt).toISOString(),
+        mode: 'engine',
+        pid: child.pid,
+        ...spawnFacts,
       })
+      // The exit fact lands whenever the child exits — the failure case the
+      // journal exists for is a child that dies before publishing anything.
+      // Attached only when journaling is on, so a scripted child (tests'
+      // Bun.spawn stubs) without an exit promise is never touched.
+      const exited: Promise<number> | undefined = (child as { exited?: Promise<number> }).exited
+      if (journal && exited) {
+        void exited
+          .then((exitCode) => {
+            journal?.append({
+              kind: 'spawn-exit',
+              at: new Date().toISOString(),
+              pid: child.pid,
+              exitCode: typeof exitCode === 'number' ? exitCode : null,
+              afterMs: Date.now() - spawnedAt,
+            })
+          })
+          .catch(() => {})
+      }
       // The child may not have exec'd when the first ps lands; retry briefly
       // so the launch record always carries an observed (never assumed)
       // identity. Failing that, the spawn is torn down and reported failed.

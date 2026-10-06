@@ -99,7 +99,7 @@ if (packagedManifest.ok) {
     const sidecarIdentity = command?.env?.ADEA_SIDECAR_IDENTITY
     if (command && sidecarIdentity) {
       sidecarPlan = packagedSidecarPlan(sidecarIdentity)
-      supervisionAdapter = createProcessAdapter(commands)
+      supervisionAdapter = createProcessAdapter(commands, { dataDir: DATA_DIR })
     } else {
       console.error(
         'desktop shell: the packaged sidecar command is missing from the bundle resolution; the terminal lane stays unavailable'
