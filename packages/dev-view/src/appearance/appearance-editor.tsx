@@ -799,6 +799,7 @@ export function AdeaAppearancePopover(props: AppearancePopoverProps) {
         variant="ghost"
         size="icon-sm"
         tooltip="Open appearance settings"
+        tooltipIcon={<Palette aria-hidden="true" />}
         aria-label="Appearance settings"
       >
         <Palette aria-hidden="true" />
