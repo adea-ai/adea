@@ -125,11 +125,54 @@ test('the gate stops programmatic focus onto button-like controls and lets the r
   }
   expect(() => doc.dispatch('focus', inputFocus)).not.toThrow()
 
+  // Focus inside an active pointer gesture belongs to the gesture (drag
+  // bootstrap, press): it passes through untouched and never becomes a
+  // phantom.
+  const gestureTarget = {
+    closest: () => ({}),
+    blurred: 0,
+    blur() {
+      gestureTarget.blurred += 1
+    },
+  }
+  doc.activeElement = gestureTarget
+  const gestureFocus = {
+    target: gestureTarget,
+    stopPropagation: () => {
+      throw new Error('gesture focus must not be suppressed')
+    },
+  }
+  doc.dispatch('pointerdown', {})
+  expect(() => doc.dispatch('focus', gestureFocus)).not.toThrow()
+  doc.dispatch('pointermove', {})
+  expect(gestureTarget.blurred).toBe(0)
+  doc.dispatch('pointerup', {})
+
   dispose()
   expect(doc.listenerCount('keydown')).toBe(0)
   expect(doc.listenerCount('focus')).toBe(0)
   expect(doc.listenerCount('pointermove')).toBe(0)
   expect(doc.listenerCount('pointerdown')).toBe(0)
+  expect(doc.listenerCount('pointerup')).toBe(0)
+  expect(doc.listenerCount('pointercancel')).toBe(0)
+})
+
+test('once the gesture ends, a later programmatic focus is suppressed and released again', () => {
+  const doc = stubDocument()
+  const dispose = installTooltipFocusGate(doc as unknown as Document)
+  const target = {
+    closest: () => ({}),
+    blurred: 0,
+    blur() {
+      target.blurred += 1
+    },
+  }
+  doc.activeElement = target
+  doc.dispatch('keydown', { key: 'Enter' })
+  doc.dispatch('focus', focusEvent(target))
+  doc.dispatch('pointermove', {})
+  expect(target.blurred).toBe(1)
+  dispose()
 })
 
 test('a suppressed focus is released by the next pointer activity while it still holds focus', () => {
@@ -189,10 +232,14 @@ test('installing twice on one document adds the listeners only once', () => {
   expect(doc.listenerCount('focus')).toBe(1)
   expect(doc.listenerCount('pointermove')).toBe(1)
   expect(doc.listenerCount('pointerdown')).toBe(1)
+  expect(doc.listenerCount('pointerup')).toBe(1)
+  expect(doc.listenerCount('pointercancel')).toBe(1)
   first()
   second()
   expect(doc.listenerCount('keydown')).toBe(0)
   expect(doc.listenerCount('focus')).toBe(0)
   expect(doc.listenerCount('pointermove')).toBe(0)
   expect(doc.listenerCount('pointerdown')).toBe(0)
+  expect(doc.listenerCount('pointerup')).toBe(0)
+  expect(doc.listenerCount('pointercancel')).toBe(0)
 })

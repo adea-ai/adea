@@ -47,6 +47,17 @@
  * which is never suppressed, so nothing pins; and the release only runs for
  * elements still holding `activeElement`, so a Tab already taken from the
  * phantom is left alone.
+ *
+ * Focus that arrives while a pointer button is held belongs to a pointer
+ * gesture, not to a tooltip: the published pixel resize handle focuses its
+ * handle when a drag starts and cancels the drag on blur, so a gesture focus
+ * must pass through untouched (no suppression, no phantom, no release). A
+ * gesture's own click behaviour already keeps tooltips closed, and the
+ * autofocus cases this gate exists for all happen with the pointer up.
+ *
+ * Independently of the gesture window, resize grips render as
+ * `<button role="separator">` and carry no tooltip, so they are excluded from
+ * the button-like scope entirely (see `isButtonLikeFocusTarget`).
  */
 
 /** How long after a Tab key press a resulting focus event still counts as
@@ -98,6 +109,10 @@ export function installTooltipFocusGate(doc: Document = document): () => void {
   if (installedDocuments.has(doc)) return () => {}
 
   let lastTabKeyDownAt = 0
+  /** True between a pointerdown and its pointerup/pointercancel: focus events
+   *  inside that window belong to a pointer gesture (drag bootstrap, press)
+   *  and must reach their element untouched. */
+  let pointerGestureActive = false
   /** The element holding a suppressed programmatic focus, if it still holds
    *  `activeElement`. One slot: a newer suppressed focus replaces an older
    *  one, and anything that already lost focus needs no release. */
@@ -105,7 +120,15 @@ export function installTooltipFocusGate(doc: Document = document): () => void {
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Tab') lastTabKeyDownAt = Date.now()
   }
+  const onPointerDown = () => {
+    pointerGestureActive = true
+    releasePhantomFocus()
+  }
+  const onPointerGestureEnd = () => {
+    pointerGestureActive = false
+  }
   const onFocus = (event: FocusEvent) => {
+    if (pointerGestureActive) return
     if (!isButtonLikeFocusTarget(event.target)) return
     const keyboardIntentActive = Date.now() - lastTabKeyDownAt <= TOOLTIP_FOCUS_INTENT_WINDOW_MS
     if (!shouldSuppressTooltipFocus({ isButtonLike: true, keyboardIntentActive })) return
@@ -113,6 +136,7 @@ export function installTooltipFocusGate(doc: Document = document): () => void {
     phantomFocusTarget = event.target as Element
   }
   const releasePhantomFocus = () => {
+    if (pointerGestureActive) return
     const phantom = phantomFocusTarget
     if (!phantom) return
     const active = (doc as Document).activeElement
@@ -123,18 +147,22 @@ export function installTooltipFocusGate(doc: Document = document): () => void {
     phantomFocusTarget = undefined
     if (typeof (phantom as HTMLElement).blur === 'function') (phantom as HTMLElement).blur()
   }
-  const onPointerActivity = () => releasePhantomFocus()
+  const onPointerMove = () => releasePhantomFocus()
 
   doc.addEventListener('keydown', onKeyDown, true)
   doc.addEventListener('focus', onFocus, true)
-  doc.addEventListener('pointermove', onPointerActivity, true)
-  doc.addEventListener('pointerdown', onPointerActivity, true)
+  doc.addEventListener('pointerdown', onPointerDown, true)
+  doc.addEventListener('pointerup', onPointerGestureEnd, true)
+  doc.addEventListener('pointercancel', onPointerGestureEnd, true)
+  doc.addEventListener('pointermove', onPointerMove, true)
   installedDocuments.add(doc)
   return () => {
     doc.removeEventListener('keydown', onKeyDown, true)
     doc.removeEventListener('focus', onFocus, true)
-    doc.removeEventListener('pointermove', onPointerActivity, true)
-    doc.removeEventListener('pointerdown', onPointerActivity, true)
+    doc.removeEventListener('pointerdown', onPointerDown, true)
+    doc.removeEventListener('pointerup', onPointerGestureEnd, true)
+    doc.removeEventListener('pointercancel', onPointerGestureEnd, true)
+    doc.removeEventListener('pointermove', onPointerMove, true)
     installedDocuments.delete(doc)
   }
 }
