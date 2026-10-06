@@ -1,5 +1,86 @@
 # Changelog
 
+## [0.84.0](https://github.com/adea-ai/adea/compare/v0.83.0...v0.84.0) (2026-10-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **dev-runtime:** dev.group.* and dev.project.reorder are gone; project create/import/clone/update bodies and the Project DTO changed shape; existing v1 register records are left unread on disk (no migration).
+
+### Features
+
+* **connections:** per-workspace git hosting credentials and harness accounts ([#1060](https://github.com/adea-ai/adea/issues/1060)) ([7d6df6c](https://github.com/adea-ai/adea/commit/7d6df6c1ecb4f556ba0f18434c22ad566601e8b8))
+* **control-plane:** initialize project state on create; marketplace get and uninstall ([#1085](https://github.com/adea-ai/adea/issues/1085)) ([07b2ced](https://github.com/adea-ai/adea/commit/07b2ced2d77f473c9af609040db46b126bc4f8ea))
+* **control-plane:** per-workspace Control Plane scopes and signed request credentials ([#1076](https://github.com/adea-ai/adea/issues/1076)) ([51a0d9a](https://github.com/adea-ai/adea/commit/51a0d9a3715e9574655e8f7692fff2d7ebcaab3e))
+* **desktop:** membership-checked device workspace scope for the Dev runtime ([#1049](https://github.com/adea-ai/adea/issues/1049)) ([e7e3f7b](https://github.com/adea-ai/adea/commit/e7e3f7b0a99241d5d536c8a417f3727613f832b6))
+* **dev-runtime:** clone-URL import kind, registry freshness pin, and the sidebar scale case ([#1061](https://github.com/adea-ai/adea/issues/1061)) ([2d88e27](https://github.com/adea-ai/adea/commit/2d88e279e00bdf5ac04095a699b25df121199fd1))
+* **dev-runtime:** counts-only cross-workspace run summary ([#1047](https://github.com/adea-ai/adea/issues/1047)) ([9c1f9f3](https://github.com/adea-ai/adea/commit/9c1f9f3250a165130f9e7b421beb0655af356751))
+* **dev-runtime:** machine-wide runtime resources sheet ([#1067](https://github.com/adea-ai/adea/issues/1067)) ([0f9ac1c](https://github.com/adea-ai/adea/commit/0f9ac1cfcfefb3a4fdd5210d04dbc713b19e58b0))
+* **dev-runtime:** production worktrees with a primary checkout record ([#1043](https://github.com/adea-ai/adea/issues/1043)) ([10a8191](https://github.com/adea-ai/adea/commit/10a81910fadcb1e6f9ca480d6a14b509eb205e41))
+* **dev-runtime:** remote-only projects backed by a managed bare clone ([#1064](https://github.com/adea-ai/adea/issues/1064)) ([436a7ea](https://github.com/adea-ai/adea/commit/436a7eadda55266102c76411a59fe612bce2df2f))
+* **dev-view:** render source-control diffs off the main thread ([#1051](https://github.com/adea-ai/adea/issues/1051)) ([6d581b4](https://github.com/adea-ai/adea/commit/6d581b448cfc28ee10439bba011a96c930d66009))
+* **dev:** shared workspace sidebar in the Dev view with checkout and worktree rows ([#1065](https://github.com/adea-ai/adea/issues/1065)) ([d435c1a](https://github.com/adea-ai/adea/commit/d435c1a1ffbe0fddb467af4f1e04d7cc26b110c5))
+* **memory:** per-workspace memory notes injected into agent sessions ([#1046](https://github.com/adea-ai/adea/issues/1046)) ([0f718b6](https://github.com/adea-ai/adea/commit/0f718b6519728ed9dd8b326c2e9727b3654fa240))
+* **projects:** rooms become projects (one-shot rename) ([#1044](https://github.com/adea-ai/adea/issues/1044)) ([07e8e51](https://github.com/adea-ai/adea/commit/07e8e51847de42e744ac9fbd86ae39e6b2d8943a))
+* **sharing:** workspace invitations and per-project visibility ([#1050](https://github.com/adea-ai/adea/issues/1050)) ([9704379](https://github.com/adea-ai/adea/commit/9704379bd5ef9626ff2c2eaf9a6ff964087dfc28))
+* **sidebar:** workspace accordion in Chat and Virtual; remove the rail workspace switcher ([#1052](https://github.com/adea-ai/adea/issues/1052)) ([10609b8](https://github.com/adea-ai/adea/commit/10609b81f8a2e5391f31e571f7bbd6c5b2218672))
+* **topbar:** workspace › project › leaf breadcrumbs in the title slot ([#1063](https://github.com/adea-ai/adea/issues/1063)) ([55cd3f6](https://github.com/adea-ai/adea/commit/55cd3f6bd493560d899178588cda692b0b60cc84))
+* **ui:** two-toned overlay surfaces, sheet save without disabled-state copy ([#1082](https://github.com/adea-ai/adea/issues/1082)) ([74b8c7f](https://github.com/adea-ai/adea/commit/74b8c7fbc522b49097c3890e0cbf1de5ead81d26))
+* **web:** appearance text settings last, preset default accent, zoom-chord font stepping ([#1089](https://github.com/adea-ai/adea/issues/1089)) ([0eca713](https://github.com/adea-ai/adea/commit/0eca71359622f786b74321bd02fef25cdb0634b9))
+* **workspace-nav:** shared workspace › project › leaf sidebar package ([#1048](https://github.com/adea-ai/adea/issues/1048)) ([ad42860](https://github.com/adea-ai/adea/commit/ad4286001f8ca00ba7cdfa83e477ac13e005007a))
+* **workspace-ui:** surface execution location and RuntimeNode in the task panel ([#1062](https://github.com/adea-ai/adea/issues/1062)) ([3c04184](https://github.com/adea-ai/adea/commit/3c04184fb4cc2cc520b299e85c9afea81c90d217))
+* **workspaces:** account-level unread summary across workspaces ([#1045](https://github.com/adea-ai/adea/issues/1045)) ([fca3941](https://github.com/adea-ai/adea/commit/fca394168c2b6f3467c5ba3c593c52f206b58d9c))
+* **workspace:** Skills and Cloud connections in Workspace settings via the Control Plane ([#1086](https://github.com/adea-ai/adea/issues/1086)) ([5b0b144](https://github.com/adea-ai/adea/commit/5b0b14401506986f4b687029ac2dbee0ddce224d))
+* **workspaces:** versioned workspace identity with logo, accent and member order ([#1038](https://github.com/adea-ai/adea/issues/1038)) ([38433f2](https://github.com/adea-ai/adea/commit/38433f2ba2a8931a36f10be511a9757b10b3a6ff))
+
+
+### Bug Fixes
+
+* **a11y:** manual keyboard + screen-reader-semantics certification for the M12 gate ([#1058](https://github.com/adea-ai/adea/issues/1058)) ([d49b586](https://github.com/adea-ai/adea/commit/d49b58642994a96687e77d2010819bac352aa7d2)), closes [#541](https://github.com/adea-ai/adea/issues/541)
+* **bundle:** re-baseline the Dev terminal route for strict worktree decoders ([#1054](https://github.com/adea-ai/adea/issues/1054)) ([21f955a](https://github.com/adea-ai/adea/commit/21f955a6faf75813142d0375786267449877b6be))
+* **ci:** prune dev releases before cutting the next one ([#1072](https://github.com/adea-ai/adea/issues/1072)) ([52d2f53](https://github.com/adea-ai/adea/commit/52d2f532d9441c356e8e13245bcd70ddd0723713))
+* **ci:** sort dev releases by creation time before pruning ([#1078](https://github.com/adea-ai/adea/issues/1078)) ([7fe3f9f](https://github.com/adea-ai/adea/commit/7fe3f9f7cb99b951bf01c155fb211ef3a445ee5e))
+* **deps:** override seroval and bump Capacitor past new criticals ([#1056](https://github.com/adea-ai/adea/issues/1056)) ([a68c93c](https://github.com/adea-ai/adea/commit/a68c93ce2556d2a875545367238bcec75483c202))
+* **deps:** update dependency @adea-ai/ui to v0.112.0 ([#1042](https://github.com/adea-ai/adea/issues/1042)) ([2f69c72](https://github.com/adea-ai/adea/commit/2f69c727370b402f8227291a10cebe3b7f789030))
+* **deps:** update dependency @adea-ai/ui to v0.113.0 ([#1068](https://github.com/adea-ai/adea/issues/1068)) ([2dc174d](https://github.com/adea-ai/adea/commit/2dc174d734eb4630d0271fe3271976a8b5429247))
+* **deps:** update sharp to 0.35.5 for GHSA-wq5f-xc86-pv6w ([#1080](https://github.com/adea-ai/adea/issues/1080)) ([7455ab5](https://github.com/adea-ai/adea/commit/7455ab57665733a0401f0ff13e10d831f54f7b65))
+* **desktop:** journal boot adoption and resolve the packaged bundle root by walk-up ([#1059](https://github.com/adea-ai/adea/issues/1059)) ([1c40bdb](https://github.com/adea-ai/adea/commit/1c40bdb94dd614faf62fb3c00732ff25e345d78e)), closes [#1039](https://github.com/adea-ai/adea/issues/1039)
+* **desktop:** screen-recording request dispatch, honest gh project listing, device-lane button sizing, composer border ([#1081](https://github.com/adea-ai/adea/issues/1081)) ([0781ffd](https://github.com/adea-ai/adea/commit/0781ffd50b5e4cabea5978eb74411f51c4e33669))
+* **desktop:** stop the intermittent single-process desktop suite hang ([#1069](https://github.com/adea-ai/adea/issues/1069)) ([c50afc7](https://github.com/adea-ai/adea/commit/c50afc7b3eecf30383c19507a7504e1f2de50267))
+* **dev-view:** keep the terminal viewport backdrop on the palette under xterm 6 ([#1092](https://github.com/adea-ai/adea/issues/1092)) ([d084b09](https://github.com/adea-ai/adea/commit/d084b0985ebd01e1e2c89c246a55cf6a165c4192)), closes [#1057](https://github.com/adea-ai/adea/issues/1057)
+* **dev-view:** panel empty states, top-bar trailing slot, resources header, scm search placement ([#1083](https://github.com/adea-ai/adea/issues/1083)) ([7f8480d](https://github.com/adea-ai/adea/commit/7f8480dd40c63c14e443743f418a4924a67c2689))
+* hidden projects in the account summary and three worktree git-fact defects ([#1074](https://github.com/adea-ai/adea/issues/1074)) ([26c4508](https://github.com/adea-ai/adea/commit/26c4508bd02b6f9b0c8d3080c1443cab0310ad29))
+* **soak:** the budget binds on both clocks, artifacts stamp instead of clobber ([#1037](https://github.com/adea-ai/adea/issues/1037)) ([#1041](https://github.com/adea-ai/adea/issues/1041)) ([bd800c8](https://github.com/adea-ai/adea/commit/bd800c8e01fd546ba58650fe136c9f920d7a3626))
+* **ui:** tooltip lifecycle and the error toast layer ([#1084](https://github.com/adea-ai/adea/issues/1084)) ([87e3703](https://github.com/adea-ai/adea/commit/87e3703af9944bfa4f21e53cdf7d28e8d67c0ab3))
+
+
+### Performance
+
+* **read-state:** compute unread counts in SQL instead of loading every message ([#1075](https://github.com/adea-ai/adea/issues/1075)) ([3bd7442](https://github.com/adea-ai/adea/commit/3bd744283f4ec5e574bfb6c1e9c5797b79bd7246))
+* **web:** trim the shared sidebar from the Virtual, Chat and Dev routes ([#1071](https://github.com/adea-ai/adea/issues/1071)) ([de8be2b](https://github.com/adea-ai/adea/commit/de8be2b94a21b8085f44e991acdc784695ab191a))
+
+
+### Documentation
+
+* **adr:** map Adea workspaces and projects to Control Plane scopes (ADR 0013) ([#1070](https://github.com/adea-ai/adea/issues/1070)) ([6c62de7](https://github.com/adea-ai/adea/commit/6c62de722246d8f7395deab11d00ebb1abcbcfe0))
+* **adr:** unify workspace projects and the shared sidebar (ADR 0011) ([#1036](https://github.com/adea-ai/adea/issues/1036)) ([4d1fd2e](https://github.com/adea-ai/adea/commit/4d1fd2e51739995a36bd1c2291d29bf36401f885))
+* **adr:** workspace memory, connections and project sharing (ADR 0012) ([#1040](https://github.com/adea-ai/adea/issues/1040)) ([61bc130](https://github.com/adea-ai/adea/commit/61bc1309956db93c0e2ca6fd5df1d81e2f57c47a))
+
+
+### Tests
+
+* **e2e:** refresh linux visual baselines after [#1082](https://github.com/adea-ai/adea/issues/1082) ([#1088](https://github.com/adea-ai/adea/issues/1088)) ([58cc64d](https://github.com/adea-ai/adea/commit/58cc64d8d79a7fc9785b5d10d52f7bdf60bd8db3))
+* **e2e:** regenerate visual-lane linux baselines for the ADR 0011 sidebar stack ([#1073](https://github.com/adea-ai/adea/issues/1073)) ([68f98d4](https://github.com/adea-ai/adea/commit/68f98d494cc810608c6623261b88b53daaaefe9f))
+
+
+### Maintenance
+
+* **dev-runtime:** remove project groups; workspace-scoped project bindings ([#1053](https://github.com/adea-ai/adea/issues/1053)) ([b83f3b5](https://github.com/adea-ai/adea/commit/b83f3b56529d0ef99ca37c8b00246bc3a8f792d4))
+* remove dead styles and exports, tighten the stylesheet guard, add invitation revoke ([#1077](https://github.com/adea-ai/adea/issues/1077)) ([361297b](https://github.com/adea-ai/adea/commit/361297becc9724b60c9fcaf339aebd96a2c28a13))
+* **sidebar:** stable rows across polls, one width and group-mode source, shared collapse state ([#1079](https://github.com/adea-ai/adea/issues/1079)) ([ff7a5bf](https://github.com/adea-ai/adea/commit/ff7a5bf4b66a96bf484279f27905ea66fc3085bb))
+* **web:** adopt the shared update channel control from @adea-ai/ui ([#1066](https://github.com/adea-ai/adea/issues/1066)) ([6c2c5bb](https://github.com/adea-ai/adea/commit/6c2c5bb9808f4d5ca175c9176e8a596d9a916f47))
+* **web:** bind the Control Plane per-request signing key ([#1090](https://github.com/adea-ai/adea/issues/1090)) ([b1cc93f](https://github.com/adea-ai/adea/commit/b1cc93f16aa2f7f0c0953d1e66e899862e91e728))
+
 ## [0.83.0](https://github.com/adea-ai/adea/compare/v0.82.0...v0.83.0) (2026-10-05)
 
 
