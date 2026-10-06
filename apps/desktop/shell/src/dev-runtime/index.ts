@@ -56,6 +56,15 @@ import {
   type CleanupPolicyAuthority,
 } from './resources/policy'
 import { createProcessSampler } from './resources/sample-processes'
+import { createCappedCommandRunner, type CappedCommandRunner } from './resources/capped-command'
+import {
+  createForeignStopAuthority,
+  createLiveIdentityObserver,
+  type ForeignSignal,
+} from './resources/foreign-stop'
+import { createMachineInventory, type MachineStats } from './resources/machine-inventory'
+import { createResourcePreferenceStore } from './resources/preferences'
+import { createWorktreeStorage } from './resources/worktree-storage'
 import { createRetainedDataProjection } from './resources/retained-data'
 import { createCleanupWorktreeFacts, type OwnedResourceRef } from './resources/cleanup-facts'
 import {
@@ -226,6 +235,15 @@ export type CreateDevRuntimeHostInput = {
    *  checkpoint segments) plus typed-unavailable rows for file-stream bytes
    *  and provider-billed usage. */
   usage?: UsageService
+  /** Machine-wide resources: the bounded, fixed-argv command runner for the
+   *  `ps`/`lsof` observations. Absent composes the real capped runner on
+   *  macOS only; elsewhere foreign inventory and foreign stop stay
+   *  unavailable (tests script one). */
+  runResourceCommand?: CappedCommandRunner
+  /** Machine-wide resources: overrides the signal sender for foreign stop. */
+  foreignSignal?: ForeignSignal
+  /** Machine-wide resources: overrides the machine memory/CPU/disk reader. */
+  machineStats?: () => MachineStats
   /** #424: live worktree facts for cleanup-policy evaluation; absence fails
    *  the evaluation closed (never satisfied). Absent composes the real
    *  read-only adapter over the worktree service when one is composed. */
@@ -769,6 +787,44 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       ),
     ]
     usage = usage ?? createUsageService({ adapters: usageAdapters })
+    // Machine-wide resources: settings, the foreign inventory, the
+    // user-confirmed foreign stop, and lazy worktree storage measurement.
+    const resourcePreferences = createResourcePreferenceStore({ dataDir: input.dataDir })
+    const runResourceCommand =
+      input.runResourceCommand ??
+      (process.platform === 'darwin' ? createCappedCommandRunner() : undefined)
+    let ownedPids: (() => ReadonlySet<number>) | undefined
+    const machine = runResourceCommand
+      ? createMachineInventory({
+          run: runResourceCommand,
+          preferences: () => resourcePreferences.current(),
+          ownedPids: () => ownedPids?.() ?? new Set(),
+          worktreeRoots: () =>
+            worktreeService
+              ?.listWorktrees({ scope: input.scope! })
+              .map((worktree) => ({ id: worktree.id, root: worktree.canonicalRoot })) ?? [],
+          ...(input.machineStats ? { machineStats: input.machineStats } : {}),
+        })
+      : undefined
+    const foreignStop =
+      machine && runResourceCommand
+        ? createForeignStopAuthority({
+            scope: input.scope,
+            inventory: machine,
+            observe: createLiveIdentityObserver(runResourceCommand),
+            ...(input.foreignSignal ? { signal: input.foreignSignal } : {}),
+          })
+        : undefined
+    const storageScope = input.scope
+    const worktreeStorage = worktreeService
+      ? createWorktreeStorage({
+          worktrees: () =>
+            worktreeService
+              .listWorktrees({ scope: storageScope })
+              .filter((worktree) => worktree.quarantine === undefined)
+              .map((worktree) => ({ id: worktree.id, root: worktree.canonicalRoot })),
+        })
+      : undefined
     resources = registerResourcesRuntime({
       authority: input.authority,
       scope: input.scope,
@@ -778,7 +834,12 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       retainedData,
       usage,
       sampleProcesses,
+      preferences: resourcePreferences,
+      ...(machine ? { machine } : {}),
+      ...(foreignStop ? { foreignStop } : {}),
+      ...(worktreeStorage ? { worktreeStorage } : {}),
     })
+    ownedPids = resources.ownedPids
   }
 
   // Everything without a reachable provider gets an explicit typed refusal,

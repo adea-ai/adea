@@ -103,10 +103,12 @@ describe('Dev Runtime operation registry', () => {
     // GitLab mirrors, 215 before dev.project.authorizeRoot, 216 before
     // dev.worktree.rename, dev.worktree.diffSummary, dev.summary.workspaces
     // and dev.memory.propose, 220 before the project-group removal (six
-    // operations out, dev.project.unbind in): the registry ratchet moves only when an
-    // operation is deliberately added, and the decoder-key check below is
-    // what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(215)
+    // operations out, dev.project.unbind in), 215 before the machine-wide
+    // resources slice (foreign stop, restart, worktree storage, and resource
+    // preferences): the registry ratchet moves only when an operation is
+    // deliberately added, and the decoder-key check below is what keeps the
+    // list and the decoders in step.
+    expect(devOperations).toHaveLength(222)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
@@ -369,7 +371,7 @@ describe('Dev Runtime command envelope', () => {
     const pairedCommits = devOperations.filter((operation) => operation.endsWith('Commit'))
     // 14 before the auto-merge and server-side branch sync pairs; 16 before
     // the GitLab mirrors of update, merge, auto-merge and branch sync.
-    expect(pairedCommits).toHaveLength(20)
+    expect(pairedCommits).toHaveLength(22)
     for (const operation of pairedCommits) {
       const value = command(operation, {
         planId: 'plan-1',

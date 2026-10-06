@@ -440,14 +440,32 @@ export const devOperationMetadata = {
   'dev.repo.inspect': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_inspect),
   'dev.repo.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_list),
   'dev.repo.refresh': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_refresh),
+  'dev.resources.foreignStopCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_foreignStopCommit
+  ),
+  'dev.resources.foreignStopPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_foreignStopPlan
+  ),
   'dev.resources.metrics': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_metrics
   ),
   'dev.resources.ports': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_ports
   ),
+  'dev.resources.preferences': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_preferences
+  ),
+  'dev.resources.preferencesUpdate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_preferencesUpdate
+  ),
   'dev.resources.processes': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_processes
+  ),
+  'dev.resources.restartCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_restartCommit
+  ),
+  'dev.resources.restartPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_restartPlan
   ),
   'dev.resources.retainedData': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_retainedData
@@ -463,6 +481,9 @@ export const devOperationMetadata = {
   ),
   'dev.resources.usage': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_usage
+  ),
+  'dev.resources.worktreeStorage': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_worktreeStorage
   ),
   'dev.session.archive': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_session_archive

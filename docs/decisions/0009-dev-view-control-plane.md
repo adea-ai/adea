@@ -1,6 +1,11 @@
 # Dev View Control Plane
 
 - Status: Proposed for acceptance in #394
+- Amendment (2026-10-06, machine-wide resources): a process Adea did not
+  launch may be stopped by the user, one process at a time, through the
+  separately authorized foreign-stop path in the Dev Runtime spec. It grants
+  no ownership and never runs automatically; see "Worktree and process
+  authority".
 - Date: 2026-09-14
 - Tracks: [M12 milestone](https://github.com/adea-ai/adea/milestone/23),
   [#394](https://github.com/adea-ai/adea/issues/394)
@@ -150,7 +155,14 @@ are explicit cases.
 No process is owned because of cwd, executable name, port, PID, or parent alone.
 Destructive action requires a launch record and PID start identity plus
 process-group/session generation, rechecked before every signal. Unknown
-processes and ports may be displayed as external but have no stop action.
+processes and ports may be displayed as external and have no Adea-owned stop
+action. Amended 2026-10-06: the owner may stop a process Adea did not launch
+through a separate, user-confirmed path (Dev Runtime spec "Machine-wide
+inventory and foreign stop", threat TM-018). That path is limited to the
+Adea user's own, unprotected processes; it re-proves PID start identity,
+executable identity, and owner immediately before every signal; it is
+confirmed per process; and it never takes part in automatic cleanup or
+cleanup policies. It grants no ownership: the process is still not Adea's.
 
 ## Canonical session and provider decision
 
