@@ -136,7 +136,7 @@
         "packages/dev-view/src/sidebar/archive-shelf.tsx",
         "packages/dev-view/src/dev-workspace-entry.tsx",
         "packages/dev-view/src/utility-resize-handle.tsx",
-        "packages/workspace-ui/src/workspace-sidebar.tsx",
+        "packages/workspace-ui/src/workspace-nav-sidebar.tsx",
         "packages/dev-view/src/utility-context.ts",
         "packages/dev-view/src/utility-archive-shelf.tsx",
         "packages/dev-view/src/utility-host.tsx",

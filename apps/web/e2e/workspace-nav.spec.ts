@@ -117,7 +117,7 @@ test('row menus come from the adapter and the checkout has no delete', async ({ 
   await page.keyboard.press('Escape')
 
   await page.locator('[data-project-id="adea"]').hover()
-  await page.getByRole('button', { name: 'Options for adea', exact: true }).click()
+  await page.getByRole('button', { name: 'Project options for adea', exact: true }).click()
   await expect(page.getByRole('menuitem')).toHaveText([
     'Rename',
     'Project settings',
@@ -149,4 +149,26 @@ test('the tree supports keyboard navigation, disclosure and selection', async ({
   await expect(worktree).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('ArrowLeft')
   await expect(project).toBeFocused()
+})
+
+test('the Workspaces heading actions stay visible without hover or focus', async ({ page }) => {
+  await openHarness(page)
+  await page.mouse.move(0, 0)
+  for (const name of [/^Group by/, /^New workspace$/]) {
+    const action = nav(page).getByRole('button', { name })
+    await expect(action).toBeVisible()
+    await expect
+      .poll(() =>
+        action.evaluate((element) => {
+          // Every ancestor up to the nav must be fully opaque.
+          let node: Element | null = element
+          while (node && node.getAttribute('data-slot') !== 'workspace-nav') {
+            if (getComputedStyle(node).opacity !== '1') return false
+            node = node.parentElement
+          }
+          return true
+        })
+      )
+      .toBe(true)
+  }
 })

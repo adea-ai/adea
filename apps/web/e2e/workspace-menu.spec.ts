@@ -42,7 +42,7 @@ test('account menu dispatches published menu actions and restores keyboard focus
   await expect(trigger).toBeFocused()
 })
 
-test('workspace picker uses menu keyboard behavior and the global shortcut dispatches once', async ({
+test('the rail carries a static product mark and the global shortcut dispatches once', async ({
   page,
 }) => {
   const path = '/__global-workspace-rail'
@@ -58,48 +58,22 @@ test('workspace picker uses menu keyboard behavior and the global shortcut dispa
     await import(url)
   }, '/@fs' + entry)
 
-  const trigger = page.locator('.global-rail__workspace-trigger')
-  await trigger.focus()
-  await page.keyboard.press('Enter')
-  const menu = page.getByRole('menu')
-  const workItem = menu.getByRole('menuitemradio', { name: 'Work' })
-  const homeItem = menu.getByRole('menuitemradio', { name: 'Home' })
-  await expect(menu).toBeVisible()
-  await menu.evaluate((element) =>
-    Promise.allSettled(
-      element.getAnimations({ subtree: true }).map((animation) => animation.finished)
-    )
-  )
-  await expect(workItem).toHaveAttribute('aria-checked', 'true')
-  await expect(workItem).toBeFocused()
-  const placement = await menu.evaluate((element) => {
-    const menuRect = element.getBoundingClientRect()
-    const triggerRect = document
-      .querySelector<HTMLElement>('.global-rail__workspace-trigger')!
-      .getBoundingClientRect()
+  // Workspaces are switched from the contextual sidebar (ADR 0011): the rail
+  // header is the Adea mark only, with no switcher button or menu.
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  const mark = rail.locator('.global-rail__mark')
+  await expect(mark).toBeVisible()
+  await expect(mark.locator('button, [role="button"], [tabindex]')).toHaveCount(0)
+  await expect(rail.getByRole('button', { name: /Switch workspace/ })).toHaveCount(0)
+  // The mark keeps the rail row rhythm: it is exactly one rail item tall.
+  const rhythm = await mark.evaluate((element) => {
+    const firstItem = document.querySelector<HTMLElement>('[aria-label="Search workspace"]')!
     return {
-      menuLeft: menuRect.left,
-      menuRight: menuRect.right,
-      triggerRight: triggerRect.right,
-      viewportWidth: window.innerWidth,
+      mark: element.getBoundingClientRect().height,
+      item: firstItem.getBoundingClientRect().height,
     }
   })
-  expect(placement.menuLeft).toBeGreaterThanOrEqual(placement.triggerRight - 1)
-  expect(placement.menuRight).toBeLessThanOrEqual(placement.viewportWidth)
-  await page.keyboard.press('ArrowDown')
-  await expect(homeItem).toBeFocused()
-  await page.keyboard.press('Enter')
-  await expect(page.getByRole('status', { name: 'Selected workspace' })).toHaveText(
-    'workspace-home'
-  )
-  await expect(menu).toHaveCount(0)
-  await expect(trigger).toBeFocused()
-
-  await trigger.click()
-  await expect(menu).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(menu).toHaveCount(0)
-  await expect(trigger).toBeFocused()
+  expect(Math.abs(rhythm.mark - rhythm.item)).toBeLessThanOrEqual(1)
 
   for (const [index, view] of ['Virtual view', 'Chat view', 'Dev view', 'App Library'].entries()) {
     await page.getByRole('button', { name: `Use ${view}` }).click()

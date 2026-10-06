@@ -10,6 +10,7 @@ import { hqHomeManifest, hqWorkManifest, type SceneStartPosition } from '@adea-a
 import { VirtualRoomControls } from '@adea-ai/workspace-ui/virtual-room-controls'
 import { VirtualUnavailable } from '@adea-ai/workspace-ui/virtual-unavailable'
 import { VirtualView } from '@adea-ai/workspace-ui/virtual-view'
+import type { WorkspaceNavHost } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 
@@ -43,6 +44,8 @@ export type WorkspaceShellProps = {
   onOpenRoomDesigner?: () => void
   workspaceView?: WorkspaceView
   services?: WorkspacePlatformServices
+  /** The frame's workspace switching for the contextual sidebar's accordion. */
+  workspaceHost?: WorkspaceNavHost
 }
 
 export function WorkspaceShell(props: WorkspaceShellProps) {
@@ -69,6 +72,7 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
         client={apiClient()}
         restoreFocusRef={props.restoreFocusRef}
         openChat={() => props.onWorkspaceViewChange?.('chat')}
+        workspaceHost={props.workspaceHost}
       />
       <div class="workspace-scene-viewport">
         <VirtualView

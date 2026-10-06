@@ -36,6 +36,11 @@ export type NavLeaf = Readonly<{
   status: LeafStatus
   diff?: Readonly<{ added: number; removed: number }>
   pullRequest?: Readonly<{ number: number }>
+  /**
+   * Unread conversation activity on the leaf (Chat and Virtual): a count, or
+   * a manual unread mark with no count. Absent or zero shows nothing.
+   */
+  unread?: Readonly<{ count: number; marked: boolean }>
   /** ISO-8601 timestamp of the latest activity. */
   lastActivityAt: string
 }>
@@ -51,7 +56,13 @@ export type NavProject = Readonly<{
   leaves: readonly NavLeaf[]
 }>
 
-export type NavWorkspaceSummary = Readonly<{ running: number; needsYou: number; unread: number }>
+export type NavWorkspaceSummary = Readonly<{
+  running: number
+  needsYou: number
+  unread: number
+  /** Live mentions of the user (the cloud account summary); absent counts as zero. */
+  mentions?: number
+}>
 
 export type NavWorkspace = Readonly<{
   id: string
@@ -67,7 +78,10 @@ export type NavWorkspace = Readonly<{
 export type NavTree = Readonly<{
   activeWorkspaceId: string
   workspaces: readonly NavWorkspace[]
-  /** Leaves that need the user, summed across every workspace. */
+  /**
+   * What needs the user, summed across every workspace: input-needing runs in
+   * Dev, mentions in Chat and Virtual. The "Needs you" strip hides at zero.
+   */
   needsYou: number
 }>
 
@@ -213,17 +227,27 @@ export function projectCollapsedSummary(project: Pick<NavProject, 'leaves'>): st
   return undefined
 }
 
-export type WorkspaceChipKind = 'needs_you' | 'running' | 'unread'
+export type WorkspaceChipKind = 'needs_you' | 'running' | 'mention' | 'unread'
 
 export type WorkspaceChip = Readonly<{ kind: WorkspaceChipKind; count: number; label: string }>
 
-/** Status chips for a collapsed workspace row; zero counts are omitted. */
+/**
+ * Status chips for a collapsed workspace row, most urgent first: needs you,
+ * running, mentions, unread. Zero counts are omitted.
+ */
 export function workspaceChips(workspace: Pick<NavWorkspace, 'summary'>): WorkspaceChip[] {
   const { needsYou, running, unread } = workspace.summary
+  const mentions = workspace.summary.mentions ?? 0
   const chips: WorkspaceChip[] = []
   if (needsYou > 0)
     chips.push({ kind: 'needs_you', count: needsYou, label: `${needsYou} needs you` })
   if (running > 0) chips.push({ kind: 'running', count: running, label: `${running} running` })
+  if (mentions > 0)
+    chips.push({
+      kind: 'mention',
+      count: mentions,
+      label: `${mentions} ${mentions === 1 ? 'mention' : 'mentions'}`,
+    })
   if (unread > 0) chips.push({ kind: 'unread', count: unread, label: `${unread} unread` })
   return chips
 }

@@ -35,7 +35,12 @@ import {
   type SharedDevUtilityOwner,
 } from '@adea-ai/dev-view/utility-owner'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
-import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
+import type {
+  WorkspaceDeepLink,
+  WorkspaceNavHost,
+} from '@adea-ai/workspace-ui/conventional-workspace-shell'
+import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
+import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accent'
 import {
   enabledWorkspaceApps,
   orderedWorkspaceApps,
@@ -686,6 +691,35 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     })
   })
 
+  // The contextual sidebar's Workspaces accordion switches through the same
+  // helper the `?workspace=` links use, so a click and a link authorize and
+  // reset context identically.
+  const workspaceHost: WorkspaceNavHost = {
+    get workspaces() {
+      return props.workspaces
+    },
+    onSwitchWorkspace: (workspace) => switchToWorkspace(workspace),
+    onOpenWorkspaceSettings: () => openSettings('workspace'),
+  }
+
+  // The active workspace's accent themes the whole app while it is active
+  // (ADR 0011): it overrides the appearance accent, and a workspace without
+  // one (null) keeps the appearance accent. It is painted on <body>, below
+  // the document element the appearance provider writes, so portalled menus
+  // and dialogs follow it and clearing it hands the roles straight back.
+  const theme = useOptionalTheme()
+  createEffect(() => {
+    if (typeof document === 'undefined') return
+    paintWorkspaceAccent(
+      document.body,
+      props.activeWorkspace?.accent ?? null,
+      theme?.variantId() ?? ''
+    )
+  })
+  onCleanup(() => {
+    if (typeof document !== 'undefined') paintWorkspaceAccent(document.body, null, '')
+  })
+
   const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)
   const settingsOpen = () => globalPanel() === 'settings' || hashSettingsOpen()
 
@@ -790,7 +824,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     window.dispatchEvent(new PopStateEvent('popstate'))
     if (enabled && view() !== 'virtual') void setViewParam('virtual')
   }
-  const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
+  const openSettings = (
+    section: 'account' | 'input-notifications' | 'integrations' | 'workspace'
+  ) => {
     window.history.replaceState(null, '', `#settings/${section}`)
     setHashSettingsOpen(true)
     // Settings is a global overlay. Keep the current surface mounted so the
@@ -905,7 +941,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           openSettings('account')
         }}
         activeWorkspace={props.activeWorkspace}
-        onWorkspaceChange={(workspace) => void switchToWorkspace(workspace)}
         onViewChange={(id) => changeApp(id)}
         onViewIntent={preloadView}
         onPanelIntent={preloadPanel}
@@ -925,7 +960,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         }}
         view={activeAppId()}
         views={orderedViews()}
-        workspaces={props.workspaces}
       />
       <div class="workspace-frame__surface" aria-busy={switchingWorkspaceId() ? true : undefined}>
         <Show when={feedbackError()}>
@@ -1030,6 +1064,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                               onOpenTaskBoard={openTaskBoard()}
                               onViewChange={changeView}
                               services={props.services}
+                              workspaceHost={workspaceHost}
                             />,
                             archiveAction,
                             sidebarOpener
@@ -1048,6 +1083,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                             }
                             onViewChange={changeView}
                             services={props.services}
+                            workspaceHost={workspaceHost}
                           />
                         )
                       }
@@ -1068,6 +1104,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                         onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
                         onWorkspaceViewChange={changeView}
                         services={props.services}
+                        workspaceHost={workspaceHost}
                         workspaceView={view()}
                       />
                     }

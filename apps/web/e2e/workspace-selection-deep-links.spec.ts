@@ -82,12 +82,19 @@ async function openWorkspaceNavigation(page: Page, url: string) {
   return globalNavigation
 }
 
+// The contextual sidebar's Workspaces accordion (ADR 0011): the active
+// workspace is the expanded one, titled by a level-3 heading; every other
+// workspace is one row whose click switches to it.
+const workspaceNav = (page: Page) => page.getByRole('navigation', { name: 'Workspaces' })
+const activeWorkspaceHeading = (page: Page, name: string) =>
+  workspaceNav(page).getByRole('heading', { name, level: 3 })
+const collapsedWorkspaceRow = (page: Page, name: string) =>
+  workspaceNav(page).getByRole('button', { name: new RegExp(`^${name}(?: |$)`) })
+
 test('a scene deep link opens the workspace with that scene', async ({ page }) => {
   await mockTwoWorkspaceBootstrap(page)
-  const globalNavigation = await openWorkspaceNavigation(page, '/?scene=home')
-  await expect(
-    globalNavigation.getByRole('button', { name: 'Switch workspace, current Home' })
-  ).toBeVisible()
+  await openWorkspaceNavigation(page, '/?scene=home')
+  await expect(activeWorkspaceHeading(page, 'Home')).toBeVisible()
   // The deep link's scene survives reconciliation: the URL keeps the fact.
   await expect(page).toHaveURL(/scene=home/)
   await expect(page).not.toHaveURL(/scene=work/)
@@ -103,34 +110,23 @@ test('a scene-less URL reconciles to the active workspace scene', async ({ page 
 
 test('switching workspaces updates the scene with one navigation', async ({ page }) => {
   await mockTwoWorkspaceBootstrap(page)
-  const globalNavigation = await openWorkspaceNavigation(page, '/')
-  await expect(
-    globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' })
-  ).toBeVisible()
+  await openWorkspaceNavigation(page, '/')
+  await expect(activeWorkspaceHeading(page, 'Work')).toBeVisible()
 
-  await globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' }).click()
-  await page.getByRole('menuitemradio', { name: /Home/ }).click()
-  await expect(
-    globalNavigation.getByRole('button', { name: 'Switch workspace, current Home' })
-  ).toBeVisible()
+  await collapsedWorkspaceRow(page, 'Home').click()
+  await expect(activeWorkspaceHeading(page, 'Home')).toBeVisible()
+  await expect(collapsedWorkspaceRow(page, 'Work')).toBeVisible()
   await expect(page).toHaveURL(/scene=home/)
 
-  await globalNavigation.getByRole('button', { name: 'Switch workspace, current Home' }).click()
-  await page.getByRole('menuitemradio', { name: /Work/ }).click()
-  await expect(
-    globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' })
-  ).toBeVisible()
+  await collapsedWorkspaceRow(page, 'Work').click()
+  await expect(activeWorkspaceHeading(page, 'Work')).toBeVisible()
   await expect(page).toHaveURL(/scene=work/)
 })
 
 test('a workspace deep link switches and the scene follows the destination', async ({ page }) => {
   await mockTwoWorkspaceBootstrap(page)
   await openWorkspaceNavigation(page, `/?workspace=${homeWorkspace.id}`)
-  await expect(
-    page.getByRole('navigation', { name: 'Global navigation' }).getByRole('button', {
-      name: 'Switch workspace, current Home',
-    })
-  ).toBeVisible()
+  await expect(activeWorkspaceHeading(page, 'Home')).toBeVisible()
   // The consumed `?workspace=` param is stripped and the scene reconciles to
   // the destination workspace.
   await expect(page).not.toHaveURL(/workspace=/)
