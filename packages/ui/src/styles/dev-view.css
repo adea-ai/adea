@@ -243,6 +243,20 @@
   color: var(--dev-muted);
 }
 
+/* The Dev center's ask-for-a-project terminal state owns the whole leaf: it
+   fills the pane below the shared pane header so `place-content` centers it
+   vertically, and its message reads at heading scale instead of the utility
+   caption size. The SplitLayout leaf body is the flex-1 wrapper the published
+   pane section gives every center pane. */
+.dev-center [data-pane-id] .dev-empty-state--center-pane {
+  height: 100%;
+}
+
+.dev-empty-state--center-pane > p:first-child {
+  font-size: calc(1.125rem * var(--font-ui-scale, 1));
+  font-weight: 500;
+}
+
 .dev-utility {
   position: relative;
   display: grid;

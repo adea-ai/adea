@@ -59,6 +59,7 @@ import {
   resizeSplit,
   splitPane,
   splitPaneBalanced,
+  splitPaneDisabled,
   undoClosePane,
   movePane,
   type DevLayoutState,
@@ -849,7 +850,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         class="workspace-topbar__control"
         tooltip="Split pane"
         aria-label="Split pane"
-        disabled={countLeaves(layout().center) >= 8}
+        disabled={splitPaneDisabled(countLeaves(layout().center), selectedProject())}
         onClick={() => {
           const suffix = ++nextPaneId
           updateLayout((state) => {
@@ -1055,6 +1056,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                 if (!runtimeSessionId)
                   return (
                     <SelectProjectEmptyState
+                      class="dev-empty-state--center-pane"
                       message="Select a project from the sidebar to begin."
                       hint="The terminal runs inside a project's session worktree."
                       onAddProject={activeScope() ? addProjectFromEmptyState : undefined}
