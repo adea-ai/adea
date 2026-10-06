@@ -2297,7 +2297,7 @@ for (const { width, fontSize } of [
     const tablist = settings.getByRole('tablist', { name: 'Settings sections' })
     const account = tablist.getByRole('tab', { name: 'Account & app', exact: true })
     const appearance = tablist.getByRole('tab', { name: 'Appearance', exact: true })
-    const workspaceTab = tablist.getByRole('tab', { name: 'Workspace', exact: true })
+    const agentsTab = tablist.getByRole('tab', { name: 'Agents', exact: true })
     const permissions = tablist.getByRole('tab', { name: 'Permissions', exact: true })
     await expect(tablist).toHaveAttribute('data-slot', 'settings-navigation')
     await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
@@ -2308,10 +2308,12 @@ for (const { width, fontSize } of [
     await expect(appearance).toHaveAttribute('aria-selected', 'true')
     await expect(page).toHaveURL(/#settings\/appearance$/)
 
+    // Workspace-scoped sections moved to the workspace settings dialog, so
+    // Appearance hands straight over to Agents.
     await page.keyboard.press('ArrowDown')
-    await expect(workspaceTab).toBeFocused()
-    await expect(workspaceTab).toHaveAttribute('aria-selected', 'true')
-    await expect(page).toHaveURL(/#settings\/workspace$/)
+    await expect(agentsTab).toBeFocused()
+    await expect(agentsTab).toHaveAttribute('aria-selected', 'true')
+    await expect(page).toHaveURL(/#settings\/agents$/)
 
     await page.keyboard.press('Home')
     await expect(account).toBeFocused()
@@ -2332,6 +2334,64 @@ for (const { width, fontSize } of [
     await expect(account).toBeFocused()
     await expect(account).toHaveAttribute('aria-selected', 'true')
     await expect(page).toHaveURL(/#settings\/account$/)
+  })
+}
+
+test('the sidebar workspace gear opens the workspace settings dialog, not app Settings', async ({
+  page,
+}) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
+  await mockWorkspace(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: `Workspace settings for ${workspace.name}` }).click()
+  const details = page.getByRole('dialog', { name: `${workspace.name} workspace settings` })
+  await expect(details).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toHaveCount(0)
+  await expect(page).toHaveURL(/#workspace-settings\/general$/)
+  const tablist = details.getByRole('tablist', { name: 'Workspace settings sections' })
+  await expect(tablist.getByRole('tab')).toHaveText(['General', 'Memory', 'Skills', 'Connections'])
+  const general = tablist.getByRole('tab', { name: 'General', exact: true })
+  await expect(general).toHaveAttribute('aria-selected', 'true')
+  await expect(details.getByRole('textbox', { name: 'Workspace name' })).toHaveValue(workspace.name)
+  await expect(details.getByText('Changes save as you make them.')).toBeVisible()
+
+  await general.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(tablist.getByRole('tab', { name: 'Memory', exact: true })).toBeFocused()
+  await expect(page).toHaveURL(/#workspace-settings\/memory$/)
+  await page.keyboard.press('End')
+  await expect(tablist.getByRole('tab', { name: 'Connections', exact: true })).toBeFocused()
+  await expect(page).toHaveURL(/#workspace-settings\/connections$/)
+
+  await page.keyboard.press('Escape')
+  await expect(details).toBeHidden()
+  expect(new URL(page.url()).hash).toBe('')
+  expect(await page.locator('[inert]').count()).toBe(0)
+  expect(pageErrors).toEqual([])
+})
+
+for (const [legacy, tab] of [
+  ['workspace', 'General'],
+  ['memory', 'Memory'],
+  ['skills', 'Skills'],
+  ['connections', 'Connections'],
+] as const) {
+  test(`the retired #settings/${legacy} link opens workspace settings at ${tab}`, async ({
+    page,
+  }) => {
+    await mockWorkspace(page)
+    await page.goto(`/#settings/${legacy}`)
+    const details = page.getByRole('dialog', { name: `${workspace.name} workspace settings` })
+    await expect(details).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toHaveCount(0)
+    await expect(details.getByRole('tab', { name: tab, exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    await expect(page).toHaveURL(
+      new RegExp(`#workspace-settings/${legacy === 'workspace' ? 'general' : legacy}$`)
+    )
   })
 }
 

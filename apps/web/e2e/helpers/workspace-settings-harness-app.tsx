@@ -1,11 +1,13 @@
 import '../../src/start/globals.css'
-import { createSignal } from 'solid-js'
+import { createSignal, Show } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { render } from 'solid-js/web'
 import { WorkspaceSettingsDialog } from '@adea-ai/workspace-ui/workspace-settings'
+import { WorkspaceDetailsDialog } from '@adea-ai/workspace-ui/workspace-details-dialog'
+import { workspaceSettingsSectionFromHash } from '@adea-ai/workspace-ui/workspace-settings-section'
 import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
 import { AgentHqQueryProvider } from '@adea-ai/data/provider'
-import type { WorkspaceSummary } from '@adea-ai/types'
+import type { WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/types'
 import type { TranscriptionProvider, WorkspacePreferences } from '@adea-ai/workspace-ui/platform'
 import { createDesktopSettingsProvider } from '../../src/lib/desktop-platform-services'
 import { localContentAuthority } from '../../src/lib/desktop-local-content'
@@ -47,7 +49,7 @@ const desktopSettings = createDesktopSettingsProvider(async (command, args) => {
   return null
 })
 
-const workspace: WorkspaceSummary = {
+const initialWorkspace: WorkspaceSummary = {
   id: 'workspace-settings-e2e',
   name: 'Settings harness',
   scene: 'work',
@@ -63,13 +65,32 @@ const workspace: WorkspaceSummary = {
  * deliberately: the harness pins the dialog's contract that every section
  * renders standalone. The deep link (#settings/<section>) the dialog reads on
  * open decides the active tab, so the spec opens this page straight onto the
- * section it exercises.
+ * section it exercises. A `#workspace-settings/<section>` deep link mounts the
+ * workspace settings dialog instead, under the same no-providers contract.
  */
 function Harness() {
   const missingDesktopBridge = document
     .querySelector('#harness-root')
     ?.hasAttribute('data-missing-desktop-bridge')
   const [open, setOpen] = createSignal(true)
+  const [workspace, setWorkspace] = createSignal(initialWorkspace)
+  const workspaceDialog = workspaceSettingsSectionFromHash(window.location.hash) !== undefined
+  // A versioned in-memory workspace store: a stale version is refused the way
+  // the API refuses it, so the General section's conflict path is reachable.
+  const updateWorkspace = async (
+    update: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
+  ) => {
+    const { expectedVersion, ...changes } = update
+    if (expectedVersion !== workspace().version) throw new Error('Workspace version conflict')
+    setWorkspace({
+      ...workspace(),
+      ...changes,
+      version: workspace().version + 1,
+    } as WorkspaceSummary)
+    document
+      .querySelector('#harness-root')
+      ?.setAttribute('data-workspace', JSON.stringify(workspace()))
+  }
   const controlPlaneMode = document
     .querySelector('#harness-root')
     ?.getAttribute('data-control-plane')
@@ -83,31 +104,45 @@ function Harness() {
       <Button id="resolve-permission-fixture" onClick={() => resolvePermission?.('granted')}>
         Resolve permission fixture
       </Button>
-      <WorkspaceSettingsDialog
-        open={open()}
-        accountAuthenticated={false}
-        accountLabel="Guest"
-        agents={[]}
-        busy={false}
-        client={client}
-        onClose={() => setOpen(false)}
-        onOpenAgents={() => undefined}
-        onSignIn={() => undefined}
-        onSignOut={() => undefined}
-        workspace={workspace}
-        permissionsService={missingDesktopBridge ? desktopMacPermissionsService : undefined}
-        services={{
-          ...(missingDesktopBridge ? { privateContent: localContentAuthority } : {}),
-          ...(document
-            .querySelector('#harness-root')
-            ?.matches('[data-microphone-retry], [data-microphone-delayed]')
-            ? { transcription }
-            : {}),
-          ...(document.querySelector('#harness-root')?.hasAttribute('data-desktop-preferences')
-            ? { settings: desktopSettings }
-            : {}),
-        }}
-      />
+      <Show
+        when={!workspaceDialog}
+        fallback={
+          <WorkspaceDetailsDialog
+            open={open()}
+            client={client}
+            onClose={() => setOpen(false)}
+            {...(document.querySelector('#harness-root')?.hasAttribute('data-read-only')
+              ? {}
+              : { onUpdateWorkspace: updateWorkspace })}
+            workspace={workspace()}
+          />
+        }
+      >
+        <WorkspaceSettingsDialog
+          open={open()}
+          accountAuthenticated={false}
+          accountLabel="Guest"
+          agents={[]}
+          busy={false}
+          onClose={() => setOpen(false)}
+          onOpenAgents={() => undefined}
+          onSignIn={() => undefined}
+          onSignOut={() => undefined}
+          workspace={workspace()}
+          permissionsService={missingDesktopBridge ? desktopMacPermissionsService : undefined}
+          services={{
+            ...(missingDesktopBridge ? { privateContent: localContentAuthority } : {}),
+            ...(document
+              .querySelector('#harness-root')
+              ?.matches('[data-microphone-retry], [data-microphone-delayed]')
+              ? { transcription }
+              : {}),
+            ...(document.querySelector('#harness-root')?.hasAttribute('data-desktop-preferences')
+              ? { settings: desktopSettings }
+              : {}),
+          }}
+        />
+      </Show>
     </>
   )
 }

@@ -61,7 +61,12 @@ export function paintWorkspaceAccent(
  * accent instead of borrowing the active workspace's.
  */
 export function paintAppearanceAccent(element: HTMLElement): void {
-  const root = getComputedStyle(element.ownerDocument.documentElement)
+  // A node Solid cloned from a template but has not inserted yet (a dialog
+  // header still mounting) belongs to the template's inert document, which
+  // has no document element; the live document is the one it lands in.
+  const root = getComputedStyle(
+    element.ownerDocument.documentElement ?? globalThis.document.documentElement
+  )
   for (const property of ROLE_PROPERTIES) {
     const value = root.getPropertyValue(property).trim()
     if (value) element.style.setProperty(property, value)

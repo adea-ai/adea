@@ -5422,6 +5422,21 @@ provider; otherwise it reports that appearance settings are unavailable in
 this view. Missing preference ownership must not throw, reset the document's
 theme, or prevent navigation to other settings sections.
 
+App Settings holds only app-wide sections: Account & app and Appearance
+(Account), Agents and Input & notifications (Workflows), and Privacy & data,
+Integrations & capabilities and Permissions (Data & access), deep-linked as
+`#settings/<section>`. Workspace-scoped settings live in the workspace
+settings dialog the sidebar's workspace gear opens (`WorkspaceDetailsDialog`,
+`@adea-ai/workspace-ui/workspace-details-dialog`, lazy like app Settings):
+titled "<workspace name> workspace settings" with the workspace's own mark,
+its sections are General (name, mark, accent and Virtual world, saved as they
+change against the workspace version), Memory, Skills and Connections (the
+device connections pane and Connections › Cloud), deep-linked as
+`#workspace-settings/<section>`. The retired `#settings/workspace`,
+`#settings/memory`, `#settings/skills` and `#settings/connections` links open
+the workspace settings dialog at the matching section and are rewritten to
+the canonical hash.
+
 Client preference schema:
 
 ```ts

@@ -88,9 +88,10 @@ export function WorkspaceIdentitySettings(props: {
       void save({ logo: { kind: 'emoji', value: valid } })
   }
 
+  // Idle, an editable form says how saving works: there is no Save button.
   const status = () =>
     ({
-      idle: '',
+      idle: editable() ? 'Changes save as you make them.' : '',
       saving: 'Saving…',
       saved: 'Saved.',
       conflict: 'This workspace changed elsewhere. The latest settings are shown; try again.',

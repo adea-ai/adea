@@ -15,6 +15,10 @@ import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import type { SearchResult } from './workspace-utility-dialogs'
 import type { WorkspacePlatformServices } from './platform'
 import type { WorkspaceView } from './workspace-view-toggle'
+import {
+  workspaceSettingsHash,
+  workspaceSettingsSectionFromHash,
+} from './workspace-settings-section'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
 const CreateGroupDialog = lazy(() =>
@@ -36,6 +40,11 @@ const WorkspaceSearchDialog = lazy(() =>
 const WorkspaceSettingsDialog = lazy(() =>
   import('./workspace-settings').then((module) => ({ default: module.WorkspaceSettingsDialog }))
 )
+const WorkspaceDetailsDialog = lazy(() =>
+  import('./workspace-details-dialog').then((module) => ({
+    default: module.WorkspaceDetailsDialog,
+  }))
+)
 
 type DialogId =
   | 'conversation-search'
@@ -44,6 +53,7 @@ type DialogId =
   | 'details'
   | 'search'
   | 'settings'
+  | 'workspace-settings'
   | null
 
 export type { WorkspaceNavHost } from './workspace-nav-sidebar'
@@ -141,8 +151,9 @@ export function ConventionalWorkspaceShell(props: {
 
   createEffect(() => {
     const panel = globalPanel()
-    if (panel === 'settings' && !(props.manageSettings ?? true)) return
-    if (panel !== 'search' && panel !== 'settings') return
+    if ((panel === 'settings' || panel === 'workspace-settings') && !(props.manageSettings ?? true))
+      return
+    if (panel !== 'search' && panel !== 'settings' && panel !== 'workspace-settings') return
     setDialog(panel)
     workspaceStore.getState().setGlobalPanel(null)
   })
@@ -152,7 +163,10 @@ export function ConventionalWorkspaceShell(props: {
     // Captures setDialog from the component scope.
     // oxlint-disable-next-line unicorn/consistent-function-scoping
     const openDeepLinkedSettings = () => {
-      if (window.location.hash.startsWith('#settings')) setDialog('settings')
+      // Workspace settings links (and the retired `#settings/workspace|memory|
+      // skills|connections` ones) open the workspace dialog, not app Settings.
+      if (workspaceSettingsSectionFromHash(window.location.hash)) setDialog('workspace-settings')
+      else if (window.location.hash.startsWith('#settings')) setDialog('settings')
     }
     openDeepLinkedSettings()
     window.addEventListener('hashchange', openDeepLinkedSettings)
@@ -352,8 +366,8 @@ export function ConventionalWorkspaceShell(props: {
       onOpenWorkspaceSettings:
         (props.manageSettings ?? true)
           ? () => {
-              window.history.replaceState(null, '', '#settings/workspace')
-              setDialog('settings')
+              window.history.replaceState(null, '', workspaceSettingsHash('general'))
+              setDialog('workspace-settings')
             }
           : undefined,
     }
@@ -700,6 +714,14 @@ export function ConventionalWorkspaceShell(props: {
                   }}
                   onSignIn={() => services()?.account?.onSignIn()}
                   onSignOut={() => void signOut()}
+                  open
+                  services={services()}
+                  workspace={controller.activeWorkspace!}
+                />
+              </Show>
+              <Show when={(props.manageSettings ?? true) && dialog() === 'workspace-settings'}>
+                <WorkspaceDetailsDialog
+                  onClose={() => setDialog(null)}
                   open
                   services={services()}
                   workspace={controller.activeWorkspace!}

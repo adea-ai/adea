@@ -1,27 +1,24 @@
+/**
+ * The app Settings dialog's sections. Workspace-scoped settings (the
+ * workspace's identity, Memory, Skills and Connections) live in the
+ * per-workspace settings dialog instead — see `workspaceSettingsSections`.
+ */
 export const settingsSections = [
   'account',
   'appearance',
-  'workspace',
-  'memory',
-  'skills',
   'agents',
   'input-notifications',
   'privacy-data',
   'integrations',
-  'connections',
   'permissions',
 ] as const
 
 export type SettingsSection = (typeof settingsSections)[number]
 
 export const settingsSectionGroups = [
-  { label: 'Account', items: ['account'] },
-  { label: 'Workspace', items: ['appearance', 'workspace', 'memory', 'skills'] },
+  { label: 'Account', items: ['account', 'appearance'] },
   { label: 'Workflows', items: ['agents', 'input-notifications'] },
-  {
-    label: 'Data & access',
-    items: ['privacy-data', 'integrations', 'connections', 'permissions'],
-  },
+  { label: 'Data & access', items: ['privacy-data', 'integrations', 'permissions'] },
 ] as const satisfies ReadonlyArray<{
   label: string
   items: readonly SettingsSection[]
@@ -31,14 +28,10 @@ export const settingsSectionLabels: Readonly<Record<SettingsSection, string>> = 
   account: 'Account & app',
   agents: 'Agents',
   appearance: 'Appearance',
-  connections: 'Connections',
   'input-notifications': 'Input & notifications',
   integrations: 'Integrations & capabilities',
-  memory: 'Memory',
   'privacy-data': 'Privacy & data',
   permissions: 'Permissions',
-  skills: 'Skills',
-  workspace: 'Workspace',
 }
 
 export function settingsSectionFromHash(hash: string): SettingsSection {
@@ -60,3 +53,12 @@ export function nextSettingsSection(
     (current + direction + settingsSections.length) % settingsSections.length
   ]!
 }
+
+export {
+  workspaceSettingsHash,
+  workspaceSettingsHashPrefix,
+  workspaceSettingsSectionFromHash,
+  workspaceSettingsSectionLabels,
+  workspaceSettingsSections,
+  type WorkspaceSettingsSection,
+} from './workspace-settings-section'

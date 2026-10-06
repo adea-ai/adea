@@ -99,18 +99,21 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // 6,398 gzip; startup grows 1,077 raw for the api-client methods. Without
   // the lazy chunk the total fits the previous cap. Raw moves to 2,905,000
   // (~0.8% headroom); gzip and file count hold.
-  // Global sidebar sections in Dev and the desktop runtime Chat (2026-10-06,
-  // ADR 0011), measured against the same build of main (b1cc93f): 2,885,873
-  // raw / 875,160 gzip / 146 files before, 2,892,233 / 877,864 / 148 after
-  // (+6.4 KB raw / +2.7 KB gzip, +2 files). The data-owning Agents, Mark all
-  // read and Conversations hosts are one lazy chunk over the presentational
-  // sections Chat and Virtual already ship; startup grows 1,047 raw / 385
-  // gzip (235,135 → 235,520) for the navigation's slots and the embedded team
-  // Chat surface, which lands exactly on the old cap. Total gzip moves to
-  // 860 KiB (~0.3% headroom) and startup gzip to 231 KiB; raw and file count
-  // hold.
-  total: { rawBytes: 2_905_000, gzipBytes: 860 * 1024, fileCount: 150 },
-  startup: { rawBytes: 720 * 1024, gzipBytes: 231 * 1024 },
+  // Desktop regressions (2026-10-06): global sidebar sections in Dev and the
+  // desktop runtime Chat (ADR 0011) plus the per-workspace Workspace details
+  // dialog, measured against the same build of main (b1cc93f): 2,885,873 raw
+  // / 875,160 gzip / 146 files before (360 bytes under the gzip cap),
+  // 2,899,291 / 882,227 / 154 after (+13.4 KB raw / +7.1 KB gzip, +8 files).
+  // The Agents, Mark all read and Conversations hosts and the dialog are lazy
+  // chunks; the ModalDialog, Tabs, SettingsNavigation and icons both settings
+  // dialogs share split into shared lazy chunks, which is most of the gzip
+  // delta. Startup grows 3,317 raw / 1,202 gzip (235,135 → 236,337) for the
+  // navigation's global-section slots, the embedded team Chat surface and the
+  // `#workspace-settings/<section>` link handling. Total gzip moves to
+  // 870 KiB (~1.3% headroom), files to 155, startup gzip to 233 KiB (~1.0%);
+  // raw caps hold.
+  total: { rawBytes: 2_905_000, gzipBytes: 870 * 1024, fileCount: 155 },
+  startup: { rawBytes: 720 * 1024, gzipBytes: 233 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now
@@ -137,7 +140,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // alone pulled into this route now load when "New workspace" is hovered,
     // focused or clicked. Raw ratchets down to 111 KiB (~1.1% headroom);
     // gzip to 37 KiB (~1.1%).
-    virtual: { rawBytes: 111 * 1024, gzipBytes: 37 * 1024 },
+    // Desktop regressions (2026-10-06): 112,972 raw / 37,908 gzip across 15
+    // files against the same build of main's 112,391 / 37,443 / 14. The
+    // sidebar's Conversations and quick actions become shared exports the
+    // Dev sidebar's lazy hosts reuse, and the Workspace details link helpers
+    // add one small shared chunk. Raw holds; gzip moves to 37.5 KiB (~1.2%).
+    virtual: { rawBytes: 111 * 1024, gzipBytes: 38_400 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and
