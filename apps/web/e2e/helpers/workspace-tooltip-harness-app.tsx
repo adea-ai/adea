@@ -1,7 +1,7 @@
 import '../../src/start/globals.css'
 import { render } from 'solid-js/web'
-import { createSignal } from 'solid-js'
-import { Bell, Search } from 'lucide-solid'
+import { createSignal, onMount, Show } from 'solid-js'
+import { Bell, RefreshCw, Search } from 'lucide-solid'
 import {
   Tooltip,
   TooltipContent,
@@ -9,6 +9,7 @@ import {
   TooltipTrigger,
 } from '@adea-ai/ui/components/ui/tooltip'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { installTooltipFocusGate } from '../../../../packages/ui/src/lib/tooltip-focus-gate'
 import { AgentStatus, AgentStatusBadge } from '../../../../packages/workspace-ui/src/agent-status'
 import type { AgentSummary } from '@adea-ai/types'
 import { Button } from '@adea-ai/ui/components/ui/button'
@@ -24,6 +25,34 @@ const agent: AgentSummary = {
   profile: { id: 'synthetic-profile', state: 'available', version: '1' },
 }
 const [currentAgent, setCurrentAgent] = createSignal(agent)
+const [sheetOpen, setSheetOpen] = createSignal(false)
+
+/**
+ * Mimics the shared sheet contract the workspace resources sheet uses: a
+ * dialog whose first tabbable control receives focus on mount. That focus is
+ * programmatic, so the tooltip must stay closed until a real hover.
+ */
+function MockResourcesSheet(props: { onClose(): void }) {
+  const [panel, setPanel] = createSignal<HTMLDivElement>()
+  onMount(() => panel()?.querySelector('button')?.focus())
+  return (
+    <div role="dialog" aria-label="Runtime resources mock" ref={setPanel}>
+      <ActionButton
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        tooltip="Refresh runtime resources"
+        aria-label="Refresh resources"
+        onClick={() => {}}
+      >
+        <RefreshCw aria-hidden="true" />
+      </ActionButton>
+      <Button onClick={() => props.onClose()}>Close runtime sheet mock</Button>
+    </div>
+  )
+}
+
+installTooltipFocusGate()
 
 render(
   () => (
@@ -68,6 +97,14 @@ render(
         >
           <Bell aria-hidden="true" />
         </ActionButton>
+      </section>
+      <section aria-label="Sheet autofocus">
+        <Show
+          when={sheetOpen()}
+          fallback={<Button onClick={() => setSheetOpen(true)}>Open runtime sheet mock</Button>}
+        >
+          <MockResourcesSheet onClose={() => setSheetOpen(false)} />
+        </Show>
       </section>
     </TooltipProvider>
   ),
