@@ -1325,6 +1325,37 @@
   border-radius: 0.45rem;
   background: var(--cw-surface-muted);
 }
+/* Workspace settings › Memory (ADR 0012). */
+.workspace-memory,
+.workspace-memory-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.workspace-memory {
+  gap: 1rem;
+}
+.workspace-memory-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.workspace-memory-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: calc(0.85rem * var(--font-ui-scale, 1));
+  line-height: 1.45;
+}
+.workspace-memory-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--cw-muted);
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
+}
 .conventional-spin {
   animation: conventional-spin 0.8s linear infinite;
 }

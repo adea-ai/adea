@@ -21,6 +21,7 @@ import {
   type DesktopDevScopeSelector,
 } from '../lib/desktop-dev-scope'
 import { localContentAuthority } from '../lib/desktop-local-content'
+import { desktopMemoryService } from '../lib/desktop-memory'
 import {
   desktopCapabilityProvider,
   desktopSettingsProvider,
@@ -355,6 +356,7 @@ function DesktopWorkspace(props: {
     capabilities: desktopCapabilityProvider,
     client: props.client,
     devRuntime,
+    memory: desktopMemoryService,
     privateContent: localContentAuthority,
     plugins: props.plugins,
     settings: desktopSettingsProvider,

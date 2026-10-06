@@ -2,6 +2,7 @@ export const settingsSections = [
   'account',
   'appearance',
   'workspace',
+  'memory',
   'agents',
   'input-notifications',
   'privacy-data',
@@ -13,7 +14,7 @@ export type SettingsSection = (typeof settingsSections)[number]
 
 export const settingsSectionGroups = [
   { label: 'Account', items: ['account'] },
-  { label: 'Workspace', items: ['appearance', 'workspace'] },
+  { label: 'Workspace', items: ['appearance', 'workspace', 'memory'] },
   { label: 'Workflows', items: ['agents', 'input-notifications'] },
   { label: 'Data & access', items: ['privacy-data', 'integrations', 'permissions'] },
 ] as const satisfies ReadonlyArray<{
@@ -27,6 +28,7 @@ export const settingsSectionLabels: Readonly<Record<SettingsSection, string>> = 
   appearance: 'Appearance',
   'input-notifications': 'Input & notifications',
   integrations: 'Integrations & capabilities',
+  memory: 'Memory',
   'privacy-data': 'Privacy & data',
   permissions: 'Permissions',
   workspace: 'Workspace',

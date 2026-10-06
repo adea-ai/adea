@@ -14,6 +14,8 @@ import { extname, join, normalize } from 'node:path'
 import { agentSimResponse } from '../agent-sim-assets'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface, type BridgeResult } from '../commands'
+import { loadDeviceKey } from '../device-key'
+import { createMemoryStore } from '../memory/store'
 import { createPresentedRuntimeSession } from '../notifications/presented-runtime-session'
 import {
   createCloudIdentityVerifier,
@@ -149,8 +151,17 @@ const presentedRuntimeSession = createPresentedRuntimeSession({
   currentScope: () => identity.currentScope(),
   resolveSession: (id) => host?.projectSession?.getSession(id),
 })
+// ADR 0012 workspace memory: ONE store serves the legacy `memory_*`
+// commands and the Dev Runtime launch/proposal path, and both admit only the
+// workspace the shell's own scope authority currently holds.
+const memoryStore = createMemoryStore({
+  contentDir: join(DATA_DIR, 'local-content'),
+  key: () => loadDeviceKey(join(DATA_DIR, 'desktop-state', 'device.key')),
+})
 const baseInvoke = createCommandSurface(DATA_DIR, {
   onChatPresentation: (candidate) => presentedRuntimeSession.set(candidate),
+  memory: memoryStore,
+  authorizedWorkspaceId: () => identity.currentScope().workspaceId,
 })
 // The M10 channel authority binds the trusted window and gates every command.
 // Scope admission runs before capability checks and provider dispatch: a
@@ -267,6 +278,7 @@ function composeHost(): { host: DevRuntimeHost; notifications: RunNotificationPu
     scope: identity.currentScope(),
     identity,
     approvalVerifier,
+    memory: memoryStore,
     runtimeRoot: join(DATA_DIR, 'dev-runtime', 'runtime'),
     // #185: the packaged manifest feeds the one supervision engine; absent
     // (dev run) or failed load keeps the truthful no-supervision composition.

@@ -21,6 +21,7 @@ export const devOperationCapabilities = Object.freeze([
   'dev.gitlab.write',
   'dev.harness.manage',
   'dev.harness.read',
+  'dev.memory.propose',
   'dev.project.manage',
   'dev.project.read',
   'dev.repo.manage',

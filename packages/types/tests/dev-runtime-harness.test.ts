@@ -493,3 +493,59 @@ describe('dev.harness request decoders', () => {
     ).toThrow()
   })
 })
+
+describe('ADR 0012 workspace memory wire contract', () => {
+  test('dev.memory.propose binds the runtime session and bounds the text', () => {
+    const body = { runtimeSessionId: sessionId, expectedGeneration: 2, text: 'prefers bun' }
+    expect(devOperationDefinitions['dev.memory.propose']).toMatchObject({
+      capabilities: ['dev.memory.propose'],
+      resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    })
+    expect(() => decodeDevCommand(command('dev.memory.propose', body))).not.toThrow()
+    expect(() =>
+      decodeDevCommand(command('dev.memory.propose', { ...body, text: 'x'.repeat(2_001) }))
+    ).toThrow()
+    expect(() => decodeDevCommand(command('dev.memory.propose', { ...body, text: '' }))).toThrow()
+    // The body cannot name a workspace: the session's scope is the only one.
+    expect(() =>
+      decodeDevCommand(command('dev.memory.propose', { ...body, workspaceId: scope.workspaceId }))
+    ).toThrow()
+    const unbound = command('dev.memory.propose', body) as Record<string, unknown>
+    delete unbound.resource
+    expect(() => decodeDevCommand(unbound)).toThrow()
+  })
+
+  test('the proposal receipt decodes strictly and never carries text', () => {
+    const receipt = { memoryEntryId: runId, status: 'pending', createdAt: now }
+    expect(() => decodeDevReply(reply('dev.memory.propose', receipt))).not.toThrow()
+    expect(() =>
+      decodeDevReply(reply('dev.memory.propose', { ...receipt, text: 'prefers bun' }))
+    ).toThrow()
+    expect(() =>
+      decodeDevReply(reply('dev.memory.propose', { ...receipt, status: 'active' }))
+    ).toThrow()
+  })
+
+  test('HarnessRun carries a typed memory_truncated diagnostic', () => {
+    const diagnostic = {
+      code: 'memory_truncated',
+      includedEntries: 8,
+      omittedEntries: 2,
+      limitBytes: 16_384,
+    }
+    expect(() =>
+      decodeDevReply(
+        reply('dev.session.launchHarness', { ...harnessRun, diagnostics: [diagnostic] })
+      )
+    ).not.toThrow()
+    for (const forged of [
+      { ...diagnostic, code: 'memory_ok' },
+      { ...diagnostic, omittedEntries: 0 },
+      { ...diagnostic, text: 'leak' },
+    ]) {
+      expect(() =>
+        decodeDevReply(reply('dev.session.launchHarness', { ...harnessRun, diagnostics: [forged] }))
+      ).toThrow()
+    }
+  })
+})

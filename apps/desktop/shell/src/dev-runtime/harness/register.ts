@@ -33,11 +33,13 @@ import type {
   DevCommand,
   DevError,
   DevOperation,
+  HarnessRunDiagnostic,
   HarnessPreference,
   HarnessPreferenceMutableFields,
   HarnessRun,
   HarnessRunState,
   ManagedPiStatus,
+  MemoryProposalReceipt,
   RuntimeEvent,
   RuntimeSession,
   Scope,
@@ -49,6 +51,7 @@ import {
   type AcpLaneDriver,
   type ResolvedHarnessInstallation,
 } from './acp-lane'
+import type { MemoryPreamble } from '../../memory/preamble'
 import { createSessionEventLog, type SessionEventLog } from './events'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
 import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } from './preferences'
@@ -100,6 +103,22 @@ export type HarnessRuntimeInput = {
    * process the terminal runtime owns.
    */
   observeTerminalExit?: TerminalExitSubscription
+  /**
+   * ADR 0012 workspace memory: compiles the bounded launch preamble for ONE
+   * workspace's active entries (undefined when injection is off or there is
+   * nothing to inject). The launch transaction always passes the session's
+   * own `scope.workspaceId`; absent, launches inject nothing.
+   */
+  memoryPreamble?: (workspaceId: string) => MemoryPreamble | undefined
+  /**
+   * ADR 0012 agent proposals: stores `text` as a pending, agent-sourced
+   * entry of the named workspace. Absent, `dev.memory.propose` refuses
+   * typed `capability_unavailable`.
+   */
+  proposeMemory?: (
+    workspaceId: string,
+    text: string
+  ) => Readonly<{ id: string; status: 'active' | 'pending'; createdAt: string }>
   audit?: AuthorityAudit
   now?: () => number
 }
@@ -392,6 +411,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     generation: number
     terminalId?: string
     terminalGeneration?: number
+    diagnostics?: readonly HarnessRunDiagnostic[]
   }): HarnessRun {
     if (!Number.isSafeInteger(params.agentProfileVersion) || params.agentProfileVersion < 1) {
       throw devError('invalid_state', 'agentProfileVersion must be a positive version integer')
@@ -416,6 +436,9 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       generation: params.generation,
       startedAt: at,
       version: 1,
+      ...(params.diagnostics && params.diagnostics.length > 0
+        ? { diagnostics: [...params.diagnostics] }
+        : {}),
     }
   }
 
@@ -473,8 +496,15 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     session: RuntimeSession
     run: HarnessRun
     prompt: string
+    /** Counts of the memory preamble leading `prompt`, when one does. */
+    memory?: Readonly<{ entries: number; bytes: number }>
   }): Promise<void> {
     const sourceEventId = `host:prompt:${params.run.id}`
+    // Provenance names how much of the delivery was workspace memory —
+    // counts only; neither the memory nor the prompt text enters the event.
+    const memoryProvenance = params.memory
+      ? { memoryEntries: params.memory.entries, memoryBytes: params.memory.bytes }
+      : {}
     const liveLane = lane.readyFor(params.session.id)
     if (liveLane) {
       let result: Awaited<ReturnType<typeof lane.deliverPrompt>>
@@ -501,6 +531,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           classification: 'workspace_private',
           payload: {
             harnessRunId: params.run.id,
+            ...memoryProvenance,
             transport: 'acp',
             acpConnectionId: liveLane.id,
             acpConnectionGeneration: liveLane.generation,
@@ -517,6 +548,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         kind: 'capability.degraded',
         payload: {
           harnessRunId: params.run.id,
+          ...memoryProvenance,
           transport: 'acp',
           acpConnectionId: liveLane.id,
           reason: `${result.code}: ${result.message}`,
@@ -532,6 +564,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         kind: 'capability.degraded',
         payload: {
           harnessRunId: params.run.id,
+          ...memoryProvenance,
           transport: 'pty_input',
           reason: 'no terminal runtime is composed on this host',
         },
@@ -561,6 +594,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         classification: 'workspace_private',
         payload: {
           harnessRunId: params.run.id,
+          ...memoryProvenance,
           transport: 'pty_input',
           terminalId: result.terminalId,
           terminalGeneration: result.terminalGeneration,
@@ -577,6 +611,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       kind: 'capability.degraded',
       payload: {
         harnessRunId: params.run.id,
+        ...memoryProvenance,
         transport: 'pty_input',
         reason: `${result.code}: ${result.message}`,
       },
@@ -657,6 +692,25 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     })
   }
 
+  /**
+   * ADR 0012: the launch's memory preamble for the session's own workspace
+   * (`session.scope.workspaceId`, which the register already proved equals
+   * the authenticated scope) — never another workspace's entries. A store
+   * failure injects nothing and is reported, never retried.
+   */
+  function compileLaunchMemory(session: RuntimeSession): {
+    preamble?: MemoryPreamble
+    failed: boolean
+  } {
+    if (!input.memoryPreamble) return { failed: false }
+    try {
+      const preamble = input.memoryPreamble(session.scope.workspaceId)
+      return preamble ? { preamble, failed: false } : { failed: false }
+    } catch {
+      return { failed: true }
+    }
+  }
+
   /** The shared launch transaction body for launchHarness/launchDefault:
    * idempotent on a live identical run, fenced to one active run, and
    * emitting the canonical created/starting facts. With the `attachTerminal`
@@ -714,6 +768,9 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       }
       spawned = { terminalId: spawn.terminalId, terminalGeneration: spawn.terminalGeneration }
     }
+    // ADR 0012: the session's OWN workspace memory, compiled before the run
+    // record exists so a bounded overflow is recorded with the run from birth.
+    const memory = compileLaunchMemory(params.session)
     const run = createRun({
       session: params.session,
       installationId: params.installationId,
@@ -723,6 +780,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       ...(spawned
         ? { terminalId: spawned.terminalId, terminalGeneration: spawned.terminalGeneration }
         : {}),
+      ...(memory.preamble?.diagnostic ? { diagnostics: [memory.preamble.diagnostic] } : {}),
       state: 'starting',
       generation: 1,
     })
@@ -772,11 +830,50 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       payload: { harnessRunId: run.id },
       sourceEventId: `host:session-starting:${run.id}`,
     })
+    // A bounded memory overflow (or an unreadable store) is a typed host
+    // fact on the run's own stream — never a silent truncation.
+    if (memory.preamble?.diagnostic) {
+      appendEventFact({
+        session: nextSession,
+        harnessRunId: run.id,
+        kind: 'capability.degraded',
+        payload: { harnessRunId: run.id, ...memory.preamble.diagnostic },
+        sourceEventId: `host:memory:${run.id}`,
+      })
+    } else if (memory.failed) {
+      appendEventFact({
+        session: nextSession,
+        harnessRunId: run.id,
+        kind: 'capability.degraded',
+        payload: {
+          harnessRunId: run.id,
+          code: 'memory_unavailable',
+          reason: 'workspace memory could not be read; nothing was injected',
+        },
+        sourceEventId: `host:memory:${run.id}`,
+      })
+    }
     // Delivery runs after the run facts land and before the publish, so the
     // stream reads created → starting → (user_input | degraded) as one
     // transaction and Dev/Chat observe the delivery through the same channel.
-    if (params.initialPrompt !== undefined && params.initialPrompt.length > 0) {
-      await deliverInitialPrompt({ session: nextSession, run, prompt: params.initialPrompt })
+    // The memory preamble leads the initial prompt in ONE delivery over the
+    // same ordered channel (native/ACP, then guarded PTY); with no preamble
+    // and no prompt nothing is sent at all.
+    const memoryText =
+      memory.preamble && memory.preamble.includedEntries > 0 ? memory.preamble.text : undefined
+    const prompt =
+      params.initialPrompt !== undefined && params.initialPrompt.length > 0
+        ? params.initialPrompt
+        : undefined
+    if (memoryText !== undefined || prompt !== undefined) {
+      await deliverInitialPrompt({
+        session: nextSession,
+        run,
+        prompt: [memoryText, prompt].filter((part) => part !== undefined).join('\n\n'),
+        ...(memoryText !== undefined && memory.preamble
+          ? { memory: { entries: memory.preamble.includedEntries, bytes: memory.preamble.bytes } }
+          : {}),
+      })
     }
     publish('run.created', {
       harnessRunId: run.id,
@@ -1342,6 +1439,64 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         fromSequence:
           typeof body.fromSequence === 'string' ? (body.fromSequence as string) : undefined,
       })
+    },
+
+    // ── dev.memory.propose: agent memory proposals (ADR 0012) ─────────────
+    //
+    // Bound to the session's runtime_session resource at its current
+    // generation, admitted only while a harness run is active for it, and
+    // written into the SESSION'S workspace — the body carries no workspace
+    // and cannot name one. The entry lands `pending`; it becomes memory only
+    // when the user accepts it in Workspace settings › Memory. The reply and
+    // every fact carry the entry id, never the proposed text.
+    'dev.memory.propose': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.memory.propose'].request(command.body)
+      const session = resolveSessionOrThrow(body.runtimeSessionId as string)
+      requireSessionResource(command, session)
+      requireGeneration(command, session)
+      requireLaunchableSession(session)
+      if (!activeRunFor(session.id)) {
+        throw devError('invalid_state', 'memory proposals require an active harness run')
+      }
+      if (!input.proposeMemory) {
+        throw devError(
+          'capability_unavailable',
+          'workspace memory is not available on this host',
+          true
+        )
+      }
+      let proposal: ReturnType<NonNullable<HarnessRuntimeInput['proposeMemory']>>
+      try {
+        proposal = input.proposeMemory(session.scope.workspaceId, body.text as string)
+      } catch (error) {
+        const code = (error as { code?: unknown } | undefined)?.code
+        input.audit?.append({
+          action: 'dev.memory.propose',
+          subjectId: session.id,
+          outcome: 'denied',
+          detail: { reason: typeof code === 'string' ? code : 'memory_unavailable' },
+        })
+        if (code === 'memory_limit_exceeded') {
+          throw devError('limit_exceeded', 'the workspace holds the maximum memory entries')
+        }
+        if (code === 'memory_invalid_input') {
+          throw devError('invalid_state', 'the proposed memory text is empty or malformed')
+        }
+        throw devError('unavailable', 'workspace memory could not store the proposal', true)
+      }
+      input.audit?.append({
+        action: 'dev.memory.propose',
+        subjectId: proposal.id,
+        outcome: 'granted',
+        detail: { runtimeSessionId: session.id },
+      })
+      publish('memory.proposed', { runtimeSessionId: session.id, memoryEntryId: proposal.id })
+      return {
+        memoryEntryId: proposal.id,
+        status: 'pending',
+        createdAt: proposal.createdAt,
+      } satisfies MemoryProposalReceipt
     },
   }
 

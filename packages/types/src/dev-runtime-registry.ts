@@ -1121,6 +1121,13 @@ export const devOperationDefinitions = {
     resource: null,
     stream: null,
   },
+  'dev.memory.propose': {
+    body: '{ runtimeSessionId: string; expectedGeneration: integer; text: string(1..2000) }',
+    capabilities: ['dev.memory.propose'],
+    reply: 'MemoryProposalReceipt',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
   'dev.project.archive': {
     body: '{ projectId: string; expectedVersion: integer; archived: boolean }',
     capabilities: ['dev.project.manage'],

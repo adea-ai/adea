@@ -339,3 +339,51 @@ export type ArtifactSummary = Readonly<{
   version: number
   workspaceId: string
 }>
+
+/**
+ * Content types the desktop local content store holds. `memory_entry`
+ * (ADR 0012) is local-only for now: the cloud `ContentRefSummary` union and
+ * its schema admit it when encrypted replica publication for memory lands.
+ */
+export type LocalContentType = ContentRefSummary['contentType'] | 'memory_entry'
+
+/**
+ * A workspace memory entry (ADR 0012, "Memory"): a short plain-text note owned
+ * by exactly one workspace. The text is restricted local content held by the
+ * desktop local content store under content type `memory_entry`; agent-written
+ * entries arrive as `pending` proposals and become memory only when the user
+ * accepts them.
+ */
+export type WorkspaceMemoryEntry = Readonly<{
+  id: string
+  workspaceId: string
+  text: string
+  source: 'user' | 'agent'
+  status: 'active' | 'pending'
+  createdAt: string
+  updatedAt: string
+  revision: number
+}>
+
+/** One authorized workspace's memory as the desktop store reports it. */
+export type WorkspaceMemorySnapshot = Readonly<{
+  /** Newest first (creation time, then id). */
+  entries: readonly WorkspaceMemoryEntry[]
+  /** The per-workspace launch-injection switch; on by default. */
+  injectionEnabled: boolean
+  /** Records present for the workspace that failed authentication and are
+   *  therefore reported, never shown. */
+  unreadable: number
+}>
+
+/** Workspace memory bounds; docs/specs/local-content.md is the contract. */
+export const workspaceMemoryLimits = Object.freeze({
+  /** Characters per entry text (UTF-16 code units, as a textarea counts). */
+  entryMaxChars: 2_000,
+  /** Active plus pending entries one workspace may hold. */
+  entriesPerWorkspace: 200,
+  /** Pending agent proposals one workspace may hold at once. */
+  pendingPerWorkspace: 20,
+  /** UTF-8 bytes of the compiled launch preamble. */
+  preambleMaxBytes: 16 * 1024,
+})
