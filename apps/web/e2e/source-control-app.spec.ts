@@ -450,7 +450,9 @@ test.describe('source control app', () => {
       window.sourceControlHarness.advanceClock(11_000)
       window.dispatchEvent(new Event('focus'))
     })
-    await expect(sidebar.locator('[data-repo-id="repo-adea"]')).toBeVisible()
+    await expect(
+      sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
+    ).toBeVisible()
     await expect(
       sidebar.getByText(/projects are not listed because their repositories are not registered/)
     ).toHaveCount(0)
@@ -462,18 +464,20 @@ test.describe('source control app', () => {
   }) => {
     await openHarness(page)
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
-    const row = sidebar.locator('[data-repo-id="repo-adea"]')
+    const row = sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
     await expect(row).toBeVisible()
     await expect(sidebar.getByRole('button', { name: 'Hidden repositories' })).toHaveCount(0)
     await page.getByRole('button', { name: 'Hide adea below the show-more line' }).click()
     // The row left the owner section for the collapsed group; hiding is a
     // display preference — the row stays in the registry and remains
     // selectable inside the group.
-    await expect(sidebar.locator('[data-repo-id="repo-adea"]')).toHaveCount(0)
+    await expect(
+      sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
+    ).toHaveCount(0)
     const hiddenToggle = sidebar.getByRole('button', { name: 'Hidden repositories' })
     await expect(hiddenToggle).toBeVisible()
     await hiddenToggle.click()
-    const restored = sidebar.locator('[data-repo-id="repo-adea"]')
+    const restored = sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
     await expect(restored).toBeVisible()
     await page.getByRole('button', { name: 'Show adea in the sidebar' }).click()
     await expect(row).toBeVisible()
@@ -484,7 +488,9 @@ test.describe('source control app', () => {
     await openHarness(page)
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
     await page.getByRole('button', { name: 'Hide ui below the show-more line' }).click()
-    await expect(sidebar.locator('[data-repo-id="repo-ui"]')).toHaveCount(0)
+    await expect(
+      sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000102"]')
+    ).toHaveCount(0)
     // A reload that keeps storage must keep the display preference.
     await page.goto(`${SOURCE_CONTROL_HARNESS_PATH}?reset=keep`)
     await page.addScriptTag({ type: 'module', content: sourceControlHarnessModuleSource() })
@@ -492,11 +498,15 @@ test.describe('source control app', () => {
       .poll(() => page.evaluate(() => Boolean(window.sourceControlHarness)), { timeout: 90_000 })
       .toBe(true)
     const reloaded = page.getByRole('complementary', { name: 'Accounts and projects' })
-    await expect(reloaded.locator('[data-repo-id="repo-ui"]')).toHaveCount(0)
+    await expect(
+      reloaded.locator('[data-repo-id="00000000-0000-4000-8000-000000000102"]')
+    ).toHaveCount(0)
     const hiddenToggle = reloaded.getByRole('button', { name: 'Hidden repositories' })
     await expect(hiddenToggle).toBeVisible()
     await hiddenToggle.click()
-    await expect(reloaded.locator('[data-repo-id="repo-ui"]')).toBeVisible()
+    await expect(
+      reloaded.locator('[data-repo-id="00000000-0000-4000-8000-000000000102"]')
+    ).toBeVisible()
     // Restore for the shared fixture page state.
     await page.getByRole('button', { name: 'Show ui in the sidebar' }).click()
   })
