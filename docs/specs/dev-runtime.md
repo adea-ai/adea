@@ -5450,7 +5450,13 @@ type AppearancePreferencesV2 = {
 Font choices are device-local and use the shared UI's supported family IDs and
 normalizer, with System defaults at 14px for UI/content and 12px for code. The
 shared three-row group places System first above a divider in each family menu;
-each row has a size input, and the rows close the editor's option list. Live preview, Save, Cancel,
+each row has a size input, and the rows close the editor's option list. The
+platform zoom chords — Cmd/Ctrl with `=` or `+` zooming in, `-` zooming out,
+`0` restoring the System defaults — step all three tiers one pixel within the
+shared range instead of browser page zoom: the provider owns the chord, every
+text element is tied to one of the three tiers through the shared projection
+(UI drives the `text-*` scale; content and code scale their own roles), and
+the live projection reflows without a reload. Live preview, Save, Cancel,
 Reset, and dismissal include all three font roles. Existing V2 documents recover missing fields without
 discarding the document. Font projection and structural typography remain
 shared UI-owned; terminal/editor adapters consume its code tokens without
