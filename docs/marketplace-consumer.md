@@ -37,7 +37,8 @@ Configure the proxy with:
 - `CONTROL_PLANE_ORIGIN`: HTTPS Control Plane origin in production;
 - `CONTROL_PLANE_SIGNING_KEY`, `CONTROL_PLANE_SIGNING_KEY_ID`,
   `CONTROL_PLANE_SIGNING_ISSUER`: the server-only Ed25519 signer that mints a
-  per-request credential for the active workspace (ADR 0013; see the
+  per-request credential for the active workspace
+  ([ADR 0013](decisions/0013-control-plane-workspace-mapping.md); see the
   [Control Plane credentials runbook](control-plane-credentials.md));
 - until the signer is provisioned, the fallback pair
   `CONTROL_PLANE_SERVICE_TOKEN` (server-only static service credential) and

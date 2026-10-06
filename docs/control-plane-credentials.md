@@ -2,8 +2,8 @@
 
 Adea authenticates every Control Plane request with a short-lived Ed25519
 service JWT that it signs itself, scoped to exactly the Adea workspace (and
-project) the request is for. This is the Adea half of ADR 0013
-(`docs/decisions/0013-control-plane-workspace-mapping.md`). This page covers
+project) the request is for. This is the Adea half of
+[ADR 0013](decisions/0013-control-plane-workspace-mapping.md). This page covers
 how the mapping and signer work, and the owner runbook for provisioning,
 verifying, rotating and finally removing the static-token fallback.
 
