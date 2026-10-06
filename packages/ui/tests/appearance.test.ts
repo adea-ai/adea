@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   accentPresets,
+  accentPresetById,
   APPEARANCE_RECOVERY_STORAGE_KEY,
   APPEARANCE_STORAGE_KEY,
   applyAppearanceToDocument,
@@ -10,6 +11,7 @@ import {
   colorToHex,
   contrastRatio,
   DARK_QUERY,
+  DEFAULT_ACCENT_PRESET_ID,
   defaultAppearancePreferences,
   deriveAccentRoles,
   flatVariantTokens,
@@ -173,6 +175,41 @@ describe('accent roles (Zeron AccentRoles derivation with Adea presets)', () => 
       reduceTransparency: false,
     })
     expect(document.value.accent).toBe('ansi-cyan')
+  })
+
+  test('the default accent is one of the catalogue presets, not a separate entry', () => {
+    expect(defaultAppearancePreferences.accent).toBe(DEFAULT_ACCENT_PRESET_ID)
+    expect(accentPresetById(DEFAULT_ACCENT_PRESET_ID)?.label).toBe('Violet')
+  })
+
+  test('a stored legacy theme default migrates to the default accent', () => {
+    // Documents saved while "the theme's own primary" was the default carry
+    // `'theme'`; that state is no longer offered, so normalization migrates it
+    // instead of preserving an unpickable value.
+    const document = normalizeAppearancePreferences({
+      version: 2,
+      mode: 'system',
+      lightThemeId: 'adea-light',
+      darkThemeId: 'adea-dark',
+      accent: 'theme',
+      surface: 'opaque',
+      reduceTransparency: false,
+    })
+    expect(document.value.accent).toBe(DEFAULT_ACCENT_PRESET_ID)
+    expect(document.retainedRaw).toBeUndefined()
+  })
+
+  test('an unparseable stored accent degrades to the default accent', () => {
+    const document = normalizeAppearancePreferences({
+      version: 2,
+      mode: 'system',
+      lightThemeId: 'adea-light',
+      darkThemeId: 'adea-dark',
+      accent: '#zzzzzz',
+      surface: 'opaque',
+      reduceTransparency: false,
+    })
+    expect(document.value.accent).toBe(DEFAULT_ACCENT_PRESET_ID)
   })
 
   test('normalizeAccentValue rejects unparseable input and lifts weak colors', () => {
@@ -475,11 +512,19 @@ describe('document application', () => {
       '--ui-tracking',
       '--ui-word-spacing',
     ])
+    // The default accent is the Violet preset, so the accent roles stay inline
+    // after the revert: they are the preset's active override (owned by the
+    // accent branch), not stale variant tokens. Pin their exact values.
+    const accentOverrideTokens = new Set(['--primary', '--primary-foreground', '--ring'])
+    expect(style['--primary']).toBe(back.accent.primary)
+    expect(style['--primary-foreground']).toBe(back.accent.onPrimary)
+    expect(style['--ring']).toBe(back.accent.ring)
     for (const name of Object.keys(style)) {
       if (
         name.startsWith('--') &&
         !name.startsWith('--surface-alpha') &&
-        !fontRoleTokens.has(name)
+        !fontRoleTokens.has(name) &&
+        !accentOverrideTokens.has(name)
       ) {
         expect(style[name], `stale inline token ${name} survived the revert`).toBeUndefined()
       }
@@ -626,10 +671,12 @@ describe('document application', () => {
     expect(deleted.terminalOverride).toBeUndefined()
   })
 
-  test('returning to the theme accent removes the override it replaced', () => {
-    // Inline properties beat the stylesheet, so an override that is merely
-    // skipped (rather than removed) keeps painting after the user picks
-    // "Theme default" — the button looked dead after any preset was tried.
+  test('a legacy theme-default preference resolves to the default preset override', () => {
+    // The default accent is the Violet preset now, so a legacy stored
+    // `'theme'` migrates to a preset selection: the accent roles are an active
+    // override, not the variant's own primary. Inline properties still beat
+    // the stylesheet, so the apply step must keep rewriting (not skipping) the
+    // accent roles whenever an override is on — which is every selection.
     const environment = {
       systemAppearance: 'light' as const,
       osReducedTransparency: false,
@@ -640,15 +687,19 @@ describe('document application', () => {
       document as unknown as Document,
       resolveAppearanceState({ ...defaultAppearancePreferences, accent: 'blue' }, environment)
     )
-    expect(style['--primary']).toBeDefined()
+    const blue = style['--primary']
+    expect(blue).toBeDefined()
 
     applyAppearanceToDocument(
       document as unknown as Document,
       resolveAppearanceState({ ...defaultAppearancePreferences, accent: 'theme' }, environment)
     )
-    expect(style['--primary']).toBeUndefined()
-    expect(style['--primary-foreground']).toBeUndefined()
-    expect(style['--ring']).toBeUndefined()
+    expect(style['--primary']).toBe(
+      resolveAppearanceState(defaultAppearancePreferences, environment).accent.primary
+    )
+    expect(style['--primary']).not.toBe(blue)
+    expect(style['--primary-foreground']).toBeDefined()
+    expect(style['--ring']).toBeDefined()
   })
 
   test('reduced transparency forces the opaque surface and is diagnosable', () => {
