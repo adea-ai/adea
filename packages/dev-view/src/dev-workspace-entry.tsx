@@ -172,6 +172,14 @@ export type DevWorkspaceEntryProps = Readonly<{
       sessionId: string | null
     }>
   ) => void
+  /**
+   * Reports the selected project's name and checked-out branch for the host's
+   * top-bar breadcrumbs, and `undefined` while nothing is selected or once Dev
+   * unmounts. Presentation only: branch names stay on the client.
+   */
+  onBreadcrumbChange?: (
+    crumb: Readonly<{ projectId: string; projectName: string; branch?: string }> | undefined
+  ) => void
 }>
 
 export { devViewFixtureProjects } from './sidebar/fixture-scale'
@@ -552,6 +560,28 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     if (!projectId) return undefined
     return projects().find((project) => project.id === projectId)?.name
   })
+  const selectedBreadcrumb = createMemo(
+    () => {
+      const projectId = selectedProject()
+      if (!projectId) return undefined
+      const project = projects().find((entry) => entry.id === projectId)
+      if (!project) return undefined
+      return {
+        projectId,
+        projectName: project.name,
+        ...(project.branch ? { branch: project.branch } : {}),
+      }
+    },
+    undefined,
+    {
+      equals: (previous, next) =>
+        previous?.projectId === next?.projectId &&
+        previous?.projectName === next?.projectName &&
+        previous?.branch === next?.branch,
+    }
+  )
+  createEffect(() => props.onBreadcrumbChange?.(selectedBreadcrumb()))
+  onCleanup(() => props.onBreadcrumbChange?.(undefined))
   const selectedCanonicalBinding = (): CanonicalRuntimeBinding | undefined => {
     const current = selection()
     const scope = activeScope()

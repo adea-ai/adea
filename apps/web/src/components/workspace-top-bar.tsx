@@ -6,6 +6,10 @@ import { ArrowLeft, ArrowRight, Bell, PanelLeftClose, PanelLeftOpen } from 'luci
 import type { JSX } from 'solid-js'
 import { createSignal, onCleanup, onMount, Show } from 'solid-js'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
+import {
+  WorkspaceBreadcrumbs,
+  type WorkspaceBreadcrumb,
+} from '@adea-ai/workspace-ui/workspace-breadcrumbs'
 import { workspaceHistoryPosition } from '../lib/workspace-history'
 import { WorkspaceAppearanceControl } from './workspace-appearance-control'
 
@@ -14,7 +18,13 @@ const HISTORY_KEY = 'adea:workspace-history-maximum:v1'
 /** Host navigation and native chrome around the published shared TopBar. */
 export function WorkspaceTopBar(props: {
   platform: 'desktop' | 'web'
+  /** The plain title, shown while the active surface supplies no breadcrumbs. */
   title: string
+  /**
+   * Workspace › Project › Leaf in the title slot. It replaces the plain title
+   * in place: same slot, same truncation, no extra row.
+   */
+  breadcrumbs?: readonly WorkspaceBreadcrumb[]
   onOpenNotifications(): void
   actionsMount(element: HTMLDivElement): void
   /** Mount Dev pane controls only while Dev owns the active surface. */
@@ -169,7 +179,11 @@ export function WorkspaceTopBar(props: {
           />
         </div>
       </TopBarSection>
-      <TopBarTitle class="workspace-topbar__title">{props.title}</TopBarTitle>
+      <TopBarTitle class="workspace-topbar__title">
+        <Show when={props.breadcrumbs?.length} fallback={props.title}>
+          <WorkspaceBreadcrumbs crumbs={props.breadcrumbs ?? []} />
+        </Show>
+      </TopBarTitle>
       <TopBarSection align="end" class="workspace-topbar__actions">
         {props.resources}
         <WorkspaceAppearanceControl />

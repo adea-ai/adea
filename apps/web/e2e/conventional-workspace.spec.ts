@@ -1088,6 +1088,93 @@ test('the project menu opens the lazy Share dialog from the accordion', async ({
   await expect(page.getByRole('dialog', { name: 'Share Product' })).toBeVisible()
 })
 
+test('the top-bar title slot shows Workspace › Project › Leaf without adding a row', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await mockConnectedWorkspace(page)
+  const roadmap = {
+    ...channels[0]!,
+    id: 'channel-roadmap',
+    isPrimaryProjectChannel: false,
+    sortOrder: 1,
+    title: 'Roadmap',
+  }
+  await page.route(
+    (url) => url.pathname.endsWith('/api/v1/workspaces/workspace-e2e/channels'),
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ contentType: 'application/json', json: [...channels, roadmap] })
+        : route.fallback()
+  )
+  await page.goto('/')
+  const toolbar = page.getByLabel('Workspace toolbar')
+  const title = toolbar.locator('.workspace-topbar__title')
+  await expect(workspaceNav(page).getByRole('heading', { name: 'Work', level: 3 })).toBeVisible()
+  const barBefore = await toolbar.boundingBox()
+
+  await workspaceNav(page)
+    .getByRole('treeitem', { name: /Roadmap/, level: 2 })
+    .click()
+  const crumbs = title.getByRole('navigation', { name: 'Breadcrumb' })
+  // The crumbs live in the existing title slot; each names what it is for
+  // assistive technology (Workspace, Project, Task) ahead of its label.
+  await expect(crumbs.getByRole('listitem')).toHaveText([
+    /Workspace: Work$/,
+    /Project: Product$/,
+    /Task: Roadmap$/,
+  ])
+  await expect(crumbs.locator('[aria-current="page"]')).toHaveText('Task: Roadmap')
+  await expect(crumbs.locator('.workspace-identity-mark')).toHaveCount(1)
+  // No new row: the bar keeps its height and the crumbs sit on its one line.
+  const barAfter = await toolbar.boundingBox()
+  expect(barAfter?.height).toBe(barBefore?.height)
+  const crumbBox = await crumbs.boundingBox()
+  expect(crumbBox!.y).toBeGreaterThanOrEqual(barAfter!.y)
+  expect(crumbBox!.y + crumbBox!.height).toBeLessThanOrEqual(barAfter!.y + barAfter!.height)
+  expect(await title.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap')
+
+  // The project crumb opens the project's default leaf; that leaf is named
+  // after the project, so the path ends at the project and nothing links to
+  // what is already shown.
+  await crumbs.getByRole('link', { name: 'Project: Product' }).click()
+  await expect(
+    page.locator('#workspace-main').getByRole('heading', { name: 'Product', exact: true })
+  ).toBeVisible()
+  await expect(crumbs.getByRole('listitem')).toHaveText([/Workspace: Work$/, /Project: Product$/])
+  await expect(crumbs.getByRole('link')).toHaveCount(0)
+
+  // Another project's default leaf: the workspace crumb opens the first project.
+  await workspaceNav(page)
+    .getByRole('treeitem', { name: /Support/, level: 2 })
+    .click()
+  await expect(crumbs.getByRole('listitem')).toHaveText([/Workspace: Work$/, /Project: Support$/])
+  await crumbs.getByRole('link', { name: 'Workspace: Work' }).click()
+  await expect(crumbs.getByRole('listitem')).toHaveText([/Workspace: Work$/, /Project: Product$/])
+
+  // Virtual reads the same tree and selection in its own nouns: the project
+  // is a room and its other leaves are desks. (Selecting a desk in Virtual
+  // opens it in Chat, so the desk is selected first.)
+  await workspaceNav(page)
+    .getByRole('treeitem', { name: /Roadmap/, level: 2 })
+    .click()
+  await page.locator('.global-rail').getByRole('button', { name: 'Virtual view' }).click()
+  await expect(page).toHaveURL(/view=virtual/)
+  await expect(
+    workspaceNav(page).getByRole('button', { name: 'New room in Work', exact: true })
+  ).toBeVisible({ timeout: 30_000 })
+  await expect(crumbs.getByRole('listitem')).toHaveText([
+    /Workspace: Work$/,
+    /Room: Product$/,
+    /Desk: Roadmap$/,
+  ])
+
+  // App Library keeps its plain title.
+  await page.goto('/?app=library')
+  await expect(title).toHaveText('App Library')
+  await expect(title.getByRole('navigation')).toHaveCount(0)
+})
+
 test('connects newly created Projects and group conversations to their canonical views', async ({
   page,
 }) => {
