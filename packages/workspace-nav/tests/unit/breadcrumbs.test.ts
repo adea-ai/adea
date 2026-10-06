@@ -102,6 +102,26 @@ describe('breadcrumbsFor', () => {
     expect(crumbs.map(({ noun }) => noun)).toEqual(['Workspace', 'Room', 'Desk'])
   })
 
+  test('Virtual: a room with its own name is the project crumb', () => {
+    const rooms: NavTree = {
+      ...tree,
+      workspaces: tree.workspaces.map((workspace) =>
+        workspace.id === 'acme'
+          ? {
+              ...workspace,
+              projects: [{ ...launch, roomName: 'Launch room' }, notes, empty],
+            }
+          : workspace
+      ),
+    }
+    expect(texts(breadcrumbsFor(rooms, { leafId: 'wt' }, virtual))).toEqual([
+      'Acme',
+      'Launch room',
+      'Launch page',
+    ])
+    expect(texts(breadcrumbsFor(rooms, { leafId: 'wt' }, chat))[1]).toBe('Launch')
+  })
+
   test('Dev: project › branch in mono, the checkout its own leaf', () => {
     const worktreeCrumbs = breadcrumbsFor(tree, { leafId: 'wt' }, dev)
     expect(texts(worktreeCrumbs)).toEqual(['Acme', 'Launch', 'feat/launch-page'])

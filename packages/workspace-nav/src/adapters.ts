@@ -32,6 +32,15 @@ export type NavProjectIcon = 'git-folder' | 'folder' | 'cloud' | 'door' | 'hash'
 
 export type NavLabel = Readonly<{ text: string; mono: boolean }>
 
+/** A project row's name plus an optional muted hint (Virtual: the project behind a room). */
+export type NavProjectLabel = Readonly<{ text: string; hint?: string }>
+
+/**
+ * What a leaf row shows in its meta column: the diff or pull request (Dev),
+ * how long ago it was active (Chat), or how many agents sit at it (Virtual).
+ */
+export type NavLeafMetaKind = 'changes' | 'activity' | 'agents'
+
 export type ViewAdapterOptions = Readonly<{
   /** Show "Switch branch…" on the checkout menu (hidden until branch switching ships). */
   branchSwitching?: boolean
@@ -43,8 +52,12 @@ export type ViewAdapter = Readonly<{
   /** Whether the checkout is its own row under a "Worktrees" divider. */
   showCheckoutRow: boolean
   projectIcon(project: NavProject): NavProjectIcon
+  projectLabel(project: NavProject): NavProjectLabel
   leafLabel(leaf: NavLeaf, project?: NavProject): NavLabel
   leafSecondary(leaf: NavLeaf): string | undefined
+  /** The leaf's noun in a sentence-start position: "Worktree", "Task", "Desk". */
+  leafNoun(leaf: NavLeaf): string
+  leafMeta: NavLeafMetaKind
   createLeafLabel(project: NavProject): string
   createProjectLabel: string
   projectMenu(project: NavProject): readonly NavMenuItem[]
@@ -99,11 +112,15 @@ const devAdapter = (options: ViewAdapterOptions): ViewAdapter => ({
   nouns: { project: 'Project', leaf: 'worktree' },
   showCheckoutRow: true,
   projectIcon: (project) => sourceIcon[project.source],
+  projectLabel: (project) => ({ text: project.name }),
   leafLabel: (leaf) =>
     leaf.branchRef
       ? { text: leaf.branchRef, mono: true }
       : { text: leaf.title ?? 'Untitled', mono: false },
   leafSecondary: (leaf) => (leaf.branchRef ? leaf.title : undefined),
+  // A cloud task with no worktree yet is still a task, not a worktree.
+  leafNoun: (leaf) => (leaf.kind === 'task' ? 'Task' : 'Worktree'),
+  leafMeta: 'changes',
   createLeafLabel: (project) => (project.source === 'none' ? 'New session' : 'New worktree'),
   createProjectLabel: 'New project',
   projectMenu: () => projectMenu('Project settings'),
@@ -118,15 +135,24 @@ function titledAdapter(view: 'chat' | 'virtual', options: ViewAdapterOptions): V
     nouns: { project: virtual ? 'Room' : 'Project', leaf: virtual ? 'desk' : 'task' },
     showCheckoutRow: false,
     projectIcon: () => (virtual ? 'door' : 'hash'),
-    // The checkout is the project's default task or desk, named after the project.
+    // A Virtual room with its own name keeps the project's as a muted hint.
+    projectLabel: (project) =>
+      virtual && project.roomName && project.roomName !== project.name
+        ? { text: project.roomName, hint: project.name }
+        : { text: project.name },
+    // The checkout is the project's default task or desk, named after the
+    // project (or the room, in Virtual).
     leafLabel: (leaf, project) => {
-      if (leaf.kind === 'checkout' && project) return { text: project.name, mono: false }
+      if (leaf.kind === 'checkout' && project)
+        return { text: (virtual && project.roomName) || project.name, mono: false }
       if (leaf.title) return { text: leaf.title, mono: false }
       return leaf.branchRef
         ? { text: leaf.branchRef, mono: true }
         : { text: 'Untitled', mono: false }
     },
     leafSecondary: (leaf) => (leaf.title ? leaf.branchRef : undefined),
+    leafNoun: () => (virtual ? 'Desk' : 'Task'),
+    leafMeta: virtual ? 'agents' : 'activity',
     createLeafLabel: () => (virtual ? 'New desk' : 'New task'),
     createProjectLabel: virtual ? 'New room' : 'New project',
     projectMenu: () => projectMenu(virtual ? 'Room settings' : 'Project settings'),

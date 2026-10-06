@@ -46,6 +46,11 @@ export type NavLeaf = Readonly<{
    * a manual unread mark with no count. Absent or zero shows nothing.
    */
   unread?: Readonly<{ count: number; marked: boolean }>
+  /**
+   * Agents at the leaf (Virtual shows it as the desk's meta): the agent
+   * participants of its conversation. Absent when the host does not know.
+   */
+  agentCount?: number
   /** ISO-8601 timestamp of the latest activity. */
   lastActivityAt: string
 }>
@@ -55,6 +60,11 @@ export type ProjectSource = 'none' | 'local_repo' | 'remote_only'
 export type NavProject = Readonly<{
   id: string
   name: string
+  /**
+   * The room's own name in Virtual ("Engineering"); the project name then
+   * shows beside it as a muted hint. Absent falls back to `name`.
+   */
+  roomName?: string
   iconKey?: string
   source: ProjectSource
   sortOrder: number
@@ -462,4 +472,69 @@ export function stabilizeNavTree(previous: NavTree | undefined, next: NavTree): 
   )
     return previous
   return { ...next, workspaces }
+}
+
+/** A compact relative time and the words it is announced with. */
+export type NavTimeAgo = Readonly<{ text: string; label: string }>
+
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+const WEEK = 7 * DAY
+
+function unitLabel(count: number, unit: string): string {
+  return `Active ${count} ${count === 1 ? unit : `${unit}s`} ago`
+}
+
+/**
+ * How long ago a leaf was last active, for the sidebar's meta column:
+ * "now", "4m", "1h", "3d", "2w", then the date ("Mar 4"). Undefined when the
+ * timestamp cannot be read. `now` is injected so the row can tick and tests
+ * stay deterministic.
+ */
+export function navTimeAgo(iso: string, now: number): NavTimeAgo | undefined {
+  const then = Date.parse(iso)
+  if (!Number.isFinite(then)) return undefined
+  const elapsed = Math.max(0, now - then)
+  if (elapsed < MINUTE) return { text: 'now', label: 'Active just now' }
+  if (elapsed < HOUR) {
+    const minutes = Math.floor(elapsed / MINUTE)
+    return { text: `${minutes}m`, label: unitLabel(minutes, 'minute') }
+  }
+  if (elapsed < DAY) {
+    const hours = Math.floor(elapsed / HOUR)
+    return { text: `${hours}h`, label: unitLabel(hours, 'hour') }
+  }
+  if (elapsed < WEEK) {
+    const days = Math.floor(elapsed / DAY)
+    return { text: `${days}d`, label: unitLabel(days, 'day') }
+  }
+  if (elapsed < 5 * WEEK) {
+    const weeks = Math.floor(elapsed / WEEK)
+    return { text: `${weeks}w`, label: unitLabel(weeks, 'week') }
+  }
+  const date = new Date(then).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return { text: date, label: `Active ${date}` }
+}
+
+/** A desk's occupancy: "1 agent", "3 agents", or "empty". */
+export function navAgentCountLabel(count: number): string {
+  if (count <= 0) return 'empty'
+  return `${count} ${count === 1 ? 'agent' : 'agents'}`
+}
+
+/**
+ * The help under an active workspace with no projects: what is missing and
+ * how to start, offering only the actions the host wired ("+" and settings).
+ */
+export function emptyWorkspaceHint(
+  projectNoun: string,
+  actions: Readonly<{ create: boolean; settings: boolean }>
+): string {
+  const empty = `No ${projectNoun.toLowerCase()}s yet.`
+  const settings = 'open workspace settings to add connections, set a mark and pick a colour'
+  if (actions.create && actions.settings) return `${empty} Use + to add one, or ${settings}.`
+  if (actions.create) return `${empty} Use + to add one.`
+  if (actions.settings) return `${empty} ${settings[0]!.toUpperCase()}${settings.slice(1)}.`
+  return empty
 }

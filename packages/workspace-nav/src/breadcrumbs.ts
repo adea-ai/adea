@@ -119,7 +119,7 @@ export function breadcrumbsFor(
     kind: 'project',
     id: project.id,
     noun: adapter.nouns.project,
-    label: { text: project.name, mono: false },
+    label: { text: adapter.projectLabel(project).text, mono: false },
     current: projectCurrent,
     ...(projectCurrent ? {} : { target: targetFor(project, selectedLeafId) }),
   })

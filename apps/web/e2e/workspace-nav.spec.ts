@@ -97,7 +97,7 @@ test('group-by switches between project, status and recent renderings', async ({
 test('row menus come from the adapter and the checkout has no delete', async ({ page }) => {
   await openHarness(page)
   await page.getByRole('treeitem', { name: /sidebar-ux-redesign/ }).hover()
-  await page.getByRole('button', { name: 'Options for sidebar-ux-redesign' }).click()
+  await page.getByRole('button', { name: 'Worktree options for sidebar-ux-redesign' }).click()
   await expect(page.getByRole('menuitem')).toHaveText([
     'Rename',
     'Copy link',
@@ -111,7 +111,7 @@ test('row menus come from the adapter and the checkout has no delete', async ({ 
 
   const checkout = page.locator('[data-leaf-id="adea-main"]')
   await checkout.hover()
-  await checkout.getByRole('button', { name: 'Options for main' }).click()
+  await checkout.getByRole('button', { name: 'Worktree options for main' }).click()
   await expect(page.getByRole('menuitem')).toHaveText(['Copy path', 'Open in Finder', 'Share'])
   await expect(page.getByRole('menuitem', { name: 'Delete' })).toHaveCount(0)
   await page.keyboard.press('Escape')
