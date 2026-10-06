@@ -38,36 +38,59 @@ const now = Date.parse('2026-10-03T12:00:00.000Z')
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString()
 const sha = (seed: string) => seed.repeat(40).slice(0, 40)
 
+// Worktree records validate their repo and project ids as UUIDs (ADR 0011
+// strict DTO), and a pull request links to an Adea session only when its
+// repoId equals the checked-out worktree's repoId — so the catalog uses one
+// deterministic UUID family instead of slugs (dev-runtime ADR 0011).
+const repoId = {
+  adea: '00000000-0000-4000-8000-000000000101',
+  ui: '00000000-0000-4000-8000-000000000102',
+  control: '00000000-0000-4000-8000-000000000103',
+  dotfiles: '00000000-0000-4000-8000-000000000104',
+  runner: '00000000-0000-4000-8000-000000000105',
+  old: '00000000-0000-4000-8000-000000000106',
+} as const
+const projectId = {
+  adea: '00000000-0000-4000-8000-000000000201',
+  ui: '00000000-0000-4000-8000-000000000202',
+  control: '00000000-0000-4000-8000-000000000203',
+  dotfiles: '00000000-0000-4000-8000-000000000204',
+  runner: '00000000-0000-4000-8000-000000000205',
+  old: '00000000-0000-4000-8000-000000000206',
+} as const
+const worktreeId = '00000000-0000-4000-8000-000000000301'
+const sessionId = '00000000-0000-4000-8000-000000000401'
+
 const repos = [
-  { id: 'repo-adea', owner: 'adea-ai', name: 'adea', project: 'proj-adea', projectName: 'Adea' },
-  { id: 'repo-ui', owner: 'adea-ai', name: 'ui', project: 'proj-ui', projectName: 'Adea UI' },
+  { id: repoId.adea, owner: 'adea-ai', name: 'adea', project: projectId.adea, projectName: 'Adea' },
+  { id: repoId.ui, owner: 'adea-ai', name: 'ui', project: projectId.ui, projectName: 'Adea UI' },
   {
-    id: 'repo-control',
+    id: repoId.control,
     owner: 'adea-ai',
     name: 'control-plane',
-    project: 'proj-control',
+    project: projectId.control,
     projectName: 'Control plane',
   },
   {
-    id: 'repo-dotfiles',
+    id: repoId.dotfiles,
     owner: 'octocat',
     name: 'dotfiles',
-    project: 'proj-dotfiles',
+    project: projectId.dotfiles,
     projectName: 'Dotfiles',
   },
   {
-    id: 'repo-runner',
+    id: repoId.runner,
     owner: 'platform/infra',
     name: 'runner',
-    project: 'proj-runner',
+    project: projectId.runner,
     projectName: 'Runner',
     provider: 'gitlab' as const,
   },
   {
-    id: 'repo-old',
+    id: repoId.old,
     owner: 'adea-ai',
     name: 'legacy-site',
-    project: 'proj-old',
+    project: projectId.old,
     projectName: 'Legacy site',
     archived: true,
   },
@@ -98,7 +121,7 @@ function pr(
 ): GitHubPullRequestSummary {
   return {
     id: `gh:adea-ai/adea#${number}`,
-    repoId: 'repo-adea',
+    repoId: repoId.adea,
     number,
     title,
     url: `https://github.com/adea-ai/adea/pull/${number}`,
@@ -137,8 +160,8 @@ const pico = { login: 'pico', kind: 'bot' as const }
 const atlas = { login: 'atlas', kind: 'bot' as const }
 const viewer = 'octocat'
 
-const providerOfRepo = (repoId: unknown) =>
-  repos.find((repo) => repo.id === repoId)?.provider ?? 'github'
+const providerOfRepo = (wanted: unknown) =>
+  repos.find((repo) => repo.id === wanted)?.provider ?? 'github'
 const hostOf = (provider: 'github' | 'gitlab') => `${provider}.com`
 
 const state = {
@@ -146,7 +169,7 @@ const state = {
   pulls: [
     pr(12, 'Cache Go modules between jobs', pico, 'agent/pico/go-cache', 20, {
       id: 'gl:platform/infra/runner!12',
-      repoId: 'repo-runner',
+      repoId: repoId.runner,
       url: 'https://gitlab.com/platform/infra/runner/-/merge_requests/12',
       mergeMethods: ['merge', 'squash'],
       reviewDecision: 'approved',
@@ -542,15 +565,27 @@ async function execute(command: DevCommand): Promise<DevReply> {
         )
       )
     case 'dev.worktree.list':
+      // ADR 0011 strict Worktree record: the client decodes it fail-closed, so
+      // the fixture must satisfy the exact DTO for the pull request's session
+      // link (repoId + head branch) to resolve at all.
       return ok(
         command,
         page([
           {
-            id: 'wt-1',
-            repoId: 'repo-adea',
-            headRef: 'agent/juno/solid-store-signals',
-            archived: false,
+            id: worktreeId,
+            scope,
+            kind: 'managed',
+            repoId: repoId.adea,
+            projectId: projectId.adea,
+            canonicalRoot: '/work/adea',
+            rootIdentity: { mtimeNs: '0', size: '0' },
+            provenance: 'adea',
             lifecycle: 'ready',
+            bootstrap: 'completed',
+            archived: false,
+            generation: 1,
+            version: 1,
+            headRef: 'agent/juno/solid-store-signals',
           },
         ])
       )
@@ -559,9 +594,9 @@ async function execute(command: DevCommand): Promise<DevReply> {
         command,
         page([
           {
-            id: 'session-1',
-            projectId: 'proj-adea',
-            worktreeId: 'wt-1',
+            id: sessionId,
+            projectId: projectId.adea,
+            worktreeId,
             displayName: 'Store migration',
             lifecycle: 'ready',
             archived: false,
@@ -574,7 +609,7 @@ async function execute(command: DevCommand): Promise<DevReply> {
         provider: providerOfRepo(body.repoId),
         host: hostOf(providerOfRepo(body.repoId)),
         owner: 'adea-ai',
-        name: String(body.repoId).replace('repo-', ''),
+        name: repos.find((repo) => repo.id === body.repoId)?.name ?? 'adea',
         fullName: 'adea-ai/adea',
         defaultBranch: 'main',
         url: 'https://github.com/adea-ai/adea',
@@ -584,12 +619,12 @@ async function execute(command: DevCommand): Promise<DevReply> {
         observedAt: new Date(now).toISOString(),
         defaultBranchHead: {
           sha: sha('a41f9c2'),
-          checks: body.repoId === 'repo-control' ? 'failure' : 'success',
+          checks: body.repoId === repoId.control ? 'failure' : 'success',
         },
       })
     case 'dev.github.pullRequestSummaries': {
       const wanted = body.state ?? 'open'
-      if (wanted === 'merged' && body.repoId === 'repo-adea')
+      if (wanted === 'merged' && body.repoId === repoId.adea)
         return ok(
           command,
           page([
