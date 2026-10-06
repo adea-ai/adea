@@ -16,6 +16,7 @@ import {
   MarketplaceProxyError,
   proxyMarketplaceInstallPlan,
 } from '../../../../server/marketplace-proxy'
+import { controlPlaneScopeResolver } from '../../../../server/control-plane-scope'
 
 function isPlanInput(value: unknown): value is {
   pluginId: string
@@ -99,7 +100,8 @@ async function post(request: Request) {
         ...body,
         workspaceIdentity: { ...body.workspaceIdentity, userId: resolution.principal.userId },
       },
-      inboundCorrelation(request)
+      inboundCorrelation(request),
+      { resolveControlPlaneScope: controlPlaneScopeResolver(workspaceId) }
     )
     return workspaceJsonResponse(await response.json(), resolution, request, {
       headers: { 'cache-control': 'no-store' },

@@ -239,6 +239,15 @@ describe('browser dependency guard', () => {
     ])
       assert.equal(forbiddenClientModule(id), false, id)
   })
+  it('keeps the Control Plane signing configuration out of client output', () => {
+    for (const name of [
+      'CONTROL_PLANE_SERVICE_TOKEN',
+      'CONTROL_PLANE_SIGNING_KEY',
+      'CONTROL_PLANE_SIGNING_KEY_ID',
+      'CONTROL_PLANE_SIGNING_ISSUER',
+    ])
+      assert.equal(PRIVATE_ENV_NAMES.includes(name), true, name)
+  })
   it('has no private environment name in the public substitution allowlist', () => {
     assert.equal(
       PUBLIC_ENV_NAMES.some((name) => PRIVATE_ENV_NAMES.includes(name)),

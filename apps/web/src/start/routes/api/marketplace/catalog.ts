@@ -16,6 +16,7 @@ import {
   MarketplaceProxyError,
   proxyMarketplaceCatalog,
 } from '../../../../server/marketplace-proxy'
+import { controlPlaneScopeResolver } from '../../../../server/control-plane-scope'
 
 function invalidRequest(request: Request) {
   return withDesktopWorkspaceCors(
@@ -70,7 +71,8 @@ async function post(request: Request) {
         userId: resolution.principal.userId,
         workspaceId,
       },
-      inboundCorrelation(request)
+      inboundCorrelation(request),
+      { resolveControlPlaneScope: controlPlaneScopeResolver(workspaceId) }
     )
     // The catalog is tens of megabytes. Pass the Control Plane body through
     // unparsed: reading it into a value and encoding it again holds both copies
