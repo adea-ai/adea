@@ -53,6 +53,26 @@
   backdrop-filter: blur(1.25rem) saturate(140%);
 }
 
+/* Layered overlay surfaces. The catalogue exposes an elevation ladder
+   (--background < --card/--muted/--surface-sunken < --popover < --surface-hover
+   < --surface-active), and each overlay family owns a rung:
+   menus, popovers and the command palette paint --popover; cards paint --card;
+   the modal panel itself stays on --background because the published library
+   separates it with the veil, hairline and elevation shadow instead of a
+   lighter fill (the elevated rung amplifies the canvas chroma, which reads as
+   a cast across a large panel). A panel-shaped sheet is different: it is a
+   form beside the work with a title band and a decision band, so it reads
+   two-toned — header and footer step onto --muted while the scrolling body
+   keeps the panel surface. The published parts mark themselves with data-slot
+   and carry their own hairlines, so the band meets the body on the existing
+   rule. Settings-size dialogs are the dialog family with the same panel
+   anatomy (title band over a full-bleed shell), so their header follows. */
+[role='dialog'][data-variant] [data-slot='sheet-header'],
+[role='dialog'][data-variant] [data-slot='sheet-footer'],
+.conventional-settings-dialog [data-slot='dialog-header'] {
+  background-color: var(--muted);
+}
+
 /* The workspace consumes the resolved surface where it actually paints: the
    shell's own surface tokens are re-mixed at the resolved alpha, so the
    canvas, the sidebar and every muted fill thin together instead of leaving
