@@ -1515,7 +1515,11 @@
 .conventional-error h2 {
   color: var(--cw-text);
 }
-.conventional-error svg {
+/* The 2rem alert mark is the error surface's own leading icon only. An
+   unscoped descendant selector also resized the icons inside the shared
+   Button — the retry arrow rendered at 2rem instead of the button's own
+   standard size. */
+.conventional-error > svg {
   width: 2rem;
   height: 2rem;
 }
