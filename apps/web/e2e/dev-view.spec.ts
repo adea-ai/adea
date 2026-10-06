@@ -364,7 +364,11 @@ async function expectDevTopbarBoundary(page: Page, width: number) {
 
   const title = page.locator('.workspace-topbar__title')
   await title.evaluate((element) => {
-    element.textContent =
+    // The slot shows Workspace › Project › branch breadcrumbs when Dev has a
+    // selection; lengthen the current crumb so clipping is exercised inside
+    // the breadcrumb row, or the plain title when there is none.
+    const target = element.querySelector('[aria-current="page"]') ?? element
+    target.textContent =
       'A workspace name long enough to test title clipping without hiding toolbar actions'
   })
   if (width > 768) {
@@ -389,6 +393,32 @@ for (const width of [768, 1024, 1440]) {
     await expectDevTopbarBoundary(page, width)
   })
 }
+
+test('Dev title slot shows Workspace › Project › branch with the branch in mono', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/?view=dev&devE2e=preserved')
+  await expectDevToolbarHost(page, 1280)
+  const crumbs = page
+    .locator('.workspace-topbar__title')
+    .getByRole('navigation', { name: 'Breadcrumb' })
+  await expect(crumbs.getByRole('listitem')).toHaveCount(3)
+  await expect(crumbs.getByRole('listitem').nth(1)).toHaveText('Project: Example project')
+  const branch = crumbs.locator('[aria-current="page"]')
+  await expect(branch).toHaveText('Worktree: feature/example')
+  await expect(branch.locator('code')).toHaveText('feature/example')
+  // Dev crumbs are a readout until Dev joins the shared sidebar tree.
+  await expect(crumbs.getByRole('link')).toHaveCount(0)
+
+  await page
+    .getByRole('complementary', { name: 'Projects and sessions' })
+    .getByRole('button', { name: /Runtime tools/ })
+    .first()
+    .click()
+  await expect(branch).toHaveText('Worktree: feature/runtime')
+  await expect(crumbs.getByRole('listitem').nth(1)).toHaveText('Project: Runtime tools')
+})
 
 test('Dev top-bar actions preserve clear boundaries with 200% text sizing', async ({ page }) => {
   const width = 1280

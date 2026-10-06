@@ -55,6 +55,13 @@
       "import": "./dist/global-workspace-rail.js",
       "default": "./dist/global-workspace-rail.js"
     },
+    "./workspace-breadcrumbs": {
+      "types": "./dist/workspace-breadcrumbs.d.ts",
+      "solid": "./src/workspace-breadcrumbs.tsx",
+      "development": "./src/workspace-breadcrumbs.tsx",
+      "import": "./dist/workspace-breadcrumbs.js",
+      "default": "./dist/workspace-breadcrumbs.js"
+    },
     "./workspace-help-center": {
       "types": "./dist/workspace-help-center.d.ts",
       "solid": "./src/workspace-help-center.tsx",

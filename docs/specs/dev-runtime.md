@@ -5224,6 +5224,21 @@ active workspace's accent themes the app while it is active, overriding the
 appearance accent; a workspace without an accent keeps the appearance accent,
 and collapsed workspace marks show their own accent (or the appearance accent)
 rather than the active one.
+The top bar's existing title slot shows the Workspace › Project › Leaf path as
+published `Breadcrumb` crumbs instead of the plain workspace name; there is no
+extra row and the slot keeps its single-line ellipsis and its sub-48rem hiding.
+The path comes from the pure `breadcrumbsFor` in `@adea-ai/workspace-nav` over
+the same tree and selection the sidebar renders: the workspace mark and name,
+the project (or room), then the leaf labelled by the view adapter — the task
+or channel title in Chat, the desk in Virtual — with each crumb's noun given to
+assistive technology. A Chat or Virtual default leaf is named after its
+project, so the path ends at the project rather than repeating it. The last
+crumb is the current page; an earlier crumb is a link that opens its default
+leaf (the workspace's first project's default leaf, or the project's) and is
+plain text when that would reopen what is already shown. Dev, not yet on the
+shared sidebar, reports its selected project and checked-out branch, shown in
+mono; branch names stay on the client and Dev crumbs are a readout. App
+Library, the designers and views without a path keep the plain title.
 Room and Character designer entries use the same global app container and retain
 the global rail even when the private engine is unavailable. Both designers hide
 the left and right contextual sidebars and their toolbar collapse toggles. The

@@ -1,5 +1,6 @@
 export * from './model'
 export * from './adapters'
+export * from './breadcrumbs'
 export { monogram } from '@adea-ai/ui/components/ui/entity-icon'
 export { LeafStatusIcon, ProjectIcon } from './nav-icons'
 export { NavRowMenu } from './nav-row-menu'

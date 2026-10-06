@@ -50,6 +50,11 @@ import {
   workspaceApps,
   type WorkspaceAppId,
 } from '@adea-ai/workspace-ui/workspace-apps'
+import {
+  devBreadcrumbs,
+  type DevBreadcrumbSelection,
+  type WorkspaceBreadcrumb,
+} from '@adea-ai/workspace-ui/workspace-breadcrumbs'
 import { WorkspaceTopBar } from './workspace-top-bar'
 import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
@@ -91,6 +96,7 @@ const DevWorkspace = lazyComponent(
           utilityHostOwnedByShell?: boolean
           deepLinkSelection?: () => { projectId?: string; sessionId?: string } | undefined
           onSelectionChange?: (selection: { projectId: string; sessionId: string | null }) => void
+          onBreadcrumbChange?: (crumb: DevBreadcrumbSelection | undefined) => void
         }) => {
           const unavailable =
             entryProps.runtime ??
@@ -129,6 +135,7 @@ const DevWorkspace = lazyComponent(
               utilityHostOwnedByShell={entryProps.utilityHostOwnedByShell}
               deepLinkSelection={entryProps.deepLinkSelection}
               onSelectionChange={entryProps.onSelectionChange}
+              onBreadcrumbChange={entryProps.onBreadcrumbChange}
             />
           )
         }
@@ -691,6 +698,21 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     })
   })
 
+  // The top bar's title slot shows Workspace › Project › Leaf (ADR 0011).
+  // Chat and Virtual read the mounted shared sidebar's path; Dev, not on the
+  // shared sidebar yet, reports its selected project and branch. Every other
+  // surface keeps the plain title.
+  const [navBreadcrumbs, setNavBreadcrumbs] =
+    createSignal<Accessor<readonly WorkspaceBreadcrumb[]>>()
+  const [devBreadcrumb, setDevBreadcrumb] = createSignal<DevBreadcrumbSelection>()
+  const topBarBreadcrumbs = (): readonly WorkspaceBreadcrumb[] | undefined => {
+    const workspace = props.activeWorkspace
+    if (libraryOpen() || designerActive() || !workspace) return undefined
+    if (activeAppId() === 'dev') return devBreadcrumbs(workspace, devBreadcrumb())
+    if (activeAppId() === 'chat' || activeAppId() === 'virtual') return navBreadcrumbs()?.()
+    return undefined
+  }
+
   // The contextual sidebar's Workspaces accordion switches through the same
   // helper the `?workspace=` links use, so a click and a link authorize and
   // reset context identically.
@@ -700,6 +722,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     },
     onSwitchWorkspace: (workspace) => switchToWorkspace(workspace),
     onOpenWorkspaceSettings: () => openSettings('workspace'),
+    registerBreadcrumbs: (crumbs) => {
+      setNavBreadcrumbs(() => crumbs)
+      return () => {
+        if (navBreadcrumbs() === crumbs) setNavBreadcrumbs(undefined)
+      }
+    },
   }
 
   // The active workspace's accent themes the whole app while it is active
@@ -866,6 +894,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         hideSidebarToggle={designerActive()}
         platform={props.platform}
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
+        breadcrumbs={topBarBreadcrumbs()}
         onOpenNotifications={() => openSettings('input-notifications')}
         actionsMount={setToolbarMount}
         showDevActions={activeAppId() === 'dev'}
@@ -1033,6 +1062,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                             utilityHostOwnedByShell
                             deepLinkSelection={devDeepLinkSelection}
                             onSelectionChange={applyDevSelection}
+                            onBreadcrumbChange={setDevBreadcrumb}
                           />
                         }
                       >

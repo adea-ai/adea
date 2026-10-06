@@ -25,6 +25,7 @@ import {
   onMount,
   Show,
   Suspense,
+  type Accessor,
   type JSX,
 } from 'solid-js'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -54,6 +55,7 @@ import {
   type NavMenuItemId,
   type ViewAdapter,
 } from '@adea-ai/workspace-nav/adapters'
+import { breadcrumbsFor } from '@adea-ai/workspace-nav/breadcrumbs'
 import { sortWorkspaces, type NavLeaf, type NavProject } from '@adea-ai/workspace-nav/model'
 import { WorkspaceNav } from '@adea-ai/workspace-nav/workspace-nav'
 
@@ -61,6 +63,7 @@ import { keyedRows } from './keyed-rows'
 import { createProjectShare, ProjectShareHost, type ProjectShareContext } from './project-share'
 import { createClientRequestId } from './request-id'
 import { SidebarToggleButton } from './sidebar-toggle-button'
+import type { WorkspaceBreadcrumb } from './workspace-breadcrumbs'
 import type { WorkspaceNavigation } from './workspace-model'
 import {
   buildWorkspaceNavSource,
@@ -103,6 +106,12 @@ export type WorkspaceNavHost = Readonly<{
   onOpenWorkspaceSettings?: () => void
   /** The desktop cross-workspace Dev summary, when the host has one (ADR 0011). */
   devSummary?: readonly DevWorkspaceSummary[]
+  /**
+   * Hand the top bar this sidebar's Workspace › Project › Leaf path while it is
+   * mounted. Returns the unregister call; a later registration wins, so a
+   * view swap never clears the crumbs the incoming view just published.
+   */
+  registerBreadcrumbs?: (crumbs: Accessor<readonly WorkspaceBreadcrumb[]>) => () => void
 }>
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'adea:workspace-sidebar-width'
@@ -343,6 +352,42 @@ export function WorkspaceNavSidebar(props: Props) {
   }))
   const groupBy = useWorkspaceState((state) => state.sidebarGroupBy[workspaceId()] ?? 'project')
   const collapsedProjects = createMemo(() => new Set(props.collapsedProjectIds))
+
+  // The top bar's path follows the sidebar's own tree and selection. An
+  // earlier crumb opens its default leaf exactly as clicking that row does.
+  const openLeafTarget = (leafId: string, projectId: string) => {
+    const target = source().targets.get(leafId)
+    if (!target) return
+    if (target.kind === 'channel') props.onSelectChannel(target.channel.id, projectId)
+    else if (target.task.conversation.channelId)
+      props.onSelectChannel(target.task.conversation.channelId, projectId)
+    else props.onOpenTask(target.task)
+  }
+  const leafHref = (leafId: string) => {
+    const target = source().targets.get(leafId)
+    if (!target || typeof window === 'undefined') return undefined
+    const url = new URL(window.location.href)
+    if (target.kind === 'channel') url.searchParams.set('channel', target.channel.id)
+    else if (target.task.conversation.channelId)
+      url.searchParams.set('channel', target.task.conversation.channelId)
+    else url.searchParams.set('task', target.task.id)
+    return url.toString()
+  }
+  const breadcrumbs = createMemo<readonly WorkspaceBreadcrumb[]>(() =>
+    breadcrumbsFor(source().tree, { leafId: props.selectedChannelId }, adapter()).map((crumb) => {
+      const target = crumb.target
+      if (!target) return crumb
+      return {
+        ...crumb,
+        href: leafHref(target.leafId),
+        onSelect: () => openLeafTarget(target.leafId, target.projectId),
+      }
+    })
+  )
+  onMount(() => {
+    const unregister = props.host.registerBreadcrumbs?.(breadcrumbs)
+    if (unregister) onCleanup(unregister)
+  })
 
   const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
   const readStateByChannel = createMemo(
