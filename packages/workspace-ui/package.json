@@ -76,6 +76,20 @@
       "import": "./dist/workspace-settings.js",
       "default": "./dist/workspace-settings.js"
     },
+    "./workspace-settings-section": {
+      "types": "./dist/workspace-settings-section.d.ts",
+      "solid": "./src/workspace-settings-section.ts",
+      "development": "./src/workspace-settings-section.ts",
+      "import": "./dist/workspace-settings-section.js",
+      "default": "./dist/workspace-settings-section.js"
+    },
+    "./workspace-details-dialog": {
+      "types": "./dist/workspace-details-dialog.d.ts",
+      "solid": "./src/workspace-details-dialog.tsx",
+      "development": "./src/workspace-details-dialog.tsx",
+      "import": "./dist/workspace-details-dialog.js",
+      "default": "./dist/workspace-details-dialog.js"
+    },
     "./conventional-workspace-shell": {
       "types": "./dist/conventional-workspace-shell.d.ts",
       "solid": "./src/conventional-workspace-shell.tsx",

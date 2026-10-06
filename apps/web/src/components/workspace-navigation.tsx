@@ -30,6 +30,11 @@ import {
 } from '@adea-ai/workspace-ui/rail-preferences'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 import {
+  workspaceSettingsHash,
+  workspaceSettingsSectionFromHash,
+  type WorkspaceSettingsSection,
+} from '@adea-ai/workspace-ui/workspace-settings-section'
+import {
   createSharedDevUtilityOwner,
   createUnavailableDevUtilityRuntime,
   type SharedDevUtilityOwner,
@@ -274,6 +279,16 @@ const WorkspaceSettingsDialog = lazyComponent(
   { ssr: false }
 )
 
+// The per-workspace settings dialog the sidebar's workspace gear opens. Lazy
+// like app Settings: its chunk loads only when the dialog opens.
+const WorkspaceDetailsDialog = lazyComponent(
+  () =>
+    import('@adea-ai/workspace-ui/workspace-details-dialog').then(
+      ({ WorkspaceDetailsDialog: DetailsDialog }) => DetailsDialog
+    ),
+  { ssr: false }
+)
+
 function WorkspaceEntryLoading() {
   return (
     <main class="conventional-workspace conventional-workspace--loading" aria-busy="true">
@@ -296,13 +311,15 @@ function preloadView(nextView: WorkspaceView) {
 
 // Same trick for the overlay panels: hovering the rail button or the account
 // menu trigger downloads the dialog chunk before the click lands.
-function preloadPanel(panel: 'about' | 'help' | 'plugins' | 'settings') {
+function preloadPanel(panel: 'about' | 'help' | 'plugins' | 'settings' | 'workspace-settings') {
   if (panel === 'plugins') {
     void import('@adea-ai/workspace-ui/plugins-dialog')
     // The dialog's catalog provider resolves through the same deferred import.
     void import('@adea-ai/workspace-ui/plugins')
   } else if (panel === 'settings') {
     void import('@adea-ai/workspace-ui/workspace-settings')
+  } else if (panel === 'workspace-settings') {
+    void import('@adea-ai/workspace-ui/workspace-details-dialog')
   } else if (panel === 'help') {
     void import('@adea-ai/workspace-ui/workspace-help-center')
   } else {
@@ -325,7 +342,6 @@ function WorkspaceSettingsOverlay(props: {
   workspace: WorkspaceSummary
 }) {
   const agentsQuery = useAgentListQuery(props.client, () => props.workspace.id)
-  const updateWorkspace = useUpdateWorkspaceMutation(props.client)
   return (
     <WorkspaceSettingsDialog
       accountAuthenticated={props.accountAuthenticated}
@@ -333,17 +349,40 @@ function WorkspaceSettingsOverlay(props: {
       accountLabel={props.accountLabel}
       agents={settledData(agentsQuery) ?? []}
       busy={props.busy}
-      client={props.client}
       onClose={props.onClose}
       onOpenAgents={props.onOpenAgents}
       onSignIn={props.onSignIn}
       onSignOut={props.onSignOut}
+      open={props.open}
+      restoreFocusRef={props.restoreFocusRef}
+      permissionsService={isDesktopRuntime() ? desktopMacPermissionsService : undefined}
+      services={props.services}
+      workspace={props.workspace}
+    />
+  )
+}
+
+/**
+ * The active workspace's own settings (identity, Memory, Skills,
+ * Connections), opened from the sidebar's workspace gear. Workspace updates
+ * save through the versioned workspace mutation.
+ */
+function WorkspaceDetailsOverlay(props: {
+  client: AgentHqApiClient
+  onClose: () => void
+  open: boolean
+  services: WorkspacePlatformServices
+  workspace: WorkspaceSummary
+}) {
+  const updateWorkspace = useUpdateWorkspaceMutation(props.client)
+  return (
+    <WorkspaceDetailsDialog
+      client={props.client}
+      onClose={props.onClose}
       onUpdateWorkspace={async (update) => {
         await updateWorkspace.mutateAsync({ update, workspaceId: props.workspace.id })
       }}
       open={props.open}
-      restoreFocusRef={props.restoreFocusRef}
-      permissionsService={isDesktopRuntime() ? desktopMacPermissionsService : undefined}
       services={props.services}
       workspace={props.workspace}
     />
@@ -760,7 +799,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       return props.devSummary?.()
     },
     onSwitchWorkspace: (workspace) => switchToWorkspace(workspace),
-    onOpenWorkspaceSettings: () => openSettings('workspace'),
+    onOpenWorkspaceSettings: () => openWorkspaceSettings(),
     registerBreadcrumbs: (crumbs) => {
       setNavBreadcrumbs(() => crumbs)
       return () => {
@@ -780,7 +819,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       view() === 'dev' ||
       (props.chatEntry !== undefined && view() !== 'virtual' && activeAppId() !== 'kanban'),
     switchToWorkspace,
-    openWorkspaceSettings: () => openSettings('workspace'),
+    openWorkspaceSettings: () => openWorkspaceSettings(),
     devSummary: () => props.devSummary?.(),
   })
 
@@ -804,6 +843,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
 
   const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)
   const settingsOpen = () => globalPanel() === 'settings' || hashSettingsOpen()
+  const [hashWorkspaceSettingsOpen, setHashWorkspaceSettingsOpen] = createSignal(false)
+  const workspaceSettingsOpen = () =>
+    globalPanel() === 'workspace-settings' || hashWorkspaceSettingsOpen()
 
   createEffect(() => {
     const activeWorkspace = props.activeWorkspace
@@ -833,9 +875,16 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     // Captures the component's settings-open signal and the workspace store setter.
     // oxlint-disable-next-line unicorn/consistent-function-scoping
     const openDeepLinkedSettings = () => {
-      setHashSettingsOpen(window.location.hash.startsWith('#settings'))
-      if (window.location.hash.startsWith('#settings'))
-        workspaceStore.getState().setGlobalPanel('settings')
+      // `#workspace-settings/<section>` opens the workspace settings dialog,
+      // and so do the retired `#settings/workspace|memory|skills|connections`
+      // links (the dialog rewrites them to the canonical hash). Every other
+      // `#settings/<section>` opens app Settings.
+      const workspaceSection = workspaceSettingsSectionFromHash(window.location.hash)
+      const appSettings = !workspaceSection && window.location.hash.startsWith('#settings')
+      setHashWorkspaceSettingsOpen(workspaceSection !== undefined)
+      setHashSettingsOpen(appSettings)
+      if (workspaceSection) workspaceStore.getState().setGlobalPanel('workspace-settings')
+      else if (appSettings) workspaceStore.getState().setGlobalPanel('settings')
     }
     openDeepLinkedSettings()
     window.addEventListener('hashchange', openDeepLinkedSettings)
@@ -906,14 +955,21 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     window.dispatchEvent(new PopStateEvent('popstate'))
     if (enabled && view() !== 'virtual') void setViewParam('virtual')
   }
-  const openSettings = (
-    section: 'account' | 'input-notifications' | 'integrations' | 'workspace'
-  ) => {
+  const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
     window.history.replaceState(null, '', `#settings/${section}`)
+    setHashWorkspaceSettingsOpen(false)
     setHashSettingsOpen(true)
     // Settings is a global overlay. Keep the current surface mounted so the
     // virtual scene does not disappear before its dialog can open.
     workspaceStore.getState().setGlobalPanel('settings')
+  }
+  // The sidebar's workspace gear: the active workspace's own settings dialog,
+  // a global overlay like app Settings, deep-linked the same way.
+  const openWorkspaceSettings = (section: WorkspaceSettingsSection = 'general') => {
+    window.history.replaceState(null, '', workspaceSettingsHash(section))
+    setHashSettingsOpen(false)
+    setHashWorkspaceSettingsOpen(true)
+    workspaceStore.getState().setGlobalPanel('workspace-settings')
   }
   const openSearch = () => {
     if (resolveWorkspaceApp(railPreferences(), 'chat')?.id !== 'chat') {
@@ -1253,6 +1309,18 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           onSignOut={() => void props.account.onSignOut()}
           open
           restoreFocusRef={settingsOpener}
+          services={props.services}
+          workspace={props.activeWorkspace!}
+        />
+      </Show>
+      <Show when={props.activeWorkspace && workspaceSettingsOpen()}>
+        <WorkspaceDetailsOverlay
+          client={props.client}
+          onClose={() => {
+            setHashWorkspaceSettingsOpen(false)
+            workspaceStore.getState().setGlobalPanel(null)
+          }}
+          open
           services={props.services}
           workspace={props.activeWorkspace!}
         />

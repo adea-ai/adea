@@ -99,8 +99,26 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // 6,398 gzip; startup grows 1,077 raw for the api-client methods. Without
   // the lazy chunk the total fits the previous cap. Raw moves to 2,905,000
   // (~0.8% headroom); gzip and file count hold.
-  total: { rawBytes: 2_905_000, gzipBytes: 855 * 1024, fileCount: 150 },
-  startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
+  // Workspace settings dialog (2026-10-06), measured against the same build
+  // of main (b1cc93f1): 2,885,873 raw / 875,160 gzip / 146 files before
+  // (360 bytes under the gzip cap), 2,892,931 / 879,577 / 152 after
+  // (+7.1 KB raw / +4.4 KB gzip, +6 files). The sidebar gear's per-workspace
+  // settings dialog is its own lazy chunk; the shared ModalDialog, Tabs,
+  // SettingsNavigation, RadioGroup and section icons both settings dialogs
+  // use split into shared lazy chunks instead of riding inside app Settings,
+  // which is most of the gzip delta (more, smaller chunks compress apart).
+  // Raw holds (~0.4% headroom); gzip moves to 865 KiB (~0.7%); file count
+  // moves to the next 5-file step (155).
+  total: { rawBytes: 2_905_000, gzipBytes: 865 * 1024, fileCount: 155 },
+  // Workspace settings dialog (2026-10-06): 722,411 raw / 235,972 gzip
+  // across 26 files against the same build of main's 720,141 / 235,135 / 25
+  // (main sat 385 bytes under the gzip cap). The navigation entry now reads
+  // `#workspace-settings/<section>` (and the retired `#settings/workspace|
+  // memory|skills|connections` links) and hosts the dialog's lazy boundary;
+  // the deep-link helpers share the small startup chunk the search icons
+  // already used. The dialog itself stays lazy. Gzip ratchets to 232 KiB
+  // (~0.7% headroom); raw keeps its cap.
+  startup: { rawBytes: 720 * 1024, gzipBytes: 232 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now
