@@ -1,3 +1,4 @@
+import { AgentHqQueryProvider } from '@adea-ai/data/provider'
 import { createFileRoute } from '@tanstack/solid-router'
 
 import { AcceptInvitation } from '../../components/accept-invitation'
@@ -17,7 +18,9 @@ function InvitePage() {
   return (
     <main class="auth-shell">
       <section class="auth-panel" aria-labelledby="accept-invitation-title">
-        <AcceptInvitation />
+        <AgentHqQueryProvider>
+          <AcceptInvitation />
+        </AgentHqQueryProvider>
       </section>
     </main>
   )

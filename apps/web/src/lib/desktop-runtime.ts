@@ -108,8 +108,3 @@ export function desktopRuntime(): DesktopRuntime {
   runtime ??= createDesktopRuntime(desktopCloudOrigin())
   return runtime
 }
-
-/** Test seam: replace the memoized runtime. */
-export function resetDesktopRuntime(): void {
-  runtime = undefined
-}

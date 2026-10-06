@@ -205,9 +205,11 @@ describe('desktop packaging and single-UI client boundary', () => {
     const webStyles = await readFile(join(root, 'apps/web/src/start/globals.css'), 'utf8')
     expect(webStyles).toContain('.workspace-scene-viewport [data-agent-hq-on-screen-controls]')
     expect(webStyles).toContain('- 0.45rem')
-    expect(webStyles).toContain('env(safe-area-inset-top)')
-    expect(webStyles).toContain('max-width: calc(100% - 2.5rem)')
     expect(webStyles).not.toContain('width: 100vw')
+    // The floating scene tools and view switcher retired with the top bar;
+    // their safe-area chrome must not come back as dead rules.
+    expect(webStyles).not.toContain('.workspace-scene-tools')
+    expect(webStyles).not.toContain('.workspace-view-switcher')
 
     // The desktop runtime renders the shared navigation; only the start
     // surface is flag-guarded, and it uses shared auth-shell classes.
@@ -408,8 +410,6 @@ describe('desktop packaging and single-UI client boundary', () => {
     // handoff that reopens the updates dialog from its trigger.
     expect(accountMenu).toContain("item.id === 'updates'")
     expect(desktopEntry).toContain('onOpenUpdates: () => props.onUpdatesOpenChange(true)')
-    expect(webStyles).toContain('env(safe-area-inset-top)')
-    expect(webStyles).toContain('max-width: calc(100% - 2.5rem)')
     expect(webStyles).not.toContain('max-width: calc(100vw - 2.5rem)')
   })
 

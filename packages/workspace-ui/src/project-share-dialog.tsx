@@ -4,8 +4,10 @@ import {
   useCreateWorkspaceInvitationMutation,
   useProjectMembersQuery,
   useRemoveProjectMemberMutation,
+  useRevokeWorkspaceInvitationMutation,
   useSetProjectMemberMutation,
   useSetProjectVisibilityMutation,
+  useWorkspaceInvitationsQuery,
   useWorkspaceMembersQuery,
 } from '@adea-ai/data'
 import type {
@@ -13,9 +15,21 @@ import type {
   ProjectSummary,
   ProjectVisibility,
   WorkspaceInvitationRole,
+  WorkspaceInvitationSummary,
 } from '@adea-ai/types'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@adea-ai/ui/components/ui/alert-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ValueCombobox } from '@adea-ai/ui/components/ui/combobox'
 import { Input } from '@adea-ai/ui/components/ui/input'
@@ -26,7 +40,13 @@ import { RadioGroup, RadioGroupItem } from '@adea-ai/ui/components/ui/radio-grou
 import { X } from 'lucide-solid'
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
-import { canManageSharing, memberLabel, shareCandidates } from './project-share-model'
+import {
+  canManageSharing,
+  invitationDetail,
+  memberLabel,
+  pendingInvitations,
+  shareCandidates,
+} from './project-share-model'
 
 const PROJECT_ROLE_OPTIONS = [
   { label: 'Can edit', value: 'editor' },
@@ -52,7 +72,8 @@ export type ProjectShareDialogProps = Readonly<{
  * Share a project (ADR 0012): who can see it, who is on it with which role,
  * and invitations into the workspace. Workspace owners and admins change
  * sharing; everyone else who can see the project gets a read-only view.
- * Invitations produce a copyable link — no email is sent.
+ * Invitations produce a copyable link — no email is sent — and stay listed as
+ * pending until accepted, so an owner or admin can revoke one before it is used.
  */
 export function ProjectShareDialog(props: ProjectShareDialogProps) {
   const workspaceId = () => props.workspaceId
@@ -63,6 +84,7 @@ export function ProjectShareDialog(props: ProjectShareDialogProps) {
   const setMember = useSetProjectMemberMutation(props.client, workspaceId, projectId)
   const removeMember = useRemoveProjectMemberMutation(props.client, workspaceId, projectId)
   const createInvitation = useCreateWorkspaceInvitationMutation(props.client, workspaceId)
+  const revokeInvitation = useRevokeWorkspaceInvitationMutation(props.client, workspaceId)
 
   const [visibility, setVisibilityValue] = createSignal<ProjectVisibility>(props.project.visibility)
   const [candidate, setCandidate] = createSignal('')
@@ -76,6 +98,9 @@ export function ProjectShareDialog(props: ProjectShareDialogProps) {
   const members = () => settledData(workspaceMembers)?.members ?? []
   const listed = () => settledData(projectMembers)?.members ?? []
   const canManage = createMemo(() => canManageSharing(members(), props.currentUserId))
+  // Only owners and admins may list invitations; the server enforces the same rule.
+  const invitations = useWorkspaceInvitationsQuery(props.client, workspaceId, canManage)
+  const pending = createMemo(() => pendingInvitations(settledData(invitations)?.invitations ?? []))
   const candidates = createMemo(() => shareCandidates(members(), listed()))
 
   const run = async (work: () => Promise<unknown>, failure: string) => {
@@ -122,6 +147,12 @@ export function ProjectShareDialog(props: ProjectShareDialogProps) {
       setInviteEmail('')
     }, 'The invitation could not be created. Check the email address and try again.')
   }
+
+  const revoke = (invitation: WorkspaceInvitationSummary) =>
+    void run(
+      () => revokeInvitation.mutateAsync(invitation.id),
+      'The invitation could not be revoked. Try again.'
+    )
 
   const copyLink = () => {
     const link = inviteLink()
@@ -310,6 +341,69 @@ export function ProjectShareDialog(props: ProjectShareDialogProps) {
                   </p>
                 </div>
               )}
+            </Show>
+          </section>
+
+          <section class="flex flex-col gap-3" aria-labelledby="project-share-pending">
+            <h3 id="project-share-pending" class="text-sm font-medium">
+              Pending invitations
+            </h3>
+            <Show
+              when={pending().length}
+              fallback={
+                <p class="text-sm text-muted-foreground">
+                  No invitations are waiting to be accepted.
+                </p>
+              }
+            >
+              <ul class="flex flex-col gap-2" aria-label="Pending invitations">
+                <For each={pending()}>
+                  {(invitation) => (
+                    <li class="flex items-center gap-2">
+                      <span class="flex min-w-0 flex-1 flex-col">
+                        <span class="truncate text-sm">{invitation.email}</span>
+                        <span class="text-xs text-muted-foreground">
+                          {invitationDetail(invitation)}
+                        </span>
+                      </span>
+                      <AlertDialog>
+                        <AlertDialogTrigger
+                          as={Button}
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Revoke the invitation for ${invitation.email}`}
+                          disabled={revokeInvitation.isPending}
+                        >
+                          Revoke
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Revoke this invitation?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              The link sent to {invitation.email} stops working immediately. You can
+                              create a new one later.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel as={Button} type="button" variant="outline">
+                              Keep invitation
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                              as={Button}
+                              type="button"
+                              variant="destructive"
+                              onClick={() => revoke(invitation)}
+                            >
+                              Revoke
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </li>
+                  )}
+                </For>
+              </ul>
             </Show>
           </section>
         </Show>
