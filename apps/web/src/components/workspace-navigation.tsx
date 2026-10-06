@@ -1112,7 +1112,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             <ActionButton
               ref={setUtilityOpener}
               type="button"
-              variant="outline"
+              variant="ghost"
               size="icon-sm"
               class="workspace-topbar__control"
               tooltip={
