@@ -20,6 +20,23 @@ function collectBytes(process: PtyProcess): { received: Uint8Array[]; text(): st
   }
 }
 
+/**
+ * Real-PTY teardown for the single-process suite. A PTY child that exits while
+ * its output is still unread stays in exit on macOS until its controlling tty
+ * drains, and Bun reaps it with a blocking wait4 on the same thread that would
+ * drain it — the intermittent full-suite hang. Real-PTY children here
+ * therefore stay alive past their output (`exec sleep`), are killed only after
+ * the bytes were read, and are torn down with an observed exit.
+ */
+async function killAndAwaitExit(process: PtyProcess): Promise<void> {
+  const exited = new Promise<boolean>((resolve) => {
+    process.onExit(() => resolve(true))
+  })
+  process.kill('SIGKILL')
+  const observed = await Promise.race([exited, Bun.sleep(5_000).then(() => false)])
+  expect(observed).toBe(true)
+}
+
 describe('bun pty adapter contract', () => {
   test('reports unsupported platforms as typed capability state, never a fallback', () => {
     const adapter = createBunPtyAdapter('win32')
@@ -50,8 +67,8 @@ describe('bun pty adapter contract', () => {
     const adapter = createBunPtyAdapter(process.platform)
     if (!adapter.capability.supported) return
     const spawned = adapter.spawn({
-      shell: '/bin/echo',
-      args: ['adea-pty-preassignment'],
+      shell: '/bin/sh',
+      args: ['-c', 'printf adea-pty-preassignment; exec sleep 30'],
       cwd: '/tmp',
       cols: 80,
       rows: 24,
@@ -62,7 +79,7 @@ describe('bun pty adapter contract', () => {
     const collector = collectBytes(spawned.value)
     await Bun.sleep(120)
     expect(collector.text()).toContain('adea-pty-preassignment')
-    spawned.value.kill('SIGKILL')
+    await killAndAwaitExit(spawned.value)
   })
 
   test('survives a spawn failure as a typed error', () => {
@@ -119,7 +136,7 @@ describe('real bun pty on this platform', () => {
       if (!adapter.capability.supported) return
       const spawned = adapter.spawn({
         shell: '/bin/sh',
-        args: ['-c', 'printf "héllo\\377wörld"'],
+        args: ['-c', 'printf "héllo\\377wörld"; exec sleep 30'],
         cwd: '/tmp',
         cols: 80,
         rows: 24,
@@ -134,7 +151,7 @@ describe('real bun pty on this platform', () => {
       expect(text).toContain('héllo')
       expect(text).toContain('wörld')
       expect(raw.includes(0xff)).toBe(true)
-      spawned.value.kill('SIGKILL')
+      await killAndAwaitExit(spawned.value)
     }
   )
 })
