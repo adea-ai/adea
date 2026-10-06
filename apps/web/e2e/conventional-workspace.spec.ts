@@ -3021,6 +3021,74 @@ test('top bar history traverses app destinations and truncates a forward branch'
   await expect(toolbar.getByRole('button', { name: 'Forward', exact: true })).toBeDisabled()
 })
 
+test('top bar Back, Forward and the context toggle each take their own hits at 320px', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  const toolbar = page.getByLabel('Workspace toolbar')
+  const back = toolbar.getByRole('button', { name: 'Back', exact: true })
+  const forward = toolbar.getByRole('button', { name: 'Forward', exact: true })
+  // Chat -> Virtual -> App Library, then Back to Virtual: both history
+  // controls are enabled (a disabled control takes no pointer hits) on a
+  // view whose bar carries the context toggle.
+  await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  await expect(page.getByRole('main', { name: 'App Library' })).toBeVisible()
+  await back.click()
+  await expect(page.getByRole('main', { name: 'App Library' })).toHaveCount(0)
+  await expect(back).toBeEnabled()
+  await expect(forward).toBeEnabled()
+
+  await page.setViewportSize({ width: 320, height: 800 })
+  const toggle = toolbar.getByRole('button', {
+    name: /^(Expand|Collapse) contextual sidebar$/,
+  })
+  for (const fontSize of ['100%', '200%']) {
+    await page.evaluate((size) => {
+      document.documentElement.style.fontSize = size
+    }, fontSize)
+    for (const [name, control] of [
+      ['Back', back],
+      ['Forward', forward],
+      ['context toggle', toggle],
+    ] as const) {
+      await expect(control, `${name} renders at 320px`).toBeVisible()
+      // The auto start column used to squeeze these controls until a neighbour
+      // painted over their edges; every sample across each one must hit it.
+      const hits = await control.evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        return {
+          width: rect.width,
+          height: rect.height,
+          inViewport: rect.left >= 0 && rect.right <= window.innerWidth,
+          samples: [0.05, 0.25, 0.5, 0.75, 0.95].map((fraction) => {
+            const probe = document.elementFromPoint(
+              rect.x + rect.width * fraction,
+              rect.y + rect.height / 2
+            )
+            return probe === element || element.contains(probe)
+          }),
+        }
+      })
+      expect(hits.inViewport, `${name} stays inside the 320px viewport`).toBe(true)
+      expect(
+        Math.min(hits.width, hits.height),
+        `${name} pointer target minimum`
+      ).toBeGreaterThanOrEqual(24)
+      expect(hits.samples, `${name} fully usable at 320px, ${fontSize} root size`).toEqual([
+        true,
+        true,
+        true,
+        true,
+        true,
+      ])
+    }
+  }
+})
+
 test('optional apps open actual task and source control views without hiding the global rail', async ({
   page,
 }) => {
