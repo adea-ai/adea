@@ -886,6 +886,12 @@
   display: grid;
   gap: 0.5rem;
 }
+.conventional-task-panel__executions {
+  display: grid;
+  gap: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
 .conventional-task-panel__actions {
   display: grid;
   gap: 0.5rem;

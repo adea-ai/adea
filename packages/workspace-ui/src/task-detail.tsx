@@ -1,4 +1,6 @@
 import type { AgentSummary, ProjectSummary, TaskSummary } from '@adea-ai/types'
+
+import { describeExecutionAttempt } from './execution-location-copy'
 import {
   Archive,
   Bot,
@@ -519,6 +521,27 @@ export function TaskPanel(props: CreateProps | EditProps) {
                   </ul>
                 </div>
               </FormField>
+              <Show when={initial?.execution} keyed>
+                {(execution) => (
+                  <FormField label="Execution" group>
+                    <ul class="conventional-task-panel__executions">
+                      <For each={execution.attempts}>
+                        {(attempt) => (
+                          <li
+                            title={
+                              attempt.runtimeNodeId !== undefined
+                                ? attempt.runtimeNodeId
+                                : undefined
+                            }
+                          >
+                            {describeExecutionAttempt(attempt)}
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </FormField>
+                )}
+              </Show>
             </Show>
           </form>
           <Show when={editing()}>
