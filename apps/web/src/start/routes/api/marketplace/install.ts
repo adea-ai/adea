@@ -16,6 +16,7 @@ import {
   MarketplaceProxyError,
   proxyMarketplaceInstall,
 } from '../../../../server/marketplace-proxy'
+import { controlPlaneScopeResolver } from '../../../../server/control-plane-scope'
 
 function isInstallInput(value: unknown): value is {
   canonicalContentDigest: string
@@ -107,7 +108,8 @@ async function post(request: Request) {
         ...body,
         workspaceIdentity: { ...body.workspaceIdentity, userId: resolution.principal.userId },
       },
-      inboundCorrelation(request)
+      inboundCorrelation(request),
+      { resolveControlPlaneScope: controlPlaneScopeResolver(workspaceId) }
     )
     return workspaceJsonResponse(await response.json(), resolution, request, {
       headers: { 'cache-control': 'no-store' },

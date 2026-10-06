@@ -1947,7 +1947,10 @@ A refused or malformed reply keeps the last observed rows instead of guessing
 an empty list. A refresh that changes nothing keeps the rendered rows (the
 tree reuses unchanged workspace, project and leaf objects, and counts-only
 changes keep the expanded workspace mounted), so polling never drops keyboard
-focus or an open menu.
+focus or an open menu. The one `stabilizeNavTree` in
+`@adea-ai/workspace-nav/model` does this for Dev, Chat and Virtual alike, and
+the desktop summary poll keeps its previous array when a read observed the
+same counts.
 
 Selecting a leaf selects its worktree's most recent live session (the current
 selection when it is already on that leaf) and reports it through
@@ -1976,7 +1979,8 @@ and announced, never swallowed.
 The sidebar's shell is the published `@adea-ai/ui` `ContextualSidebar` and
 `PixelResizeHandle` composition, shared with the Chat/Virtual
 `WorkspaceNavSidebar`: landmark "Workspace navigation", one stored width
-(`adea:workspace-sidebar-width`, 208–448px) projected into the workspace
+(`adea:workspace-sidebar-width`, 208–448px, owned by the one
+`@adea-ai/workspace-nav/sidebar-width` module) projected into the workspace
 frame, the archive shelf in the footer. Shared UI owns the responsive
 desktop/mobile shell, heading, scrolling and footer slots, collapse semantics,
 edge resize handle, tree keyboard model and focus treatment; Adea owns the
@@ -3075,8 +3079,9 @@ is an authorized source; a worktree is one checkout; a session binds execution.
 None is an alias for another. The register has no project groups and no
 project order: the cloud project record owns name, order, and grouping, and
 the desktop binds local repositories to it by cloud project id. Project
-collapse is ephemeral `packages/state` UI state (`collapsedDevProjectIds`), not
-a host command.
+collapse is `packages/state` UI state (`collapsedProjectIds`), not a host
+command; Dev, Chat and Virtual render the same cloud project ids, so they
+share that one collapse set.
 
 The add surface supports recent/indexed folders, picker/import, clone URL,
 authenticated GitHub selection, monorepo package, and known external worktree.
@@ -5578,13 +5583,17 @@ no workspace switcher (ADR 0011). Chat and Virtual mount the shared
 (landmark "Workspace navigation", width key `adea:workspace-sidebar-width`):
 quick actions, a "Needs you" strip that totals mentions across workspaces
 (hidden at zero; the desktop Dev summary adds input-needing runs once it
-ships), the Workspaces heading with always-visible group-by and New workspace
+ships; activating it switches to the first other workspace that needs the
+user, else groups the active workspace by status — the same fallback as
+Dev), the Workspaces heading with always-visible group-by and New workspace
 actions, the active workspace expanded with its projects, and every other
 workspace as one row with unread and mention chips whose click switches
 through the same guarded helper `?workspace=` links use. New workspace is an
 inline draft row: Enter creates it with a fresh idempotency key and the home
-world, then switches; a failure shows inline and keeps the typed name. The
-grouping (project, status, recent) is persisted per workspace. A project's
+world, then switches; a repeat Enter while that create is pending is ignored,
+and a failure shows inline and keeps the typed name. The grouping (project,
+status, recent: the one `sidebarGroupModes` list in `@adea-ai/types`) is
+persisted per workspace. A project's
 primary channel is its default leaf; its other channels and open tasks are
 leaves whose status is running for a task in progress, in review for a task in
 review, and idle otherwise; unread activity is a count, never a status. Project

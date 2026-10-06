@@ -3,6 +3,9 @@ import { withRequestScope } from '../../../../../../server/request-scope'
 import type { ApiProjectCreateInput, ApiProjectResponse } from '@adea-ai/api-client'
 import { createProject, isProjectId, isProjectSourceKind, listProjectsForUser } from '@adea-ai/db'
 
+import { runAfterResponse } from '../../../../../../server/background-task'
+import { initializeControlPlaneProjectState } from '../../../../../../server/control-plane-project-state'
+import { controlPlaneScopeResolver } from '../../../../../../server/control-plane-scope'
 import { applicationDatabase } from '../../../../../../server/database'
 import {
   guardDesktopWorkspaceRequest,
@@ -73,6 +76,16 @@ async function post(request: Request, { params }: { params: { workspaceId: strin
     const payload: ApiProjectResponse = {
       project: await createProject(applicationDatabase(), workspaceId, resolution.principal, input),
     }
+    // ADR 0013: initialize the project's Control Plane state once the row has
+    // committed, after the response and in its own request scope (its own
+    // database connection), so a slow or failing Control Plane never fails
+    // or delays project creation.
+    const projectId = payload.project.id
+    runAfterResponse(() =>
+      withRequestScope(() =>
+        initializeControlPlaneProjectState(controlPlaneScopeResolver(workspaceId, projectId))
+      )
+    )
     return workspaceJsonResponse(payload, resolution, request, { status: 201 })
   } catch (error) {
     if (error instanceof Error && error.message === 'Project unavailable') {

@@ -110,7 +110,11 @@ test('loads Dev View only through the selected-view lazy boundary and intent pre
   const withoutLazyBoundaries = navigation.replace(devEntrySource, '').replace(preload, '')
 
   expect(devEntrySource).toContain("import('@adea-ai/dev-view')")
-  expect(preload).toContain("else if (nextView === 'dev') void import('@adea-ai/dev-view')")
+  expect(preload).toContain("else if (nextView === 'dev')")
+  // A bare namespace import keeps every barrel export (the DEV-only fixture
+  // workspace among them) in the production Dev entry chunk.
+  expect(preload).toMatch(/void import\('@adea-ai\/dev-view'\)\s*\.then\(\s*\(\{/)
+  expect(devEntrySource).toContain('import.meta.env.DEV')
   expect(navigation).toContain("when={view() !== 'dev'}")
   expect(withoutLazyBoundaries).not.toMatch(/(?:from\s*|import\()\s*['"]@adea-ai\/dev-view['"]/)
 })

@@ -330,6 +330,7 @@ export function DevProjectSettingsDialog(
     <ModalDialog
       open
       size="settings"
+      class="conventional-settings-dialog"
       onClose={props.onClose}
       title={`${props.projectName} settings`}
       description="The project's name and the local repositories bound to it on this device."

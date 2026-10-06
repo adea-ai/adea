@@ -30,6 +30,8 @@ import { Route as ApiAuthDesktopExchangeRouteImport } from './routes/api/auth/de
 import { Route as ApiAuthDesktopLogoutRouteImport } from './routes/api/auth/desktop/logout'
 import { Route as ApiAuthDesktopRefreshRouteImport } from './routes/api/auth/desktop/refresh'
 import { Route as ApiAuthDesktopRevokeRouteImport } from './routes/api/auth/desktop/revoke'
+import { Route as ApiMarketplaceInstallationsGetRouteImport } from './routes/api/marketplace/installations/get'
+import { Route as ApiMarketplaceInstallationsUninstallRouteImport } from './routes/api/marketplace/installations/uninstall'
 import { Route as ApiV1AccountSummaryRouteImport } from './routes/api/v1/account/summary'
 import { Route as ApiWorkspacesWorkspaceIdReopenRouteImport } from './routes/api/workspaces/$workspaceId/reopen'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents'
@@ -190,6 +192,18 @@ const ApiAuthDesktopRevokeRoute = ApiAuthDesktopRevokeRouteImport.update({
   path: '/api/auth/desktop/revoke',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMarketplaceInstallationsGetRoute =
+  ApiMarketplaceInstallationsGetRouteImport.update({
+    id: '/api/marketplace/installations/get',
+    path: '/api/marketplace/installations/get',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiMarketplaceInstallationsUninstallRoute =
+  ApiMarketplaceInstallationsUninstallRouteImport.update({
+    id: '/api/marketplace/installations/uninstall',
+    path: '/api/marketplace/installations/uninstall',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiV1AccountSummaryRoute = ApiV1AccountSummaryRouteImport.update({
   id: '/api/v1/account/summary',
   path: '/api/v1/account/summary',
@@ -517,6 +531,8 @@ export interface FileRoutesByFullPath {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
+  '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
@@ -590,6 +606,8 @@ export interface FileRoutesByTo {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
+  '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
@@ -664,6 +682,8 @@ export interface FileRoutesById {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
+  '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
@@ -739,6 +759,8 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/marketplace/installations/get'
+    | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/v1/workspaces/$workspaceId/agents'
@@ -812,6 +834,8 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/marketplace/installations/get'
+    | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/v1/workspaces/$workspaceId/agents'
@@ -885,6 +909,8 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/marketplace/installations/get'
+    | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/v1/workspaces/$workspaceId/agents'
@@ -956,6 +982,8 @@ export interface RootRouteChildren {
   ApiAuthDesktopLogoutRoute: typeof ApiAuthDesktopLogoutRoute
   ApiAuthDesktopRefreshRoute: typeof ApiAuthDesktopRefreshRoute
   ApiAuthDesktopRevokeRoute: typeof ApiAuthDesktopRevokeRoute
+  ApiMarketplaceInstallationsGetRoute: typeof ApiMarketplaceInstallationsGetRoute
+  ApiMarketplaceInstallationsUninstallRoute: typeof ApiMarketplaceInstallationsUninstallRoute
   ApiV1AccountSummaryRoute: typeof ApiV1AccountSummaryRoute
   ApiV1WorkspacesWorkspaceIdAgentsRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdArtifactsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
@@ -1124,6 +1152,20 @@ declare module '@tanstack/solid-router' {
       path: '/api/auth/desktop/revoke'
       fullPath: '/api/auth/desktop/revoke'
       preLoaderRoute: typeof ApiAuthDesktopRevokeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/marketplace/installations/get': {
+      id: '/api/marketplace/installations/get'
+      path: '/api/marketplace/installations/get'
+      fullPath: '/api/marketplace/installations/get'
+      preLoaderRoute: typeof ApiMarketplaceInstallationsGetRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/marketplace/installations/uninstall': {
+      id: '/api/marketplace/installations/uninstall'
+      path: '/api/marketplace/installations/uninstall'
+      fullPath: '/api/marketplace/installations/uninstall'
+      preLoaderRoute: typeof ApiMarketplaceInstallationsUninstallRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/account/summary': {
@@ -1774,6 +1816,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthDesktopLogoutRoute: ApiAuthDesktopLogoutRoute,
   ApiAuthDesktopRefreshRoute: ApiAuthDesktopRefreshRoute,
   ApiAuthDesktopRevokeRoute: ApiAuthDesktopRevokeRoute,
+  ApiMarketplaceInstallationsGetRoute: ApiMarketplaceInstallationsGetRoute,
+  ApiMarketplaceInstallationsUninstallRoute:
+    ApiMarketplaceInstallationsUninstallRoute,
   ApiV1AccountSummaryRoute: ApiV1AccountSummaryRoute,
   ApiV1WorkspacesWorkspaceIdAgentsRoute:
     ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren,

@@ -189,51 +189,6 @@ export type ApiProjectUpdateInput = Readonly<{
   sourceKind?: ProjectSourceKind
 }>
 
-export type ApiRuntimeNodeKey = Readonly<{
-  algorithm: 'ed25519' | 'x25519'
-  fingerprint: string
-  keyVersion: number
-  publicKey: string
-  retiredAt: string | null
-  role: 'signing' | 'command_encryption'
-  verifiedAt: string | null
-}>
-
-/** Product read model for a registered execution host. Public material only. */
-export type ApiRuntimeNode = Readonly<{
-  displayName: string
-  health: 'healthy' | 'stale' | 'unknown'
-  id: string
-  keys: readonly ApiRuntimeNodeKey[]
-  kind: 'local_device' | 'remote_host'
-  lastProofAt: string | null
-  lastSeenAt: string | null
-  pairedAt: string
-  pairingState: 'paired' | 'revoked'
-  platform: string
-  revocationReason: string | null
-  revokedAt: string | null
-  softwareVersion: string
-  trustMetadata: Record<string, unknown>
-}>
-
-export type ApiRuntimeNodeResponse = Readonly<{ nodes: readonly ApiRuntimeNode[] }>
-
-export type ApiRuntimeNodeChallenge = Readonly<{
-  challengeId: string
-  expiresAt: string
-  nonce: string
-}>
-
-export type ApiRuntimeNodeChallengeResponse = Readonly<{
-  challenge: ApiRuntimeNodeChallenge
-  /** Returned once for a `remote_host`; the server stores only its digest. */
-  exchangeCredential: string | null
-  node: null
-}>
-
-export type ApiRuntimeNodeRegistrationResponse = Readonly<{ node: ApiRuntimeNode }>
-
 export type ApiProjectResponse = Readonly<{ project: ProjectSummary }>
 export type ApiProjectMembersResponse = Readonly<{ members: readonly ProjectMemberSummary[] }>
 export type ApiProjectMemberResponse = Readonly<{ member: ProjectMemberSummary }>
@@ -306,6 +261,8 @@ export type ApiMarketplaceCatalogResponse = Readonly<{
     pluginId: string
     releaseId: string
     canonicalContentDigest: string
+    /** The handle for installation get and uninstall (Control Plane 3.x). */
+    installationId?: string
     installationInstanceId?: string
     packageDigest?: string
     state:
@@ -360,6 +317,40 @@ export type ApiMarketplaceInstallResponse = Readonly<{
   requiredConnectors: readonly string[]
   requiredCredentials: readonly string[]
   message?: string
+}>
+
+/** One installation as the Control Plane reports it for get and uninstall. */
+export type ApiMarketplaceInstallation = Readonly<{
+  installationId: string
+  pluginId: string
+  releaseId: string
+  canonicalContentDigest: string
+  catalogId: string
+  installationInstanceId?: string
+  packageDigest?: string
+  requestedHarness: string
+  state:
+    | 'pending-authorization'
+    | 'unavailable'
+    | 'rejected-by-policy'
+    | 'installed'
+    | 'superseded'
+    | 'uninstalled'
+  installedBy: string
+  installedAt: string
+  updatedAt: string
+  uninstalledBy?: string
+  uninstalledAt?: string
+}>
+
+export type ApiMarketplaceInstallationResponse = Readonly<{
+  installation: ApiMarketplaceInstallation
+}>
+
+export type ApiMarketplaceUninstallResponse = Readonly<{
+  installation: ApiMarketplaceInstallation
+  /** True when the installation was already uninstalled. */
+  replayed: boolean
 }>
 
 export type ApiDesktopSessionCredential = Readonly<{
@@ -500,6 +491,28 @@ export class AgentHqApiClient {
   ): Promise<ApiMarketplaceInstallResponse> {
     return this.request<ApiMarketplaceInstallResponse>('/marketplace/install', {
       body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async getMarketplaceInstallation(
+    workspaceId: string,
+    installationId: string
+  ): Promise<ApiMarketplaceInstallationResponse> {
+    return this.request<ApiMarketplaceInstallationResponse>('/marketplace/installations/get', {
+      body: JSON.stringify({ installationId, workspaceId }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async uninstallMarketplaceInstallation(
+    workspaceId: string,
+    installationId: string
+  ): Promise<ApiMarketplaceUninstallResponse> {
+    return this.request<ApiMarketplaceUninstallResponse>('/marketplace/installations/uninstall', {
+      body: JSON.stringify({ installationId, workspaceId }),
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
     })

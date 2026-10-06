@@ -103,7 +103,14 @@ also writes a `.wrangler/deploy/config.json` redirect. The legacy
      `adea-web-2026-10`) expires 2027-10-01; rotate it in the store record
      `AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN` and register the next
      public key in the Control Plane's `CONTROL_PLANE_SERVICE_AUTH_TRUSTED_KEYS`
-     before then. Rotating `NEON_AUTH_COOKIE_SECRET` invalidates every Worker
+     before then. That static token is the unscoped fallback: once the
+     per-request signing key (`CONTROL_PLANE_SIGNING_KEY`, with
+     `CONTROL_PLANE_SIGNING_KEY_ID` and `CONTROL_PLANE_SIGNING_ISSUER`) is
+     provisioned, the Worker signs a five-minute credential per request scoped
+     to the active workspace instead. Until then it logs
+     `control_plane.credential.unscoped` once per isolate. Provision, verify,
+     rotate and retire the fallback with the
+     [Control Plane credentials runbook](../../docs/control-plane-credentials.md). Rotating `NEON_AUTH_COOKIE_SECRET` invalidates every Worker
      session. To add a hosted value: create the store record, add the binding to
      BOTH config files, and deploy.
      Access is additionally gated by an account allowlist: set the
