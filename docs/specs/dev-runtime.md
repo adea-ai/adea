@@ -1148,7 +1148,73 @@ type ResourceSnapshot = {
   ports: PortRecord[]
   metrics: ResourceMetric[]
   retainedData: RetainedDataRecord[]
+  // Present only when `ResourcePreferences.scope` is `machine`; see
+  // "Machine-wide inventory and foreign stop".
+  foreign?: ForeignProcessRecord[]
+  machine?: MachineResourceSummary
   observedAt: string
+}
+// A process Adea did not launch. Never carries a ProcessRecord id and never
+// rides the Adea-owned stop path.
+type ForeignProcessRecord = {
+  id: string // host-minted, opaque, valid for one observation generation
+  observationGeneration: number
+  pid: number
+  startIdentity: string
+  executableIdentity: string
+  label: string // executable basename, bounded
+  commandPreview?: string // redacted, bounded argv preview
+  cwdLabel?: string // home-relative, bounded
+  attribution:
+    | { kind: 'harness'; harness: string } // a recognized harness ancestor
+    | { kind: 'computer_use'; computerUseSessionId?: string }
+    | { kind: 'unknown' }
+  listeningPorts: number[] // loopback/wildcard listeners only
+  childCount: number
+  residentBytes?: string // process tree, decimal string; absent when unknown
+  cpuPercent?: number
+  protection: 'none' | 'protected_list' | 'system' | 'other_user'
+  stoppable: boolean // true only when protection is 'none' and owner is the Adea user
+  observedAt: string
+}
+type MachineResourceSummary = {
+  memoryTotalBytes?: string
+  memoryUsedBytes?: string
+  cpuPercent?: number
+  diskFreeBytes?: string
+  diskTotalBytes?: string
+  observedAt: string
+}
+type WorktreeStorageRecord = {
+  worktreeId: string
+  sourceBytes?: string // tracked + untracked files outside build/dependency roots
+  buildBytes?: string // dependency and build output roots
+  state: 'measured' | 'measuring' | 'stale' | 'unreadable'
+  measuredAt?: string
+}
+type ResourcePreferences = {
+  version: 1
+  scope: 'adea' | 'machine'
+  includeComputerUseApps: boolean
+  recognizedHarnesses: string[] // bounded, display names mapped to fixed executable matchers
+  portRange: { from: number; to: number }
+  alerts: {
+    residentBytesAbove: string
+    growthBytes: string
+    growthWindowSeconds: number
+    notify: 'badge' | 'badge_and_notification'
+    snoozeSeconds: number
+  }
+  cleanup: {
+    mode: 'off' | 'ask' | 'automatic'
+    serverIdleSeconds: number
+    suggestMergedWorktreesAfterSeconds: number
+    quarantineRetentionSeconds: number
+    retainedDataRetentionSeconds: number
+  }
+  protectedExecutables: string[] // bounded basenames or bundle-id prefixes
+  sampling: { visibleSeconds: number; backgroundSeconds: number }
+  updatedAt: string
 }
 type CleanupPredicate = CleanupPolicy['predicates'][number]
 type CleanupPolicyEvaluation = {
@@ -4560,8 +4626,13 @@ parent, or port alone is insufficient. A replacement between scan and signal
 must survive.
 
 Ports derive first from launch/session metadata and are confirmed by scoped OS
-inspection. Unknown owners are displayed as external without a stop button. No
-LAN-wide scan, `pkill`, `killall`, or `lsof`-wide termination.
+inspection. A listener Adea did not launch is never stopped through the
+Adea-owned path above. With the default `machine` resource scope it becomes a
+`ForeignProcessRecord`, and only the user-confirmed foreign stop in
+"Machine-wide inventory and foreign stop" may signal it. With the `adea` scope
+it is displayed as external without a stop button. No LAN-wide scan,
+`pkill`, `killall`, `lsof`-wide termination, or termination selected by port,
+name, or argv.
 
 Metric defaults:
 
@@ -4603,7 +4674,8 @@ listing without a source is truthful-empty rather than fabricated:
   renders as `exited` for a bounded retention window. Exited-but-unrecorded
   and never-journaled processes are not listed at all.
 - Ports come from the #422 inventory (launch/session metadata confirmed by a
-  loopback-only scan); unknown listeners are `unknown` with no stop path.
+  loopback-only scan); unknown listeners are `unknown` with no Adea-owned
+  stop path (the foreign stop below is a separate, user-confirmed path).
 - Metrics are pull-based: a bounded sample is recorded when the snapshot or
   metrics surface is read, never on a timer. CPU is a monotonic delta
   between consecutive samples of one owner; the first sample carries no
@@ -4681,6 +4753,160 @@ listing without a source is truthful-empty rather than fabricated:
   resources) stay absent by design — every predicate over an absent fact
   fails closed.
 
+### Machine-wide inventory and foreign stop
+
+Status: accepted design, not yet served. Until the host implements it,
+`foreign` and `machine` are absent from every snapshot, external listeners keep
+the no-stop rendering above, and the operations named here stay out of
+[the operation registry](./dev-runtime-operations.json). Each operation joins
+the registry in the same commit as its host provider and tests.
+
+Agents leave servers, debuggers, and computer-use apps running outside Adea's
+launch records: harnesses run in other terminals, and computer use opens
+browsers and simulators. The resources sheet therefore defaults to the whole
+machine. `ResourcePreferences.scope = 'adea'` restores the Adea-only listing.
+
+Inventory:
+
+- The host enumerates processes with one bounded, read-only listing per pull,
+  using native process APIs or one fixed-argv `ps` observation. The listing
+  carries the PID, parent PID, owner uid, start identity, executable identity,
+  cumulative CPU time, and resident bytes. It uses the same 5-second timeout and
+  1 MiB output cap as the metric sampler.
+- Listening sockets are enumerated for the Adea user's processes only, within
+  `portRange`, and only on loopback or wildcard binds. A listener scan runs at
+  most once per visible sample interval and never faster than every 2 seconds.
+  A failed or permission-denied scan leaves `listeningPorts` absent for that
+  pull; it never reports an empty list as truth.
+- A foreign row is emitted for:
+  - every process with a listener;
+  - every process attributed to a recognized harness or to computer use;
+  - the 64 largest remaining Adea-user processes by resident bytes.
+
+  Everything else is summarized only through `MachineResourceSummary`.
+  Processes Adea launched (journal-proven `ProcessRecord`s and their
+  descendants) never appear as foreign rows.
+
+- Attribution walks the parent chain, at most 16 hops:
+  - A `recognizedHarnesses` executable matcher as an ancestor yields
+    `harness`. Matchers are fixed executable identities shipped with Adea, not
+    user-supplied patterns. The preference only selects which matchers are on.
+  - An app launched by a computer-use lane yields `computer_use`. The lane
+    records the PID and start identity it launched, and a live consent session
+    is not required to read that attribution.
+  - Anything else is `unknown`. Attribution is a display hint and never
+    authority.
+- Metrics for foreign rows follow the existing rules: CPU is a monotonic delta
+  and unknown values are absent, never zero. Leak detection uses the same
+  `alerts` thresholds over the process tree's history. History for foreign rows
+  is capped at 10 minutes and dropped when the row disappears.
+- `commandPreview` and `cwdLabel` are redacted before they leave the host:
+  - home is shown as `~`;
+  - argv is truncated to 160 characters, and values after flags that look like
+    secrets (`--token`, `--password`, `--key`, `*_SECRET=`, …) are masked.
+
+  Both are display-only and never become event payloads or telemetry.
+
+Protection, evaluated by the host on every observation:
+
+- `other_user`: the process is owned by another uid.
+- `system`: launchd, kernel, WindowServer, loginwindow, the Adea shell itself,
+  its sidecars, and any process whose executable lives under a system path.
+- `protected_list`: the executable basename or bundle id matches
+  `protectedExecutables`. The default list is postgres, redis-server, mysqld,
+  `com.docker.*`, and ollama.
+
+A protected row is listed with its reason and has `stoppable: false`. No
+operation accepts it.
+
+Foreign stop is `dev.resources.foreignStopPlan` → `dev.resources.foreignStopCommit`:
+
+- The plan binds the envelope resource
+  `{kind: 'process', id: foreignRecordId, generation: observationGeneration}`.
+  It records PID, start identity, executable identity,
+  uid, and the child set, and returns a `MutationPlan` whose steps name each
+  process to be signalled. The plan expires after 60 seconds.
+- The renderer MUST show the plan in the shared `AlertDialog`: the exact
+  command preview, folder, PID, start time, owner, and child count. It names
+  the attribution, says Adea did not start the process, and states that
+  unsaved work may be lost. Confirmation is per process. No bulk confirm and no
+  "remember this choice" exist.
+- The commit re-reads the process immediately before each signal. If the PID,
+  start identity, executable identity, or uid differ, or the row became
+  protected, nothing is signalled and the commit fails `ownership_unproven` or
+  `plan_stale`. The first signal is a graceful SIGTERM to the recorded
+  processes, children first. A GUI app may instead receive the platform's
+  polite terminate request, which needs no Automation or Apple Events
+  permission. Force (SIGKILL) is a separate, explicit commit option, off by
+  default. It runs only after a 10-second unconfirmed window and only after the
+  same re-proof.
+- Foreign stop never participates in automatic cleanup, cleanup-policy
+  evaluation, or `Complete and clean…`. A worktree whose preflight is blocked
+  by a foreign process stays blocked until the user stops that process through
+  this path and the preflight is re-run.
+- Every foreign stop writes the standard secret-free audit record, marked as a
+  foreign target, with the attribution kind and without argv or cwd.
+
+Restart (`dev.resources.restartPlan` → `dev.resources.restartCommit`) applies
+only to Adea-owned server launches with a journaled launch spec. It stops
+through the existing Adea-owned path, then relaunches the same spec in the same
+worktree as a new generation. Foreign processes have no restart.
+
+Worktree storage (`dev.resources.worktreeStorage`) returns one
+`WorktreeStorageRecord` per worktree in scope:
+
+- Measurement is lazy. It starts when the Storage tab is visible or a
+  cleanup preview needs the bytes, then the cached result is served.
+- Measurement is incremental and bounded:
+  - one walker per runtime node;
+  - at most 4 concurrent directory reads;
+  - symlinks are not followed;
+  - mount points are not crossed;
+  - a 2-minute budget per worktree. A walk that runs out of budget reports
+    `stale`, keeps its previous bytes, and resumes on the next request.
+- A result is re-measured only after a file-watcher change in that worktree
+  or after 15 minutes, whichever is later.
+- Dependency and build roots (`node_modules`, `target`, `.venv`, `dist`,
+  `.next`, and the build roots the workspace manifest declares) count toward
+  `buildBytes`.
+- An unreadable tree is `unreadable` with bytes absent, never zero.
+
+Resource preferences (`dev.resources.preferences`,
+`dev.resources.preferencesUpdate`) persist `ResourcePreferences` per device in
+private local storage:
+
+- Every numeric field is clamped to a documented range:
+  - memory alert: 256 MiB–64 GiB;
+  - growth window: 1–60 minutes;
+  - idle time: 15 minutes–7 days;
+  - quarantine retention: 1–30 days;
+  - retained-data retention: 1–90 days;
+  - visible sampling: 2–60 seconds;
+  - background sampling: 30–600 seconds;
+  - list fields: at most 32 entries.
+- An invalid document is replaced field by field with defaults, never
+  rejected wholesale.
+- These are the only resource settings. App Settings has no resource section.
+
+Clean-up review composes existing authorities and adds none:
+
+- Selected Adea-owned servers use the Adea-owned stop plan.
+- Selected worktrees use `Complete and clean…` with its full preflight and
+  quarantine.
+- Retained data uses each owning slice's prune or reset path.
+- Each step is re-planned when the user confirms.
+- Pre-selection is limited to:
+  - Adea-owned servers whose worktree is missing, or that have been idle past
+    `serverIdleSeconds`;
+  - worktrees whose policy evaluation matched;
+  - expired retained data.
+- Leaking servers, active sessions, protected rows, and foreign processes are
+  never pre-selected.
+- Foreign rows may appear unchecked, and each one still opens its own foreign
+  stop confirmation.
+- `cleanup.mode = 'automatic'` runs only approved cleanup policies over
+  Adea-owned resources, and never stops a leaking server.
+
 ### Runtime activity
 
 The Agents pane mounts the harness status surface above the Activity section:
@@ -4701,12 +4927,37 @@ agent/profile, model, state, and elapsed time; `awaiting_input` and
 "what needs me?" without terminal scrolling. Stop controls ride the
 session-scoped, generation-fenced `dev.session.cancelHarness` command and
 are disabled while the session generation is unknown. The workspace top bar
-carries the runtime-resources action on every view; its detail sheet shows the
-process/port inventory, metric summaries, provider usage cards, and the
-retained-data breakdown with cleanup context, docked by the shared inset
-Sheet to the workspace's end edge below the bar on every host. Lanes without
-a Dev runtime channel render the typed unavailable state; absent capability
-renders as typed states.
+carries the runtime-resources action on every view. Its detail sheet is docked
+by the shared inset Sheet to the workspace's end edge below the bar on every
+host. All resource management and all resource settings live in this one
+sheet. The layout below is the accepted target. Until it lands, the sheet
+renders the sectioned process, port, metric, usage, and retained-data listing,
+and only Adea-owned processes have a stop action.
+
+- **Overview:** Adea's memory over a machine memory bar split into servers,
+  agents and terminals, other apps, and free. CPU, ports, and storage tiles sit
+  below it. The overview collapses to a one-line strip when the sheet scrolls.
+- **Attention banner:** the clean-up candidate count and the bytes they would
+  free, with a Review action.
+- **Servers & apps tab:**
+  - Adea-owned servers are grouped by worktree. Each row shows the port, the
+    command, the session or terminal that started it, uptime, a sparkline,
+    process-tree memory, and row actions: open preview, go to session,
+    restart, stop.
+  - Leaking rows use the warning tone, and rows from a missing worktree are
+    marked orphaned.
+  - Foreign rows sit in a separate "Elsewhere on this machine" group with their
+    attribution badge. Protected rows show a Protected badge and no stop
+    action.
+- **Storage tab:** a disk bar, the worktree table with state badges, size, and
+  last activity, and the retained-data breakdown with each kind's prune or
+  reset action.
+- **Agents & usage tab:** the provider usage cards.
+- **Drill-in views:** server details, the clean-up review, resource settings,
+  and the foreign-stop `AlertDialog`.
+
+Lanes without a Dev runtime channel render the typed unavailable state; absent
+capability renders as typed states.
 The resource refresh icon uses the shared explanatory `ActionButton`; an
 unavailable runtime keeps the action inert while its tooltip explains how to
 enable it. Stop and cancel actions use shared destructive and outline button
