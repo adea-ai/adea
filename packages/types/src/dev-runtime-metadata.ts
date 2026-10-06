@@ -547,6 +547,9 @@ export const devOperationMetadata = {
   'dev.worktree.create': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_worktree_create
   ),
+  'dev.worktree.diffSummary': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_diffSummary
+  ),
   'dev.worktree.lease': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_worktree_lease
   ),
@@ -559,6 +562,9 @@ export const devOperationMetadata = {
   ),
   'dev.worktree.releaseLease': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_worktree_releaseLease
+  ),
+  'dev.worktree.rename': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_worktree_rename
   ),
   'dev.worktree.retryBootstrap': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_worktree_retryBootstrap

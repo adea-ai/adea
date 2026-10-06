@@ -20,51 +20,30 @@ import type {
   DevCommand,
   DevError,
   DevOperation,
-  RedactedRemote,
   Repo,
   RepoInspection,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
-import { DevAuthorityError, sameScope, type DevScope } from '../authority'
+import { DevAuthorityError, sameScope } from '../authority'
 import type { ChannelAuthority } from '../channel/authority'
-import { createDurableJsonStore } from '../host-store'
 import { identityOfPath, sameIdentity, type FileIdentityValue } from '../worktrees/identity'
 import { runGit, type GitRunResult } from '../worktrees/git-run'
+import {
+  createRepoRegistryStore,
+  redactRemoteUrl,
+  toRepoDto,
+  type RepoRegistryRecord,
+} from './registry-store'
+
+export { redactRemoteUrl } from './registry-store'
 
 export type RepoRuntime = Readonly<{
   providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>>
 }>
 
-/**
- * The registry store record. `remote` keeps the raw configured URL so
- * canonical identity can be re-proven later; every DTO redacts it
- * (`redactRemoteUrl`) and the secret never enters a reply, event, or log.
- * `lifecycle` is durable repo truth: `ready` (proven), `stale` (the remote
- * could not be re-proven at the last refresh), `unavailable` (the canonical
- * root was missing on disk at the last refresh). `authorizing` and
- * `refreshing` are transient spec states that are never persisted or
- * returned by this synchronous provider.
- */
-type RepoRecord = Readonly<{
-  id: string
-  scope: DevScope
-  kind: 'git' | 'folder'
-  lifecycle: 'ready' | 'stale' | 'unavailable'
-  canonicalRoot: string
-  rootIdentity: FileIdentityValue
-  gitCommonDirIdentity?: FileIdentityValue
-  rootBookmarkId: string
-  remote?: string
-  defaultRef?: string
-  credentialRefId?: string
-  projectIds: readonly string[]
-  version: number
-  updatedAt: string
-}>
+type RepoRecord = RepoRegistryRecord
 
-const REGISTRY_STORE_FILE = join('dev-runtime', 'repos', 'registry.json')
-const REGISTRY_SCHEMA_VERSION = 1
 const LS_REMOTE_TIMEOUT_MS = 10_000
 
 /** Inspect/refresh reads are bounded: fixed budgets, machine output only, and
@@ -72,36 +51,6 @@ const LS_REMOTE_TIMEOUT_MS = 10_000
  *  `GIT_OPTIONAL_LOCKS=0` (no prompts, no index lock on read paths). */
 const GIT_READ_TIMEOUT_MS = 10_000
 const GIT_READ_MAX_OUTPUT_BYTES = 1024 * 1024
-
-const corruptRecord = () =>
-  new DevAuthorityError('corrupt_state', 'repository registry record failed to decode')
-
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
-}
-
-/** Structural decode of a stored record; anything else is `corrupt_state`. */
-function validateStoredRecord(record: RepoRecord): void {
-  if (
-    typeof record !== 'object' ||
-    record === null ||
-    typeof record.id !== 'string' ||
-    (record.kind !== 'git' && record.kind !== 'folder') ||
-    (record.lifecycle !== 'ready' &&
-      record.lifecycle !== 'stale' &&
-      record.lifecycle !== 'unavailable') ||
-    typeof record.canonicalRoot !== 'string' ||
-    record.canonicalRoot.length < 1 ||
-    typeof record.rootBookmarkId !== 'string' ||
-    !Array.isArray(record.projectIds) ||
-    record.projectIds.some((id) => typeof id !== 'string') ||
-    !isPositiveInteger(record.version) ||
-    typeof record.updatedAt !== 'string' ||
-    typeof record.rootIdentity?.mtimeNs !== 'string' ||
-    typeof record.rootIdentity?.size !== 'string'
-  )
-    throw corruptRecord()
-}
 
 function devError(code: DevError['code'], message: string): DevError {
   return { code, retryable: false, message }
@@ -128,41 +77,6 @@ function proveCanonicalRoot(path: string): {
   }
 }
 
-/** Remote URLs are redacted before any DTO: embedded user-info is removed
- *  while full nested namespace paths are preserved. SCP-like remotes
- *  (`git@host:owner/repo.git`) are parsed structurally, never with a shell;
- *  an unparseable remote redacts to an `unknown` host rather than guessing. */
-export function redactRemoteUrl(remote: string): RedactedRemote {
-  const trimmed = remote.trim()
-  const scpLike = /^([^@\s]+)@([^@\s:]+):(.+)$/.exec(trimmed)
-  let host: string
-  let ownerPath: string
-  let displayUrl: string
-  if (scpLike) {
-    host = (scpLike[2] ?? '').toLowerCase()
-    ownerPath = (scpLike[3] ?? '').replace(/\.git$/, '')
-    displayUrl = `${scpLike[2] ?? ''}:${ownerPath}`
-  } else {
-    try {
-      const parsed = new URL(trimmed)
-      host = parsed.host !== '' ? parsed.host.toLowerCase() : 'unknown'
-      ownerPath = parsed.pathname.replace(/^\//, '').replace(/\.git$/, '')
-      displayUrl = `${parsed.protocol}//${parsed.host}${parsed.pathname}`.replace(/\.git$/, '')
-    } catch {
-      host = 'unknown'
-      ownerPath = ''
-      displayUrl = ''
-    }
-  }
-  const provider =
-    host === 'github.com' || host.endsWith('.github.com')
-      ? 'github'
-      : host === 'gitlab.com' || host.endsWith('.gitlab.com')
-        ? 'gitlab'
-        : 'other'
-  return { provider, host, ownerPath, displayUrl }
-}
-
 /** The remote's bare hostname for credential host-matching, or undefined when
  *  the URL cannot be proven to name one (authorization then fails closed). */
 function remoteHost(remote: string): string | undefined {
@@ -187,35 +101,16 @@ export function registerRepoRuntime(input: {
   }[]
   /** Test seam: inject the bounded git runner; production uses the real one. */
   runGit?: typeof runGit
+  /** ADR 0011: after a proof persists a record (adopt, authorize, refresh,
+   *  inspect with `refresh: true`), the composition reconciles the repo's
+   *  primary checkout worktree record through the one worktree service:
+   *  created once for a git repository, its inspected head refreshed after. */
+  onRepoProven?: (repoId: string) => Promise<void>
 }): RepoRuntime {
   const git = input.runGit ?? runGit
-  const store = createDurableJsonStore<RepoRecord>({
-    file: join(input.dataDir, REGISTRY_STORE_FILE),
-    schemaVersion: REGISTRY_SCHEMA_VERSION,
-    label: 'repository registry',
-  })
-
-  function loadRecords(): RepoRecord[] {
-    const records = [...store.load().records]
-    for (const record of records) validateStoredRecord(record)
-    return records
-  }
-
-  function saveRecords(records: readonly RepoRecord[]): void {
-    store.save([...records])
-  }
-
-  function findRecord(repoId: string): RepoRecord | undefined {
-    return loadRecords().find((entry) => entry.id === repoId)
-  }
-
-  function upsertRecord(next: RepoRecord): void {
-    const records = loadRecords()
-    const index = records.findIndex((entry) => entry.id === next.id)
-    if (index >= 0) records[index] = next
-    else records.push(next)
-    saveRecords(records)
-  }
+  const registry = createRepoRegistryStore(input.dataDir)
+  const findRecord = (repoId: string): RepoRecord | undefined => registry.find(repoId)
+  const upsertRecord = (next: RepoRecord): void => registry.upsert(next)
 
   function requireScope(command: DevCommand): void {
     if (!sameScope(command.scope, input.scope))
@@ -330,24 +225,6 @@ export function registerRepoRuntime(input: {
     }
   }
 
-  function toRepoDto(record: RepoRecord): Repo {
-    const remote = record.remote !== undefined ? redactRemoteUrl(record.remote) : undefined
-    return {
-      id: record.id,
-      scope: record.scope,
-      kind: record.kind,
-      lifecycle: record.lifecycle,
-      canonicalRoot: record.canonicalRoot,
-      ...(record.gitCommonDirIdentity !== undefined
-        ? { gitCommonDirIdentity: record.gitCommonDirIdentity }
-        : {}),
-      ...(remote !== undefined ? { remote } : {}),
-      ...(record.defaultRef !== undefined ? { defaultRef: record.defaultRef } : {}),
-      projectIds: [...record.projectIds],
-      version: record.version,
-    }
-  }
-
   /** Materialize or re-prove the durable record under `expectedVersion`.
    *  A not-yet-proven binding materializes at version 1 (the initial version
    *  every registry record carries); an existing record re-proofs at
@@ -418,6 +295,13 @@ export function registerRepoRuntime(input: {
         : {}),
       rootBookmarkId: bookmarkId,
       ...(proven.remote !== undefined ? { remote: proven.remote } : {}),
+      // The base for new worktrees is fetched by remote name; the proven
+      // remote is `remote.origin.url`, so the name is `origin`.
+      ...(stored?.fetchRemote !== undefined
+        ? { fetchRemote: stored.fetchRemote }
+        : proven.remote !== undefined
+          ? { fetchRemote: 'origin' }
+          : {}),
       ...(proven.defaultRef !== undefined ? { defaultRef: proven.defaultRef } : {}),
       ...(request.credentialRefId !== undefined
         ? { credentialRefId: request.credentialRefId }
@@ -564,7 +448,48 @@ export function registerRepoRuntime(input: {
     return updated
   }
 
+  /** Reconcile the primary checkout record, then reply with the DTO. */
+  async function reconciled(record: RepoRecord): Promise<Repo> {
+    await input.onRepoProven?.(record.id)
+    return toRepoDto(record)
+  }
+
   const providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>> = {
+    // The one registry serves the listing too (ADR 0011): the worktree
+    // service reads these same records, so the list and every worktree
+    // operation agree on which repositories exist.
+    'dev.repo.list': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.repo.list'].request(command.body)
+      const projectId = body.projectId as string | undefined
+      const records = registry
+        .load()
+        .filter(
+          (entry) =>
+            sameScope(entry.scope, input.scope) &&
+            (projectId === undefined || entry.projectIds.includes(projectId))
+        )
+        .map(toRepoDto)
+      const pageSize = (body.limit as number | undefined) ?? 100
+      let start = 0
+      if (body.cursor !== undefined) {
+        const decoded = Number(Buffer.from(body.cursor as string, 'base64url').toString('utf8'))
+        if (!Number.isSafeInteger(decoded) || decoded < 0)
+          throw devError('not_found', 'unknown listing cursor')
+        start = decoded
+      }
+      const items = records.slice(start, start + pageSize)
+      const nextCursor =
+        start + pageSize < records.length
+          ? Buffer.from(String(start + pageSize)).toString('base64url')
+          : undefined
+      return {
+        items,
+        ...(nextCursor !== undefined ? { nextCursor } : {}),
+        observedAt: new Date().toISOString(),
+      }
+    },
+
     'dev.repo.adopt': (command) => {
       requireScope(command)
       const body = devOperationDecoders['dev.repo.adopt'].request(command.body)
@@ -576,7 +501,7 @@ export function registerRepoRuntime(input: {
         rootBookmarkId: body.rootBookmarkId as string,
         credentialRefId: undefined,
         expectedVersion,
-      }).then(toRepoDto)
+      }).then(reconciled)
     },
 
     'dev.repo.authorize': (command) => {
@@ -590,7 +515,7 @@ export function registerRepoRuntime(input: {
         rootBookmarkId: undefined,
         credentialRefId: body.credentialRefId as string,
         expectedVersion,
-      }).then(toRepoDto)
+      }).then(reconciled)
     },
 
     'dev.repo.inspect': (command) => {
@@ -615,7 +540,12 @@ export function registerRepoRuntime(input: {
           ? proveBinding({
               canonicalRoot: stored.canonicalRoot,
               rootBookmarkId: stored.rootBookmarkId,
-            }).then((proven) => persistProvenFacts(stored, proven))
+            })
+              .then((proven) => persistProvenFacts(stored, proven))
+              .then(async (record) => {
+                await input.onRepoProven?.(record.id)
+                return record
+              })
           : Promise.resolve(stored)
       return provenPromise.then((record) => inspectionFacts(record))
     },
@@ -638,7 +568,7 @@ export function registerRepoRuntime(input: {
           stored.version
         )
       requireRepoResource(command, repoId, stored.version)
-      return refreshRecord(stored).then(toRepoDto)
+      return refreshRecord(stored).then(reconciled)
     },
   }
 

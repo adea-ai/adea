@@ -7,12 +7,13 @@
 // rebinds, workspace switches, and unbinds must fail closed.
 import { describe, expect, test } from 'bun:test'
 import { createCipheriv, createHash, createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
   devCommandProofMessage,
+  devOperationDecoders,
   devOperationDefinitions,
   type DevCommand,
   type DevOperation,
@@ -20,6 +21,7 @@ import {
   type Group,
   type RetainedDataRecord,
   type Scope,
+  type Worktree,
 } from '../../../packages/types/src/dev-runtime'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
 import {
@@ -1112,4 +1114,170 @@ describe('dev runtime composition', () => {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
   })
+})
+
+describe('production worktrees (ADR 0011)', () => {
+  test('one composed worktree service: adopt yields a primary record sessions bind to', async () => {
+    const shell = await boot()
+    const workspace = mkdtempSync(join(tmpdir(), 'adea-composition-ws-'))
+    try {
+      const host = shell.currentHost()
+      // The composition itself constructs the one worktree service.
+      expect(host.worktreeService).toBeDefined()
+      expect(host.worktrees.commands).toContain('dev.worktree.rename')
+      expect(host.worktrees.commands).toContain('dev.worktree.diffSummary')
+      expect(host.registration.providers).toContain('dev.worktree.rename')
+      expect(host.registration.providers).toContain('dev.worktree.diffSummary')
+
+      // A real checkout on a non-main branch under an authorized root.
+      const repoPath = join(realpathSync(workspace), 'app')
+      mkdirSync(repoPath)
+      const runGit = (args: string[]) =>
+        Bun.spawnSync(['git', ...args], {
+          cwd: repoPath,
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: 'Adea Tests',
+            GIT_AUTHOR_EMAIL: 'adea@example.com',
+            GIT_COMMITTER_NAME: 'Adea Tests',
+            GIT_COMMITTER_EMAIL: 'adea@example.com',
+          },
+          timeout: 60_000,
+        })
+      runGit(['init', '-q', '-b', 'main'])
+      runGit(['config', 'core.hooksPath', '/dev/null'])
+      writeFileSync(join(repoPath, 'README.md'), '# app\n')
+      runGit(['add', '.'])
+      runGit(['commit', '-qm', 'initial'])
+      runGit(['checkout', '-q', '-b', 'feature/sidebar'])
+
+      const approval = {
+        method: 'owner_dialog' as const,
+        reference: `composition-root-${randomUUID()}`,
+        scope: SCOPE_A,
+        issuedAt: new Date(Date.now() - 1_000).toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }
+      createOwnerApprovalVerifier({ dataDir: shell.dataDir }).recordIssuance(
+        approval,
+        SCOPE_A,
+        'authorize a root bookmark'
+      )
+      const bookmark = host.roots.mint({
+        scope: SCOPE_A,
+        label: 'Workspace',
+        kind: 'repository',
+        absolutePath: workspace,
+        approval,
+      })
+      const projectId = randomUUID()
+      const repoId = randomUUID()
+      host.projectSession!.upsertProject({
+        id: projectId,
+        scope: SCOPE_A,
+        name: 'App',
+        groupIds: [],
+        repoIds: [repoId],
+        repos: [{ repoId, rootBookmarkId: bookmark.id, canonicalRoot: repoPath }],
+        lifecycle: 'ready',
+        version: 1,
+      })
+
+      const channel = await shell.openChannel()
+      const adopted = await channel.execute(
+        commandFor(
+          'dev.repo.adopt',
+          SCOPE_A,
+          { repoId, rootBookmarkId: bookmark.id, expectedVersion: 1 },
+          { resource: { kind: 'repository', id: repoId, generation: 1 } }
+        )
+      )
+      expect(adopted).toMatchObject({ ok: true })
+
+      const listed = await channel.execute(commandFor('dev.worktree.list', SCOPE_A, { repoId }))
+      expect(devOperationDecoders['dev.worktree.list'].reply(listed)).toBeTruthy()
+      if (!listed.ok) throw new Error('list failed')
+      const items = (listed.value as { items: Worktree[] }).items
+      expect(items).toHaveLength(1)
+      const primary = items[0]!
+      expect(primary).toMatchObject({
+        kind: 'primary',
+        branchRef: 'refs/heads/feature/sidebar',
+        headRef: 'refs/heads/feature/sidebar',
+        projectId,
+        repoId,
+      })
+
+      // validateSessionCreation accepts the primary worktree id.
+      const session = await channel.execute(
+        commandFor('dev.session.create', SCOPE_A, {
+          projectId,
+          repoId,
+          worktreeId: primary.id,
+        })
+      )
+      expect(session).toMatchObject({ ok: true })
+
+      const resource = { kind: 'worktree', id: primary.id, generation: primary.generation }
+      // Rename refuses the primary (typed) and an unbound command.
+      const renamePrimary = await channel.execute(
+        commandFor(
+          'dev.worktree.rename',
+          SCOPE_A,
+          { worktreeId: primary.id, expectedVersion: primary.version, title: 'Main' },
+          { resource }
+        )
+      )
+      expect(renamePrimary).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+      const renameUnbound = await channel.execute(
+        commandFor('dev.worktree.rename', SCOPE_A, {
+          worktreeId: primary.id,
+          expectedVersion: primary.version,
+          title: 'Main',
+        })
+      )
+      expect(renameUnbound).toMatchObject({ ok: false })
+      // Deny by default: a missing capability refuses before dispatch.
+      const renameUnderCapable = await channel.execute(
+        commandFor(
+          'dev.worktree.rename',
+          SCOPE_A,
+          { worktreeId: primary.id, expectedVersion: primary.version, title: 'Main' },
+          { resource, capabilities: ['dev.worktree.read'] as never }
+        )
+      )
+      expect(renameUnderCapable).toMatchObject({ ok: false })
+
+      // Diff summary: counts only, decoded strictly.
+      writeFileSync(join(repoPath, 'README.md'), '# app\nmore\n')
+      const diff = await channel.execute(
+        commandFor('dev.worktree.diffSummary', SCOPE_A, { worktreeIds: [primary.id] })
+      )
+      expect(devOperationDecoders['dev.worktree.diffSummary'].reply(diff)).toBeTruthy()
+      expect(diff).toMatchObject({
+        ok: true,
+        value: [{ worktreeId: primary.id, added: 1, removed: 0, filesChanged: 1 }],
+      })
+      const diffUnknown = await channel.execute(
+        commandFor('dev.worktree.diffSummary', SCOPE_A, { worktreeIds: [randomUUID()] })
+      )
+      expect(diffUnknown).toMatchObject({ ok: false, error: { code: 'not_found' } })
+      const diffBound = await channel.execute(
+        commandFor('dev.worktree.diffSummary', SCOPE_A, { worktreeIds: [primary.id] }, { resource })
+      )
+      expect(diffBound).toMatchObject({ ok: false })
+      const diffUnderCapable = await channel.execute(
+        commandFor(
+          'dev.worktree.diffSummary',
+          SCOPE_A,
+          { worktreeIds: [primary.id] },
+          { capabilities: ['dev.worktree.read'] as never }
+        )
+      )
+      expect(diffUnderCapable).toMatchObject({ ok: false })
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 30_000)
 })

@@ -23,11 +23,11 @@ export type ActivityRow = Readonly<{
   finishedAt?: string
 }>
 
-const ATTENTION_STATES: ReadonlySet<HarnessRun['state']> = new Set([
+export const ATTENTION_STATES: ReadonlySet<HarnessRun['state']> = new Set([
   'awaiting_input',
   'awaiting_approval',
 ])
-const RUNNING_STATES: ReadonlySet<HarnessRun['state']> = new Set([
+export const RUNNING_STATES: ReadonlySet<HarnessRun['state']> = new Set([
   'resolving',
   'starting',
   'working',

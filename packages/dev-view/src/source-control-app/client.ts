@@ -28,7 +28,9 @@ import type {
   Repo,
   RuntimeSession,
   Scope,
+  Worktree,
 } from '@adea-ai/types/dev-runtime'
+import { decodeWorktree } from '@adea-ai/types/dev-runtime-registry-dto'
 
 import { buildDevCommand } from '../browser/command'
 import type { DevRuntimeService } from '../platform'
@@ -60,13 +62,8 @@ function clip(text: string, budget = 240): string {
 type Operation = Parameters<typeof buildDevCommand>[0]['operation']
 type Resource = { kind: string; id: string; generation: number }
 
-export type WorktreeRecord = Readonly<{
-  id: string
-  repoId?: string
-  headRef?: string
-  archived: boolean
-  lifecycle: string
-}>
+/** The shared strict worktree DTO (ADR 0011); every listed item decodes. */
+export type WorktreeRecord = Worktree
 
 const repo = (repoId: string): Resource => ({ kind: 'repository', id: repoId, generation: 0 })
 const pr = (pullRequestId: string): Resource => ({
@@ -155,7 +152,10 @@ export function createScmClient(runtime: DevRuntimeService, scope: Scope) {
     // ── Runtime catalog ──
     projects: () => allPages<Project>('dev.project.list', { limit: 500 }),
     repos: () => allPages<Repo>('dev.repo.list', { limit: 500 }),
-    worktrees: () => allPages<WorktreeRecord>('dev.worktree.list', { archived: false, limit: 500 }),
+    worktrees: async (): Promise<WorktreeRecord[]> =>
+      (await allPages<unknown>('dev.worktree.list', { archived: false, limit: 500 })).map((item) =>
+        decodeWorktree(item)
+      ),
     sessions: () => allPages<RuntimeSession>('dev.session.list', { archived: false, limit: 500 }),
 
     // ── Provider reads (GitHub, or GitLab's mirror) ──

@@ -18,6 +18,7 @@ import { registerProjectSessionRuntime } from '../shell/src/dev-runtime/project-
 import { redactRemoteUrl, registerRepoRuntime } from '../shell/src/dev-runtime/repos/register'
 import { createRootBookmarkAuthority } from '../shell/src/dev-runtime/roots'
 import { createCredentialVault, createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
+import { createWorktreeService } from '../shell/src/dev-runtime/worktrees/service'
 
 const scope: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -575,5 +576,73 @@ describe('repository registry (dev.repo.*)', () => {
     expect(redactRemoteUrl('https://git.example.com/adea.git').provider).toBe('other')
     // A hostless URL redacts to an `unknown` host instead of fabricating one.
     expect(redactRemoteUrl('file:///adea/unreachable.git').host).toBe('unknown')
+  })
+})
+
+describe('one registry, one primary checkout record (ADR 0011)', () => {
+  test('adopt creates exactly one primary worktree with the inspected branch', async () => {
+    const fix = fixture()
+    try {
+      git(fix.checkout, ['checkout', '-q', '-b', 'feature/sidebar'])
+      const service = createWorktreeService({
+        dataDir: fix.dataDir,
+        runtimeNodeId: scope.runtimeNodeId,
+        roots: fix.roots,
+      })
+      // A second registrar over the same registry, wired to the service
+      // exactly as the composition root wires it.
+      const runtime = registerRepoRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir: fix.dataDir,
+        scope,
+        validateRootBookmark: (bookmarkId) => ({
+          canonicalRoot: fix.roots.validate({ scope, bookmarkId }).canonicalRoot,
+        }),
+        resolveCredentialRef: () => {
+          throw new Error('unused')
+        },
+        findRepoBindings: (candidate) =>
+          candidate === repoId
+            ? [{ repoId, rootBookmarkId: fix.bookmarkId, canonicalRoot: fix.checkout, projectId }]
+            : [],
+        onRepoProven: async (provenRepoId) => {
+          await service.ensurePrimaryWorktree({ scope, repoId: provenRepoId })
+        },
+      })
+      const call = (operation: DevOperation, body: Record<string, unknown>, version: number) =>
+        (runtime.providers[operation] as (command: DevCommand) => Promise<unknown>)(
+          repoCommand(operation, body, version)
+        )
+      const adopted = (await call(
+        'dev.repo.adopt',
+        { repoId, rootBookmarkId: fix.bookmarkId, expectedVersion: 1 },
+        1
+      )) as Repo
+      // The worktree service reads the same registry record.
+      expect(service.listRepos(scope).map((repo) => repo.id)).toEqual([repoId])
+      const primaries = service.listWorktrees({ scope, repoId })
+      expect(primaries).toHaveLength(1)
+      expect(primaries[0]).toMatchObject({
+        kind: 'primary',
+        canonicalRoot: fix.checkout,
+        headRef: 'refs/heads/feature/sidebar',
+        projectId,
+        lifecycle: 'ready',
+      })
+
+      // A later proof re-inspects the branch and never mints a second record.
+      git(fix.checkout, ['checkout', '-q', '-b', 'feature/next'])
+      await call('dev.repo.inspect', { repoId, refresh: true }, adopted.version)
+      const after = service.listWorktrees({ scope, repoId })
+      expect(after).toHaveLength(1)
+      expect(after[0]!.id).toBe(primaries[0]!.id)
+      expect(after[0]!.headRef).toBe('refs/heads/feature/next')
+
+      // dev.repo.list is served from the same registry.
+      const listed = (await call('dev.repo.list', {}, 0)) as { items: Repo[] }
+      expect(listed.items.map((repo) => repo.id)).toEqual([repoId])
+    } finally {
+      fix.cleanup()
+    }
   })
 })

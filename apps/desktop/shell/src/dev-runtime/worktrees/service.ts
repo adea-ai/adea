@@ -21,12 +21,13 @@
 // create→store→refresh semantics informed the lifecycle states.
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join, resolve, sep } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 
 import { nowIso, newRecordId, sameScope, type DevScope } from '../authority'
 import { createDurableJsonStore } from '../host-store'
 import type { AuthorityAudit } from '../audit'
 import type { RootBookmarkAuthority } from '../roots'
+import { createRepoRegistryStore, type RepoRegistryRecord } from '../repos/registry-store'
 import { WorktreeError, type WorktreeErrorCode } from './errors'
 import { runGit, runGitChecked, gitRevParse } from './git-run'
 import {
@@ -112,19 +113,29 @@ function cleanupJournalStepName(step: CleanupStepKind): string {
   return step
 }
 
-export type RepoRecord = Readonly<{
-  id: string
-  scope: DevScope
-  kind: 'git' | 'folder'
-  canonicalRoot: string
-  rootIdentity: FileIdentityValue
-  bookmarkId: string
-  remote?: string
-  defaultRef?: string
-  defaultBranch?: string
-  projectIds: ReadonlyArray<string>
-  createdAt: string
-  version: number
+/** The worktree service's view of one record in the single repository
+ *  registry (`dev-runtime/repos/registry.json`, ADR 0011): the registry
+ *  record plus the short default branch name derived from `defaultRef`. */
+export type RepoRecord = RepoRegistryRecord & Readonly<{ defaultBranch?: string }>
+
+/** `primary` is the repository's own checkout (one per git repository,
+ *  created on registration); `managed` worktrees were created by Adea;
+ *  `external` worktrees were adopted after gitdir proof. */
+export type WorktreeKind = 'primary' | 'managed' | 'external'
+
+/** Local display titles are workspace-private and bounded. */
+export const WORKTREE_TITLE_MAX_LENGTH = 120
+/** `dev.worktree.diffSummary` answers at most this many worktrees per call. */
+export const DIFF_SUMMARY_MAX_WORKTREES = 50
+const DIFF_SUMMARY_TIMEOUT_MS = 10_000
+const DIFF_SUMMARY_MAX_OUTPUT_BYTES = 1024 * 1024
+const GIT_HEAD_READ_TIMEOUT_MS = 10_000
+
+export type WorktreeDiffSummary = Readonly<{
+  worktreeId: string
+  added: number
+  removed: number
+  filesChanged: number
 }>
 
 export type WorktreeRecord = Readonly<{
@@ -132,9 +143,14 @@ export type WorktreeRecord = Readonly<{
   scope: DevScope
   projectId: string
   repoId: string
+  kind: WorktreeKind
   /** The on-disk directory name; retired on delete, never reused. */
   name: string
   branchRef?: string
+  /** Local display title (workspace-private; never leaves the device). */
+  title?: string
+  /** Opaque cloud task id this worktree is linked to. */
+  taskId?: string
   canonicalRoot: string
   rootIdentity: FileIdentityValue
   provenance: 'adea' | 'external'
@@ -372,11 +388,9 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
   const storesDir = join(dataDir, 'dev-runtime', 'worktrees')
   mkdirSync(storesDir, { recursive: true, mode: 0o700 })
 
-  const repoStore = createDurableJsonStore<RepoRecord>({
-    file: join(storesDir, 'repos.json'),
-    schemaVersion: 1,
-    label: 'worktree repo',
-  })
+  // The one repository registry (ADR 0011). The former worktree-private
+  // `repos.json` beside the worktree stores is left unread.
+  const repoRegistry = createRepoRegistryStore(dataDir)
   const worktreeStore = createDurableJsonStore<WorktreeRecord>({
     file: join(storesDir, 'worktrees.json'),
     schemaVersion: 1,
@@ -438,11 +452,22 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
   }
 
   function loadRepos(): RepoRecord[] {
-    return [...repoStore.load().records]
+    return repoRegistry.load().map((record) => {
+      const defaultBranch = record.defaultRef?.replace(/^refs\/heads\//, '')
+      return defaultBranch ? { ...record, defaultBranch } : record
+    })
   }
 
   function loadWorktrees(): WorktreeRecord[] {
-    return [...worktreeStore.load().records]
+    // Records persisted before `kind` existed derive it from provenance; the
+    // primary checkout was never a record then.
+    return worktreeStore
+      .load()
+      .records.map((record) =>
+        record.kind !== undefined
+          ? record
+          : { ...record, kind: record.provenance === 'adea' ? 'managed' : 'external' }
+      )
   }
 
   function saveWorktrees(records: WorktreeRecord[]): void {
@@ -535,36 +560,155 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       kind = 'folder'
     }
 
-    const repos = loadRepos()
+    const repos = repoRegistry.load()
     const existing = repos.find(
       (entry) => sameScope(entry.scope, input.scope) && entry.canonicalRoot === canonicalRoot
     )
+    let record: RepoRegistryRecord
     if (existing) {
       const projectIds = [...new Set([...existing.projectIds, input.projectId])]
-      const next: RepoRecord = { ...existing, projectIds, version: existing.version + 1 }
-      const index = repos.indexOf(existing)
-      repos[index] = next
-      repoStore.save(repos)
-      return next
+      record =
+        projectIds.length === existing.projectIds.length
+          ? existing
+          : { ...existing, projectIds, version: existing.version + 1, updatedAt: nowIso(clock) }
+      if (record !== existing) repoRegistry.upsert(record)
+    } else {
+      const remoteUrl =
+        kind === 'git' && input.remote !== undefined
+          ? await configuredRemoteUrl(canonicalRoot, input.remote)
+          : undefined
+      const defaultRef =
+        input.defaultRef ??
+        (input.defaultBranch !== undefined ? `refs/heads/${input.defaultBranch}` : undefined)
+      record = {
+        id: newRecordId(),
+        scope: { ...input.scope },
+        kind,
+        lifecycle: 'ready',
+        canonicalRoot,
+        rootIdentity: identity,
+        rootBookmarkId: input.bookmarkId,
+        ...(remoteUrl !== undefined ? { remote: remoteUrl } : {}),
+        ...(input.remote !== undefined ? { fetchRemote: input.remote } : {}),
+        ...(defaultRef !== undefined ? { defaultRef } : {}),
+        projectIds: [input.projectId],
+        version: 1,
+        updatedAt: nowIso(clock),
+      }
+      repoRegistry.upsert(record)
+      log('repo.registered', record.id, 'granted', { kind })
     }
-    const record: RepoRecord = {
+    await ensurePrimaryWorktree({ scope: input.scope, repoId: record.id })
+    return findRepo(input.scope, record.id)
+  }
+
+  /** The configured URL of a named remote (local config only, no network). */
+  async function configuredRemoteUrl(
+    canonicalRoot: string,
+    remoteName: string
+  ): Promise<string | undefined> {
+    const result = await runGit(['config', '--get', `remote.${remoteName}.url`], {
+      cwd: canonicalRoot,
+      timeoutMs: GIT_HEAD_READ_TIMEOUT_MS,
+    }).catch(() => undefined)
+    const url = result?.exitCode === 0 ? result.stdout.trim() : ''
+    return url.length > 0 ? url : undefined
+  }
+
+  /** The checkout's current branch ref and HEAD commit from local git reads
+   *  only. A detached HEAD has no branch ref; an unborn branch has no SHA. */
+  async function inspectHead(root: string): Promise<{ headRef?: string; headSha?: string }> {
+    const [symbolic, sha] = await Promise.all([
+      runGit(['symbolic-ref', '--quiet', 'HEAD'], {
+        cwd: root,
+        timeoutMs: GIT_HEAD_READ_TIMEOUT_MS,
+      }).catch(() => undefined),
+      runGit(['rev-parse', '--verify', '--quiet', 'HEAD'], {
+        cwd: root,
+        timeoutMs: GIT_HEAD_READ_TIMEOUT_MS,
+      }).catch(() => undefined),
+    ])
+    const headRef = symbolic?.exitCode === 0 ? symbolic.stdout.trim() : ''
+    const headSha = sha?.exitCode === 0 ? sha.stdout.trim() : ''
+    return {
+      ...(headRef.length > 0 ? { headRef } : {}),
+      ...(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(headSha) ? { headSha } : {}),
+    }
+  }
+
+  function primaryRecordFor(scope: DevScope, repoId: string): WorktreeRecord | undefined {
+    return loadWorktrees().find(
+      (entry) =>
+        entry.kind === 'primary' &&
+        entry.repoId === repoId &&
+        sameScope(entry.scope, scope) &&
+        entry.lifecycle !== 'cleaned'
+    )
+  }
+
+  /** ADR 0011: a registered git repository's own checkout is exactly one
+   *  `kind: 'primary'` worktree record. Creates it on first registration and
+   *  otherwise refreshes its inspected branch/HEAD. Folder repositories have
+   *  no primary record. */
+  async function ensurePrimaryWorktree(input: {
+    scope: DevScope
+    repoId: string
+  }): Promise<WorktreeRecord | undefined> {
+    const repo = findRepo(input.scope, input.repoId)
+    if (repo.kind !== 'git') return undefined
+    const existing = primaryRecordFor(input.scope, repo.id)
+    if (existing) return refreshPrimaryHead(existing, repo)
+    const { path, identity } = directoryIdentity(repo.canonicalRoot)
+    const head = await inspectHead(path)
+    const record: WorktreeRecord = {
       id: newRecordId(),
       scope: { ...input.scope },
-      kind,
-      canonicalRoot,
+      kind: 'primary',
+      projectId: repo.projectIds[0] ?? '',
+      repoId: repo.id,
+      name: basename(path),
+      ...(head.headRef !== undefined ? { branchRef: head.headRef, headRef: head.headRef } : {}),
+      ...(head.headSha !== undefined ? { headSha: head.headSha } : {}),
+      canonicalRoot: path,
       rootIdentity: identity,
-      bookmarkId: input.bookmarkId,
-      ...(input.remote ? { remote: input.remote } : {}),
-      ...(input.defaultRef ? { defaultRef: input.defaultRef } : {}),
-      ...(input.defaultBranch ? { defaultBranch: input.defaultBranch } : {}),
-      projectIds: [input.projectId],
-      createdAt: nowIso(clock),
+      // The primary checkout was not created by Adea: every ownership-gated
+      // path (merge-back, cleanup) treats it as external.
+      provenance: 'external',
+      lifecycle: 'ready',
+      bootstrap: { state: 'not_started' },
+      archived: false,
+      generation: 1,
       version: 1,
+      createdAt: nowIso(clock),
+      updatedAt: nowIso(clock),
     }
-    repos.push(record)
-    repoStore.save(repos)
-    log('repo.registered', record.id, 'granted', { kind })
+    putWorktree(record)
+    log('worktree.primary_registered', record.id, 'granted', { kind: 'primary' })
     return record
+  }
+
+  /** Re-inspect the primary checkout's branch/HEAD; persists (version + 1,
+   *  generation unchanged) only when the observed facts moved. */
+  async function refreshPrimaryHead(
+    record: WorktreeRecord,
+    repo: RepoRecord
+  ): Promise<WorktreeRecord> {
+    if (record.kind !== 'primary' || repo.kind !== 'git') return record
+    if (!existsSync(record.canonicalRoot)) return record
+    const head = await inspectHead(record.canonicalRoot)
+    if (head.headRef === record.headRef && head.headSha === record.headSha) return record
+    // A detached or unborn HEAD clears the stale fact (undefined is not
+    // persisted by the JSON store).
+    const next: WorktreeRecord = {
+      ...record,
+      branchRef: head.headRef,
+      headRef: head.headRef,
+      headSha: head.headSha,
+      version: record.version + 1,
+      updatedAt: nowIso(clock),
+    }
+    putWorktree(next)
+    return next
   }
 
   /** Fingerprint-gated refresh: rediscover only when the git admin state
@@ -621,6 +765,10 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       }
     }
     if (changed > 0) saveWorktrees(records)
+    // The primary checkout's branch/HEAD move with the admin fingerprint
+    // (it stamps the main HEAD), so the same gated pass refreshes it.
+    const primary = primaryRecordFor(repo.scope, repo.id)
+    if (primary && primary.lifecycle === 'ready') await refreshPrimaryHead(primary, repo)
     return changed
   }
 
@@ -693,9 +841,9 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     // 3. Update the base from the selected remote (bounded, typed failures).
     //    Never mutates or resets the primary checkout: `git fetch` writes only
     //    remote-tracking refs under the common dir.
-    if (input.updateBase !== false && repo.remote) {
+    if (input.updateBase !== false && repo.fetchRemote) {
       try {
-        await runGitChecked(['fetch', repo.remote, '--prune'], {
+        await runGitChecked(['fetch', repo.fetchRemote, '--prune'], {
           cwd: repo.canonicalRoot,
           timeoutMs: fetchTimeoutMs,
           signal: input.signal,
@@ -711,7 +859,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
         log('worktree.base_fetch', repo.id, 'failed', { code })
         throw new WorktreeError(
           code,
-          `updating the base from ${repo.remote} failed: ${(error as Error).message}`,
+          `updating the base from ${repo.fetchRemote} failed: ${(error as Error).message}`,
           {
             action: 'retry_fetch',
           }
@@ -773,6 +921,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     const record: WorktreeRecord = {
       id: newRecordId(),
       scope: { ...input.scope },
+      kind: 'managed',
       projectId: input.projectId,
       repoId: repo.id,
       name,
@@ -911,11 +1060,24 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       worktreePath: input.worktreePath,
       repoRoot: repo.canonicalRoot,
     })
+    // Each checkout is represented exactly once: a path that already has a
+    // live record (managed, external, or the primary) is not re-adopted.
+    const recorded = loadWorktrees().find(
+      (entry) =>
+        sameScope(entry.scope, input.scope) &&
+        entry.canonicalRoot === proof.canonicalRoot &&
+        entry.lifecycle !== 'cleaned' &&
+        entry.lifecycle !== 'quarantined'
+    )
+    if (recorded) {
+      throw new WorktreeError('invalid_state', 'this checkout already has a worktree record')
+    }
     const branchRef = await currentBranchRef(proof.canonicalRoot)
     const headSha = await gitRevParse(proof.canonicalRoot, 'HEAD').catch(() => undefined)
     const record: WorktreeRecord = {
       id: newRecordId(),
       scope: { ...input.scope },
+      kind: 'external',
       projectId: input.projectId,
       repoId: repo.id,
       name: proof.canonicalRoot.split(sep).pop() ?? proof.canonicalRoot,
@@ -944,6 +1106,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     expectedGeneration: number
   }): WorktreeRecord {
     const record = findWorktree(input.scope, input.worktreeId)
+    refusePrimary(record, 'archived')
     if (record.generation !== input.expectedGeneration) {
       throw new WorktreeError('stale_generation', 'worktree generation moved')
     }
@@ -1030,6 +1193,100 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     return next
   }
 
+  /** The primary checkout is the repository itself: it is never archived,
+   *  merged back, cleaned up, renamed, or deleted. Typed refusal. */
+  function refusePrimary(record: WorktreeRecord, action: string): void {
+    if (record.kind === 'primary') {
+      throw new WorktreeError('invalid_state', `the primary checkout cannot be ${action}`)
+    }
+  }
+
+  /** Set (or clear, with a blank title) the local display title of a managed
+   *  or external worktree. Metadata only: the version moves, the generation
+   *  (the lease/plan fence) does not, and nothing on disk changes. */
+  function renameWorktree(input: {
+    scope: DevScope
+    worktreeId: string
+    expectedVersion: number
+    title: string
+  }): WorktreeRecord {
+    const record = findWorktree(input.scope, input.worktreeId)
+    refusePrimary(record, 'renamed')
+    if (record.version !== input.expectedVersion) {
+      throw new WorktreeError('stale_version', 'worktree version moved')
+    }
+    if (record.lifecycle === 'quarantined' || record.lifecycle === 'cleaned') {
+      throw new WorktreeError('invalid_state', 'a removed worktree cannot be renamed')
+    }
+    const title = input.title.trim()
+    if (title.length > WORKTREE_TITLE_MAX_LENGTH) {
+      throw new WorktreeError('limit_exceeded', 'worktree title is too long')
+    }
+    // oxlint-disable-next-line no-control-regex -- titles reject control characters by design
+    if (/[\u0000-\u001f\u007f]/.test(title)) {
+      throw new WorktreeError('invalid_state', 'worktree title contains control characters')
+    }
+    if ((record.title ?? '') === title) return record
+    const next: WorktreeRecord = {
+      ...record,
+      title: title.length > 0 ? title : undefined,
+      version: record.version + 1,
+      updatedAt: nowIso(clock),
+    }
+    putWorktree(next)
+    log('worktree.renamed', record.id, 'granted')
+    return next
+  }
+
+  /** Line/file counts of each worktree's tracked changes (working tree and
+   *  index) against its recorded base commit, or HEAD when no base is
+   *  recorded (the primary checkout, adopted worktrees). Local git only,
+   *  bounded per worktree, counts only — no paths or content leave here.
+   *  Unknown ids refuse the whole call; a worktree whose checkout cannot be
+   *  observed right now is omitted rather than reported as clean. */
+  async function diffSummary(input: {
+    scope: DevScope
+    worktreeIds: ReadonlyArray<string>
+  }): Promise<WorktreeDiffSummary[]> {
+    if (input.worktreeIds.length > DIFF_SUMMARY_MAX_WORKTREES) {
+      throw new WorktreeError('limit_exceeded', 'too many worktrees in one diff summary')
+    }
+    const ids = [...new Set(input.worktreeIds)]
+    const records = ids.map((id) => findWorktree(input.scope, id))
+    const results: WorktreeDiffSummary[] = []
+    for (const record of records) {
+      if (
+        record.lifecycle === 'cleaned' ||
+        record.lifecycle === 'quarantined' ||
+        !existsSync(record.canonicalRoot)
+      )
+        continue
+      const base = record.baseSha ?? 'HEAD'
+      const result = await runGit(
+        ['diff', '--numstat', '--no-renames', '--no-ext-diff', '--no-textconv', base, '--'],
+        {
+          cwd: record.canonicalRoot,
+          timeoutMs: DIFF_SUMMARY_TIMEOUT_MS,
+          maxOutputBytes: DIFF_SUMMARY_MAX_OUTPUT_BYTES,
+        }
+      ).catch(() => undefined)
+      if (!result || result.exitCode !== 0) continue
+      let added = 0
+      let removed = 0
+      let filesChanged = 0
+      for (const line of result.stdout.split('\n')) {
+        if (line.length === 0) continue
+        const [addedText, removedText] = line.split('\t')
+        filesChanged += 1
+        // Binary files report `-`: counted as a changed file, zero lines.
+        if (addedText !== '-') added += Number(addedText) || 0
+        if (removedText !== '-') removed += Number(removedText) || 0
+      }
+      results.push({ worktreeId: record.id, added, removed, filesChanged })
+    }
+    return results
+  }
+
   // --- leases ---------------------------------------------------------------
 
   const leaseApi = {
@@ -1080,6 +1337,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       if (record.generation !== input.expectedGeneration) {
         throw new WorktreeError('stale_generation', 'worktree generation moved')
       }
+      refusePrimary(record, 'merged back')
       if (record.provenance !== 'adea') {
         throw new WorktreeError('external_ownership', 'external worktrees do not merge back')
       }
@@ -1179,6 +1437,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     selectedResourceIds?: ReadonlyArray<string>
   }): Promise<CleanupPlan> {
     const record = findWorktree(input.scope, input.worktreeId)
+    refusePrimary(record, 'cleaned up')
     if (record.generation !== input.expectedGeneration) {
       throw new WorktreeError('stale_generation', 'worktree generation moved')
     }
@@ -1238,6 +1497,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       throw new WorktreeError('plan_stale', 'cleanup plan digest does not match the plan')
     }
     const recordAtPlan = findWorktree(input.scope, input.plan.worktreeId)
+    refusePrimary(recordAtPlan, 'cleaned up')
     const repo = findRepo(input.scope, recordAtPlan.repoId)
     // A destructive step may only run from a blocker-free plan.
     if (
@@ -1538,6 +1798,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
   }): Promise<CleanupResult> {
     const journal = journalFor(input.jobId)
     const record = findWorktree(input.scope, input.worktreeId)
+    refusePrimary(record, 'cleaned up')
     const jobs = [...cleanupJobStore.load().records]
     const job = jobs.find((entry) => entry.jobId === input.jobId)
     const latest = journal.latestSteps(input.jobId)
@@ -1666,9 +1927,12 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     registerRepo,
     refreshRepo,
     listRepos: (scope: DevScope) => loadRepos().filter((entry) => sameScope(entry.scope, scope)),
+    ensurePrimaryWorktree,
     createWorktree,
     adoptWorktree,
     listWorktrees,
+    renameWorktree,
+    diffSummary,
     getWorktree: (scope: DevScope, worktreeId: string) => findWorktree(scope, worktreeId),
     archiveWorktree,
     unarchiveWorktree,
