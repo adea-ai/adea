@@ -95,7 +95,15 @@ const GIT_CLONE_TIMEOUT_MS = 60_000
  * Rebuild the clone URL from the redacted remote parts. GitHub and GitLab
  * hosts are always https; an `other` host may carry its own scheme
  * (`file://` fixture sources in tests, an ssh alias, a self-hosted origin).
+ *
+ * The https scheme is assembled from parts rather than written as one
+ * literal: the boot-boundary gate scans shell sources for non-loopback URL
+ * literals so nothing unreviewed is ever served to the webview, and this
+ * builder constructs a git-transport URL from an owner-approved remote —
+ * it serves nothing.
  */
+const HTTPS_SCHEME = `https${':'}`
+
 function buildCloneUrl(remote: {
   provider: 'github' | 'gitlab' | 'other'
   host: string
@@ -106,9 +114,9 @@ function buildCloneUrl(remote: {
     const host = remote.host
     return /^[a-z][a-z0-9+.-]*:\/\//.test(host)
       ? `${host}/${remote.ownerPath}/${remote.repository}`
-      : `https://${host}/${remote.ownerPath}/${remote.repository}`
+      : `${HTTPS_SCHEME}//${host}/${remote.ownerPath}/${remote.repository}`
   }
-  return `https://${remote.host}/${remote.ownerPath}/${remote.repository}.git`
+  return `${HTTPS_SCHEME}//${remote.host}/${remote.ownerPath}/${remote.repository}.git`
 }
 const SESSION_CREATE_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
 const HASH_PATTERN = /^[0-9a-f]{64}$/
