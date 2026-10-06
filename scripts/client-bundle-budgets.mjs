@@ -149,7 +149,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // which is what pushed past the 168 KiB / 56 KiB drafted here. Raw
     // ratchets to the next 2 KiB step (~3% headroom); gzip to the next whole
     // KiB step (~4.5%).
-    devUtilityPanes: { rawBytes: 174 * 1024, gzipBytes: 60 * 1024 },
+    // The #677 off-thread diff render boundary (worker wrapper, protocol
+    // guards, the save-conflict model, and diff navigation) rides the
+    // source-control app chunk inside this partition: 179,419 raw on the
+    // same build — 1,243 bytes over the 174 KiB cap. Raw ratchets to the
+    // next whole KiB; gzip stays at its measured step.
+    devUtilityPanes: { rawBytes: 176 * 1024, gzipBytes: 60 * 1024 },
     // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
     // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
     // carries ~2.2% headroom instead of leaving the cap pinned to the build.
