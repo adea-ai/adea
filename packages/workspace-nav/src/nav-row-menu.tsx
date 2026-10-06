@@ -18,6 +18,8 @@ export function NavRowMenu(props: {
   items: readonly NavMenuItem[]
   onSelect: (id: NavMenuItemId) => void
   portalMount?: HTMLElement
+  /** False inside a modal sheet, where a focus tooltip would swallow Escape. */
+  tooltips?: boolean
 }) {
   return (
     <DropdownMenu>
@@ -25,7 +27,7 @@ export function NavRowMenu(props: {
         as={ActionButton}
         variant="ghost"
         size="icon-xs"
-        tooltip={props.label}
+        tooltip={props.tooltips === false ? undefined : props.label}
         aria-label={props.label}
       >
         <Ellipsis aria-hidden="true" />

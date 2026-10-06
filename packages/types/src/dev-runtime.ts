@@ -4,7 +4,11 @@ import {
   devRuntimeTransportMethods,
   devStreamProtocolDefinitions,
 } from './dev-runtime-registry'
-import { decodeRegistryDto, worktreeLifecycles } from './dev-runtime-registry-dto'
+import {
+  decodeRegistryDto,
+  harnessAccountFamilies,
+  worktreeLifecycles,
+} from './dev-runtime-registry-dto'
 export { worktreeLifecycles } from './dev-runtime-registry-dto'
 import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
 import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
@@ -757,12 +761,28 @@ export type Project = Readonly<{
 
 // An imported project binds each repository to the authorized root bookmark
 // that proves it: the canonical host path never comes from a client body, it
-// is resolved through the roots authority at import time.
-export type ProjectRepoBinding = Readonly<{
-  repoId: string
-  rootBookmarkId: string
-  canonicalRoot: string
-}>
+// is resolved through the roots authority at import time. A remote-only
+// project (`dev.project.clone`) binds a managed bare clone instead: its
+// `layout` is `bare_managed`, its root lives in Adea's owner-only app data,
+// and it carries no bookmark (no user root covers it).
+export type ProjectRepoBinding =
+  | Readonly<{
+      repoId: string
+      rootBookmarkId: string
+      canonicalRoot: string
+      layout?: never
+    }>
+  | Readonly<{
+      repoId: string
+      rootBookmarkId?: never
+      canonicalRoot: string
+      layout: 'bare_managed'
+    }>
+
+/** Repository layout facts: absent is an ordinary checkout with a `.git`
+ *  directory; `bare_managed` is an Adea-managed bare clone (no primary
+ *  working tree, worktrees only). */
+export type RepoLayout = 'bare_managed'
 
 // One scanner recommendation: a preview of an importable workspace package.
 // Scanning never executes install/bootstrap commands; `suggestedScripts` are
@@ -817,6 +837,8 @@ export type Repo = Readonly<{
   kind: 'git' | 'folder'
   lifecycle: 'authorizing' | 'ready' | 'unavailable' | 'stale' | 'refreshing'
   canonicalRoot: string
+  /** `bare_managed` for a remote-only project's managed bare clone. */
+  layout?: RepoLayout
   gitCommonDirIdentity?: FileIdentity
   remote?: RedactedRemote
   defaultRef?: string
@@ -922,6 +944,50 @@ export type CredentialRef = Readonly<{
   host: string
   kind: 'git_https' | 'github_token' | 'ssh_key' | 'other'
   state: 'ready' | 'expired' | 'revoked' | 'unknown'
+  version: number
+}>
+
+// Workspace connections (ADR 0012): device-local bindings, stored in the
+// workspace's Dev scope partition, from a workspace to credential material the
+// user already holds. Bindings carry ids only — secrets stay in the vault.
+export { harnessAccountFamilies } from './dev-runtime-registry-dto'
+export type HarnessAccountFamily = (typeof harnessAccountFamilies)[number]
+
+export type GitHostingBinding = Readonly<{
+  /** Bare git hosting host (`github.com` or a GitLab host). */
+  host: string
+  credentialRefId: string
+}>
+
+export type HarnessAccountBinding = Readonly<{
+  harnessId: HarnessAccountFamily
+  profileId: string
+}>
+
+/** One harness family this runtime node can launch, with the provider hosts
+ *  an account profile for it may name. Host-projected, never stored. */
+export type ConnectableHarness = Readonly<{
+  harnessId: HarnessAccountFamily
+  displayName: string
+  accountHosts: readonly string[]
+}>
+
+export type WorkspaceConnections = Readonly<{
+  scope: Scope
+  gitHosting: readonly GitHostingBinding[]
+  harnessAccounts: readonly HarnessAccountBinding[]
+  /** Optimistic version of the workspace's binding document; 0 = never set. */
+  version: number
+  availableHarnesses: readonly ConnectableHarness[]
+}>
+
+/** A reusable, device-wide harness account: which vaulted API key a harness
+ *  uses when a workspace binds this profile. Ids only, never the secret. */
+export type HarnessAccountProfile = Readonly<{
+  id: string
+  harnessId: HarnessAccountFamily
+  label: string
+  credentialRefId: string
   version: number
 }>
 
@@ -1529,8 +1595,117 @@ export type ResourceSnapshot = Readonly<{
   ports: readonly PortRecord[]
   metrics: readonly ResourceMetric[]
   retainedData: readonly RetainedDataRecord[]
+  /** Present only under the `machine` resource coverage: processes Adea did not
+   * launch. They never carry a ProcessRecord id or ride the owned stop path. */
+  foreign?: readonly ForeignProcessRecord[]
+  machine?: MachineResourceSummary
   observedAt: string
 }>
+
+/** Display-only attribution for a foreign process; never authority. */
+export type ForeignProcessAttribution = Readonly<
+  | { kind: 'harness'; harness: string }
+  | { kind: 'automation'; label: string }
+  /** Started from a shell inside an Adea terminal, with no launch record. */
+  | { kind: 'adea_terminal' }
+  | { kind: 'unknown' }
+>
+
+export type ForeignProcessProtection = 'none' | 'protected_list' | 'system' | 'other_user'
+
+export type ForeignProcessRecord = Readonly<{
+  /** Host-minted id derived from the observed identity (PID, start identity,
+   * executable identity); a replaced process always gets a new id. */
+  id: string
+  observationGeneration: number
+  pid: number
+  startIdentity: string
+  executableIdentity: string
+  /** Executable basename (or app name), bounded. */
+  label: string
+  /** Redacted, bounded argv preview (home as `~`, secret-looking values masked). */
+  commandPreview?: string
+  /** Home-relative working directory, bounded. */
+  cwdLabel?: string
+  /** The registered worktree whose root contains the working directory. */
+  worktreeId?: string
+  attribution: ForeignProcessAttribution
+  /** Loopback or wildcard TCP listeners owned by this process. */
+  listeningPorts: readonly number[]
+  childCount: number
+  /** Process tree resident bytes (decimal string); absent when unknown. */
+  residentBytes?: string
+  cpuPercent?: number
+  /** Up to 30 evenly spaced tree resident-byte points over the last 10 minutes. */
+  residentHistory: readonly string[]
+  protection: ForeignProcessProtection
+  /** True only when protection is `none` and the process runs as the Adea user. */
+  stoppable: boolean
+  observedAt: string
+}>
+
+export type MachineResourceSummary = Readonly<{
+  memoryTotalBytes?: string
+  memoryUsedBytes?: string
+  cpuPercent?: number
+  diskFreeBytes?: string
+  diskTotalBytes?: string
+  observedAt: string
+}>
+
+export type ForeignStopResult = Readonly<{
+  foreignProcessId: string
+  outcome: 'stopped' | 'forced' | 'already_gone' | 'still_running'
+  /** Every PID the host signalled, children first. */
+  signalledPids: readonly number[]
+  observedAt: string
+}>
+
+export type WorktreeStorageRecord = Readonly<{
+  worktreeId: string
+  /** Bytes outside dependency and build roots. */
+  sourceBytes?: string
+  /** Bytes inside dependency and build roots (node_modules, target, …). */
+  buildBytes?: string
+  state: 'measured' | 'measuring' | 'stale' | 'unreadable'
+  measuredAt?: string
+}>
+
+export type ResourceCoverage = 'adea' | 'machine'
+export type ResourceCleanupMode = 'off' | 'ask' | 'automatic'
+
+/** The mutable resource settings; every numeric field is clamped by the host. */
+export type ResourcePreferencesInput = Readonly<{
+  /** `machine` lists processes Adea did not start; `adea` lists only its own.
+   * (Named `coverage` because `scope` is a reserved authority field.) */
+  coverage: ResourceCoverage
+  includeAutomationApps: boolean
+  recognizedHarnesses: readonly string[]
+  portRange: Readonly<{ from: number; to: number }>
+  alerts: Readonly<{
+    residentBytesAbove: string
+    growthBytes: string
+    growthWindowSeconds: number
+    notify: 'badge' | 'badge_and_notification'
+    snoozeSeconds: number
+  }>
+  cleanup: Readonly<{
+    mode: ResourceCleanupMode
+    serverIdleSeconds: number
+    suggestMergedWorktreesAfterSeconds: number
+    quarantineRetentionSeconds: number
+    retainedDataRetentionSeconds: number
+  }>
+  protectedExecutables: readonly string[]
+  sampling: Readonly<{ visibleSeconds: number; backgroundSeconds: number }>
+}>
+
+export type ResourcePreferences = ResourcePreferencesInput &
+  Readonly<{
+    /** Optimistic-concurrency revision; every accepted update increments it. */
+    version: number
+    updatedAt: string
+  }>
 
 export type CleanupPredicate = Readonly<
   | { kind: 'clean' }
@@ -1752,6 +1927,91 @@ const cleanupSteps = [
 ] as const
 export type CleanupStepKind = (typeof cleanupSteps)[number]
 
+const decimalBytesPattern = /^(0|[1-9][0-9]{0,19})$/
+
+function decimalBytes(value: unknown, path: string): string {
+  const text = stringValue(value, path, 1, 20)
+  if (!decimalBytesPattern.test(text)) fail(path, 'expected a decimal byte count')
+  return text
+}
+
+/** Bounded label lists in resource preferences (harness names, protected
+ * executables): printable names without path separators. */
+function preferenceLabels(value: unknown, path: string): void {
+  if (!Array.isArray(value)) fail(path, 'expected array')
+  if (value.length > 32) fail(path, 'expected at most 32 entries')
+  for (const [index, entry] of value.entries()) {
+    const text = stringValue(entry, `${path}[${index}]`, 1, 128)
+    if (!/^[\x20-\x7e]+$/.test(text) || text.includes('/'))
+      fail(`${path}[${index}]`, 'expected a printable name without path separators')
+  }
+}
+
+function decodeResourcePreferenceFields(value: unknown, path: string, stored: boolean): void {
+  const item = record(value, path)
+  const fields = [
+    'coverage',
+    'includeAutomationApps',
+    'recognizedHarnesses',
+    'portRange',
+    'alerts',
+    'cleanup',
+    'protectedExecutables',
+    'sampling',
+  ]
+  exactKeys(item, stored ? [...fields, 'version', 'updatedAt'] : fields, [], path)
+  literal(item.coverage, ['adea', 'machine'], `${path}.coverage`)
+  if (typeof item.includeAutomationApps !== 'boolean')
+    fail(`${path}.includeAutomationApps`, 'expected boolean')
+  preferenceLabels(item.recognizedHarnesses, `${path}.recognizedHarnesses`)
+  const portRange = record(item.portRange, `${path}.portRange`)
+  exactKeys(portRange, ['from', 'to'], [], `${path}.portRange`)
+  integerValue(portRange.from, `${path}.portRange.from`, 1, 65_535)
+  integerValue(portRange.to, `${path}.portRange.to`, 1, 65_535)
+  const alerts = record(item.alerts, `${path}.alerts`)
+  exactKeys(
+    alerts,
+    ['residentBytesAbove', 'growthBytes', 'growthWindowSeconds', 'notify', 'snoozeSeconds'],
+    [],
+    `${path}.alerts`
+  )
+  decimalBytes(alerts.residentBytesAbove, `${path}.alerts.residentBytesAbove`)
+  decimalBytes(alerts.growthBytes, `${path}.alerts.growthBytes`)
+  integerValue(alerts.growthWindowSeconds, `${path}.alerts.growthWindowSeconds`, 1, 86_400)
+  literal(alerts.notify, ['badge', 'badge_and_notification'], `${path}.alerts.notify`)
+  integerValue(alerts.snoozeSeconds, `${path}.alerts.snoozeSeconds`, 0, 604_800)
+  const cleanup = record(item.cleanup, `${path}.cleanup`)
+  exactKeys(
+    cleanup,
+    [
+      'mode',
+      'serverIdleSeconds',
+      'suggestMergedWorktreesAfterSeconds',
+      'quarantineRetentionSeconds',
+      'retainedDataRetentionSeconds',
+    ],
+    [],
+    `${path}.cleanup`
+  )
+  literal(cleanup.mode, ['off', 'ask', 'automatic'], `${path}.cleanup.mode`)
+  for (const key of [
+    'serverIdleSeconds',
+    'suggestMergedWorktreesAfterSeconds',
+    'quarantineRetentionSeconds',
+    'retainedDataRetentionSeconds',
+  ] as const)
+    integerValue(cleanup[key], `${path}.cleanup.${key}`, 0, 31_536_000)
+  preferenceLabels(item.protectedExecutables, `${path}.protectedExecutables`)
+  const sampling = record(item.sampling, `${path}.sampling`)
+  exactKeys(sampling, ['visibleSeconds', 'backgroundSeconds'], [], `${path}.sampling`)
+  integerValue(sampling.visibleSeconds, `${path}.sampling.visibleSeconds`, 1, 3_600)
+  integerValue(sampling.backgroundSeconds, `${path}.sampling.backgroundSeconds`, 1, 3_600)
+  if (stored) {
+    integerValue(item.version, `${path}.version`, 0, 2_147_483_647)
+    timestamp(item.updatedAt, `${path}.updatedAt`)
+  }
+}
+
 function namedType(name: string, value: unknown, path: string): unknown {
   if (
     name === 'FileIdentity' ||
@@ -1763,7 +2023,9 @@ function namedType(name: string, value: unknown, path: string): unknown {
     name === 'Repo' ||
     name === 'RepoInspection' ||
     name === 'Worktree' ||
-    name === 'WorktreeDiffSummary'
+    name === 'WorktreeDiffSummary' ||
+    name === 'WorkspaceConnections' ||
+    name === 'HarnessAccountProfile'
   )
     return decodeRegistryDto(name, value, path)
   if (decodeGithubCollaborationDto(name, value, path)) return value
@@ -2339,7 +2601,12 @@ function namedType(name: string, value: unknown, path: string): unknown {
   }
   if (name === 'ResourceSnapshot') {
     const item = record(value, path)
-    exactKeys(item, ['processes', 'ports', 'metrics', 'retainedData', 'observedAt'], [], path)
+    exactKeys(
+      item,
+      ['processes', 'ports', 'metrics', 'retainedData', 'observedAt'],
+      ['foreign', 'machine'],
+      path
+    )
     if (!Array.isArray(item.processes)) fail(`${path}.processes`, 'expected array')
     if (!Array.isArray(item.ports)) fail(`${path}.ports`, 'expected array')
     if (!Array.isArray(item.metrics)) fail(`${path}.metrics`, 'expected array')
@@ -2352,7 +2619,134 @@ function namedType(name: string, value: unknown, path: string): unknown {
       namedType('ResourceMetric', entry, `${path}.metrics[${index}]`)
     for (const [index, entry] of item.retainedData.entries())
       namedType('RetainedDataRecord', entry, `${path}.retainedData[${index}]`)
+    if (item.foreign !== undefined) {
+      if (!Array.isArray(item.foreign)) fail(`${path}.foreign`, 'expected array')
+      if (item.foreign.length > 512) fail(`${path}.foreign`, 'expected at most 512 records')
+      for (const [index, entry] of item.foreign.entries())
+        namedType('ForeignProcessRecord', entry, `${path}.foreign[${index}]`)
+    }
+    if (item.machine !== undefined)
+      namedType('MachineResourceSummary', item.machine, `${path}.machine`)
     timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'ForeignProcessRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'observationGeneration',
+        'pid',
+        'startIdentity',
+        'executableIdentity',
+        'label',
+        'attribution',
+        'listeningPorts',
+        'childCount',
+        'residentHistory',
+        'protection',
+        'stoppable',
+        'observedAt',
+      ],
+      ['commandPreview', 'cwdLabel', 'worktreeId', 'residentBytes', 'cpuPercent'],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 256)
+    integerValue(item.observationGeneration, `${path}.observationGeneration`, 0)
+    integerValue(item.pid, `${path}.pid`, 1)
+    stringValue(item.startIdentity, `${path}.startIdentity`, 1, 256)
+    stringValue(item.executableIdentity, `${path}.executableIdentity`, 1, 1024)
+    stringValue(item.label, `${path}.label`, 1, 256)
+    if (item.commandPreview !== undefined)
+      stringValue(item.commandPreview, `${path}.commandPreview`, 1, 512)
+    if (item.cwdLabel !== undefined) stringValue(item.cwdLabel, `${path}.cwdLabel`, 1, 512)
+    if (item.worktreeId !== undefined) stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    const attribution = record(item.attribution, `${path}.attribution`)
+    literal(
+      attribution.kind,
+      ['harness', 'automation', 'adea_terminal', 'unknown'],
+      `${path}.attribution.kind`
+    )
+    if (attribution.kind === 'harness') {
+      exactKeys(attribution, ['kind', 'harness'], [], `${path}.attribution`)
+      stringValue(attribution.harness, `${path}.attribution.harness`, 1, 64)
+    } else if (attribution.kind === 'automation') {
+      exactKeys(attribution, ['kind', 'label'], [], `${path}.attribution`)
+      stringValue(attribution.label, `${path}.attribution.label`, 1, 128)
+    } else {
+      exactKeys(attribution, ['kind'], [], `${path}.attribution`)
+    }
+    if (!Array.isArray(item.listeningPorts)) fail(`${path}.listeningPorts`, 'expected array')
+    if (item.listeningPorts.length > 64) fail(`${path}.listeningPorts`, 'expected at most 64 ports')
+    for (const [index, port] of item.listeningPorts.entries())
+      integerValue(port, `${path}.listeningPorts[${index}]`, 1, 65_535)
+    integerValue(item.childCount, `${path}.childCount`, 0)
+    if (item.residentBytes !== undefined) decimalBytes(item.residentBytes, `${path}.residentBytes`)
+    if (item.cpuPercent !== undefined) finiteNumber(item.cpuPercent, `${path}.cpuPercent`, 0, 1e6)
+    if (!Array.isArray(item.residentHistory)) fail(`${path}.residentHistory`, 'expected array')
+    if (item.residentHistory.length > 30)
+      fail(`${path}.residentHistory`, 'expected at most 30 points')
+    for (const [index, point] of item.residentHistory.entries())
+      decimalBytes(point, `${path}.residentHistory[${index}]`)
+    literal(
+      item.protection,
+      ['none', 'protected_list', 'system', 'other_user'],
+      `${path}.protection`
+    )
+    if (typeof item.stoppable !== 'boolean') fail(`${path}.stoppable`, 'expected boolean')
+    if (item.stoppable && item.protection !== 'none')
+      fail(`${path}.stoppable`, 'a protected process is never stoppable')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'MachineResourceSummary') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['observedAt'],
+      ['memoryTotalBytes', 'memoryUsedBytes', 'cpuPercent', 'diskFreeBytes', 'diskTotalBytes'],
+      path
+    )
+    for (const key of [
+      'memoryTotalBytes',
+      'memoryUsedBytes',
+      'diskFreeBytes',
+      'diskTotalBytes',
+    ] as const)
+      if (item[key] !== undefined) decimalBytes(item[key], `${path}.${key}`)
+    if (item.cpuPercent !== undefined) finiteNumber(item.cpuPercent, `${path}.cpuPercent`, 0, 100)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'ForeignStopResult') {
+    const item = record(value, path)
+    exactKeys(item, ['foreignProcessId', 'outcome', 'signalledPids', 'observedAt'], [], path)
+    stringValue(item.foreignProcessId, `${path}.foreignProcessId`, 1, 256)
+    literal(item.outcome, ['stopped', 'forced', 'already_gone', 'still_running'], `${path}.outcome`)
+    if (!Array.isArray(item.signalledPids)) fail(`${path}.signalledPids`, 'expected array')
+    if (item.signalledPids.length > 256) fail(`${path}.signalledPids`, 'expected at most 256')
+    for (const [index, pid] of item.signalledPids.entries())
+      integerValue(pid, `${path}.signalledPids[${index}]`, 1)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'WorktreeStorageRecord') {
+    const item = record(value, path)
+    exactKeys(item, ['worktreeId', 'state'], ['sourceBytes', 'buildBytes', 'measuredAt'], path)
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    literal(item.state, ['measured', 'measuring', 'stale', 'unreadable'], `${path}.state`)
+    if (item.sourceBytes !== undefined) decimalBytes(item.sourceBytes, `${path}.sourceBytes`)
+    if (item.buildBytes !== undefined) decimalBytes(item.buildBytes, `${path}.buildBytes`)
+    if (item.measuredAt !== undefined) timestamp(item.measuredAt, `${path}.measuredAt`)
+    return value
+  }
+  if (name === 'ResourcePreferencesInput') {
+    decodeResourcePreferenceFields(value, path, false)
+    return value
+  }
+  if (name === 'ResourcePreferences') {
+    decodeResourcePreferenceFields(value, path, true)
     return value
   }
   if (name === 'CleanupPolicy') {
@@ -3517,6 +3911,7 @@ function validateType(type: string, value: unknown, path: string): unknown {
   const quoted = trimmed.match(/^'([^']*)'$/)
   if (quoted) return literal(value, [quoted[1]], path)
   if (trimmed === 'true') return literal(value, [true], path)
+  if (trimmed === 'null') return literal(value, [null], path)
   if (trimmed.startsWith('{') && trimmed.endsWith('}'))
     return validateObjectType(trimmed, value, path)
 
@@ -3581,6 +3976,18 @@ export function decodeRootBookmark(value: unknown): RootBookmark {
 export function decodeCredentialRef(value: unknown): CredentialRef {
   namedType('CredentialRef', value, 'credentialRef')
   return value as CredentialRef
+}
+
+/** Strict decoder for a workspace's connection bindings (ADR 0012). */
+export function decodeWorkspaceConnections(value: unknown): WorkspaceConnections {
+  namedType('WorkspaceConnections', value, 'workspaceConnections')
+  return value as WorkspaceConnections
+}
+
+/** Strict decoder for a reusable harness account profile (never a secret). */
+export function decodeHarnessAccountProfile(value: unknown): HarnessAccountProfile {
+  namedType('HarnessAccountProfile', value, 'harnessAccountProfile')
+  return value as HarnessAccountProfile
 }
 
 /** Strict decoder for the terminal lifecycle record. */
@@ -3770,6 +4177,7 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   // a bounded preview page. update/archive/unbind reply with the Project
   // binding record (same decoder; unbind returns the removed binding).
   'dev.project.import': (value) => decodeProject(value),
+  'dev.project.clone': (value) => decodeProject(value),
   'dev.project.create': (value) => decodeProject(value),
   'dev.project.update': (value) => decodeProject(value),
   'dev.project.archive': (value) => decodeProject(value),
@@ -3778,6 +4186,15 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.project.authorizeRoot': (value) => decodeRootBookmark(value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
+  // Workspace connections (ADR 0012): the binding document and the reusable
+  // device-wide harness account profiles. Ids only — never secret material.
+  'dev.connections.get': (value) => decodeWorkspaceConnections(value),
+  'dev.connections.setGitHosting': (value) => decodeWorkspaceConnections(value),
+  'dev.connections.setHarnessAccount': (value) => decodeWorkspaceConnections(value),
+  'dev.harness.accountProfiles.list': (value) =>
+    decodeDevRuntimePage(decodeHarnessAccountProfile, value),
+  'dev.harness.accountProfiles.create': (value) => decodeHarnessAccountProfile(value),
+  'dev.harness.accountProfiles.delete': (value) => decodeHarnessAccountProfile(value),
   // Repository registry (#398 follow-up): adopt/authorize/refresh reply with
   // the re-read Repo record, inspect with fresh read-only facts, and list
   // with a bounded Repo page.
@@ -4069,6 +4486,20 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
     ),
   'dev.resources.stopPlan': (value) => namedType('MutationPlan', value, 'reply.value'),
   'dev.resources.stopCommit': (value) => namedType('ProcessRecord', value, 'reply.value'),
+  'dev.resources.foreignStopPlan': (value) => namedType('MutationPlan', value, 'reply.value'),
+  'dev.resources.foreignStopCommit': (value) =>
+    namedType('ForeignStopResult', value, 'reply.value'),
+  'dev.resources.restartPlan': (value) => namedType('MutationPlan', value, 'reply.value'),
+  'dev.resources.restartCommit': (value) => namedType('ProcessRecord', value, 'reply.value'),
+  'dev.resources.worktreeStorage': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('WorktreeStorageRecord', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.resources.preferences': (value) => namedType('ResourcePreferences', value, 'reply.value'),
+  'dev.resources.preferencesUpdate': (value) =>
+    namedType('ResourcePreferences', value, 'reply.value'),
   'dev.cleanupPolicy.list': (value) =>
     decodeDevRuntimePage(
       (item, path) => namedType('CleanupPolicy', item, path),

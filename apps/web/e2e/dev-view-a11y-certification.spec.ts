@@ -81,11 +81,10 @@ test('cert 2.5.8: sidebar disclosure rows and drag strips meet the 24px target m
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page)
 
-  // Disclosure triggers: the flat project rows (#1053 removed group
-  // sections). The published header wrapper keeps its padding; the button
-  // must still be a 24px-tall target.
-  for (const rowName of [/^Example project/, /^Runtime tools/]) {
-    const row = page.getByRole('button', { name: rowName })
+  // Disclosure triggers: the shared workspace sidebar's project rows (ADR
+  // 0011). Each tree row must still be a 24px-tall target.
+  for (const rowName of ['Example project', 'Runtime tools']) {
+    const row = page.locator('[role="treeitem"][data-project-id]').filter({ hasText: rowName })
     await expect(row).toBeVisible()
     const box = await row.boundingBox()
     expect(box, `disclosure row ${rowName} should render`).not.toBeNull()
@@ -104,7 +103,7 @@ test('cert 2.5.8: sidebar disclosure rows and drag strips meet the 24px target m
   ).toBeVisible()
 
   const strips = [
-    { label: 'Resize projects and sessions sidebar', axis: 'width' as const },
+    { label: 'Resize workspace navigation', axis: 'width' as const },
     { label: 'Resize left utility pane', axis: 'width' as const },
     { label: 'Resize right utility pane', axis: 'width' as const },
     { label: 'Resize workspace panes', axis: 'width' as const },
@@ -137,7 +136,7 @@ test('cert 2.5.8: narrow-viewport controls keep 24px targets without overlap', a
   // shelf check, then close it: while the sheet is up the topbar sits under
   // the overlay legitimately (modal context), so the toggle's own geometry is
   // measured with the sheet dismissed.
-  const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   if (!(await sidebar.isVisible().catch(() => false))) {
     await page.getByRole('button', { name: /Expand contextual sidebar/ }).click()
     await expect(sidebar).toBeVisible()
@@ -186,20 +185,20 @@ test('cert 2.5.8: narrow-viewport controls keep 24px targets without overlap', a
   ).toBe(true)
 })
 
-test('cert 4.1.2: session rows announce state, title, and badges as separated tokens', async ({
+test('cert 4.1.2: worktree rows announce status and branch as separated tokens', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page)
 
-  const row = page.getByRole('button', { name: /Dev View foundation/ })
+  // The shared tree's leaf rows (ADR 0011): the status is words, not only a
+  // glyph, and it stays a distinct token from the branch in the name.
+  const row = page.getByRole('treeitem', { name: /feature\/example/ })
   await expect(row).toBeVisible()
-  const name = await (await row.elementHandle())!
-    .evaluate((element) => element.textContent ?? '')
-    .then((text) => text.replace(/\s+/g, ' ').trim())
-  // The status chip, the session title, and each badge are distinct words in
-  // the announced name — not the pre-fix "activeDev View foundationharness".
-  expect(name).toMatch(/^active Dev View foundation harness dirty checks… :3000$/)
+  await expect(row).toHaveAccessibleName(/^Running feature\/example$/)
+  await expect(page.getByRole('treeitem', { name: /feature\/runtime/ })).toHaveAccessibleName(
+    /^feature\/runtime Needs you$/
+  )
 })
 
 test('cert 2.4.7: keyboard focus stays visible across the sidebar and toolbar walk', async ({
@@ -432,13 +431,13 @@ test('cert 3.3.1/3.3.2: the add-project form is keyboard-operable with labelled 
   )
   await expect(page.getByTestId('ready')).toHaveText('ready')
 
-  // 2.5.8: the disclosure row is a full pointer target as well.
-  const summary = page.locator('summary')
-  const summaryBox = await summary.boundingBox()
-  expect(summaryBox!.height).toBeGreaterThanOrEqual(24)
+  // 2.5.8: the dialog opener is a full pointer target as well.
+  const opener = page.getByRole('button', { name: 'Add repository…', exact: true })
+  const openerBox = await opener.boundingBox()
+  expect(openerBox!.height).toBeGreaterThanOrEqual(24)
 
-  // Keyboard-only open: Enter toggles the details disclosure.
-  await summary.focus()
+  // Keyboard-only open: Enter opens the Add repository dialog.
+  await opener.focus()
   await page.keyboard.press('Enter')
   const path = page.getByRole('textbox', { name: 'Folder path to authorize' })
   await expect(path).toBeVisible()
@@ -480,22 +479,20 @@ test('cert semantics: surfaces expose structured aria snapshots', async ({ page 
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page)
 
-  // The projects tree: nav with collapsible disclosure rows and session rows.
-  // Session-row names are the composed status chip + title + badge tokens
-  // (the 4.1.2 certification fix), so they are asserted as full names — the
-  // fixture data is deterministic. Heading text is the DOM's own case; the
-  // uppercase look is CSS text-transform on top of it.
-  await expect(page.getByRole('complementary', { name: 'Projects and sessions' }).locator('nav'))
+  // The shared workspace tree (ADR 0011): project rows at level 1 with
+  // their checkout and worktree rows at level 2. Leaf names are the status
+  // and branch tokens (the 4.1.2 certification), asserted as full names —
+  // the fixture data is deterministic. The tree's own name carries the
+  // workspace name, which the E2E database owns.
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' }).getByRole('tree'))
     .toMatchAriaSnapshot(`
-    - navigation "Dev projects":
-      - heading "Example project" [level=2]:
-        - button "Example project 2" [expanded]
-      - button "active Dev View foundation harness dirty checks… :3000"
-      - button "ready Runtime contracts"
-      - heading "Runtime tools" [level=2]:
-        - button "Runtime tools 2" [expanded]
-      - button "ready Other project session input checks ✗"
-      - button "archived Archived discovery"
+    - tree /projects$/:
+      - treeitem "Example project" [expanded] [level=1]
+      - treeitem "main" [level=2]
+      - treeitem "Running feature/example" [level=2] [selected]
+      - treeitem "Runtime tools" [expanded] [level=1]
+      - treeitem "feature/runtime Needs you" [level=2]
+      - treeitem "Idle docs/runtime-notes" [level=2]
   `)
 
   // The right utility rail keeps its labelled navigation and pane regions.

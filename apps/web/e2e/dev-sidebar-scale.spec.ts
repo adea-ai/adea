@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test'
 
 /*
  * The sidebar-at-scale case (#666): the DEV-only `devSidebarScale` fixture
- * param grows every project to 1,000 sessions (2,000 rows across the fixture
- * workspace's two projects). The sidebar has no windowing, so the DOM cost
+ * param grows every project to 1,000 sessions, each in its own worktree (about
+ * 2,000 worktree rows across the fixture workspace's two projects). The sidebar has no windowing, so the DOM cost
  * is the point: the case pins that the full tree renders, every row carries
  * its accessible name, and the render completes inside the lane's element
  * budget — the baseline any windowing decision (#677) has to beat.
@@ -17,21 +17,22 @@ test('cert scale: the sidebar renders a 2,000-row fixture tree with named rows',
   await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
     timeout: 60_000,
   })
-  const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(sidebar).toBeVisible()
 
-  // Every generated row is present and named: the last generated session of
-  // each project exists with its deterministic name.
-  await expect(sidebar.getByRole('button', { name: 'Session 1000' })).toHaveCount(2, {
+  // Every generated row is present and named: each generated session runs in
+  // its own worktree, so the last one of each project is a worktree row with
+  // its deterministic name.
+  await expect(sidebar.getByRole('treeitem', { name: /Session 1000$/ })).toHaveCount(2, {
     timeout: 30_000,
   })
   const renderMs = Date.now() - startedAt
 
   // No generated row mushes its name: role + name stay per-row.
-  const first = sidebar.getByRole('button', { name: 'ready Session 3' }).first()
-  await expect(first).toHaveAccessibleName('ready Session 3')
+  const first = sidebar.getByRole('treeitem', { name: /Session 3$/ }).first()
+  await expect(first).toHaveAccessibleName(/^Idle Session 3/)
 
-  // Keyboard reachability at depth: the generated rows are real tab stops.
+  // Keyboard reachability at depth: the tree's roving focus reaches the row.
   await first.focus()
   await expect(first).toBeFocused()
 

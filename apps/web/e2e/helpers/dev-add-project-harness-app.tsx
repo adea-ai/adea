@@ -1,8 +1,19 @@
 import '../../src/start/globals.css'
 import type { DevCommand, DevReply } from '@adea-ai/types/dev-runtime'
-import { createSignal, onMount } from 'solid-js'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Show, Suspense, createSignal, lazy, onMount } from 'solid-js'
 import { render } from 'solid-js/web'
-import { AddProjectPanel } from '../../../../packages/dev-view/src/sidebar/add-project-panel'
+
+// The Dev sidebar opens this dialog from a project's "Add repository…" item
+// (and the "New project" flow); the form loads with the dialog.
+const DevAddRepositoryDialog = lazy(() =>
+  import('../../../../packages/dev-view/src/sidebar/dev-nav-dialogs').then((module) => ({
+    default: module.DevAddRepositoryDialog,
+  }))
+)
+
+/** The cloud project the dialog binds; the register never mints one itself. */
+const PROJECT_ID = '0d9e4f1a-1111-4000-8000-00000000c10d'
 
 function Harness() {
   const [ready, setReady] = createSignal(false)
@@ -10,6 +21,8 @@ function Harness() {
   const [announcement, setAnnouncement] = createSignal('')
   const [imports, setImports] = createSignal(0)
   const [authorized, setAuthorized] = createSignal(false)
+  const [open, setOpen] = createSignal(false)
+  const [importedIds, setImportedIds] = createSignal<string[]>([])
   const execute = async (command: DevCommand): Promise<DevReply> => {
     setOperations((current) => [...current, command.operation])
     if (
@@ -91,6 +104,7 @@ function Harness() {
           Object.keys(body).toSorted().join(',') !== 'projectId,rootBookmarkId'
         )
           throw new Error('Unexpected import body: ' + JSON.stringify(body))
+        setImportedIds((current) => [...current, body.projectId as string])
         value = { id: body.projectId }
         break
       }
@@ -108,17 +122,28 @@ function Harness() {
   onMount(() => setReady(true))
   return (
     <>
-      <AddProjectPanel
-        scope={{ accountId: 'account', workspaceId: 'workspace', runtimeNodeId: 'node' }}
-        execute={execute}
-        knownProjectNames={[]}
-        onImported={() => setImports((current) => current + 1)}
-        announce={setAnnouncement}
-      />
+      <Button type="button" onClick={() => setOpen(true)}>
+        Add repository…
+      </Button>
+      <Suspense fallback={null}>
+        <Show when={open()}>
+          <DevAddRepositoryDialog
+            scope={{ accountId: 'account', workspaceId: 'workspace', runtimeNodeId: 'node' }}
+            execute={execute}
+            knownProjectNames={[]}
+            projectId={PROJECT_ID}
+            projectName="Fixture project"
+            onImported={() => setImports((current) => current + 1)}
+            onClose={() => setOpen(false)}
+            announce={setAnnouncement}
+          />
+        </Show>
+      </Suspense>
       <output data-testid="ready">{ready() ? 'ready' : 'mounting'}</output>
       <output data-testid="operations">{JSON.stringify(operations())}</output>
       <output data-testid="announcement">{announcement()}</output>
       <output data-testid="imports">{imports()}</output>
+      <output data-testid="imported-ids">{JSON.stringify(importedIds())}</output>
     </>
   )
 }

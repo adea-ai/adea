@@ -18,6 +18,8 @@ export type NavMenuItemId =
   | 'copy-path'
   | 'open-in-finder'
   | 'switch-branch'
+  /** Dev: bind a local repository to a project that has none on this device. */
+  | 'add-repository'
 
 export type NavMenuItem = Readonly<{
   id: NavMenuItemId

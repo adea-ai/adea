@@ -2,6 +2,7 @@ import { TooltipProvider } from '@adea-ai/ui/components/ui/tooltip'
 import {
   ConventionalWorkspaceShell,
   type WorkspaceDeepLink,
+  type WorkspaceNavHost,
 } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
@@ -19,6 +20,7 @@ export function ConventionalWorkspaceEntry(props: {
   onOpenTaskBoard?: () => void
   onViewChange: (view: WorkspaceView) => void
   services: WorkspacePlatformServices
+  workspaceHost?: WorkspaceNavHost
 }) {
   return (
     <TooltipProvider openDelay={200} closeDelay={300} skipDelayDuration={300}>
@@ -33,6 +35,7 @@ export function ConventionalWorkspaceEntry(props: {
         onViewChange={props.onViewChange}
         view="chat"
         services={{ ...props.services, client: props.client }}
+        workspaceHost={props.workspaceHost}
       />
     </TooltipProvider>
   )

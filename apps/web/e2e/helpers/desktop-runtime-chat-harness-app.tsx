@@ -156,6 +156,25 @@ const runtime: DevRuntimeService = {
           },
         ],
       }
+    } else if (command.operation === 'dev.worktree.list') {
+      // The shared sidebar's checkout row: the repository's primary record.
+      value = {
+        items: [
+          {
+            id: sessions[0]!.worktreeId,
+            scope,
+            kind: 'primary',
+            repoId: sessions[0]!.repoId,
+            projectId,
+            headRef: 'main',
+            archived: false,
+            generation: 1,
+            version: 1,
+          },
+        ],
+      }
+    } else if (command.operation === 'dev.harness.runs') {
+      value = { items: [] }
     } else if (command.operation === 'dev.session.events') {
       value = { resource: { generation: 3 }, fromSequence: '0' }
     }

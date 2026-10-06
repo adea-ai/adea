@@ -30,6 +30,7 @@ import {
 } from './service'
 import type { CleanupPlan as ServiceCleanupPlan, CleanupStepKind } from './cleanup-plan'
 import type { MergePlan as ServiceMergePlan } from './merge'
+import { ensureManagedWorktreeBase } from '../repos/managed'
 
 const PLAN_TTL_MS = 10 * 60_000
 
@@ -68,6 +69,8 @@ type RegistrarInput = {
   vault: CredentialVault
   /** Test seam: inject a service; production constructs the real one. */
   service?: WorktreeService
+  /** Workspace connections (ADR 0012): base-update fetch credentials. */
+  resolveFetchEnv?: import('../connections/transport-env').GitRemoteEnvResolver
   now?: () => number
 }
 
@@ -198,6 +201,7 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
       dataDir: input.dataDir,
       runtimeNodeId: input.runtimeNodeId,
       roots: input.roots,
+      ...(input.resolveFetchEnv ? { resolveFetchEnv: input.resolveFetchEnv } : {}),
     })
   // Plan/commit pairs: the host holds the immutable unexpired plan between
   // the two calls; the commit rechecks the digest and the live generation.
@@ -306,7 +310,12 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
         ...(body.destinationName !== undefined
           ? { destinationName: body.destinationName as string }
           : {}),
-        worktreeBaseDir: worktreeBaseDir(repo.canonicalRoot),
+        // A managed bare clone (remote-only project) has no user bookmark
+        // above it: its worktrees live under its owner-only managed base.
+        worktreeBaseDir:
+          repo.layout === 'bare_managed'
+            ? ensureManagedWorktreeBase(input.dataDir, repo.id)
+            : worktreeBaseDir(repo.canonicalRoot),
         idempotencyKey: command.idempotencyKey,
       })
       return worktreeOperation(result, 'ready')

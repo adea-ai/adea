@@ -16,5 +16,10 @@ export * from './search'
 export { FirstRunOnboarding, type FirstRunOnboardingProps } from './onboarding/first-run-onboarding'
 export * from './onboarding'
 
-export { DevSidebarNavigation, devProjectsFromProjection } from '../sidebar/dev-sidebar-shell'
+export {
+  DevWorkspaceSidebar,
+  type DevWorkspaceNavHost,
+  type DevWorkspaceSidebarProps,
+} from '../sidebar/dev-workspace-sidebar'
+export { devBindingsFromProjection } from '../sidebar/dev-nav-model'
 export { resolveDevSelection } from '../selection'

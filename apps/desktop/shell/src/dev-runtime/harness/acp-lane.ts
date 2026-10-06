@@ -58,6 +58,8 @@ export type ResolvedHarnessInstallation = Readonly<{
   acpAvailability: 'available' | 'adapter_required' | 'unavailable'
   acpVersion?: string
   version?: string
+  /** Harness family (`claude-code`, `codex`, `opencode`, `pi`) when known. */
+  family?: string
   auth: 'ready' | 'required' | 'expired' | 'unknown'
   health: 'healthy' | 'degraded' | 'unhealthy' | 'unknown'
   capabilities: readonly string[]

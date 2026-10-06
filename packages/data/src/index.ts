@@ -852,6 +852,27 @@ export function useUpdateProjectMutation(
   )
 }
 
+export function useArchiveProjectMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  const queryClient = useQueryClient()
+  return useMutation(() =>
+    projectMutationOptions.archive(client, queryClient, resolveAccessor(workspaceId))
+  )
+}
+
+/** Soft delete: the project leaves every listing and its id is never reused. */
+export function useDeleteProjectMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  const queryClient = useQueryClient()
+  return useMutation(() =>
+    projectMutationOptions.delete(client, queryClient, resolveAccessor(workspaceId))
+  )
+}
+
 export function useAgentListQuery(
   client: AgentHqApiClient,
   workspaceId?: MaybeAccessor<string | undefined>

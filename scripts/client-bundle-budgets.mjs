@@ -63,7 +63,23 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // page, and the sharing api-client/data surface add 2,699,712 raw / 821,064
   // gzip on the same build (+28.7 KB raw / +11.1 KB gzip). Raw ratchets to
   // 2,715,000 (~0.6% headroom) and gzip to 806 KiB (~0.5%); file count holds.
-  total: { rawBytes: 2_715_000, gzipBytes: 806 * 1024, fileCount: 132 },
+  // Workspace accordion (2026-10-06, ADR 0011 PR 10), measured against the
+  // same build of main: 2,699,945 raw / 821,161 gzip / 132 files before,
+  // 2,734,540 / 832,476 / 136 after (+34.6 KB raw / +11.3 KB gzip). The
+  // shared @adea-ai/workspace-nav tree (model, adapters, WorkspaceNav,
+  // NavLeafTree) and the published Tree composite replace the Chat/Virtual
+  // WorkspaceSidebar, and the lazy dialog module gains the confirmation
+  // dialog. Raw moves to 2,760,000 (~0.9% headroom), gzip to 840 KiB
+  // (~3.2%), and file count to the next 5-file step.
+  // Shared workspace sidebar in Dev (2026-10-06, ADR 0011 PR 10b), measured
+  // against the same build of its base (main): 2,754,951 raw / 837,844 gzip
+  // / 136 files before, 2,786,776 / 848,378 / 140 after (+31.8 KB raw /
+  // +10.5 KB gzip, +4 files). The Dev NavTree projection, its bounded
+  // reads, the sidebar controller and the lazy sidebar dialog and action
+  // modules replace the retired Dev sidebar shell and add-project panel.
+  // Raw moves to 2,815,000 (~1.0% headroom); gzip holds (~1.4%); file count
+  // moves to the next 5-file step (145).
+  total: { rawBytes: 2_815_000, gzipBytes: 840 * 1024, fileCount: 145 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -77,7 +93,14 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the app-local resize handle (the same corvu-core swap Chat documents).
     // Raw keeps its cap; gzip ratchets to the next whole KiB (~4% headroom;
     // the old cap left 87 bytes of headroom).
-    virtual: { rawBytes: 80 * 1024, gzipBytes: 28 * 1024 },
+    // Re-measured for the workspace accordion (2026-10-06, ADR 0011 PR 10):
+    // 123,997 raw / 41,925 gzip across 18 files against the same build of
+    // main's 81,582 / 27,988 / 14. Virtual mounts the shared
+    // WorkspaceNavSidebar: the workspace-nav tree, the published Tree,
+    // Badge, Input and typography composites, and the workspace identity
+    // mark join the route; the Share host stays a lazy edge. Raw ratchets to
+    // 124 KiB (~2.4% headroom); gzip to 42 KiB (~2.5%).
+    virtual: { rawBytes: 124 * 1024, gzipBytes: 42 * 1024 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and
@@ -109,7 +132,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // query/mutation hooks and the lazy dialog's host land the route at
     // 261,885 raw — 1,789 bytes over 254 KiB. Raw ratchets to the next 2 KiB
     // step; the dialog itself stays lazy and gzip keeps its cap.
-    chat: { rawBytes: 256 * 1024, gzipBytes: 85 * 1024 },
+    // Workspace accordion (2026-10-06, ADR 0011 PR 10): 304,387 raw /
+    // 100,339 gzip across 42 files against the same build of main's 261,791
+    // / 86,447 / 39 — the same WorkspaceNavSidebar delta Virtual carries
+    // (the views share the chunk, so a Chat-then-Virtual journey pays it
+    // once). Raw ratchets to 300 KiB (~0.9% headroom) and gzip to 100 KiB
+    // (~2%).
+    chat: { rawBytes: 300 * 1024, gzipBytes: 100 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
@@ -155,7 +184,17 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the fixture groups' module boundary) costs 136,225 raw on the same
     // build — 33 bytes over the 133 KiB cap. Raw ratchets to the next whole
     // KiB, same as the #1033 re-baseline.
-    devShell: { rawBytes: 134 * 1024, gzipBytes: 47 * 1024 },
+    // The shared workspace sidebar in Dev (2026-10-06, ADR 0011 PR 10b):
+    // 183,639 raw / 62,430 gzip across 29 files against the same build of its
+    // base (main: 131,570 / 45,777 across 23). Dev now
+    // renders the shared `@adea-ai/workspace-nav` accordion Chat already
+    // loads (its 33,633-byte chunk, which absorbed the ContextualSidebar
+    // composition), plus the Dev NavTree projection, its bounded
+    // worktree/run/diff reads and the sidebar controller (+17,484 in the Dev
+    // entry), and the shared Input/FormField and the activity sets leaf status
+    // reuses. The retired Dev sidebar shell and StatusChip leave the route.
+    // Raw ratchets to 182 KiB (~1.5% headroom); gzip to 62 KiB (~1.7%).
+    devShell: { rawBytes: 182 * 1024, gzipBytes: 62 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested
@@ -169,7 +208,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // source-control app chunk inside this partition: 179,419 raw on the
     // same build — 1,243 bytes over the 174 KiB cap. Raw ratchets to the
     // next whole KiB; gzip stays at its measured step.
-    devUtilityPanes: { rawBytes: 176 * 1024, gzipBytes: 60 * 1024 },
+    // Workspace accordion (2026-10-06, ADR 0011 PR 10): the published Tree
+    // composite now also loads with Chat/Virtual, so rolldown re-splits the
+    // chunk the panes share with it: 178,335 raw / 61,542 gzip against the
+    // same build of main's 178,006 / 60,882 (102 bytes over 60 KiB gzip).
+    // Gzip ratchets to the next whole KiB; raw keeps its cap.
+    devUtilityPanes: { rawBytes: 176 * 1024, gzipBytes: 61 * 1024 },
     // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
     // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
     // carries ~2.2% headroom instead of leaving the cap pinned to the build.
@@ -198,8 +242,17 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // add contract entries this route carries, so raw ratchets to 840 KiB
     // (~0.9% over the 852,808 measurement, the ratio the #1003 re-baseline
     // kept) instead of re-baselining once per operation; gzip is unchanged.
-    devTerminal: { rawBytes: 840 * 1024, gzipBytes: 221 * 1024 },
-    devEditor: { rawBytes: 512 * 1024, gzipBytes: 160 * 1024 },
+    // The shared workspace sidebar in Dev (2026-10-06, ADR 0011 PR 10b)
+    // carries the same Dev-shell delta into this route: 902,517 raw / 238,249
+    // gzip against its base build's 854,530 / 223,215 (+47,987 / +15,034:
+    // the shell's sidebar modules, partly offset by a smaller command chunk
+    // split on this route). Raw ratchets to 888 KiB (~0.8% headroom); gzip
+    // to 234 KiB (~0.6%).
+    devTerminal: { rawBytes: 888 * 1024, gzipBytes: 234 * 1024 },
+    // Same delta on the editor route (2026-10-06, ADR 0011 PR 10b): 541,499
+    // raw / 171,081 gzip against its base build's 490,226 / 154,545. Raw
+    // ratchets to 532 KiB (~0.6% headroom); gzip to 168 KiB (~0.6%).
+    devEditor: { rawBytes: 532 * 1024, gzipBytes: 168 * 1024 },
   },
 }
 
@@ -443,6 +496,12 @@ export function inspectClientBundle(input) {
     'repo-registry-panel-',
     'Dev repository registry panel'
   )
+  // The Dev sidebar's on-demand dialogs and mutations (ADR 0011) load from
+  // the Dev entry like the repository registry panel they open: sidebar
+  // actions, not utility panes. Matched by name; a build may inline either.
+  const devSidebarOnDemand = chunks.filter(({ file }) =>
+    ['dev-nav-dialogs-', 'dev-nav-actions-'].some((prefix) => chunkName(file).startsWith(prefix))
+  )
   const sharedUtilityHost = uniqueChunk(
     chunks,
     ({ source }) => source.includes(SHARED_UTILITY_HOST_MARKER),
@@ -474,6 +533,7 @@ export function inspectClientBundle(input) {
           runtimeTerminalPane.file,
           codeEditor.file,
           repoRegistryPanel.file,
+          ...devSidebarOnDemand.map((chunk) => chunk.file),
         ].includes(file)
     ),
     ...dynamicChunkTargets(

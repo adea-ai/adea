@@ -26,6 +26,9 @@ export type DevRuntimeAvailability =
  * groups — the cloud project list owns those — so hosts supply display names
  * through `DevProjectNames` and order follows the projection.
  */
+/** The projected code source of one Dev project binding. */
+export type DevProjectSource = 'local_repo' | 'remote_only' | 'none'
+
 export type DevWorkspaceProjection = Readonly<{
   observedAt?: string
   projects: readonly Readonly<{
@@ -34,6 +37,13 @@ export type DevWorkspaceProjection = Readonly<{
     repoIds: readonly string[]
     /** The binding's default base ref, or empty when none is set. */
     branch: string
+    /**
+     * Where the project's code comes from on this device: `local_repo` for a
+     * binding to a user checkout, `remote_only` for a managed bare clone
+     * (`dev.project.clone`; worktrees only, no primary checkout), and `none`
+     * for a binding with no repository. `toProjection` always supplies it.
+     */
+    source?: DevProjectSource
     version?: number
     sessions: readonly Readonly<{
       id: string

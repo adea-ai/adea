@@ -73,6 +73,8 @@ export type {
   TranscriptionState,
   WorkspaceAppActivation,
   WorkspaceAppSurface,
+  WorkspaceConnectionsService,
+  WorkspaceConnectionsSnapshot,
   WorkspacePreferences,
   WorkspacePlatformServices,
   WorkspacePlugin,

@@ -15,6 +15,7 @@ import { noteUpdatePhase } from '@adea-ai/workspace-ui/update-pending'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { invoke, listen } from '../lib/desktop-bridge'
 import { createDesktopDevRuntimeService } from '../lib/desktop-dev-runtime'
+import { createDesktopWorkspaceConnectionsService } from '../lib/desktop-workspace-connections'
 import {
   createDesktopDevScopeSelector,
   devScopeCredential,
@@ -36,6 +37,7 @@ import {
 } from '../lib/desktop-workspace-session'
 import { createDeferredPluginsProvider, WorkspaceNavigation } from './workspace-navigation'
 import { DesktopFirstRunChat } from './desktop-first-run-chat'
+import { createDevSummaryPoll } from '../lib/dev-summary-poll'
 import { createDesktopChatModelHost } from '../lib/desktop-chat-host'
 import { createSharedDevUtilityOwner } from '@adea-ai/dev-view/utility-owner'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -338,12 +340,15 @@ function DesktopWorkspace(props: {
     scopeSelection: props.devScope.ensure(props.devScopeWorkspaceId),
     expectedWorkspaceId: props.devScopeWorkspaceId,
   })
+  const connections = createDesktopWorkspaceConnectionsService(devRuntime)
   const chatModelHost = createDesktopChatModelHost(devRuntime)
   const utilityOwner = createSharedDevUtilityOwner(
     devRuntime,
     typeof window === 'undefined' ? undefined : window.localStorage
   )
   onCleanup(() => utilityOwner.dispose())
+  // Collapsed workspace chips and "Needs you" read the desktop run counts.
+  const devSummary = createDevSummaryPoll(devRuntime)
   const services = (): WorkspacePlatformServices => ({
     account: {
       authenticated: signedIn(),
@@ -355,6 +360,7 @@ function DesktopWorkspace(props: {
     app: { name: 'Adea', platform: 'desktop', version: props.appVersion },
     capabilities: desktopCapabilityProvider,
     client: props.client,
+    connections,
     devRuntime,
     memory: desktopMemoryService,
     privateContent: localContentAuthority,
@@ -379,8 +385,10 @@ function DesktopWorkspace(props: {
         onSignOut: () => void props.onSignOut(),
       }}
       activeWorkspace={props.activeWorkspace}
-      chatEntry={(fallback, archiveAction, sidebarOpener) => (
+      devSummary={devSummary}
+      chatEntry={(fallback, archiveAction, sidebarOpener, workspaceNav) => (
         <DesktopFirstRunChat
+          workspaceNav={workspaceNav}
           sidebarOpener={sidebarOpener}
           archiveAction={archiveAction}
           client={props.client}

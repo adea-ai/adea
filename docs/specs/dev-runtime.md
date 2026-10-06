@@ -150,6 +150,7 @@ branch names, URLs, or array indexes.
 | `runtimeSessionId`      | canonical Dev/Chat session                                   |
 | `bookmarkId`            | M10-minted authorized root grant                             |
 | `credentialRefId`       | vault-held credential reference, never the secret            |
+| `accountProfileId`      | reusable device-wide harness account profile (ids only)      |
 | `shellProfileId`        | named host-admitted shell configuration                      |
 | `profilePolicyId`       | named browser lane-permission policy                         |
 | `terminalId`            | one PTY lifecycle within a session                           |
@@ -263,8 +264,10 @@ type DevCapability =
   | 'dev.device.control'
   | 'dev.github.read'
   | 'dev.github.write'
+  | 'dev.resources.configure'
   | 'dev.resources.read'
   | 'dev.resources.stop'
+  | 'dev.resources.stopForeign'
   | 'dev.cleanup.approve'
   | 'dev.appearance.read'
   | 'dev.appLibrary.manage'
@@ -298,12 +301,22 @@ type RedactedRemote = {
   displayUrl: string
 }
 
+// An import binds a repository to the bookmark that proves it; a remote-only
+// project (`dev.project.clone`) binds a managed bare clone, which no user
+// bookmark covers.
+type ProjectRepoBinding =
+  | { repoId: string; rootBookmarkId: string; canonicalRoot: string }
+  | { repoId: string; canonicalRoot: string; layout: 'bare_managed' }
+
 type Repo = {
   id: string
   scope: Scope
   kind: 'git' | 'folder'
   lifecycle: RepoState
   canonicalRoot: string
+  // Absent for an ordinary checkout; `bare_managed` for a managed bare clone
+  // (no primary working tree; its canonical root is also its git common dir).
+  layout?: 'bare_managed'
   gitCommonDirIdentity?: FileIdentity
   remote?: RedactedRemote
   defaultRef?: string
@@ -1148,7 +1161,85 @@ type ResourceSnapshot = {
   ports: PortRecord[]
   metrics: ResourceMetric[]
   retainedData: RetainedDataRecord[]
+  // Present only under the `machine` resource coverage; see
+  // "Machine-wide inventory and foreign stop".
+  foreign?: ForeignProcessRecord[] // at most 512
+  machine?: MachineResourceSummary
   observedAt: string
+}
+// A process Adea did not launch. Never carries a ProcessRecord id and never
+// rides the Adea-owned stop path.
+type ForeignProcessRecord = {
+  id: string // host-derived from PID + start identity + executable identity
+  observationGeneration: number // the pull that first observed this identity
+  pid: number
+  startIdentity: string
+  executableIdentity: string
+  label: string // executable basename, bounded
+  commandPreview?: string // redacted, at most 160 characters
+  cwdLabel?: string // home-relative, bounded
+  worktreeId?: string // registered worktree whose root contains the cwd
+  attribution:
+    | { kind: 'harness'; harness: string } // a recognized harness ancestor
+    | { kind: 'automation'; label: string } // automation flags or app name
+    | { kind: 'adea_terminal' } // below a shell inside an Adea terminal
+    | { kind: 'unknown' }
+  listeningPorts: number[] // loopback/wildcard listeners only, at most 64
+  childCount: number
+  residentBytes?: string // process tree, decimal string; absent when unknown
+  cpuPercent?: number // absent on the first observation
+  residentHistory: string[] // at most 30 points over the last 10 minutes
+  protection: 'none' | 'protected_list' | 'system' | 'other_user'
+  stoppable: boolean // true only when protection is 'none' and owner is the Adea user
+  observedAt: string
+}
+type MachineResourceSummary = {
+  memoryTotalBytes?: string
+  memoryUsedBytes?: string
+  cpuPercent?: number
+  diskFreeBytes?: string
+  diskTotalBytes?: string
+  observedAt: string
+}
+type ForeignStopResult = {
+  foreignProcessId: string
+  outcome: 'stopped' | 'forced' | 'already_gone' | 'still_running'
+  signalledPids: number[] // children first
+  observedAt: string
+}
+type WorktreeStorageRecord = {
+  worktreeId: string
+  sourceBytes?: string // outside dependency and build roots
+  buildBytes?: string // dependency and build output roots
+  state: 'measured' | 'measuring' | 'stale' | 'unreadable'
+  measuredAt?: string
+}
+// `scope` is a reserved authority field, so the setting is named `coverage`.
+type ResourcePreferencesInput = {
+  coverage: 'adea' | 'machine'
+  includeAutomationApps: boolean
+  recognizedHarnesses: string[] // names of shipped matchers, at most 32
+  portRange: { from: number; to: number }
+  alerts: {
+    residentBytesAbove: string
+    growthBytes: string
+    growthWindowSeconds: number
+    notify: 'badge' | 'badge_and_notification' // stored; not yet acted on
+    snoozeSeconds: number // stored; not yet acted on
+  }
+  cleanup: {
+    mode: 'off' | 'ask' | 'automatic' // 'automatic' is not offered yet
+    serverIdleSeconds: number
+    suggestMergedWorktreesAfterSeconds: number // stored; not yet acted on
+    quarantineRetentionSeconds: number // stored; not yet acted on
+    retainedDataRetentionSeconds: number // stored; not yet acted on
+  }
+  protectedExecutables: string[] // basenames or `prefix*`, no `/`, at most 32
+  sampling: { visibleSeconds: number; backgroundSeconds: number }
+}
+type ResourcePreferences = ResourcePreferencesInput & {
+  version: number // optimistic-concurrency revision
+  updatedAt: string
 }
 type CleanupPredicate = CleanupPolicy['predicates'][number]
 type CleanupPolicyEvaluation = {
@@ -1775,7 +1866,8 @@ The register serves `dev.project.import`/`clone`/`create`/`get`/`list`/
 `update`/`archive`/`unbind` and `dev.session.create/get/list/archive/unarchive`. There
 are no `dev.group.*` operations and no `dev.project.reorder`: order comes from
 the cloud project list. `dev.project.create`, `dev.project.import`, and
-`dev.project.clone` take the client-supplied `projectId`; a second binding for an already-bound project id,
+`dev.project.clone` (both its `checkout` and `managed` modes; see "Clone sources
+(`dev.project.clone`)") take the client-supplied `projectId`; a second binding for an already-bound project id,
 or a non-UUID id, is refused with `identity_mismatch`. `dev.project.import`
 binds a project to an **authorized root bookmark**: the canonical root is
 resolved fail-closed through the roots authority inside the host — a
@@ -1804,57 +1896,111 @@ staleness state instead of silently trusting the stored selection. Deep-link
 selection (`devProject`/`devSession` query params) is deterministic: an
 unknown query key survives, and a stale, archived, revoked, generation-stale,
 or cross-scope link recovers to the closest live selection with a visible,
-announced banner while the URL converges on the corrected selection. The Dev
-sidebar renders bindings as one flat list in projection order and offers no
-reorder affordance; project order and grouping belong to the cloud project
-list.
+announced banner while the URL converges on the corrected selection.
 
-The sidebar's project filter is a local presentation projection. It trims the
-query and performs a case-insensitive substring match against project display
-names and session titles. A project name match reveals that project's sessions;
-a session-title match retains only the matching sessions and their project.
-While a query is active, those projects render expanded even when their stored
-collapse IDs are set, so collapsed navigation cannot hide a match. Clearing the
-query restores the full projection and the unchanged collapse state. Typing or
-clearing the filter MUST NOT issue runtime commands, change selected canonical
-IDs, or mutate stored collapse state.
+**Shared workspace sidebar (ADR 0011).** The Dev contextual sidebar is the
+shared `@adea-ai/workspace-nav` `WorkspaceNav` with the `dev` adapter, mounted
+by `packages/dev-view/src/sidebar/dev-workspace-sidebar.tsx` in both the Dev
+view and the desktop runtime Chat. Its hierarchy is workspace › project ›
+leaf: only the active workspace is expanded; other workspaces are one row
+each with running, needs-you, mention and unread chips, and selecting one
+switches through the host's authorized workspace switch. The pure projection
+is `buildDevNavSource` in `sidebar/dev-nav-model.ts`:
 
-The Dev sidebar consumes the published `@adea-ai/ui` `SidebarNav` shell,
-sections, and rows used by the workspace navigation. Shared UI owns the
-header, scrolling region, footer, row styling, disclosure interaction, status
-chips, and focus treatment. Adea supplies runtime project bindings and their
-sessions, display names, selection, and persisted project collapse IDs. The selected project
-uses the shared section active state even while collapsed; session selection
-uses the shared active row state. Shared navigation controls preserve 44px
-coarse-pointer targets without changing desktop density. Changing the shell
-does not change the commands or their authorization. Its archive shelf uses
-shared row, action, scrolling, empty-state, alert, and focus-managed destructive
-confirmation components. Failed archive reads name their error and preserve
-previously loaded rows; absent archive timestamps are labeled unavailable rather
-than implying recency. A successful restore returns focus to the persistent shelf
-control if its removed button still held focus. Restore still
-calls the authenticated unarchive contract, and deletion still requires
-confirmation and reports the missing host contract rather than fabricating
-success. An unavailable provider can leave only the filter and archive controls
-visible; it does not make the sidebar disconnected or authorize mock data.
+- **Projects** come from the cloud project list (names and order, active
+  lifecycle only), joined by project id with the register's local bindings
+  (`DevWorkspaceProjection`); the host's names also feed `projectNames`. A
+  cloud project with no binding on this device renders as source `none` with
+  an "Add repository…" menu item; a binding with no cloud row is hidden and
+  logged once (`hiddenBindingIds`). Without a cloud list (fixtures, direct
+  integrations) the bindings render in projection order with their host
+  names. The sidebar offers no reorder affordance. A bound project's source
+  is the projection's `source` as given (`local_repo`, `remote_only`,
+  `none`): a remote-only project (managed bare clone) shows the cloud icon
+  and never a checkout row; a `none` binding asks for a repository first.
+- **Leaves** come from `dev.worktree.list`: the `primary` record is the
+  checkout leaf (house row, labelled with the `headRef` it actually has checked
+  out, never archived or deleted from here); `managed` and `external` records
+  are worktree leaves, labelled with their branch and local title. Archived
+  records are omitted. A live session bound to a worktree the list did not
+  report keeps a session-derived leaf, so a refused or failed list never hides
+  a session. Worktree records carry no timestamps, so list order stands in for
+  recency within a project; the checkout leads.
+- **Status** is observed, never a session field: `leafActivity` over the
+  `dev.harness.runs` of the leaf's live sessions gives needs you, running or
+  idle; an idle leaf whose `taskId` names a cloud task in `in_review` is in
+  review. **Diff counts** come from one `dev.worktree.diffSummary` batch for
+  the worktree rows on screen (expanded projects only, checkout and
+  session-derived rows excluded, at most 50 ids).
+- **Counts** for collapsed workspaces and the "Needs you" strip add the
+  desktop `dev.summary.workspaces` counts (polled by the desktop lane every
+  30s while the document is visible and again when it becomes visible) to the
+  cloud account summary's mentions and unread channels.
 
-`DevSidebarNavigation` and the Chat/Virtual `WorkspaceSidebar` use the published
-`@adea-ai/ui` `ContextualSidebar` and `PixelResizeHandle` composition. Shared UI
-owns the responsive desktop/mobile shell, heading, scrolling and footer slots,
-collapse semantics, and edge resize handle. Adea owns the view-specific rows and
-archive content, the controlled open state, the persisted width preference, and
-projection of that width into the workspace frame. The shared component does
-not read Adea state or storage. Hosts pass the initial `wideViewportAtLoad` seed
-and update the same host state through `onOpenChange`; a desktop-open state is
-cleared when a wide-loaded view enters the mobile breakpoint, while an
-intentional open at narrow boot is retained. Closing the mobile sheet returns
-focus to the global sidebar opener through `restoreFocusRef`. Selecting a Chat
-or Virtual channel, or a Dev session or different project, closes the mobile
-sheet; activating the current Dev project still operates its disclosure without
-dismissing the navigation. Nested row menus use the context's `portalMount()` so
-they remain inside the mobile dialog's accessibility tree. Dev focus mode and
-full-width utility surfaces suppress conflicting contextual navigation while
-the shared owner remains mounted; the global rail remains visible.
+Runtime reads are bounded and fail closed: one scope-wide worktree list and
+one harness-run read (each at most 4 pages of 500) per refresh — on mount,
+scope or projection change, when the document becomes visible, and on a 30s
+poll while visible — and one diff batch whenever the visible worktree set
+changes, after a refresh, or (debounced 500ms) when `git.statusInvalidated`
+names a visible worktree. Typing, hovering or selecting never issues a read.
+A refused or malformed reply keeps the last observed rows instead of guessing
+an empty list. A refresh that changes nothing keeps the rendered rows (the
+tree reuses unchanged workspace, project and leaf objects, and counts-only
+changes keep the expanded workspace mounted), so polling never drops keyboard
+focus or an open menu.
+
+Selecting a leaf selects its worktree's most recent live session (the current
+selection when it is already on that leaf) and reports it through
+`onSelectionChange`, which keeps `?devProject`/`?devSession` deep links and
+`resolveDevSelection` authoritative; the top-bar breadcrumbs follow the
+selected leaf's project and checked-out branch. A leaf with no session starts
+one with `dev.session.create` on that worktree and selects it once the
+projection reloads. A project's "+" is "New worktree" (`dev.worktree.create`
+with an inline branch name, based on the binding's default base ref, else the
+checkout's branch) when it has a repository and "New session" otherwise, which
+first asks for a repository. Worktree menus offer Rename (`dev.worktree.rename`,
+local title), Copy link (the leaf's Dev deep link), Open in Finder
+(`dev.files.openExternal` on the worktree root), Archive (`dev.worktree.archive`)
+and Delete (`dev.worktree.cleanupPlan`, then a destructive confirmation listing
+every planned step and any blocker before `dev.worktree.cleanupCommit`). The
+checkout menu offers Copy path and Open in Finder only; Share stays out until
+leaf sharing ships and "Switch branch…" stays behind its flag. Project menus
+offer Rename (cloud project update), Project settings (the cloud name and, for
+a bound project, the repository registry), Add repository… (unbound projects;
+the import binds that project's id) and Archive/Delete (cloud archive or soft
+delete, then `dev.project.unbind` when bound — files are never touched). The
+active workspace header's "New project" names a cloud project and then offers
+the repository step. Mutations load on first use; refusals are shown inline
+and announced, never swallowed.
+
+The sidebar's shell is the published `@adea-ai/ui` `ContextualSidebar` and
+`PixelResizeHandle` composition, shared with the Chat/Virtual
+`WorkspaceNavSidebar`: landmark "Workspace navigation", one stored width
+(`adea:workspace-sidebar-width`, 208–448px) projected into the workspace
+frame, the archive shelf in the footer. Shared UI owns the responsive
+desktop/mobile shell, heading, scrolling and footer slots, collapse semantics,
+edge resize handle, tree keyboard model and focus treatment; Adea owns the
+data, the controlled open state and the width preference. Hosts pass the
+initial `wideViewportAtLoad` seed and update the same host state through
+`onOpenChange`; a desktop-open state is cleared when a wide-loaded view enters
+the mobile breakpoint, while an intentional open at narrow boot is retained.
+Closing the mobile sheet returns focus to the global sidebar opener through
+`restoreFocusRef`. Selecting a leaf or another workspace closes the mobile
+sheet; expanding or collapsing a project is disclosure only and keeps it open.
+Row menus use the context's `portalMount()` so they remain inside the mobile
+dialog's accessibility tree, and the sheet drops focus tooltips so Escape
+dismisses it. The archive shelf uses shared row, action, scrolling,
+empty-state, alert and focus-managed destructive confirmation components.
+Failed archive reads name their error and preserve previously loaded rows;
+absent archive timestamps are labeled unavailable rather than implying
+recency. A successful restore returns focus to the persistent shelf control if
+its removed button still held focus. Restore calls the authenticated unarchive
+contract, and deletion still requires confirmation and reports the missing
+host contract rather than fabricating success. An unavailable runtime shows
+"No runtime projects available." above the tree; it never authorizes mock
+data. Dev focus mode and full-width utility surfaces suppress conflicting
+contextual navigation while the shared owner remains mounted; the global rail
+remains visible.
 
 ### Browser lane
 
@@ -1930,10 +2076,12 @@ type DevOperation =
   | `dev.capability.${'snapshot'}`
   | `dev.project.${'list' | 'get' | 'import' | 'clone' | 'scan' | 'create' | 'update' | 'archive' | 'unbind' | 'bookmarks'}`
   | `dev.repo.${'list' | 'inspect' | 'refresh' | 'authorize' | 'adopt' | 'credentialRefs'}`
+  | `dev.connections.${'get' | 'setGitHosting' | 'setHarnessAccount'}`
   | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
   | `dev.session.${'create' | 'get' | 'list' | 'launchDefault' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
   | `dev.harness.${'managedPiStatus' | 'managedPiInstall' | 'acpConnect' | 'acpConnections' | 'acpClose' | 'preferences' | 'preferenceUpdate' | 'preferenceReset' | 'runStatus' | 'runs'}`
+  | `dev.harness.accountProfiles.${'list' | 'create' | 'delete'}`
   | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream' | 'renameOverwritePlan' | 'renameOverwriteCommit' | 'deleteTreePlan' | 'deleteTreeCommit' | 'copyTreePlan' | 'copyTreeCommit'}`
   | `dev.git.${'status' | 'history' | 'diff' | 'stage' | 'unstage' | 'discardPlan' | 'discardCommit' | 'commit' | 'fetch' | 'checkpoint' | 'restorePlan' | 'restoreCommit'}`
   | `dev.browser.${'laneCreate' | 'laneClose' | 'lanes' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'input' | 'cookieImportPlan' | 'cookieImportCommit' | 'cookieSources' | 'profileReset' | 'profilePolicies'}`
@@ -1941,7 +2089,7 @@ type DevOperation =
   | `dev.device.${'capabilities' | 'list' | 'sessions' | 'start' | 'attach' | 'input' | 'screenshot' | 'stop'}`
   | `dev.github.${'account' | 'repository' | 'issues' | 'milestones' | 'pullRequest' | 'pullRequests' | 'checks' | 'pushPlan' | 'pushCommit' | 'createPullRequest' | 'updatePlan' | 'updateCommit' | 'mergePlan' | 'mergeCommit'}`
   | `dev.github.${'pullRequestSummaries' | 'pullRequestSummary' | 'timeline' | 'commits' | 'files' | 'checkLog' | 'labels' | 'assignableUsers' | 'branches' | 'compare' | 'comment' | 'threadReply' | 'threadResolve' | 'metadataUpdate' | 'submitReview' | 'rerunFailedJobs' | 'autoMergePlan' | 'autoMergeCommit' | 'syncBranchPlan' | 'syncBranchCommit'}`
-  | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData'}`
+  | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData' | 'restartPlan' | 'restartCommit' | 'foreignStopPlan' | 'foreignStopCommit' | 'worktreeStorage' | 'preferences' | 'preferencesUpdate'}`
   | `dev.cleanupPolicy.${'list' | 'createDraft' | 'approve' | 'disable' | 'evaluate'}`
 
 type DevCommand<K extends DevOperation, T> = {
@@ -2001,7 +2149,7 @@ projection; `unavailable` is empty for the local owner. Scoped capability
 subsets arrive with remote callers (M14 runtime nodes), which authenticate as
 a different identity class than this trusted local channel. The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 215 operation names, exact body shapes, exact reply types, complete required
+all 221 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -2369,11 +2517,12 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.capability`             | `snapshot`                                                                                                                                                                                                                                                                                                             |
 | `dev.project`                | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `archive`, `unbind`, `bookmarks`                                                                                                                                                                                                                         |
 | `dev.repo`                   | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                                                                                                   |
+| `dev.connections`            | `get`, `setGitHosting`, `setHarnessAccount`                                                                                                                                                                                                                                                                            |
 | `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `rename`, `diffSummary`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                               |
 | `dev.terminal`               | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                                                                               |
 | `dev.session`                | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                                                                         |
 | `dev.summary`                | `workspaces`                                                                                                                                                                                                                                                                                                           |
-| `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`                                                                                                                                                           |
+| `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`, `accountProfiles.list`, `accountProfiles.create`, `accountProfiles.delete`                                                                               |
 | `dev.memory`                 | `propose`                                                                                                                                                                                                                                                                                                              |
 | `dev.files`                  | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`, `renameOverwritePlan`, `renameOverwriteCommit`, `deleteTreePlan`, `deleteTreeCommit`, `copyTreePlan`, `copyTreeCommit`                                                                   |
 | `dev.git`                    | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                                                                                       |
@@ -2382,7 +2531,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.device`                 | `capabilities`, `list`, `sessions`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                                                                                                   |
 | `dev.github`                 | `account`, `repository`, `issues`, `milestones`, `pullRequest`, `pullRequests`, `checks`, `pushPlan`, `pushCommit`, `createPullRequest`, `updatePlan`, `updateCommit`, `mergePlan`, `mergeCommit`                                                                                                                      |
 | `dev.github` (collaboration) | `pullRequestSummaries`, `pullRequestSummary`, `timeline`, `commits`, `files`, `checkLog`, `labels`, `assignableUsers`, `branches`, `compare`, `comment`, `threadReply`, `threadResolve`, `metadataUpdate`, `submitReview`, `rerunFailedJobs`, `autoMergePlan`, `autoMergeCommit`, `syncBranchPlan`, `syncBranchCommit` |
-| `dev.resources`              | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`                                                                                                                                                                                                                         |
+| `dev.resources`              | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`, `restartPlan`, `restartCommit`, `foreignStopPlan`, `foreignStopCommit`, `worktreeStorage`, `preferences`, `preferencesUpdate`                                                                                          |
 | `dev.cleanupPolicy`          | `list`, `createDraft`, `approve`, `disable`, `evaluate`                                                                                                                                                                                                                                                                |
 | `dev.appearance`             | client preference only; privileged host command only for capability snapshot                                                                                                                                                                                                                                           |
 | `dev.appLibrary`             | existing verified catalog/install-plan authority; no new dynamic-code command                                                                                                                                                                                                                                          |
@@ -2394,25 +2543,26 @@ preference storage or the existing verified App Library surfaces accordingly.
 
 Capability/resource binding is deny-by-default:
 
-| Family        | Read operations                                                             | Mutation operations                                                                                         | Resource kind                                                       |
-| ------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| capability    | authenticated channel; no feature capability (this snapshot reports grants) | none                                                                                                        | no resource                                                         |
-| project       | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `project` except top-level list/create/import/clone                 |
-| repo          | `dev.repo.read`                                                             | `dev.repo.manage`                                                                                           | `repository`                                                        |
-| worktree      | `dev.worktree.read`; `diffSummary` additionally `dev.git.read`              | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`; `diffSummary` none (ids in the body)                    |
-| terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                        | `terminal`                                                          |
-| session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                                   |
-| summary       | `dev.summary.read` (counts only; same account + runtime node)               | none                                                                                                        | no resource                                                         |
-| harness       | `dev.harness.read`                                                          | installation/connection/run control requires `dev.harness.manage`                                           | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
-| memory        | none (entries are read through the trusted `memory_*` shell commands)       | `propose` requires `dev.memory.propose` and an active harness run; it writes `pending` entries only         | `runtime_session`                                                   |
-| files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity                         |
-| git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request                      |
-| browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                    | `browser_lane`                                                      |
-| computeruse   | `dev.computeruse.read`                                                      | `dev.computeruse.control`; input additionally requires an active consent record                             | `computeruse_lane`                                                  |
-| device        | `dev.device.read`                                                           | `dev.device.control`                                                                                        | `device_session`                                                    |
-| github        | `dev.github.read`                                                           | `dev.github.write`; merge/push additionally require plan digest and current M11 approval/policy             | `repository` or `pull_request`                                      |
-| resources     | `dev.resources.read`                                                        | stop requires `dev.resources.stop`; destructive cleanup also requires `dev.cleanup.approve`                 | target process/port/worktree resource                               |
-| cleanupPolicy | `dev.resources.read`                                                        | create/approve/disable requires `dev.cleanup.approve`; evaluate executes nothing                            | `cleanup_policy`                                                    |
+| Family        | Read operations                                                             | Mutation operations                                                                                                                                                                                                                    | Resource kind                                                       |
+| ------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| capability    | authenticated channel; no feature capability (this snapshot reports grants) | none                                                                                                                                                                                                                                   | no resource                                                         |
+| project       | `dev.project.read`                                                          | `dev.project.manage`                                                                                                                                                                                                                   | `project` except top-level list/create/import/clone                 |
+| repo          | `dev.repo.read`                                                             | `dev.repo.manage`                                                                                                                                                                                                                      | `repository`                                                        |
+| connections   | `dev.harness.read` + `dev.repo.read` (`get`)                                | git hosting `dev.repo.manage`; harness account `dev.harness.manage`                                                                                                                                                                    | no resource; optimistic `expectedVersion` on the binding document   |
+| worktree      | `dev.worktree.read`; `diffSummary` additionally `dev.git.read`              | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                                                                                                                                                      | `worktree`; `diffSummary` none (ids in the body)                    |
+| terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                                                                                                                                                   | `terminal`                                                          |
+| session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                                                                                                                                                         | `runtime_session`                                                   |
+| summary       | `dev.summary.read` (counts only; same account + runtime node)               | none                                                                                                                                                                                                                                   | no resource                                                         |
+| harness       | `dev.harness.read`                                                          | installation/connection/run/account-profile control requires `dev.harness.manage`                                                                                                                                                      | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
+| memory        | none (entries are read through the trusted `memory_*` shell commands)       | `propose` requires `dev.memory.propose` and an active harness run; it writes `pending` entries only                                                                                                                                    | `runtime_session`                                                   |
+| files         | `dev.files.read`                                                            | `dev.files.write`                                                                                                                                                                                                                      | `workspace_path` plus current root identity                         |
+| git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so                                                                                                                            | `repository` or `worktree` as named by request                      |
+| browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                                                                                                                                               | `browser_lane`                                                      |
+| computeruse   | `dev.computeruse.read`                                                      | `dev.computeruse.control`; input additionally requires an active consent record                                                                                                                                                        | `computeruse_lane`                                                  |
+| device        | `dev.device.read`                                                           | `dev.device.control`                                                                                                                                                                                                                   | `device_session`                                                    |
+| github        | `dev.github.read`                                                           | `dev.github.write`; merge/push additionally require plan digest and current M11 approval/policy                                                                                                                                        | `repository` or `pull_request`                                      |
+| resources     | `dev.resources.read`                                                        | stop and restart require `dev.resources.stop`; stopping a process Adea did not start requires `dev.resources.stopForeign`; settings updates require `dev.resources.configure`; destructive cleanup also requires `dev.cleanup.approve` | target process/port/worktree resource                               |
+| cleanupPolicy | `dev.resources.read`                                                        | create/approve/disable requires `dev.cleanup.approve`; evaluate executes nothing                                                                                                                                                       | `cleanup_policy`                                                    |
 
 An operation not present in this matrix is rejected at registration and dispatch.
 Read operations still require scope and capability. “Plan” responses contain a
@@ -2933,14 +3083,16 @@ authenticated GitHub selection, monorepo package, and known external worktree.
 It displays host, canonical identity, duplicate state, and authorization before
 mutation.
 
-The contextual sidebar's Add Project disclosure loads its form and requests
-authorized roots only when first opened. After that first open, collapsing the
-disclosure preserves the mounted form's scan results and confirmations;
-reopening does not repeat those initial requests. Closing the disclosure never
+The Dev sidebar reaches the add surface from the active workspace header's
+"New project" (name the cloud project, then optionally add its repository) and
+from a project's "Add repository…" item; Project settings lists the bound
+project's repositories through the repository registry. The dialog loads its
+form and requests authorized roots only when it first opens. Closing it never
 initiates project imports or bootstrap commands. Each confirmed import sends
-`{ projectId, rootBookmarkId }`, where the host's `mintProjectId` seam supplies
-the cloud project id; until the host creates the cloud project first, the
-default mints a client UUID (the register never mints one).
+`{ projectId, rootBookmarkId }`, where the dialog's `mintProjectId` seam
+supplies the id of the cloud project being bound; a host without a cloud
+project list falls back to a client UUID (the register never mints one). A
+successful import records the cloud project's `sourceKind` as `repository`.
 
 Scanner defaults:
 
@@ -2985,6 +3137,163 @@ session rows render the canonical `RuntimeSession` lifecycle from the register
 (states outside the historical `active`/`ready`/`archived` set render a
 neutral dot with their own accessible name, never a coerced state).
 
+### Clone sources (`dev.project.clone`)
+
+`dev.project.clone { projectId, mode?: 'checkout' | 'managed', remote:
+RedactedRemoteInput, credentialRefId?, destinationBookmarkId?, defaultBaseRef? }`
+is one operation with two modes. The remote always arrives as redacted parts
+(never a raw URL body) and the host rebuilds the URL from them (`github` and
+`gitlab` are always https; an `other` host may carry its own `ssh://` scheme,
+or `file://` behind the test flag below). The envelope carries no resource (a
+binding refuses with `identity_mismatch`), it requires `dev.project.manage`
+and `dev.repo.manage`, and the cloud `projectId` must be an unbound lowercase
+UUID (`identity_mismatch`, checked again under the binding write). The reply
+is the strict `Project`.
+
+- **`checkout` (the default; #1061, #666).** A shallow working copy
+  (`--depth 1`, 60 s git-child window) lands at
+  `<destination>/clones/<repository>` inside the **authorized destination
+  bookmark** `destinationBookmarkId` (required; `invalid_state` without it).
+  An existing target refuses `invalid_state`; then the roots authority mints
+  the clone's bookmark (labelled with the repository name) and the shared
+  import path binds it, so the project gets a primary checkout record and the
+  `local_repo` source. `credentialRefId` refuses `unavailable` until vault
+  wiring ships for this mode, and `defaultBaseRef` refuses `invalid_state`
+  (the checkout's own HEAD is the base). A runner that reports stderr gets
+  the shared typed classification below; a bare non-zero exit is
+  `spawn_failed`. A stopped clone that left a partial checkout in the user's
+  root is reported as `cleanup_partial` and never deleted by Adea.
+- **`managed` (remote-only projects).** A hidden bare clone in Adea's
+  owner-only app data with worktrees only and no primary record (the
+  `remote_only` source); see the next section. It takes no
+  `destinationBookmarkId` (`invalid_state`), and a runtime without the
+  managed clone authority answers `unavailable`.
+
+**Shared transport policy.** Both modes admit, build, and run the remote
+through one module (`projects/clone-policy.ts`):
+
+- **Admission.** The rebuilt URL must be `https://`, `ssh://`, or scp-like
+  `user@host:path` (ssh). `file://` remotes and local paths are refused in
+  production: a local remote would let a caller copy any repository the user
+  can read. Only a composition that passes the test-only
+  `allowLocalCloneRemotes` flag admits `file://` (fixture origins); the
+  shipped shell (`bun/index.ts`) never sets it, and a test pins that.
+  `http://`, `ext::`/`fd::` and every other transport, bare paths, a leading
+  `-`, whitespace/control characters, an embedded password, and https
+  user-info tokens refuse too — all with `invalid_state` (the contract has no
+  separate input-validation code) before anything touches disk. Credentials
+  come from a vault reference, never the URL.
+- **Argv.** `git -c protocol.allow=never -c protocol.<scheme>.allow=always
+clone … -- <url> <target>` through the bounded argv-only runner, so git
+  itself refuses any other transport and the URL can never be read as an
+  option.
+- **Nothing prompts.** Every network git child of either mode (and, for a
+  managed clone, its later fetches and the `dev.repo.refresh` probe) runs
+  with `GIT_TERMINAL_PROMPT=0`, askpass disabled (`GIT_ASKPASS`/`SSH_ASKPASS`
+  empty, `SSH_ASKPASS_REQUIRE=never`), `GIT_SSH_VARIANT=ssh`, and
+  `GIT_SSH_COMMAND='ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30'`.
+  `SSH_AUTH_SOCK` (a socket path) passes through for agent-held keys; secret
+  material never enters git arguments, the environment, the registry, a
+  reply, an event, or a log. A password or passphrase prompt fails at once
+  as `auth_required`; an unknown or changed host key fails at once as
+  `remote_unavailable`; a missing repository is `not_found`.
+- **Reap before cleanup.** A timeout, cancellation, size, or output kill
+  sends `SIGTERM` (so git stops its own helpers), escalates to `SIGKILL`
+  after 1 s, and the runner then waits (bounded, 5 s) for the git child to be
+  reaped before it rejects with the kill's typed error (never the child's
+  exit status). (The reap covers the git process itself; after a `SIGKILL`
+  its transport helpers — `ssh`, `git-remote-https` — lose their pipes and
+  exit on their own.) Nothing a killed child was writing is cleaned up before
+  that.
+
+### Remote-only projects (managed bare clone)
+
+`dev.project.clone` with `mode: 'managed'` creates a remote-only project
+(ADR 0011): the code lives only in a hidden, Adea-managed bare clone, worked
+on through worktrees, with no primary checkout.
+
+- **Admission.** The shared policy above, plus: `credentialRefId` resolves
+  fail-closed exactly like `dev.repo.authorize` (unknown `not_found`, not
+  `ready` `invalid_state`, host mismatch `identity_mismatch`) and is recorded
+  on the repository, so transport authentication uses the user's own git
+  credential configuration. `defaultBaseRef` must be a plain ref name and
+  must resolve in the clone (`base_not_found`).
+- **Clone.** The clone runs `clone --bare` under the shared argv into a fresh
+  owner-only staging directory inside the managed root, then configures the
+  remote-tracking refspec `+refs/heads/*:refs/remotes/origin/*`, runs one
+  bounded `fetch --prune origin`, and points `refs/remotes/origin/HEAD` at
+  the remote default branch. Budgets (limits registry): 10 minutes per
+  network child, 4 GiB on disk (a 500 ms size watchdog aborts the child;
+  `limit_exceeded`), at most two clones in flight per node and one per
+  project id. Failures are typed `auth_required`, `not_found`,
+  `remote_unavailable`, `timeout`, or `limit_exceeded`.
+- **Cleanup after exit.** Only a confirmed exit lets the failed clone remove
+  its staging (or published) directory, through the quarantine/trash path.
+  When the exit is unconfirmed, or the quarantine or deletion fails, the
+  partial clone stays owner-only in the managed root or its trash
+  (`managed-repos/.adea-worktree-trash`, with its provenance record for the
+  sweep), the audit log records `repo.managed_clone_discard` `failed` with
+  the cause and reason (`child_exit_unconfirmed` or `discard_failed`), and
+  the command answers `cleanup_partial` — never a silently swallowed
+  leftover. No registry record or binding survives any failed clone.
+- **Managed roots.** The clone is published as
+  `<dataDir>/dev-runtime/managed-repos/<repoId>.git`; its managed worktrees
+  live under `<dataDir>/dev-runtime/managed-worktrees/<repoId>/<name>`. Both
+  roots are owner-only (`0700`, current uid) real directories reached from
+  the data dir without a symlinked component; neither is a user path, and
+  neither is ever covered by a root bookmark.
+- **Registration.** The repository registry records `kind: 'git'`,
+  `layout: 'bare_managed'`, the raw configured remote (redacted in every
+  DTO), `fetchRemote: 'origin'`, `defaultRef` from the clone's `HEAD`, and
+  `gitCommonDirIdentity` equal to the root identity (a bare repository is its
+  own common dir); it carries no `rootBookmarkId`. The project binding is
+  `{ repoId, canonicalRoot, layout: 'bare_managed' }` with
+  `defaultBaseRef` defaulting to `origin/<default branch>`, published as
+  `dev.project.updated` kind `project.cloned`. **No primary worktree record
+  is created** — `ensurePrimaryWorktree` and every repository proof's primary
+  reconciliation skip a managed clone.
+- **The managed proof.** Bare repositories are refused everywhere else. A
+  record is admitted as a managed clone only when its layout is
+  `bare_managed` AND the proof holds immediately before every use (worktree
+  create/adopt, merge plan, cleanup plan/commit, `dev.repo.authorize`/
+  `inspect { refresh: true }`/`refresh`, unbind): the managed root is
+  owner-only; the repository is a direct child named `<repoId>.git` for this
+  record's id, a canonical real directory (never a symlink, `symlink_rejected`)
+  owned by the current user with mode `0700`; it carries a regular `HEAD`
+  and `config`, real `objects/` and `refs/` directories, no `.git` entry, and
+  `core.bare=true`; and its device/inode equals the record's root identity
+  (`identity_mismatch`). A path outside the managed root, a non-managed name,
+  or a `..` spelling refuses with `unauthorized_root`/`path_escape`; a
+  widened or symlinked root with `dangerous_path`. Every other git record
+  must still be a checkout with a `.git` directory (`not_git_repo`).
+- **Worktrees.** `dev.worktree.create` derives the base dir for a managed
+  clone as its owner-only `managed-worktrees/<repoId>` root (there is no
+  user bookmark above it); the service refuses any other base with
+  `unauthorized_root`. Fetch, `worktree add`, gitdir backlink proof,
+  discovery (the bare entry lists first), merge (ref-level operations in the
+  bare repository), and cleanup (`worktree prune`, admin-entry checks, branch
+  CAS) all run against the bare directory as both repository and common dir.
+  `.worktreeinclude` copying has no primary working tree to read from: the
+  step copies nothing and reports `skipped: 'no_primary_working_tree'`.
+- **Unbind.** `dev.project.unbind` of a remote-only project runs the usual
+  refusals (version, live sessions), then refuses with `cleanup_blocked`
+  while any of the clone's worktree records is not `cleaned` or git still
+  lists a registered worktree, re-runs the managed proof, and quarantines the
+  bare clone into the managed root's owner-only trash
+  (`managed-repos/.adea-worktree-trash`, identity-proven on both sides of the
+  rename). Only after the binding removal is durable is the proven trash
+  entry deleted and the registry record dropped (an empty
+  `managed-worktrees/<repoId>` goes too); a failed binding write restores the
+  clone. A deletion failure after the commit is `cleanup_partial`: the
+  record stays as `unavailable` retained data and the entry keeps its
+  provenance record for the trash sweep. Nothing outside the managed roots
+  is ever touched; ordinary bindings still never touch files.
+- **Classification.** The remote URL, the managed paths, and branch names are
+  `workspace_private`: they stay in the device-local registry and never leave
+  the device; DTOs carry only the redacted remote. The client projection's
+  `source` is `remote_only` for a managed binding, `local_repo` for any other
+  bound repository, and `none` for a binding without repositories.
+
 ### Root authorization
 
 `dev.project.authorizeRoot` is the production mint path for the authorized
@@ -3013,7 +3322,9 @@ are not binding fields — and an archived project is frozen: `update` refuses
 with `invalid_state` until the project is unarchived. `unbind` removes the
 binding under the expected version and refuses with `invalid_state` while any
 non-archived session on the project is live, exactly like archive; it never
-touches files.
+touches files — except that a remote-only project's managed bare clone is
+removed through the quarantine path once all of its worktrees are cleaned
+(see "Remote-only projects (managed bare clone)").
 `archive` is a navigation-lifecycle flip only: `archived: true` refuses with
 `invalid_state` while any non-archived session on the project is still live
 (`preparing`, `ready`, `active`, `disconnected` — archive never stops or
@@ -3043,7 +3354,10 @@ insteadOf rewrites cannot mask the true origin) and the default ref from the
 origin HEAD symbolic ref with local `init.defaultBranch` as fallback.
 
 - `adopt { repoId, rootBookmarkId, expectedVersion }` re-proves the binding
-  under the named authorized bookmark and persists the durable record
+  under the named authorized bookmark (a managed bare clone refuses with
+  `invalid_state` — `dev.project.clone` registers it and no bookmark covers
+  it; its later proofs use the managed proof, see "Remote-only projects")
+  and persists the durable record
   (`kind`, identities, redacted remote, `defaultRef`, project ids) with
   lifecycle `ready`. A not-yet-materialized binding adopts at version 1 (the
   initial version every registry record carries); an existing record requires
@@ -3112,6 +3426,135 @@ view reloads the authoritative state rather than keeping a fabricated outcome.
 A runtime without the registry providers answers `capability_unavailable`, and
 the panel renders that typed-unavailable state instead of dead controls.
 
+## Workspace connections
+
+ADR 0012 ("Connections") binds a workspace to credential material the user
+already holds on this device. Two kinds exist: **git hosting** (a vault
+`CredentialRef` per host — `github.com` or a GitLab host — used for clone,
+fetch, push, and pull-request operations) and **harness accounts** (a reusable
+`HarnessAccountProfile` per harness family selecting the provider API key a
+harness launches with). Bindings and profiles hold ids only; secret material
+stays in the credential vault and is unsealed only at a spawn seam.
+
+```ts
+type WorkspaceConnections = {
+  scope: Scope
+  gitHosting: { host: string; credentialRefId: string }[] // ≤ 64, one per host
+  harnessAccounts: { harnessId: HarnessAccountFamily; profileId: string }[] // one per family
+  version: number // 0 = never written
+  availableHarnesses: { harnessId; displayName; accountHosts: string[] }[] // host projection
+}
+type HarnessAccountProfile = {
+  id: string
+  harnessId: 'claude-code' | 'codex' | 'opencode' | 'pi'
+  label: string // 1..80 printable
+  credentialRefId: string
+  version: number
+}
+```
+
+**Storage.** The binding document lives in the workspace's Dev scope
+partition: `dev-runtime/connections/workspace-<sha256(scope)>.json`, one
+owner-only (0600 in a 0700 directory), schema-versioned file per
+`(accountId, workspaceId, runtimeNodeId)` on the shared atomic store (temp +
+fsync + rename; an unreadable envelope is retained as `.corrupt-<time>`). A
+record that fails strict decode — unknown keys, a duplicate host or family, a
+non-UUID id, or a scope other than the partition's own — fails closed with
+`corrupt_state` and is never repaired. Profiles are reusable, so they live
+device-wide in `dev-runtime/connections/harness-account-profiles.json`, owned
+by the local `(accountId, runtimeNodeId)` pair (at most 256), each carrying the
+vault scope that holds its credential and a **reverse index** of the scope
+digests that bind it. Binding writes the index first, the document second, and
+removes the stale index entry last, so an interruption can only leave the
+index a superset (a delete is then refused, which is safe).
+
+**Operations.** All six carry no resource binding and re-check the scope
+triple (`unauthorized` otherwise):
+
+- `dev.connections.get {}` — the active partition's document (version 0 and
+  no bindings when never written) plus the harness families this node can
+  launch (managed Pi when ready, then discovered inventory families).
+- `dev.connections.setGitHosting { host, credentialRefId | null, expectedVersion }`
+  — `host` must be a bare lowercase hostname (`invalid_state`); the version
+  must equal the document's (`stale_version` with `currentVersion`). A non-null
+  reference must be served by the ACTIVE scope's vault (`not_found` otherwise,
+  so another workspace's reference reads as absent), be `ready`
+  (`invalid_state`), name the same host (`identity_mismatch`), and not be an
+  SSH key (`incompatible`). `null` clears the host. A change bumps the version
+  by one; re-applying the current state is a no-op that keeps it.
+- `dev.connections.setHarnessAccount { harnessId, profileId | null, expectedVersion }`
+  — the profile must belong to this device owner (`not_found`), name the same
+  family (`identity_mismatch`), and its credential must be `ready`.
+- `dev.harness.accountProfiles.list { harnessId?, cursor?, limit? }` — this
+  device owner's profiles, every workspace alike.
+- `dev.harness.accountProfiles.create { harnessId, label, credentialRefId }` —
+  the reference must be `ready` in the active vault scope and name a provider
+  host the family accepts (`claude-code`: `api.anthropic.com`; `codex`:
+  `api.openai.com`; `opencode` and `pi`: either), else `identity_mismatch`; a
+  duplicate label for the family is idempotent for the same reference and
+  `name_collision` otherwise.
+- `dev.harness.accountProfiles.delete { profileId, expectedVersion }` — refused
+  with `invalid_state` while the reverse index names any binding scope on this
+  device. The check reads only the profile store; no other workspace's
+  partition is opened.
+
+**Resolution rules.** One seam (`connections/register.ts`) resolves every
+credentialed operation against the ACTIVE scope's document only:
+
+1. No binding for the host (or family) is the **device default**: the child
+   keeps today's behaviour (keychain, `gh auth`, `glab auth`, SSH agent, the
+   harness's own sign-in) and the resolution is recorded as
+   `connection: 'device_default'`.
+2. A binding resolves its reference through the vault (`audience:
+'runtime_driver'`). A binding that cannot be used — revoked, expired,
+   missing, unreadable, or a profile whose provider host the family no longer
+   accepts — fails closed with `auth_required`; it never falls back to the
+   device default.
+3. A workspace never reads another workspace's partition, so it can never
+   observe, resolve, or borrow another workspace's binding. A profile may be
+   bound in several workspaces of the same local account on this device; its
+   credential resolves from the vault scope the profile recorded at creation.
+4. An SSH remote under a git hosting binding keeps the device SSH agent and is
+   recorded as `device_default` with `transport: 'ssh'` (a token cannot
+   authenticate SSH).
+
+**Delivery.** The secret reaches exactly one child process through that
+child's environment, built at spawn time and never persisted, logged, or
+returned: git children (worktree-create base fetch, `dev.git.fetch`, GitHub
+push and its `ls-remote` verification) receive an inline, secret-free
+credential helper through `GIT_CONFIG_COUNT` whose first entry empties the
+accumulated helper list (so a device helper cannot answer instead) and whose
+second answers `get` for the bound host only, from child-only
+`ADEA_GIT_CONNECTION_*` variables; `gh` children receive `GH_TOKEN`
+(`GH_ENTERPRISE_TOKEN` + `GH_HOST` for an enterprise host) and `glab` children
+`GITLAB_TOKEN` + `GITLAB_HOST`, keyed by each argv's `--hostname`. Harness
+launches deliver the profile's key through the terminal sidecar's
+launch-credential allowlist (see the launch transaction below). The repo
+registry's offline-safe `ls-remote` probe and ACP lane spawns stay on the
+device default in this slice.
+
+**Audit.** Every mutation and every resolution appends a secret-free entry to
+the owner-only `dev-runtime/connections/audit-<sha256(scope)>.jsonl` (or the
+host-composed authority audit): action, host or family, `connection`
+(`workspace` | `device_default`), the resolved reference or profile id, and
+the operation. Identical resolutions coalesce inside 60 seconds so read-model
+polling cannot grow the trail without bound; failures always record.
+
+**Client.** Workspace settings › Connections (`packages/workspace-ui`,
+lazy-loaded like the permissions pane) renders one git hosting row per host
+(`github.com`, every bound host, and every non-provider host in
+`dev.repo.credentialRefs`) with a credential select whose first option is "Use
+device default", and one harness account row per connectable family with a
+profile select and "Add account…" (a label plus a vaulted provider key, which
+creates the profile and binds it). The desktop bridge
+(`apps/web/src/lib/desktop-workspace-connections.ts`, the
+`WorkspacePlatformServices.connections` entry) builds commands against the
+runtime's authoritative scope and passes every reply through the strict
+`WorkspaceConnections`/`HarnessAccountProfile`/`CredentialRef` decoders; a
+failed decode is `corrupt_state`. Every change re-reads the authoritative
+state. A web-only host has no service and the pane renders a typed
+unavailable state instead of controls.
+
 ## Worktree lifecycle
 
 The shipped shell composes exactly one worktree service per verified scope
@@ -3131,7 +3574,8 @@ local reads only; a detached or unborn HEAD leaves them absent. Later proofs
 and the fingerprint-gated `refreshRepo` pass (whose fingerprint stamps the
 main HEAD) re-inspect the checkout and persist moved facts at `version + 1`;
 the `generation` (the lease/plan fence) does not move. A folder repository
-has no primary record. The record's `projectId` is the repository's first
+has no primary record, and neither does a managed bare clone (a remote-only
+project has worktrees only). The record's `projectId` is the repository's first
 bound project; `provenance` is `external` (Adea did not create it), so every
 ownership-gated path already fails closed for it.
 
@@ -3672,10 +4116,21 @@ Launch transaction:
 
 1. verify scope, eligible node, ready worktree, generation, and leases;
 2. resolve default installation, executable identity/version/auth/capability,
-   AgentProfile version, model/options, and resume support;
+   AgentProfile version, model/options, and resume support, and the active
+   workspace's harness account binding for the installation's family
+   (Workspace connections: `device_default` when unbound; a bound account that
+   cannot be used refuses `auth_required`); a bound account delivered into the
+   launch satisfies a `required`/`unknown` native auth state, never an
+   `expired` one;
 3. idempotently create/attach the canonical `RuntimeSession` and acquire leases;
 4. wait for authenticated shell readiness;
-5. launch argv/cwd/sanitized environment;
+5. launch argv/cwd/sanitized environment; a bound harness account adds its
+   one provider key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, the sidecar's
+   launch-credential allowlist — any other key is refused before spawn) read
+   from the vault at this step only, and `run.created` records
+   `accountConnection` plus `accountProfileId`/`accountProfileVersion`,
+   never the secret. A sidecar older than protocol 1.1 refuses the launch
+   (`spawn_failed`) rather than dropping the credential;
 6. attach native/ACP, else authenticated hook, else mark terminal fallback;
 7. compile the session workspace's memory preamble (ADR 0012) and deliver it
    with the initial prompt through native/ACP, harness API, or guarded PTY in
@@ -4360,7 +4815,10 @@ never enter UI state. Reads prefer API/GraphQL and use ETags/cursors; `gh` is an
 authenticated transport option, never output to scrape.
 
 Credentials are host/account scoped. Enterprise hosts require explicit trust;
-github.com credentials are never sent elsewhere. All mutation results are
+github.com credentials are never sent elsewhere. Every `gh` child and every
+push resolves the active workspace's git hosting binding for its host
+(Workspace connections): a binding adds that host's token to the one child's
+env; no binding is the device's own `gh auth`, recorded `device_default`. All mutation results are
 reread before success. PR create uses an idempotency/reconciliation key and
 searches for an existing matching head/base after timeout. Before a PR-create
 POST, the host durably records the authorized scope, repository, head, and base
@@ -4464,7 +4922,10 @@ with identical request bodies, the same reply DTOs, and the capability pair
 provider's rules, with these differences:
 
 - **Credentials.** GitLab auth is the user's `glab` CLI context (its
-  per-host credential store); Adea stores no GitLab token. `gitlab.com` is
+  per-host credential store) unless the active workspace binds a git hosting
+  connection for the host, which adds `GITLAB_TOKEN`/`GITLAB_HOST` to that one
+  `glab` child (Workspace connections); Adea stores no GitLab token outside
+  the vault. `gitlab.com` is
   trusted; a self-managed host must be trusted explicitly. Request bodies
   carrying user text ride `glab api --input -` stdin, never argv. A missing
   binary is `capability_unavailable`; a signed-out CLI is `unauthenticated`.
@@ -4560,8 +5021,13 @@ parent, or port alone is insufficient. A replacement between scan and signal
 must survive.
 
 Ports derive first from launch/session metadata and are confirmed by scoped OS
-inspection. Unknown owners are displayed as external without a stop button. No
-LAN-wide scan, `pkill`, `killall`, or `lsof`-wide termination.
+inspection. A listener Adea did not launch is never stopped through the
+Adea-owned path above. With the default `machine` resource coverage it becomes a
+`ForeignProcessRecord`, and only the user-confirmed foreign stop in
+"Machine-wide inventory and foreign stop" may signal it. With the `adea` coverage
+it is displayed as external without a stop button. No LAN-wide scan,
+`pkill`, `killall`, `lsof`-wide termination, or termination selected by port,
+name, or argv.
 
 Metric defaults:
 
@@ -4603,7 +5069,8 @@ listing without a source is truthful-empty rather than fabricated:
   renders as `exited` for a bounded retention window. Exited-but-unrecorded
   and never-journaled processes are not listed at all.
 - Ports come from the #422 inventory (launch/session metadata confirmed by a
-  loopback-only scan); unknown listeners are `unknown` with no stop path.
+  loopback-only scan); unknown listeners are `unknown` with no Adea-owned
+  stop path (the foreign stop below is a separate, user-confirmed path).
 - Metrics are pull-based: a bounded sample is recorded when the snapshot or
   metrics surface is read, never on a timer. CPU is a monotonic delta
   between consecutive samples of one owner; the first sample carries no
@@ -4681,6 +5148,206 @@ listing without a source is truthful-empty rather than fabricated:
   resources) stay absent by design — every predicate over an absent fact
   fails closed.
 
+### Machine-wide inventory and foreign stop
+
+Agents leave servers, debuggers, and automation browsers running outside
+Adea's launch records: harnesses run in other terminals, and a dev server
+started in an Adea terminal has no launch record either. The resources sheet
+therefore defaults to the whole machine. `ResourcePreferences.coverage =
+'adea'` restores the Adea-only listing, and then the snapshot carries neither
+`foreign` nor `machine`.
+
+The host composes this surface only where it can observe processes: the
+desktop shell uses its bounded command runner on macOS, and a test or another
+host injects one (`runResourceCommand`). Without a runner, `foreign` and
+`machine` are absent, foreign stop fails closed with `capability_unavailable`,
+and external listeners keep the no-stop rendering above. The shell modules are
+`apps/desktop/shell/src/dev-runtime/resources/{capped-command,machine-inventory,foreign-stop,worktree-storage,preferences}.ts`.
+
+Inventory (one bounded pull per snapshot read):
+
+- Every observation goes through the capped runner: fixed argv, 5-second
+  timeout, 1 MiB output cap, and the child is killed when it exceeds either.
+  A killed, truncated, or failed run is reported as such and never read as
+  an empty answer.
+- One `ps -axww -o pid=,ppid=,uid=,rss=,time=,lstart=,comm=` listing gives
+  PID, parent, owner uid, resident bytes, cumulative CPU time, start identity
+  (the whitespace-collapsed `lstart`), and executable identity (`comm`). An
+  incomplete listing proves nothing: the pull reports no foreign rows and
+  forgets the previous observation, so no stop plan can bind to it. One
+  `ps -axww -o pid=,args=` listing supplies command lines for attribution and
+  the redacted preview.
+- `lsof -nP -iTCP -sTCP:LISTEN -F pcn` lists listeners, filtered to loopback or
+  wildcard binds inside `portRange`. It runs at most once per visible sample
+  interval and never faster than every 2 seconds. `lsof` exiting 1 with no
+  output is an empty answer; any other failure leaves `listeningPorts` absent
+  for that pull. One `lsof -a -d cwd -nP -F pn -p <pids>` call reads the
+  working directory of rows not seen before; it is cached per row.
+- The Adea tree is the shell, its descendants, and every proven launch with
+  its descendants. Inside it, a process below an interactive shell (`zsh`,
+  `bash`, `fish`, …) was started by the user in an Adea terminal and is
+  listed with `adea_terminal` attribution, because no launch record proves
+  it. Everything else in the Adea tree (helpers, sidecars, the shells
+  themselves) is never listed, and journal-proven `ProcessRecord`s are never
+  foreign rows.
+- A foreign row is emitted for every listener, every automation app (the top
+  of its tree only), and the 64 largest remaining Adea-user processes, at most
+  256 rows. Descendants that are not rows themselves fold into their row's
+  tree: `childCount`, tree `residentBytes`, and tree CPU.
+- Attribution walks the parent chain, at most 16 hops, and is a display hint
+  only:
+  - `automation` when the process proves it itself: a Chrome for Testing or
+    Simulator executable, or `--enable-automation`,
+    `--remote-debugging-port`, or `--remote-debugging-pipe` on its command
+    line (only with `includeAutomationApps`). Computer-use lanes launch no
+    apps of their own, so there is no separate computer-use attribution.
+  - `harness` when an enabled `recognizedHarnesses` entry matches the
+    executable basename or the first script argument (`node …/claude`). The
+    matchers are fixed executables shipped with Adea; the preference only
+    selects which are on.
+  - `adea_terminal` as above, otherwise `unknown`.
+- `worktreeId` is the registered worktree whose root contains the working
+  directory (longest root wins).
+- Metrics follow the existing rules: CPU is a monotonic delta over the tree,
+  absent on the first observation, and unknown values are absent, never zero.
+  Each row keeps 10 minutes of tree resident bytes and reports at most 30
+  evenly spaced points; history is dropped when the row disappears.
+- `commandPreview` and `cwdLabel` are redacted before they leave the host:
+  home becomes `~`, values after secret-looking flags (`--token`,
+  `--api-key`, …) and in secret-looking assignments (`GITHUB_TOKEN=…`) are
+  masked, and the preview is truncated to 160 characters. Both are
+  display-only and never become event payloads or telemetry.
+- `MachineResourceSummary` reads total and free memory, cumulative CPU times
+  (the percentage is a delta between pulls), and the free and total bytes of
+  the volume holding the home directory.
+
+Protection, evaluated by the host on every observation and again before
+every signal:
+
+- `other_user`: the process is owned by another uid.
+- `system`: PID 1 or lower, `kernel_task`, `launchd`, `WindowServer`,
+  `loginwindow`, an executable under `/System/`, `/usr/libexec/`,
+  `/usr/sbin/`, `/sbin/`, or `/Library/Apple/`, and the Adea tree outside its
+  terminals plus the chain of processes that launched the shell.
+- `protected_list`: the executable basename or `.app` name matches
+  `protectedExecutables` (an entry ending in `*` is a prefix). The default
+  list is postgres, redis-server, mysqld, `com.docker.*`, and ollama.
+
+A protected row is listed with its reason and has `stoppable: false`. No
+operation accepts it.
+
+Foreign stop is `dev.resources.foreignStopPlan` → `dev.resources.foreignStopCommit`,
+under the separate `dev.resources.stopForeign` capability:
+
+- The plan binds the envelope resource
+  `{kind: 'foreign_process', id: foreignProcessId, generation: observationGeneration}`
+  to the latest observation. It refuses an unknown row (`not_found`), another
+  generation (`stale_generation`), and a protected or unstoppable row
+  (`ownership_unproven`). It records PID, start identity, executable
+  identity, uid, and the descendant set, and its steps name every PID to be
+  signalled, children first. `force` is a plan option, so changing it means a
+  new plan. The plan expires after 60 seconds and is single use.
+- The renderer shows the plan in the shared `AlertDialog`: the redacted
+  command, folder, PID, start time, child count, attribution, that Adea did
+  not start it, that unsaved work may be lost, and the PIDs the plan names.
+  Confirmation is per process. There is no bulk confirm and no "remember
+  this choice".
+- The commit re-reads each PID (`ps -o uid=,lstart=,comm= -p <pid>`)
+  immediately before signalling it. If the root's start identity,
+  executable identity, or uid changed, or it became protected, nothing is
+  signalled and the commit fails `ownership_unproven`. A child that changed
+  or exited is skipped. A root that already exited reports `already_gone`.
+  The first signal is SIGTERM, children first. The commit then waits up to 10
+  seconds for the root to exit; without `force` an unexited root reports
+  `still_running`. With `force`, each survivor is re-proven and sent SIGKILL,
+  and the outcome is `forced` or `still_running`.
+- Foreign stop never participates in automatic cleanup, cleanup-policy
+  evaluation, or `Complete and clean…`. A worktree whose preflight is blocked
+  by a foreign process stays blocked until the user stops that process
+  through this path and the preflight is re-run.
+
+Restart (`dev.resources.restartPlan` → `dev.resources.restartCommit`, under
+`dev.resources.stop`) applies only to proven, running Adea launches of a
+supervised component. The plan binds `{kind: 'process', id, generation}` like
+the stop plan. The commit fences the generation and identity itself (the
+engine's restart takes a component id) and then calls the supervision
+engine's `restart`, which re-proves identity, stops, and relaunches the
+component from its manifest command as a new generation. The reply is the
+relaunched `ProcessRecord`. Without an engine restart the plan fails closed
+with `capability_unavailable`. Foreign processes have no restart.
+
+Worktree storage (`dev.resources.worktreeStorage`) returns one
+`WorktreeStorageRecord` per registered, non-quarantined worktree:
+
+- Measurement is lazy: a request schedules it and the reply carries the
+  current state (`measuring` until the first walk finishes). The sheet asks
+  only while its Storage tab or clean-up review is open.
+- One walker runs per runtime node with at most 4 concurrent directory reads.
+  It never follows symlinks, never crosses a mount point, and spends at most
+  2 minutes per worktree. A walk that runs out of budget reports `stale`,
+  keeps its previous bytes, and resumes from where it stopped on the next
+  request.
+- A finished result is served from cache and re-measured on request once it
+  is at least 15 minutes old.
+- Bytes inside `node_modules`, `target`, `.venv`, `venv`, `dist`, `build`,
+  `.next`, `.turbo`, `.output`, `.svelte-kit`, `__pycache__`, `.gradle`,
+  `Pods`, and `DerivedData` count as `buildBytes`; allocated blocks are
+  counted where the filesystem reports them.
+- An unreadable root is `unreadable` with bytes absent, never zero; an
+  unreadable subdirectory contributes nothing.
+
+Resource preferences (`dev.resources.preferences` under
+`dev.resources.read`, `dev.resources.preferencesUpdate` under
+`dev.resources.configure`) persist `ResourcePreferences` per device in the
+shell's private data directory (`dev-runtime/resources/preferences.json`):
+
+- The update carries `expectedVersion`; a different stored version fails
+  `stale_version`. Every accepted update increments `version`.
+- Every numeric field is clamped:
+  - memory alert: 256 MiB–64 GiB; growth: 16 MiB–64 GiB;
+  - growth window: 1–60 minutes; snooze: 0–7 days;
+  - idle time: 15 minutes–7 days;
+  - quarantine retention: 1–30 days;
+  - retained-data retention: 1–90 days;
+  - visible sampling: 2–60 seconds; background sampling: 30–600 seconds.
+- Lists are bounded to 32 printable entries without `/`. A harness name
+  without a shipped matcher is dropped.
+- A stored document that cannot be read is replaced field by field with
+  defaults, never rejected wholesale. Without a store, reads answer with the
+  defaults and updates fail closed with `capability_unavailable`.
+- These are the only resource settings. App Settings has no resource section.
+- What reads each setting today: the host reads `coverage`,
+  `includeAutomationApps`, `recognizedHarnesses`, `portRange`,
+  `protectedExecutables`, and `sampling.visibleSeconds` (listener scan
+  interval). The sheet reads `alerts.residentBytesAbove`,
+  `alerts.growthBytes`, `alerts.growthWindowSeconds`, `cleanup.mode`,
+  `cleanup.serverIdleSeconds`, and `sampling.visibleSeconds` (poll interval).
+  The remaining fields are stored and validated but not yet acted on, and the
+  sheet does not offer them. `cleanup.mode = 'automatic'` is shown as
+  unavailable: no background runner for approved cleanup policies exists.
+
+Clean-up review composes existing authorities and adds none:
+
+- Candidates:
+  - a running Adea launch whose worktree is no longer registered, or whose
+    CPU stayed under 1% for the whole `serverIdleSeconds` window;
+  - an archived, managed, Adea-provenance worktree;
+  - a stoppable foreign row that holds a port or is over the memory alert.
+- Pre-selected: those Adea launches unless they are leaking, and those
+  archived worktrees once their plan has no blockers. Leaking servers,
+  protected rows, and foreign rows are never pre-selected.
+- When the review opens, each archived worktree is planned through
+  `dev.worktree.cleanupPlan` with `quarantine_worktree` and
+  `unregister_worktree` (branch kept); a plan with blockers is listed under
+  "Can't be cleaned up" with the host's reasons.
+- Confirming runs each selected item in turn and plans it again first:
+  servers through the Adea-owned stop plan/commit, worktrees through
+  `dev.worktree.cleanupCommit`. Foreign rows each open their own foreign stop
+  confirmation.
+- Retained data is shown read-only in the Storage tab; no prune operation
+  exists for it, so the review does not offer one.
+- `cleanup.mode = 'off'` hides the banner and disables the review.
+
 ### Runtime activity
 
 The Agents pane mounts the harness status surface above the Activity section:
@@ -4701,12 +5368,42 @@ agent/profile, model, state, and elapsed time; `awaiting_input` and
 "what needs me?" without terminal scrolling. Stop controls ride the
 session-scoped, generation-fenced `dev.session.cancelHarness` command and
 are disabled while the session generation is unknown. The workspace top bar
-carries the runtime-resources action on every view; its detail sheet shows the
-process/port inventory, metric summaries, provider usage cards, and the
-retained-data breakdown with cleanup context, docked by the shared inset
-Sheet to the workspace's end edge below the bar on every host. Lanes without
-a Dev runtime channel render the typed unavailable state; absent capability
-renders as typed states.
+carries the runtime-resources action on every view. Its detail sheet is docked
+by the shared inset Sheet to the workspace's end edge below the bar on every
+host, widened to 37.5rem through its `dev-resources-sheet` hook. All resource
+management and all resource settings live in this one sheet
+(`packages/dev-view/src/resources/`):
+
+- **Header:** the title, the coverage (`This machine` or `Adea only`), and
+  the refresh and settings `ActionButton`s.
+- **Overview:** the memory used by Adea (proven launches plus processes in
+  Adea terminals) over a machine memory bar split into Adea, other listed
+  processes, other apps, and free; then CPU, ports, and storage tiles.
+- **Attention banner:** the pre-selected clean-up count and the disk it
+  would free, or the leaking servers and port-holding foreign processes that
+  need a look, with a Review action.
+- **Servers & apps tab:** rows grouped by worktree (proven launches and
+  foreign rows whose working directory is in a registered worktree), then
+  "Worktree deleted" for launches whose worktree is gone, then "Adea", then
+  "Elsewhere on this machine", then "Protected". Each row shows its port, what
+  it is, who started it, a memory sparkline, and tree memory, plus row actions:
+  restart (proven launches), stop (stoppable rows), and details. A row is
+  leaking when its memory grew by at least `alerts.growthBytes` within
+  `alerts.growthWindowSeconds`, and over its limit when it holds at least
+  `alerts.residentBytesAbove`; both use the warning tone. Protected rows show
+  why and have no stop.
+- **Storage tab:** a disk bar (worktree source, builds and dependencies,
+  retained data), the worktree list with state badges and sizes, and the
+  read-only retained-data breakdown.
+- **Agents & usage tab:** the provider usage cards.
+- **Drill-in views:** server details (memory and CPU history, facts, and
+  ownership), the clean-up review, resource settings, and the stop, restart,
+  and foreign-stop confirmation in the shared `AlertDialog`.
+- While the sheet is open and the page is visible, it re-reads the snapshot
+  every `sampling.visibleSeconds`.
+
+Lanes without a Dev runtime channel render the typed unavailable state; absent
+capability renders as typed states.
 The resource refresh icon uses the shared explanatory `ActionButton`; an
 unavailable runtime keeps the action inert while its tooltip explains how to
 enable it. Stop and cancel actions use shared destructive and outline button
@@ -4874,8 +5571,46 @@ The utility resize divider spans the pane border with the shared centered grip;
 its ruler matches each side's maximum width so the hit target stays on that edge. Expanding is a per-panel concern: the full-width control lives in each
 utility pane's heading, and focus mode stays on its keyboard chord with no
 top-bar control.
-The outer rail remains visible in every view, including focus mode. Virtual
-has its own contextual room navigation, independent of engine entitlement.
+The outer rail remains visible in every view, including focus mode. Its header
+is the static, non-interactive Adea mark at one rail-item height; the rail has
+no workspace switcher (ADR 0011). Chat and Virtual mount the shared
+`@adea-ai/workspace-nav` accordion inside the published `ContextualSidebar`
+(landmark "Workspace navigation", width key `adea:workspace-sidebar-width`):
+quick actions, a "Needs you" strip that totals mentions across workspaces
+(hidden at zero; the desktop Dev summary adds input-needing runs once it
+ships), the Workspaces heading with always-visible group-by and New workspace
+actions, the active workspace expanded with its projects, and every other
+workspace as one row with unread and mention chips whose click switches
+through the same guarded helper `?workspace=` links use. New workspace is an
+inline draft row: Enter creates it with a fresh idempotency key and the home
+world, then switches; a failure shows inline and keeps the typed name. The
+grouping (project, status, recent) is persisted per workspace. A project's
+primary channel is its default leaf; its other channels and open tasks are
+leaves whose status is running for a task in progress, in review for a task in
+review, and idle otherwise; unread activity is a count, never a status. Project
+menus offer rename and settings (the edit dialog), archive and soft delete
+behind a confirmation, and Share only when the sharing host is present; leaf
+menus offer only actions the cloud supports. Virtual uses the same tree with
+its own nouns (rooms and desks), independent of engine entitlement. The
+active workspace's accent themes the app while it is active, overriding the
+appearance accent; a workspace without an accent keeps the appearance accent,
+and collapsed workspace marks show their own accent (or the appearance accent)
+rather than the active one.
+The top bar's existing title slot shows the Workspace › Project › Leaf path as
+published `Breadcrumb` crumbs instead of the plain workspace name; there is no
+extra row and the slot keeps its single-line ellipsis and its sub-48rem hiding.
+The path comes from the pure `breadcrumbsFor` in `@adea-ai/workspace-nav` over
+the same tree and selection the sidebar renders: the workspace mark and name,
+the project (or room), then the leaf labelled by the view adapter — the task
+or channel title in Chat, the desk in Virtual — with each crumb's noun given to
+assistive technology. A Chat or Virtual default leaf is named after its
+project, so the path ends at the project rather than repeating it. The last
+crumb is the current page; an earlier crumb is a link that opens its default
+leaf (the workspace's first project's default leaf, or the project's) and is
+plain text when that would reopen what is already shown. Dev, not yet on the
+shared sidebar, reports its selected project and checked-out branch, shown in
+mono; branch names stay on the client and Dev crumbs are a readout. App
+Library, the designers and views without a path keep the plain title.
 Room and Character designer entries use the same global app container and retain
 the global rail even when the private engine is unavailable. Both designers hide
 the left and right contextual sidebars and their toolbar collapse toggles. The
@@ -4895,7 +5630,8 @@ separates **App Library** from the external **Plugins** marketplace. Library is
 an always-reachable full-screen destination directly below the rail's app
 icons. Virtual, Chat, Dev and Kanban are bundled and enabled by default;
 Source control is a compiled optional destination, enabled explicitly. Kanban
-is the only place tasks are listed (the workspace sidebar has no Tasks entry):
+is the only full task list (the workspace sidebar has no Tasks entry; open tasks
+appear only as leaves under their project, and closed ones leave the sidebar):
 it mounts the task board full width, with no workspace sidebar, through a
 route-scoped surface without changing the previous Chat surface. A search
 result or link to a task opens Kanban; with Kanban disabled, the board opens
@@ -5006,11 +5742,14 @@ type DataClassification =
 | IDs, capability names, generic status               | workspace metadata              | authorized workspace clients                   |
 | cross-workspace run counts (`dev.summary`)          | workspace metadata              | workspace id + two integers; no names or paths |
 | local paths, repo names/remotes, command labels     | workspace private               | redact/home-alias remotely unless granted      |
+| managed clone remote URL and managed paths          | workspace private               | desktop only; DTOs carry the redacted remote   |
 | branch names, worktree titles, diff counts          | workspace private               | desktop only; never leaves the device          |
 | terminal bytes, prompts/results, file content/diffs | restricted local by default     | bounded explicit projection only               |
 | workspace memory entry text                         | restricted local                | owning workspace's settings and launch only    |
 | screenshots/annotations/check logs                  | workspace private or restricted | provenance + retention + redaction             |
 | cookies, tokens, keys, auth headers, secret env     | credential                      | never renderer event/log; vault operation only |
+| connection bindings, account profile ids/labels     | workspace private               | device-local ids only; never leaves device     |
+| connection resolution audit (ids, host, connection) | workspace private               | owner-only local audit; no secret material     |
 | usage account identifiers                           | workspace private               | safe display label, no token/account secret    |
 | process argv/env                                    | restricted local                | sanitized labels only                          |
 
@@ -5188,7 +5927,7 @@ never truncates silently or allocates an unbounded fallback.
 | files                 | directory page 500; inline read/write 256 KiB on the control path; bulk via `file-bytes-v1` stream (64 MiB, 64 KiB frames, 1 MiB read credit); editable 8 MiB; preview 64 MiB; 30-second operation; tree plans: depth 64, 5,000 items, 256 MiB copy volume, 10-minute plan TTL |
 | editor/diff           | reduced tokenization after 10,000 lines or 5 MiB; 10,000 hunks/20 MiB rendered diff before metadata fallback                                                                                                                                                                   |
 | search                | 10,000 matches; 1,000 matched files; 50 MiB scan-result budget; 1 MiB emitted; 30 seconds                                                                                                                                                                                      |
-| git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies                                                                                                                                                                                                  |
+| git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies; a timed-out, cancelled, or over-budget child gets `SIGTERM`, then `SIGKILL` after 1 s, and is reaped (5 s grace) before the run rejects                                                         |
 | harness discovery     | 1 MiB input; 1,000 models/commands; 64 KiB/record; 10 seconds                                                                                                                                                                                                                  |
 | workspace memory      | entry 2,000 characters; 200 entries and 20 pending proposals per workspace; launch preamble 16 KiB of whole entries, overflow reported as `memory_truncated`                                                                                                                   |
 | cookie import         | 10,000 cookies; 16 MiB serialized; atomic transaction                                                                                                                                                                                                                          |
@@ -5201,6 +5940,7 @@ Screenshot references include lane/profile provenance, origin, viewport, and red
 | usage refresh | provider backoff plus 60-second manual-refresh floor |
 | cleanup lock/lease | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s |
 | device workspace scope | verified membership cached 24 hours per credential digest; 256 cached memberships (`IDENTITY_LIMITS`) |
+| managed clone | 10 minutes per network git child; SSH connect 30 s in batch mode; kill escalation 1 s `SIGTERM` then 5 s reap grace after `SIGKILL`; 4 GiB on disk (500 ms size watchdog, 1,000,000 entries per sample); 2 clones in flight per node, 1 per project id; remote URL 2,048 chars; default base ref 256 chars |
 
 ## Performance and retention budgets
 
@@ -5380,6 +6120,47 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-10-06 — shared workspace sidebar in the Dev view (ADR 0011, PR 10b).**
+  `DevSidebarShell`/`DevSidebarNavigation` are replaced by the shared
+  `WorkspaceNav` (`dev` adapter): cloud projects joined with local bindings by
+  id, checkout and worktree leaves from `dev.worktree.list`, observed leaf
+  status, batched visible-row diff counts, desktop run counts on collapsed
+  workspaces, and the worktree/project menus above. The landmark is
+  "Workspace navigation". No Dev Runtime operation changed. See "Shared
+  workspace sidebar (ADR 0011)".
+- **2026-10-06 — workspace connections (ADR 0012).** Added
+  `dev.connections.get`/`setGitHosting`/`setHarnessAccount` and
+  `dev.harness.accountProfiles.list`/`create`/`delete` (total operations
+  221, from 215), the `WorkspaceConnections`/`HarnessAccountProfile` DTOs, the `null`
+  literal in the body grammar, the per-scope binding partition and the
+  device-wide profile store with its reverse index, credential resolution for
+  git/gh/glab children and harness launches, the sidecar launch-credential
+  allowlist (protocol 1.1), and Workspace settings › Connections. New
+  "Workspace connections" section.
+
+- **2026-10-06 — remote-only projects (ADR 0011, PR 15).** `dev.project.clone`
+  gains a mode: its body becomes `{ projectId, mode?: 'checkout' | 'managed',
+remote: RedactedRemoteInput, credentialRefId?, destinationBookmarkId?,
+defaultBaseRef?: string(1..256) }`. `checkout` (the default) is #1061's
+  authorized-destination working copy, unchanged for existing callers except
+  that `destinationBookmarkId` is now required by the mode rather than the
+  grammar; `managed` places a bare clone under the owner-only app-data
+  managed root with no primary record. `Repo` gains the optional
+  `layout: 'bare_managed'` fact, and `ProjectRepoBinding` becomes a union
+  whose managed arm carries `layout` and no `rootBookmarkId`. Both modes
+  share one hardened transport policy: production refuses `file://` and
+  local remotes (a test-only `allowLocalCloneRemotes` composition flag admits
+  fixtures), every network child runs batch-mode SSH with no prompts, and
+  cleanup waits for the reaped git child. Bare repositories stay refused
+  except a proven managed clone; see "Clone sources (`dev.project.clone`)"
+  and "Remote-only projects (managed bare clone)". The operation total is
+  unchanged (215).
+- **2026-10-05 — workspace accordion in Chat and Virtual (ADR 0011, PR 10).**
+  The Chat/Virtual contextual sidebar becomes the shared `@adea-ai/workspace-nav`
+  accordion (`WorkspaceNavSidebar`); the rail's workspace switcher is removed
+  and its header is a static mark; the active workspace's accent overrides the
+  appearance accent while active. No Dev Runtime operation changed; the Dev
+  sidebar shell is replaced in a later change.
 - **2026-10-06 — project groups removed; v2 project bindings (ADR 0011).**
   Removed `dev.group.list`/`reorder`/`create`/`update`/`delete` and
   `dev.project.reorder`, the `Group`/`GroupMutableFields` DTOs, and the
@@ -6176,6 +6957,34 @@ files in the same commit:
   non-directory paths before any ledger write, and `dev.project.authorizeRoot`
   serves the add-project surface through the scope-bound channel;
 - `scripts/docs-boundary.test.ts` — this spec is routed and links resolve;
+- clone modes: `apps/desktop/tests/project-registry.test.ts` (#1061's
+  checkout clone with the `file://` fixture behind the test flag; the shared
+  hardened argv; stderr-typed `remote_unavailable`/`auth_required`; bare exit
+  `spawn_failed`; mode/field mixing refusals; managed without its authority
+  `unavailable`; a production register refusing `file://`; a stopped clone's
+  partial checkout reported `cleanup_partial` and kept);
+- remote-only projects: `apps/desktop/tests/managed-clone.test.ts` (clone
+  from a local `file://` bare origin into the owner-only managed root with
+  the `bare_managed` record and binding and no primary record; managed
+  worktree create/list/cleanup under `managed-worktrees/<repoId>` with the
+  include-copy skip; unbind refusing while a worktree is live, then
+  quarantining and deleting the clone; a replaced clone refusing unbind;
+  unsafe remotes, credential host mismatch, bound project ids, a resource
+  binding, transport/size/time/base-ref failures leaving nothing behind;
+  production refusing `file://` and the shell entry never opting in; the
+  batch-mode SSH environment with host-key `remote_unavailable` and prompt
+  `auth_required`; an unconfirmed child exit quarantining without deleting
+  as `cleanup_partial`; the runner reaping a killed child;
+  user bare repositories, forged out-of-root records, planted names, `..`
+  spellings, widened or symlinked roots, and symlinked clones refusing),
+  `apps/desktop/tests/dev-runtime-composition.test.ts` (the provider is
+  composed; the production composition refuses `file://`; capability and resource deny tests over the real channel; the
+  `dev.repo.list` layout fact; no primary worktree),
+  `packages/types/tests/dev-runtime.test.ts` (the clone body, the managed
+  `ProjectRepoBinding` arm, and the `Repo` layout fact),
+  `apps/web/test/session-state-projection.test.ts` (the projection's
+  `source`), and `scripts/dev-view-boundary.test.ts` (clone is no longer in
+  the typed-unavailable allowlist);
 - ADR 0011 production worktrees: `apps/desktop/tests/worktree-service.test.ts`
   (one primary record per registered git repository with the inspected
   branch, refreshed by the fingerprint-gated pass; no folder primary; typed
@@ -6202,6 +7011,31 @@ files in the same commit:
   (the strict `WorkspaceRunSummary` reply decoder and empty request body),
   and `apps/web/test/desktop-workspace-summary.test.ts` (the fail-closed
   `workspaceSummaries()` client helper);
+- `apps/desktop/tests/dev-runtime-connections.test.ts` — Workspace
+  connections: git hosting CRUD with version conflicts and vault validation
+  (unknown/foreign refs `not_found`, host mismatch `identity_mismatch`, SSH
+  keys `incompatible`), cross-workspace isolation (a binding in A is never
+  visible or resolved in B, which reports `device_default`), resolution audit,
+  fail-closed resolution of a revoked binding, a tampered partition refused
+  `corrupt_state`, profile reuse across workspaces with delete refused while
+  any workspace binds it, foreign-scope and unknown-key denial for all six
+  operations, the git/gh/glab env builders, and real `git credential fill`
+  proof that the inline helper answers only the bound host and overrides a
+  device helper;
+- `apps/desktop/tests/dev-runtime-connections-launch.test.ts` — through the
+  full composition and the real sidecar: a harness launch injects exactly the
+  bound profile's key into the PTY child env and nowhere else (reply, events,
+  any persisted file), provenance records the profile id, an unbound
+  workspace launches `device_default`, a revoked bound account refuses the
+  launch, `gh` receives `GH_TOKEN` only after a binding, and the channel
+  refuses forged capabilities and foreign scopes for every connection
+  operation;
+- `apps/web/test/desktop-workspace-connections.test.ts` and
+  `packages/workspace-ui/tests/unit/connections-model.test.ts` — the client
+  bridge (registry-exact bodies on the runtime scope, strict decode failing
+  closed, typed refusals verbatim, unavailable without a bound runtime) and
+  the settings view model (device-default first, usable refs only, an
+  unusable bound ref rendered disabled);
 - M10 channel/desktop boundary tests — no loopback or browsed-page privilege;
 - `packages/types` contract/property tests — envelope and state decoders;
   `packages/types/tests/dev-runtime.test.ts` pins the `RootBookmark` and

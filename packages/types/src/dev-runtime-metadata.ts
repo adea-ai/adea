@@ -112,6 +112,15 @@ export const devOperationMetadata = {
   'dev.computeruse.takeover': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_computeruse_takeover
   ),
+  'dev.connections.get': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_connections_get
+  ),
+  'dev.connections.setGitHosting': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_connections_setGitHosting
+  ),
+  'dev.connections.setHarnessAccount': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_connections_setHarnessAccount
+  ),
   'dev.device.attach': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_attach),
   'dev.device.input': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_input),
   'dev.device.capabilities': commandMetadata(
@@ -374,6 +383,15 @@ export const devOperationMetadata = {
   'dev.gitlab.updatePlan': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_gitlab_updatePlan
   ),
+  'dev.harness.accountProfiles.create': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_accountProfiles_create
+  ),
+  'dev.harness.accountProfiles.delete': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_accountProfiles_delete
+  ),
+  'dev.harness.accountProfiles.list': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_accountProfiles_list
+  ),
   'dev.harness.acpClose': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_harness_acpClose
   ),
@@ -440,14 +458,32 @@ export const devOperationMetadata = {
   'dev.repo.inspect': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_inspect),
   'dev.repo.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_list),
   'dev.repo.refresh': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_refresh),
+  'dev.resources.foreignStopCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_foreignStopCommit
+  ),
+  'dev.resources.foreignStopPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_foreignStopPlan
+  ),
   'dev.resources.metrics': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_metrics
   ),
   'dev.resources.ports': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_ports
   ),
+  'dev.resources.preferences': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_preferences
+  ),
+  'dev.resources.preferencesUpdate': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_preferencesUpdate
+  ),
   'dev.resources.processes': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_processes
+  ),
+  'dev.resources.restartCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_restartCommit
+  ),
+  'dev.resources.restartPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_restartPlan
   ),
   'dev.resources.retainedData': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_retainedData
@@ -463,6 +499,9 @@ export const devOperationMetadata = {
   ),
   'dev.resources.usage': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_usage
+  ),
+  'dev.resources.worktreeStorage': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_worktreeStorage
   ),
   'dev.session.archive': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_session_archive

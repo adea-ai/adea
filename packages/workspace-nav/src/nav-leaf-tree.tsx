@@ -1,5 +1,6 @@
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Tree, TreeRow, type TreeItemDescriptor } from '@adea-ai/ui/components/composites/tree'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Text } from '@adea-ai/ui/components/ui/typography'
 import { CircleAlert, House, Plus } from 'lucide-solid'
 import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
@@ -27,10 +28,14 @@ export type NavLeafTreeProps = {
   onCreateLeaf?: (project: NavProject) => void
   onProjectMenuAction?: (id: NavMenuItemId, project: NavProject) => void
   onLeafMenuAction?: (id: NavMenuItemId, leaf: NavLeaf, project: NavProject) => void
+  /** Hover or focus on a leaf: the host may prefetch what selecting it shows. */
+  onLeafIntent?: (leaf: NavLeaf) => void
   /** Controlled collapsed projects; omit to let the tree keep its own. */
   collapsedProjectIds?: ReadonlySet<string>
   onProjectExpandedChange?: (projectId: string, expanded: boolean) => void
   portalMount?: HTMLElement
+  /** False inside a modal sheet; see `WorkspaceNavProps.tooltips`. */
+  tooltips?: boolean
 }
 
 const projectKey = (id: string) => `project:${id}`
@@ -168,6 +173,8 @@ export function NavLeafTree(props: NavLeafTreeProps) {
         data-leaf-id={leaf.id}
         data-leaf-kind={leaf.kind}
         title={props.adapter.leafSecondary(leaf)}
+        onPointerEnter={() => props.onLeafIntent?.(leaf)}
+        onFocusIn={() => props.onLeafIntent?.(leaf)}
         leading={
           isCheckoutRow() ? <House aria-hidden="true" /> : <LeafStatusIcon status={leaf.status} />
         }
@@ -189,14 +196,19 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                 </span>
               </Show>
             </Show>
-            <span class="workspace-nav-row-actions">
-              <NavRowMenu
-                label={menuLabel()}
-                items={props.adapter.leafMenu(leaf)}
-                portalMount={props.portalMount}
-                onSelect={(id) => props.onLeafMenuAction?.(id, leaf, project)}
-              />
-            </span>
+            <LeafUnread leaf={leaf} />
+            {/* A leaf with nothing to offer gets no empty menu trigger. */}
+            <Show when={props.adapter.leafMenu(leaf).length > 0}>
+              <span class="workspace-nav-row-actions">
+                <NavRowMenu
+                  label={menuLabel()}
+                  items={props.adapter.leafMenu(leaf)}
+                  portalMount={props.portalMount}
+                  tooltips={props.tooltips}
+                  onSelect={(id) => props.onLeafMenuAction?.(id, leaf, project)}
+                />
+              </span>
+            </Show>
           </>
         }
       >
@@ -258,19 +270,25 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                           <ActionButton
                             variant="ghost"
                             size="icon-xs"
-                            tooltip={createLabel()}
+                            tooltip={props.tooltips === false ? undefined : createLabel()}
                             aria-label={`${createLabel()} in ${group.project.name}`}
                             onClick={() => props.onCreateLeaf?.(group.project)}
                           >
                             <Plus aria-hidden="true" />
                           </ActionButton>
                         </Show>
-                        <NavRowMenu
-                          label={`Options for ${group.project.name}`}
-                          items={props.adapter.projectMenu(group.project)}
-                          portalMount={props.portalMount}
-                          onSelect={(id) => props.onProjectMenuAction?.(id, group.project)}
-                        />
+                        <Show when={props.adapter.projectMenu(group.project).length > 0}>
+                          <NavRowMenu
+                            // Named for the noun: in Chat and Virtual the default
+                            // leaf carries the project's name, so its own
+                            // "Options for …" menu must not share this name.
+                            label={`${props.adapter.nouns.project} options for ${group.project.name}`}
+                            items={props.adapter.projectMenu(group.project)}
+                            portalMount={props.portalMount}
+                            tooltips={props.tooltips}
+                            onSelect={(id) => props.onProjectMenuAction?.(id, group.project)}
+                          />
+                        </Show>
                       </span>
                     </>
                   }
@@ -349,6 +367,27 @@ export function NavLeafTree(props: NavLeafTreeProps) {
     const current = grouping()
     return current.mode === 'recent' ? current.items : []
   }
+}
+
+/**
+ * The leaf's unread count (or a dot for a manual mark). The row's name stays
+ * the leaf label; the count is announced as words.
+ */
+function LeafUnread(props: { leaf: NavLeaf }) {
+  const unread = () => props.leaf.unread
+  const visible = () => (unread()?.count ?? 0) > 0 || Boolean(unread()?.marked)
+  return (
+    <Show when={visible()}>
+      <Badge variant="secondary" size="sm" data-slot="workspace-nav-unread">
+        <span aria-hidden="true">
+          {(unread()?.count ?? 0) > 99 ? '99+' : unread()?.count || '•'}
+        </span>
+        <span class="visually-hidden">
+          {(unread()?.count ?? 0) > 0 ? `${unread()!.count} unread` : 'Marked unread'}
+        </span>
+      </Badge>
+    </Show>
+  )
 }
 
 /** Diff counts or the pull request number; words for assistive technology. */

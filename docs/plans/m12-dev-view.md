@@ -563,7 +563,10 @@ Deliverables:
 
 Acceptance:
 
-- [ ] Unknown/external resources remain visible without destructive actions.
+- [ ] Unknown/external resources remain visible without Adea-owned destructive
+      actions. Amended 2026-10-06: the owner may stop one through the separate,
+      user-confirmed foreign-stop path (Dev Runtime spec "Machine-wide inventory
+      and foreign stop"), which is never automatic or bulk.
 - [ ] PID/PGID/name/cwd/port alone never grant stop; replacement races survive.
 - [ ] Sampler honors active/idle/hidden schedules, timeout/concurrency/output and
       retention budgets; unsupported/denied/stale is not zero.

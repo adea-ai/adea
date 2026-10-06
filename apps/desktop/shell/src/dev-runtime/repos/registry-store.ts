@@ -6,7 +6,11 @@
 // worktree-private `dev-runtime/worktrees/repos.json` is left unread on disk.
 import { join } from 'node:path'
 
-import type { RedactedRemote, Repo } from '../../../../../../packages/types/src/dev-runtime'
+import type {
+  RedactedRemote,
+  Repo,
+  RepoLayout,
+} from '../../../../../../packages/types/src/dev-runtime'
 import { DevAuthorityError, type DevScope } from '../authority'
 import { createDurableJsonStore } from '../host-store'
 import type { FileIdentityValue } from '../worktrees/identity'
@@ -19,7 +23,11 @@ import type { FileIdentityValue } from '../worktrees/identity'
  * the base from (`origin` for adopted repositories). `lifecycle` is durable
  * repo truth: `ready` (proven), `stale` (the remote could not be re-proven at
  * the last refresh), `unavailable` (the canonical root was missing on disk at
- * the last refresh).
+ * the last refresh). `layout: 'bare_managed'` marks a remote-only project's
+ * managed bare clone (ADR 0011): its `canonicalRoot` is the bare repository
+ * under the owner-only managed root (and also its git common dir), it has no
+ * primary working tree, and it carries no `rootBookmarkId` — every other
+ * record names the bookmark that proves it.
  */
 export type RepoRegistryRecord = Readonly<{
   id: string
@@ -27,9 +35,10 @@ export type RepoRegistryRecord = Readonly<{
   kind: 'git' | 'folder'
   lifecycle: 'ready' | 'stale' | 'unavailable'
   canonicalRoot: string
+  layout?: RepoLayout
   rootIdentity: FileIdentityValue
   gitCommonDirIdentity?: FileIdentityValue
-  rootBookmarkId: string
+  rootBookmarkId?: string
   remote?: string
   fetchRemote?: string
   defaultRef?: string
@@ -61,7 +70,10 @@ function validateStoredRecord(record: RepoRegistryRecord): void {
       record.lifecycle !== 'unavailable') ||
     typeof record.canonicalRoot !== 'string' ||
     record.canonicalRoot.length < 1 ||
-    typeof record.rootBookmarkId !== 'string' ||
+    (record.layout !== undefined && record.layout !== 'bare_managed') ||
+    (record.layout === 'bare_managed'
+      ? record.kind !== 'git' || record.rootBookmarkId !== undefined
+      : typeof record.rootBookmarkId !== 'string') ||
     (record.fetchRemote !== undefined && typeof record.fetchRemote !== 'string') ||
     !Array.isArray(record.projectIds) ||
     record.projectIds.some((id) => typeof id !== 'string') ||
@@ -94,6 +106,11 @@ export function createRepoRegistryStore(dataDir: string) {
     return load().find((entry) => entry.id === repoId)
   }
 
+  /** Drop one record (a managed clone after its proven deletion). */
+  function remove(repoId: string): void {
+    save(load().filter((entry) => entry.id !== repoId))
+  }
+
   function upsert(next: RepoRegistryRecord): void {
     const records = load()
     const index = records.findIndex((entry) => entry.id === next.id)
@@ -102,7 +119,7 @@ export function createRepoRegistryStore(dataDir: string) {
     save(records)
   }
 
-  return Object.freeze({ load, save, find, upsert })
+  return Object.freeze({ load, save, find, upsert, remove })
 }
 
 export type RepoRegistryStore = ReturnType<typeof createRepoRegistryStore>
@@ -151,6 +168,7 @@ export function toRepoDto(record: RepoRegistryRecord): Repo {
     kind: record.kind,
     lifecycle: record.lifecycle,
     canonicalRoot: record.canonicalRoot,
+    ...(record.layout !== undefined ? { layout: record.layout } : {}),
     ...(record.gitCommonDirIdentity !== undefined
       ? { gitCommonDirIdentity: record.gitCommonDirIdentity }
       : {}),

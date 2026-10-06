@@ -37,6 +37,23 @@ const homeWorkspace = {
   updatedAt: timestamp,
 }
 const user = { kind: 'user' as const, userId: 'user-e2e' }
+
+// The contextual sidebar is the shared Workspaces accordion (ADR 0011): the
+// active workspace's projects form one tree, and a project's default
+// conversation is its first leaf, named after the project.
+const workspaceNav = (scope: Page | Locator) =>
+  scope.getByRole('navigation', { name: 'Workspaces' })
+// Virtual names projects as rooms, so its tree is "<workspace> rooms".
+const projectTree = (scope: Page | Locator, workspaceName = 'Work', noun = 'projects') =>
+  scope.getByRole('tree', { name: `${workspaceName} ${noun}` })
+// A leaf's accessible name leads with its status word, then its label.
+const projectConversation = (scope: Page | Locator, name: string) =>
+  scope.getByRole('treeitem', {
+    name: new RegExp(`^(?:Idle|Running|In review|Needs you) ${name}(?: |$)`),
+    level: 2,
+  })
+const createProjectButton = (scope: Page | Locator, workspaceName = 'Work') =>
+  scope.getByRole('button', { name: `New project in ${workspaceName}`, exact: true })
 const agentPrincipal = { kind: 'agent' as const, agentId: 'agent-research' }
 
 const marketplacePluginSpecs = [
@@ -420,6 +437,9 @@ async function mockWorkspace(page: Page, empty = false) {
       json: { activeWorkspace: workspace, principal: { temporary: true }, workspaces: [workspace] },
     })
   )
+  await page.route('**/api/v1/account/summary', (route) =>
+    route.fulfill({ contentType: 'application/json', json: { workspaces: [] } })
+  )
   await page.route('**/api/v1/workspaces/**', async (route) => {
     const url = new URL(route.request().url())
     if (url.pathname.includes('/read-state'))
@@ -536,6 +556,18 @@ async function mockConnectedWorkspace(page: Page) {
         activeWorkspace: workspace,
         principal: { temporary: true, userId: 'user-e2e' },
         workspaces: [workspace, homeWorkspace],
+      },
+    })
+  )
+  // Counts-only status for the collapsed workspace chips and "Needs you".
+  await page.route('**/api/v1/account/summary', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      json: {
+        workspaces: [
+          { workspaceId: workspace.id, unreadChannels: 1, mentions: 0 },
+          { workspaceId: homeWorkspace.id, unreadChannels: 2, mentions: 1 },
+        ],
       },
     })
   )
@@ -676,7 +708,7 @@ test('keeps a composition Enter from submitting a workspace message', async ({ p
   await mockWorkspace(page)
   const submissions = await captureMessageSubmissions(page)
   await page.goto('/')
-  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  await projectConversation(page, 'Product').click()
 
   const composer = page.getByRole('textbox', { name: 'Message' }).first()
   await composer.fill('候補')
@@ -699,7 +731,7 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
   await mockWorkspace(page)
   const submissions = await captureMessageSubmissions(page)
   await page.goto('/')
-  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  await projectConversation(page, 'Product').click()
 
   const composer = page.getByRole('textbox', { name: 'Message' }).first()
   const composerForm = page.locator('form[data-slot="message-composer"]').first()
@@ -783,7 +815,7 @@ test('keeps the project draft and attachments after a failed send, then clears o
   await mockWorkspace(page)
   const submissions = await captureMessageSubmissions(page, [1])
   await page.goto('/')
-  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  await projectConversation(page, 'Product').click()
 
   const composer = page.getByRole('textbox', { name: 'Message' }).first()
   const draft = 'Keep this draft when the connection fails.'
@@ -817,7 +849,7 @@ test('keeps thread reply metadata separate from the project draft', async ({ pag
   await mockWorkspace(page)
   const submissions = await captureMessageSubmissions(page)
   await page.goto('/')
-  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  await projectConversation(page, 'Product').click()
 
   const projectComposer = page.getByRole('textbox', { name: 'Message' }).first()
   await projectComposer.fill('Project draft remains here.')
@@ -845,8 +877,8 @@ test('keeps thread reply metadata separate from the project draft', async ({ pag
 test('renders empty and populated Project-first workspace states', async ({ page }) => {
   await mockWorkspace(page, true)
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
-  await expect(page.getByText('Create a Project to organize the work.')).toBeVisible()
+  await expect(workspaceNav(page).getByRole('heading', { name: 'Work', level: 3 })).toBeVisible()
+  await expect(workspaceNav(page).getByText('No projects yet.')).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-empty-light.png', { animations: 'disabled' })
 
   await page.unrouteAll({ behavior: 'wait' })
@@ -865,7 +897,7 @@ test('renders empty and populated Project-first workspace states', async ({ page
 test('centers creation dialogs in the viewport', async ({ page }) => {
   await mockConnectedWorkspace(page)
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+  await expect(projectTree(page)).toBeVisible()
   for (const viewport of [
     { width: 390, height: 844 },
     { width: 1280, height: 720 },
@@ -902,7 +934,7 @@ test('centers creation dialogs in the viewport', async ({ page }) => {
       }
     }
     await expect(navigation).toBeVisible()
-    await navigation.getByRole('button', { name: 'Create Project', exact: true }).click()
+    await createProjectButton(navigation).click()
     const dialog = page.getByRole('dialog', { name: 'Create Project' })
     const box = await dialog.boundingBox()
     expect(box).not.toBeNull()
@@ -940,7 +972,207 @@ test('loads chat before secure-context-only authentication APIs are requested', 
   await mockConnectedWorkspace(page)
   await page.goto('/')
 
-  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+  await expect(projectTree(page)).toBeVisible()
+})
+
+test('inline workspace create keeps the name on failure and switches on success', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  const created = {
+    ...homeWorkspace,
+    id: 'workspace-side-quest-e2e',
+    name: 'Side Quest',
+    sortOrder: 2,
+  }
+  const requests: Array<{ body: unknown; key: string | null }> = []
+  await page.route('**/api/workspaces', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    requests.push({
+      body: route.request().postDataJSON(),
+      key: route.request().headers()['idempotency-key'] ?? null,
+    })
+    if (requests.length === 1)
+      return route.fulfill({ status: 503, contentType: 'application/json', json: { error: 'x' } })
+    return route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      json: { created: true, workspace: created },
+    })
+  })
+  await page.goto('/')
+  const workspaces = workspaceNav(page)
+  await expect(workspaces.getByRole('heading', { name: 'Work', level: 3 })).toBeVisible()
+
+  await workspaces.getByRole('button', { name: 'New workspace', exact: true }).click()
+  const draft = workspaces.getByRole('textbox', { name: 'New workspace name' })
+  await expect(draft).toBeFocused()
+  await draft.fill('Side Quest')
+  await draft.press('Enter')
+  // The failure is reported inline and the typed name is kept for a retry.
+  await expect(workspaces.getByRole('alert')).toContainText('Workspace could not be created.')
+  await expect(draft).toHaveValue('Side Quest')
+  await expect(draft).toHaveAttribute('aria-invalid', 'true')
+
+  await draft.press('Enter')
+  await expect(workspaces.getByRole('heading', { name: 'Side Quest', level: 3 })).toBeVisible()
+  await expect(draft).toHaveCount(0)
+  await expect(page).toHaveURL(/scene=home/)
+  // Each attempt is its own request with a fresh idempotency key and the
+  // home world.
+  expect(requests).toHaveLength(2)
+  expect(requests.map(({ body }) => body)).toEqual([
+    { name: 'Side Quest', scene: 'home' },
+    { name: 'Side Quest', scene: 'home' },
+  ])
+  expect(requests[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
+  expect(requests[1]!.key).not.toBe(requests[0]!.key)
+})
+
+test('the active workspace accent themes the app and collapsed rows keep their own', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.route('**/api/workspaces/bootstrap', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      json: {
+        activeWorkspace: { ...workspace, accent: 'green' },
+        principal: { temporary: true, userId: 'user-e2e' },
+        workspaces: [{ ...workspace, accent: 'green' }, homeWorkspace],
+      },
+    })
+  )
+  await page.goto('/')
+  const workspaces = workspaceNav(page)
+  await expect(workspaces.getByRole('heading', { name: 'Work', level: 3 })).toBeVisible()
+  const roles = await page.evaluate(() => {
+    const home = document.querySelector('button[data-workspace-id="workspace-home-e2e"]')!
+    return Object.fromEntries(
+      Object.entries({
+        root: document.documentElement,
+        body: document.body,
+        home: home.querySelector('.workspace-identity-mark')!,
+      }).map(([key, element]) => [
+        key,
+        getComputedStyle(element).getPropertyValue('--primary').trim(),
+      ])
+    ) as { root: string; body: string; home: string }
+  })
+  // The workspace accent overrides the appearance accent while it is active;
+  // a workspace without an accent keeps showing the appearance accent.
+  expect(roles.body).not.toBe(roles.root)
+  expect(roles.home).toBe(roles.root)
+
+  await workspaces.getByRole('button', { name: /^Home( |$)/ }).click()
+  await expect(workspaces.getByRole('heading', { name: 'Home', level: 3 })).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => document.body.style.getPropertyValue('--primary').trim()))
+    .toBe('')
+})
+
+test('the project menu opens the lazy Share dialog from the accordion', async ({ page }) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/')
+  const project = projectTree(page).locator('[data-project-id="project-product"]')
+  await project.hover()
+  await page.getByRole('button', { name: 'Project options for Product', exact: true }).click()
+  await expect(page.getByRole('menuitem')).toHaveText([
+    'Rename',
+    'Project settings',
+    'Share',
+    'Archive',
+    'Delete',
+  ])
+  await page.getByRole('menuitem', { name: 'Share', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Share Product' })).toBeVisible()
+})
+
+test('the top-bar title slot shows Workspace › Project › Leaf without adding a row', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await mockConnectedWorkspace(page)
+  const roadmap = {
+    ...channels[0]!,
+    id: 'channel-roadmap',
+    isPrimaryProjectChannel: false,
+    sortOrder: 1,
+    title: 'Roadmap',
+  }
+  await page.route(
+    (url) => url.pathname.endsWith('/api/v1/workspaces/workspace-e2e/channels'),
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ contentType: 'application/json', json: [...channels, roadmap] })
+        : route.fallback()
+  )
+  await page.goto('/')
+  const toolbar = page.getByLabel('Workspace toolbar')
+  const title = toolbar.locator('.workspace-topbar__title')
+  await expect(workspaceNav(page).getByRole('heading', { name: 'Work', level: 3 })).toBeVisible()
+  const barBefore = await toolbar.boundingBox()
+
+  await workspaceNav(page)
+    .getByRole('treeitem', { name: /Roadmap/, level: 2 })
+    .click()
+  const crumbs = title.getByRole('navigation', { name: 'Breadcrumb' })
+  // The crumbs live in the existing title slot; each names what it is for
+  // assistive technology (Workspace, Project, Task) ahead of its label.
+  await expect(crumbs.getByRole('listitem')).toHaveText([
+    /Workspace: Work$/,
+    /Project: Product$/,
+    /Task: Roadmap$/,
+  ])
+  await expect(crumbs.locator('[aria-current="page"]')).toHaveText('Task: Roadmap')
+  await expect(crumbs.locator('.workspace-identity-mark')).toHaveCount(1)
+  // No new row: the bar keeps its height and the crumbs sit on its one line.
+  const barAfter = await toolbar.boundingBox()
+  expect(barAfter?.height).toBe(barBefore?.height)
+  const crumbBox = await crumbs.boundingBox()
+  expect(crumbBox!.y).toBeGreaterThanOrEqual(barAfter!.y)
+  expect(crumbBox!.y + crumbBox!.height).toBeLessThanOrEqual(barAfter!.y + barAfter!.height)
+  expect(await title.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap')
+
+  // The project crumb opens the project's default leaf; that leaf is named
+  // after the project, so the path ends at the project and nothing links to
+  // what is already shown.
+  await crumbs.getByRole('link', { name: 'Project: Product' }).click()
+  await expect(
+    page.locator('#workspace-main').getByRole('heading', { name: 'Product', exact: true })
+  ).toBeVisible()
+  await expect(crumbs.getByRole('listitem')).toHaveText([/Workspace: Work$/, /Project: Product$/])
+  await expect(crumbs.getByRole('link')).toHaveCount(0)
+
+  // Another project's default leaf: the workspace crumb opens the first project.
+  await workspaceNav(page)
+    .getByRole('treeitem', { name: /Support/, level: 2 })
+    .click()
+  await expect(crumbs.getByRole('listitem')).toHaveText([/Workspace: Work$/, /Project: Support$/])
+  await crumbs.getByRole('link', { name: 'Workspace: Work' }).click()
+  await expect(crumbs.getByRole('listitem')).toHaveText([/Workspace: Work$/, /Project: Product$/])
+
+  // Virtual reads the same tree and selection in its own nouns: the project
+  // is a room and its other leaves are desks. (Selecting a desk in Virtual
+  // opens it in Chat, so the desk is selected first.)
+  await workspaceNav(page)
+    .getByRole('treeitem', { name: /Roadmap/, level: 2 })
+    .click()
+  await page.locator('.global-rail').getByRole('button', { name: 'Virtual view' }).click()
+  await expect(page).toHaveURL(/view=virtual/)
+  await expect(
+    workspaceNav(page).getByRole('button', { name: 'New room in Work', exact: true })
+  ).toBeVisible({ timeout: 30_000 })
+  await expect(crumbs.getByRole('listitem')).toHaveText([
+    /Workspace: Work$/,
+    /Room: Product$/,
+    /Desk: Roadmap$/,
+  ])
+
+  // App Library keeps its plain title.
+  await page.goto('/?app=library')
+  await expect(title).toHaveText('App Library')
+  await expect(title.getByRole('navigation')).toHaveCount(0)
 })
 
 test('connects newly created Projects and group conversations to their canonical views', async ({
@@ -949,7 +1181,7 @@ test('connects newly created Projects and group conversations to their canonical
   await mockConnectedWorkspace(page)
   await page.goto('/')
 
-  await page.getByRole('button', { name: 'Create Project', exact: true }).last().click()
+  await createProjectButton(page).last().click()
   const projectDialog = page.getByRole('dialog', { name: 'Create Project' })
   await projectDialog.getByLabel('Project name').fill('Runtime Review')
   await projectDialog.getByLabel('Icon key').fill('runtime-review')
@@ -993,43 +1225,38 @@ test('toggles chat and virtual Project views without losing shared selection or 
   await expect(
     globalNavigation.getByRole('button', { name: 'Notifications (coming soon)' })
   ).toHaveCount(0)
-  await expect(
-    globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' })
-  ).toBeVisible()
-  await expect(globalNavigation.getByRole('button', { name: 'Home workspace' })).toHaveCount(0)
-  await expect(globalNavigation.getByRole('button', { name: 'Work workspace' })).toHaveCount(0)
+  // Workspaces live in the contextual sidebar's accordion (ADR 0011): the rail
+  // keeps only the static product mark.
+  await expect(globalNavigation.getByRole('button', { name: /Switch workspace/ })).toHaveCount(0)
   await expect(page.locator('#workspace-switcher')).toHaveCount(0)
   await expect(page.locator('.conventional-topbar')).toHaveCount(0)
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
-  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  const workspaces = workspaceNav(page)
+  await expect(workspaces.getByRole('heading', { name: 'Work', level: 3 })).toBeVisible()
+  // The collapsed Home row shows its most urgent count and announces every
+  // count; mentions put "Needs you" on the strip.
+  const homeRow = workspaces.getByRole('button', { name: /^Home( |$)/ })
+  await expect(homeRow).toContainText('1 mention')
+  await expect(homeRow).toHaveAccessibleName(/1 mention, 2 unread/)
+  await expect(workspaces.getByRole('button', { name: /^Needs you/ })).toContainText('1')
+  await projectConversation(page, 'Product').click()
   await page.getByRole('textbox', { name: 'Message' }).fill('Keep this connected draft.')
 
-  await globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' }).click()
-  // The click parks pointer and focus on the rail trigger, whose tooltip opens
-  // on a 200 ms delay: a fast run captures before it appears, a loaded run
-  // after — the same between-runs nondeterminism the lane forbids for
-  // transitions. Park the pointer on empty canvas so the tooltip can never
-  // open (and require quiescence in case it already did); a bare move cannot
-  // dismiss this menu, which closes on outside pointerdown only.
+  // Park the pointer on empty canvas so no row hover or tooltip paints.
   await page.mouse.move(640, 400)
   await expect(page.getByRole('tooltip')).toBeHidden()
-  await expect(page).toHaveScreenshot('workspace-switcher.png', { animations: 'disabled' })
+  await expect(page).toHaveScreenshot('workspace-accordion.png', { animations: 'disabled' })
   await expect(page.getByText('Scenes', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('menuitemradio', { name: /Home/ })).toBeVisible()
-  await expect(page.getByRole('menuitemradio', { name: /Work/ })).toBeVisible()
-  await page.getByRole('menuitemradio', { name: /Home/ }).click()
-  await expect(
-    globalNavigation.getByRole('button', { name: 'Switch workspace, current Home' })
-  ).toBeVisible()
+  await homeRow.click()
+  await expect(workspaces.getByRole('heading', { name: 'Home', level: 3 })).toBeVisible()
+  await expect(projectTree(page, 'Work')).toHaveCount(0)
   await expect(page).toHaveURL(/scene=home/)
+  // A switch starts a fresh workspace context: the draft stays with Work.
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('')
 
-  await globalNavigation.getByRole('button', { name: 'Switch workspace, current Home' }).click()
-  await page.getByRole('menuitemradio', { name: /Work/ }).click()
+  await workspaces.getByRole('button', { name: /^Work( |$)/ }).click()
   await expect(page).toHaveURL(/scene=work/)
-  await expect(
-    globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' })
-  ).toBeVisible()
+  await expect(workspaces.getByRole('heading', { name: 'Work', level: 3 })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('')
   await page.getByRole('textbox', { name: 'Message' }).fill('Keep this connected draft.')
 
@@ -1215,7 +1442,7 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
   ).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-group.png', { animations: 'disabled' })
 
-  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  await projectConversation(page, 'Product').click()
   await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
   // The shared thread panel titles itself through the aside's accessible name
   // ("Thread: <label>"); its visible "Thread" caption is a span, not a heading.
@@ -1259,7 +1486,7 @@ test('restores a channel reading position without rearming transcript follow', a
   })
 
   await page.goto('/')
-  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  await projectConversation(page, 'Product').click()
   const transcript = page.locator('.conventional-transcript > div:first-child')
   await expect.poll(() => transcript.evaluate((node) => node.scrollHeight)).toBeGreaterThan(1000)
   await transcript.evaluate((node) => {
@@ -1271,7 +1498,7 @@ test('restores a channel reading position without rearming transcript follow', a
 
   await page.getByRole('button', { name: 'Research Agent', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Research Agent', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  await projectConversation(page, 'Product').click()
 
   await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(420)
   await expect(page.getByRole('button', { name: 'Jump to latest' })).toBeVisible()
@@ -1601,7 +1828,7 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
       .locator('[aria-label="Collapse contextual sidebar"]')
   ).toHaveAttribute('aria-expanded', 'true')
   await expect(navigation.getByRole('heading', { level: 1 })).toBeVisible()
-  await expect(navigation.getByRole('region', { name: 'Projects' })).toBeVisible()
+  await expect(projectTree(navigation)).toBeVisible()
   await expect(navigation.getByRole('region', { name: 'Conversations' })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-narrow-light.png', { animations: 'disabled' })
   // The published sheet owns the close chrome next to the navigation aside.
@@ -1648,7 +1875,8 @@ test('keeps contextual section actions visible on touch devices', async ({ brows
     await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
 
     const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
-    await expect(navigation.getByRole('button', { name: 'Create Project' })).toBeVisible()
+    await expect(createProjectButton(navigation)).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'New workspace' })).toBeVisible()
     await expect(
       navigation.getByRole('button', { name: 'Create group conversation' })
     ).toBeVisible()
@@ -1660,10 +1888,9 @@ test('keeps contextual section actions visible on touch devices', async ({ brows
 test('operates unread actions and deep-linked search entirely by keyboard', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')
-  // The row button keeps the channel name as its accessible name; the unread
-  // count is an aria-hidden badge inside the row, so anchor on that.
+  // The project's default conversation leaf carries the unread badge.
   await expect(
-    page.getByRole('button', { name: 'Product', exact: true }).locator('.conventional-unread-badge')
+    projectConversation(page, 'Product').locator('[data-slot="workspace-nav-unread"]')
   ).toBeVisible({ timeout: 15_000 })
 
   await page.keyboard.press('Control+k')
@@ -1778,10 +2005,9 @@ test('workspace search keeps duplicate destination labels tied to their domain i
   await page.goto('/')
   // Control+k pressed during the first paint lands before the workspace
   // installs its shortcut listener, so anchor on loaded chrome first.
-  // The row button keeps the channel name as its accessible name; the unread
-  // count is an aria-hidden badge inside the row, so anchor on that.
+  // The project's default conversation leaf carries the unread badge.
   await expect(
-    page.getByRole('button', { name: 'Product', exact: true }).locator('.conventional-unread-badge')
+    projectConversation(page, 'Product').locator('[data-slot="workspace-nav-unread"]')
   ).toBeVisible({ timeout: 15_000 })
   await page.keyboard.press('Control+k')
 
@@ -1805,9 +2031,7 @@ test('workspace search keeps duplicate destination labels tied to their domain i
 test('global rail opens workspace search from Virtual and Dev', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/?view=virtual')
-  await expect(page.getByRole('button', { name: 'Switch workspace' })).toBeVisible({
-    timeout: 20_000,
-  })
+  await expect(workspaceNav(page)).toBeVisible({ timeout: 20_000 })
 
   const searchDialog = page.getByRole('dialog', { name: 'Search workspace' })
   await page.keyboard.press('Control+k')
@@ -1831,7 +2055,7 @@ test('retains drafts across navigation and reloads at supported breakpoints', as
   const draft = 'Evidence to preserve while I check another conversation.'
   await page.getByRole('textbox', { name: 'Message' }).fill(draft)
   await page.getByRole('button', { name: 'Research Agent', exact: true }).click()
-  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  await projectConversation(page, 'Product').click()
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(draft)
   await page.reload()
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(draft)
@@ -2221,9 +2445,7 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   await expect(chatSidebar.getByRole('button', { name: 'Launch group', exact: true })).toBeVisible()
   await expectAlignedDivider()
   await expect(
-    chatSidebar
-      .getByRole('button', { name: 'Product', exact: true })
-      .locator('.conventional-unread-badge')
+    projectConversation(chatSidebar, 'Product').locator('[data-slot="workspace-nav-unread"]')
   ).toBeVisible()
 
   await chatSidebar.getByRole('button', { name: 'Research Agent', exact: true }).click()
@@ -2259,35 +2481,20 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   expect(await virtualSidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(
     resizedWidth
   )
-  // The pointer is still parked on whichever control the previous step clicked,
-  // and hover paint — row highlights, rail tooltips that overhang the sidebar's
-  // edge — is interaction state rather than rendering identity. Park it on the
-  // non-interactive top-bar title before every capture.
-  await page.mouse.move(600, 24)
-  // The shared navigation content now scrolls (quick actions plus the archive
-  // shelf), so the overlay scrollbar can paint over the resize edge's
-  // antialiased columns in exactly one view. Both captures therefore clip the
-  // trailing edge off and compare the composition itself byte for byte.
-  const clippedSidebarCapture = async (element: Locator) => {
-    const box = await element.boundingBox()
-    expect(box).not.toBeNull()
-    return page.screenshot({
-      animations: 'disabled',
-      clip: { x: box!.x, y: box!.y, width: box!.width - 6, height: box!.height },
-    })
-  }
-  const virtualSidebarShot = await clippedSidebarCapture(virtualSidebar)
+  // Virtual renders the same tree in its own words (ADR 0011: projects are
+  // rooms there), so the two sidebars share structure and width, not pixels.
+  await expect(projectConversation(virtualSidebar, 'Product')).toBeVisible()
+  await expect(
+    virtualSidebar.getByRole('button', { name: 'New room in Work', exact: true })
+  ).toBeVisible()
 
   await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
   await expect(page.getByText('Direct Conversation', { exact: true })).toBeVisible()
   expect(await chatSidebar.evaluate((element) => element.getBoundingClientRect().width)).toBe(
     resizedWidth
   )
-  await page.mouse.move(600, 24)
-  const wideChatSidebar = await clippedSidebarCapture(chatSidebar)
-  expect(virtualSidebarShot).toEqual(wideChatSidebar)
 
-  await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  await projectConversation(page, 'Product').click()
   await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
   // The shared thread panel titles itself through the aside's accessible name
   // ("Thread: <label>"); its visible "Thread" caption is a span, not a heading.
@@ -2295,9 +2502,9 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
     page.getByRole('complementary', { name: 'Thread: Focused discussion' })
   ).toBeVisible()
   await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
-  await expect(virtualSidebar.getByRole('button', { name: /^Product( |$)/ })).toHaveAttribute(
-    'aria-current',
-    'page'
+  await expect(projectConversation(virtualSidebar, 'Product')).toHaveAttribute(
+    'aria-selected',
+    'true'
   )
   await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
   await expect(
@@ -2313,9 +2520,7 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   await expect(chatSidebar).toBeHidden()
   await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
   await expect(chatSidebar).toBeVisible()
-  await page.mouse.move(600, 24)
-  await page.waitForTimeout(250)
-  const narrowChatSidebar = await chatSidebar.screenshot({ animations: 'disabled' })
+  await expect(projectTree(chatSidebar)).toBeVisible()
   // At this width the expanded sidebar is a modal sheet that hides the rest of
   // the app (aria-hidden), so dismiss it before touching the rail.
   await page.keyboard.press('Escape')
@@ -2325,9 +2530,7 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
     await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
   }
   await expect(virtualSidebar).toBeVisible()
-  await page.mouse.move(600, 24)
-  await page.waitForTimeout(250)
-  expect(await virtualSidebar.screenshot({ animations: 'disabled' })).toEqual(narrowChatSidebar)
+  await expect(projectTree(virtualSidebar, 'Work', 'rooms')).toBeVisible()
 })
 
 test('Virtual sidebar actions create a project and group conversation through workspace services', async ({
@@ -2337,15 +2540,17 @@ test('Virtual sidebar actions create a project and group conversation through wo
   await page.goto('/?view=virtual')
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
   const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
-  await expect(sidebar.getByRole('button', { name: 'Create Project' })).toBeVisible()
+  // Virtual names projects as rooms (ADR 0011); the dialog is the same.
+  const newRoom = sidebar.getByRole('button', { name: 'New room in Work', exact: true })
+  await expect(newRoom).toBeVisible()
 
-  await sidebar.getByRole('button', { name: 'Create Project' }).click()
+  await newRoom.click()
   await page.getByRole('button', { name: 'Engineering', exact: true }).click()
   await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true'
   )
-  await expect(page.getByRole('button', { name: 'Engineering', exact: true })).toBeVisible()
+  await expect(projectConversation(page, 'Engineering')).toBeVisible()
 
   await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
   await expect(sidebar).toBeVisible()
@@ -2388,21 +2593,22 @@ test.describe('touch workspace sidebar actions', () => {
     await expect(conversationOptions).toBeVisible()
 
     const projectActions = projectOptions.locator(
-      'xpath=ancestor::*[@data-slot="sidebar-nav-row-actions"]'
+      'xpath=ancestor::*[contains(concat(" ", @class, " "), " workspace-nav-row-actions ")]'
     )
     const conversationActions = conversationOptions.locator(
       'xpath=ancestor::*[@data-slot="sidebar-nav-row-actions"]'
     )
+    // Tree row actions are display:flex on a coarse pointer (no hover needed).
     await expect
-      .poll(() => projectActions.evaluate((node) => getComputedStyle(node).opacity))
-      .toBe('1')
+      .poll(() => projectActions.evaluate((node) => getComputedStyle(node).display))
+      .toBe('flex')
     await expect
       .poll(() => conversationActions.evaluate((node) => getComputedStyle(node).opacity))
       .toBe('1')
 
     await projectOptions.tap()
     // The row menu portals to the document body, outside the navigation aside.
-    await expect(page.getByRole('menuitem', { name: 'Edit' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible()
   })
 
   test('keeps a navigation opened during boot open when the sidebar mounts', async ({ page }) => {
@@ -2546,7 +2752,7 @@ test.describe('touch workspace sidebar actions', () => {
 
     await navigationToggle.tap()
     await expect(sidebar).toBeVisible()
-    await expect(sidebar.getByRole('button', { name: /^Product( |$)/ })).toBeVisible()
+    await expect(projectConversation(sidebar, 'Product')).toBeVisible()
     await expect(sidebar.getByRole('button', { name: 'Project options for Product' })).toBeVisible()
     await expect
       .poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().left))
@@ -2619,7 +2825,7 @@ test.describe('touch workspace sidebar actions', () => {
     await navigationToggle.press('Enter')
     await expect(sidebar).toBeVisible()
 
-    const createProject = sidebar.getByRole('button', { name: 'Create Project' })
+    const createProject = createProjectButton(sidebar)
     await createProject.click()
     const projectDialog = page.getByRole('dialog', { name: 'Create Project' })
     await expect(projectDialog.locator(':focus')).toBeVisible()

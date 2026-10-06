@@ -69,7 +69,8 @@ test('production entry binds the selected session terminal and retires a stale l
   await openHarness(page, 'race')
   await expect.poll(async () => (await report(page)).primaryListHeld).toBe(true)
 
-  await page.getByRole('button', { name: /Other session$/ }).click()
+  // No worktree list in this harness: each session keeps a session-derived leaf.
+  await page.getByRole('treeitem', { name: /Other session$/ }).click()
   const pane = page.locator('[data-pane-id="dev-terminal"] .dev-terminal-pane')
   await expect(pane).toHaveAttribute('data-attach-from', '0', { timeout: 30_000 })
   await expect(pane.locator('.dev-terminal-pane-status')).toHaveAttribute('data-state', 'open')

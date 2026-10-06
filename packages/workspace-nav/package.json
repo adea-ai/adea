@@ -28,6 +28,13 @@
       "import": "./dist/adapters.js",
       "default": "./dist/adapters.js"
     },
+    "./breadcrumbs": {
+      "types": "./dist/breadcrumbs.d.ts",
+      "solid": "./src/breadcrumbs.ts",
+      "development": "./src/breadcrumbs.ts",
+      "import": "./dist/breadcrumbs.js",
+      "default": "./dist/breadcrumbs.js"
+    },
     "./workspace-nav": {
       "types": "./dist/workspace-nav.d.ts",
       "solid": "./src/workspace-nav.tsx",
@@ -46,7 +53,7 @@
   "dependencies": {
     "@adea-ai/app-ui": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.111.0",
+    "@adea-ai/ui": "0.113.0",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },

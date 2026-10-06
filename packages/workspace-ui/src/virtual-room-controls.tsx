@@ -1,9 +1,10 @@
-import type { ChannelSummary } from '@adea-ai/types'
+import type { ChannelSummary, TaskSummary } from '@adea-ai/types'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import {
   settledData,
   useAgentListQuery,
   useArchiveChannelMutation,
+  useArchiveTaskMutation,
   useChannelListQuery,
   useCreateGroupChannelMutation,
   useCreateProjectMutation,
@@ -11,8 +12,10 @@ import {
   usePrefetchChannelMessages,
   useReadStateQuery,
   useProjectListQuery,
+  useTaskListQuery,
   useUpdateChannelMutation,
   useUpdateProjectMutation,
+  useUpdateTaskMutation,
   useWorkspaceBootstrapQuery,
 } from '@adea-ai/data'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
@@ -24,7 +27,7 @@ import { createEffect, createMemo, createSignal, lazy, Show, Suspense, type JSX 
 import { createClientRequestId } from './request-id'
 import { useWorkspacePersistence } from './use-workspace-persistence'
 import { projectWorkspaceNavigation, reconcileWorkspaceChannelSelection } from './workspace-model'
-import { WorkspaceSidebar } from './workspace-sidebar'
+import { WorkspaceNavSidebar, type WorkspaceNavHost } from './workspace-nav-sidebar'
 
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
@@ -35,11 +38,24 @@ const CreateProjectDialog = lazy(() =>
 
 type SidebarDialog = 'create-group' | 'create-project' | null
 
+/** A task command envelope, matching the Chat controller's. */
+function taskCommand(task: TaskSummary, prefix: string) {
+  const id = createClientRequestId()
+  return {
+    correlationId: `ui:${prefix}:${id}`,
+    expectedVersion: task.version,
+    idempotencyKey: `${prefix}:${id}`,
+    requestId: id,
+  }
+}
+
 export function VirtualRoomControls(props: {
   archiveAction?: JSX.Element
   client?: AgentHqApiClient
   openChat: () => void
   restoreFocusRef?: () => HTMLElement | undefined
+  /** The integrated frame's workspace switching; see `WorkspaceNavHost`. */
+  workspaceHost?: WorkspaceNavHost
 }) {
   const [defaultClient] = createSignal(createApiClient())
   const client = () => props.client ?? defaultClient()
@@ -58,6 +74,11 @@ export function VirtualRoomControls(props: {
   const channels = useChannelListQuery(client(), workspaceId)
   const agents = useAgentListQuery(client(), workspaceId)
   const readState = useReadStateQuery(client(), workspaceId)
+  // Tasks are sidebar leaves in Virtual too (as desks); the query is shared
+  // with Chat's, so switching views reuses one cache entry.
+  const tasks = useTaskListQuery(client(), workspaceId)
+  const updateTaskMutation = useUpdateTaskMutation(client(), () => workspaceId() ?? '')
+  const archiveTaskMutation = useArchiveTaskMutation(client(), () => workspaceId() ?? '')
   const createProjectMutation = useCreateProjectMutation(client(), () => workspaceId() ?? '')
   const createGroupMutation = useCreateGroupChannelMutation(client(), () => workspaceId() ?? '')
   const updateProjectMutation = useUpdateProjectMutation(client(), () => workspaceId() ?? '')
@@ -163,6 +184,19 @@ export function VirtualRoomControls(props: {
     projectId: string,
     update: Readonly<{ iconKey?: string; name?: string }>
   ) => updateProjectMutation.mutateAsync({ projectId, update }).then(() => undefined)
+  const renameTask = (task: TaskSummary, title: string) =>
+    updateTaskMutation
+      .mutateAsync({ command: taskCommand(task, 'update'), taskId: task.id, update: { title } })
+      .then(() => undefined)
+  const archiveTask = (task: TaskSummary) =>
+    archiveTaskMutation
+      .mutateAsync({ command: taskCommand(task, 'archive'), taskId: task.id })
+      .then(() => undefined)
+  const workspaceHost = (): WorkspaceNavHost =>
+    props.workspaceHost ?? {
+      workspaces: bootstrapData()?.workspaces ?? [],
+      onSwitchWorkspace: (workspace) => workspaceStore.getState().switchWorkspace(workspace.id),
+    }
   const queryIssue = () => {
     if (bootstrap.isError)
       return { message: 'Workspace could not be loaded.', retry: () => void bootstrap.refetch() }
@@ -214,20 +248,33 @@ export function VirtualRoomControls(props: {
 
   return (
     <>
-      <WorkspaceSidebar
+      <WorkspaceNavSidebar
+        view="virtual"
+        client={client()}
+        activeWorkspace={activeWorkspace()}
+        host={workspaceHost()}
         archiveAction={props.archiveAction}
         agents={settledData(agents) ?? []}
         channelBusy={updateChannelMutation.isPending || archiveChannelMutation.isPending}
         collapsedProjectIds={collapsedProjectIds()}
         mobileOpen={sidebarOpen()}
         navigation={navigation()}
+        tasks={settledData(tasks) ?? []}
+        taskBusy={updateTaskMutation.isPending || archiveTaskMutation.isPending}
         onArchiveChannel={archiveChannel}
+        onArchiveTask={archiveTask}
         onChannelIntent={prefetchChannelMessages}
         onCreateGroup={() => setDialog('create-group')}
         onCreateProject={() => setDialog('create-project')}
         onMarkAllRead={() => markAllReadMutation.mutateAsync().then(() => undefined)}
         onOpenAgents={() => routeToChat('agents')}
+        onOpenTask={(task) => {
+          workspaceStore.getState().setSelectedTaskId(task.id)
+          workspaceStore.getState().setActiveSurface('tasks')
+          props.openChat()
+        }}
         onRenameChannel={renameChannel}
+        onRenameTask={renameTask}
         onSelectChannel={selectChannel}
         onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
         onToggleProject={(projectId) => workspaceStore.getState().toggleProjectCollapsed(projectId)}
@@ -236,9 +283,17 @@ export function VirtualRoomControls(props: {
         selectedChannelId={selectedChannelId()}
         readState={settledData(readState)?.readState ?? []}
         restoreFocusRef={props.restoreFocusRef}
+        share={
+          workspaceId()
+            ? {
+                client: client(),
+                currentUserId: bootstrapData()?.principal.userId,
+                workspaceId: workspaceId()!,
+              }
+            : undefined
+        }
         status={sidebarStatus()}
         workspaceReady={Boolean(activeWorkspace())}
-        workspaceName={activeWorkspace()?.name ?? 'Virtual'}
       />
       <Suspense fallback={null}>
         <Show when={dialog() === 'create-project' && activeWorkspace()}>

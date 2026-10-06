@@ -5,8 +5,11 @@ import { expect, test } from '@playwright/test'
 // for the menu items inside a dropdown, which the button sweep cannot see.
 test('interactive controls show the pointer cursor', async ({ page }) => {
   await page.goto('/?view=chat')
-  const railSwitch = page.getByRole('button', { name: /Switch workspace/i })
-  await expect(railSwitch).toBeVisible({ timeout: 60_000 })
+  // The sidebar's always-visible group-by control opens a radio menu.
+  const groupBy = page
+    .getByRole('navigation', { name: 'Workspaces' })
+    .getByRole('button', { name: /^Group by/ })
+  await expect(groupBy).toBeVisible({ timeout: 60_000 })
 
   const result = await page.evaluate(() => {
     const buttons = [...document.querySelectorAll('button:not(:disabled)')]
@@ -24,7 +27,7 @@ test('interactive controls show the pointer cursor', async ({ page }) => {
   expect(result.total).toBeGreaterThan(0)
   expect(result.offenders).toEqual([])
 
-  await railSwitch.click()
+  await groupBy.click()
   const menuItems = page.locator('[data-slot="dropdown-menu-item"], [role="menuitemradio"]')
   await expect(menuItems.first()).toBeVisible()
   const menuCursors = await menuItems.evaluateAll((items) =>
@@ -56,7 +59,8 @@ test('resize separators show the pointer cursor on chat and dev surfaces', async
   expect(chatSeparators.every(({ cursor }) => cursor === 'pointer')).toBe(true)
 
   await page.goto('/?view=dev')
-  const devHandle = page.getByRole('separator', { name: 'Resize projects and sessions sidebar' })
+  // Dev mounts the same shared workspace navigation, so its ruler shares the name.
+  const devHandle = page.getByRole('separator', { name: 'Resize workspace navigation' })
   await expect(devHandle).toBeVisible({ timeout: 60_000 })
   const devSeparators = await separatorCursors()
   expect(devSeparators.length).toBeGreaterThan(0)
