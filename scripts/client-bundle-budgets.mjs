@@ -91,7 +91,15 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // caps move up to cover what main already ships, not this change: raw to
   // 2,880,000 (~0.9% headroom), gzip to 855 KiB (~1.0%); file count moves to
   // the next 5-file step (150).
-  total: { rawBytes: 2_880_000, gzipBytes: 855 * 1024, fileCount: 150 },
+  // Workspace Skills and Cloud connections (2026-10-06, ADR 0013), measured
+  // against the same build of main (de8be2b94): 2,857,909 raw / 867,629 gzip
+  // / 146 files before, 2,882,872 / 874,596 / 147 after (+25.0 KB raw /
+  // +7.0 KB gzip, +1 file). The new lazy settings chunk (Skills and
+  // Connections › Cloud panes, their model and data hooks) is 21,819 raw /
+  // 6,398 gzip; startup grows 1,077 raw for the api-client methods. Without
+  // the lazy chunk the total fits the previous cap. Raw moves to 2,905,000
+  // (~0.8% headroom); gzip and file count hold.
+  total: { rawBytes: 2_905_000, gzipBytes: 855 * 1024, fileCount: 150 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
