@@ -6,7 +6,7 @@ import { createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { settledData, useAgentListQuery } from '@adea-ai/data'
+import { settledData, useAgentListQuery, useUpdateWorkspaceMutation } from '@adea-ai/data'
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
@@ -278,6 +278,7 @@ function WorkspaceSettingsOverlay(props: {
   workspace: WorkspaceSummary
 }) {
   const agentsQuery = useAgentListQuery(props.client, () => props.workspace.id)
+  const updateWorkspace = useUpdateWorkspaceMutation(props.client)
   return (
     <WorkspaceSettingsDialog
       accountAuthenticated={props.accountAuthenticated}
@@ -289,6 +290,9 @@ function WorkspaceSettingsOverlay(props: {
       onOpenAgents={props.onOpenAgents}
       onSignIn={props.onSignIn}
       onSignOut={props.onSignOut}
+      onUpdateWorkspace={async (update) => {
+        await updateWorkspace.mutateAsync({ update, workspaceId: props.workspace.id })
+      }}
       open={props.open}
       permissionsService={isDesktopRuntime() ? desktopMacPermissionsService : undefined}
       services={props.services}

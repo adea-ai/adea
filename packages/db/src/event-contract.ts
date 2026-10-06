@@ -121,6 +121,7 @@ export const WORKSPACE_EVENT_CONTRACTS = {
   'workspace.created': { schemaVersion: 1, aggregateType: 'workspace' },
   'workspace.read_all': { schemaVersion: 1, aggregateType: 'workspace' },
   'workspace.reopened': { schemaVersion: 1, aggregateType: 'workspace' },
+  'workspace.updated': { schemaVersion: 1, aggregateType: 'workspace' },
 } as const satisfies Record<string, WorkspaceEventContract>
 
 export type WorkspaceEventType = keyof typeof WORKSPACE_EVENT_CONTRACTS

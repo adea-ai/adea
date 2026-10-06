@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, text, unique, uuid } from 'drizzle-orm/pg-core'
+import { check, index, integer, text, unique, uuid } from 'drizzle-orm/pg-core'
 
 import { appSchema } from './schema'
 import { entityId, softDeleteColumns, timestampColumns } from './conventions'
@@ -13,6 +13,12 @@ export const workspaces = appSchema.table(
     id: entityId(),
     name: text('name').notNull(),
     scene: text('scene').default('home').notNull(),
+    /** A theme-provided accent id, or null for the theme default. */
+    accent: text('accent'),
+    logoKind: text('logo_kind').default('monogram').notNull(),
+    /** The emoji grapheme when `logo_kind` is `emoji`; null otherwise. */
+    logoValue: text('logo_value'),
+    version: integer('version').default(1).notNull(),
     ownerUserId: uuid('owner_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
@@ -25,6 +31,15 @@ export const workspaces = appSchema.table(
     check('workspaces_name_nonempty', sql`length(btrim(${table.name})) > 0`),
     check('workspaces_idempotency_nonempty', sql`length(btrim(${table.idempotencyKey})) > 0`),
     check('workspaces_scene_valid', sql`${table.scene} in ('home', 'work')`),
+    check(
+      'workspaces_accent_valid',
+      sql`${table.accent} is null or ${table.accent} in ('violet', 'blue', 'green', 'amber', 'cyan', 'pink')`
+    ),
+    check(
+      'workspaces_logo_valid',
+      sql`(${table.logoKind} = 'monogram' and ${table.logoValue} is null) or (${table.logoKind} = 'emoji' and length(${table.logoValue}) between 1 and 16)`
+    ),
+    check('workspaces_version_positive', sql`${table.version} > 0`),
     index('workspaces_owner_idx').on(table.ownerUserId, table.deletedAt),
     index('workspaces_active_idx').on(table.deletedAt),
   ]
@@ -41,11 +56,15 @@ export const workspaceMemberships = appSchema.table(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     role: workspaceRole('role').notNull(),
+    /** The member's own position for this workspace in their list. */
+    sortOrder: integer('sort_order').default(0).notNull(),
     ...timestampColumns(),
   },
   (table) => [
     unique('workspace_memberships_workspace_user_unique').on(table.workspaceId, table.userId),
+    check('workspace_memberships_sort_order_nonnegative', sql`${table.sortOrder} >= 0`),
     index('workspace_memberships_user_idx').on(table.userId, table.workspaceId),
+    index('workspace_memberships_user_order_idx').on(table.userId, table.sortOrder),
     index('workspace_memberships_workspace_role_idx').on(table.workspaceId, table.role),
   ]
 )

@@ -86,12 +86,34 @@ export type AgentSummary = {
   workspaceId: string
 }
 
+/** The theme-provided accents a workspace may choose; `null` keeps the theme default. */
+export const workspaceAccentIds = ['violet', 'blue', 'green', 'amber', 'cyan', 'pink'] as const
+export type WorkspaceAccentId = (typeof workspaceAccentIds)[number]
+
+/** A workspace mark: initials derived from the name, or one emoji grapheme. */
+export type WorkspaceLogo =
+  | Readonly<{ kind: 'monogram' }>
+  | Readonly<{ kind: 'emoji'; value: string }>
+
 export type WorkspaceSummary = {
+  accent: WorkspaceAccentId | null
   id: string
+  logo: WorkspaceLogo
   name: string
   scene: WorkspaceSceneId
+  /** The caller's own order for their workspaces; lower sorts first. */
+  sortOrder: number
   updatedAt: string
+  version: number
 }
+
+/** Fields a workspace update may change; at least one is required. */
+export type WorkspaceUpdate = Readonly<{
+  accent?: WorkspaceAccentId | null
+  logo?: WorkspaceLogo
+  name?: string
+  scene?: WorkspaceSceneId
+}>
 
 export type RoomLifecycleState = 'active' | 'archived'
 

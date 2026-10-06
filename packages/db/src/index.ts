@@ -128,6 +128,8 @@ export {
   recordWorkspaceAuthorizationDecision,
   removeWorkspaceMembership,
   reopenWorkspace,
+  updateWorkspace,
+  WorkspaceVersionConflictError,
   type WorkspaceMembershipRecord,
   type WorkspaceRole,
 } from './workspaces'

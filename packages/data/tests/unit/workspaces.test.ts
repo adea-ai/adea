@@ -5,10 +5,14 @@ import { QueryClient } from '@tanstack/solid-query'
 import { workspaceMutationOptions, workspaceQueryKeys, workspaceQueryOptions } from '../../src'
 
 const workspace = {
+  accent: null,
   id: 'workspace-1',
+  logo: { kind: 'monogram' as const },
   name: 'My Adea',
   scene: 'home' as const,
+  sortOrder: 0,
   updatedAt: '2026-08-25T00:00:00.000Z',
+  version: 1,
 }
 
 function client(overrides: Partial<AgentHqApiClient> = {}) {
@@ -84,5 +88,63 @@ describe('workspace mutation contracts', () => {
     await reopen.onSuccess(await reopen.mutationFn(workspace.id))
 
     expect(calls).toEqual(['claim:adea_tmp_example', `reopen:${workspace.id}`])
+  })
+})
+
+function bootstrap(workspaces: readonly (typeof workspace)[]) {
+  return {
+    activeWorkspace: workspaces[0]!,
+    principal: { temporary: true },
+    sessionRotated: false,
+    workspaces,
+  }
+}
+
+describe('workspace identity mutations', () => {
+  test('appends a created workspace to the bootstrap list without refetching it', async () => {
+    const created = { ...workspace, id: 'workspace-2', name: 'Pink Binder', sortOrder: 1 }
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(workspaceQueryKeys.bootstrap, bootstrap([workspace]))
+    const options = workspaceMutationOptions.create(
+      client({ createWorkspace: async () => ({ created: true, workspace: created }) }),
+      queryClient
+    )
+    await options.onSuccess(await options.mutationFn({ idempotencyKey: 'k', name: 'Pink Binder' }))
+    await options.onSuccess({ created: false, workspace: created })
+
+    const data = queryClient.getQueryData<ReturnType<typeof bootstrap>>(
+      workspaceQueryKeys.bootstrap
+    )
+    expect(data?.workspaces.map(({ id }) => id)).toEqual(['workspace-1', 'workspace-2'])
+    expect(queryClient.getQueryState(workspaceQueryKeys.bootstrap)?.isInvalidated).toBe(false)
+  })
+
+  test('sends the versioned update and patches both bootstrap copies', async () => {
+    const renamed = { ...workspace, accent: 'pink' as const, name: 'Adea', version: 2 }
+    const calls: unknown[] = []
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(workspaceQueryKeys.bootstrap, bootstrap([workspace]))
+    const options = workspaceMutationOptions.update(
+      client({
+        updateWorkspace: async (workspaceId, input) => {
+          calls.push([workspaceId, input])
+          return { workspace: renamed }
+        },
+      }),
+      queryClient
+    )
+    await options.onSuccess(
+      await options.mutationFn({
+        update: { accent: 'pink', expectedVersion: 1, name: 'Adea' },
+        workspaceId: workspace.id,
+      })
+    )
+
+    expect(calls).toEqual([[workspace.id, { accent: 'pink', expectedVersion: 1, name: 'Adea' }]])
+    const data = queryClient.getQueryData<ReturnType<typeof bootstrap>>(
+      workspaceQueryKeys.bootstrap
+    )
+    expect(data?.activeWorkspace).toEqual(renamed)
+    expect(data?.workspaces).toEqual([renamed])
   })
 })

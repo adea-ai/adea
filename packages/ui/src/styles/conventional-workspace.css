@@ -1927,3 +1927,16 @@
     flex-direction: column;
   }
 }
+
+/* A workspace mark scopes its workspace's accent (painted as custom
+   properties by `paintWorkspaceAccent`) around the shared tile. */
+.workspace-identity-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.workspace-identity-settings__mark {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

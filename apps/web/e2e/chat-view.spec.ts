@@ -56,6 +56,10 @@ const workspace = {
   id: 'workspace-chat-e2e',
   name: 'Chat Evidence',
   scene: 'work',
+  accent: null,
+  logo: { kind: 'monogram' as const },
+  sortOrder: 0,
+  version: 1,
   updatedAt: '2026-09-22T10:00:00.000Z',
 }
 

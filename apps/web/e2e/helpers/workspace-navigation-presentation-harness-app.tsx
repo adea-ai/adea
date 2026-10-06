@@ -46,6 +46,10 @@ const workspace = {
   id: scope.workspaceId,
   name: 'Contextual sidebar workspace',
   scene: 'home' as const,
+  accent: null,
+  logo: { kind: 'monogram' as const },
+  sortOrder: 0,
+  version: 1,
   updatedAt: new Date(0).toISOString(),
 }
 let archivedSessionAvailable = true

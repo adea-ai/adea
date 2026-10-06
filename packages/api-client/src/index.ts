@@ -13,6 +13,7 @@ import type {
   TaskKind,
   TaskSummary,
   WorkspaceSummary,
+  WorkspaceUpdate,
   WorkspaceSearchPage,
 } from '@adea-ai/types'
 
@@ -251,6 +252,8 @@ export type ApiWorkspaceClaimResponse = Readonly<{ claimed: true }>
 
 export type ApiWorkspaceReopenResponse = Readonly<{ workspace: WorkspaceSummary }>
 
+export type ApiWorkspaceUpdateResponse = Readonly<{ workspace: WorkspaceSummary }>
+
 export type ApiMarketplaceCatalogResponse = Readonly<{
   catalogId: string
   releaseId: string
@@ -403,6 +406,20 @@ export class AgentHqApiClient {
 
   async getWorkspace(workspaceId: string): Promise<ApiWorkspaceResponse> {
     return this.request<ApiWorkspaceResponse>(`/workspaces/${encodeURIComponent(workspaceId)}`)
+  }
+
+  async updateWorkspace(
+    workspaceId: string,
+    input: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
+  ): Promise<ApiWorkspaceUpdateResponse> {
+    return this.request<ApiWorkspaceUpdateResponse>(
+      `/workspaces/${encodeURIComponent(workspaceId)}`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+      }
+    )
   }
 
   async reopenWorkspace(workspaceId: string): Promise<ApiWorkspaceReopenResponse> {

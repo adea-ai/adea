@@ -4,6 +4,10 @@ const workspace = {
   id: 'workspace-guest-e2e',
   name: 'My Adea',
   scene: 'home',
+  accent: null,
+  logo: { kind: 'monogram' as const },
+  sortOrder: 0,
+  version: 1,
   updatedAt: '2026-08-25T00:00:00.000Z',
 }
 

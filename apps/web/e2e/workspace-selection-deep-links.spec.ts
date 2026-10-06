@@ -14,12 +14,20 @@ const workWorkspace = {
   id: 'workspace-selection-work',
   name: 'Work',
   scene: 'work',
+  accent: null,
+  logo: { kind: 'monogram' as const },
+  sortOrder: 0,
+  version: 1,
   updatedAt: timestamp,
 }
 const homeWorkspace = {
   id: 'workspace-selection-home',
   name: 'Home',
   scene: 'home',
+  accent: null,
+  logo: { kind: 'monogram' as const },
+  sortOrder: 1,
+  version: 1,
   updatedAt: timestamp,
 }
 

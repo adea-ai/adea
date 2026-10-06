@@ -1,5 +1,5 @@
 import type { UserPrincipalRef } from '@adea-ai/types'
-import { and, eq, gt, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'
 import {
@@ -212,6 +212,15 @@ export async function claimTemporaryUserSession(
       .select({ role: workspaceMemberships.role, workspaceId: workspaceMemberships.workspaceId })
       .from(workspaceMemberships)
       .where(eq(workspaceMemberships.userId, temporary.userId))
+      .orderBy(asc(workspaceMemberships.sortOrder), asc(workspaceMemberships.createdAt))
+    // Claimed workspaces join the end of the account's own list, keeping the
+    // guest order among themselves.
+    const [lastPosition] = await transaction
+      .select({ value: max(workspaceMemberships.sortOrder) })
+      .from(workspaceMemberships)
+      .where(eq(workspaceMemberships.userId, targetUserId))
+    let nextSortOrder =
+      lastPosition?.value === null || lastPosition?.value === undefined ? 0 : lastPosition.value + 1
     const rolePriority = { member: 1, admin: 2, owner: 3 } as const
 
     for (const membership of memberships) {
@@ -236,9 +245,11 @@ export async function claimTemporaryUserSession(
       if (!targetMembership) {
         await transaction.insert(workspaceMemberships).values({
           role: transferredRole,
+          sortOrder: nextSortOrder,
           userId: targetUserId,
           workspaceId: membership.workspaceId,
         })
+        nextSortOrder += 1
       } else if (rolePriority[transferredRole] > rolePriority[targetMembership.role]) {
         await transaction
           .update(workspaceMemberships)
@@ -338,6 +349,15 @@ export async function claimTemporaryUserSessionForUser(
       .select({ role: workspaceMemberships.role, workspaceId: workspaceMemberships.workspaceId })
       .from(workspaceMemberships)
       .where(eq(workspaceMemberships.userId, temporary.userId))
+      .orderBy(asc(workspaceMemberships.sortOrder), asc(workspaceMemberships.createdAt))
+    // Claimed workspaces join the end of the account's own list, keeping the
+    // guest order among themselves.
+    const [lastPosition] = await transaction
+      .select({ value: max(workspaceMemberships.sortOrder) })
+      .from(workspaceMemberships)
+      .where(eq(workspaceMemberships.userId, target.userId))
+    let nextSortOrder =
+      lastPosition?.value === null || lastPosition?.value === undefined ? 0 : lastPosition.value + 1
     const rolePriority = { member: 1, admin: 2, owner: 3 } as const
 
     for (const membership of memberships) {
@@ -362,9 +382,11 @@ export async function claimTemporaryUserSessionForUser(
       if (!targetMembership) {
         await transaction.insert(workspaceMemberships).values({
           role: transferredRole,
+          sortOrder: nextSortOrder,
           userId: target.userId,
           workspaceId: membership.workspaceId,
         })
+        nextSortOrder += 1
       } else if (rolePriority[transferredRole] > rolePriority[targetMembership.role]) {
         await transaction
           .update(workspaceMemberships)

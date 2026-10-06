@@ -1,11 +1,14 @@
 import type {
   PrincipalRef,
   UserPrincipalRef,
+  WorkspaceAccentId,
+  WorkspaceLogo,
   WorkspacePermission,
   WorkspaceSceneId,
   WorkspaceSummary,
+  WorkspaceUpdate,
 } from '@adea-ai/types'
-import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { appendWorkspaceEvent } from './transactions'
@@ -19,13 +22,64 @@ export type WorkspaceMembershipRecord = Readonly<{
   workspaceId: string
 }>
 
-function workspaceSummary(row: typeof workspaces.$inferSelect): WorkspaceSummary {
+function workspaceLogo(row: typeof workspaces.$inferSelect): WorkspaceLogo {
+  return row.logoKind === 'emoji' && row.logoValue
+    ? Object.freeze({ kind: 'emoji', value: row.logoValue })
+    : Object.freeze({ kind: 'monogram' })
+}
+
+function workspaceSummary(
+  row: typeof workspaces.$inferSelect,
+  sortOrder: number
+): WorkspaceSummary {
   return Object.freeze({
+    accent: (row.accent as WorkspaceAccentId | null) ?? null,
     id: row.id,
+    logo: workspaceLogo(row),
     name: row.name,
     scene: row.scene as WorkspaceSceneId,
+    sortOrder,
     updatedAt: row.updatedAt.toISOString(),
+    version: row.version,
   })
+}
+
+/** A workspace update the caller's own version no longer matches. */
+export class WorkspaceVersionConflictError extends Error {
+  constructor() {
+    super('Workspace version conflict')
+    this.name = 'WorkspaceVersionConflictError'
+  }
+}
+
+/** The next free position in the user's own workspace list. */
+async function nextWorkspaceSortOrder(
+  transaction: AgentHqTransaction,
+  userId: string
+): Promise<number> {
+  const [row] = await transaction
+    .select({ value: max(workspaceMemberships.sortOrder) })
+    .from(workspaceMemberships)
+    .where(eq(workspaceMemberships.userId, userId))
+  return row?.value === null || row?.value === undefined ? 0 : row.value + 1
+}
+
+async function membershipSortOrder(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  userId: string
+): Promise<number> {
+  const [row] = await transaction
+    .select({ sortOrder: workspaceMemberships.sortOrder })
+    .from(workspaceMemberships)
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, userId)
+      )
+    )
+    .limit(1)
+  return row?.sortOrder ?? 0
 }
 
 type WorkspaceCreationInput = Readonly<{
@@ -62,11 +116,19 @@ async function createWorkspaceWithOwnerInTransaction(
       )
       .limit(1)
     if (!existingWorkspace) throw new Error('Workspace creation conflict')
-    return Object.freeze({ created: false, workspace: workspaceSummary(existingWorkspace) })
+    return Object.freeze({
+      created: false,
+      workspace: workspaceSummary(
+        existingWorkspace,
+        await membershipSortOrder(transaction, existingWorkspace.id, input.owner.userId)
+      ),
+    })
   }
 
+  const sortOrder = await nextWorkspaceSortOrder(transaction, input.owner.userId)
   await transaction.insert(workspaceMemberships).values({
     role: 'owner',
+    sortOrder,
     userId: input.owner.userId,
     workspaceId: createdWorkspace.id,
   })
@@ -76,7 +138,7 @@ async function createWorkspaceWithOwnerInTransaction(
     workspaceId: createdWorkspace.id,
   })
 
-  return Object.freeze({ created: true, workspace: workspaceSummary(createdWorkspace) })
+  return Object.freeze({ created: true, workspace: workspaceSummary(createdWorkspace, sortOrder) })
 }
 
 export async function createWorkspaceWithOwner(
@@ -93,13 +155,17 @@ const bootstrapWorkspaceInputs = [
   { idempotencyKey: 'default-work', name: 'Work', scene: 'work' as const },
 ] as const
 
-async function workspacesForUser(transaction: AgentHqTransaction, owner: UserPrincipalRef) {
+/** The user's live workspaces in their own order (position, then creation). */
+async function workspacesForUser(
+  transaction: AgentHqDatabase | AgentHqTransaction,
+  owner: UserPrincipalRef
+) {
   return transaction
-    .select({ workspace: workspaces })
+    .select({ sortOrder: workspaceMemberships.sortOrder, workspace: workspaces })
     .from(workspaceMemberships)
     .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
     .where(and(eq(workspaceMemberships.userId, owner.userId), isNull(workspaces.deletedAt)))
-    .orderBy(desc(workspaces.updatedAt))
+    .orderBy(asc(workspaceMemberships.sortOrder), asc(workspaces.createdAt), asc(workspaces.id))
 }
 
 /**
@@ -135,7 +201,7 @@ export async function ensureBootstrapWorkspaces(
       }
     }
 
-    return rows.map(({ workspace }) => workspaceSummary(workspace))
+    return rows.map(({ sortOrder, workspace }) => workspaceSummary(workspace, sortOrder))
   })
 }
 
@@ -172,7 +238,12 @@ export async function addWorkspaceMembership(
 ): Promise<WorkspaceMembershipRecord> {
   const [membership] = await database
     .insert(workspaceMemberships)
-    .values({ role, userId: principal.userId, workspaceId })
+    .values({
+      role,
+      sortOrder: sql`(select coalesce(max(${workspaceMemberships.sortOrder}) + 1, 0) from ${workspaceMemberships} where ${workspaceMemberships.userId} = ${principal.userId})`,
+      userId: principal.userId,
+      workspaceId,
+    })
     .returning({
       role: workspaceMemberships.role,
       userId: workspaceMemberships.userId,
@@ -214,13 +285,8 @@ export async function listWorkspacesForUser(
   database: AgentHqDatabase,
   principal: UserPrincipalRef
 ): Promise<WorkspaceSummary[]> {
-  const rows = await database
-    .select({ workspace: workspaces })
-    .from(workspaceMemberships)
-    .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
-    .where(and(eq(workspaceMemberships.userId, principal.userId), isNull(workspaces.deletedAt)))
-    .orderBy(desc(workspaces.updatedAt))
-  return rows.map(({ workspace }) => workspaceSummary(workspace))
+  const rows = await workspacesForUser(database, principal)
+  return rows.map(({ sortOrder, workspace }) => workspaceSummary(workspace, sortOrder))
 }
 
 export async function getWorkspaceForUser(
@@ -229,7 +295,7 @@ export async function getWorkspaceForUser(
   principal: UserPrincipalRef
 ): Promise<WorkspaceSummary | null> {
   const [row] = await database
-    .select({ workspace: workspaces })
+    .select({ sortOrder: workspaceMemberships.sortOrder, workspace: workspaces })
     .from(workspaceMemberships)
     .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
     .where(
@@ -240,7 +306,7 @@ export async function getWorkspaceForUser(
       )
     )
     .limit(1)
-  return row ? workspaceSummary(row.workspace) : null
+  return row ? workspaceSummary(row.workspace, row.sortOrder) : null
 }
 
 export async function archiveWorkspace(
@@ -287,7 +353,8 @@ export async function reopenWorkspace(
       .where(and(eq(workspaces.id, workspaceId), eq(workspaces.ownerUserId, principal.userId)))
       .limit(1)
     if (!existing) throw new Error('Workspace unavailable')
-    if (!existing.deletedAt) return workspaceSummary(existing)
+    const sortOrder = await membershipSortOrder(transaction, workspaceId, principal.userId)
+    if (!existing.deletedAt) return workspaceSummary(existing, sortOrder)
 
     const [workspace] = await transaction
       .update(workspaces)
@@ -307,14 +374,75 @@ export async function reopenWorkspace(
         .where(and(eq(workspaces.id, workspaceId), eq(workspaces.ownerUserId, principal.userId)))
         .limit(1)
       if (!reopened || reopened.deletedAt) throw new Error('Workspace unavailable')
-      return workspaceSummary(reopened)
+      return workspaceSummary(reopened, sortOrder)
     }
     await appendWorkspaceEvent(transaction, {
       eventType: 'workspace.reopened',
       payload: { actorUserId: principal.userId },
       workspaceId,
     })
-    return workspaceSummary(workspace)
+    return workspaceSummary(workspace, sortOrder)
+  })
+}
+
+/**
+ * Applies a versioned update to a live workspace the caller is a member of.
+ * The caller's authorization (`workspace.update`) is checked by the route; a
+ * stale `expectedVersion` raises `WorkspaceVersionConflictError`.
+ */
+export async function updateWorkspace(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  input: Readonly<{ expectedVersion: number; update: WorkspaceUpdate }>
+): Promise<WorkspaceSummary> {
+  return database.transaction(async (transaction) => {
+    const [membership] = await transaction
+      .select({ sortOrder: workspaceMemberships.sortOrder })
+      .from(workspaceMemberships)
+      .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, workspaceId),
+          eq(workspaceMemberships.userId, principal.userId),
+          isNull(workspaces.deletedAt)
+        )
+      )
+      .limit(1)
+    if (!membership) throw new Error('Workspace unavailable')
+
+    const { update } = input
+    const [workspace] = await transaction
+      .update(workspaces)
+      .set({
+        ...(update.name !== undefined ? { name: update.name.trim() } : {}),
+        ...(update.scene !== undefined ? { scene: update.scene } : {}),
+        ...(update.accent !== undefined ? { accent: update.accent } : {}),
+        ...(update.logo !== undefined
+          ? {
+              logoKind: update.logo.kind,
+              logoValue: update.logo.kind === 'emoji' ? update.logo.value : null,
+            }
+          : {}),
+        updatedAt: new Date(),
+        version: sql`${workspaces.version} + 1`,
+      })
+      .where(
+        and(
+          eq(workspaces.id, workspaceId),
+          eq(workspaces.version, input.expectedVersion),
+          isNull(workspaces.deletedAt)
+        )
+      )
+      .returning()
+    if (!workspace) throw new WorkspaceVersionConflictError()
+
+    await appendWorkspaceEvent(transaction, {
+      eventType: 'workspace.updated',
+      payload: { actorUserId: principal.userId },
+      workspaceId,
+    })
+    return workspaceSummary(workspace, membership.sortOrder)
   })
 }
 
