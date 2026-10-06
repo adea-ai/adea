@@ -1,4 +1,9 @@
-import type { WorkspaceAccentId, WorkspaceLogo } from '@adea-ai/types'
+import {
+  sidebarGroupModes,
+  type SidebarGroupMode,
+  type WorkspaceAccentId,
+  type WorkspaceLogo,
+} from '@adea-ai/types'
 
 /**
  * The view-neutral Workspace › Project › Leaf hierarchy (ADR 0011). Everything
@@ -259,17 +264,48 @@ export function sortWorkspaces(workspaces: readonly NavWorkspace[]): NavWorkspac
   )
 }
 
-export type NavGroupMode = 'project' | 'status' | 'recent'
+/** One of the sidebar's groupings; the ids come from `@adea-ai/types`. */
+export type NavGroupMode = SidebarGroupMode
 
+const navGroupModeCopy: Readonly<Record<NavGroupMode, { label: string; description: string }>> = {
+  project: { label: 'Project', description: 'Each project with its worktrees and tasks.' },
+  status: { label: 'Status', description: 'What needs you first, then running work.' },
+  recent: { label: 'Recent', description: 'Everything, most recent activity first.' },
+}
+
+/** The grouping menu, in the order `sidebarGroupModes` declares. */
 export const navGroupModes: readonly Readonly<{
   mode: NavGroupMode
   label: string
   description: string
-}>[] = [
-  { mode: 'project', label: 'Project', description: 'Each project with its worktrees and tasks.' },
-  { mode: 'status', label: 'Status', description: 'What needs you first, then running work.' },
-  { mode: 'recent', label: 'Recent', description: 'Everything, most recent activity first.' },
-]
+}>[] = sidebarGroupModes.map((mode) => ({ mode, ...navGroupModeCopy[mode] }))
+
+/** The grouping a sidebar shows before the user picks one. */
+export const defaultNavGroupMode: NavGroupMode = 'project'
+
+/**
+ * Where "Needs you" lands when no other workspace needs the user: the status
+ * grouping, which brings needs-you leaves to the top of this one. Every view
+ * (Dev, Chat, Virtual) uses this one fallback.
+ */
+export const needsYouFallbackGroupMode: NavGroupMode = 'status'
+
+/**
+ * The first workspace other than the active one that needs the user (mentions
+ * or needs-you runs), in the caller's workspace order; undefined when only
+ * the active workspace (or none) does. "Needs you" switches to it, else
+ * groups the active workspace by `needsYouFallbackGroupMode`.
+ */
+export function nextWorkspaceNeedingYou(
+  workspaces: readonly NavWorkspace[],
+  activeWorkspaceId: string
+): NavWorkspace | undefined {
+  return sortWorkspaces(workspaces).find(
+    (workspace) =>
+      workspace.id !== activeWorkspaceId &&
+      (workspace.summary.mentions ?? 0) + workspace.summary.needsYou > 0
+  )
+}
 
 /** A leaf outside its project's tree carries the project's name with it. */
 export type NavLeafEntry = Readonly<{ leaf: NavLeaf; projectId: string; projectName: string }>
@@ -336,4 +372,94 @@ export function groupTree(projects: readonly NavProject[], mode: NavGroupMode): 
 /** The active workspace, or undefined when the id names none of them. */
 export function activeWorkspace(tree: NavTree): NavWorkspace | undefined {
   return tree.workspaces.find((workspace) => workspace.id === tree.activeWorkspaceId)
+}
+
+type PlainRecord = Readonly<Record<string, unknown>>
+
+/**
+ * Structural equality for the tree's plain data (records, arrays, primitives),
+ * returning at the first difference. A key holding `undefined` equals an
+ * absent key, so optional fields spread in or left out compare alike. `ignore`
+ * skips one top-level key.
+ */
+function sameData(left: unknown, right: unknown, ignore?: string): boolean {
+  if (Object.is(left, right)) return true
+  if (typeof left !== 'object' || typeof right !== 'object' || left === null || right === null)
+    return false
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
+    for (let index = 0; index < left.length; index += 1)
+      if (!sameData(left[index], right[index])) return false
+    return true
+  }
+  const leftRecord = left as PlainRecord
+  const rightRecord = right as PlainRecord
+  for (const key of Object.keys(leftRecord)) {
+    if (key !== ignore && !sameData(leftRecord[key], rightRecord[key])) return false
+  }
+  for (const key of Object.keys(rightRecord)) {
+    if (key === ignore || Object.hasOwn(leftRecord, key)) continue
+    if (rightRecord[key] !== undefined) return false
+  }
+  return true
+}
+
+function stabilizeLeaves(previous: NavProject, next: NavProject): NavProject {
+  const priorLeaves = new Map(previous.leaves.map((leaf) => [leaf.id, leaf]))
+  return {
+    ...next,
+    leaves: next.leaves.map((leaf) => {
+      const priorLeaf = priorLeaves.get(leaf.id)
+      return priorLeaf && sameData(priorLeaf, leaf) ? priorLeaf : leaf
+    }),
+  }
+}
+
+function stabilizeProjects(
+  previous: readonly NavProject[],
+  next: readonly NavProject[]
+): readonly NavProject[] {
+  const priorProjects = new Map(previous.map((project) => [project.id, project]))
+  return next.map((project) => {
+    const priorProject = priorProjects.get(project.id)
+    if (!priorProject) return project
+    if (sameData(priorProject, project)) return priorProject
+    return stabilizeLeaves(priorProject, project)
+  })
+}
+
+/**
+ * Keep the previous tree's objects wherever a rebuild produced an equal
+ * value. The shared tree renders its workspaces, projects and leaves keyed by
+ * object identity, so a refresh that changed nothing (a 30s poll, a settled
+ * query, a read-state refetch) must not remount rows: that would drop keyboard
+ * focus and open menus mid-interaction. Only what actually changed is
+ * replaced, and an unchanged rebuild returns `previous` itself.
+ *
+ * The expanded workspace shows no status chips, so a counts-only change to it
+ * (an account or run summary refresh) keeps the previous workspace object and
+ * its whole subtree mounted.
+ */
+export function stabilizeNavTree(previous: NavTree | undefined, next: NavTree): NavTree {
+  if (!previous) return next
+  const previousWorkspaces = new Map(previous.workspaces.map((entry) => [entry.id, entry]))
+  let changed = previous.workspaces.length !== next.workspaces.length
+  const workspaces = next.workspaces.map((workspace, index) => {
+    const prior = previousWorkspaces.get(workspace.id)
+    const ignore = workspace.id === next.activeWorkspaceId ? 'summary' : undefined
+    if (prior && sameData(prior, workspace, ignore)) {
+      if (previous.workspaces[index] !== prior) changed = true
+      return prior
+    }
+    changed = true
+    if (!prior?.projects || !workspace.projects) return workspace
+    return { ...workspace, projects: stabilizeProjects(prior.projects, workspace.projects) }
+  })
+  if (
+    !changed &&
+    previous.activeWorkspaceId === next.activeWorkspaceId &&
+    previous.needsYou === next.needsYou
+  )
+    return previous
+  return { ...next, workspaces }
 }

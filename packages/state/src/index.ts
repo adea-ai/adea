@@ -1,9 +1,9 @@
 import { createEffect, createMemo, createRoot, type Accessor } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
-import type { WorkspaceViewMode } from '@adea-ai/types'
+import type { SidebarGroupMode, WorkspaceViewMode } from '@adea-ai/types'
 
 /** The workspace sidebar's grouping of the active workspace (ADR 0011). */
-export type SidebarGroupBy = 'project' | 'status' | 'recent'
+export type SidebarGroupBy = SidebarGroupMode
 
 export type WorkspaceState = {
   cameraViewMode: WorkspaceViewMode
@@ -18,10 +18,13 @@ export type WorkspaceState = {
   selectedDevPaneId: string | null
   threadRootMessageId: string | null
   activeSurface: 'agents' | 'conversation' | 'tasks'
+  /**
+   * Collapsed cloud projects. Dev, Chat and Virtual render the same cloud
+   * project ids, so one set serves every view's sidebar.
+   */
   collapsedProjectIds: readonly string[]
   /** The sidebar grouping chosen for each workspace, keyed by workspace id. */
   sidebarGroupBy: Readonly<Record<string, SidebarGroupBy>>
-  collapsedDevProjectIds: readonly string[]
   devFocusMode: boolean
   drafts: Readonly<Record<string, string>>
   mobileSidebarOpen: boolean
@@ -44,7 +47,6 @@ export type WorkspaceState = {
   setGlobalPanel: (panel: WorkspaceState['globalPanel']) => void
   toggleProjectCollapsed: (projectId: string) => void
   setSidebarGroupBy: (workspaceId: string, groupBy: SidebarGroupBy) => void
-  toggleDevProjectCollapsed: (projectId: string) => void
   setDevFocusMode: (focusMode: boolean) => void
   restoreConventionalState: (
     state: Partial<
@@ -95,7 +97,6 @@ function initialState(): WorkspaceState {
     activeSurface: 'conversation',
     collapsedProjectIds: [],
     sidebarGroupBy: {},
-    collapsedDevProjectIds: [],
     devFocusMode: false,
     drafts: {},
     mobileSidebarOpen: wideViewportAtLoad,
@@ -107,7 +108,6 @@ function initialState(): WorkspaceState {
         activeSurface: 'conversation',
         cameraViewMode: 'orthographic',
         collapsedProjectIds: [],
-        collapsedDevProjectIds: [],
         devFocusMode: false,
         drafts: {},
         globalPanel: null,
@@ -140,7 +140,6 @@ function initialState(): WorkspaceState {
         selectedDevProjectId: null,
         selectedRuntimeSessionId: null,
         selectedDevPaneId: null,
-        collapsedDevProjectIds: [],
         devFocusMode: false,
       }),
     setSelectedDevProjectId: (selectedDevProjectId) =>
@@ -163,10 +162,6 @@ function initialState(): WorkspaceState {
     // Per workspace on purpose: switching workspaces keeps each one's grouping.
     setSidebarGroupBy: (workspaceId, groupBy) =>
       setStore('sidebarGroupBy', (current) => ({ ...current, [workspaceId]: groupBy })),
-    toggleDevProjectCollapsed: (projectId) =>
-      setStore('collapsedDevProjectIds', (ids) =>
-        ids.includes(projectId) ? ids.filter((id) => id !== projectId) : [...ids, projectId]
-      ),
     setDevFocusMode: (devFocusMode) => set({ devFocusMode }),
     restoreConventionalState: (state) => set(state),
   }

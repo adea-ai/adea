@@ -16,7 +16,6 @@ import type {
 } from '@adea-ai/types'
 import { Bot, EllipsisVertical, Link2, MessageCircle, Plus, Users, X } from 'lucide-solid'
 import {
-  createEffect,
   createMemo,
   createSignal,
   For,
@@ -56,7 +55,19 @@ import {
   type ViewAdapter,
 } from '@adea-ai/workspace-nav/adapters'
 import { breadcrumbsFor } from '@adea-ai/workspace-nav/breadcrumbs'
-import { sortWorkspaces, type NavLeaf, type NavProject } from '@adea-ai/workspace-nav/model'
+import {
+  needsYouFallbackGroupMode,
+  nextWorkspaceNeedingYou,
+  stabilizeNavTree,
+  type NavLeaf,
+  type NavProject,
+} from '@adea-ai/workspace-nav/model'
+import {
+  createSidebarWidth,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_WIDTH_STEP,
+} from '@adea-ai/workspace-nav/sidebar-width'
 import { WorkspaceNav } from '@adea-ai/workspace-nav/workspace-nav'
 
 import { keyedRows } from './keyed-rows'
@@ -113,28 +124,6 @@ export type WorkspaceNavHost = Readonly<{
    */
   registerBreadcrumbs?: (crumbs: Accessor<readonly WorkspaceBreadcrumb[]>) => () => void
 }>
-
-const SIDEBAR_WIDTH_STORAGE_KEY = 'adea:workspace-sidebar-width'
-const SIDEBAR_MIN_WIDTH = 208
-const SIDEBAR_MAX_WIDTH = 448
-const SIDEBAR_DEFAULT_WIDTH = 272
-
-function clampSidebarWidth(width: number): number {
-  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)))
-}
-
-function workspaceRootFor(sidebar: HTMLElement | null | undefined): HTMLElement | null {
-  return (
-    // The toolbar and each contextual sidebar inherit one width from the shell.
-    sidebar?.closest<HTMLElement>('.workspace-frame') ??
-    sidebar?.closest<HTMLElement>('.workspace-shell--contextual, .conventional-workspace') ??
-    null
-  )
-}
-
-function applySidebarWidth(root: HTMLElement, width: number) {
-  root.style.setProperty('--conventional-sidebar-width', `${clampSidebarWidth(width)}px`)
-}
 
 function ConversationChannelRow(props: {
   channel: ChannelSummary
@@ -282,10 +271,6 @@ type ConfirmTarget =
   | Readonly<{ kind: 'archive-project' | 'delete-project'; project: ProjectSummary }>
   | Readonly<{ kind: 'archive-leaf'; target: NavLeafTarget; label: string }>
 
-const persistSidebarWidth = (nextWidth: number) => {
-  window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(nextWidth)))
-}
-
 /** The task a leaf target carries, if any: rename and archive act on it first. */
 function targetTask(target: NavLeafTarget): TaskSummary | undefined {
   return target.kind === 'task' ? target.task : target.task
@@ -302,8 +287,9 @@ function targetTask(target: NavLeafTarget): TaskSummary | undefined {
  * stay global below the accordion.
  */
 export function WorkspaceNavSidebar(props: Props) {
-  const [sidebar, setSidebar] = createSignal<HTMLElement>()
-  const [sidebarWidth, setSidebarWidth] = createSignal(SIDEBAR_DEFAULT_WIDTH)
+  // One stored width with the Dev sidebar; the toolbar and each contextual
+  // sidebar inherit it from the shell root.
+  const sidebarWidth = createSidebarWidth({ fallbackRootSelector: '.conventional-workspace' })
   const [isNarrowViewport, setIsNarrowViewport] = createSignal(false)
   const [editingProject, setEditingProject] = createSignal<ProjectSummary | null>(null)
   const [renaming, setRenaming] = createSignal<RenameTarget | null>(null)
@@ -312,18 +298,7 @@ export function WorkspaceNavSidebar(props: Props) {
   const projectShare = createProjectShare()
   const [creatingWorkspace, setCreatingWorkspace] = createSignal(false)
   const [workspaceDraftError, setWorkspaceDraftError] = createSignal<string>()
-  // The inline panel is unmounted below 48rem, so the host root only becomes
-  // observable once the desktop aside mounts (or after a narrow-to-wide
-  // reparent). Deriving it keeps resize and restore working across that swap;
-  // the first paint at a narrow viewport mounts and immediately detaches the
-  // inline aside before the media query resolves, so only a connected node
-  // names the root.
-  const [rootTick, setRootTick] = createSignal(0)
-  const workspaceRoot = createMemo(() => {
-    const element = sidebar()
-    void rootTick()
-    return element?.isConnected ? workspaceRootFor(element) : null
-  })
+  const [workspaceDraftPending, setWorkspaceDraftPending] = createSignal(false)
 
   const workspaceId = () => props.activeWorkspace?.id ?? ''
   const accountSummary = useAccountSummaryQuery(props.client)
@@ -331,7 +306,7 @@ export function WorkspaceNavSidebar(props: Props) {
   const archiveProject = useArchiveProjectMutation(props.client, workspaceId)
   const deleteProject = useDeleteProjectMutation(props.client, workspaceId)
 
-  const source = createMemo(() =>
+  const built = createMemo(() =>
     buildWorkspaceNavSource({
       activeWorkspaceId: workspaceId(),
       activeWorkspace: props.activeWorkspace,
@@ -343,6 +318,13 @@ export function WorkspaceNavSidebar(props: Props) {
       devSummary: props.host.devSummary,
     })
   )
+  // Every refetch (read state, account summary, the 30s Dev summary poll)
+  // rebuilds the tree; rebuilds that change nothing keep the rendered rows,
+  // and with them keyboard focus and open menus.
+  const source = createMemo<ReturnType<typeof buildWorkspaceNavSource>>((previous) => {
+    const next = built()
+    return { ...next, tree: stabilizeNavTree(previous?.tree, next.tree) }
+  })
   const baseAdapter = createMemo(() => createViewAdapter(props.view))
   const adapter = createMemo<ViewAdapter>(() => ({
     ...baseAdapter(),
@@ -442,7 +424,11 @@ export function WorkspaceNavSidebar(props: Props) {
   }
 
   const createNamedWorkspace = (name: string) => {
+    // A second submit while one create is in flight would create a duplicate
+    // workspace under a fresh idempotency key.
+    if (workspaceDraftPending()) return
     setWorkspaceDraftError(undefined)
+    setWorkspaceDraftPending(true)
     // A fresh idempotency key per attempt: a retry after a failure is a new
     // request, while a network replay of this one stays a single create.
     createWorkspace
@@ -452,19 +438,17 @@ export function WorkspaceNavSidebar(props: Props) {
         return props.host.onSwitchWorkspace(result.workspace)
       })
       .catch(() => setWorkspaceDraftError('Workspace could not be created. Try again.'))
+      .finally(() => setWorkspaceDraftPending(false))
   }
 
   // "Needs you" counts mentions across workspaces. Activating it takes the
-  // user to the first other workspace with mentions; when only this one has
-  // them, the Recent grouping brings the latest activity to the top.
+  // user to the first other workspace that needs them; when only this one
+  // does, the Status grouping (the same fallback as Dev) brings it to the top.
   const openNeedsYou = () => {
-    const next = sortWorkspaces(source().tree.workspaces).find(
-      (workspace) =>
-        workspace.id !== workspaceId() &&
-        (workspace.summary.mentions ?? 0) + workspace.summary.needsYou > 0
-    )
+    const next = nextWorkspaceNeedingYou(source().tree.workspaces, workspaceId())
     if (next) switchWorkspace(next.id)
-    else if (workspaceId()) workspaceStore.getState().setSidebarGroupBy(workspaceId(), 'recent')
+    else if (workspaceId())
+      workspaceStore.getState().setSidebarGroupBy(workspaceId(), needsYouFallbackGroupMode)
   }
 
   const projectAction = (id: NavMenuItemId, project: NavProject) => {
@@ -494,18 +478,6 @@ export function WorkspaceNavSidebar(props: Props) {
     }
   }
 
-  // Restore the persisted sidebar width as soon as the layout root exists —
-  // including after a mobile-to-desktop reparent, when the inline panel mounts
-  // for the first time.
-  createEffect(() => {
-    const root = workspaceRoot()
-    if (!root) return
-    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
-    if (!Number.isFinite(stored) || stored <= 0) return
-    applySidebarWidth(root, stored)
-    setSidebarWidth(clampSidebarWidth(stored))
-  })
-
   onMount(() => {
     const media = window.matchMedia('(max-width: 48rem)')
     const updateViewport = () => setIsNarrowViewport(media.matches)
@@ -513,14 +485,6 @@ export function WorkspaceNavSidebar(props: Props) {
     media.addEventListener('change', updateViewport)
     onCleanup(() => media.removeEventListener('change', updateViewport))
   })
-
-  const updateSidebarWidth = (nextWidth: number) => {
-    const root = workspaceRoot()
-    if (!root) return
-    const width = clampSidebarWidth(nextWidth)
-    applySidebarWidth(root, width)
-    setSidebarWidth(width)
-  }
 
   const markAllRead = () => {
     setActionError(null)
@@ -584,7 +548,7 @@ export function WorkspaceNavSidebar(props: Props) {
           if (!creating) setWorkspaceDraftError(undefined)
         }}
         workspaceDraftError={workspaceDraftError()}
-        workspaceDraftPending={createWorkspace.isPending}
+        workspaceDraftPending={workspaceDraftPending() || createWorkspace.isPending}
         onCreateProject={props.workspaceReady === false ? undefined : () => props.onCreateProject()}
         onOpenWorkspaceSettings={
           props.host.onOpenWorkspaceSettings
@@ -774,18 +738,14 @@ export function WorkspaceNavSidebar(props: Props) {
         headingAs="h1"
         open={props.mobileOpen}
         onOpenChange={props.onToggleMobile}
-        width={sidebarWidth()}
+        width={sidebarWidth.width()}
         minimum={SIDEBAR_MIN_WIDTH}
         maximum={SIDEBAR_MAX_WIDTH}
-        step={16}
+        step={SIDEBAR_WIDTH_STEP}
         wideViewportAtLoad={wideViewportAtLoad}
         resizeLabel="Resize workspace navigation"
         restoreFocusRef={props.restoreFocusRef}
-        onSidebarElement={(element, mobile) => {
-          if (mobile) return
-          setSidebar(element)
-          if (element) queueMicrotask(() => setRootTick((tick) => tick + 1))
-        }}
+        onSidebarElement={sidebarWidth.onSidebarElement}
         sidebarClass={cn('conventional-sidebar conventional-sidebar--inline', {
           'conventional-sidebar--open': props.mobileOpen,
         })}
@@ -794,8 +754,8 @@ export function WorkspaceNavSidebar(props: Props) {
         footerClass="conventional-sidebar__footer-action"
         content={renderSidebarContent}
         footer={props.archiveAction ? () => props.archiveAction : undefined}
-        onWidthChange={updateSidebarWidth}
-        onWidthCommit={persistSidebarWidth}
+        onWidthChange={sidebarWidth.onWidthChange}
+        onWidthCommit={sidebarWidth.onWidthCommit}
       />
       <Show when={props.share}>
         {(context) => <ProjectShareHost context={context()} share={projectShare} />}
