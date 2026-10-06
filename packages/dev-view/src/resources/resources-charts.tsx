@@ -6,7 +6,12 @@
 import { For, Show } from 'solid-js'
 import { cn } from '@adea-ai/ui/lib/utils'
 
-import { barSegments, sparklinePoints } from './resources-view-model'
+import {
+  barSegments,
+  sparklinePoints,
+  trendGeometry,
+  type TrendPoint,
+} from './resources-view-model'
 
 export function Sparkline(props: {
   values: readonly number[]
@@ -44,6 +49,76 @@ export function Sparkline(props: {
         <polyline points={sparklinePoints(props.values, width(), height())} />
       </svg>
     </Show>
+  )
+}
+
+/** A detail-view history chart: the trend, a dashed threshold line when one
+ * is in range, and a time axis under it naming how long ago each end is. */
+export function TrendChart(props: {
+  samples: readonly TrendPoint[]
+  tone?: 'neutral' | 'warning' | 'cpu'
+  label: string
+  /** Value of the threshold line, in the samples' unit. */
+  threshold?: number
+  /** Names the threshold under the chart, e.g. `Limit 2 GB`. */
+  thresholdLabel?: string
+  now?: number
+}) {
+  const width = 240
+  const height = 64
+  const geometry = () =>
+    trendGeometry(props.samples, {
+      width,
+      height,
+      ...(props.threshold !== undefined ? { threshold: props.threshold } : {}),
+      ...(props.now !== undefined ? { now: props.now } : {}),
+    })
+  return (
+    <div class="dev-resources__trend">
+      <Show
+        when={geometry().points !== ''}
+        fallback={
+          <svg
+            class="dev-resources__spark dev-resources__spark--empty dev-resources__trend-plot"
+            viewBox={`0 0 ${width} ${height}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <line x1="0" y1={height / 2} x2={width} y2={height / 2} />
+          </svg>
+        }
+      >
+        <svg
+          class={cn('dev-resources__spark dev-resources__trend-plot', {
+            'dev-resources__spark--warning': props.tone === 'warning',
+            'dev-resources__spark--cpu': props.tone === 'cpu',
+          })}
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={props.label}
+        >
+          <Show when={geometry().thresholdY}>
+            {(y) => (
+              <line class="dev-resources__trend-threshold" x1="0" y1={y()} x2={width} y2={y()} />
+            )}
+          </Show>
+          <polyline points={geometry().points} />
+        </svg>
+      </Show>
+      <div class="dev-resources__trend-axis" aria-hidden="true">
+        <span>{geometry().startLabel}</span>
+        <Show when={props.thresholdLabel}>
+          {(text) => (
+            <span class="dev-resources__trend-threshold-label">
+              <span class="dev-resources__trend-threshold-swatch" />
+              {text()}
+            </span>
+          )}
+        </Show>
+        <span>{geometry().endLabel}</span>
+      </div>
+    </div>
   )
 }
 

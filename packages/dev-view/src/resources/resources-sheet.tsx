@@ -31,6 +31,11 @@ export type ResourcesSheetProps = {
   /** Absent when the host lane has no Dev runtime channel. */
   runtime?: DevRuntimeService
   runtimeSessionId?: string
+  /** Opens a link outside the app; see `ResourcesPaneProps.openExternal`. */
+  openExternal?: (url: string) => Promise<void> | void
+  /** Focuses a runtime session in Dev; the sheet closes first so the
+   * session is visible. */
+  onOpenSession?: (target: { runtimeSessionId: string; projectId?: string }) => void
   onClose(): void
 }
 
@@ -59,6 +64,15 @@ export function ResourcesSheet(props: ResourcesSheetProps) {
             <ResourcesPane
               runtime={props.runtime ?? unavailableRuntime}
               runtimeSessionId={props.runtimeSessionId}
+              openExternal={props.openExternal}
+              {...(props.onOpenSession
+                ? {
+                    onOpenSession: (target: { runtimeSessionId: string; projectId?: string }) => {
+                      props.onClose()
+                      props.onOpenSession?.(target)
+                    },
+                  }
+                : {})}
             />
           </Suspense>
         </SheetBody>
