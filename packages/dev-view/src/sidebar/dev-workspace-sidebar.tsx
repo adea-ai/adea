@@ -100,7 +100,29 @@ const DIFF_INVALIDATION_DEBOUNCE_MS = 500
  * collapsed rows show, and the cloud mutations. Every field is optional so a
  * direct integration (or a fixture) mounts the sidebar with runtime data only.
  */
+/** Where the sidebar is rendering a global section. */
+export type DevGlobalNavContext = Readonly<{
+  /** Inside the compact modal sheet: menus mount in it and tooltips are off. */
+  mobile: boolean
+  portalMount?: HTMLElement
+  /** Closes the compact sheet after a navigation; a no-op inline. */
+  closeSheet: () => void
+}>
+
+/**
+ * The sections every view's sidebar carries regardless of the active
+ * workspace's projects (ADR 0011): quick actions (Agents, Mark all read)
+ * above the Workspaces accordion and Conversations below it. The host
+ * renders them from its cloud data; the archive shelf is the footer.
+ */
+export type DevGlobalNavSlots = Readonly<{
+  quickActions?: (context: DevGlobalNavContext) => JSX.Element
+  conversations?: (context: DevGlobalNavContext) => JSX.Element
+}>
+
 export type DevWorkspaceNavHost = Readonly<{
+  /** The global quick actions and Conversations, shared with Chat and Virtual. */
+  globalNav?: DevGlobalNavSlots
   activeWorkspaceId?: string
   activeWorkspaceName?: string
   workspaces?: readonly DevNavWorkspaceInput[]
@@ -664,6 +686,11 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
             const closeSheet = () => {
               if (context.mobile) props.onOpenChange(false)
             }
+            const globalContext: DevGlobalNavContext = {
+              mobile: context.mobile,
+              portalMount: context.mobile ? context.portalMount() : undefined,
+              closeSheet,
+            }
             return (
               <WorkspaceNav
                 label={props.navigationLabel ?? 'Workspaces'}
@@ -708,8 +735,9 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                 portalMount={context.mobile ? context.portalMount() : undefined}
                 tooltips={!context.mobile}
                 quickActions={
-                  props.status || actionError() ? (
+                  props.host?.globalNav?.quickActions || props.status || actionError() ? (
                     <>
+                      {props.host?.globalNav?.quickActions?.(globalContext)}
                       {props.status}
                       <Show when={actionError()}>
                         {(text) => (
@@ -721,6 +749,7 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                     </>
                   ) : undefined
                 }
+                conversations={props.host?.globalNav?.conversations?.(globalContext)}
               />
             )
           }}

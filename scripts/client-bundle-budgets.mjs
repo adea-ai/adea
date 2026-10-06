@@ -99,8 +99,18 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // 6,398 gzip; startup grows 1,077 raw for the api-client methods. Without
   // the lazy chunk the total fits the previous cap. Raw moves to 2,905,000
   // (~0.8% headroom); gzip and file count hold.
-  total: { rawBytes: 2_905_000, gzipBytes: 855 * 1024, fileCount: 150 },
-  startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
+  // Global sidebar sections in Dev and the desktop runtime Chat (2026-10-06,
+  // ADR 0011), measured against the same build of main (b1cc93f): 2,885,873
+  // raw / 875,160 gzip / 146 files before, 2,892,233 / 877,864 / 148 after
+  // (+6.4 KB raw / +2.7 KB gzip, +2 files). The data-owning Agents, Mark all
+  // read and Conversations hosts are one lazy chunk over the presentational
+  // sections Chat and Virtual already ship; startup grows 1,047 raw / 385
+  // gzip (235,135 → 235,520) for the navigation's slots and the embedded team
+  // Chat surface, which lands exactly on the old cap. Total gzip moves to
+  // 860 KiB (~0.3% headroom) and startup gzip to 231 KiB; raw and file count
+  // hold.
+  total: { rawBytes: 2_905_000, gzipBytes: 860 * 1024, fileCount: 150 },
+  startup: { rawBytes: 720 * 1024, gzipBytes: 231 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now

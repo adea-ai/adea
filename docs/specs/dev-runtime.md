@@ -5605,6 +5605,14 @@ active workspace's accent themes the app while it is active, overriding the
 appearance accent; a workspace without an accent keeps the appearance accent,
 and collapsed workspace marks show their own accent (or the appearance accent)
 rather than the active one.
+The quick actions (Agents, Mark all read), the Conversations section and the
+archive footer are global: the Dev sidebar, which the desktop runtime Chat also
+mounts, carries the same sections through the `globalNav` slots of its
+workspace nav host, rendered from the active workspace's cloud data
+(`@adea-ai/workspace-ui/global-nav-sections`). Opening Agents or a
+conversation from them goes to Chat; on the desktop the team surface shows
+beside the runtime sidebar (the conventional shell in its `embedded` mode)
+until a runtime leaf is selected again.
 The top bar's existing title slot shows the Workspace › Project › Leaf path as
 published `Breadcrumb` crumbs instead of the plain workspace name; there is no
 extra row and the slot keeps its single-line ellipsis and its sub-48rem hiding.

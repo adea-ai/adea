@@ -684,6 +684,23 @@ test('leaves show their harness status and the checkout keeps its house row', as
   await page.keyboard.press('Escape')
 })
 
+test('the Dev sidebar carries the global Agents, Conversations and archive sections', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/?view=dev&devE2e=preserved')
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  await expect(devLeaf(sidebar, 'feature/example')).toBeVisible({ timeout: 30_000 })
+  // ADR 0011: one shared nav in every view, not only Chat and Virtual.
+  await expect(sidebar.getByRole('button', { name: 'Agents', exact: true })).toBeVisible()
+  await expect(sidebar.getByRole('button', { name: 'Mark all read' })).toBeVisible()
+  await expect(sidebar.getByRole('region', { name: 'Conversations' })).toBeVisible()
+  await expect(sidebar.getByRole('button', { name: 'Create group conversation' })).toBeVisible()
+  // Agents opens the Chat Agents surface.
+  await sidebar.getByRole('button', { name: 'Agents', exact: true }).click()
+  await expect(page).toHaveURL(/view=chat/)
+})
+
 test('the project + names a new branch for a new worktree', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved')

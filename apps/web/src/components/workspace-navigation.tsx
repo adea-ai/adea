@@ -58,6 +58,7 @@ import {
 import type { WorkspaceRunSummaryItem } from '@adea-ai/types/dev-runtime'
 import { WorkspaceTopBar } from './workspace-top-bar'
 import { createDevWorkspaceNavHost, type DevWorkspaceNavHost } from '../lib/dev-workspace-nav-host'
+import type { DevGlobalNavContext, DevGlobalNavSlots } from '@adea-ai/dev-view/chat'
 import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
@@ -199,6 +200,16 @@ const SharedUtilityArchiveShelf = lazyComponent(
   () =>
     import('@adea-ai/dev-view/utility-archive-shelf').then(
       ({ SharedUtilityArchiveShelf: Shelf }) => Shelf
+    ),
+  { loading: () => null }
+)
+
+// The global sidebar sections (ADR 0011) for the Dev sidebar, which the
+// desktop runtime Chat also uses; Chat and Virtual render their own.
+const WorkspaceGlobalNav = lazyComponent(
+  () =>
+    import('@adea-ai/workspace-ui/global-nav-sections').then(
+      ({ WorkspaceGlobalNav: Sections }) => Sections
     ),
   { loading: () => null }
 )
@@ -376,6 +387,17 @@ export function createDeferredPluginsProvider(
   }
 }
 
+/**
+ * The team Chat surfaces (a conversation, Agents) beside the desktop runtime
+ * Chat's own sidebar. Opening one from the sidebar's global sections shows it;
+ * selecting a runtime leaf returns to the runtime conversation.
+ */
+export type DesktopTeamChat = Readonly<{
+  active: Accessor<boolean>
+  surface: () => JSX.Element
+  onRuntimeSelection: () => void
+}>
+
 export type WorkspaceNavigationAccount = Readonly<{
   authenticated: boolean
   busy: boolean
@@ -392,7 +414,8 @@ export type WorkspaceNavigationProps = Readonly<{
     fallback: JSX.Element,
     archiveAction: JSX.Element,
     sidebarOpener: () => HTMLElement | undefined,
-    workspaceNav: DevWorkspaceNavHost
+    workspaceNav: DevWorkspaceNavHost,
+    teamChat: DesktopTeamChat
   ) => JSX.Element
   client: AgentHqApiClient
   /**
@@ -769,9 +792,55 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     },
   }
 
+  // Agents, Mark all read and Conversations are global (ADR 0011): the Dev
+  // sidebar, which the desktop runtime Chat also uses, carries them too.
+  // Opening one goes to Chat; on the desktop the team surface shows beside
+  // the runtime sidebar until a runtime leaf is selected again.
+  const [teamChatActive, setTeamChatActive] = createSignal(false)
+  const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
+  const activeSurface = useWorkspaceState((state) => state.activeSurface)
+  const openTeamChat = (surface: 'agents' | 'conversation', channelId?: string) => {
+    const store = workspaceStore.getState()
+    if (channelId) {
+      store.setSelectedProjectId(null)
+      store.setSelectedChannelId(channelId)
+    }
+    store.setActiveSurface(surface)
+    setTeamChatActive(true)
+    if (activeAppId() !== 'chat' || libraryOpen()) changeApp('chat')
+  }
+  const globalSection =
+    (section: 'quick-actions' | 'conversations') => (context: DevGlobalNavContext) => (
+      <WorkspaceGlobalNav
+        section={section}
+        client={props.client}
+        workspaceId={props.activeWorkspace?.id}
+        selectedChannelId={
+          teamChatActive() && view() === 'chat' && activeSurface() === 'conversation'
+            ? selectedChannelId()
+            : null
+        }
+        onOpenAgents={() => {
+          openTeamChat('agents')
+          context.closeSheet()
+        }}
+        onOpenConversation={(channelId) => {
+          openTeamChat('conversation', channelId)
+          context.closeSheet()
+        }}
+        portalMount={context.portalMount}
+        tooltips={!context.mobile}
+      />
+    )
+  const globalNav: DevGlobalNavSlots = {
+    quickActions: globalSection('quick-actions'),
+    conversations: globalSection('conversations'),
+  }
+
   // The Dev sidebar renders the same accordion from the same cloud queries,
   // joined with the desktop runtime's local bindings (ADR 0011).
   const devNavHost = createDevWorkspaceNavHost({
+    globalNav,
     client: props.client,
     activeWorkspace: () => props.activeWorkspace,
     workspaces: () => props.workspaces,
@@ -868,6 +937,24 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     resolveWorkspaceApp(railPreferences(), 'kanban')?.id === 'kanban'
       ? () => changeApp('kanban')
       : undefined
+  // Chat's team surfaces; `embedded` drops their sidebar beside the desktop
+  // runtime Chat's own, and the Kanban app renders the board alone.
+  const conventionalWorkspace = (embedded?: boolean) => (
+    <ConventionalWorkspace
+      archiveAction={archiveAction}
+      restoreFocusRef={sidebarOpener}
+      embedded={embedded}
+      taskBoardOnly={activeAppId() === 'kanban'}
+      client={props.client}
+      deepLink={deepLink}
+      manageSettings={false}
+      onConsumeDeepLink={consumeDeepLink}
+      onOpenTaskBoard={activeAppId() === 'kanban' ? undefined : openTaskBoard()}
+      onViewChange={changeView}
+      services={props.services}
+      workspaceHost={workspaceHost}
+    />
+  )
   const changeView = (nextView: WorkspaceView) => {
     if (resolveWorkspaceApp(railPreferences(), nextView)?.id !== nextView) openAppLibrary()
     else changeApp(nextView)
@@ -1148,41 +1235,19 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                     <Show
                       when={import.meta.env.DEV && currentSearch().chatE2e === 'visual'}
                       fallback={
-                        props.chatEntry && activeAppId() !== 'kanban' ? (
-                          props.chatEntry(
-                            <ConventionalWorkspace
-                              archiveAction={archiveAction}
-                              restoreFocusRef={sidebarOpener}
-                              client={props.client}
-                              deepLink={deepLink}
-                              manageSettings={false}
-                              onConsumeDeepLink={consumeDeepLink}
-                              onOpenTaskBoard={openTaskBoard()}
-                              onViewChange={changeView}
-                              services={props.services}
-                              workspaceHost={workspaceHost}
-                            />,
-                            archiveAction,
-                            sidebarOpener,
-                            devNavHost
-                          )
-                        ) : (
-                          <ConventionalWorkspace
-                            archiveAction={archiveAction}
-                            restoreFocusRef={sidebarOpener}
-                            taskBoardOnly={activeAppId() === 'kanban'}
-                            client={props.client}
-                            deepLink={deepLink}
-                            manageSettings={false}
-                            onConsumeDeepLink={consumeDeepLink}
-                            onOpenTaskBoard={
-                              activeAppId() === 'kanban' ? undefined : openTaskBoard()
-                            }
-                            onViewChange={changeView}
-                            services={props.services}
-                            workspaceHost={workspaceHost}
-                          />
-                        )
+                        props.chatEntry && activeAppId() !== 'kanban'
+                          ? props.chatEntry(
+                              conventionalWorkspace(),
+                              archiveAction,
+                              sidebarOpener,
+                              devNavHost,
+                              {
+                                active: teamChatActive,
+                                onRuntimeSelection: () => setTeamChatActive(false),
+                                surface: () => conventionalWorkspace(true),
+                              }
+                            )
+                          : conventionalWorkspace()
                       }
                     >
                       <ChatVisualFixture state={chatVisualState()} />

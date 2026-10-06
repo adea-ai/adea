@@ -48,6 +48,13 @@
       "import": "./dist/preferences.js",
       "default": "./dist/preferences.js"
     },
+    "./global-nav-sections": {
+      "types": "./dist/global-nav-sections.d.ts",
+      "solid": "./src/global-nav-sections.tsx",
+      "development": "./src/global-nav-sections.tsx",
+      "import": "./dist/global-nav-sections.js",
+      "default": "./dist/global-nav-sections.js"
+    },
     "./global-workspace-rail": {
       "types": "./dist/global-workspace-rail.d.ts",
       "solid": "./src/global-workspace-rail.tsx",

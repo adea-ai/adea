@@ -65,6 +65,11 @@ export function ConventionalWorkspaceShell(props: {
   /** Render only the task board, full width with no workspace sidebar: the Kanban app. */
   taskBoardOnly?: boolean
   /**
+   * Render the Chat surfaces without the workspace sidebar, for a host that
+   * keeps its own sidebar beside them (the desktop runtime Chat, ADR 0011).
+   */
+  embedded?: boolean
+  /**
    * Opens the standalone task board, when the host has one. Search results and
    * deep links to a Task go there; without it the board opens in place.
    */
@@ -385,10 +390,10 @@ export function ConventionalWorkspaceShell(props: {
         <Show when={controller.activeWorkspace && controller.workspaceId}>
           <main
             class={cn('conventional-workspace', {
-              'conventional-workspace--board': props.taskBoardOnly,
+              'conventional-workspace--board': props.taskBoardOnly || props.embedded,
             })}
           >
-            <Show when={!props.taskBoardOnly}>
+            <Show when={!props.taskBoardOnly && !props.embedded}>
               <WorkspaceNavSidebar
                 view="chat"
                 client={controller.client}
