@@ -4993,7 +4993,13 @@ holds no provider state of its own beyond these rules:
   shows its reason on its own projects while the other keeps working, and
   the app is disconnected only when every provider in use is. Capabilities
   per provider hide what it cannot do: GitLab offers only a rebase update,
-  no request-changes verdict, and no team reviewers.
+  no request-changes verdict, and no team reviewers. The Git providers
+  dialog checks every listed provider when it opens and re-checks on
+  demand. A check updates the affected row in place — chip, caption, and
+  busy control — and must never rebuild the menu or collapse a row's
+  sign-in help while the check runs; the same no-rebuild rule holds for
+  every menu fed by an async refresh, whose refetches update the rendered
+  list in place instead of swapping it for a loading state.
 - **Session link and agents.** A pull request belongs to the Adea session
   whose non-archived worktree has its head branch checked out in the same
   repository (a live session wins); forks never link. The link is derived on

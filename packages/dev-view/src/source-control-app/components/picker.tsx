@@ -74,7 +74,14 @@ export function Picker(props: {
             onInput={(event) => setQuery(event.currentTarget.value)}
           />
           <div class="dev-scm-picker__list" role="group" aria-label={`Choose ${props.noun}`}>
-            <Show when={!options.loading} fallback={<span class="dev-scm-caption">Loading…</span>}>
+            {/* A refetch keeps the rendered list mounted and updates it in
+                place: `options()` holds the previous page while `loading`, so
+                the Loading… caption is only for the first load — swapping the
+                menu for it on every keystroke read as the menu flickering. */}
+            <Show
+              when={options() !== undefined}
+              fallback={<span class="dev-scm-caption">Loading…</span>}
+            >
               <Show when={options.error}>
                 <span class="dev-scm-caption" role="alert">
                   {errorText(options.error)}

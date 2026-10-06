@@ -526,6 +526,10 @@ function ConnectedApp(
       <ProvidersDialog
         open={providersOpen()}
         accounts={{ github: state.account('github'), gitlab: state.account('gitlab') }}
+        settledAccounts={{
+          github: state.settledAccount('github'),
+          gitlab: state.settledAccount('gitlab'),
+        }}
         projectCounts={{
           github: state.activeProjects().filter((row) => row.provider === 'github').length,
           gitlab: state.activeProjects().filter((row) => row.provider === 'gitlab').length,

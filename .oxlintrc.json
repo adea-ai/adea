@@ -74,6 +74,7 @@
           "__ADEA_THEME_LIBRARY__",
           "__adeaAgentSim",
           "__adeaDesktop",
+          "__adeaScmChurn",
           "__adeaTerminalPaneHarness",
           "__agentHqSound",
           "__TSR_index"
