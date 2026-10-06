@@ -10,7 +10,7 @@ import type {
   DeviceInventoryItem,
   DeviceSession,
 } from '@adea-ai/types/dev-runtime'
-import { MonitorSmartphone, Play, Smartphone, Square, Tablet } from 'lucide-solid'
+import { MonitorSmartphone, Play, Smartphone, Square } from 'lucide-solid'
 import { For, Show, createResource, createSignal, onCleanup } from 'solid-js'
 
 import { findResponsiveInventoryItem, groupDeviceInventory } from './device-model'
@@ -320,14 +320,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                                 as="div"
                                 class="dev-devices__row"
                                 description={`${item.platform} · ${item.state}`}
-                                leading={
-                                  <Show
-                                    when={item.kind === 'ios_simulator'}
-                                    fallback={<Smartphone aria-hidden="true" />}
-                                  >
-                                    <Tablet aria-hidden="true" />
-                                  </Show>
-                                }
+                                leading={<Smartphone aria-hidden="true" />}
                                 trailing={
                                   <Show
                                     when={attached()}
