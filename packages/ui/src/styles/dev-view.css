@@ -286,6 +286,10 @@
   --dev-utility-size: 32rem;
 }
 
+.dev-utility--size-600 {
+  --dev-utility-size: 37.5rem;
+}
+
 .dev-utility--right {
   grid-template-columns: var(--rail-width, 3.5rem) minmax(0, 1fr);
   border-inline-start: 1px solid var(--dev-border);

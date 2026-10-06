@@ -261,8 +261,15 @@ test.describe('appearance', () => {
     await hex.fill('#2563eb')
     await hex.blur()
     await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
-    await accent.getByRole('radio', { name: 'Theme default' }).press('Space')
-    await expect(page.locator('html')).toHaveAttribute('data-accent', 'theme')
+    // The default accent is the Violet preset — one of the six catalogue
+    // accents — so the picker offers no separate "Theme default" entry, and
+    // the default selection is an accent override like any other preset.
+    await accent.getByRole('radio', { name: 'Violet', exact: true }).press('Space')
+    await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
+    await expect(
+      editor(panel).getByText('Violet · Controls, glyphs, selections, code, and activity.')
+    ).toBeVisible()
+    await expect(accent.getByRole('radio', { name: 'Custom', exact: true })).toHaveCount(1)
   })
 
   test('the glass control switches the resolved surface', async ({ page }) => {
@@ -312,7 +319,8 @@ test.describe('appearance', () => {
       'blur'
     )
 
-    // 'Theme default' is also the accent row's name; the Glass radiogroup is
+    // The accent picker no longer offers a "Theme default" entry, so this
+    // label now names only the Glass surface choice; the Glass radiogroup is
     // the one this test is driving.
     await panel
       .getByRole('radiogroup', { name: 'Glass', exact: true })

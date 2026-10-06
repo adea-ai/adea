@@ -138,8 +138,10 @@ test('later unbound terminal splits do not duplicate the primary terminal', asyn
   await splitButton.click()
   await splitButton.click()
 
+  // Every unbound pane carries its own status copy (two splits, two panes);
+  // the duplication guard is the command assertions below, not the copy count.
   await expect(
-    page.getByText('No terminal is selected for this pane.', { exact: true })
+    page.getByText('No terminal is selected for this pane.', { exact: true }).first()
   ).toBeVisible()
   const state = await report(page)
   expect(state.commands.filter((item) => item.operation === 'dev.terminal.list')).toHaveLength(1)
@@ -179,8 +181,15 @@ test('reopening a closed terminal pane reattaches the same live terminal in this
   await expect(reopenedTerminal.locator('.xterm-rows')).toContainText('selected terminal 33333333')
 
   const state = await report(page)
+  // Closing the bound pane makes the remaining split the first unbound leaf,
+  // which picks up the session's primary terminal (dev-runtime spec: "only
+  // the first unbound terminal leaf may use the session's projected primary
+  // terminal"). Reopening restores the original leaf as the first unbound one
+  // and reattaches the same live terminal — so the attach log is: initial
+  // pane, split-pane promotion at close, reopened pane.
   const attachCommands = state.commands.filter((item) => item.operation === 'dev.terminal.attach')
   expect(attachCommands.map(({ terminalId, fromSequence }) => [terminalId, fromSequence])).toEqual([
+    ['33333333-3333-4333-8333-333333333333', '0'],
     ['33333333-3333-4333-8333-333333333333', '0'],
     ['33333333-3333-4333-8333-333333333333', '0'],
   ])
@@ -191,7 +200,7 @@ test('reopening a closed terminal pane reattaches the same live terminal in this
           terminalId === '33333333-3333-4333-8333-333333333333' && direction === 'read'
       )
       .map(({ fromSequence }) => fromSequence)
-  ).toEqual(['0', '0'])
+  ).toEqual(['0', '0', '0'])
   expect(
     state.commands.filter((item) =>
       [

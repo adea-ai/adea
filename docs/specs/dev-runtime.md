@@ -3746,12 +3746,16 @@ repeating those two destinations in a vertical rail. Browser, Devices, Agents,
 and History use the published collapsed SideRail, including its selected
 accent and hover/focus labels. Utility separators use the shared resizable
 handle with a full-height pointer target and centered grip; their ruler maps
-the persisted 240–384 CSS-pixel left-pane range and 240–512 CSS-pixel right-pane
+the persisted 240–384 CSS-pixel left-pane range and 240–600 CSS-pixel right-pane
 range and remains keyboard operable. An empty layout defaults left utility
-panes to 336 CSS pixels and right utility panes, including Browser, to 512 CSS
+panes to 336 CSS pixels and right utility panes, including Browser, to 600 CSS
 pixels to fit their lane and viewport controls. This default fills missing
 preferences only; saved widths continue through the existing migration and
-snap rules.
+snap rules, with one tolerant exception: the v0.83.0 build wrote its 512
+default into stored documents on first run, so a stored right-side width of
+exactly 512 resolves to 600 on decode (the two states are indistinguishable on
+disk, so a deliberate 512 also resolves to 600; every other stored width,
+including the pre-v0.83.0 448 default, stays verbatim).
 
 Every operation carries scope, live worktree ID/generation, authorized root,
 canonical relative path, and expected file identity where relevant.
@@ -5447,6 +5451,9 @@ type AppearancePreferencesV2 = {
   darkThemeId: string
   /** `'theme'` follows the interface theme; a theme id pins that palette. */
   terminalThemeId: 'theme' | string
+  /** A preset id (the default is the Violet preset), a theme-carried
+    `ansi-<slot>` id, or a validated `#rrggbb` color. Legacy documents may
+    still store `'theme'`; normalization migrates it. */
   accent: 'theme' | string
   surface: 'opaque' | 'frosted' | 'translucent'
   reduceTransparency: boolean
@@ -5462,8 +5469,14 @@ type AppearancePreferencesV2 = {
 Font choices are device-local and use the shared UI's supported family IDs and
 normalizer, with System defaults at 14px for UI/content and 12px for code. The
 shared three-row group places System first above a divider in each family menu;
-each row has a size input. Live preview, Save, Cancel, Reset, and dismissal include
-all three font roles. Existing V2 documents recover missing fields without
+each row has a size input, and the rows close the editor's option list. The
+platform zoom chords — Cmd/Ctrl with `=` or `+` zooming in, `-` zooming out,
+`0` restoring the System defaults — step all three tiers one pixel within the
+shared range instead of browser page zoom: the provider owns the chord, every
+text element is tied to one of the three tiers through the shared projection
+(UI drives the `text-*` scale; content and code scale their own roles), and
+the live projection reflows without a reload. Live preview, Save, Cancel,
+Reset, and dismissal include all three font roles. Existing V2 documents recover missing fields without
 discarding the document. Font projection and structural typography remain
 shared UI-owned; terminal/editor adapters consume its code tokens without
 recreating the runtime session or losing output/selection. This owner follow-up
@@ -5493,8 +5506,12 @@ and must pass contrast validation; the accent override owns `--primary`,
 those roles must never be written over an active override — otherwise presets
 silently revert to the theme's primary on every catalogue and imported theme
 while working only on the default pair. Accents are one global preset axis for
-every theme, not a per-theme list: "Theme default" selects the theme's own
-primary rather than a seventh preset. OS or user reduced transparency forces
+every theme, not a per-theme list, and the default accent is itself one of the
+six catalogue presets (Violet) rather than a seventh "theme default" entry
+beside them: the picker offers the six presets plus the custom color, a stored
+legacy `'theme'` value migrates to the default preset on read and on resolve,
+and every selection — the default included — is therefore an active override
+that owns the three accent tokens. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
 The terminal palette follows the resolved interface theme unless
@@ -5521,12 +5538,21 @@ quantized-hex contrast projection, while the syntax API retains its quieter
 comment role. Unknown stored theme IDs fall back to the default of the same
 appearance in both the pre-paint script and the mounted provider.
 
-The workspace toolbar opens the published `AppearancePopover` over the current
-view without route navigation. Its editor/catalogue chunk loads on the first
-intentional open. Save commits and closes; Cancel, Escape, and outside dismissal
-restore the opening snapshot and close. Reopening takes a fresh snapshot of
-committed preferences. The Settings section continues to use the controlled
-`AppearanceEditor` from the same published `@adea-ai/ui` package. Its host remains responsible for the V2 draft snapshot,
+The workspace toolbar opens the appearance Sheet over the current view without
+route navigation. Its editor/catalogue chunk loads on the first intentional
+open. Save commits and closes; Cancel, Escape, and outside dismissal restore
+the opening snapshot and close. Reopening takes a fresh snapshot of committed
+preferences. Both the toolbar Sheet and the Settings section render Adea's
+app-local editor composition (`@adea-ai/dev-view`'s `AdeaAppearanceEditor`),
+adapted from the published `AppearanceEditor` because its fixed internals
+cannot express Adea's row order or accent entries: every control remains a
+published primitive (RadioGroup, DropdownMenu, Sheet, Switch, Input, Label,
+Button) or published composite (font settings group, editor actions, theme
+previews), while Adea owns the composition — the text (font) settings rows
+close the option list, after every palette and surface row, and the accent
+picker offers the six presets plus one control named "Custom". Upstreaming a
+row-order and accent-entries seam to the published package retires the fork.
+Its host remains responsible for the V2 draft snapshot,
 live preview, persistence, cancellation, native transparency capability, custom
 accent validation, and the verified App Library contract. The app-local package
 is temporarily named `@adea-ai/app-ui` so the published package can be consumed

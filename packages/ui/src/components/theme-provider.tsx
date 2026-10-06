@@ -23,6 +23,11 @@ import {
   resolveAppearanceState,
   writeAppearancePreferences,
 } from './appearance'
+import {
+  DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS,
+  type AppearanceEditorFontSettings,
+} from '@adea-ai/ui/lib/appearance-font-settings'
+import { fontZoomShortcut, stepAppearanceFontSizes } from './font-zoom'
 
 export type Theme = AppearanceMode
 export type ResolvedTheme = ResolvedAppearance
@@ -130,6 +135,26 @@ export function ThemeProvider(props: ThemeProviderProps) {
 
   const update = (patch: Partial<AppearancePreferencesV2>) => {
     persist({ ...preferences(), ...patch })
+  }
+
+  if (typeof window !== 'undefined') {
+    // The platform zoom chords drive the three text tiers instead of browser
+    // page zoom: every text element is tied to one of the tiers, so stepping
+    // them is zoom inside the tokenized, persisted type system. Captured like
+    // the other global chords; an already-handled event never double-steps.
+    const onFontZoomShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+      const zoom = fontZoomShortcut(event)
+      if (!zoom) return
+      event.preventDefault()
+      const fonts: AppearanceEditorFontSettings =
+        zoom === 'reset'
+          ? { ...DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS }
+          : stepAppearanceFontSizes(preferences().fonts, zoom === 'in' ? 1 : -1)
+      update({ fonts })
+    }
+    window.addEventListener('keydown', onFontZoomShortcut, { capture: true })
+    onCleanup(() => window.removeEventListener('keydown', onFontZoomShortcut, { capture: true }))
   }
 
   const preview = (draft: AppearancePreferencesV2 | undefined) => {

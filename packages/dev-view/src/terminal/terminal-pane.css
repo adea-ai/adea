@@ -16,6 +16,18 @@
   color: var(--foreground);
 }
 
+/*
+ * xterm >= 6 paints the terminal theme background on its new
+ * `.xterm-scrollable-element` and no longer updates the legacy
+ * `.xterm-viewport`, which the structural stylesheet pins to opaque black.
+ * Keep that backdrop on the terminal palette so areas the renderer does not
+ * cover (fit rounding, overscroll) never flash black (#1057). The extra
+ * `.xterm` class outranks the structural rule regardless of load order.
+ */
+.dev-terminal-pane .xterm .xterm-viewport {
+  background-color: var(--terminal-background, transparent);
+}
+
 .dev-terminal-pane-header {
   display: flex;
   flex: none;
