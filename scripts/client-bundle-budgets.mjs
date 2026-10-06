@@ -140,7 +140,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // empty states, and the Minimize2/Play/Square/FilePlus/FolderPlus icons
     // join the shell. Raw ratchets to the next whole KiB; gzip to the next
     // whole KiB above the measurement, same as the #1018 re-baseline.
-    devShell: { rawBytes: 133 * 1024, gzipBytes: 47 * 1024 },
+    // The #666 sidebar-scale seam (the DEV-only devSidebarScale param and
+    // the fixture groups' module boundary) costs 136,225 raw on the same
+    // build — 33 bytes over the 133 KiB cap. Raw ratchets to the next whole
+    // KiB, same as the #1033 re-baseline.
+    devShell: { rawBytes: 134 * 1024, gzipBytes: 47 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested
