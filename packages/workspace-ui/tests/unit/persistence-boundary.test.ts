@@ -17,6 +17,7 @@ const blob = {
   selectedProjectId: 'project-a',
   selectedTaskId: null,
   selectedWorkspaceId: 'workspace-1',
+  sidebarGroupBy: { 'workspace-1': 'status', 'workspace-2': 'recent' },
   threadRootMessageId: null,
 }
 
@@ -40,6 +41,10 @@ test('a present field of the wrong type rejects the whole blob', () => {
   expect(validatePersistedState({ ...blob, drafts: { 'project-a': 7 } })).toBeUndefined()
   expect(validatePersistedState({ ...blob, selectedAgentId: {} })).toBeUndefined()
   expect(validatePersistedState({ ...blob, activeSurface: 'nowhere' })).toBeUndefined()
+  expect(validatePersistedState({ ...blob, sidebarGroupBy: ['status'] })).toBeUndefined()
+  expect(
+    validatePersistedState({ ...blob, sidebarGroupBy: { 'workspace-1': 'rooms' } })
+  ).toBeUndefined()
 })
 
 test('anything that is not an object is rejected', () => {

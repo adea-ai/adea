@@ -123,6 +123,15 @@ export type ProjectLifecycleState = 'active' | 'archived'
  */
 export type ProjectSourceKind = 'none' | 'repository'
 
+/**
+ * Who can see a project (ADR 0012): every workspace member, or only its listed
+ * project members plus the workspace's owners and admins.
+ */
+export type ProjectVisibility = 'workspace' | 'members'
+
+/** A project member's role in a members-only project: read-only or read-write. */
+export type ProjectMemberRole = 'viewer' | 'editor'
+
 export type ProjectSummary = Readonly<{
   createdAt: string
   iconKey: string
@@ -132,6 +141,42 @@ export type ProjectSummary = Readonly<{
   sortOrder: number
   sourceKind: ProjectSourceKind
   updatedAt: string
+  visibility: ProjectVisibility
+  workspaceId: string
+}>
+
+export type ProjectMemberSummary = Readonly<{
+  createdAt: string
+  displayName: string | null
+  projectId: string
+  role: ProjectMemberRole
+  updatedAt: string
+  userId: string
+}>
+
+export type WorkspaceMemberRole = 'owner' | 'admin' | 'member'
+
+/** A workspace member as other members see them: no email, no credentials. */
+export type WorkspaceMemberSummary = Readonly<{
+  displayName: string | null
+  role: WorkspaceMemberRole
+  userId: string
+}>
+
+export type WorkspaceInvitationRole = 'admin' | 'member'
+export type WorkspaceInvitationState = 'pending' | 'accepted' | 'revoked' | 'expired'
+
+/** An invitation as its workspace's managers list it. The token is never included. */
+export type WorkspaceInvitationSummary = Readonly<{
+  acceptedAt?: string
+  createdAt: string
+  email: string
+  expiresAt: string
+  id: string
+  invitedByUserId: string
+  revokedAt?: string
+  role: WorkspaceInvitationRole
+  state: WorkspaceInvitationState
   workspaceId: string
 }>
 

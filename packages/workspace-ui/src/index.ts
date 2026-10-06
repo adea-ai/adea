@@ -1,5 +1,11 @@
 export { ConventionalWorkspaceShell } from './conventional-workspace-shell'
 export { SidebarToggleButton } from './sidebar-toggle-button'
+export {
+  createProjectShare,
+  ProjectShareHost,
+  type ProjectShare,
+  type ProjectShareContext,
+} from './project-share'
 export type { WorkspaceView } from './workspace-view-toggle'
 export { VirtualRoomControls } from './virtual-room-controls'
 export {
@@ -67,6 +73,8 @@ export type {
   TranscriptionState,
   WorkspaceAppActivation,
   WorkspaceAppSurface,
+  WorkspaceConnectionsService,
+  WorkspaceConnectionsSnapshot,
   WorkspacePreferences,
   WorkspacePlatformServices,
   WorkspacePlugin,

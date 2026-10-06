@@ -126,17 +126,6 @@
   padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
 }
 
-.global-rail__workspace-menu {
-  width: 15rem;
-}
-
-.global-rail__workspace-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .global-rail__intent {
   display: flex;
   min-width: 0;
@@ -181,14 +170,14 @@
 .global-rail[data-collapsed='true'] .global-rail__content {
   padding-block-start: 0.125rem;
 }
-.global-rail[data-collapsed='true'] .global-rail__workspace-trigger {
-  width: calc(100% - 1rem);
+/* The static product mark keeps the former switcher row's height. */
+.global-rail__mark {
+  display: flex;
+  height: var(--rail-item-height);
+  align-items: center;
+  justify-content: center;
 }
-.global-rail__workspace-trigger > span {
-  width: auto;
-  height: auto;
-}
-.global-rail__workspace-logo {
+.global-rail__logo {
   width: 2.25rem;
   height: 2.25rem;
 }
@@ -382,12 +371,6 @@
 }
 .conventional-sidebar__quick-actions {
   display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-.conventional-sidebar__project {
-  display: flex;
-  min-width: 0;
   flex-direction: column;
   gap: 0.125rem;
 }
@@ -1702,6 +1685,41 @@
   white-space: nowrap;
 }
 /*
+ * Breadcrumbs replace the plain title in the same slot: one line, no wrap.
+ * Each crumb clips its own label, the leaf giving way last, while the marks
+ * and separators keep their size.
+ */
+.workspace-topbar__crumbs {
+  min-width: 0;
+}
+.workspace-topbar__crumb-list {
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+.workspace-topbar__crumb {
+  min-width: 0;
+  flex-shrink: 3;
+}
+.workspace-topbar__crumb[data-crumb='leaf'] {
+  flex-shrink: 1;
+}
+.workspace-topbar__crumb-mark,
+.workspace-topbar__crumb-separator {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.workspace-topbar__crumb-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-topbar__crumb-link {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+/*
  * Restate the shared TopBar's macOS inset as a host rule. The shared rule is a
  * Tailwind utility, so it shares a layer (and a tie-break-by-order contest)
  * with `px-3`; when a build ordered them the other way the traffic-light
@@ -1749,6 +1767,9 @@
 }
 .workspace-topbar__title {
   text-align: center;
+}
+.workspace-topbar__crumb-list {
+  justify-content: center;
 }
 /* The sidebar toggle stays visible on every view. The leading contextual
    toggle owns the left sidebar on all of them; the trailing group keeps the

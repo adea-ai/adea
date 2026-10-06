@@ -3,6 +3,7 @@ import {
   createUnavailableDevRuntimeService,
   type DevEventSubscription,
   type DevGitStatusInvalidated,
+  type DevProjectSource,
   type DevRuntimeService,
   type DevStreamTransport,
   type DevWorkspaceProjection,
@@ -412,6 +413,26 @@ async function executeOperation(
 }
 
 /**
+ * The project's code source from its register binding: a managed bare clone
+ * (`layout: 'bare_managed'`) is `remote_only`, any other bound repository is
+ * `local_repo`, and a binding without repositories is `none`.
+ */
+export function projectSource(raw: Record<string, unknown>): DevProjectSource {
+  const repos = Array.isArray(raw.repos) ? (raw.repos as unknown[]) : []
+  if (
+    repos.some(
+      (repo) =>
+        typeof repo === 'object' &&
+        repo !== null &&
+        (repo as { layout?: unknown }).layout === 'bare_managed'
+    )
+  )
+    return 'remote_only'
+  const repoIds = Array.isArray(raw.repoIds) ? raw.repoIds : []
+  return repos.length > 0 || repoIds.length > 0 ? 'local_repo' : 'none'
+}
+
+/**
  * The flat Dev projection: every project binding the register returns, in
  * register order, with its sessions. Nothing is dropped for lacking a parent:
  * the register has no groups, and names come from the host's cloud list.
@@ -465,6 +486,7 @@ export function toProjection(
         id,
         repoIds: Array.isArray(raw.repoIds) ? raw.repoIds.map(String) : [],
         branch: typeof raw.defaultBaseRef === 'string' ? raw.defaultBaseRef : '',
+        source: projectSource(raw),
         ...(typeof raw.version === 'number' ? { version: raw.version } : {}),
         sessions: sessionsByProject.get(id) ?? [],
       }

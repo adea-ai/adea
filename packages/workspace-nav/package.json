@@ -1,0 +1,64 @@
+{
+  "name": "@adea-ai/workspace-nav",
+  "version": "0.83.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "solid": "./src/index.ts",
+      "development": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./model": {
+      "types": "./dist/model.d.ts",
+      "solid": "./src/model.ts",
+      "development": "./src/model.ts",
+      "import": "./dist/model.js",
+      "default": "./dist/model.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters.d.ts",
+      "solid": "./src/adapters.ts",
+      "development": "./src/adapters.ts",
+      "import": "./dist/adapters.js",
+      "default": "./dist/adapters.js"
+    },
+    "./breadcrumbs": {
+      "types": "./dist/breadcrumbs.d.ts",
+      "solid": "./src/breadcrumbs.ts",
+      "development": "./src/breadcrumbs.ts",
+      "import": "./dist/breadcrumbs.js",
+      "default": "./dist/breadcrumbs.js"
+    },
+    "./workspace-nav": {
+      "types": "./dist/workspace-nav.d.ts",
+      "solid": "./src/workspace-nav.tsx",
+      "development": "./src/workspace-nav.tsx",
+      "import": "./dist/workspace-nav.js",
+      "default": "./dist/workspace-nav.js"
+    }
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
+    "dev": "vite build --watch",
+    "lint": "oxlint",
+    "test": "bun test --conditions=browser tests/unit",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@adea-ai/app-ui": "workspace:*",
+    "@adea-ai/types": "workspace:*",
+    "@adea-ai/ui": "0.113.0",
+    "lucide-solid": "^1.51.0",
+    "solid-js": "^1.9.15"
+  },
+  "devDependencies": {
+    "vite": "^8.3.2",
+    "vite-plugin-solid": "^2.11.14"
+  }
+}

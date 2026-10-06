@@ -15,6 +15,7 @@ import { noteUpdatePhase } from '@adea-ai/workspace-ui/update-pending'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { invoke, listen } from '../lib/desktop-bridge'
 import { createDesktopDevRuntimeService } from '../lib/desktop-dev-runtime'
+import { createDesktopWorkspaceConnectionsService } from '../lib/desktop-workspace-connections'
 import {
   createDesktopDevScopeSelector,
   devScopeCredential,
@@ -338,6 +339,7 @@ function DesktopWorkspace(props: {
     scopeSelection: props.devScope.ensure(props.devScopeWorkspaceId),
     expectedWorkspaceId: props.devScopeWorkspaceId,
   })
+  const connections = createDesktopWorkspaceConnectionsService(devRuntime)
   const chatModelHost = createDesktopChatModelHost(devRuntime)
   const utilityOwner = createSharedDevUtilityOwner(
     devRuntime,
@@ -355,6 +357,7 @@ function DesktopWorkspace(props: {
     app: { name: 'Adea', platform: 'desktop', version: props.appVersion },
     capabilities: desktopCapabilityProvider,
     client: props.client,
+    connections,
     devRuntime,
     memory: desktopMemoryService,
     privateContent: localContentAuthority,

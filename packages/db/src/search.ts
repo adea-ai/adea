@@ -2,6 +2,11 @@ import type { UserPrincipalRef, WorkspaceSearchPage, WorkspaceSearchResult } fro
 import { and, asc, eq, ilike, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'
+import {
+  requireProjectAccessScope,
+  visibleProjectCondition,
+  visibleTaskCondition,
+} from './project-access'
 import { listAccessibleChannelIds } from './read-state'
 import { searchPageWindow } from './search-paging'
 import { agents, artifacts, channels, messages, projects, tasks } from './schema'
@@ -42,6 +47,14 @@ export async function searchWorkspaceForUser(
   const window = searchPageWindow({ limit: options.limit, offset, resultCount: 0 })
   const limit = window.limit
   const candidateLimit = window.candidateLimit
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Search unavailable'
+  )
+  // Channel scope already excludes hidden projects' channels (and so their
+  // messages); projects, tasks and artifacts are filtered explicitly below.
   const allowed = await listAccessibleChannelIds(database, workspaceId, principal)
   const allowedChannelIds = allowed.map(({ id }) => id)
   if (options.channelId && !allowedChannelIds.includes(options.channelId))
@@ -60,6 +73,7 @@ export async function searchWorkspaceForUser(
               and(
                 eq(projects.workspaceId, workspaceId),
                 eq(projects.lifecycleState, 'active'),
+                visibleProjectCondition(projects.id, scope),
                 or(ilike(projects.name, like), ilike(projects.iconKey, like))
               )
             )
@@ -107,6 +121,7 @@ export async function searchWorkspaceForUser(
             .where(
               and(
                 eq(tasks.workspaceId, workspaceId),
+                visibleProjectCondition(tasks.projectId, scope),
                 or(ilike(tasks.title, like), ilike(tasks.objective, like))
               )
             )
@@ -126,6 +141,7 @@ export async function searchWorkspaceForUser(
               and(
                 eq(artifacts.workspaceId, workspaceId),
                 eq(artifacts.deletionState, 'active'),
+                visibleTaskCondition(database, artifacts.taskId, scope),
                 or(ilike(artifacts.filename, like), ilike(artifacts.mediaType, like))
               )
             )

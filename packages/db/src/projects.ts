@@ -3,6 +3,13 @@ import { and, asc, eq, inArray, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { provisionPrimaryProjectChannelInTransaction } from './conversations'
+import {
+  canReadProject,
+  requireProjectAccessScope,
+  requireProjectWrite,
+  resolveProjectAccessScope,
+  visibleProjectCondition,
+} from './project-access'
 import { channels, projects, workspaceMemberships } from './schema'
 import { appendWorkspaceEvent } from './transactions'
 
@@ -44,6 +51,7 @@ function projectSummary(row: typeof projects.$inferSelect): ProjectSummary {
     sortOrder: row.sortOrder,
     sourceKind: row.sourceKind,
     updatedAt: row.updatedAt.toISOString(),
+    visibility: row.visibility,
     workspaceId: row.workspaceId,
   })
 }
@@ -146,7 +154,12 @@ export async function listProjectsForUser(
   principal: UserPrincipalRef,
   options: Readonly<{ includeArchived?: boolean }> = {}
 ): Promise<ProjectSummary[]> {
-  await requireMembership(database, workspaceId, principal)
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Project unavailable'
+  )
   const rows = await database
     .select()
     .from(projects)
@@ -154,6 +167,7 @@ export async function listProjectsForUser(
       and(
         eq(projects.workspaceId, workspaceId),
         isNull(projects.deletedAt),
+        visibleProjectCondition(projects.id, scope),
         ...(options.includeArchived ? [] : [eq(projects.lifecycleState, 'active')])
       )
     )
@@ -169,16 +183,11 @@ export async function getProjectForUser(
   options: Readonly<{ includeArchived?: boolean }> = {}
 ): Promise<ProjectSummary | null> {
   if (!isProjectId(projectId)) return null
+  const scope = await resolveProjectAccessScope(database, workspaceId, principal.userId)
+  if (!scope || !canReadProject(scope, projectId)) return null
   const [row] = await database
     .select({ project: projects })
     .from(projects)
-    .innerJoin(
-      workspaceMemberships,
-      and(
-        eq(workspaceMemberships.workspaceId, projects.workspaceId),
-        eq(workspaceMemberships.userId, principal.userId)
-      )
-    )
     .where(
       and(
         eq(projects.id, projectId),
@@ -200,7 +209,13 @@ export async function updateProject(
 ): Promise<ProjectSummary> {
   if (!isProjectId(projectId)) throw new Error('Project unavailable')
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    const scope = await requireProjectAccessScope(
+      transaction,
+      workspaceId,
+      principal,
+      'Project unavailable'
+    )
+    requireProjectWrite(scope, projectId, 'Project unavailable')
     const [updated] = await transaction
       .update(projects)
       .set({
@@ -258,7 +273,13 @@ export async function archiveProject(
 ): Promise<void> {
   if (!isProjectId(projectId)) throw new Error('Project unavailable')
   await database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    const scope = await requireProjectAccessScope(
+      transaction,
+      workspaceId,
+      principal,
+      'Project unavailable'
+    )
+    requireProjectWrite(scope, projectId, 'Project unavailable')
     await archiveProjectChannels(transaction, workspaceId, projectId, principal)
     const [archived] = await transaction
       .update(projects)
@@ -287,7 +308,13 @@ export async function softDeleteProject(
 ): Promise<void> {
   if (!isProjectId(projectId)) throw new Error('Project unavailable')
   await database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    const scope = await requireProjectAccessScope(
+      transaction,
+      workspaceId,
+      principal,
+      'Project unavailable'
+    )
+    requireProjectWrite(scope, projectId, 'Project unavailable')
     await archiveProjectChannels(transaction, workspaceId, projectId, principal)
     const now = new Date()
     const [deleted] = await transaction
@@ -317,11 +344,20 @@ export async function reorderProjects(
   projectIds: readonly string[]
 ): Promise<ProjectSummary[]> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    const scope = await requireProjectAccessScope(
+      transaction,
+      workspaceId,
+      principal,
+      'Project unavailable'
+    )
+    // A principal orders the projects they can see. Hidden projects keep their
+    // positions: the visible ones are permuted across the slots they already
+    // occupy, so a reorder can neither reveal nor displace a hidden project.
     const activeProjects = await transaction
       .select()
       .from(projects)
-      .where(activeProjectFilter(workspaceId))
+      .where(and(activeProjectFilter(workspaceId), visibleProjectCondition(projects.id, scope)))
+      .orderBy(asc(projects.sortOrder), asc(projects.id))
     if (
       projectIds.length !== activeProjects.length ||
       new Set(projectIds).size !== projectIds.length ||
@@ -329,10 +365,13 @@ export async function reorderProjects(
     ) {
       throw new Error('Project order conflict')
     }
-    for (const [sortOrder, projectId] of projectIds.entries()) {
+    const slots = scope.hiddenProjectIds.length
+      ? activeProjects.map((project) => project.sortOrder)
+      : projectIds.map((_, index) => index)
+    for (const [index, projectId] of projectIds.entries()) {
       await transaction
         .update(projects)
-        .set({ sortOrder, updatedAt: new Date() })
+        .set({ sortOrder: slots[index]!, updatedAt: new Date() })
         .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
     }
     await appendWorkspaceEvent(transaction, {

@@ -59,7 +59,19 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // The #671 execution-location copy module (the task panel's persisted
   // history projection) costs 2,670,625 raw on the same build — 625 bytes
   // over the 2,670,000 cap. Raw ratchets to the next whole KiB.
-  total: { rawBytes: 2_671_000, gzipBytes: 791 * 1024, fileCount: 132 },
+  // Project sharing (2026-10-06): the lazy Share dialog, the /invite accept
+  // page, and the sharing api-client/data surface add 2,699,712 raw / 821,064
+  // gzip on the same build (+28.7 KB raw / +11.1 KB gzip). Raw ratchets to
+  // 2,715,000 (~0.6% headroom) and gzip to 806 KiB (~0.5%); file count holds.
+  // Workspace accordion (2026-10-06, ADR 0011 PR 10), measured against the
+  // same build of main: 2,699,945 raw / 821,161 gzip / 132 files before,
+  // 2,734,540 / 832,476 / 136 after (+34.6 KB raw / +11.3 KB gzip). The
+  // shared @adea-ai/workspace-nav tree (model, adapters, WorkspaceNav,
+  // NavLeafTree) and the published Tree composite replace the Chat/Virtual
+  // WorkspaceSidebar, and the lazy dialog module gains the confirmation
+  // dialog. Raw moves to 2,760,000 (~0.9% headroom), gzip to 840 KiB
+  // (~3.2%), and file count to the next 5-file step.
+  total: { rawBytes: 2_760_000, gzipBytes: 840 * 1024, fileCount: 140 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -73,7 +85,14 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the app-local resize handle (the same corvu-core swap Chat documents).
     // Raw keeps its cap; gzip ratchets to the next whole KiB (~4% headroom;
     // the old cap left 87 bytes of headroom).
-    virtual: { rawBytes: 80 * 1024, gzipBytes: 28 * 1024 },
+    // Re-measured for the workspace accordion (2026-10-06, ADR 0011 PR 10):
+    // 123,997 raw / 41,925 gzip across 18 files against the same build of
+    // main's 81,582 / 27,988 / 14. Virtual mounts the shared
+    // WorkspaceNavSidebar: the workspace-nav tree, the published Tree,
+    // Badge, Input and typography composites, and the workspace identity
+    // mark join the route; the Share host stays a lazy edge. Raw ratchets to
+    // 124 KiB (~2.4% headroom); gzip to 42 KiB (~2.5%).
+    virtual: { rawBytes: 124 * 1024, gzipBytes: 42 * 1024 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and
@@ -101,7 +120,17 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Chat journey total is nearly flat); (3) the shared archive shelf footer
     // and update badges add ~2.3 KiB. Raw ratchets to the next 2 KiB step
     // (~1% headroom); gzip to the next whole KiB with the usual ~3.7%.
-    chat: { rawBytes: 254 * 1024, gzipBytes: 85 * 1024 },
+    // Project sharing (2026-10-06): the sidebar's Share entry, the sharing
+    // query/mutation hooks and the lazy dialog's host land the route at
+    // 261,885 raw — 1,789 bytes over 254 KiB. Raw ratchets to the next 2 KiB
+    // step; the dialog itself stays lazy and gzip keeps its cap.
+    // Workspace accordion (2026-10-06, ADR 0011 PR 10): 304,387 raw /
+    // 100,339 gzip across 42 files against the same build of main's 261,791
+    // / 86,447 / 39 — the same WorkspaceNavSidebar delta Virtual carries
+    // (the views share the chunk, so a Chat-then-Virtual journey pays it
+    // once). Raw ratchets to 300 KiB (~0.9% headroom) and gzip to 100 KiB
+    // (~2%).
+    chat: { rawBytes: 300 * 1024, gzipBytes: 100 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
@@ -161,7 +190,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // source-control app chunk inside this partition: 179,419 raw on the
     // same build — 1,243 bytes over the 174 KiB cap. Raw ratchets to the
     // next whole KiB; gzip stays at its measured step.
-    devUtilityPanes: { rawBytes: 176 * 1024, gzipBytes: 60 * 1024 },
+    // Workspace accordion (2026-10-06, ADR 0011 PR 10): the published Tree
+    // composite now also loads with Chat/Virtual, so rolldown re-splits the
+    // chunk the panes share with it: 178,335 raw / 61,542 gzip against the
+    // same build of main's 178,006 / 60,882 (102 bytes over 60 KiB gzip).
+    // Gzip ratchets to the next whole KiB; raw keeps its cap.
+    devUtilityPanes: { rawBytes: 176 * 1024, gzipBytes: 61 * 1024 },
     // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
     // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
     // carries ~2.2% headroom instead of leaving the cap pinned to the build.

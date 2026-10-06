@@ -108,7 +108,9 @@ export function projectBindings(
   return [...byRepo.values()].map(({ binding, projects: named }) => ({
     repoId: binding.repoId,
     canonicalRoot: binding.canonicalRoot,
-    rootBookmarkId: binding.rootBookmarkId,
+    // A managed bare clone (remote-only project) has no bookmark: it is
+    // never adopted, so it offers no adopt default.
+    rootBookmarkId: binding.rootBookmarkId ?? '',
     projects: named,
   }))
 }

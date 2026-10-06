@@ -81,8 +81,18 @@ export const WORKSPACE_EVENT_CONTRACTS = {
   },
   'project.created': { schemaVersion: 1, aggregateType: 'project', aggregateIdKey: 'projectId' },
   'project.deleted': { schemaVersion: 1, aggregateType: 'project', aggregateIdKey: 'projectId' },
+  'project.members_changed': {
+    schemaVersion: 1,
+    aggregateType: 'project',
+    aggregateIdKey: 'projectId',
+  },
   'project.reordered': { schemaVersion: 1, aggregateType: 'project' },
   'project.updated': { schemaVersion: 1, aggregateType: 'project', aggregateIdKey: 'projectId' },
+  'project.visibility_changed': {
+    schemaVersion: 1,
+    aggregateType: 'project',
+    aggregateIdKey: 'projectId',
+  },
   'runtime_node.key_rotated': {
     schemaVersion: 1,
     aggregateType: 'runtime_node',
@@ -128,6 +138,11 @@ export const WORKSPACE_EVENT_CONTRACTS = {
   'task.updated': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'workspace.archived': { schemaVersion: 1, aggregateType: 'workspace' },
   'workspace.created': { schemaVersion: 1, aggregateType: 'workspace' },
+  // Invitation lifecycle: ids only. The invited email stays in its table and
+  // the token never leaves the inviter's response.
+  'workspace.invitation_revoked': { schemaVersion: 1, aggregateType: 'workspace' },
+  'workspace.member_invited': { schemaVersion: 1, aggregateType: 'workspace' },
+  'workspace.member_joined': { schemaVersion: 1, aggregateType: 'workspace' },
   'workspace.read_all': { schemaVersion: 1, aggregateType: 'workspace' },
   'workspace.reopened': { schemaVersion: 1, aggregateType: 'workspace' },
   'workspace.updated': { schemaVersion: 1, aggregateType: 'workspace' },
@@ -162,6 +177,7 @@ export const FORBIDDEN_EVENT_PAYLOAD_KEYS: readonly string[] = [
   'wrappedKey',
   // Credentials and signed access to content.
   'accessToken',
+  'email',
   'credential',
   'credentials',
   'localPath',

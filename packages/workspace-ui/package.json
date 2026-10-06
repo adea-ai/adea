@@ -55,6 +55,13 @@
       "import": "./dist/global-workspace-rail.js",
       "default": "./dist/global-workspace-rail.js"
     },
+    "./workspace-breadcrumbs": {
+      "types": "./dist/workspace-breadcrumbs.d.ts",
+      "solid": "./src/workspace-breadcrumbs.tsx",
+      "development": "./src/workspace-breadcrumbs.tsx",
+      "import": "./dist/workspace-breadcrumbs.js",
+      "default": "./dist/workspace-breadcrumbs.js"
+    },
     "./workspace-help-center": {
       "types": "./dist/workspace-help-center.d.ts",
       "solid": "./src/workspace-help-center.tsx",
@@ -125,6 +132,13 @@
       "import": "./dist/workspace-apps.js",
       "default": "./dist/workspace-apps.js"
     },
+    "./project-share-dialog": {
+      "types": "./dist/project-share-dialog.d.ts",
+      "solid": "./src/project-share-dialog.tsx",
+      "development": "./src/project-share-dialog.tsx",
+      "import": "./dist/project-share-dialog.js",
+      "default": "./dist/project-share-dialog.js"
+    },
     "./app-library-page": {
       "types": "./dist/app-library-page.d.ts",
       "solid": "./src/app-library-page.tsx",
@@ -149,7 +163,8 @@
     "@adea-ai/spatial": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.112.0",
+    "@adea-ai/ui": "0.113.0",
+    "@adea-ai/workspace-nav": "workspace:*",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },

@@ -4,6 +4,7 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tansta
 
 export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
 export * from './dev-runtime'
+export * from './sharing'
 
 /** A value that may be supplied as a Solid accessor so queries stay reactive. */
 export type MaybeAccessor<T> = T | (() => T)
@@ -848,6 +849,27 @@ export function useUpdateProjectMutation(
   const queryClient = useQueryClient()
   return useMutation(() =>
     projectMutationOptions.update(client, queryClient, resolveAccessor(workspaceId))
+  )
+}
+
+export function useArchiveProjectMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  const queryClient = useQueryClient()
+  return useMutation(() =>
+    projectMutationOptions.archive(client, queryClient, resolveAccessor(workspaceId))
+  )
+}
+
+/** Soft delete: the project leaves every listing and its id is never reused. */
+export function useDeleteProjectMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  const queryClient = useQueryClient()
+  return useMutation(() =>
+    projectMutationOptions.delete(client, queryClient, resolveAccessor(workspaceId))
   )
 }
 

@@ -48,7 +48,9 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
     'setSelectedRuntimeSessionId',
     'setSelectedTaskId',
     'setSelectedWorkspaceId',
+    'setSidebarGroupBy',
     'setThreadRootMessageId',
+    'sidebarGroupBy',
     'switchWorkspace',
     'threadRootMessageId',
     'toggleDevProjectCollapsed',
@@ -159,5 +161,17 @@ test('switchWorkspace preserves the Dev selection family when asked', () => {
     selectedProjectId: null,
     selectedChannelId: null,
     drafts: {},
+  })
+})
+
+test('the sidebar grouping is kept per workspace across switches', () => {
+  workspaceStore.getState().setSelectedWorkspaceId('workspace-work')
+  workspaceStore.getState().setSidebarGroupBy('workspace-work', 'status')
+  workspaceStore.getState().switchWorkspace('workspace-home')
+  workspaceStore.getState().setSidebarGroupBy('workspace-home', 'recent')
+
+  expect(workspaceStore.getState().sidebarGroupBy).toEqual({
+    'workspace-work': 'status',
+    'workspace-home': 'recent',
   })
 })

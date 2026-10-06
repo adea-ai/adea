@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, text, unique, uuid } from 'drizzle-orm/pg-core'
+import {
+  check,
+  index,
+  integer,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core'
 
 import { appSchema } from './schema'
 import { entityId, softDeleteColumns, timestampColumns } from './conventions'
@@ -85,5 +94,60 @@ export const authorizationAuditRecords = appSchema.table(
     check('authorization_audit_decision_valid', sql`${table.decision} in ('allowed', 'denied')`),
     index('authorization_audit_workspace_idx').on(table.workspaceId, table.createdAt),
     index('authorization_audit_principal_idx').on(table.principalKind, table.principalId),
+  ]
+)
+
+export const workspaceInvitationRole = appSchema.enum('workspace_invitation_role', [
+  'admin',
+  'member',
+])
+
+/**
+ * A pending or settled invitation into a workspace (ADR 0012). Only the
+ * SHA-256 digest of the single-use token is stored; the plaintext is returned
+ * once, to the inviter, and never persisted. At most one invitation per
+ * (workspace, email) is pending at a time.
+ */
+export const workspaceInvitations = appSchema.table(
+  'workspace_invitations',
+  {
+    id: entityId(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    /** Normalized: trimmed and lower-cased. */
+    email: text('email').notNull(),
+    role: workspaceInvitationRole('role').notNull(),
+    tokenDigest: text('token_digest').notNull(),
+    invitedByUserId: uuid('invited_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+    acceptedAt: timestamp('accepted_at', { mode: 'date', withTimezone: true }),
+    acceptedByUserId: uuid('accepted_by_user_id').references(() => users.id, {
+      onDelete: 'restrict',
+    }),
+    revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
+    ...timestampColumns(),
+  },
+  (table) => [
+    unique('workspace_invitations_token_digest_unique').on(table.tokenDigest),
+    uniqueIndex('workspace_invitations_pending_unique')
+      .on(table.workspaceId, table.email)
+      .where(sql`${table.acceptedAt} is null and ${table.revokedAt} is null`),
+    check(
+      'workspace_invitations_email_normalized',
+      sql`${table.email} = lower(btrim(${table.email})) and length(${table.email}) between 3 and 320 and position('@' in ${table.email}) > 1`
+    ),
+    check('workspace_invitations_token_digest_valid', sql`${table.tokenDigest} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'workspace_invitations_accept_consistent',
+      sql`(${table.acceptedAt} is null) = (${table.acceptedByUserId} is null)`
+    ),
+    check(
+      'workspace_invitations_settled_once',
+      sql`${table.acceptedAt} is null or ${table.revokedAt} is null`
+    ),
+    index('workspace_invitations_workspace_idx').on(table.workspaceId, table.createdAt),
   ]
 )

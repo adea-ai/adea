@@ -12,7 +12,12 @@ import { and, asc, eq, isNotNull, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { appendWorkspaceEvent } from './transactions'
-import { authorizationAuditRecords, workspaceMemberships, workspaces } from './schema'
+import {
+  authorizationAuditRecords,
+  projectMembers,
+  workspaceMemberships,
+  workspaces,
+} from './schema'
 
 export type WorkspaceRole = 'admin' | 'member' | 'owner'
 
@@ -277,6 +282,16 @@ export async function removeWorkspaceMembership(
         )
       )
       .returning({ id: workspaceMemberships.id })
+    // Project lists only grant access alongside a workspace membership; drop
+    // them too so a later re-join starts with no project access.
+    await transaction
+      .delete(projectMembers)
+      .where(
+        and(
+          eq(projectMembers.workspaceId, workspaceId),
+          eq(projectMembers.userId, principal.userId)
+        )
+      )
     return removed.length === 1
   })
 }

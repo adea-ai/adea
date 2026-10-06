@@ -5,6 +5,15 @@ import { Label } from '@adea-ai/ui/components/ui/label'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { createSignal, For, Show } from 'solid-js'
 
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@adea-ai/ui/components/ui/alert-dialog'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { ProjectIcon } from './project-icon'
 
@@ -196,16 +205,19 @@ export function RenameConversationDialog(props: {
   onClose: () => void
   onSave: (title: string) => Promise<void>
   open: boolean
+  /** The thing being renamed; defaults to a conversation. */
+  noun?: 'conversation' | 'task'
 }) {
   const [error, setError] = createSignal<string | null>(null)
+  const noun = () => props.noun ?? 'conversation'
   return (
     <ModalDialog
       modal={false}
       class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
-      title="Rename conversation"
-      description="Give this conversation a clear, durable title."
+      title={`Rename ${noun()}`}
+      description={`Give this ${noun()} a clear, durable title.`}
     >
       <form
         class="conventional-dialog-form"
@@ -216,11 +228,19 @@ export function RenameConversationDialog(props: {
           void props
             .onSave(title)
             .then(() => props.onClose())
-            .catch(() => setError('Conversation could not be renamed.'))
+            .catch(() =>
+              setError(
+                noun() === 'task'
+                  ? 'Task could not be renamed.'
+                  : 'Conversation could not be renamed.'
+              )
+            )
         }}
       >
         <div class="flex flex-col gap-2">
-          <Label for="conversation-title">Conversation name</Label>
+          <Label for="conversation-title">
+            {noun() === 'task' ? 'Task name' : 'Conversation name'}
+          </Label>
           <Input
             id="conversation-title"
             name="title"
@@ -288,5 +308,67 @@ export function CreateGroupDialog(props: {
         </Button>
       </form>
     </ModalDialog>
+  )
+}
+
+/**
+ * A confirmation for an irreversible sidebar action (archive or delete a
+ * project, archive a task or conversation). Confirm runs the action and keeps
+ * the dialog open with an inline error when it fails. Only Cancel closes it:
+ * the shared AlertDialog blocks Escape and outside dismissal by design, so
+ * every exit is a named choice.
+ */
+export function ConfirmActionDialog(props: {
+  busy: boolean
+  confirmLabel: string
+  cancelLabel?: string
+  description: string
+  destructive?: boolean
+  onClose: () => void
+  onConfirm: () => Promise<void>
+  failure: string
+  title: string
+}) {
+  const [error, setError] = createSignal<string | null>(null)
+  return (
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{props.title}</AlertDialogTitle>
+          <AlertDialogDescription>{props.description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <Show when={error()}>
+          {(message) => (
+            <Alert variant="destructive">
+              <AlertDescription>{message()}</AlertDescription>
+            </Alert>
+          )}
+        </Show>
+        <AlertDialogFooter>
+          <AlertDialogCancel as={Button} type="button" variant="outline">
+            {props.cancelLabel ?? 'Cancel'}
+          </AlertDialogCancel>
+          <Button
+            type="button"
+            variant={props.destructive ? 'destructive' : 'default'}
+            disabled={props.busy}
+            onClick={() => {
+              setError(null)
+              void props
+                .onConfirm()
+                .then(() => props.onClose())
+                .catch(() => setError(props.failure))
+            }}
+          >
+            {props.busy ? 'Working…' : props.confirmLabel}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

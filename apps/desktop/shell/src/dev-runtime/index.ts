@@ -74,7 +74,7 @@ import {
 } from './usage/on-device'
 import { RUN_TERMINAL_STATES } from './harness/status'
 import { createUsageService, type UsageService } from './usage/service'
-import type { RetainedDataRecord } from '../../../../../packages/types/src/dev-runtime'
+import type { Project, RetainedDataRecord } from '../../../../../packages/types/src/dev-runtime'
 import { registerWorktreeRuntime } from './worktrees/register'
 import {
   createWorktreeService,
@@ -83,12 +83,16 @@ import {
 } from './worktrees/service'
 import { WorktreeError } from './worktrees/errors'
 import { registerProjectScanRuntime } from './projects/register'
+import { createManagedCloneAuthority } from './projects/clone'
 import { registerRepoRuntime } from './repos/register'
 import { registerFilesRuntime } from './files/register'
 import { registerGitRuntime } from './git/register'
 import { registerGithubRuntime, type GhRunner, type GithubRepoContext } from './github/register'
 import { registerGitlabRuntime, type GlabRunner } from './gitlab/register'
 import { createCredentialVault, type CredentialVault } from './vault'
+import { registerConnectionsRuntime, type ConnectionsRuntime } from './connections/register'
+import { isHarnessAccountFamily } from './connections/store'
+import { createGitRemoteEnvResolver } from './connections/transport-env'
 
 export type DevProviderKind = 'provider' | 'typed_unavailable'
 
@@ -112,6 +116,8 @@ export type DevRuntimeHost = Readonly<{
   repos?: ReturnType<typeof registerRepoRuntime>
   /** Present only when a verified scope exists at composition time. */
   harness?: HarnessRuntimeRegistration
+  /** Workspace connections (ADR 0012); present with a verified scope. */
+  connections?: ConnectionsRuntime
   worktrees: ReturnType<typeof registerWorktreeRuntime>
   /** The ONE worktree service of this composition (present with a verified
    *  scope): session validation, the worktree register, the terminal/files/
@@ -184,6 +190,12 @@ export type CreateDevRuntimeHostInput = {
    * and the shell must never await it.
    */
   managedPiAutoInstall?: boolean
+  /**
+   * Test-only: let `dev.project.clone` admit `file://` remotes (local fixture
+   * origins). The shipped shell (`bun/index.ts`) never sets it, so production
+   * accepts only https and ssh remotes.
+   */
+  allowLocalCloneRemotes?: boolean
   /** Overrides the ACP lane driver (#32; tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
   /**
@@ -295,6 +307,31 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     approvalVerifier: input.approvalVerifier,
   })
 
+  // Workspace connections (ADR 0012): the active scope's git hosting and
+  // harness account bindings. Every credentialed git/gh/glab child and every
+  // harness launch below resolves through this one seam; it reads only the
+  // active scope's partition, so no workspace ever borrows another's binding.
+  let harness: HarnessRuntimeRegistration | undefined
+  const connections = input.scope
+    ? registerConnectionsRuntime({
+        authority: input.authority,
+        dataDir: input.dataDir,
+        scope: input.scope,
+        vault,
+        ...(input.audit ? { audit: input.audit } : {}),
+        ...(input.publish ? { publish: input.publish } : {}),
+        discoveredHarnesses: () =>
+          (harness?.discoveredFamilies() ?? []).flatMap((entry) =>
+            isHarnessAccountFamily(entry.harnessId)
+              ? [{ harnessId: entry.harnessId, displayName: entry.displayName }]
+              : []
+          ),
+      })
+    : undefined
+  const gitRemoteEnv = connections
+    ? createGitRemoteEnvResolver(connections.resolveGitHosting)
+    : undefined
+
   // The capability snapshot is the channel's own probe operation: it reports
   // grants for the verified scope truthfully.
   input.authority.registerCommandProvider('dev.capability.snapshot', (command, identity) =>
@@ -327,6 +364,18 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       throw error
     }
   }
+  // Remote-only projects (ADR 0011): `dev.project.clone` places a managed
+  // bare clone in owner-only app data, and unbinding such a project removes
+  // it through the quarantine path once all of its worktrees are cleaned.
+  const managedClones = input.scope
+    ? createManagedCloneAuthority({
+        dataDir: input.dataDir,
+        scope: input.scope,
+        ...(worktreeService ? { worktreeService } : {}),
+        ...(input.audit ? { audit: input.audit } : {}),
+        ...(input.allowLocalCloneRemotes === true ? { allowLocalRemotes: true } : {}),
+      })
+    : undefined
   const projectSession = input.scope
     ? registerProjectSessionRuntime({
         authority: input.authority,
@@ -370,6 +419,19 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           const minted = roots.authorize({ scope: input.scope!, absolutePath, label })
           return { id: minted.id }
         },
+        ...(managedClones
+          ? {
+              managedUnbind: managedClones.prepareUnbind,
+              // `dev.project.clone` with `mode: 'managed'`; the register owns
+              // the operation and delegates the bare clone here.
+              managedClone: (request): Promise<Project> =>
+                managedClones.cloneManaged(request, projectSession!, (credentialRefId) => {
+                  const credential = vault.get({ scope: input.scope!, credentialRefId })
+                  return { id: credential.id, host: credential.host, state: credential.state }
+                }),
+            }
+          : {}),
+        ...(input.allowLocalCloneRemotes === true ? { allowLocalCloneRemotes: true } : {}),
       })
     : undefined
 
@@ -434,7 +496,6 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         })
       : undefined
 
-  let harness: HarnessRuntimeRegistration | undefined
   // The shell event bus fans out to the host publisher AND the harness
   // event-log ingester, so the canonical stream carries the register's
   // session lifecycle facts alongside the harness run facts.
@@ -463,6 +524,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
                 input.memory!.propose(workspaceId, { text }),
             }
           : {}),
+        ...(connections ? { resolveHarnessAccount: connections.resolveHarnessAccount } : {}),
         ...(terminal ? { deliverPrompt: terminal.deliverPrompt } : {}),
         ...(terminal
           ? {
@@ -508,6 +570,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         roots,
         vault,
         ...(worktreeService ? { service: worktreeService } : {}),
+        ...(gitRemoteEnv ? { resolveFetchEnv: gitRemoteEnv } : {}),
       })
     : undefined
 
@@ -541,6 +604,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ? registerGitRuntime({
         authority: input.authority,
         scope: input.scope,
+        ...(gitRemoteEnv ? { resolveRemoteEnv: gitRemoteEnv } : {}),
         resolveWorktree: (worktreeId) => {
           const record = lookupWorktree(worktreeId)
           if (!record) return undefined
@@ -608,6 +672,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           }
         },
         ...(input.runGh ? { runGh: input.runGh } : {}),
+        ...(connections ? { resolveGitHosting: connections.resolveGitHosting } : {}),
       })
     : undefined
   // The GitLab mirror of the collaboration contract, through the user's
@@ -620,6 +685,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           registeredRepos(worktreeService)().find((repo) => repo.repoId === repoId),
         listRepos: registeredRepos(worktreeService),
         ...(input.runGlab ? { runGlab: input.runGlab } : {}),
+        ...(connections ? { resolveGitHosting: connections.resolveGitHosting } : {}),
       })
     : undefined
 
@@ -889,6 +955,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ...(projectSession ? { projectSession } : {}),
     ...(repos ? { repos } : {}),
     ...(harness ? { harness } : {}),
+    ...(connections ? { connections } : {}),
     worktrees: worktrees ?? { commands: [] as DevOperation[], registeredCommands: 0 },
     ...(worktreeService ? { worktreeService } : {}),
     ...(files ? { files } : {}),

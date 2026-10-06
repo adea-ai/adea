@@ -75,10 +75,14 @@ export async function discoverWorktrees(repoPath: string): Promise<WorktreeListE
 /** Adoption proof for an externally created worktree: it must be a real
  *  directory, carry a valid gitdir backlink into the repo's own common dir,
  *  and must not be the repo's primary checkout. `repoRoot` is the repository
- *  working-tree root. Returns the proven identity for the adopted record. */
+ *  root — a working tree, or for a managed bare clone the bare directory
+ *  itself; `repoCommonDir` is its git common dir (`<root>/.git` for a
+ *  checkout, the root itself for a bare clone; the checkout spelling is the
+ *  default). Returns the proven identity for the adopted record. */
 export async function proveExternalWorktree(input: {
   worktreePath: string
   repoRoot: string
+  repoCommonDir?: string
 }): Promise<{
   canonicalRoot: string
   gitDir: string
@@ -100,7 +104,8 @@ export async function proveExternalWorktree(input: {
       'external worktree gitdir backlink could not be proven'
     )
   }
-  if (realpathSync(proof.commonDir) !== realpathSync(join(canonicalRepoRoot, '.git'))) {
+  const commonDir = input.repoCommonDir ?? join(canonicalRepoRoot, '.git')
+  if (realpathSync(proof.commonDir) !== realpathSync(commonDir)) {
     throw new WorktreeError(
       'gitdir_unproven',
       'external worktree belongs to a different repository'

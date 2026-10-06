@@ -56,7 +56,10 @@ const readEntryAccess = createServerOnlyFn(() => {
 
 export const Route = createFileRoute('/')({
   loader: () => {
-    if (isDesktopRuntime()) return { denied: false }
+    // A client-side rerun (a same-route navigation such as switching between
+    // two workspaces with the same scene) was admitted with the document; the
+    // server-only reader throws in the browser, which took down the root.
+    if (isDesktopRuntime() || !import.meta.env.SSR) return { denied: false }
     return readEntryAccess() === 'denied' ? { denied: true } : { denied: false }
   },
   component: WorkspaceRoute,

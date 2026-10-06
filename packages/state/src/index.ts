@@ -2,6 +2,9 @@ import { createEffect, createMemo, createRoot, type Accessor } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 import type { WorkspaceViewMode } from '@adea-ai/types'
 
+/** The workspace sidebar's grouping of the active workspace (ADR 0011). */
+export type SidebarGroupBy = 'project' | 'status' | 'recent'
+
 export type WorkspaceState = {
   cameraViewMode: WorkspaceViewMode
   selectedWorkspaceId: string | null
@@ -16,6 +19,8 @@ export type WorkspaceState = {
   threadRootMessageId: string | null
   activeSurface: 'agents' | 'conversation' | 'tasks'
   collapsedProjectIds: readonly string[]
+  /** The sidebar grouping chosen for each workspace, keyed by workspace id. */
+  sidebarGroupBy: Readonly<Record<string, SidebarGroupBy>>
   collapsedDevProjectIds: readonly string[]
   devFocusMode: boolean
   drafts: Readonly<Record<string, string>>
@@ -38,6 +43,7 @@ export type WorkspaceState = {
   setMobileSidebarOpen: (open: boolean) => void
   setGlobalPanel: (panel: WorkspaceState['globalPanel']) => void
   toggleProjectCollapsed: (projectId: string) => void
+  setSidebarGroupBy: (workspaceId: string, groupBy: SidebarGroupBy) => void
   toggleDevProjectCollapsed: (projectId: string) => void
   setDevFocusMode: (focusMode: boolean) => void
   restoreConventionalState: (
@@ -52,6 +58,7 @@ export type WorkspaceState = {
         | 'selectedProjectId'
         | 'selectedTaskId'
         | 'selectedWorkspaceId'
+        | 'sidebarGroupBy'
         | 'threadRootMessageId'
       >
     >
@@ -87,6 +94,7 @@ function initialState(): WorkspaceState {
     threadRootMessageId: null,
     activeSurface: 'conversation',
     collapsedProjectIds: [],
+    sidebarGroupBy: {},
     collapsedDevProjectIds: [],
     devFocusMode: false,
     drafts: {},
@@ -152,6 +160,9 @@ function initialState(): WorkspaceState {
           ? collapsedProjectIds.filter((id) => id !== projectId)
           : [...collapsedProjectIds, projectId]
       ),
+    // Per workspace on purpose: switching workspaces keeps each one's grouping.
+    setSidebarGroupBy: (workspaceId, groupBy) =>
+      setStore('sidebarGroupBy', (current) => ({ ...current, [workspaceId]: groupBy })),
     toggleDevProjectCollapsed: (projectId) =>
       setStore('collapsedDevProjectIds', (ids) =>
         ids.includes(projectId) ? ids.filter((id) => id !== projectId) : [...ids, projectId]

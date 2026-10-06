@@ -96,6 +96,16 @@ function command(operation: keyof typeof devOperationDefinitions, body: Record<s
   }
 }
 
+const cloneReply = (value: unknown) =>
+  decodeDevReply({
+    schemaVersion: 1,
+    operation: 'dev.project.clone',
+    requestId: '00000000-0000-4000-8000-0000000000c1',
+    ok: true,
+    value,
+    observedAt: new Date().toISOString(),
+  })
+
 describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
     // 165 before dev.device.capabilities, 166 before the source control
@@ -103,12 +113,13 @@ describe('Dev Runtime operation registry', () => {
     // GitLab mirrors, 215 before dev.project.authorizeRoot, 216 before
     // dev.worktree.rename, dev.worktree.diffSummary, dev.summary.workspaces
     // and dev.memory.propose, 220 before the project-group removal (six
-    // operations out, dev.project.unbind in), 215 before the machine-wide
-    // resources slice (foreign stop, restart, worktree storage, and resource
-    // preferences): the registry ratchet moves only when an operation is
-    // deliberately added, and the decoder-key check below is what keeps the
-    // list and the decoders in step.
-    expect(devOperations).toHaveLength(222)
+    // operations out, dev.project.unbind in), 215 before the six workspace
+    // connection operations (ADR 0012) and the machine-wide resources slice
+    // (foreign stop, restart, worktree storage, and resource preferences):
+    // the registry ratchet moves only when an operation is deliberately added,
+    // and the decoder-key check below is what keeps the list and the decoders
+    // in step.
+    expect(devOperations).toHaveLength(228)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
@@ -292,6 +303,71 @@ describe('Dev Runtime operation registry', () => {
     expect(() =>
       devOperationDecoders['dev.project.unbind'].request({ projectId, expectedVersion: 'x' })
     ).toThrow()
+  })
+
+  test('remote-only projects: clone body, managed bindings, and the layout fact', () => {
+    const projectId = '00000000-0000-4000-8000-000000000020'
+    const repoId = '00000000-0000-4000-8000-000000000030'
+    const clone = devOperationDecoders['dev.project.clone'].request
+    const remote = {
+      provider: 'github',
+      host: 'github.com',
+      ownerPath: 'adea-ai',
+      repository: 'adea',
+    }
+    expect(
+      clone({
+        projectId,
+        mode: 'managed',
+        remote,
+        credentialRefId: '00000000-0000-4000-8000-000000000040',
+        defaultBaseRef: 'origin/main',
+      })
+    ).toMatchObject({ mode: 'managed' })
+    // #1061's checkout body stays valid unchanged (mode defaults to checkout).
+    expect(clone({ projectId, remote, destinationBookmarkId: repoId })).toMatchObject({
+      destinationBookmarkId: repoId,
+    })
+    expect(
+      clone({ projectId, remote, mode: 'checkout', destinationBookmarkId: repoId })
+    ).toMatchObject({ mode: 'checkout' })
+    for (const bad of [
+      { projectId, remote, mode: 'mirror' },
+      { projectId, mode: 'managed' },
+      { projectId, remote: { ...remote, host: '' }, mode: 'managed' },
+      { projectId, remoteUrl: 'https://x/y', mode: 'managed' },
+      { projectId, remote, mode: 'managed', defaultBaseRef: 'r'.repeat(257) },
+    ])
+      expect(() => clone(bad)).toThrow()
+
+    const managedBinding = { repoId, canonicalRoot: '/data/managed.git', layout: 'bare_managed' }
+    const project = { id: projectId, scope, repoIds: [repoId], lifecycle: 'ready', version: 1 }
+    expect(cloneReply({ ...project, repos: [managedBinding] }).ok).toBe(true)
+    // A managed binding carries no bookmark; an ordinary one must carry one.
+    expect(() =>
+      cloneReply({ ...project, repos: [{ ...managedBinding, rootBookmarkId: repoId }] })
+    ).toThrow()
+    expect(() =>
+      cloneReply({ ...project, repos: [{ ...managedBinding, layout: 'bare' }] })
+    ).toThrow()
+    expect(() =>
+      cloneReply({ ...project, repos: [{ repoId, canonicalRoot: '/data/checkout' }] })
+    ).toThrow()
+
+    const repo = {
+      id: repoId,
+      scope,
+      kind: 'git',
+      lifecycle: 'ready',
+      canonicalRoot: '/data/managed.git',
+      projectIds: [projectId],
+      version: 1,
+    }
+    expect(decodeRepo({ ...repo, layout: 'bare_managed' })).toMatchObject({
+      layout: 'bare_managed',
+    })
+    expect(() => decodeRepo({ ...repo, layout: 'bare' })).toThrow()
+    expect(() => decodeRepo({ ...repo, kind: 'folder', layout: 'bare_managed' })).toThrow()
   })
 
   test('decodes new stream-grant and list operation bodies', () => {

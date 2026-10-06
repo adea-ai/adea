@@ -68,6 +68,7 @@ describe.skipIf(!connectionUrl)('project persistence and isolation', () => {
       'sortOrder',
       'sourceKind',
       'updatedAt',
+      'visibility',
       'workspaceId',
     ])
     const operations = await createProject(connection.db, workspace.id, owner.principal, {

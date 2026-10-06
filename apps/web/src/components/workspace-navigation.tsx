@@ -35,7 +35,12 @@ import {
   type SharedDevUtilityOwner,
 } from '@adea-ai/dev-view/utility-owner'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
-import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
+import type {
+  WorkspaceDeepLink,
+  WorkspaceNavHost,
+} from '@adea-ai/workspace-ui/conventional-workspace-shell'
+import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
+import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accent'
 import {
   enabledWorkspaceApps,
   orderedWorkspaceApps,
@@ -45,6 +50,11 @@ import {
   workspaceApps,
   type WorkspaceAppId,
 } from '@adea-ai/workspace-ui/workspace-apps'
+import {
+  devBreadcrumbs,
+  type DevBreadcrumbSelection,
+  type WorkspaceBreadcrumb,
+} from '@adea-ai/workspace-ui/workspace-breadcrumbs'
 import { WorkspaceTopBar } from './workspace-top-bar'
 import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
@@ -86,6 +96,7 @@ const DevWorkspace = lazyComponent(
           utilityHostOwnedByShell?: boolean
           deepLinkSelection?: () => { projectId?: string; sessionId?: string } | undefined
           onSelectionChange?: (selection: { projectId: string; sessionId: string | null }) => void
+          onBreadcrumbChange?: (crumb: DevBreadcrumbSelection | undefined) => void
         }) => {
           const unavailable =
             entryProps.runtime ??
@@ -124,6 +135,7 @@ const DevWorkspace = lazyComponent(
               utilityHostOwnedByShell={entryProps.utilityHostOwnedByShell}
               deepLinkSelection={entryProps.deepLinkSelection}
               onSelectionChange={entryProps.onSelectionChange}
+              onBreadcrumbChange={entryProps.onBreadcrumbChange}
             />
           )
         }
@@ -686,6 +698,56 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     })
   })
 
+  // The top bar's title slot shows Workspace › Project › Leaf (ADR 0011).
+  // Chat and Virtual read the mounted shared sidebar's path; Dev, not on the
+  // shared sidebar yet, reports its selected project and branch. Every other
+  // surface keeps the plain title.
+  const [navBreadcrumbs, setNavBreadcrumbs] =
+    createSignal<Accessor<readonly WorkspaceBreadcrumb[]>>()
+  const [devBreadcrumb, setDevBreadcrumb] = createSignal<DevBreadcrumbSelection>()
+  const topBarBreadcrumbs = (): readonly WorkspaceBreadcrumb[] | undefined => {
+    const workspace = props.activeWorkspace
+    if (libraryOpen() || designerActive() || !workspace) return undefined
+    if (activeAppId() === 'dev') return devBreadcrumbs(workspace, devBreadcrumb())
+    if (activeAppId() === 'chat' || activeAppId() === 'virtual') return navBreadcrumbs()?.()
+    return undefined
+  }
+
+  // The contextual sidebar's Workspaces accordion switches through the same
+  // helper the `?workspace=` links use, so a click and a link authorize and
+  // reset context identically.
+  const workspaceHost: WorkspaceNavHost = {
+    get workspaces() {
+      return props.workspaces
+    },
+    onSwitchWorkspace: (workspace) => switchToWorkspace(workspace),
+    onOpenWorkspaceSettings: () => openSettings('workspace'),
+    registerBreadcrumbs: (crumbs) => {
+      setNavBreadcrumbs(() => crumbs)
+      return () => {
+        if (navBreadcrumbs() === crumbs) setNavBreadcrumbs(undefined)
+      }
+    },
+  }
+
+  // The active workspace's accent themes the whole app while it is active
+  // (ADR 0011): it overrides the appearance accent, and a workspace without
+  // one (null) keeps the appearance accent. It is painted on <body>, below
+  // the document element the appearance provider writes, so portalled menus
+  // and dialogs follow it and clearing it hands the roles straight back.
+  const theme = useOptionalTheme()
+  createEffect(() => {
+    if (typeof document === 'undefined') return
+    paintWorkspaceAccent(
+      document.body,
+      props.activeWorkspace?.accent ?? null,
+      theme?.variantId() ?? ''
+    )
+  })
+  onCleanup(() => {
+    if (typeof document !== 'undefined') paintWorkspaceAccent(document.body, null, '')
+  })
+
   const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)
   const settingsOpen = () => globalPanel() === 'settings' || hashSettingsOpen()
 
@@ -790,7 +852,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     window.dispatchEvent(new PopStateEvent('popstate'))
     if (enabled && view() !== 'virtual') void setViewParam('virtual')
   }
-  const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
+  const openSettings = (
+    section: 'account' | 'input-notifications' | 'integrations' | 'workspace'
+  ) => {
     window.history.replaceState(null, '', `#settings/${section}`)
     setHashSettingsOpen(true)
     // Settings is a global overlay. Keep the current surface mounted so the
@@ -830,6 +894,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         hideSidebarToggle={designerActive()}
         platform={props.platform}
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
+        breadcrumbs={topBarBreadcrumbs()}
         onOpenNotifications={() => openSettings('input-notifications')}
         actionsMount={setToolbarMount}
         showDevActions={activeAppId() === 'dev'}
@@ -905,7 +970,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           openSettings('account')
         }}
         activeWorkspace={props.activeWorkspace}
-        onWorkspaceChange={(workspace) => void switchToWorkspace(workspace)}
         onViewChange={(id) => changeApp(id)}
         onViewIntent={preloadView}
         onPanelIntent={preloadPanel}
@@ -925,7 +989,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         }}
         view={activeAppId()}
         views={orderedViews()}
-        workspaces={props.workspaces}
       />
       <div class="workspace-frame__surface" aria-busy={switchingWorkspaceId() ? true : undefined}>
         <Show when={feedbackError()}>
@@ -999,6 +1062,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                             utilityHostOwnedByShell
                             deepLinkSelection={devDeepLinkSelection}
                             onSelectionChange={applyDevSelection}
+                            onBreadcrumbChange={setDevBreadcrumb}
                           />
                         }
                       >
@@ -1030,6 +1094,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                               onOpenTaskBoard={openTaskBoard()}
                               onViewChange={changeView}
                               services={props.services}
+                              workspaceHost={workspaceHost}
                             />,
                             archiveAction,
                             sidebarOpener
@@ -1048,6 +1113,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                             }
                             onViewChange={changeView}
                             services={props.services}
+                            workspaceHost={workspaceHost}
                           />
                         )
                       }
@@ -1068,6 +1134,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                         onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
                         onWorkspaceViewChange={changeView}
                         services={props.services}
+                        workspaceHost={workspaceHost}
                         workspaceView={view()}
                       />
                     }

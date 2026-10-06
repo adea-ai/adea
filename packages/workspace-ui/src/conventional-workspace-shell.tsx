@@ -10,7 +10,7 @@ import { ArtifactDetail } from './artifact-detail'
 import { ConversationSurface } from './conversation-surface'
 import { TaskBoard } from './task-board'
 import { useWorkspaceController } from './use-workspace-controller'
-import { WorkspaceSidebar } from './workspace-sidebar'
+import { WorkspaceNavSidebar, type WorkspaceNavHost } from './workspace-nav-sidebar'
 import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import type { SearchResult } from './workspace-utility-dialogs'
 import type { WorkspacePlatformServices } from './platform'
@@ -46,6 +46,8 @@ type DialogId =
   | 'settings'
   | null
 
+export type { WorkspaceNavHost } from './workspace-nav-sidebar'
+
 export type WorkspaceDeepLink = Readonly<{
   channel?: string
   message?: string
@@ -73,6 +75,11 @@ export function ConventionalWorkspaceShell(props: {
   onViewChange?: (view: WorkspaceView) => void
   services?: WorkspacePlatformServices
   view?: WorkspaceView
+  /**
+   * The integrated frame's workspace switching. Without it the sidebar lists
+   * the bootstrap workspaces and switches through the workspace store.
+   */
+  workspaceHost?: WorkspaceNavHost
 }) {
   const services = () => props.services
   const controller = useWorkspaceController(services()?.client)
@@ -268,12 +275,21 @@ export function ConventionalWorkspaceShell(props: {
     window.history.replaceState(null, '', url)
   }
   createEffect(() => {
-    if (!controller.workspaceId || !controller.channels.length) return
     const query = deepLinkQuery()
+    // A link to another workspace the member belongs to (an accepted
+    // invitation opens `/?workspace=<id>`) switches to it first; an unknown id
+    // is ignored by selectWorkspace.
+    if (query.workspace && controller.workspaceId && query.workspace !== controller.workspaceId) {
+      controller.selectWorkspace(query.workspace)
+      return
+    }
+    if (!controller.workspaceId || !controller.channels.length) return
     if (query.workspace && query.workspace !== controller.workspaceId) return
     const channelId = query.channel
     const taskId = query.task
-    if (channelId && controller.channels.some(({ id }) => id === channelId)) {
+    if (!channelId && !taskId && query.workspace) {
+      // A workspace-only link has nothing further to select.
+    } else if (channelId && controller.channels.some(({ id }) => id === channelId)) {
       const channel = controller.channels.find(({ id }) => id === channelId)!
       selectChannel(channel.id, channel.projectId)
       workspaceStore.getState().setThreadRootMessageId(query.thread ?? null)
@@ -324,6 +340,19 @@ export function ConventionalWorkspaceShell(props: {
     setSurface('tasks')
   }
 
+  const workspaceHost = (): WorkspaceNavHost =>
+    props.workspaceHost ?? {
+      workspaces: settledData(controller.bootstrap)?.workspaces ?? [],
+      onSwitchWorkspace: (workspace) => controller.selectWorkspace(workspace.id),
+      onOpenWorkspaceSettings:
+        (props.manageSettings ?? true)
+          ? () => {
+              window.history.replaceState(null, '', '#settings/workspace')
+              setDialog('settings')
+            }
+          : undefined,
+    }
+
   const signOut = async () => {
     setAccountBusy(true)
     try {
@@ -360,7 +389,11 @@ export function ConventionalWorkspaceShell(props: {
             })}
           >
             <Show when={!props.taskBoardOnly}>
-              <WorkspaceSidebar
+              <WorkspaceNavSidebar
+                view="chat"
+                client={controller.client}
+                activeWorkspace={controller.activeWorkspace}
+                host={workspaceHost()}
                 archiveAction={props.archiveAction}
                 agents={controller.agents}
                 restoreFocusRef={props.restoreFocusRef}
@@ -368,13 +401,22 @@ export function ConventionalWorkspaceShell(props: {
                 collapsedProjectIds={collapsedProjectIds()}
                 mobileOpen={mobileSidebarOpen()}
                 navigation={controller.navigation()}
+                tasks={controller.tasks}
+                taskBusy={controller.taskBusy}
                 onArchiveChannel={controller.channelActions.archive}
+                onArchiveTask={controller.taskActions.archive}
                 onCreateGroup={() => setDialog('create-group')}
                 onCreateProject={() => setDialog('create-project')}
                 onRenameChannel={controller.channelActions.rename}
+                onRenameTask={(task, title) => controller.taskActions.update(task, { title })}
                 onOpenAgents={() => {
                   setSelectedArtifactId(null)
                   setSurface('agents')
+                }}
+                onOpenTask={(task) => {
+                  setSelectedArtifactId(null)
+                  workspaceStore.getState().setSelectedTaskId(task.id)
+                  setSurface('tasks')
                 }}
                 onMarkAllRead={() => controller.readStateActions.markAllRead()}
                 onChannelIntent={prefetchChannelMessages}
@@ -387,7 +429,15 @@ export function ConventionalWorkspaceShell(props: {
                 projectBusy={controller.projectBusy}
                 selectedChannelId={selectedChannelId()}
                 readState={controller.readState}
-                workspaceName={controller.activeWorkspace!.name}
+                share={
+                  controller.workspaceId
+                    ? {
+                        client: controller.client,
+                        currentUserId: sessionIdentity(),
+                        workspaceId: controller.workspaceId,
+                      }
+                    : undefined
+                }
               />
             </Show>
 
@@ -399,8 +449,8 @@ export function ConventionalWorkspaceShell(props: {
                     <h2>Your previous session wasn&apos;t recognized</h2>
                     <p>
                       You&apos;re in a new temporary workspace, so earlier tasks and conversations
-                      aren&apos;t visible here. Use the workspace switcher to return to your
-                      previous workspace if it&apos;s still available.
+                      aren&apos;t visible here. Choose your previous workspace under Workspaces in
+                      the sidebar to return to it if it&apos;s still available.
                     </p>
                   </div>
                   <ActionButton

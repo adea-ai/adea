@@ -59,6 +59,33 @@ const INHERIT_ENV_ALLOWLIST = [
   'PATH',
 ] as const
 
+/**
+ * Launch-credential env keys (ADR 0012 workspace harness accounts): the only
+ * keys a harness PTY launch may add beyond the allowlist, each carrying one
+ * workspace-bound provider API key read from the vault at launch. Anything
+ * else is refused before spawn; nothing inherited ever fills these keys.
+ */
+export const LAUNCH_CREDENTIAL_ENV_KEYS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] as const
+const LAUNCH_CREDENTIAL_VALUE_MAX = 8192
+
+/** True when `env` is a valid launch-credential addition (allowlisted keys,
+ *  bounded single-line values). */
+export function isValidLaunchEnv(env: unknown): env is Record<string, string> {
+  if (typeof env !== 'object' || env === null || Array.isArray(env)) return false
+  const entries = Object.entries(env as Record<string, unknown>)
+  if (entries.length === 0 || entries.length > LAUNCH_CREDENTIAL_ENV_KEYS.length) return false
+  return entries.every(
+    ([key, value]) =>
+      (LAUNCH_CREDENTIAL_ENV_KEYS as readonly string[]).includes(key) &&
+      typeof value === 'string' &&
+      value.length > 0 &&
+      value.length <= LAUNCH_CREDENTIAL_VALUE_MAX &&
+      !value.includes('\0') &&
+      !value.includes('\r') &&
+      !value.includes('\n')
+  )
+}
+
 /** Env keys Adea itself mints; the wrapper unsets these before user config. */
 export const ADEA_TERMINAL_ENV_KEYS = [
   'ADEA_TERMINAL_ID',
@@ -106,6 +133,8 @@ export type TerminalEnvInput = {
   fishHistorySession?: string
   /** Extra reviewed project additions, applied after the allowlist. */
   projectEnv?: Record<string, string>
+  /** Launch-credential additions (LAUNCH_CREDENTIAL_ENV_KEYS only). */
+  launchEnv?: Record<string, string>
 }
 
 /**
@@ -137,6 +166,10 @@ export function buildTerminalEnv(
   if (input.histFile && !env.HISTFILE) env.HISTFILE = input.histFile
   if (input.fishHistorySession) env.fish_history = input.fishHistorySession
   for (const [key, value] of Object.entries(input.projectEnv ?? {})) env[key] = value
+  if (input.launchEnv !== undefined) {
+    if (!isValidLaunchEnv(input.launchEnv)) throw new Error('launch env is not allowlisted')
+    for (const [key, value] of Object.entries(input.launchEnv)) env[key] = value
+  }
   return env
 }
 

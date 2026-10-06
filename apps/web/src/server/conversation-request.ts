@@ -44,6 +44,11 @@ export function conversationErrorResponse(
     return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
       status: 409,
     })
+  // A viewer of a members-only project reads but cannot write there.
+  if (message === 'Project read-only')
+    return workspaceJsonResponse({ code: 'project_read_only', message }, resolution, request, {
+      status: 403,
+    })
   if (message.endsWith('unavailable')) return workspaceUnavailableResponse(request)
   // Log the underlying failure: the client only receives a generic message, so
   // the server terminal is the only place the real cause is visible.

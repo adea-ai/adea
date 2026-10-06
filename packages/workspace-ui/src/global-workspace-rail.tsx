@@ -1,15 +1,7 @@
 import type { WorkspaceSummary } from '@adea-ai/types'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@adea-ai/ui/components/ui/dropdown-menu'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
 import {
   SideRail,
-  SideRailButton,
   SideRailContent,
   SideRailFooter,
   SideRailHeader,
@@ -19,7 +11,6 @@ import {
 import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import {
-  BriefcaseBusiness,
   Code2,
   Home,
   LayoutGrid,
@@ -33,7 +24,6 @@ import {
 import { createEffect, createSignal, For, onCleanup } from 'solid-js'
 
 import { AccountMenu } from './account-menu'
-import { keyedRows } from './keyed-rows'
 import type { WorkspaceView } from './workspace-view-toggle'
 import type { WorkspaceAppId } from './workspace-apps'
 
@@ -90,11 +80,6 @@ function railReorderKeyDown(
   })
 }
 
-function WorkspaceMark(props: { workspace?: WorkspaceSummary }) {
-  const Icon = props.workspace?.scene === 'home' ? Home : BriefcaseBusiness
-  return <Icon aria-hidden="true" />
-}
-
 export function GlobalWorkspaceRail(props: {
   account: Readonly<{
     authenticated: boolean
@@ -116,7 +101,6 @@ export function GlobalWorkspaceRail(props: {
   libraryActive?: boolean
   onOpenSearch: () => void
   onOpenSettings: (opener: HTMLButtonElement | undefined) => void
-  onWorkspaceChange: (workspace: WorkspaceSummary) => void
   onViewChange: (view: WorkspaceAppId) => void
   /** Fires when the user hovers or focuses a view button — prefetch the target. */
   onViewIntent?: (view: WorkspaceView) => void
@@ -125,13 +109,7 @@ export function GlobalWorkspaceRail(props: {
   /** Present when the host persists rail order changes: drag and Alt+Arrow reorder. */
   reorder?: RailReorderHandlers
   view: WorkspaceAppId
-  workspaces: readonly WorkspaceSummary[]
 }) {
-  const activeWorkspaceLabel = () => props.activeWorkspace?.name ?? 'Loading'
-  const workspaceRows = keyedRows(
-    () => props.workspaces,
-    (workspace) => workspace.id
-  )
   // Drag state lives only for the drop indicator; the drop itself reports the
   // pointer side of the target row (upper half before, lower half after).
   const [draggingId, setDraggingId] = createSignal<WorkspaceAppId>()
@@ -189,39 +167,12 @@ export function GlobalWorkspaceRail(props: {
   return (
     <SideRail collapsed class="global-rail" aria-label="Global navigation">
       <SideRailHeader class="global-rail__header">
-        <DropdownMenu modal={false} placement="right-start" gutter={4}>
-          <DropdownMenuTrigger
-            as={SideRailButton}
-            label={`Switch workspace, current ${activeWorkspaceLabel()}`}
-            class="global-rail__workspace-trigger"
-          >
-            {/* The app mark, not a view glyph: this row opens the workspace
-                switcher, so it carries the product logo at the hover tile's
-                size and radius to read as distinct from the view buttons. */}
-            <WorkspaceLogo aria-hidden="true" class="global-rail__workspace-logo" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            hideArrow
-            class="global-rail__workspace-menu max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
-          >
-            <DropdownMenuRadioGroup
-              value={props.activeWorkspace?.id ?? ''}
-              onChange={(id) => {
-                const workspace = props.workspaces.find((entry) => entry.id === id)
-                if (workspace) props.onWorkspaceChange(workspace)
-              }}
-            >
-              <For each={workspaceRows()}>
-                {(entry) => (
-                  <DropdownMenuRadioItem value={entry.item().id} closeOnSelect>
-                    <WorkspaceMark workspace={entry.item()} />
-                    <span class="global-rail__workspace-name">{entry.item().name}</span>
-                  </DropdownMenuRadioItem>
-                )}
-              </For>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* The product mark, not a control: workspaces are switched from
+            the contextual sidebar's Workspaces accordion (ADR 0011). It
+            keeps the old trigger's row height so the rail rhythm holds. */}
+        <span class="global-rail__mark">
+          <WorkspaceLogo aria-hidden="true" class="global-rail__logo" />
+        </span>
       </SideRailHeader>
 
       <SideRailContent class="global-rail__content">

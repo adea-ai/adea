@@ -169,6 +169,23 @@ the Worker back without reversing the rename leaves the old code pointed at
 tables and values that no longer exist; a reverse migration would be a new,
 reviewed migration, not an edit of `0030`.
 
+### Project sharing (expand only)
+
+Migration `0031_project-sharing` (ADR 0012 (workspace memory, connections and sharing))
+only adds objects, so it follows the ordinary expand path: apply it, then deploy the Worker.
+
+- New enums `project_visibility`, `project_member_role` and `workspace_invitation_role`.
+- `projects.visibility` (default `workspace`), so every existing project stays visible to every
+  member until an owner or admin changes it.
+- New tables `project_members` (unique per project and user) and `workspace_invitations` (token
+  digest only, unique; one pending invitation per workspace and email through a partial unique
+  index; check constraints for a normalized email, a 64-hex digest and consistent settlement).
+
+The previous Worker ignores the new column and tables, so the window between migration and deploy
+is safe. Rolling the Worker back after projects were made `members`-only would show those projects
+to every member again, because the old code does not filter them; set them back to `workspace`
+first, or fix forward.
+
 ## Backup and restore
 
 Neon retains branch history according to the project restore window. The current free-plan project reports a six-hour window. A restore drill must use a disposable child of `development`, never `main`:

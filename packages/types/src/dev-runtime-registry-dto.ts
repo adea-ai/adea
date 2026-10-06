@@ -1,10 +1,12 @@
 import type {
   CredentialRef,
+  HarnessAccountProfile,
   Project,
   Repo,
   RepoInspection,
   RootBookmark,
   Worktree,
+  WorkspaceConnections,
 } from './dev-runtime'
 import {
   decodeScope,
@@ -49,6 +51,27 @@ function stringArray(value: unknown, path: string, maxLength: number): readonly 
   if (value.length > maxLength) fail(path, `array exceeds ${maxLength}`)
   value.forEach((entry, index) => stringValue(entry, `${path}[${index}]`))
   return value
+}
+
+/** The harness families a workspace may bind an account profile for. */
+export const harnessAccountFamilies = ['claude-code', 'codex', 'opencode', 'pi'] as const
+
+/** Bare git hosting / provider host: lowercase labels, optional port. */
+const connectionHostPattern = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::\d{1,5})?$/
+
+const MAX_GIT_HOSTING_BINDINGS = 64
+const MAX_HARNESS_BINDINGS = harnessAccountFamilies.length
+
+function connectionHost(value: unknown, path: string): string {
+  const host = stringValue(value, path, 1, 253)
+  if (!connectionHostPattern.test(host)) fail(path, 'expected a bare lowercase host')
+  return host
+}
+
+function uuidValue(value: unknown, path: string): string {
+  const id = stringValue(value, path)
+  if (!uuidPattern.test(id)) fail(path, 'expected lowercase UUID')
+  return id
 }
 
 /** Strict registry DTO validators shared by the full server contract and lazy client views. */
@@ -152,10 +175,21 @@ export function decodeRegistryDto(name: string, value: unknown, path: string): u
   }
   if (name === 'ProjectRepoBinding') {
     const item = record(value, path)
-    exactKeys(item, ['repoId', 'rootBookmarkId', 'canonicalRoot'], [], path)
+    // A managed bare clone carries `layout` and no bookmark; every other
+    // binding names exactly the bookmark that proves it.
+    const managed = item.layout !== undefined
+    exactKeys(
+      item,
+      managed
+        ? ['repoId', 'canonicalRoot', 'layout']
+        : ['repoId', 'rootBookmarkId', 'canonicalRoot'],
+      [],
+      path
+    )
     if (!uuidPattern.test(stringValue(item.repoId, `${path}.repoId`)))
       fail(`${path}.repoId`, 'expected lowercase UUID')
-    if (!uuidPattern.test(stringValue(item.rootBookmarkId, `${path}.rootBookmarkId`)))
+    if (managed) literal(item.layout, ['bare_managed'], `${path}.layout`)
+    else if (!uuidPattern.test(stringValue(item.rootBookmarkId, `${path}.rootBookmarkId`)))
       fail(`${path}.rootBookmarkId`, 'expected lowercase UUID')
     stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
     return value
@@ -174,13 +208,17 @@ export function decodeRegistryDto(name: string, value: unknown, path: string): u
     exactKeys(
       item,
       ['id', 'scope', 'kind', 'lifecycle', 'canonicalRoot', 'projectIds', 'version'],
-      ['gitCommonDirIdentity', 'remote', 'defaultRef'],
+      ['layout', 'gitCommonDirIdentity', 'remote', 'defaultRef'],
       path
     )
     if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
       fail(`${path}.id`, 'expected lowercase UUID')
     decodeScope(item.scope, `${path}.scope`)
     literal(item.kind, ['git', 'folder'], `${path}.kind`)
+    if (item.layout !== undefined) {
+      literal(item.layout, ['bare_managed'], `${path}.layout`)
+      if (item.kind !== 'git') fail(`${path}.layout`, 'a managed bare clone is a git repository')
+    }
     literal(
       item.lifecycle,
       ['authorizing', 'ready', 'unavailable', 'stale', 'refreshing'],
@@ -270,6 +308,70 @@ export function decodeRegistryDto(name: string, value: unknown, path: string): u
     integerValue(item.filesChanged, `${path}.filesChanged`, 0)
     return value
   }
+  if (name === 'WorkspaceConnections') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['scope', 'gitHosting', 'harnessAccounts', 'version', 'availableHarnesses'],
+      [],
+      path
+    )
+    decodeScope(item.scope, `${path}.scope`)
+    if (!Array.isArray(item.gitHosting)) fail(`${path}.gitHosting`, 'expected array')
+    if (item.gitHosting.length > MAX_GIT_HOSTING_BINDINGS)
+      fail(`${path}.gitHosting`, `array exceeds ${MAX_GIT_HOSTING_BINDINGS}`)
+    const hosts = new Set<string>()
+    item.gitHosting.forEach((entry, index) => {
+      const at = `${path}.gitHosting[${index}]`
+      const binding = record(entry, at)
+      exactKeys(binding, ['host', 'credentialRefId'], [], at)
+      const host = connectionHost(binding.host, `${at}.host`)
+      if (hosts.has(host)) fail(`${at}.host`, 'duplicate host binding')
+      hosts.add(host)
+      uuidValue(binding.credentialRefId, `${at}.credentialRefId`)
+    })
+    if (!Array.isArray(item.harnessAccounts)) fail(`${path}.harnessAccounts`, 'expected array')
+    if (item.harnessAccounts.length > MAX_HARNESS_BINDINGS)
+      fail(`${path}.harnessAccounts`, `array exceeds ${MAX_HARNESS_BINDINGS}`)
+    const families = new Set<unknown>()
+    item.harnessAccounts.forEach((entry, index) => {
+      const at = `${path}.harnessAccounts[${index}]`
+      const binding = record(entry, at)
+      exactKeys(binding, ['harnessId', 'profileId'], [], at)
+      literal(binding.harnessId, harnessAccountFamilies, `${at}.harnessId`)
+      if (families.has(binding.harnessId)) fail(`${at}.harnessId`, 'duplicate harness binding')
+      families.add(binding.harnessId)
+      uuidValue(binding.profileId, `${at}.profileId`)
+    })
+    integerValue(item.version, `${path}.version`, 0)
+    if (!Array.isArray(item.availableHarnesses))
+      fail(`${path}.availableHarnesses`, 'expected array')
+    if (item.availableHarnesses.length > harnessAccountFamilies.length)
+      fail(`${path}.availableHarnesses`, `array exceeds ${harnessAccountFamilies.length}`)
+    item.availableHarnesses.forEach((entry, index) => {
+      const at = `${path}.availableHarnesses[${index}]`
+      const harness = record(entry, at)
+      exactKeys(harness, ['harnessId', 'displayName', 'accountHosts'], [], at)
+      literal(harness.harnessId, harnessAccountFamilies, `${at}.harnessId`)
+      stringValue(harness.displayName, `${at}.displayName`, 1, 128)
+      if (!Array.isArray(harness.accountHosts)) fail(`${at}.accountHosts`, 'expected array')
+      if (harness.accountHosts.length > 8) fail(`${at}.accountHosts`, 'array exceeds 8')
+      harness.accountHosts.forEach((host, hostIndex) =>
+        connectionHost(host, `${at}.accountHosts[${hostIndex}]`)
+      )
+    })
+    return value
+  }
+  if (name === 'HarnessAccountProfile') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'harnessId', 'label', 'credentialRefId', 'version'], [], path)
+    uuidValue(item.id, `${path}.id`)
+    literal(item.harnessId, harnessAccountFamilies, `${path}.harnessId`)
+    stringValue(item.label, `${path}.label`, 1, 80)
+    uuidValue(item.credentialRefId, `${path}.credentialRefId`)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
   fail(path, `unsupported registry DTO ${name}`)
 }
 
@@ -307,4 +409,16 @@ export function decodeRepoInspection(value: unknown): RepoInspection {
 export function decodeWorktree(value: unknown): Worktree {
   decodeRegistryDto('Worktree', value, 'worktree')
   return value as Worktree
+}
+
+/** Strict decoder for a workspace's connection bindings (ADR 0012). */
+export function decodeWorkspaceConnections(value: unknown): WorkspaceConnections {
+  decodeRegistryDto('WorkspaceConnections', value, 'workspaceConnections')
+  return value as WorkspaceConnections
+}
+
+/** Strict decoder for a reusable harness account profile (never a secret). */
+export function decodeHarnessAccountProfile(value: unknown): HarnessAccountProfile {
+  decodeRegistryDto('HarnessAccountProfile', value, 'harnessAccountProfile')
+  return value as HarnessAccountProfile
 }

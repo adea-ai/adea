@@ -112,6 +112,15 @@ export const devOperationMetadata = {
   'dev.computeruse.takeover': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_computeruse_takeover
   ),
+  'dev.connections.get': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_connections_get
+  ),
+  'dev.connections.setGitHosting': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_connections_setGitHosting
+  ),
+  'dev.connections.setHarnessAccount': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_connections_setHarnessAccount
+  ),
   'dev.device.attach': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_attach),
   'dev.device.input': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_input),
   'dev.device.capabilities': commandMetadata(
@@ -373,6 +382,15 @@ export const devOperationMetadata = {
   ),
   'dev.gitlab.updatePlan': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_gitlab_updatePlan
+  ),
+  'dev.harness.accountProfiles.create': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_accountProfiles_create
+  ),
+  'dev.harness.accountProfiles.delete': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_accountProfiles_delete
+  ),
+  'dev.harness.accountProfiles.list': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_accountProfiles_list
   ),
   'dev.harness.acpClose': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_harness_acpClose

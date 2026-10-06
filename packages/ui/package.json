@@ -56,6 +56,7 @@
     "./theme.css": "./src/styles/theme.css",
     "./canonical-themes.css": "./src/styles/canonical-themes.css",
     "./workspace-shell.css": "./src/styles/workspace-shell.css",
+    "./workspace-nav.css": "./src/styles/workspace-nav.css",
     "./base.css": "./src/styles/base.css"
   },
   "scripts": {
@@ -69,7 +70,7 @@
   },
   "dependencies": {
     "@adea-ai/themes": "0.9.7",
-    "@adea-ai/ui": "0.112.0",
+    "@adea-ai/ui": "0.113.0",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },

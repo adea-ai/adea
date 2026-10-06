@@ -1,6 +1,12 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { WorkspaceMemoryEntry, WorkspaceMemorySnapshot } from '@adea-ai/types'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
+import type {
+  CredentialRef,
+  HarnessAccountFamily,
+  HarnessAccountProfile,
+  WorkspaceConnections,
+} from '@adea-ai/types/dev-runtime'
 
 export type PrivateContentResolver = Readonly<{
   health?(
@@ -250,6 +256,36 @@ export type WorkspaceMemoryService = Readonly<{
   setInjectionEnabled(input: Readonly<{ workspaceId: string; enabled: boolean }>): Promise<boolean>
 }>
 
+/**
+ * Workspace connections (ADR 0012): the active workspace's git hosting and
+ * harness account bindings on this device. Ids only — the service never
+ * carries secret material. Errors reject with a typed `{ code, message }`
+ * Dev Runtime error; a host without the Dev Runtime omits the service and the
+ * settings pane renders a typed unavailable state.
+ */
+export type WorkspaceConnectionsSnapshot = Readonly<{
+  connections: WorkspaceConnections
+  profiles: readonly HarnessAccountProfile[]
+  credentialRefs: readonly CredentialRef[]
+}>
+
+export type WorkspaceConnectionsService = Readonly<{
+  load(): Promise<WorkspaceConnectionsSnapshot>
+  setGitHosting(
+    input: Readonly<{ host: string; credentialRefId: string | null; expectedVersion: number }>
+  ): Promise<WorkspaceConnections>
+  setHarnessAccount(
+    input: Readonly<{
+      harnessId: HarnessAccountFamily
+      profileId: string | null
+      expectedVersion: number
+    }>
+  ): Promise<WorkspaceConnections>
+  createAccountProfile(
+    input: Readonly<{ harnessId: HarnessAccountFamily; label: string; credentialRefId: string }>
+  ): Promise<HarnessAccountProfile>
+}>
+
 export type WorkspacePlatformServices = Readonly<{
   account?: Readonly<{
     authenticated?: boolean
@@ -265,6 +301,8 @@ export type WorkspacePlatformServices = Readonly<{
   }>
   client?: AgentHqApiClient
   capabilities?: CapabilityProvider
+  /** Workspace connections; omitted where no Dev Runtime exists (web). */
+  connections?: WorkspaceConnectionsService
   devRuntime?: DevRuntimeService
   /** Desktop-only workspace memory; omitted on the web. */
   memory?: WorkspaceMemoryService

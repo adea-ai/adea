@@ -11,6 +11,13 @@ import { and, asc, eq, gt, inArray, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
+import {
+  canReadProject,
+  canWriteProject,
+  requireProjectAccessScope,
+  requireProjectWrite,
+  visibleProjectCondition,
+} from './project-access'
 import { reopenTasksForChannelMessage } from './tasks'
 import { appendWorkspaceEvent } from './transactions'
 import {
@@ -189,13 +196,28 @@ async function requireChannel(database: Database, workspaceId: string, channelId
   return channel
 }
 
+/**
+ * A channel the principal can read, or — with `mode: 'write'` — post into. A
+ * channel of a hidden project is answered like a missing one; a viewer of a
+ * members-only project reads but cannot write (`Project read-only`).
+ */
 async function requireChannelAccess(
   database: Database,
   workspaceId: string,
   channelId: string,
-  principal: UserPrincipalRef
+  principal: UserPrincipalRef,
+  mode: 'read' | 'write' = 'read'
 ) {
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Channel unavailable'
+  )
   const channel = await requireChannel(database, workspaceId, channelId)
+  if (!canReadProject(scope, channel.projectId)) throw new Error('Channel unavailable')
+  if (mode === 'write' && !canWriteProject(scope, channel.projectId))
+    throw new Error('Project read-only')
   if (channel.visibility === 'participants') {
     const [participant] = await database
       .select({ id: channelParticipants.id })
@@ -212,6 +234,44 @@ async function requireChannelAccess(
     if (!participant) throw new Error('Channel unavailable')
   }
   return channel
+}
+
+/** Project-level write check for channel management (rename, archive, participants). */
+async function requireChannelProjectWrite(
+  database: Database,
+  workspaceId: string,
+  channel: ChannelRow,
+  principal: UserPrincipalRef
+) {
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Channel unavailable'
+  )
+  requireProjectWrite(scope, channel.projectId, 'Channel unavailable')
+}
+
+/** A task the principal can see; a task of a hidden project is unavailable. */
+async function requireVisibleTask(
+  database: Database,
+  workspaceId: string,
+  taskId: string,
+  principal: UserPrincipalRef
+) {
+  const [task] = await database
+    .select({ id: tasks.id, projectId: tasks.projectId })
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId)))
+    .limit(1)
+  if (!task) throw new Error('Task unavailable')
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Task unavailable'
+  )
+  if (!canReadProject(scope, task.projectId)) throw new Error('Task unavailable')
 }
 
 async function nextChannelSortOrder(database: Database, workspaceId: string) {
@@ -298,6 +358,11 @@ export async function provisionPrimaryProjectChannel(
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
+    requireProjectWrite(
+      await requireProjectAccessScope(transaction, workspaceId, principal, 'Project unavailable'),
+      projectId,
+      'Project unavailable'
+    )
     const project = await requireActiveProject(transaction, workspaceId, projectId)
     return provisionPrimaryProjectChannelInTransaction(
       transaction,
@@ -324,16 +389,16 @@ async function createChannel(
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
-    if (input.projectId) await requireActiveProject(transaction, workspaceId, input.projectId)
-    if (input.agentId) await requireActiveAgent(transaction, workspaceId, input.agentId)
-    if (input.taskId) {
-      const [task] = await transaction
-        .select({ id: tasks.id })
-        .from(tasks)
-        .where(and(eq(tasks.id, input.taskId), eq(tasks.workspaceId, workspaceId)))
-        .limit(1)
-      if (!task) throw new Error('Task unavailable')
+    if (input.projectId) {
+      requireProjectWrite(
+        await requireProjectAccessScope(transaction, workspaceId, principal, 'Project unavailable'),
+        input.projectId,
+        'Project unavailable'
+      )
+      await requireActiveProject(transaction, workspaceId, input.projectId)
     }
+    if (input.agentId) await requireActiveAgent(transaction, workspaceId, input.agentId)
+    if (input.taskId) await requireVisibleTask(transaction, workspaceId, input.taskId, principal)
     const [created] = await transaction
       .insert(channels)
       .values({
@@ -478,13 +543,19 @@ export async function listChannelsForUser(
   principal: UserPrincipalRef,
   options: Readonly<{ includeArchived?: boolean }> = {}
 ) {
-  await requireMembership(database, workspaceId, principal)
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Channel unavailable'
+  )
   const rows = await database
     .select()
     .from(channels)
     .where(
       and(
         eq(channels.workspaceId, workspaceId),
+        visibleProjectCondition(channels.projectId, scope),
         ...(options.includeArchived ? [] : [eq(channels.lifecycleState, 'active')])
       )
     )
@@ -525,15 +596,9 @@ export async function updateChannel(
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
     const channel = await requireChannel(transaction, workspaceId, channelId)
+    await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
-    if (input.taskId) {
-      const [task] = await transaction
-        .select({ id: tasks.id })
-        .from(tasks)
-        .where(and(eq(tasks.id, input.taskId), eq(tasks.workspaceId, workspaceId)))
-        .limit(1)
-      if (!task) throw new Error('Task unavailable')
-    }
+    if (input.taskId) await requireVisibleTask(transaction, workspaceId, input.taskId, principal)
     const [updated] = await transaction
       .update(channels)
       .set({
@@ -571,6 +636,7 @@ export async function archiveChannel(
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
     const channel = await requireChannel(transaction, workspaceId, channelId)
+    await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (channel.isPrimaryProjectChannel && channel.projectId) {
       const [project] = await transaction
@@ -612,6 +678,7 @@ export async function setChannelParticipants(
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
     const channel = await requireChannel(transaction, workspaceId, channelId)
+    await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (channel.kind !== 'group') throw new Error('Channel participant policy conflict')
     const unique = new Map(participants.map((entry) => [stableKey(entry), entry])).values()
@@ -822,7 +889,7 @@ export async function createMessage(
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
-    await requireChannelAccess(transaction, workspaceId, channelId, principal)
+    await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
     await validateSender(transaction, workspaceId, input.sender)
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
       throw new Error('Message body invalid')
@@ -857,14 +924,7 @@ export async function createMessage(
       if (reply && (reply.threadRootMessageId ?? reply.id) !== root.id)
         throw new Error('Message thread conflict')
     }
-    if (input.taskId) {
-      const [task] = await transaction
-        .select({ id: tasks.id })
-        .from(tasks)
-        .where(and(eq(tasks.id, input.taskId), eq(tasks.workspaceId, workspaceId)))
-        .limit(1)
-      if (!task) throw new Error('Task unavailable')
-    }
+    if (input.taskId) await requireVisibleTask(transaction, workspaceId, input.taskId, principal)
     const normalized = {
       ...input,
       artifactIds,
@@ -1017,7 +1077,7 @@ export async function editMessage(
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
     const message = await requireMessage(transaction, workspaceId, messageId)
-    await requireChannelAccess(transaction, workspaceId, message.channelId, principal)
+    await requireChannelAccess(transaction, workspaceId, message.channelId, principal, 'write')
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
@@ -1062,7 +1122,7 @@ export async function deleteMessage(
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
     const message = await requireMessage(transaction, workspaceId, messageId)
-    await requireChannelAccess(transaction, workspaceId, message.channelId, principal)
+    await requireChannelAccess(transaction, workspaceId, message.channelId, principal, 'write')
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     const now = new Date()

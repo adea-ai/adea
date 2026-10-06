@@ -13,7 +13,10 @@ import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
 } from '../../../../../../../server/desktop-workspace'
-import { authorizeWorkspace } from '../../../../../../../server/workspace-authorization'
+import {
+  authorizeConversationWrite,
+  authorizeWorkspace,
+} from '../../../../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../../../../server/workspace-principal'
 import {
   workspaceInvalidRequestResponse,
@@ -53,7 +56,7 @@ async function patch(request: Request, { params }: Context) {
   const { messageId, workspaceId } = await params
   const resolution = await resolveWorkspacePrincipal(request)
   if (!resolution) return workspaceUnavailableResponse(request, 401)
-  if (!(await authorizeWorkspace(resolution.principal, 'workspace.update', workspaceId)).allowed)
+  if (!(await authorizeConversationWrite(resolution.principal, workspaceId, { messageId })))
     return workspaceUnavailableResponse(request)
   const expectedVersion = readConversationVersion(request)
   let body: Record<string, unknown>
@@ -96,7 +99,7 @@ async function remove(request: Request, { params }: Context) {
   const { messageId, workspaceId } = await params
   const resolution = await resolveWorkspacePrincipal(request)
   if (!resolution) return workspaceUnavailableResponse(request, 401)
-  if (!(await authorizeWorkspace(resolution.principal, 'workspace.update', workspaceId)).allowed)
+  if (!(await authorizeConversationWrite(resolution.principal, workspaceId, { messageId })))
     return workspaceUnavailableResponse(request)
   const expectedVersion = readConversationVersion(request)
   if (!expectedVersion) return workspaceInvalidRequestResponse(request)
