@@ -224,7 +224,9 @@ unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
   `deleteMessage` of the current newest top-level message moves it back to the
   newest remaining live one, in the delete transaction; deleting an older
   message leaves it. It is not part of the channel `version` and does not
-  touch `updated_at`.
+  touch `updated_at`. In-workspace read state (`listReadStateForUser`) reads
+  it as `latestTopLevelSequence` and counts top-level unread messages only
+  when it is past the read frontier, so both surfaces share one frontier.
 - **Client.** `accountSummary()` in `/api-client`; `useAccountSummaryQuery`
   in `/data` polls every 60 seconds and on window focus, under
   `['account', 'summary']`, which a workspace switch keeps. The active stream's
@@ -255,6 +257,10 @@ unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
   member workspaces in exactly one query; a non-member workspace never
   appearing; private-channel visibility and participant removal; read marks
   and manual unread; archived workspaces dropping out.
+- `packages/db/tests/integration/read-state-counts.test.ts`: in-workspace
+  read state against a message-level oracle through thread reads, manual
+  unread, and deletions; hidden-project channels left out; a fixed four
+  queries whatever the channel count.
 - `packages/data/tests/unit/account-summary.test.ts` and `events.test.ts`:
   the summary's key, polling and focus refetch, its invalidation by the
   unread-changing families and read-state mutations, and its survival of

@@ -8,6 +8,8 @@ import {
   channels,
   messageMentions,
   messages,
+  projectMembers,
+  projects,
   workspaceMemberships,
   workspaces,
 } from './schema'
@@ -21,7 +23,10 @@ type Database = AgentHqDatabase | AgentHqTransaction
  * Membership is the only authority: the query starts from the principal's own
  * memberships, so a workspace they do not belong to can never appear. Channel
  * visibility mirrors read state (`listAccessibleChannelIds`): active channels
- * that are workspace-visible or that list the user as a participant.
+ * that are workspace-visible or that list the user as a participant, and whose
+ * project (if any) the user may see under ADR 0012 — owners and admins see
+ * every project, everyone else sees `workspace` projects and the `members`
+ * projects that list them (`visibleProjectCondition`).
  *
  * - `unreadChannels` counts channels whose newest live top-level message
  *   (`channels.latest_message_sequence`) is past the user's channel frontier,
@@ -62,6 +67,20 @@ export async function accountWorkspaceSummaries(
           where participant.channel_id = channel.id
             and participant.principal_kind = 'user'
             and participant.user_id = membership.user_id
+        )
+      )
+      and (
+        channel.project_id is null
+        or membership.role in ('owner', 'admin')
+        or exists (
+          select 1 from ${projects} as project
+          where project.id = channel.project_id
+            and project.visibility <> 'members'
+        )
+        or exists (
+          select 1 from ${projectMembers} as project_member
+          where project_member.project_id = channel.project_id
+            and project_member.user_id = membership.user_id
         )
       )
     left join ${channelReadStates} as read_state
