@@ -28,6 +28,11 @@ import { createDurableJsonStore } from '../host-store'
 import type { AuthorityAudit } from '../audit'
 import type { RootBookmarkAuthority } from '../roots'
 import { createRepoRegistryStore, type RepoRegistryRecord } from '../repos/registry-store'
+import {
+  ensureManagedWorktreeBase,
+  nonInteractiveTransportEnv,
+  proveManagedBareRepo,
+} from '../repos/managed'
 import { WorktreeError, type WorktreeErrorCode } from './errors'
 import { runGit, runGitChecked, gitRevParse } from './git-run'
 import {
@@ -182,7 +187,9 @@ export type WorktreeRecord = Readonly<{
 export type CreateWorktreeResult = Readonly<{
   worktree: WorktreeRecord
   name: string
-  includeCopy?: Readonly<{ copied: ReadonlyArray<string> }>
+  /** `skipped: 'no_primary_working_tree'` for a managed bare clone: there is
+   *  no working tree to copy `.worktreeinclude` files from. */
+  includeCopy?: Readonly<{ copied: ReadonlyArray<string>; skipped?: 'no_primary_working_tree' }>
   bootstrapOutcomes?: ReadonlyArray<StepOutcome>
 }>
 
@@ -195,7 +202,8 @@ export type CreateWorktreeInput = {
   branchName?: string
   destinationName?: string
   /** Directory the worktree directory is created in. Must be covered by an
-   *  active repository bookmark on this scope. */
+   *  active repository bookmark on this scope — or, for a managed bare clone,
+   *  be exactly its owner-only `managed-worktrees/<repoId>` base. */
   worktreeBaseDir: string
   /** Update the base from the configured remote before resolving it. */
   updateBase?: boolean
@@ -481,6 +489,27 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     return repo
   }
 
+  /** The layout gate every repository-mutating path runs first. A managed
+   *  bare clone is admitted only after the managed proof (owner-only managed
+   *  root, bare layout, `core.bare=true`, recorded identity); any other git
+   *  record must still be a checkout with a `.git` directory — every other
+   *  bare repository stays refused. */
+  async function proveRepoLayout(repo: RepoRecord): Promise<void> {
+    if (repo.layout === 'bare_managed') {
+      await proveManagedBareRepo({
+        dataDir,
+        canonicalRoot: repo.canonicalRoot,
+        repoId: repo.id,
+        expectedIdentity: repo.rootIdentity,
+      })
+      return
+    }
+    if (repo.kind !== 'git') return
+    const dotGit = lstatSync(join(repo.canonicalRoot, '.git'), { throwIfNoEntry: false })
+    if (!dotGit?.isDirectory())
+      throw new WorktreeError('not_git_repo', 'bare repositories are unsupported')
+  }
+
   function findWorktree(scope: DevScope, worktreeId: string): WorktreeRecord {
     const record = loadWorktrees().find((entry) => entry.id === worktreeId)
     if (!record || !sameScope(record.scope, scope))
@@ -524,7 +553,9 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
 
   /** Authorize one repository root through the M10 bookmark authority and
    *  register the repository record. The bookmark must cover the repo path
-   *  (be it, or an ancestor of it); bare repositories are unsupported. */
+   *  (be it, or an ancestor of it); bare repositories are unsupported here —
+   *  the only admitted bare layout is a managed clone, which
+   *  `dev.project.clone` registers without a bookmark. */
   async function registerRepo(input: {
     scope: DevScope
     projectId: string
@@ -648,14 +679,14 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
 
   /** ADR 0011: a registered git repository's own checkout is exactly one
    *  `kind: 'primary'` worktree record. Creates it on first registration and
-   *  otherwise refreshes its inspected branch/HEAD. Folder repositories have
-   *  no primary record. */
+   *  otherwise refreshes its inspected branch/HEAD. Folder repositories and
+   *  managed bare clones (remote-only projects) have no primary record. */
   async function ensurePrimaryWorktree(input: {
     scope: DevScope
     repoId: string
   }): Promise<WorktreeRecord | undefined> {
     const repo = findRepo(input.scope, input.repoId)
-    if (repo.kind !== 'git') return undefined
+    if (repo.kind !== 'git' || repo.layout === 'bare_managed') return undefined
     const existing = primaryRecordFor(input.scope, repo.id)
     if (existing) return refreshPrimaryHead(existing, repo)
     const { path, identity } = directoryIdentity(repo.canonicalRoot)
@@ -831,6 +862,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     repo: RepoRecord
   ): Promise<CreateWorktreeResult> {
     // 1. Authorize the canonical repo/common dir.
+    await proveRepoLayout(repo)
     const repoIdentity = directoryIdentity(repo.canonicalRoot)
     if (!sameIdentity(repoIdentity.identity, repo.rootIdentity)) {
       throw new WorktreeError('identity_mismatch', 'repository root identity changed')
@@ -847,6 +879,8 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
           cwd: repo.canonicalRoot,
           timeoutMs: fetchTimeoutMs,
           signal: input.signal,
+          // A managed clone's network children never prompt (batch SSH).
+          ...(repo.layout === 'bare_managed' ? { env: nonInteractiveTransportEnv() } : {}),
         })
       } catch (error) {
         const code: WorktreeErrorCode =
@@ -876,7 +910,18 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       worktreeBaseDir: input.worktreeBaseDir,
       repoCanonicalRoot: repo.canonicalRoot,
     })
-    assertBaseDirAuthorized(input.scope, baseDir)
+    if (repo.layout === 'bare_managed') {
+      // No user bookmark sits above a managed clone: its worktrees live only
+      // under its own owner-only managed base.
+      if (baseDir !== ensureManagedWorktreeBase(dataDir, repo.id)) {
+        throw new WorktreeError(
+          'unauthorized_root',
+          'a managed clone creates worktrees only under its managed worktree root'
+        )
+      }
+    } else {
+      assertBaseDirAuthorized(input.scope, baseDir)
+    }
     const retired = retiredRegistryFor(repo.canonicalRoot)
     const name = allocateWorktreeName({ baseDir, requested: input.destinationName, retired })
     const branchName = input.branchName ?? `adea/${name}`
@@ -953,23 +998,30 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       pendingApprovals.set(record.id, input.bootstrapApproval)
     }
 
-    // 6. Approved include copy (CoW clones; approved items only).
-    let includeCopy: { copied: string[] } | undefined
+    // 6. Approved include copy (CoW clones; approved items only). A managed
+    //    bare clone has no primary working tree to copy from: the step is
+    //    reported as skipped, never satisfied from the bare admin dir.
+    let includeCopy: { copied: string[]; skipped?: 'no_primary_working_tree' } | undefined
     try {
-      const plan = await planIncludeCopy({
-        sourceRoot: repo.canonicalRoot,
-        destinationRoot: created.path,
-        approvals: input.includeApprovals,
-      })
-      if ('ran' in plan) {
-        includeCopy = undefined
+      if (repo.layout === 'bare_managed') {
+        includeCopy = { copied: [], skipped: 'no_primary_working_tree' }
+        log('worktree.include_copy', record.id, 'granted', { skipped: 'no_primary_working_tree' })
       } else {
-        const applied = await applyIncludeCopy({
-          plan: plan as IncludeCopyPlan,
-          digest: (plan as IncludeCopyPlan).digest,
-          signal: input.signal,
+        const plan = await planIncludeCopy({
+          sourceRoot: repo.canonicalRoot,
+          destinationRoot: created.path,
+          approvals: input.includeApprovals,
         })
-        includeCopy = { copied: [...applied.copied] }
+        if ('ran' in plan) {
+          includeCopy = undefined
+        } else {
+          const applied = await applyIncludeCopy({
+            plan: plan as IncludeCopyPlan,
+            digest: (plan as IncludeCopyPlan).digest,
+            signal: input.signal,
+          })
+          includeCopy = { copied: [...applied.copied] }
+        }
       }
     } catch (error) {
       // The worktree exists and stays inspectable; the failure is recorded and
@@ -1056,9 +1108,13 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     worktreePath: string
   }): Promise<WorktreeRecord> {
     const repo = findRepo(input.scope, input.repoId)
+    await proveRepoLayout(repo)
     const proof = await proveExternalWorktree({
       worktreePath: input.worktreePath,
       repoRoot: repo.canonicalRoot,
+      // A bare repository is its own common dir; a checkout's is `.git`.
+      repoCommonDir:
+        repo.layout === 'bare_managed' ? repo.canonicalRoot : join(repo.canonicalRoot, '.git'),
     })
     // Each checkout is represented exactly once: a path that already has a
     // live record (managed, external, or the primary) is not re-adopted.
@@ -1342,6 +1398,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
         throw new WorktreeError('external_ownership', 'external worktrees do not merge back')
       }
       const repo = findRepo(input.scope, record.repoId)
+      await proveRepoLayout(repo)
       return mergeService.planMerge({
         worktreeId: record.id,
         worktreeRoot: record.canonicalRoot,
@@ -1442,6 +1499,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       throw new WorktreeError('stale_generation', 'worktree generation moved')
     }
     const repo = findRepo(input.scope, record.repoId)
+    await proveRepoLayout(repo)
     const base = observeCleanupFacts({ record, repo })
     const observed = await observeGitFacts({
       record,
@@ -1499,6 +1557,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     const recordAtPlan = findWorktree(input.scope, input.plan.worktreeId)
     refusePrimary(recordAtPlan, 'cleaned up')
     const repo = findRepo(input.scope, recordAtPlan.repoId)
+    await proveRepoLayout(repo)
     // A destructive step may only run from a blocker-free plan.
     if (
       input.plan.blockers.length > 0 &&

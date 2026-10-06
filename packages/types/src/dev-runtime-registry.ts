@@ -1115,7 +1115,7 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.project.clone': {
-    body: '{ projectId: string; remote: RedactedRemoteInput; credentialRefId?: string; destinationBookmarkId: string }',
+    body: "{ projectId: string; mode?: 'checkout'|'managed'; remote: RedactedRemoteInput; credentialRefId?: string; destinationBookmarkId?: string; defaultBaseRef?: string(1..256) }",
     capabilities: ['dev.project.manage', 'dev.repo.manage'],
     reply: 'Project',
     resource: null,

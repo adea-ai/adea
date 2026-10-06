@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import { DevAuthorityError } from '../shell/src/dev-runtime/authority'
+import { GitChildKilledError } from '../shell/src/dev-runtime/worktrees/git-run'
 import {
   registerProjectSessionRuntime,
   type ProjectSessionRuntime,
@@ -123,6 +124,9 @@ function bootRegistry(
       }),
     ...(options?.authorizeRoot ? { authorizeRoot: options.authorizeRoot } : {}),
     ...(options?.runClone ? { runClone: options.runClone } : {}),
+    // The `file://` fixture origins are a test-only opt-in: production
+    // admits only https and ssh remotes.
+    allowLocalCloneRemotes: true,
   })
 }
 
@@ -609,6 +613,144 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
       )
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('dev.project.clone — one operation, two modes, one transport policy', () => {
+  const github = {
+    provider: 'github',
+    host: 'github.com',
+    ownerPath: 'adea-ai',
+    repository: 'adea',
+  }
+
+  test('checkout (the default) runs the shared hardened argv and types transport refusals', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-clone5-'))
+    const destinationRoot = mkdtempSync(join(tmpdir(), 'adea-clone-dest5-'))
+    try {
+      const seen: (readonly string[])[] = []
+      let stderr: string | undefined = 'Host key verification failed.'
+      const runtime = bootRegistry(dataDir, {
+        resolveImportRoot: () => ({ canonicalRoot: destinationRoot }),
+        runClone: async ({ argv }) => {
+          seen.push(argv)
+          return { exitCode: 128, ...(stderr !== undefined ? { stderr } : {}) }
+        },
+      })
+      const clone = provider(runtime, 'dev.project.clone')
+      const body = { projectId: randomUUID(), remote: github, destinationBookmarkId: BOOKMARK_ID }
+      await expectReject(clone(command('dev.project.clone', body)), 'remote_unavailable')
+      stderr = 'git@github.com: Permission denied (publickey).'
+      await expectReject(clone(command('dev.project.clone', body)), 'auth_required')
+      expect(seen[0]).toEqual([
+        'git',
+        '-c',
+        'protocol.allow=never',
+        '-c',
+        'protocol.https.allow=always',
+        'clone',
+        '--depth',
+        '1',
+        '--',
+        'https://github.com/adea-ai/adea.git',
+        join(destinationRoot, 'clones', 'adea'),
+      ])
+      // An explicit `mode: 'checkout'` is the same operation.
+      stderr = undefined
+      await expectReject(
+        clone(command('dev.project.clone', { ...body, mode: 'checkout' })),
+        'spawn_failed'
+      )
+      // Checkout-only and managed-only fields never mix.
+      await expectReject(
+        clone(command('dev.project.clone', { projectId: randomUUID(), remote: github })),
+        'invalid_state'
+      )
+      await expectReject(
+        clone(command('dev.project.clone', { ...body, defaultBaseRef: 'origin/main' })),
+        'invalid_state'
+      )
+      // Without a managed clone authority the managed mode is typed-unavailable.
+      await expectReject(
+        clone(
+          command('dev.project.clone', { projectId: randomUUID(), remote: github, mode: 'managed' })
+        ),
+        'unavailable'
+      )
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+      rmSync(destinationRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('a production register refuses local remotes in checkout mode before any clone', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-clone6-'))
+    try {
+      let clones = 0
+      const runtime = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+        resolveImportRoot: () => ({ canonicalRoot: dataDir }),
+        runClone: async () => {
+          clones += 1
+          return { exitCode: 0 }
+        },
+      })
+      await expectReject(
+        provider(
+          runtime,
+          'dev.project.clone'
+        )(
+          command('dev.project.clone', {
+            projectId: randomUUID(),
+            remote: {
+              provider: 'other',
+              host: 'file:///srv',
+              ownerPath: 'owner',
+              repository: 'repo',
+            },
+            destinationBookmarkId: BOOKMARK_ID,
+          })
+        ),
+        'invalid_state'
+      )
+      expect(clones).toBe(0)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a stopped checkout clone that left files in the user root reports cleanup_partial', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-clone7-'))
+    const destinationRoot = mkdtempSync(join(tmpdir(), 'adea-clone-dest7-'))
+    try {
+      const runtime = bootRegistry(dataDir, {
+        resolveImportRoot: () => ({ canonicalRoot: destinationRoot }),
+        runClone: async () => {
+          mkdirSync(join(destinationRoot, 'clones', 'adea'), { recursive: true })
+          throw new GitChildKilledError('timeout', 'git clone exceeded 60000ms', true)
+        },
+      })
+      await expectReject(
+        provider(
+          runtime,
+          'dev.project.clone'
+        )(
+          command('dev.project.clone', {
+            projectId: randomUUID(),
+            remote: github,
+            destinationBookmarkId: BOOKMARK_ID,
+          })
+        ),
+        'cleanup_partial'
+      )
+      // Adea never deletes inside the user's authorized root.
+      expect(existsSync(join(destinationRoot, 'clones', 'adea'))).toBe(true)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+      rmSync(destinationRoot, { recursive: true, force: true })
     }
   })
 })

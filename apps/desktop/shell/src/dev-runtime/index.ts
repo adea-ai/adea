@@ -65,7 +65,7 @@ import {
 } from './usage/on-device'
 import { RUN_TERMINAL_STATES } from './harness/status'
 import { createUsageService, type UsageService } from './usage/service'
-import type { RetainedDataRecord } from '../../../../../packages/types/src/dev-runtime'
+import type { Project, RetainedDataRecord } from '../../../../../packages/types/src/dev-runtime'
 import { registerWorktreeRuntime } from './worktrees/register'
 import {
   createWorktreeService,
@@ -74,6 +74,7 @@ import {
 } from './worktrees/service'
 import { WorktreeError } from './worktrees/errors'
 import { registerProjectScanRuntime } from './projects/register'
+import { createManagedCloneAuthority } from './projects/clone'
 import { registerRepoRuntime } from './repos/register'
 import { registerFilesRuntime } from './files/register'
 import { registerGitRuntime } from './git/register'
@@ -175,6 +176,12 @@ export type CreateDevRuntimeHostInput = {
    * and the shell must never await it.
    */
   managedPiAutoInstall?: boolean
+  /**
+   * Test-only: let `dev.project.clone` admit `file://` remotes (local fixture
+   * origins). The shipped shell (`bun/index.ts`) never sets it, so production
+   * accepts only https and ssh remotes.
+   */
+  allowLocalCloneRemotes?: boolean
   /** Overrides the ACP lane driver (#32; tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
   /**
@@ -309,6 +316,18 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       throw error
     }
   }
+  // Remote-only projects (ADR 0011): `dev.project.clone` places a managed
+  // bare clone in owner-only app data, and unbinding such a project removes
+  // it through the quarantine path once all of its worktrees are cleaned.
+  const managedClones = input.scope
+    ? createManagedCloneAuthority({
+        dataDir: input.dataDir,
+        scope: input.scope,
+        ...(worktreeService ? { worktreeService } : {}),
+        ...(input.audit ? { audit: input.audit } : {}),
+        ...(input.allowLocalCloneRemotes === true ? { allowLocalRemotes: true } : {}),
+      })
+    : undefined
   const projectSession = input.scope
     ? registerProjectSessionRuntime({
         authority: input.authority,
@@ -352,6 +371,19 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           const minted = roots.authorize({ scope: input.scope!, absolutePath, label })
           return { id: minted.id }
         },
+        ...(managedClones
+          ? {
+              managedUnbind: managedClones.prepareUnbind,
+              // `dev.project.clone` with `mode: 'managed'`; the register owns
+              // the operation and delegates the bare clone here.
+              managedClone: (request): Promise<Project> =>
+                managedClones.cloneManaged(request, projectSession!, (credentialRefId) => {
+                  const credential = vault.get({ scope: input.scope!, credentialRefId })
+                  return { id: credential.id, host: credential.host, state: credential.state }
+                }),
+            }
+          : {}),
+        ...(input.allowLocalCloneRemotes === true ? { allowLocalCloneRemotes: true } : {}),
       })
     : undefined
 

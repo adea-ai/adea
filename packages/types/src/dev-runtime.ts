@@ -757,12 +757,28 @@ export type Project = Readonly<{
 
 // An imported project binds each repository to the authorized root bookmark
 // that proves it: the canonical host path never comes from a client body, it
-// is resolved through the roots authority at import time.
-export type ProjectRepoBinding = Readonly<{
-  repoId: string
-  rootBookmarkId: string
-  canonicalRoot: string
-}>
+// is resolved through the roots authority at import time. A remote-only
+// project (`dev.project.clone`) binds a managed bare clone instead: its
+// `layout` is `bare_managed`, its root lives in Adea's owner-only app data,
+// and it carries no bookmark (no user root covers it).
+export type ProjectRepoBinding =
+  | Readonly<{
+      repoId: string
+      rootBookmarkId: string
+      canonicalRoot: string
+      layout?: never
+    }>
+  | Readonly<{
+      repoId: string
+      rootBookmarkId?: never
+      canonicalRoot: string
+      layout: 'bare_managed'
+    }>
+
+/** Repository layout facts: absent is an ordinary checkout with a `.git`
+ *  directory; `bare_managed` is an Adea-managed bare clone (no primary
+ *  working tree, worktrees only). */
+export type RepoLayout = 'bare_managed'
 
 // One scanner recommendation: a preview of an importable workspace package.
 // Scanning never executes install/bootstrap commands; `suggestedScripts` are
@@ -817,6 +833,8 @@ export type Repo = Readonly<{
   kind: 'git' | 'folder'
   lifecycle: 'authorizing' | 'ready' | 'unavailable' | 'stale' | 'refreshing'
   canonicalRoot: string
+  /** `bare_managed` for a remote-only project's managed bare clone. */
+  layout?: RepoLayout
   gitCommonDirIdentity?: FileIdentity
   remote?: RedactedRemote
   defaultRef?: string
@@ -3770,6 +3788,7 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   // a bounded preview page. update/archive/unbind reply with the Project
   // binding record (same decoder; unbind returns the removed binding).
   'dev.project.import': (value) => decodeProject(value),
+  'dev.project.clone': (value) => decodeProject(value),
   'dev.project.create': (value) => decodeProject(value),
   'dev.project.update': (value) => decodeProject(value),
   'dev.project.archive': (value) => decodeProject(value),
