@@ -1,6 +1,5 @@
 import type { Accessor } from 'solid-js'
 import { createEffect, createSignal, Show } from 'solid-js'
-import { UpdateChannelControl } from '@adea-ai/ui/components/composites/update-dialog'
 import type {
   VersionDialogAdapter,
   VersionDialogChannelActions,
@@ -23,6 +22,15 @@ const packageVersion = packageJson.version
 
 const SharedVersionDialog = lazyComponent(() =>
   import('@adea-ai/app-ui/components/version-dialog').then((module) => module.VersionDialog)
+)
+
+// Deferred like the dialog itself: a static import of the update-dialog barrel
+// would pull the visual updater module into the boot graph, and the boot graph
+// must only carry the badge seed until the user first opens the dialog.
+const SharedUpdateChannelControl = lazyComponent(() =>
+  import('@adea-ai/ui/components/composites/update-dialog').then(
+    (module) => module.UpdateChannelControl
+  )
 )
 
 /**
@@ -89,7 +97,7 @@ export function VersionDialog(props: {
   // dialog (a CLI writing the same setting) while it sits closed.
   const channelControl = channelService
     ? (actions: VersionDialogChannelActions) => (
-        <UpdateChannelControl
+        <SharedUpdateChannelControl
           controls={actions}
           read={() => channelService.channel()}
           persist={(value) => channelService.setChannel(value)}
