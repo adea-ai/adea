@@ -19,6 +19,7 @@ const sourceRoots = [
   'apps/web/src',
   'packages/dev-view/src',
   'packages/ui/src/components',
+  'packages/workspace-nav/src',
   'packages/workspace-ui/src',
 ]
 const source = sourceRoots

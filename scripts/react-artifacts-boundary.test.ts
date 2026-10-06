@@ -12,6 +12,7 @@ const SOURCE_ROOTS = [
   'packages/dev-view/src',
   'packages/state/src',
   'packages/ui/src',
+  'packages/workspace-nav/src',
   'packages/workspace-ui/src',
 ]
 
