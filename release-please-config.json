@@ -137,6 +137,11 @@
     },
     {
       "type": "json",
+      "path": "packages/workspace-nav/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
       "path": "packages/spatial/package.json",
       "jsonpath": "$.version"
     }

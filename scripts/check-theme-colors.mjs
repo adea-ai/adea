@@ -28,6 +28,7 @@ const SOURCE_STYLESHEET_EXTENSIONS = [
 export const SCAN_ROOTS = [
   { directory: 'packages/ui/src', extensions: SCAN_EXTENSIONS },
   { directory: 'packages/workspace-ui/src', extensions: SCAN_EXTENSIONS },
+  { directory: 'packages/workspace-nav/src', extensions: SCAN_EXTENSIONS },
   { directory: 'packages/dev-view/src', extensions: SCAN_EXTENSIONS },
   { directory: 'apps/web/src', extensions: SCAN_EXTENSIONS },
 ]

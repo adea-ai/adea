@@ -1,0 +1,53 @@
+/* Workspace › Project › Leaf sidebar hooks (@adea-ai/workspace-nav).
+   Tokens only: every colour is a published sidebar or semantic role. */
+
+/* Row actions follow SidebarNavRow's rule: hidden until the row is hovered,
+   holds focus, or owns an open menu; always visible on a coarse pointer. The
+   trailing metadata (diff counts, pull request) gives way to the actions. */
+.workspace-nav-row-actions {
+  display: none;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.workspace-nav-row:hover .workspace-nav-row-actions,
+.workspace-nav-row:focus-within .workspace-nav-row-actions,
+.workspace-nav-row:has([aria-haspopup][aria-expanded='true']) .workspace-nav-row-actions {
+  display: flex;
+}
+
+.workspace-nav-row:hover .workspace-nav-row-meta,
+.workspace-nav-row:focus-within .workspace-nav-row-meta,
+.workspace-nav-row:has([aria-haspopup][aria-expanded='true']) .workspace-nav-row-meta {
+  display: none;
+}
+
+@media (any-pointer: coarse) {
+  .workspace-nav-row-actions {
+    display: flex;
+  }
+
+  .workspace-nav-row-meta {
+    display: none;
+  }
+}
+
+/* The decorative "Worktrees" divider between the checkout and its worktrees. */
+.workspace-nav-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-block: 0.25rem;
+  padding-inline: 2rem 0.5rem;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Status and Recent group headings read as sidebar section captions. */
+.workspace-nav-group-header {
+  color: var(--sidebar-muted-foreground);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
