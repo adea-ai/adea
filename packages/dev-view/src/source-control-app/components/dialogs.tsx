@@ -363,6 +363,11 @@ const PROVIDER_ROWS: readonly ProviderRow[] = [
 function ProviderAccountRow(props: {
   row: ProviderRow
   account: AccountState
+  /** The last settled account, kept across a check so the row renders
+   *  through it in place: the chip, caption, and control announce the check
+   *  while the sign-in help beneath them stays mounted instead of vanishing
+   *  and returning — a teardown the eye reads as the menu flickering. */
+  settled: AccountState | undefined
   projectCount: number
   checking: boolean
   onCheck(): void
@@ -370,7 +375,7 @@ function ProviderAccountRow(props: {
   const [copied, setCopied] = createSignal(false)
   const name = () => providerLabel[props.row.provider]
   const connected = (): GitHubAccount | undefined =>
-    props.account.status === 'connected' ? props.account.account : undefined
+    props.settled?.status === 'connected' ? props.settled.account : undefined
   const copy = () => {
     void navigator.clipboard?.writeText(props.row.login).then(() => {
       setCopied(true)
@@ -392,8 +397,8 @@ function ProviderAccountRow(props: {
                 fallback={
                   props.account.status === 'loading'
                     ? `Checking the ${props.row.cli}…`
-                    : props.account.status === 'disconnected'
-                      ? props.account.reason
+                    : props.settled?.status === 'disconnected'
+                      ? props.settled.reason
                       : ''
                 }
               >
@@ -427,7 +432,7 @@ function ProviderAccountRow(props: {
           </ActionButton>
         </div>
       </div>
-      <Show when={props.account.status === 'disconnected'}>
+      <Show when={props.settled?.status === 'disconnected'}>
         <div class="dev-scm-summary">
           <span class="dev-scm-caption flex-1">
             Adea uses the {props.row.cli}'s sign-in and never stores a {name()} token. Install the{' '}
@@ -453,6 +458,9 @@ function ProviderAccountRow(props: {
 export function ProvidersDialog(props: {
   open: boolean
   accounts: Readonly<Record<ScmProvider, AccountState>>
+  /** Last settled account per provider; rows render through a check from
+   *  this so a re-check never rebuilds the dialog. */
+  settledAccounts: Readonly<Record<ScmProvider, AccountState | undefined>>
   projectCounts: Readonly<Record<ScmProvider, number>>
   onCheck(provider: ScmProvider): void
   onClose(): void
@@ -471,6 +479,7 @@ export function ProvidersDialog(props: {
             <ProviderAccountRow
               row={row}
               account={props.accounts[row.provider]}
+              settled={props.settledAccounts[row.provider]}
               projectCount={props.projectCounts[row.provider]}
               checking={props.accounts[row.provider].status === 'loading'}
               onCheck={() => props.onCheck(row.provider)}

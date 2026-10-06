@@ -89,7 +89,28 @@ declare global {
       setFonts(settings: AppearanceEditorFontSettings): void
       resetFonts(): void
     }
+    /** Element churn recorded by instrumentRemovals since instrumentation. */
+    __adeaScmChurn?: string[]
   }
+}
+
+/** Record every element added or removed inside `scopeSelector`, so a rebuild
+ *  cannot hide: the observer sees the churn synchronously, however brief the
+ *  window. Assertions filter to the structural classes a rebuild would touch,
+ *  never to the busy spinner's own in-place churn. */
+async function instrumentRemovals(page: Page, scopeSelector: string) {
+  await page.evaluate((selector) => {
+    const target = document.querySelector(selector)
+    if (!target) throw new Error(`nothing matches ${selector} to instrument`)
+    window.__adeaScmChurn = []
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of [...record.addedNodes, ...record.removedNodes])
+          if (node instanceof Element)
+            window.__adeaScmChurn!.push(`${node.nodeName}.${String(node.className).slice(0, 40)}`)
+      }
+    }).observe(target, { childList: true, subtree: true })
+  }, scopeSelector)
 }
 
 test.describe('source control app', () => {
@@ -535,6 +556,85 @@ test.describe('source control app', () => {
     const dialog = page.getByRole('dialog', { name: 'Git providers' })
     await expect(dialog).toContainText('glab auth login')
     await expect(dialog).toContainText('Signed in as octocat on github.com')
+  })
+
+  test('checking a provider updates its row in place and never rebuilds the menu', async ({
+    page,
+  }) => {
+    await openHarness(page, '?scenario=gitlab-disconnected')
+    await page.getByRole('button', { name: 'Connect account' }).first().click()
+    const dialog = page.getByRole('dialog', { name: 'Git providers' })
+    await expect(dialog).toBeVisible()
+    // Opening the dialog checks both providers; wait for GitLab's refusal to
+    // settle so the row carries its sign-in help.
+    await expect(dialog.getByText('glab auth login')).toBeVisible()
+    await expect(dialog.getByText('Signed in as octocat on github.com')).toBeVisible()
+
+    const dialogHandle = await dialog.elementHandle()
+    const gitlabCard = dialog.locator('.dev-scm-card').nth(1)
+    const cardHandle = await gitlabCard.elementHandle()
+    const helpHandle = await dialog.locator('.dev-scm-summary').first().elementHandle()
+    await instrumentRemovals(page, '[role="dialog"]')
+
+    await page.getByRole('button', { name: 'Check GitLab again' }).click()
+    // The check settles back into the same refusal; the sign-in help must
+    // have stayed mounted through the loading state, not vanished and
+    // returned around the CLI invocation. The busy spinner's own churn is
+    // filtered out — only a structural teardown would touch these classes.
+    await expect(dialog.getByText('glab auth login')).toBeVisible()
+    const churn = await page.evaluate(() => window.__adeaScmChurn ?? [])
+    expect(
+      churn.filter((entry) => /dev-scm-card|dev-scm-summary|dev-scm-provider-row/.test(entry))
+    ).toEqual([])
+    const sameDialog = await page.evaluate(
+      ([before, after]) => before === after,
+      [dialogHandle, await dialog.elementHandle()]
+    )
+    const sameCard = await page.evaluate(
+      ([before, after]) => before === after,
+      [cardHandle, await gitlabCard.elementHandle()]
+    )
+    const sameHelp = await page.evaluate(
+      ([before, after]) => before === after,
+      [helpHandle, await dialog.locator('.dev-scm-summary').first().elementHandle()]
+    )
+    expect(sameDialog).toBe(true)
+    expect(sameCard).toBe(true)
+    expect(sameHelp).toBe(true)
+    // The check really ran: a fresh account command for GitLab is on record.
+    const gitlabChecks = (await page.evaluate(() => window.sourceControlHarness.commands())).filter(
+      (entry) => entry.operation === 'dev.gitlab.account'
+    )
+    expect(gitlabChecks.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('the labels picker keeps its list mounted while refetching', async ({ page }) => {
+    await openHarness(page)
+    await page.getByRole('button', { name: 'New pull request' }).click()
+    const dialog = page.getByRole('dialog', { name: 'New pull request' })
+    await expect(dialog.getByRole('textbox', { name: 'Title' })).toHaveValue('New feature')
+    await dialog.getByRole('button', { name: 'Add labels' }).click()
+    const list = page.locator('.dev-scm-picker__list')
+    await expect(list.getByRole('button', { name: 'migration' })).toBeVisible()
+    const listHandle = await list.elementHandle()
+    await instrumentRemovals(page, '.dev-scm-picker')
+
+    // Every query keystroke refetches; the rendered list must stay the same
+    // node and update in place instead of collapsing to a loading caption.
+    // The removal observer catches a teardown synchronously, however brief
+    // the refetch window is.
+    await page.getByRole('searchbox', { name: 'Filter labels' }).fill('mi')
+    await expect(list.getByRole('button', { name: 'migration' })).toBeVisible()
+    await expect(list.getByRole('button', { name: 'solid' })).toHaveCount(0)
+    // The refetch narrows the rows in place; the pre-fix behavior swapped the
+    // whole list for a "Loading…" caption on every keystroke.
+    const churn = await page.evaluate(() => window.__adeaScmChurn ?? [])
+    expect(churn.filter((entry) => entry.includes('dev-scm-caption'))).toEqual([])
+    const sameList = await page.evaluate(
+      ([before, after]) => before === after,
+      [listHandle, await list.elementHandle()]
+    )
+    expect(sameList).toBe(true)
   })
 
   test('an error toast paints above the Git providers dialog and leaves on its own', async ({

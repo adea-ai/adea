@@ -5045,7 +5045,13 @@ holds no provider state of its own beyond these rules:
   shows its reason on its own projects while the other keeps working, and
   the app is disconnected only when every provider in use is. Capabilities
   per provider hide what it cannot do: GitLab offers only a rebase update,
-  no request-changes verdict, and no team reviewers.
+  no request-changes verdict, and no team reviewers. The Git providers
+  dialog checks every listed provider when it opens and re-checks on
+  demand. A check updates the affected row in place — chip, caption, and
+  busy control — and must never rebuild the menu or collapse a row's
+  sign-in help while the check runs; the same no-rebuild rule holds for
+  every menu fed by an async refresh, whose refetches update the rendered
+  list in place instead of swapping it for a loading state.
 - **Session link and agents.** A pull request belongs to the Adea session
   whose non-archived worktree has its head branch checked out in the same
   repository (a live session wins); forks never link. The link is derived on
@@ -5645,7 +5651,12 @@ divider aligned to the contextual sidebar's right edge while that sidebar is
 visible, or to the later of the outer rail edge and leading history/context
 controls when the sidebar is collapsed or hidden. At phone widths, the
 contextual sidebar is an overlay below the top bar and Dev actions remain in
-flow after the contextual controls. The group contains the left utility
+flow after the contextual controls. The source control view's leading section
+obeys the same geometry: its sync status and sync control begin at the same
+vertical divider aligned to the contextual sidebar's right edge while that
+sidebar is visible, and fall back in flow after the leading controls when it is
+collapsed or hidden; the title-slot search sits strictly right of that divider
+either way. The group contains the left utility
 slot collapse/reopen control, split-pane action, and window-local reopen-closed-
 pane action. Files versus Source Control is selected inside the left utility
 slot; its top-bar control only opens or collapses that slot. The workspace-wide
@@ -5724,7 +5735,9 @@ Library, the designers and views without a path keep the plain title. Source
 control is the one view that owns the slot instead: it portals its
 pull-request search into the title mount, so the centered field replaces the
 plain workspace-name title, while its sync state and control stay in the
-leading actions group.
+leading actions group — the search and that group both sit strictly right of
+the view divider aligned to the contextual sidebar's edge, never over the
+sidebar column.
 Room and Character designer entries use the same global app container and retain
 the global rail even when the private engine is unavailable. Both designers hide
 the left and right contextual sidebars and their toolbar collapse toggles. The

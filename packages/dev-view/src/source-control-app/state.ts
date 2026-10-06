@@ -53,6 +53,19 @@ export function createSourceControlState(options: {
 }) {
   const { client, storage } = options
   const [accounts, setAccounts] = createSignal<ReadonlyMap<ScmProvider, AccountState>>(new Map())
+  // A check flips an account to an explicit `loading` state first so the UI
+  // never reads a stale verdict as current. Rendering that flip literally
+  // would tear the affected row down — the Git providers dialog's sign-in
+  // help would vanish and return around every re-check, which reads as the
+  // menu flickering. This memo accumulates the last settled state per
+  // provider: a check overlays its loading state on this, and the check
+  // always settles, so the overlay is brief by construction.
+  const settledAccounts = createMemo<ReadonlyMap<ScmProvider, AccountState>>((previous) => {
+    const next = new Map(previous)
+    for (const [provider, state] of accounts())
+      if (state.status !== 'loading') next.set(provider, state)
+    return next
+  })
   const [projects, setProjects] = createSignal<Awaited<ReturnType<ScmClient['projects']>>>([])
   const [repos, setRepos] = createSignal<Awaited<ReturnType<ScmClient['repos']>>>([])
   const [sessionIndex, setSessionIndex] = createSignal<ReadonlyMap<string, LinkedSession>>(
@@ -79,6 +92,12 @@ export function createSourceControlState(options: {
   /** A provider's account; GitHub unless asked. */
   const account = (provider: ScmProvider = 'github'): AccountState =>
     accounts().get(provider) ?? { status: 'loading' }
+
+  /** A provider's last settled account, or undefined before the first check
+   *  settles. Loading reads as the previous verdict so rows render through a
+   *  re-check in place instead of collapsing and rebuilding. */
+  const settledAccount = (provider: ScmProvider = 'github'): AccountState | undefined =>
+    settledAccounts().get(provider)
 
   /** The signed-in login on a provider. */
   const viewer = (provider: ScmProvider = 'github') => {
@@ -409,6 +428,7 @@ export function createSourceControlState(options: {
     client,
     storage,
     account,
+    settledAccount,
     viewer,
     viewerFor,
     repoProvider,
