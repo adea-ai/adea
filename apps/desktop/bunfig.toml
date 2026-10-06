@@ -1,0 +1,6 @@
+# Desktop suite runtime (`bun test tests` from apps/desktop, also via turbo).
+[test]
+# Settles every child a test spawned before the next test runs, so Bun's
+# file-boundary dangling-process sweep never races an exiting child (the
+# intermittent full-suite hang). See tests/fixtures/child-process-guard.ts.
+preload = ["./tests/fixtures/child-process-guard.ts"]
