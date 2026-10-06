@@ -1,5 +1,6 @@
 import 'server-only'
 
+export { accountWorkspaceSummaries } from './account-summary'
 export {
   createArtifact,
   deleteArtifact,

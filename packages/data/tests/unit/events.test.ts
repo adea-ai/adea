@@ -11,6 +11,7 @@ import {
   workspaceScopeKeys,
   type WorkspaceEventEnvelope,
 } from '../../src/events'
+import { accountQueryKeys } from '../../src/index'
 
 const workspaceId = 'aaaaaaaa-1111-4111-8111-111111111111'
 const url = `https://workspace.test/api/v1/workspaces/${workspaceId}/events`
@@ -154,6 +155,23 @@ describe('workspace event client', () => {
       ['workspaces', workspaceId],
     ])
     expect(workspaceScopeKeys(workspaceId)).toEqual([['workspaces', workspaceId]])
+  })
+
+  test('refreshes the account summary for unread-changing families only', () => {
+    // The summary key sits outside the per-workspace prefix so it survives a
+    // workspace switch; the active stream still has to refresh it.
+    for (const eventType of [
+      'message.created',
+      'message.deleted',
+      'channel.read',
+      'channel.unread',
+      'channel.archived',
+      'thread.read',
+    ])
+      expect(queryKeysForEvent(workspaceId, eventType)).toContainEqual(accountQueryKeys.summary)
+    for (const eventType of ['agent.updated', 'task.completed', 'artifact.created'])
+      expect(queryKeysForEvent(workspaceId, eventType)).not.toContainEqual(accountQueryKeys.summary)
+    expect(accountQueryKeys.summary[0]).not.toBe('workspaces')
   })
 
   test('backs off exponentially with jitter and a cap', () => {

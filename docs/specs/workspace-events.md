@@ -122,7 +122,10 @@ desktop sessions share one path, and the cursor travels explicitly.
   refreshes the workspace rather than being dropped. The `workspace` family
   (including `workspace.updated`, emitted when a member changes the name, logo,
   accent or Virtual world) also refreshes the workspace list and detail
-  queries, which sit outside the per-workspace key prefix. The bootstrap query
+  queries, which sit outside the per-workspace key prefix. The `message`,
+  `channel` and `thread` families also refresh the account summary
+  (`['account', 'summary']`, see below), which sits outside that prefix too.
+  The bootstrap query
   establishes the session and is never refetched by an event. Refreshes are coalesced:
   the keys a stream chunk produces are deduplicated and invalidated once per
   chunk, so a burst of events costs one refetch per group, not one per event.
@@ -135,6 +138,45 @@ desktop sessions share one path, and the cursor travels explicitly.
   state without reconnecting on each surface change, and transient UI
   coordination stays in the Solid workspace store (`solid-js/store`; decision
   [0007](../decisions/0007-solid-tanstack-start.md)).
+
+## The account summary
+
+Only the active workspace has a stream, and leaving a workspace releases its
+cached queries (`releaseWorkspaceCache`). Unread status for the other
+workspaces comes from a counts-only account summary instead
+([ADR 0011](../decisions/0011-unified-workspace-projects.md), "Counts-only
+cross-workspace status").
+
+- **Route.** `GET /api/v1/account/summary` resolves the caller with
+  `resolveWorkspacePrincipal` and answers `{ workspaces: [{ workspaceId,
+unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
+  workspace permission is checked: `accountWorkspaceSummaries` starts from the
+  caller's own memberships, so a workspace they do not belong to never
+  appears, and archived (soft-deleted) workspaces are left out. Rows follow the
+  member's own workspace order. Nothing in the payload names a channel,
+  message, or person.
+- **One grouped query.** Channel visibility matches read state: active
+  channels that are workspace-visible or list the caller as a participant.
+  `unreadChannels` counts those whose `channels.latest_message_sequence` is
+  past `channel_read_states.last_read_sequence` (missing state reads as 0), or
+  that are marked `manually_unread`. Thread-only replies do not make a channel
+  unread here; the in-workspace read state still counts them. `mentions`
+  counts live, unread top-level messages in those channels that mention the
+  caller (`message_mentions`, indexed by `message_mentions_user_idx`).
+- **The frontier column.** `channels.latest_message_sequence` (migration
+  `0031`) is the newest live top-level message sequence, 0 when there is none.
+  `createMessage` advances it with `GREATEST` in the insert transaction, so
+  out-of-order commits never move it back; a thread reply leaves it alone.
+  `deleteMessage` of the current newest top-level message moves it back to the
+  newest remaining live one, in the delete transaction; deleting an older
+  message leaves it. It is not part of the channel `version` and does not
+  touch `updated_at`.
+- **Client.** `accountSummary()` in `/api-client`; `useAccountSummaryQuery`
+  in `/data` polls every 60 seconds and on window focus, under
+  `['account', 'summary']`, which a workspace switch keeps. The active stream's
+  `message`, `channel` and `thread` families and the read-state mutations
+  invalidate it, so the active workspace is current immediately and the others
+  within a minute.
 
 ## Pinned by
 
@@ -150,5 +192,14 @@ desktop sessions share one path, and the cursor travels explicitly.
 - `packages/data/tests/unit/events.test.ts`: frame parsing, family-to-query
   mapping, backoff, apply-once semantics with cursor persistence, gap and resync
   recovery, and the server-retry floor.
+- `packages/db/tests/integration/account-summary.test.ts`: the frontier on
+  insert, thread reply, idempotent retry and delete; counts across three
+  member workspaces in exactly one query; a non-member workspace never
+  appearing; private-channel visibility and participant removal; read marks
+  and manual unread; archived workspaces dropping out.
+- `packages/data/tests/unit/account-summary.test.ts` and `events.test.ts`:
+  the summary's key, polling and focus refetch, its invalidation by the
+  unread-changing families and read-state mutations, and its survival of
+  `releaseWorkspaceCache`.
 - `apps/web/test/start-client-denylist.json`: the server stream modules cannot
   appear in a browser bundle.

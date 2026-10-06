@@ -288,6 +288,21 @@ export type ChannelReadStateSummary = Readonly<{
   workspaceId: string
 }>
 
+/**
+ * Counts-only unread status for one workspace the user belongs to (ADR 0011).
+ * It names no channel, message, or person, so it can be read for workspaces
+ * the user is not currently in.
+ */
+export type AccountWorkspaceSummary = Readonly<{
+  /** Live mentions of the user in unread top-level messages. */
+  mentions: number
+  /** Accessible active channels with an unread top-level message or a manual unread mark. */
+  unreadChannels: number
+  workspaceId: string
+}>
+
+export type AccountSummary = Readonly<{ workspaces: readonly AccountWorkspaceSummary[] }>
+
 export type WorkspaceSearchResult = Readonly<{
   channelId?: string
   id: string
