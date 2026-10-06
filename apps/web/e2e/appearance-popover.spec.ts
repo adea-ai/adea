@@ -185,6 +185,19 @@ for (const width of [1280, 390]) {
       }
     })
 
+    test('saving with no edits closes without writing and shows no disabled-state copy', async ({
+      page,
+    }) => {
+      const popup = await openLiveAppearance(page)
+      // The sheet keeps Save available on a fresh open: the disabled-state
+      // reason line is a settings-section treatment, and a clean save is a
+      // dismissal, so there is nothing for the copy to explain.
+      await expect(popup.getByText('No changes to save yet.')).toHaveCount(0)
+      await popup.getByRole('button', { name: 'Save', exact: true }).click()
+      await expect(popup).toBeHidden()
+      expect(await page.evaluate(() => localStorage.getItem('appearance'))).toBeNull()
+    })
+
     test('the nested theme library retains the preview and returns focus', async ({ page }) => {
       const popup = await openLiveAppearance(page)
       await popup
