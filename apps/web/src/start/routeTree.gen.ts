@@ -28,6 +28,7 @@ import { Route as ApiAuthDesktopExchangeRouteImport } from './routes/api/auth/de
 import { Route as ApiAuthDesktopLogoutRouteImport } from './routes/api/auth/desktop/logout'
 import { Route as ApiAuthDesktopRefreshRouteImport } from './routes/api/auth/desktop/refresh'
 import { Route as ApiAuthDesktopRevokeRouteImport } from './routes/api/auth/desktop/revoke'
+import { Route as ApiV1AccountSummaryRouteImport } from './routes/api/v1/account/summary'
 import { Route as ApiWorkspacesWorkspaceIdReopenRouteImport } from './routes/api/workspaces/$workspaceId/reopen'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents'
 import { Route as ApiV1WorkspacesWorkspaceIdArtifactsRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifacts'
@@ -168,6 +169,11 @@ const ApiAuthDesktopRefreshRoute = ApiAuthDesktopRefreshRouteImport.update({
 const ApiAuthDesktopRevokeRoute = ApiAuthDesktopRevokeRouteImport.update({
   id: '/api/auth/desktop/revoke',
   path: '/api/auth/desktop/revoke',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1AccountSummaryRoute = ApiV1AccountSummaryRouteImport.update({
+  id: '/api/v1/account/summary',
+  path: '/api/v1/account/summary',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWorkspacesWorkspaceIdReopenRoute =
@@ -453,6 +459,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
@@ -517,6 +524,7 @@ export interface FileRoutesByTo {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
@@ -582,6 +590,7 @@ export interface FileRoutesById {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
@@ -648,6 +657,7 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifacts'
@@ -712,6 +722,7 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifacts'
@@ -776,6 +787,7 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifacts'
@@ -838,6 +850,7 @@ export interface RootRouteChildren {
   ApiAuthDesktopLogoutRoute: typeof ApiAuthDesktopLogoutRoute
   ApiAuthDesktopRefreshRoute: typeof ApiAuthDesktopRefreshRoute
   ApiAuthDesktopRevokeRoute: typeof ApiAuthDesktopRevokeRoute
+  ApiV1AccountSummaryRoute: typeof ApiV1AccountSummaryRoute
   ApiV1WorkspacesWorkspaceIdAgentsRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdArtifactsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   ApiV1WorkspacesWorkspaceIdChannelsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
@@ -989,6 +1002,13 @@ declare module '@tanstack/solid-router' {
       path: '/api/auth/desktop/revoke'
       fullPath: '/api/auth/desktop/revoke'
       preLoaderRoute: typeof ApiAuthDesktopRevokeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/account/summary': {
+      id: '/api/v1/account/summary'
+      path: '/api/v1/account/summary'
+      fullPath: '/api/v1/account/summary'
+      preLoaderRoute: typeof ApiV1AccountSummaryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/workspaces/$workspaceId/reopen': {
@@ -1552,6 +1572,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthDesktopLogoutRoute: ApiAuthDesktopLogoutRoute,
   ApiAuthDesktopRefreshRoute: ApiAuthDesktopRefreshRoute,
   ApiAuthDesktopRevokeRoute: ApiAuthDesktopRevokeRoute,
+  ApiV1AccountSummaryRoute: ApiV1AccountSummaryRoute,
   ApiV1WorkspacesWorkspaceIdAgentsRoute:
     ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdArtifactsRoute:

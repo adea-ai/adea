@@ -106,6 +106,19 @@ It fails when credentials are client-prefixed, hosted TLS is disabled, environme
 - Use point-in-time restore only for data-loss recovery, not as the normal schema rollback mechanism.
 - Pull-request CI applies the full migration history twice and compares the Drizzle journal before running transaction integration tests on its isolated Neon branch.
 
+### Account summary frontier (`0031`)
+
+Migration `0031_account-summary` is expand-only: it adds
+`channels.latest_message_sequence` (default 0), backfills it from the newest
+live top-level message of each channel, and adds `message_mentions_user_idx`.
+The previous Worker ignores the column, so the migration can run before the
+deploy. Messages written by the previous Worker between the migration and the
+deploy do not advance the column; a later message heals its channel (the
+update uses `GREATEST`), and re-running the backfill `UPDATE` at the end of
+`drizzle/0031_account-summary.sql` once the new Worker is live is safe and
+idempotent. Until then the account summary can under-count those channels; the
+in-workspace read state is unaffected.
+
 ### Rooms become projects (maintenance window)
 
 Migration `0030_rooms-become-projects` renames the cloud room entity to

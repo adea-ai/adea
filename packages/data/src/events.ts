@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/solid-query'
 
 import {
+  accountQueryKeys,
   agentQueryKeys,
   artifactQueryKeys,
   channelQueryKeys,
@@ -91,15 +92,22 @@ export function queryKeysForEvent(
         ['workspaces', workspaceId, 'channels'],
         readStateQueryKeys.detail(workspaceId),
         taskQueryKeys.all(workspaceId),
+        // Unread counts per workspace, outside the per-workspace prefix.
+        accountQueryKeys.summary,
       ]
     case 'channel':
       return [
         channelQueryKeys.all(workspaceId),
         readStateQueryKeys.detail(workspaceId),
         projectQueryKeys.all(workspaceId),
+        accountQueryKeys.summary,
       ]
     case 'thread':
-      return [readStateQueryKeys.detail(workspaceId), channelQueryKeys.all(workspaceId)]
+      return [
+        readStateQueryKeys.detail(workspaceId),
+        channelQueryKeys.all(workspaceId),
+        accountQueryKeys.summary,
+      ]
     case 'project':
       return [projectQueryKeys.all(workspaceId), channelQueryKeys.all(workspaceId)]
     case 'agent':

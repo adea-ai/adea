@@ -51,6 +51,15 @@ export const channels = appSchema.table(
     isPrimaryProjectChannel: boolean('is_primary_project_channel').default(false).notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),
     lifecycleState: channelLifecycleState('lifecycle_state').default('active').notNull(),
+    /**
+     * Sequence of the newest live top-level message, or 0 when there is none.
+     * Denormalized so the account summary can count unread channels across
+     * workspaces without scanning messages; maintained in the message create
+     * and delete transactions. Not part of the channel version.
+     */
+    latestMessageSequence: bigint('latest_message_sequence', { mode: 'number' })
+      .default(0)
+      .notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
     version: integer('version').default(1).notNull(),
     ...timestampColumns(),
@@ -69,6 +78,7 @@ export const channels = appSchema.table(
     check('channels_idempotency_nonempty', sql`length(btrim(${table.idempotencyKey})) > 0`),
     check('channels_sort_nonnegative', sql`${table.sortOrder} >= 0`),
     check('channels_version_positive', sql`${table.version} > 0`),
+    check('channels_latest_message_sequence_nonnegative', sql`${table.latestMessageSequence} >= 0`),
     check(
       'channels_kind_association',
       sql`(${table.kind} = 'project' and ${table.projectId} is not null and ${table.agentId} is null) or (${table.kind} = 'direct_agent' and ${table.projectId} is null and ${table.agentId} is not null) or (${table.kind} = 'group' and ${table.projectId} is null and ${table.agentId} is null)`
@@ -203,6 +213,10 @@ export const messageMentions = appSchema.table(
       sql`(${table.principalKind} = 'user' and ${table.userId} is not null and ${table.agentId} is null) or (${table.principalKind} = 'agent' and ${table.userId} is null and ${table.agentId} is not null)`
     ),
     index('message_mentions_workspace_idx').on(table.workspaceId, table.messageId),
+    // The account summary counts a user's unread mentions across workspaces.
+    index('message_mentions_user_idx')
+      .on(table.userId, table.messageId)
+      .where(sql`${table.principalKind} = 'user' and ${table.userId} is not null`),
   ]
 )
 

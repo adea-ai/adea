@@ -7,7 +7,7 @@ import type {
   MessageSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, gt, inArray, isNull, max } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
@@ -761,6 +761,46 @@ async function validateSender(database: Database, workspaceId: string, sender: M
   else if (!sender.systemId.trim()) throw new Error('Message sender invalid')
 }
 
+/**
+ * Keeps `channels.latest_message_sequence` equal to the newest live top-level
+ * message. GREATEST makes concurrent inserts commit-order independent: identity
+ * sequences may commit out of order, and the frontier must never move back.
+ */
+async function advanceChannelLatestSequence(
+  transaction: AgentHqTransaction,
+  channelId: string,
+  sequence: number
+) {
+  await transaction
+    .update(channels)
+    .set({
+      latestMessageSequence: sql`GREATEST(${channels.latestMessageSequence}, ${sequence})`,
+      // A message is not a channel metadata change; keep `$onUpdate` off it.
+      updatedAt: sql`${channels.updatedAt}`,
+    })
+    .where(eq(channels.id, channelId))
+}
+
+/**
+ * Deleting the newest top-level message moves the frontier back to the newest
+ * remaining live one (read state already ignores deleted messages). Deleting
+ * any older message leaves it alone; the guard on the current value makes a
+ * concurrent newer insert win.
+ */
+async function retreatChannelLatestSequence(
+  transaction: AgentHqTransaction,
+  channelId: string,
+  deletedSequence: number
+) {
+  await transaction
+    .update(channels)
+    .set({
+      latestMessageSequence: sql`coalesce((select max(${messages.sequence}) from ${messages} where ${messages.channelId} = ${channelId} and ${messages.threadRootMessageId} is null and ${messages.deletedAt} is null), 0)`,
+      updatedAt: sql`${channels.updatedAt}`,
+    })
+    .where(and(eq(channels.id, channelId), eq(channels.latestMessageSequence, deletedSequence)))
+}
+
 export async function createMessage(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -875,6 +915,8 @@ export async function createMessage(
       )
       return messageSummary(transaction, existing)
     }
+    if (!created.threadRootMessageId)
+      await advanceChannelLatestSequence(transaction, channelId, created.sequence)
     if (input.bodyContentRefId)
       await attachMessageContentRef(transaction, workspaceId, input.bodyContentRefId, created.id)
     if (mentions.length)
@@ -1042,6 +1084,8 @@ export async function deleteMessage(
       )
       .returning()
     if (!deleted) throw new Error('Message version conflict')
+    if (!deleted.threadRootMessageId)
+      await retreatChannelLatestSequence(transaction, deleted.channelId, deleted.sequence)
     await appendWorkspaceEvent(transaction, {
       eventType: 'message.deleted',
       payload: { actorUserId: principal.userId, messageId, version: deleted.version },

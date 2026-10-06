@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from 'bun:test'
 import { QueryClient } from '@tanstack/solid-query'
 
-import { releaseWorkspaceCache } from '../../src'
+import { accountQueryKeys, releaseWorkspaceCache } from '../../src'
 
 let queryClient: QueryClient
 
@@ -42,4 +42,12 @@ test('releaseWorkspaceCache leaves no cached entries under the outgoing workspac
 
 test('releaseWorkspaceCache is a no-op for a workspace with nothing cached', () => {
   expect(() => releaseWorkspaceCache(queryClient, 'workspace-unknown')).not.toThrow()
+})
+
+test('releaseWorkspaceCache keeps the account summary across workspace switches', () => {
+  queryClient.setQueryData(accountQueryKeys.summary, { workspaces: [] })
+
+  releaseWorkspaceCache(queryClient, 'workspace-work')
+
+  expect(queryClient.getQueryData(accountQueryKeys.summary)).toEqual({ workspaces: [] })
 })

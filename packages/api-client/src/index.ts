@@ -1,4 +1,5 @@
 import type {
+  AccountSummary,
   AgentSummary,
   ArtifactLocation,
   ArtifactSummary,
@@ -134,6 +135,8 @@ export type ApiContentReplicaListResponse = Readonly<{
   contentReplicas: readonly ContentReplicaSummary[]
 }>
 export type ApiReadStateResponse = Readonly<{ readState: readonly ChannelReadStateSummary[] }>
+/** Counts-only unread status for every workspace the caller belongs to. */
+export type ApiAccountSummaryResponse = AccountSummary
 
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
 export type ApiMessageResponse = Readonly<{ message: MessageSummary }>
@@ -675,6 +678,11 @@ export class AgentHqApiClient {
         method: 'POST',
       }
     )
+  }
+
+  /** Unread channel and mention counts for every workspace the caller belongs to. */
+  async accountSummary(): Promise<ApiAccountSummaryResponse> {
+    return this.request<ApiAccountSummaryResponse>('/v1/account/summary')
   }
 
   async getReadState(workspaceId: string): Promise<ApiReadStateResponse> {

@@ -65,6 +65,28 @@ export const artifactQueryKeys = {
   list: (workspaceId: string) => ['workspaces', workspaceId, 'artifacts', 'list'] as const,
 }
 
+/**
+ * User-scoped account queries. They sit outside the per-workspace
+ * `['workspaces', workspaceId]` prefix, so a workspace switch (which releases
+ * that prefix) keeps them, and they describe every workspace at once.
+ */
+export const accountQueryKeys = {
+  all: ['account'] as const,
+  summary: ['account', 'summary'] as const,
+}
+
+/** How often the account summary polls for workspaces without an open stream. */
+export const ACCOUNT_SUMMARY_REFETCH_INTERVAL_MS = 60_000
+
+export const accountQueryOptions = {
+  summary: (client: AgentHqApiClient) => ({
+    queryKey: accountQueryKeys.summary,
+    queryFn: () => client.accountSummary(),
+    refetchInterval: ACCOUNT_SUMMARY_REFETCH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+  }),
+}
+
 export const readStateQueryKeys = {
   detail: (workspaceId: string) => ['workspaces', workspaceId, 'read-state'] as const,
 }
@@ -94,6 +116,8 @@ export const workspaceSearchQueryOptions = {
 function readStateMutationSuccess(queryClient: QueryClient, workspaceId: string) {
   return (result: Awaited<ReturnType<AgentHqApiClient['getReadState']>>) => {
     queryClient.setQueryData(readStateQueryKeys.detail(workspaceId), result)
+    // The account summary counts this workspace's unread channels too.
+    void queryClient.invalidateQueries({ queryKey: accountQueryKeys.summary })
   }
 }
 
@@ -1110,6 +1134,15 @@ export function useCreateMessageMutation(
     )
   )
 }
+/**
+ * Unread counts for every workspace the user belongs to, for the sidebar's
+ * collapsed-workspace chips. Only the active workspace has an event stream;
+ * the others are kept current by polling and window focus.
+ */
+export function useAccountSummaryQuery(client: AgentHqApiClient) {
+  return useQuery(() => accountQueryOptions.summary(client))
+}
+
 export function useReadStateQuery(
   client: AgentHqApiClient,
   workspaceId?: MaybeAccessor<string | undefined>

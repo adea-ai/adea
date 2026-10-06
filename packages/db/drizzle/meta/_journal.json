@@ -218,6 +218,13 @@
       "when": 1791240297948,
       "tag": "0030_rooms-become-projects",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791245674825,
+      "tag": "0031_account-summary",
+      "breakpoints": true
     }
   ]
 }
