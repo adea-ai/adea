@@ -286,6 +286,58 @@ describe('merge dock', () => {
     expect(own.reviews.canReview).toBe(false)
   })
 
+  test("the review row leads with the viewer's pending request", () => {
+    const requested = view({
+      requestedReviewers: [
+        { login: VIEWER, kind: 'user' },
+        { login: 'rhea', kind: 'user' },
+      ],
+      reviews: [{ actor: { login: 'dana', kind: 'user' }, state: 'approved' }],
+    })
+    expect(dock(requested).reviews.summary).toBe(
+      'Your review is requested · dana approved · Waiting on rhea.'
+    )
+    expect(dock(view()).reviews.summary).toBe('No reviews yet.')
+    const reviewed = view({
+      requestedReviewers: [{ login: VIEWER, kind: 'user' }],
+      reviews: [{ actor: { login: VIEWER, kind: 'user' }, state: 'commented', commitSha: HEAD }],
+    })
+    expect(dock(reviewed).reviews.summary).toBe(`Waiting on ${VIEWER}.`)
+  })
+
+  test('the checks row names the head and the buckets the chip leaves out', () => {
+    expect(dock(view()).checks.summary).toBe('Passed on aaaaaaa.')
+    expect(
+      dock(
+        view({
+          checks: { state: 'failure', passing: 3, failing: 1, running: 1, skipped: 2, total: 7 },
+        })
+      ).checks.summary
+    ).toBe('Failing on aaaaaaa · 3 passing, 1 running, 2 skipped.')
+    expect(
+      dock(
+        view({
+          checks: { state: 'none', passing: 0, failing: 0, running: 0, skipped: 0, total: 0 },
+        })
+      ).checks.summary
+    ).toBe('No checks reported on aaaaaaa.')
+  })
+
+  test('approvals read against the required count only when the provider reports it', () => {
+    const one = [{ actor: { login: 'dana', kind: 'user' as const }, state: 'approved' as const }]
+    expect(
+      dock(view({ reviewDecision: 'review_required', reviews: one, requiredApprovals: 2 })).reviews
+        .label
+    ).toBe('1 of 2 approvals')
+    expect(dock(view({ reviewDecision: 'review_required', reviews: one })).reviews.label).toBe(
+      '1 approval, more required'
+    )
+    expect(
+      dock(view({ reviewDecision: 'review_required', reviews: [], requiredApprovals: 1 })).reviews
+        .label
+    ).toBe('0 of 1 approval')
+  })
+
   test('the remembered method wins only while the repository allows it', () => {
     expect(preferredMethod(['merge', 'squash'], 'merge')).toBe('merge')
     expect(preferredMethod(['merge', 'squash'], 'rebase')).toBe('squash')

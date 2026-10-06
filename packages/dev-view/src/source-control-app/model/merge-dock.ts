@@ -11,6 +11,7 @@
  */
 import type { GitHubMergeMethod } from '@adea-ai/types/dev-runtime'
 
+import { displayLogin, shortSha } from './format'
 import {
   approvalsMet,
   branchFacet,
@@ -22,6 +23,8 @@ import {
   isBehind,
   reviewFacet,
   viewerIsAuthor,
+  viewerIsRequested,
+  viewerReviewedHead,
   type Facet,
 } from './status'
 import type { ProviderCapabilities, PullRequestView } from './types'
@@ -33,8 +36,11 @@ export type MergeControl =
   | Readonly<{ kind: 'disabled'; label: string; helper: string }>
 
 export type MergeDock = Readonly<{
-  reviews: Facet & Readonly<{ canReview: boolean }>
-  checks: Facet
+  /** `summary` is the sentence beside the chip: who reviewed, whose review
+   *  is still awaited, and whether that includes the viewer. */
+  reviews: Facet & Readonly<{ canReview: boolean; summary: string }>
+  /** `summary` names the head commit and the buckets the chip leaves out. */
+  checks: Facet & Readonly<{ summary: string }>
   branch: Facet & Readonly<{ canUpdate: boolean }>
   merge: MergeControl
 }>
@@ -73,8 +79,9 @@ export function mergeDock(
   const reviews = {
     ...reviewFacet(pr),
     canReview: pr.state === 'open' && !viewerIsAuthor(pr, viewer),
+    summary: reviewsSummary(pr, viewer),
   }
-  const checks = checksFacet(pr.checks)
+  const checks = { ...checksFacet(pr.checks), summary: checksSummary(pr) }
   const branch = {
     ...branchFacet(pr),
     canUpdate: capabilities.updateBranch && pr.state === 'open' && behind && !conflicts,
@@ -85,6 +92,47 @@ export function mergeDock(
     branch,
     merge: mergeControl(pr, method, capabilities, conflicts, behind),
   }
+}
+
+const sameLogin = (left: string, right: string) => left.toLowerCase() === right.toLowerCase()
+
+/** "Your review is requested · dana approved · Waiting on rhea." The
+ *  viewer's own pending request leads, because it is the one thing on the
+ *  row the viewer can act on. */
+export function reviewsSummary(pr: PullRequestView, viewer: string | undefined): string {
+  const parts: string[] = []
+  const viewerPending =
+    pr.state === 'open' && viewerIsRequested(pr, viewer) && !viewerReviewedHead(pr, viewer)
+  if (viewerPending) parts.push('Your review is requested')
+  for (const review of pr.reviews) {
+    if (review.state === 'approved') parts.push(`${displayLogin(review.actor.login)} approved`)
+    else if (review.state === 'changes_requested')
+      parts.push(`${displayLogin(review.actor.login)} requested changes`)
+  }
+  const waiting = pr.requestedReviewers.filter(
+    (reviewer) => !(viewerPending && viewer && sameLogin(reviewer.login, viewer))
+  )
+  if (waiting.length > 0)
+    parts.push(`Waiting on ${waiting.map((reviewer) => displayLogin(reviewer.login)).join(', ')}`)
+  if (parts.length === 0) return pr.reviews.length > 0 ? 'No approvals yet.' : 'No reviews yet.'
+  return `${parts.join(' · ')}.`
+}
+
+/** "Failing on a1b2c3d · 3 passing, 1 skipped." The chip already carries
+ *  the headline counts; this names the commit and the rest. */
+export function checksSummary(pr: PullRequestView): string {
+  const checks = pr.checks
+  const on = `on ${shortSha(pr.headSha)}`
+  if (checks.total === 0 && checks.state === 'none') return `No checks reported ${on}.`
+  const failing = checksFailing(checks)
+  const running = !failing && (checks.running > 0 || checks.state === 'pending')
+  const rest = [
+    failing && checks.passing > 0 ? `${checks.passing.toLocaleString('en-US')} passing` : undefined,
+    failing && checks.running > 0 ? `${checks.running.toLocaleString('en-US')} running` : undefined,
+    checks.skipped > 0 ? `${checks.skipped.toLocaleString('en-US')} skipped` : undefined,
+  ].filter((part): part is string => part !== undefined)
+  const lead = failing ? 'Failing' : running ? 'Running' : 'Passed'
+  return `${lead} ${on}${rest.length > 0 ? ` · ${rest.join(', ')}` : ''}.`
 }
 
 function mergeControl(
