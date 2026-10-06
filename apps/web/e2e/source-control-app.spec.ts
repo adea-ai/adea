@@ -452,6 +452,51 @@ test.describe('source control app', () => {
     await expect(dialog).toContainText('Signed in as octocat on github.com')
   })
 
+  test('an error toast paints above the Git providers dialog and leaves on its own', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    await openHarness(page, '?scenario=gitlab-disconnected')
+    await page.getByRole('button', { name: 'Connect account' }).first().click()
+    const dialog = page.getByRole('dialog', { name: 'Git providers' })
+    await expect(dialog).toBeVisible()
+    // Opening the dialog checks every provider; the disconnected GitLab
+    // check reports its refusal as an error toast.
+    const toast = page.getByRole('status').filter({ hasText: 'GitLab:' }).first()
+    await page.getByRole('button', { name: 'Check GitLab again' }).click()
+    await expect(toast).toBeVisible()
+    // The toast layer outranks the dialog layer on the named overlay scale:
+    // its fixed ancestor carries the published --z-toast rung (180) while the
+    // dialog positioner and scrim ride --z-dialog (120), so an open dialog
+    // can never bury a toast. Hit-testing cannot prove paint order here —
+    // the modal dialog marks its background siblings inert, and inert
+    // elements are skipped by elementFromPoint.
+    const layerZ = () =>
+      toast.evaluate((node) => {
+        let element: HTMLElement | null = node as HTMLElement
+        while (element) {
+          const style = getComputedStyle(element)
+          if (style.position === 'fixed' && style.zIndex !== 'auto') return Number(style.zIndex)
+          element = element.parentElement
+        }
+        return -1
+      })
+    const dialogLayerZ = () =>
+      dialog.evaluate((node) => {
+        let element: HTMLElement | null = node as HTMLElement
+        while (element) {
+          const style = getComputedStyle(element)
+          if (style.position === 'fixed' && style.zIndex !== 'auto') return Number(style.zIndex)
+          element = element.parentElement
+        }
+        return -1
+      })
+    const [toastZ, dialogZ] = await Promise.all([layerZ(), dialogLayerZ()])
+    expect(toastZ).toBeGreaterThan(dialogZ)
+    // Errors are not dismiss-only: the toast leaves on its own timer.
+    await expect(toast).toBeHidden({ timeout: 10_000 })
+  })
+
   test('keyboard reaches the inbox and opens a pull request', async ({ page }) => {
     await openHarness(page)
     const target = page.getByRole('button', { name: /Persist split layout sizes per room/ }).first()

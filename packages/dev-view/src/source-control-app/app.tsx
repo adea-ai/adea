@@ -90,6 +90,28 @@ function defaultStorage(): KeyValueStorage | undefined {
 
 const TOAST_REGION = 'source-control'
 
+/**
+ * Error toasts leave on their own. The published `toast.error` helper
+ * hard-codes `persistent` (dismiss-only) and the caller cannot override it, so
+ * the error path goes through `toast.show` with a longer timer than the
+ * region's 5 s default — long enough to read, short enough that a failed
+ * "check again" does not sit on screen until it is dismissed. Upstream
+ * follow-up: make the persistent default overridable so callers can pass
+ * `duration` to `toast.error` directly.
+ */
+const ERROR_TOAST_DURATION_MS = 7000
+
+function notifyOf(message: string, tone: 'success' | 'error', region: string): number {
+  if (tone === 'error')
+    return toast.show({
+      title: message,
+      tone: 'destructive',
+      region,
+      duration: ERROR_TOAST_DURATION_MS,
+    })
+  return toast.success(message, { region })
+}
+
 /** The pull-request search: the field plus its results popover. The host
  *  decides where it lives — centered in the top bar's title slot in the
  *  workspace shell, or leading the toolbar group in bare integrations. */
@@ -254,10 +276,8 @@ function ConnectedApp(
     method: 'merge' | 'rebase'
   }>()
 
-  const notify = (message: string, tone: 'success' | 'error' = 'success') => {
-    if (tone === 'error') toast.error(message, { region: TOAST_REGION })
-    else toast.success(message, { region: TOAST_REGION })
-  }
+  const notify = (message: string, tone: 'success' | 'error' = 'success'): number =>
+    notifyOf(message, tone, TOAST_REGION)
 
   /** Re-check one provider from the Git providers dialog and say what
    *  happened: the row chip flips with the state, and a toast carries the
@@ -648,7 +668,15 @@ function ConnectedApp(
           </Show>
         </AlertDialogContent>
       </AlertDialog>
-      <Toaster region={TOAST_REGION} position="bottom-right" />
+      {/* The toast stack portals to the document root: the published Toaster
+          rides the top rung of the named overlay scale (--z-toast, above
+          menus and tooltips), and rendering it at the root keeps that rung
+          meaningful no matter which stacking context the view that owns the
+          notification happens to sit in. An open dialog must never bury an
+          error toast — the Git providers dialog is exactly where one fires. */}
+      <Portal>
+        <Toaster region={TOAST_REGION} position="bottom-right" />
+      </Portal>
     </main>
   )
 }

@@ -1,6 +1,7 @@
 import { SoundProvider } from '@adea-ai/audio'
 import { AgentHqQueryProvider } from '@adea-ai/data/provider'
 import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
+import { installTooltipFocusGate } from '@adea-ai/app-ui/lib/tooltip-focus-gate'
 import { hqSceneFromSearchParams } from '@adea-ai/app-core'
 import {
   configurableCharacterId,
@@ -18,6 +19,11 @@ import { workspaceSelection } from './workspace-selection.mjs'
  * Auth documents are served by the same Start host at /auth/*.
  */
 export default function WorkspaceMount() {
+  // Tooltips open on real hover or keyboard-intent focus only; autofocus from
+  // dialogs, sheets, and focus restoration must never pop one (the gate
+  // documents the full story). Installed synchronously so it guards the very
+  // first overlay autofocus; idempotent, so remounts are free.
+  installTooltipFocusGate()
   const params = parseWorkspaceSearch(window.location.search)
   const selection = workspaceSelection(params)
   const initial = {

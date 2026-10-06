@@ -66,6 +66,96 @@ test('an icon tooltip repeats the trigger glyph in a single icon+label row', asy
   expect(await tooltip.evaluate((node) => getComputedStyle(node).whiteSpace)).toBe('nowrap')
 })
 
+test('an ActionButton tooltipIcon repeats the trigger glyph like the raw tooltip', async ({
+  page,
+}) => {
+  const path = '/__workspace-tooltip'
+  await page.route('**' + path, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body><div id="harness-root"></div></body></html>',
+    })
+  )
+  await page.goto(path)
+  await page.evaluate(
+    async (url) => {
+      await import(url)
+    },
+    '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-tooltip-harness-app.tsx')
+  )
+  // The top bar's icon actions run through ActionButton, so its tooltipIcon
+  // passthrough must reach the same decorative icon cell the raw tooltip uses.
+  await page
+    .getByRole('region', { name: 'Icon action button' })
+    .getByRole('button', { name: 'Notifications' })
+    .hover()
+  const tooltip = page.getByRole('tooltip')
+  await expect(tooltip).toHaveText('Notifications are not available yet.')
+  const icon = tooltip.locator('[data-slot="tooltip-icon"]')
+  await expect(icon).toHaveCount(1)
+  await expect(icon.locator('svg')).toHaveCount(1)
+  await expect(icon).toHaveAttribute('aria-hidden', 'true')
+  expect(await tooltip.evaluate((node) => getComputedStyle(node).display)).toBe('flex')
+  expect(await tooltip.evaluate((node) => getComputedStyle(node).whiteSpace)).toBe('nowrap')
+})
+
+test('autofocus from a sheet never opens the tooltip, a real hover still does', async ({
+  page,
+}) => {
+  const path = '/__workspace-tooltip'
+  await page.route('**' + path, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body><div id="harness-root"></div></body></html>',
+    })
+  )
+  await page.goto(path)
+  await page.evaluate(
+    async (url) => {
+      await import(url)
+    },
+    '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-tooltip-harness-app.tsx')
+  )
+  await page.getByRole('button', { name: 'Open runtime sheet mock' }).click()
+  const refresh = page.getByRole('button', { name: 'Refresh resources' })
+  await expect(refresh).toBeFocused()
+  // The defect under repair: the sheet's autofocus popped the refresh
+  // tooltip instantly and it stayed pinned while the pointer was elsewhere.
+  // The tooltip must never open from programmatic focus at all.
+  await page.waitForTimeout(600)
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+  await expect(refresh).not.toHaveAttribute('aria-describedby')
+  // A real hover opens, and moving the pointer away closes.
+  await refresh.hover()
+  const tooltip = page.getByRole('tooltip')
+  await expect(tooltip).toHaveText('Refresh runtime resources')
+  await page.getByRole('button', { name: 'Next action', exact: true }).hover()
+  await expect(tooltip).toBeHidden()
+})
+
+test('keyboard focus still announces the control tooltip', async ({ page }) => {
+  const path = '/__workspace-tooltip'
+  await page.route('**' + path, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body><div id="harness-root"></div></body></html>',
+    })
+  )
+  await page.goto(path)
+  await page.evaluate(
+    async (url) => {
+      await import(url)
+    },
+    '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-tooltip-harness-app.tsx')
+  )
+  // Tab navigation moves focus with keyboard intent, so the tooltip stays
+  // reachable from the keyboard exactly as it was before the gate.
+  await page.getByRole('button', { name: 'Next action', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Next action', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('tooltip')).toHaveText('Search this conversation (Mod+F)')
+})
+
 test('agent status follows profile and lifecycle updates without remounting', async ({ page }) => {
   const path = '/__workspace-tooltip'
   await page.route('**' + path, (route) =>
