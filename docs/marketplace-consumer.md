@@ -109,6 +109,32 @@ current install endpoint verifies the request and persists state and exact
 pins. Its `installed` response does not establish filesystem materialization
 or harness activation.
 
+Installed plugins can be uninstalled from the plugin detail in Plugins. The
+catalog reports each active installation's Control Plane handle
+(`installationId`, `ins_…`); the Uninstall action appears only when the
+current release has one, and asks for confirmation before it calls the
+same-origin `/api/marketplace/installations/uninstall` route.
+`/api/marketplace/installations/get` reads one installation. Both take
+exactly `{ installationId, workspaceId }`. Reading needs `workspace.read`, as
+the catalog does; uninstalling needs `workspace.update`, as installing does.
+The proxy sends the Control Plane `marketplace.installation.get` (scope
+`marketplace:read`) and `marketplace.installation.uninstall` (scope
+`marketplace:uninstall`) envelopes for the active workspace's mapped scope,
+with the authenticated user as the identity. The uninstall idempotency key is
+`marketplace-uninstall:` plus the SHA-256 of the canonical scoped payload, so
+a retry replays the original transition and an already uninstalled
+installation is reported with `replayed: true`. Adea accepts an uninstall
+result only when it names the requested installation in the `uninstalled`
+state, then drops it from the listed installations, exactly as the next
+catalog read will.
+
+The Control Plane never replays an uninstalled installation: a reinstall
+needs a new idempotency key, and it answers a reused one with
+`409 MARKETPLACE_INSTALLATION_UNINSTALLED`. The client install key stays
+deterministic, so on that answer the proxy retries with the next derived key
+(`<key>:reinstall-<n>`, hashed when it would exceed 128 characters), up to 16
+uninstall/reinstall cycles. Each derived key is itself idempotent.
+
 Adea does not download or execute upstream plugin source. Control Plane
 verifies immutable releases server-side, rechecks content digests, applies
 revocation, supersession, workspace policy, and connector/credential checks,

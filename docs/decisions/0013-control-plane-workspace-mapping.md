@@ -117,3 +117,17 @@ initialization on project create, each after its Control Plane API lands.
 Control Plane: project-state initialization and revision API; workspace
 skill/profile catalog API; marketplace installation get and uninstall; the
 credential-vault HTTP API with durable metadata, leases and tool-gateway wiring.
+
+Status (2026-10-06):
+
+- Adea mapping, signer and workspace-scoped marketplace: delivered.
+- Control Plane project-state initialization, marketplace installation get
+  and uninstall, and the workspace skill/profile catalog API: delivered.
+- Adea project-state initialization on project create: delivered, signed
+  credentials only, after the response with a lazy ensure path
+  ([runbook](../control-plane-credentials.md)). The revision API and the
+  project-scoped calls that consume it remain open.
+- Adea marketplace installation get and uninstall, with an Uninstall action
+  in Plugins: delivered ([marketplace consumer](../marketplace-consumer.md)).
+- Workspace settings surfaces for skills and cloud connections, and the
+  credential-vault API: open.

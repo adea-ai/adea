@@ -39,8 +39,35 @@ as the owner, against the environment you mean to change.
   - `projectIds: [<mapped prj_>]`, or `[]` for workspace routes;
   - only the scopes the route needs.
 
-  The marketplace catalog uses `marketplace:read`; install and install-plan
-  use `marketplace:install`.
+  | Call                                  | Scopes                     | `projectIds` |
+  | ------------------------------------- | -------------------------- | ------------ |
+  | Marketplace catalog, installation get | `marketplace:read`         | `[]`         |
+  | Marketplace install, install-plan     | `marketplace:install`      | `[]`         |
+  | Marketplace installation uninstall    | `marketplace:uninstall`    | `[]`         |
+  | Project-state initialization          | `project-state:initialize` | `[<prj_>]`   |
+
+  The Control Plane trusted keys (`CONTROL_PLANE_SERVICE_AUTH_TRUSTED_KEYS`)
+  carry only `keyId` and `publicKey`; they do not restrict scopes. Each route
+  checks the scopes the signed claims carry, so adding a scope here needs no
+  Control Plane configuration change.
+
+- **Project state.** Creating an Adea project initializes revision 0 of its
+  Control Plane project state (`POST /v1/project-states/initialize`) so cloud
+  executions for the project can validate
+  (`apps/web/src/server/control-plane-project-state.ts`). It runs after the
+  project row commits and after the response, through the Worker's
+  `waitUntil`, in its own request scope and with a five-second timeout, so it
+  never fails or delays project creation. The envelope names the mapped
+  `wsp_` and `prj_`, the payload is `{}` with the SHA-256 of `{}` as its
+  hash, and the idempotency key is `project-state-init:<prj_>`, fixed per
+  project, so every retry replays the original. A `200` and
+  `409 PROJECT_STATE_ALREADY_INITIALIZED` both count as initialized; any other
+  outcome logs one `control_plane.project_state.initialize_failed` line
+  (project id, status, Control Plane error code; never the credential) and is
+  swallowed. `ensureControlPlaneProjectState` is the lazy path: a future
+  project-scoped Control Plane call awaits it first, so a project whose
+  initialization failed, or that predates this change, is initialized on
+  first use. No project-scoped call exists yet.
 
 - **Marketplace.** The proxy sets both the envelope `workspaceId` and the
   nested `workspaceIdentity.workspaceId` to the active workspace's mapped
@@ -51,7 +78,13 @@ as the owner, against the environment you mean to change.
   using `CONTROL_PLANE_SERVICE_TOKEN` and the single
   `CONTROL_PLANE_SCOPE_WORKSPACE_ID` exactly as before. Each Worker isolate
   logs one `control_plane.credential.unscoped` warning so the deployment
-  reports that it is unscoped. If the key is set but the key id, issuer,
+  reports that it is unscoped. The fallback credential names no project, so
+  project-state initialization is skipped with a
+  `control_plane.project_state.initialize_skipped` debug line; projects
+  created before the signer is provisioned are initialized lazily later.
+  Uninstall works in the fallback only if the static credential was minted
+  with `marketplace:uninstall`; otherwise the Control Plane answers `403` and
+  Adea reports `MARKETPLACE_REQUEST_REJECTED`. If the key is set but the key id, issuer,
   key format or workspace mapping is invalid, requests fail closed with
   `CONTROL_PLANE_UNAVAILABLE`. They do not silently fall back.
 
@@ -175,7 +208,9 @@ Common rejections:
 
 Then open Plugins in two different workspaces on the deployed host. Each
 should list its own installations, and the Worker logs should no longer show
-`control_plane.credential.unscoped`.
+`control_plane.credential.unscoped`. Create a project and check that the
+Worker logs show no `control_plane.project_state.initialize_failed` line for
+it.
 
 ### 5. Rotate
 
