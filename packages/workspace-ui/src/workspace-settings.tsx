@@ -1,3 +1,4 @@
+import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { AgentSummary, WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
@@ -21,6 +22,7 @@ import {
   Mic,
   MonitorCog,
   ShieldCheck,
+  Sparkles,
   UserRound,
 } from 'lucide-solid'
 import {
@@ -60,6 +62,7 @@ const sectionIcons = {
   appearance: MonitorCog,
   workspace: MonitorCog,
   memory: Brain,
+  skills: Sparkles,
   agents: Bot,
   'input-notifications': Mic,
   'privacy-data': EyeOff,
@@ -78,6 +81,14 @@ const MemoryPane = lazy(() => import('./memory-pane'))
 // Lazy for the same reason: workspace connections load only when opened.
 const ConnectionsPane = lazy(() =>
   import('./connections-pane').then((module) => ({ default: module.ConnectionsPane }))
+)
+// Lazy for the same reason: the Control Plane catalog and vault panes (ADR
+// 0013) load only when Skills or Connections opens.
+const SkillsPane = lazy(() =>
+  import('./control-plane-settings').then((module) => ({ default: module.SkillsPane }))
+)
+const CloudConnectionsPane = lazy(() =>
+  import('./control-plane-settings').then((module) => ({ default: module.CloudConnectionsPane }))
 )
 
 // The shared settings row: same label/description/control contract the
@@ -103,6 +114,12 @@ export function WorkspaceSettingsDialog(props: {
   accountLabel: string
   agents: readonly AgentSummary[]
   busy: boolean
+  /**
+   * The Adea API client for Control Plane-backed sections (Skills, cloud
+   * connections). Falls back to `services.client`; without either those
+   * sections render their unavailable state.
+   */
+  client?: AgentHqApiClient
   onClose: () => void
   onOpenAgents: () => void
   onSignIn: () => void
@@ -134,6 +151,7 @@ export function WorkspaceSettingsDialog(props: {
   workspace: WorkspaceSummary
 }) {
   const themeContext = useOptionalTheme()
+  const apiClient = () => props.client ?? props.services?.client
   const [section, setSection] = createSignal<SettingsSection>('account')
   const [preferences, setPreferences] = createSignal<WorkspacePreferences>(
     defaultWorkspacePreferences
@@ -448,6 +466,21 @@ export function WorkspaceSettingsDialog(props: {
             <MemoryPane service={props.services?.memory} workspaceId={props.workspace.id} />
           </Show>
         </TabsContent>
+        <TabsContent value="skills" id="settings-panel-skills" class="conventional-settings-panel">
+          <header>
+            <Sparkles aria-hidden="true" />
+            <div>
+              <h3>{settingsSectionLabels.skills}</h3>
+              <p>
+                Skills and agent profiles {props.workspace.name} uses for cloud runs, from the
+                Control Plane catalog.
+              </p>
+            </div>
+          </header>
+          <Show when={section() === 'skills'}>
+            <SkillsPane client={apiClient()} workspaceId={props.workspace.id} />
+          </Show>
+        </TabsContent>
         <TabsContent value="agents" id="settings-panel-agents" class="conventional-settings-panel">
           <header>
             <Bot aria-hidden="true" />
@@ -655,12 +688,14 @@ export function WorkspaceSettingsDialog(props: {
               <h3>{settingsSectionLabels.connections}</h3>
               <p>
                 Which git hosting credentials and harness accounts this workspace uses on this
-                device. Secrets stay in the device vault.
+                device, and the connector credentials its cloud agents use. Device secrets stay in
+                the device vault.
               </p>
             </div>
           </header>
           <Show when={section() === 'connections'}>
             <ConnectionsPane service={props.services?.connections} />
+            <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />
           </Show>
         </TabsContent>
         <TabsContent

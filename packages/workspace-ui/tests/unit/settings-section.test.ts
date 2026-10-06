@@ -14,14 +14,17 @@ describe('settings deep links and keyboard navigation', () => {
     expect(settingsSectionFromHash('#settings/memory')).toBe('memory')
   })
 
-  test('places Memory in the Workspace group, after the workspace section', () => {
+  test('places Memory and Skills in the Workspace group, after the workspace section', () => {
     expect(settingsSectionGroups.find(({ label }) => label === 'Workspace')?.items).toEqual([
       'appearance',
       'workspace',
       'memory',
+      'skills',
     ])
+    expect(settingsSectionFromHash('#settings/skills')).toBe('skills')
     expect(nextSettingsSection('workspace', 'ArrowDown')).toBe('memory')
-    expect(nextSettingsSection('memory', 'ArrowDown')).toBe('agents')
+    expect(nextSettingsSection('memory', 'ArrowDown')).toBe('skills')
+    expect(nextSettingsSection('skills', 'ArrowDown')).toBe('agents')
   })
 
   test('wraps arrow navigation and honors Home and End', () => {

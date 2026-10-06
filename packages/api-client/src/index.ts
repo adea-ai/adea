@@ -358,6 +358,110 @@ export type ApiDesktopSessionCredential = Readonly<{
   sessionId: string
 }>
 
+/**
+ * Workspace catalog (ADR 0013): Skills and agent profiles visible to the
+ * workspace through the Control Plane. `owner: 'system'` items are read-only.
+ */
+export type ApiCatalogLifecycle = 'deprecated' | 'draft' | 'published' | 'revoked' | 'superseded'
+
+export type ApiCatalogVersion = Readonly<{
+  versionId: string
+  /** Semantic version for a skill; the integer version for a profile. */
+  version: string
+  revision: number
+  lifecycle: ApiCatalogLifecycle
+  contentDigest: string
+  createdAt: string
+  reason?: string
+}>
+
+export type ApiCatalogItem = Readonly<{
+  id: string
+  kind: 'profile' | 'skill'
+  displayName: string
+  owner: 'system' | 'workspace'
+  readOnly: boolean
+  createdAt: string
+  latestVersion?: ApiCatalogVersion
+}>
+
+export type ApiCatalogListResponse = Readonly<{
+  /** Whether the caller may publish, deprecate and revoke (owner/admin). */
+  canManage: boolean
+  items: readonly ApiCatalogItem[]
+  nextCursor?: string
+}>
+
+export type ApiCatalogLifecycleInput = Readonly<{
+  idempotencyKey: string
+  reason: string
+  /** Both or neither: target one version at a revision instead of every version. */
+  versionId?: string
+  expectedRevision?: number
+}>
+
+export type ApiCatalogLifecycleResponse = Readonly<{
+  item: ApiCatalogItem
+  changed: readonly ApiCatalogVersion[]
+}>
+
+export type ApiSkillPublishInput = Readonly<{
+  idempotencyKey: string
+  /** Omitted to create a new skill; set to publish a new version of one. */
+  skillId?: string
+  displayName: string
+  manifest: Readonly<Record<string, unknown>>
+  content: Readonly<Record<string, unknown>>
+}>
+
+export type ApiSkillPublishResponse = Readonly<{
+  item: ApiCatalogItem
+  version: ApiCatalogVersion
+}>
+
+/**
+ * Cloud connections (ADR 0013): connector credentials held in the Control
+ * Plane vault for cloud executions. Metadata only: the secret is write-only,
+ * sent once on create or rotate and never returned.
+ */
+export type ApiCloudConnectionStatus = 'active' | 'expired' | 'revoked' | 'secret_required'
+
+export type ApiCloudConnection = Readonly<{
+  credentialId: string
+  provider: string
+  connectorRef: string
+  status: ApiCloudConnectionStatus
+  revision: number
+  createdAt: string
+  rotatedAt?: string
+  expiresAt?: string
+  revokedAt?: string
+}>
+
+export type ApiCloudConnectionsResponse = Readonly<{
+  canManage: boolean
+  connections: readonly ApiCloudConnection[]
+  nextCursor?: string
+}>
+
+export type ApiCloudConnectionResponse = Readonly<{ connection: ApiCloudConnection }>
+
+export type ApiCloudConnectionCreateInput = Readonly<{
+  idempotencyKey: string
+  provider: string
+  connectorRef: string
+  /** Write-only. Sent once to the vault; never stored in Adea or echoed. */
+  secret: string
+  expiresAt?: string
+}>
+
+export type ApiCloudConnectionRotateInput = Readonly<{
+  idempotencyKey: string
+  expectedRevision: number
+  /** Write-only. Sent once to the vault; never stored in Adea or echoed. */
+  secret: string
+}>
+
 export type ApiClientOptions = {
   baseUrl?: string
   client?: 'browser' | 'desktop'
@@ -558,6 +662,80 @@ export class AgentHqApiClient {
     return this.request<ApiWorkspaceInvitationResponse>(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/invitations/${encodeURIComponent(invitationId)}/revoke`,
       { method: 'POST' }
+    )
+  }
+
+  /** Workspace Skills in the Control Plane catalog (ADR 0013). */
+  async listWorkspaceSkills(workspaceId: string, cursor?: string): Promise<ApiCatalogListResponse> {
+    return this.request(controlPlanePath(workspaceId, 'skills', cursor))
+  }
+
+  async listWorkspaceAgentProfiles(
+    workspaceId: string,
+    cursor?: string
+  ): Promise<ApiCatalogListResponse> {
+    return this.request(controlPlanePath(workspaceId, 'skills/profiles', cursor))
+  }
+
+  async publishWorkspaceSkill(
+    workspaceId: string,
+    input: ApiSkillPublishInput
+  ): Promise<ApiSkillPublishResponse> {
+    return this.postJson(controlPlanePath(workspaceId, 'skills'), input)
+  }
+
+  /** Deprecate or revoke a workspace-owned skill or agent profile. */
+  async changeWorkspaceCatalogLifecycle(
+    workspaceId: string,
+    target: Readonly<{ kind: 'profile' | 'skill'; id: string; action: 'deprecate' | 'revoke' }>,
+    input: ApiCatalogLifecycleInput
+  ): Promise<ApiCatalogLifecycleResponse> {
+    const collection = target.kind === 'profile' ? 'skills/profiles' : 'skills'
+    return this.postJson(
+      controlPlanePath(
+        workspaceId,
+        `${collection}/${encodeURIComponent(target.id)}/${target.action}`
+      ),
+      input
+    )
+  }
+
+  /** Cloud connection metadata (ADR 0013); never secret material. */
+  async listCloudConnections(
+    workspaceId: string,
+    cursor?: string
+  ): Promise<ApiCloudConnectionsResponse> {
+    return this.request(controlPlanePath(workspaceId, 'cloud-connections', cursor))
+  }
+
+  /** The secret travels in the body only, once; the response never carries it. */
+  async createCloudConnection(
+    workspaceId: string,
+    input: ApiCloudConnectionCreateInput
+  ): Promise<ApiCloudConnectionResponse> {
+    return this.postJson(controlPlanePath(workspaceId, 'cloud-connections'), input)
+  }
+
+  /** The new secret travels in the body only, once; the response never carries it. */
+  async rotateCloudConnection(
+    workspaceId: string,
+    credentialId: string,
+    input: ApiCloudConnectionRotateInput
+  ): Promise<ApiCloudConnectionResponse> {
+    return this.postJson(
+      controlPlanePath(workspaceId, `cloud-connections/${encodeURIComponent(credentialId)}/rotate`),
+      input
+    )
+  }
+
+  async revokeCloudConnection(
+    workspaceId: string,
+    credentialId: string,
+    input: Readonly<{ idempotencyKey: string }>
+  ): Promise<ApiCloudConnectionResponse> {
+    return this.postJson(
+      controlPlanePath(workspaceId, `cloud-connections/${encodeURIComponent(credentialId)}/revoke`),
+      input
     )
   }
 
@@ -1251,6 +1429,14 @@ export class AgentHqApiClient {
     return headers
   }
 
+  private postJson<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>(path, {
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers)
     headers.set('Accept', 'application/json')
@@ -1285,6 +1471,10 @@ export class AgentHqApiClient {
     }
     return (await response.json()) as T
   }
+}
+
+function controlPlanePath(workspaceId: string, path: string, cursor?: string) {
+  return `/workspaces/${encodeURIComponent(workspaceId)}/${path}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`
 }
 
 export function createApiClient(options?: ApiClientOptions): AgentHqApiClient {

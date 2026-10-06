@@ -29,6 +29,12 @@
       "solid": "./src/dev-runtime.ts",
       "development": "./src/dev-runtime.ts",
       "import": "./dist/dev-runtime.js"
+    },
+    "./control-plane": {
+      "types": "./dist/control-plane.d.ts",
+      "solid": "./src/control-plane.ts",
+      "development": "./src/control-plane.ts",
+      "import": "./dist/control-plane.js"
     }
   },
   "scripts": {

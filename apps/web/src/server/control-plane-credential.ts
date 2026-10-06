@@ -29,6 +29,11 @@ const KEY_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/u
 const SCOPE_PATTERN = /^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$/u
 
 export type ControlPlaneServiceScope =
+  | 'catalog:manage'
+  | 'catalog:publish'
+  | 'catalog:read'
+  | 'credential:read'
+  | 'credential:write'
   | 'marketplace:install'
   | 'marketplace:read'
   | 'marketplace:uninstall'
