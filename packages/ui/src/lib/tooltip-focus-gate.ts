@@ -33,6 +33,20 @@
  * element types whose roving-focus highlighting must keep receiving focus
  * events, and text controls keep their own focus behaviour (select on focus,
  * caret placement).
+ *
+ * Suppressed focus is real as far as the DOM is concerned (`activeElement`
+ * moves; only the event was stopped), and the published tooltip treats a
+ * trigger that is `activeElement` as keyboard-held: while a tooltip on it is
+ * open, pointer movement away only *requests* a close and the request is
+ * refused for as long as the pointer keeps moving. Left alone, a later real
+ * hover on that control would open the tip and never let it leave — the
+ * residual "stuck" case. The gate therefore treats a suppressed focus as a
+ * phantom and releases it: the first pointer activity after the focus (a
+ * pointer session taking over from a script) blurs the element. Keyboard
+ * sessions never release it and never need to — keyboard focus moves by Tab,
+ * which is never suppressed, so nothing pins; and the release only runs for
+ * elements still holding `activeElement`, so a Tab already taken from the
+ * phantom is left alone.
  */
 
 /** How long after a Tab key press a resulting focus event still counts as
@@ -78,6 +92,10 @@ export function installTooltipFocusGate(doc: Document = document): () => void {
   if (installedDocuments.has(doc)) return () => {}
 
   let lastTabKeyDownAt = 0
+  /** The element holding a suppressed programmatic focus, if it still holds
+   *  `activeElement`. One slot: a newer suppressed focus replaces an older
+   *  one, and anything that already lost focus needs no release. */
+  let phantomFocusTarget: Element | undefined
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Tab') lastTabKeyDownAt = Date.now()
   }
@@ -86,14 +104,31 @@ export function installTooltipFocusGate(doc: Document = document): () => void {
     const keyboardIntentActive = Date.now() - lastTabKeyDownAt <= TOOLTIP_FOCUS_INTENT_WINDOW_MS
     if (!shouldSuppressTooltipFocus({ isButtonLike: true, keyboardIntentActive })) return
     event.stopPropagation()
+    phantomFocusTarget = event.target as Element
   }
+  const releasePhantomFocus = () => {
+    const phantom = phantomFocusTarget
+    if (!phantom) return
+    const active = (doc as Document).activeElement
+    if (active !== phantom) {
+      phantomFocusTarget = undefined
+      return
+    }
+    phantomFocusTarget = undefined
+    if (typeof (phantom as HTMLElement).blur === 'function') (phantom as HTMLElement).blur()
+  }
+  const onPointerActivity = () => releasePhantomFocus()
 
   doc.addEventListener('keydown', onKeyDown, true)
   doc.addEventListener('focus', onFocus, true)
+  doc.addEventListener('pointermove', onPointerActivity, true)
+  doc.addEventListener('pointerdown', onPointerActivity, true)
   installedDocuments.add(doc)
   return () => {
     doc.removeEventListener('keydown', onKeyDown, true)
     doc.removeEventListener('focus', onFocus, true)
+    doc.removeEventListener('pointermove', onPointerActivity, true)
+    doc.removeEventListener('pointerdown', onPointerActivity, true)
     installedDocuments.delete(doc)
   }
 }

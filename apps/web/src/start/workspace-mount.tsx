@@ -21,8 +21,8 @@ import { workspaceSelection } from './workspace-selection.mjs'
 export default function WorkspaceMount() {
   // Tooltips open on real hover or keyboard-intent focus only; autofocus from
   // dialogs, sheets, and focus restoration must never pop one (the gate
-  // documents the full story). Idempotent, so the once-per-mount client
-  // component can call it directly.
+  // documents the full story). Installed synchronously so it guards the very
+  // first overlay autofocus; idempotent, so remounts are free.
   installTooltipFocusGate()
   const params = parseWorkspaceSearch(window.location.search)
   const selection = workspaceSelection(params)

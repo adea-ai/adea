@@ -287,7 +287,7 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the shell's sidebar modules, partly offset by a smaller command chunk
     // split on this route). Raw ratchets to 888 KiB (~0.8% headroom); gzip
     // to 234 KiB (~0.6%).
-    // Main then measured 911,248 raw / 240,075 gzip (51a0d9a37) — over both
+// Main then measured 911,248 raw / 240,075 gzip (51a0d9a37) — over both
     // caps after the resources sheet (#1067). The sidebar bundle trim
     // (2026-10-06) brings the route to 904,867 / 238,237 with the Dev-shell
     // savings above (the terminal pane keeps its own Input import). Both caps
