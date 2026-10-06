@@ -54,6 +54,7 @@ import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver
 import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } from './preferences'
 import { createRunHistoryStore, type RunHistoryStore } from './runs'
 import { RUN_ACTIVE_STATES, RUN_TERMINAL_STATES, canTransitionRun, runEventKind } from './status'
+import { summarizeWorkspaceRuns } from './workspace-summary'
 
 export type HarnessRuntimeInput = {
   authority: ChannelAuthority
@@ -1040,6 +1041,26 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           ? { nextCursor: items[items.length - 1]!.startedAt ?? '' }
           : {}),
       }
+    },
+    // ── ADR 0011: counts-only cross-workspace run summary ─────────────────
+    // Reads only the shared run registry; never opens another scope's
+    // project/session partition. The active scope's archived sessions are
+    // excluded through its own (already open) authority.
+    'dev.summary.workspaces': (command) => {
+      requireScope(command)
+      devOperationDecoders['dev.summary.workspaces'].request(command.body)
+      if (command.resource !== undefined) {
+        throw devError('identity_mismatch', 'dev.summary.workspaces carries no resource binding')
+      }
+      return summarizeWorkspaceRuns({
+        runs: runs.sameAccountAndNodeRuns(),
+        activeScope: input.scope,
+        isActiveSessionLive: (runtimeSessionId) => {
+          const session = input.resolveSession(runtimeSessionId)
+          return session !== undefined && sameScope(session.scope, input.scope) && !session.archived
+        },
+        observedAt: iso(),
+      })
     },
     'dev.harness.runStatus': (command) => {
       requireScope(command)

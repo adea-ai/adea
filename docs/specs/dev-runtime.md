@@ -252,6 +252,7 @@ type DevCapability =
   | 'dev.terminal.manage'
   | 'dev.session.read'
   | 'dev.session.manage'
+  | 'dev.summary.read'
   | 'dev.files.read'
   | 'dev.files.write'
   | 'dev.git.read'
@@ -1743,7 +1744,13 @@ ones), so each cloud workspace owns its own partition; the earlier device-local
 guest partition is left on disk, never read, migrated, or deleted by a
 selection. Each scope has an independent database and
 ledger, so switching workspaces never makes one scope open or overwrite another
-scope's file. The pre-slice `authority.sqlite3` is reused only when its stored
+scope's file. The one sanctioned cross-scope read is the counts-only
+`dev.summary.workspaces` operation (see "Cross-workspace run summary"): it
+folds the shared harness run registry (`dev-runtime/harness/runs.json`, which
+already holds every scope's runs) and opens no other authority partition,
+ledger, or per-scope file; it counts only scopes with the active scope's
+`accountId` and `runtimeNodeId`; and it returns nothing beyond each counted
+`workspaceId` and two integers. The pre-slice `authority.sqlite3` is reused only when its stored
 row belongs to the requested scope; a different scope gets a new partition.
 A scope mismatch, malformed payload, or
 unsupported format/schema version fails closed and retains an unread database
@@ -2370,6 +2377,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `rename`, `diffSummary`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                               |
 | `dev.terminal`               | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                                                                               |
 | `dev.session`                | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                                                                         |
+| `dev.summary`                | `workspaces`                                                                                                                                                                                                                                                                                                           |
 | `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`                                                                                                                                                           |
 | `dev.files`                  | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`, `renameOverwritePlan`, `renameOverwriteCommit`, `deleteTreePlan`, `deleteTreeCommit`, `copyTreePlan`, `copyTreeCommit`                                                                   |
 | `dev.git`                    | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                                                                                       |
@@ -2399,6 +2407,7 @@ Capability/resource binding is deny-by-default:
 | worktree      | `dev.worktree.read`; `diffSummary` additionally `dev.git.read`              | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`; `diffSummary` none (ids in the body)                    |
 | terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                        | `terminal`                                                          |
 | session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                                   |
+| summary       | `dev.summary.read` (counts only; same account + runtime node)               | none                                                                                                        | no resource                                                         |
 | harness       | `dev.harness.read`                                                          | installation/connection/run control requires `dev.harness.manage`                                           | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
 | files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity                         |
 | git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request                      |
@@ -3888,7 +3897,41 @@ records. When that target is exceeded, the oldest terminal runs are evicted
 first; active runs are never evicted, so the store can exceed 200 while more
 than 200 runs remain active. History reads
 (`dev.harness.runs`) are newest-first with bounded pages (default 100, maximum 500) and an opaque cursor. Resume remains
-resume-as-new-generation under the same canonical `RuntimeSession`.
+resume-as-new-generation under the same canonical `RuntimeSession`. The
+registry is one shared file for every scope on the device; a write replaces
+only the writing scope's records and carries every other scope's records
+through unchanged, so a workspace switch never erases another workspace's run
+history.
+
+### Cross-workspace run summary
+
+`dev.summary.workspaces` (capability `dev.summary.read`, no resource, strict
+empty body `{}`) answers `{ items: [{ workspaceId, running, needsInput }],
+observedAt }` for ADR 0011's collapsed workspaces and "Needs you" strip. It is
+a pure fold over the shared run registry:
+
+- only runs whose scope has the active scope's `accountId` AND
+  `runtimeNodeId` count — another account's or node's runs never appear;
+- `resolving`/`starting`/`working` count as `running`;
+  `awaiting_input`/`awaiting_approval` count as `needsInput`; terminal states
+  and the `unknown` holding state count as neither;
+- archive state lives in each scope's authority partition, which this read
+  never opens. Runs of the active scope are filtered through its own,
+  already-open authority (archived or unresolvable sessions are excluded);
+  another workspace's runs are counted by run state alone. Archiving a
+  session does not cancel its runs, so a sibling workspace's archived
+  session with a live run still counts until that run reaches a terminal
+  state;
+- items are sorted by `workspaceId` (code point), contain only workspaces
+  with at least one counted run (absent means zero), and are bounded at 256;
+  the strict reply decoder rejects unknown keys, duplicate or non-UUID
+  workspace ids, and negative or fractional counts.
+
+The command itself is still scope-admitted for the active scope only; a
+sibling workspace's id is returned as data and never becomes an authorized
+scope. The read writes nothing. The client helper `workspaceSummaries()` in
+`apps/web/src/lib/desktop-dev-runtime.ts` is a one-shot pull that fails
+closed to `undefined`; the consuming UI owns polling cadence.
 
 ### Desktop harness notifications
 
@@ -4887,6 +4930,7 @@ type DataClassification =
 | Data                                                | Minimum class                   | Client/event policy                            |
 | --------------------------------------------------- | ------------------------------- | ---------------------------------------------- |
 | IDs, capability names, generic status               | workspace metadata              | authorized workspace clients                   |
+| cross-workspace run counts (`dev.summary`)          | workspace metadata              | workspace id + two integers; no names or paths |
 | local paths, repo names/remotes, command labels     | workspace private               | redact/home-alias remotely unless granted      |
 | branch names, worktree titles, diff counts          | workspace private               | desktop only; never leaves the device          |
 | terminal bytes, prompts/results, file content/diffs | restricted local by default     | bounded explicit projection only               |
@@ -6029,6 +6073,18 @@ files in the same commit:
   strict `Worktree`/`WorktreeDiffSummary` DTOs and request bodies), and
   `packages/dev-view/tests/leaf-activity.test.ts` (leaf activity from run
   states);
+- ADR 0011 counts-only cross-workspace status:
+  `apps/desktop/tests/dev-runtime-workspace-summary.test.ts` (per-workspace
+  counts across same-account/node scopes with another account and another
+  node excluded; terminal and `unknown` runs excluded; running vs
+  needs-input classification; the active scope's archived and unresolvable
+  sessions excluded; deny-by-default capability, extra-body-key, resource,
+  and foreign-scope refusals; an audit record with the operation only; no
+  other authority partition opened or created; a scope's run-registry write
+  preserving other scopes' runs), `packages/types/tests/dev-runtime.test.ts`
+  (the strict `WorkspaceRunSummary` reply decoder and empty request body),
+  and `apps/web/test/desktop-workspace-summary.test.ts` (the fail-closed
+  `workspaceSummaries()` client helper);
 - M10 channel/desktop boundary tests — no loopback or browsed-page privilege;
 - `packages/types` contract/property tests — envelope and state decoders;
   `packages/types/tests/dev-runtime.test.ts` pins the `RootBookmark` and

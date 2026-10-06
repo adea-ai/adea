@@ -1373,6 +1373,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
     stream: null,
   },
+  'dev.summary.workspaces': {
+    body: '{}',
+    capabilities: ['dev.summary.read'],
+    reply: 'WorkspaceRunSummary',
+    resource: null,
+    stream: null,
+  },
   'dev.terminal.attach': {
     body: "{ terminalId: string; expectedGeneration: integer; direction: 'read'; fromSequence?: uint64-string }",
     capabilities: ['dev.terminal.attach'],

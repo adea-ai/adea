@@ -7,7 +7,13 @@ import {
   type DevStreamTransport,
   type DevWorkspaceProjection,
 } from '@adea-ai/dev-view/platform'
-import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
+import {
+  decodeWorkspaceRunSummary,
+  type DevCommand,
+  type DevReply,
+  type Scope,
+  type WorkspaceRunSummary,
+} from '@adea-ai/types/dev-runtime'
 
 import { createDesktopStreamTransport } from './desktop-stream-transport'
 import type { DevScopeSelection } from './desktop-dev-scope'
@@ -159,6 +165,32 @@ export function createDesktopEventSurface(options: {
         dispose = undefined
       }
     },
+  }
+}
+
+/**
+ * Reads the counts-only cross-workspace run summary (`dev.summary.workspaces`,
+ * ADR 0011) through the authenticated command path: per-workspace `running`
+ * and `needsInput` counts for every workspace on this device that shares the
+ * active scope's account and runtime node. A workspace absent from `items`
+ * has no counted run.
+ *
+ * Fails closed: any refusal (no channel, missing capability, a host without
+ * the provider) or a reply that does not strictly decode yields `undefined`,
+ * never a guessed zero. This is a one-shot pull; the consuming UI owns its
+ * polling cadence (and should pause it while the window is hidden).
+ */
+export async function workspaceSummaries(
+  service: Pick<DevRuntimeService, 'execute'>,
+  scope: Scope
+): Promise<WorkspaceRunSummary | undefined> {
+  try {
+    const command = buildDevCommand({ operation: 'dev.summary.workspaces', scope, body: {} })
+    const reply = await service.execute(command)
+    if (!reply.ok) return undefined
+    return decodeWorkspaceRunSummary(reply.value)
+  } catch {
+    return undefined
   }
 }
 
