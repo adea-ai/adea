@@ -1761,7 +1761,12 @@
         .dev-sidebar.dev-sidebar--open
     )
     .workspace-topbar__navigation,
-  .workspace-frame:has(.conventional-sidebar--open) .workspace-topbar__navigation {
+  .workspace-frame:has(.conventional-sidebar--open) .workspace-topbar__navigation,
+  /* Source control shares the Dev sidebar frame inside its own .dev-scm root,
+     so its branch names the view root directly: the divider must land on the
+     same sidebar edge, with the sync status, sync control and title-slot
+     search strictly right of it. No focus/full-width modes exist there. */
+  .workspace-frame:has(.dev-scm .dev-sidebar.dev-sidebar--open) .workspace-topbar__navigation {
     display: grid;
     grid-template-columns: calc(
         var(--workspace-rail-width) + var(--dev-context-sidebar-width) -
