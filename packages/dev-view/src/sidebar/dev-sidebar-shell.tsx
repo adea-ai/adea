@@ -28,7 +28,7 @@ import { ArchiveShelf } from './archive-shelf'
 
 /*
  * The contextual sidebar shares one stored width with the chat/virtual
- * navigation (packages/workspace-ui/src/workspace-sidebar.tsx owns the same
+ * navigation (packages/workspace-ui/src/workspace-nav-sidebar.tsx owns the same
  * key, bounds, and CSS variable). The constants are restated here because
  * dev-view does not depend on workspace-ui; change them together.
  */

@@ -39,35 +39,20 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(page.locator('.workspace-statusbar')).toHaveCount(0)
   await expect(page.getByLabel('Workspace toolbar')).toBeVisible()
 
-  const workspaceTrigger = page.getByRole('button', { name: /Switch workspace/ })
-  await workspaceTrigger.click()
-  const workspaceMenu = page.getByRole('menu', { name: /Switch workspace/ })
-  await expect(workspaceMenu).toBeVisible({ timeout: 20_000 })
-  await workspaceMenu.evaluate((menu) =>
-    Promise.allSettled(menu.getAnimations({ subtree: true }).map((animation) => animation.finished))
-  )
-  const workspaceMenuPosition = await workspaceMenu.evaluate((menu) => {
-    const menuBox = menu.getBoundingClientRect()
-    const triggerBox = document
-      .querySelector<HTMLElement>('.global-rail__workspace-trigger')!
-      .getBoundingClientRect()
-    return {
-      menuLeft: menuBox.left,
-      menuTop: menuBox.top,
-      triggerRight: triggerBox.right,
-      triggerTop: triggerBox.top,
-    }
-  })
-  // The picker opens right-start with a 4px gutter. Allow sub-pixel differences
-  // between renderers while checking the intended placement.
-  expect(
-    Math.abs(workspaceMenuPosition.menuLeft - workspaceMenuPosition.triggerRight - 4)
-  ).toBeLessThanOrEqual(1)
-  expect(
-    Math.abs(workspaceMenuPosition.menuTop - workspaceMenuPosition.triggerTop)
-  ).toBeLessThanOrEqual(1)
-  await workspaceTrigger.click()
-  await expect(workspaceMenu).toBeHidden()
+  // Workspaces are switched from the contextual sidebar's accordion (ADR
+  // 0011); the rail keeps only the static product mark.
+  await expect(page.getByRole('button', { name: /Switch workspace/ })).toHaveCount(0)
+  // Below 48rem the contextual sidebar is a sheet: open it to reach the
+  // accordion, then dismiss it before the layout checks below.
+  const narrow = (page.viewportSize()?.width ?? 1280) < 768
+  if (narrow) await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+  const workspaceNav = page.getByRole('navigation', { name: 'Workspaces' })
+  await expect(workspaceNav.getByRole('heading', { name: 'My Adea', level: 3 })).toBeVisible()
+  await expect(workspaceNav.getByRole('button', { name: 'New workspace' })).toBeVisible()
+  if (narrow) {
+    await page.keyboard.press('Escape')
+    await expect(workspaceNav).toBeHidden()
+  }
 
   for (const viewport of [
     { width: 1280, height: 800 },

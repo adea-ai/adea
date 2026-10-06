@@ -229,6 +229,18 @@ describe('summaries', () => {
     ])
     expect(workspaceChips({ summary: { running: 0, needsYou: 0, unread: 0 } })).toEqual([])
   })
+
+  test('workspaceChips puts mentions ahead of unread and pluralizes them', () => {
+    expect(
+      workspaceChips({ summary: { running: 0, needsYou: 0, unread: 3, mentions: 1 } })
+    ).toEqual([
+      { kind: 'mention', count: 1, label: '1 mention' },
+      { kind: 'unread', count: 3, label: '3 unread' },
+    ])
+    expect(
+      workspaceChips({ summary: { running: 0, needsYou: 0, unread: 0, mentions: 2 } })
+    ).toEqual([{ kind: 'mention', count: 2, label: '2 mentions' }])
+  })
 })
 
 describe('groupTree', () => {

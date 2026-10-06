@@ -20,7 +20,12 @@ on `@adea-ai/ui`, `@adea-ai/app-ui`, `@adea-ai/types`, `solid-js` and
   `WorkspaceIdentityMark`. Row hooks live in
   `@adea-ai/app-ui/workspace-nav.css`.
 
-The component is not mounted in the app yet; a later change replaces the Chat
-and Dev sidebar shells with it. Behaviour is covered by
+Chat and Virtual mount it through `@adea-ai/workspace-ui`'s
+`WorkspaceNavSidebar` (the data projection is `workspace-nav-source.ts` there);
+the Dev sidebar shell is replaced in a later change. The Workspaces heading's
+group-by and "New workspace" actions are always visible. A host that controls
+`creatingWorkspace` keeps the draft row open after Enter and can report
+`workspaceDraftError` beside the kept name. The active workspace paints its
+accent over its own subtree. Behaviour is covered by
 `tests/unit` (model and adapters) and `apps/web/e2e/workspace-nav.spec.ts`
 (fixture harness).

@@ -126,17 +126,6 @@
   padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
 }
 
-.global-rail__workspace-menu {
-  width: 15rem;
-}
-
-.global-rail__workspace-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .global-rail__intent {
   display: flex;
   min-width: 0;
@@ -181,14 +170,14 @@
 .global-rail[data-collapsed='true'] .global-rail__content {
   padding-block-start: 0.125rem;
 }
-.global-rail[data-collapsed='true'] .global-rail__workspace-trigger {
-  width: calc(100% - 1rem);
+/* The static product mark keeps the former switcher row's height. */
+.global-rail__mark {
+  display: flex;
+  height: var(--rail-item-height);
+  align-items: center;
+  justify-content: center;
 }
-.global-rail__workspace-trigger > span {
-  width: auto;
-  height: auto;
-}
-.global-rail__workspace-logo {
+.global-rail__logo {
   width: 2.25rem;
   height: 2.25rem;
 }
@@ -382,12 +371,6 @@
 }
 .conventional-sidebar__quick-actions {
   display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-.conventional-sidebar__project {
-  display: flex;
-  min-width: 0;
   flex-direction: column;
   gap: 0.125rem;
 }

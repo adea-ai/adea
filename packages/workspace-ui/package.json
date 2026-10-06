@@ -157,6 +157,7 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
     "@adea-ai/ui": "0.113.0",
+    "@adea-ai/workspace-nav": "workspace:*",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },

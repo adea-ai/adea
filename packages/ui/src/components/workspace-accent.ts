@@ -52,3 +52,19 @@ export function paintWorkspaceAccent(
   )
   element.style.setProperty('--ring', roles.ring)
 }
+
+/**
+ * Pin an element to the appearance accent: the primary roles as the document
+ * element resolves them. A workspace accent painted on <body> (the active
+ * workspace themes the app) would otherwise reach every descendant, so a
+ * workspace without its own accent uses this to keep showing the appearance
+ * accent instead of borrowing the active workspace's.
+ */
+export function paintAppearanceAccent(element: HTMLElement): void {
+  const root = getComputedStyle(element.ownerDocument.documentElement)
+  for (const property of ROLE_PROPERTIES) {
+    const value = root.getPropertyValue(property).trim()
+    if (value) element.style.setProperty(property, value)
+    else element.style.removeProperty(property)
+  }
+}

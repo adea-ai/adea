@@ -14,9 +14,11 @@ type PersistedState = Pick<
   | 'selectedProjectId'
   | 'selectedTaskId'
   | 'selectedWorkspaceId'
+  | 'sidebarGroupBy'
   | 'threadRootMessageId'
 >
 
+const SIDEBAR_GROUP_MODES = new Set(['project', 'status', 'recent'])
 const ACTIVE_SURFACES = new Set(['agents', 'conversation', 'tasks'])
 const NULLABLE_ID_FIELDS = [
   'selectedAgentId',
@@ -63,6 +65,19 @@ export function validatePersistedState(parsed: unknown): Partial<PersistedState>
       return undefined
     restored.drafts = drafts as Readonly<Record<string, string>>
   }
+  if ('sidebarGroupBy' in candidate) {
+    const groupBy = candidate.sidebarGroupBy
+    if (
+      groupBy === null ||
+      typeof groupBy !== 'object' ||
+      Array.isArray(groupBy) ||
+      !Object.values(groupBy as Record<string, unknown>).every(
+        (entry) => typeof entry === 'string' && SIDEBAR_GROUP_MODES.has(entry)
+      )
+    )
+      return undefined
+    restored.sidebarGroupBy = groupBy as PersistedState['sidebarGroupBy']
+  }
   for (const field of NULLABLE_ID_FIELDS) {
     if (!(field in candidate)) continue
     const value = candidate[field]
@@ -82,6 +97,7 @@ function persistedState(state: WorkspaceState): PersistedState {
     selectedProjectId: state.selectedProjectId,
     selectedTaskId: state.selectedTaskId,
     selectedWorkspaceId: state.selectedWorkspaceId,
+    sidebarGroupBy: state.sidebarGroupBy,
     threadRootMessageId: state.threadRootMessageId,
   }
 }

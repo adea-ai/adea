@@ -17,19 +17,8 @@ const work: WorkspaceSummary = {
   version: 1,
   updatedAt: timestamp,
 }
-const home: WorkspaceSummary = {
-  id: 'workspace-home',
-  name: 'Home',
-  scene: 'home',
-  accent: null,
-  logo: { kind: 'monogram' as const },
-  sortOrder: 1,
-  version: 1,
-  updatedAt: timestamp,
-}
 
 function Harness() {
-  const [activeWorkspace, setActiveWorkspace] = createSignal(work)
   const [view, setView] = createSignal<WorkspaceAppId>('virtual')
   const [libraryActive, setLibraryActive] = createSignal(false)
   const [searchRequests, setSearchRequests] = createSignal(0)
@@ -76,7 +65,7 @@ function Harness() {
           onOpenFeedback: () => {},
           platform: 'web',
         }}
-        activeWorkspace={activeWorkspace()}
+        activeWorkspace={work}
         views={['virtual', 'chat', 'dev']}
         onOpenAbout={() => {}}
         onOpenPlugins={() => {}}
@@ -84,12 +73,9 @@ function Harness() {
         libraryActive={libraryActive()}
         onOpenSearch={() => setSearchRequests((count) => count + 1)}
         onOpenSettings={() => {}}
-        onWorkspaceChange={setActiveWorkspace}
         onViewChange={(next) => setMode(next)}
         view={view()}
-        workspaces={[work, home]}
       />
-      <output aria-label="Selected workspace">{activeWorkspace().id}</output>
       <output aria-label="Global search requests">{searchRequests()}</output>
       <output aria-label="Chat search requests">{chatSearchRequests()}</output>
     </>

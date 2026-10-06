@@ -1849,7 +1849,7 @@ confirmation and reports the missing host contract rather than fabricating
 success. An unavailable provider can leave only the filter and archive controls
 visible; it does not make the sidebar disconnected or authorize mock data.
 
-`DevSidebarNavigation` and the Chat/Virtual `WorkspaceSidebar` use the published
+`DevSidebarNavigation` and the Chat/Virtual `WorkspaceNavSidebar` use the published
 `@adea-ai/ui` `ContextualSidebar` and `PixelResizeHandle` composition. Shared UI
 owns the responsive desktop/mobile shell, heading, scrolling and footer slots,
 collapse semantics, and edge resize handle. Adea owns the view-specific rows and
@@ -5048,8 +5048,31 @@ The utility resize divider spans the pane border with the shared centered grip;
 its ruler matches each side's maximum width so the hit target stays on that edge. Expanding is a per-panel concern: the full-width control lives in each
 utility pane's heading, and focus mode stays on its keyboard chord with no
 top-bar control.
-The outer rail remains visible in every view, including focus mode. Virtual
-has its own contextual room navigation, independent of engine entitlement.
+The outer rail remains visible in every view, including focus mode. Its header
+is the static, non-interactive Adea mark at one rail-item height; the rail has
+no workspace switcher (ADR 0011). Chat and Virtual mount the shared
+`@adea-ai/workspace-nav` accordion inside the published `ContextualSidebar`
+(landmark "Workspace navigation", width key `adea:workspace-sidebar-width`):
+quick actions, a "Needs you" strip that totals mentions across workspaces
+(hidden at zero; the desktop Dev summary adds input-needing runs once it
+ships), the Workspaces heading with always-visible group-by and New workspace
+actions, the active workspace expanded with its projects, and every other
+workspace as one row with unread and mention chips whose click switches
+through the same guarded helper `?workspace=` links use. New workspace is an
+inline draft row: Enter creates it with a fresh idempotency key and the home
+world, then switches; a failure shows inline and keeps the typed name. The
+grouping (project, status, recent) is persisted per workspace. A project's
+primary channel is its default leaf; its other channels and open tasks are
+leaves whose status is running for a task in progress, in review for a task in
+review, and idle otherwise; unread activity is a count, never a status. Project
+menus offer rename and settings (the edit dialog), archive and soft delete
+behind a confirmation, and Share only when the sharing host is present; leaf
+menus offer only actions the cloud supports. Virtual uses the same tree with
+its own nouns (rooms and desks), independent of engine entitlement. The
+active workspace's accent themes the app while it is active, overriding the
+appearance accent; a workspace without an accent keeps the appearance accent,
+and collapsed workspace marks show their own accent (or the appearance accent)
+rather than the active one.
 Room and Character designer entries use the same global app container and retain
 the global rail even when the private engine is unavailable. Both designers hide
 the left and right contextual sidebars and their toolbar collapse toggles. The
@@ -5069,7 +5092,8 @@ separates **App Library** from the external **Plugins** marketplace. Library is
 an always-reachable full-screen destination directly below the rail's app
 icons. Virtual, Chat, Dev and Kanban are bundled and enabled by default;
 Source control is a compiled optional destination, enabled explicitly. Kanban
-is the only place tasks are listed (the workspace sidebar has no Tasks entry):
+is the only full task list (the workspace sidebar has no Tasks entry; open tasks
+appear only as leaves under their project, and closed ones leave the sidebar):
 it mounts the task board full width, with no workspace sidebar, through a
 route-scoped surface without changing the previous Chat surface. A search
 result or link to a task opens Kanban; with Kanban disabled, the board opens
@@ -5573,6 +5597,12 @@ defaultBaseRef?: string(1..256) }`. `checkout` (the default) is #1061's
   except a proven managed clone; see "Clone sources (`dev.project.clone`)"
   and "Remote-only projects (managed bare clone)". The operation total is
   unchanged (215).
+- **2026-10-05 — workspace accordion in Chat and Virtual (ADR 0011, PR 10).**
+  The Chat/Virtual contextual sidebar becomes the shared `@adea-ai/workspace-nav`
+  accordion (`WorkspaceNavSidebar`); the rail's workspace switcher is removed
+  and its header is a static mark; the active workspace's accent overrides the
+  appearance accent while active. No Dev Runtime operation changed; the Dev
+  sidebar shell is replaced in a later change.
 - **2026-10-06 — project groups removed; v2 project bindings (ADR 0011).**
   Removed `dev.group.list`/`reorder`/`create`/`update`/`delete` and
   `dev.project.reorder`, the `Group`/`GroupMutableFields` DTOs, and the
