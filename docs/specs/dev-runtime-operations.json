@@ -1218,6 +1218,12 @@
       "body": "{ runtimeSessionId: string; expectedGeneration: integer }",
       "reply": "ArchiveRecord"
     },
+    "dev.summary.workspaces": {
+      "capabilities": ["dev.summary.read"],
+      "resource": null,
+      "body": "{}",
+      "reply": "WorkspaceRunSummary"
+    },
     "dev.terminal.attach": {
       "capabilities": ["dev.terminal.attach"],
       "resource": "terminal:required",

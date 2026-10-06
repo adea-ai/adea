@@ -879,6 +879,25 @@ export type WorktreeDiffSummary = Readonly<{
   filesChanged: number
 }>
 
+// `dev.summary.workspaces` reply (ADR 0011 "Counts-only cross-workspace
+// status"): per-workspace counts of non-terminal harness runs on this device,
+// for every scope sharing the active scope's account and runtime node. Counts
+// only — no names, paths, session/run ids, or content. A workspace absent from
+// `items` has no counted run.
+export type WorkspaceRunSummaryItem = Readonly<{
+  workspaceId: string
+  /** Runs observed resolving, starting, or working. */
+  running: number
+  /** Runs observed awaiting input or approval. */
+  needsInput: number
+}>
+export type WorkspaceRunSummary = Readonly<{
+  items: readonly WorkspaceRunSummaryItem[]
+  observedAt: string
+}>
+/** Upper bound on `dev.summary.workspaces` items (distinct workspaces). */
+export const MAX_WORKSPACE_RUN_SUMMARY_ITEMS = 256
+
 // Read-only `dev.repo.inspect` reply: repo record plus fresh on-disk facts
 // computed from the canonical root with local git reads only — no network.
 export type RepoInspection = Readonly<{
@@ -3696,6 +3715,34 @@ export function decodeWorktreeDiffSummary(value: unknown): WorktreeDiffSummary {
   return value as WorktreeDiffSummary
 }
 
+/** Strict decoder for the `dev.summary.workspaces` reply: exact keys, lowercase
+ *  UUID workspace ids without duplicates, non-negative integer counts, bounded
+ *  item count, and an ISO observation time. */
+export function decodeWorkspaceRunSummary(
+  value: unknown,
+  path = 'workspaceRunSummary'
+): WorkspaceRunSummary {
+  const item = record(value, path)
+  exactKeys(item, ['items', 'observedAt'], [], path)
+  if (!Array.isArray(item.items)) fail(`${path}.items`, 'expected array')
+  if (item.items.length > MAX_WORKSPACE_RUN_SUMMARY_ITEMS)
+    fail(`${path}.items`, `exceeds ${MAX_WORKSPACE_RUN_SUMMARY_ITEMS} items`)
+  const seen = new Set<string>()
+  item.items.forEach((entry, index) => {
+    const entryPath = `${path}.items[${index}]`
+    const summary = record(entry, entryPath)
+    exactKeys(summary, ['workspaceId', 'running', 'needsInput'], [], entryPath)
+    const workspaceId = stringValue(summary.workspaceId, `${entryPath}.workspaceId`)
+    if (!uuidPattern.test(workspaceId)) fail(`${entryPath}.workspaceId`, 'expected lowercase UUID')
+    if (seen.has(workspaceId)) fail(`${entryPath}.workspaceId`, 'duplicate workspace')
+    seen.add(workspaceId)
+    integerValue(summary.running, `${entryPath}.running`, 0)
+    integerValue(summary.needsInput, `${entryPath}.needsInput`, 0)
+  })
+  timestamp(item.observedAt, `${path}.observedAt`)
+  return value as WorkspaceRunSummary
+}
+
 /** Strict decoder for the `dev.repo.inspect` reply (#398). */
 export function decodeRepoInspection(value: unknown): RepoInspection {
   namedType('RepoInspection', value, 'repoInspection')
@@ -3763,6 +3810,8 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.worktree.rename': (value) => namedType('Worktree', value, 'reply.value'),
   'dev.worktree.diffSummary': (value) =>
     validateType('WorktreeDiffSummary[]<=50', value, 'reply.value'),
+  // Counts-only cross-workspace run summary (ADR 0011).
+  'dev.summary.workspaces': (value) => decodeWorkspaceRunSummary(value, 'reply.value'),
   // Files/search slice (#399): strict DTO decoders installed by the
   // operation-owning provider slice before its handlers register.
   'dev.files.list': (value) =>

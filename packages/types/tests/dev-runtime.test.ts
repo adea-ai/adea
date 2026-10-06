@@ -6,6 +6,8 @@ import {
   decodeRepoInspection,
   decodeWorktree,
   decodeWorktreeDiffSummary,
+  decodeWorkspaceRunSummary,
+  MAX_WORKSPACE_RUN_SUMMARY_ITEMS,
   decodeDevCommand,
   decodeDevReply,
   decodeRootBookmark,
@@ -99,10 +101,11 @@ describe('Dev Runtime operation registry', () => {
     // 165 before dev.device.capabilities, 166 before the source control
     // app's 20 pull request collaboration operations, 186 before its 29
     // GitLab mirrors, 215 before dev.project.authorizeRoot, 216 before
-    // dev.worktree.rename and dev.worktree.diffSummary: the registry ratchet
-    // moves only when an operation is deliberately added, and the
-    // decoder-key check below is what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(218)
+    // dev.worktree.rename and dev.worktree.diffSummary, 218 before
+    // dev.summary.workspaces: the registry ratchet moves only when an
+    // operation is deliberately added, and the decoder-key check below is
+    // what keeps the list and the decoders in step.
+    expect(devOperations).toHaveLength(219)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
@@ -1278,6 +1281,96 @@ describe('worktree DTOs (ADR 0011)', () => {
         reply('dev.worktree.diffSummary', [summary])
       )
     ).toBeTruthy()
+  })
+})
+
+describe('dev.summary.workspaces (ADR 0011 counts-only status)', () => {
+  const observedAt = '2026-10-05T12:00:00.000Z'
+  const workspaceA = '00000000-0000-4000-8000-0000000000a1'
+  const workspaceB = '00000000-0000-4000-8000-0000000000b2'
+  const summary = {
+    items: [
+      { workspaceId: workspaceA, running: 2, needsInput: 1 },
+      { workspaceId: workspaceB, running: 0, needsInput: 3 },
+    ],
+    observedAt,
+  }
+
+  test('pins the registry entry: read capability, no resource, empty strict body', () => {
+    expect(devOperationDefinitions['dev.summary.workspaces']).toMatchObject({
+      capabilities: ['dev.summary.read'],
+      resource: null,
+    })
+    const decoder = devOperationDecoders['dev.summary.workspaces']
+    expect(decoder.request({})).toEqual({})
+    expect(() => decoder.request({ workspaceId: workspaceA })).toThrow()
+    expect(() => decoder.request({ includeNames: true })).toThrow()
+  })
+
+  test('strictly decodes the counts-only reply', () => {
+    expect(decodeWorkspaceRunSummary(summary)).toEqual(summary)
+    expect(decodeWorkspaceRunSummary({ items: [], observedAt })).toEqual({ items: [], observedAt })
+    expect(() => decodeWorkspaceRunSummary({ ...summary, nextCursor: 'x' })).toThrow('unknown key')
+    expect(() =>
+      decodeWorkspaceRunSummary({
+        items: [{ workspaceId: workspaceA, running: 1, needsInput: 0, name: 'Acme' }],
+        observedAt,
+      })
+    ).toThrow('unknown key')
+    expect(() =>
+      decodeWorkspaceRunSummary({
+        items: [{ workspaceId: workspaceA, running: -1, needsInput: 0 }],
+        observedAt,
+      })
+    ).toThrow('integer')
+    expect(() =>
+      decodeWorkspaceRunSummary({
+        items: [{ workspaceId: workspaceA, running: 1.5, needsInput: 0 }],
+        observedAt,
+      })
+    ).toThrow('integer')
+    expect(() =>
+      decodeWorkspaceRunSummary({
+        items: [{ workspaceId: 'Acme', running: 1, needsInput: 0 }],
+        observedAt,
+      })
+    ).toThrow('UUID')
+    expect(() =>
+      decodeWorkspaceRunSummary({
+        items: [summary.items[0], summary.items[0]],
+        observedAt,
+      })
+    ).toThrow('duplicate')
+    expect(() =>
+      decodeWorkspaceRunSummary({
+        items: Array.from({ length: MAX_WORKSPACE_RUN_SUMMARY_ITEMS + 1 }, (_, index) => ({
+          workspaceId: `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`,
+          running: 1,
+          needsInput: 0,
+        })),
+        observedAt,
+      })
+    ).toThrow('exceeds')
+    expect(() => decodeWorkspaceRunSummary({ items: [] })).toThrow()
+  })
+
+  const reply = (value: unknown) => ({
+    schemaVersion: 1,
+    operation: 'dev.summary.workspaces',
+    requestId: '00000000-0000-4000-8000-000000000004',
+    ok: true,
+    value,
+    observedAt,
+  })
+
+  test('installs the success reply decoder', () => {
+    const decoder = devOperationDecoders['dev.summary.workspaces']
+    expect(decoder.reply(reply(summary))).toBeTruthy()
+    expect(() =>
+      decoder.reply(
+        reply({ items: [{ ...summary.items[0], runtimeSessionId: workspaceB }], observedAt })
+      )
+    ).toThrow('unknown key')
   })
 })
 

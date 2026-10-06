@@ -495,6 +495,9 @@ export const devOperationMetadata = {
   'dev.session.unarchive': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_session_unarchive
   ),
+  'dev.summary.workspaces': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_summary_workspaces
+  ),
   'dev.terminal.attach': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_terminal_attach
   ),

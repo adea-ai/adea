@@ -29,6 +29,7 @@ export const devOperationCapabilities = Object.freeze([
   'dev.resources.stop',
   'dev.session.manage',
   'dev.session.read',
+  'dev.summary.read',
   'dev.terminal.attach',
   'dev.terminal.input',
   'dev.terminal.manage',

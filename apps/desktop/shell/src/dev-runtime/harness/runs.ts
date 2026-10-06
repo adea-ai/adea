@@ -66,6 +66,13 @@ export type RunHistoryStore = Readonly<{
   replace(run: HarnessRun): void
   transitions(runId: string): readonly RunTransition[]
   /**
+   * The counts-only projection of every run in the shared registry whose
+   * scope has the active scope's accountId and runtimeNodeId (any
+   * workspace). Exposes only scope, session id, and state — never the
+   * transitions journal — and reads no file but the shared registry.
+   */
+  sameAccountAndNodeRuns(): readonly Pick<HarnessRun, 'scope' | 'runtimeSessionId' | 'state'>[]
+  /**
    * Applies an observed transition through the canonical machine. Same-state
    * re-observation is an idempotent no-op returning the stored run; a legal
    * edge records the observation (bounded), stamps `finishedAt` on terminal
@@ -91,7 +98,15 @@ export function createRunHistoryStore(input: { dataDir: string; scope: Scope }):
   const inScope = (): StoredHarnessRun[] =>
     store.load().records.filter((run) => sameScope(run.scope, input.scope))
 
-  const save = (records: readonly StoredHarnessRun[]): void => store.save([...records])
+  // The file is shared by every scope on this device. A write replaces only
+  // the active scope's records and carries every other scope's records
+  // through untouched, so a workspace switch can never erase another
+  // workspace's run history (which `dev.summary.workspaces` counts).
+  const save = (records: readonly StoredHarnessRun[]): void =>
+    store.save([
+      ...store.load().records.filter((run) => !sameScope(run.scope, input.scope)),
+      ...records,
+    ])
 
   /** Bounded retention: cap total runs per scope, dropping the oldest
    * terminal runs; an active run is never evicted. */
@@ -115,6 +130,19 @@ export function createRunHistoryStore(input: { dataDir: string; scope: Scope }):
     append: (run) => save(applyRetention([...inScope(), run])),
     replace: (run) => save(inScope().map((entry) => (entry.id === run.id ? run : entry))),
     transitions: (runId) => inScope().find((run) => run.id === runId)?.transitions ?? [],
+    sameAccountAndNodeRuns: () =>
+      store
+        .load()
+        .records.filter(
+          (run) =>
+            run.scope.accountId === input.scope.accountId &&
+            run.scope.runtimeNodeId === input.scope.runtimeNodeId
+        )
+        .map((run) => ({
+          scope: run.scope,
+          runtimeSessionId: run.runtimeSessionId,
+          state: run.state,
+        })),
     observe({ runId, to, source, observedAt, detail }) {
       const run = inScope().find((entry) => entry.id === runId)
       if (!run) {
