@@ -153,9 +153,20 @@ export function SourceControlSidebar(props: {
               when={props.state.tree().owners.length > 0}
               fallback={
                 <Show when={props.state.catalogLoaded()}>
-                  <EmptyDescription>
-                    No projects with a GitHub or GitLab repository yet. Add one in the Dev view.
-                  </EmptyDescription>
+                  <Show
+                    when={props.state.tree().unregistered > 0}
+                    fallback={
+                      <EmptyDescription>
+                        No projects with a GitHub or GitLab repository yet. Add one in the Dev view.
+                      </EmptyDescription>
+                    }
+                  >
+                    <EmptyDescription>
+                      {props.state.tree().unregistered === 1
+                        ? '1 project has not been registered yet, so it is not listed here. Open the Dev view’s Repositories panel and adopt its repository.'
+                        : `${props.state.tree().unregistered} projects have not been registered yet, so they are not listed here. Open the Dev view’s Repositories panel and adopt their repositories.`}
+                    </EmptyDescription>
+                  </Show>
                 </Show>
               }
             >

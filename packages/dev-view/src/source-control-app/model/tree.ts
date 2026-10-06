@@ -2,10 +2,11 @@
  * The sidebar tree: GitHub and GitLab owners (organizations, groups and
  * the viewer's own account) at the top level, each labelled with its
  * provider, and the Adea projects whose repository lives there underneath.
- * Projects without a GitHub or GitLab remote are not source control
- * destinations and are left out; the
- * caller reports how many were skipped. Archived projects collapse into one
- * row at the bottom.
+ * Projects without a GitHub or GitLab repository are not source control
+ * destinations and are left out; projects whose repository bindings have no
+ * registry record (imported but never adopted) are counted separately so the
+ * caller can say exactly why nothing is listed. Archived projects collapse
+ * into one row at the bottom.
  */
 import type { GitHubCheckRollupState } from '@adea-ai/types/dev-runtime'
 
@@ -58,7 +59,9 @@ export type TreeOwner = Readonly<{
 export type SourceControlTree = Readonly<{
   owners: readonly TreeOwner[]
   archived: readonly TreeProject[]
-  /** Projects with no GitHub or GitLab repository. */
+  /** Projects whose every repository binding has no registry record. */
+  unregistered: number
+  /** Projects with no GitHub or GitLab repository among registered records. */
   skipped: number
 }>
 
@@ -87,14 +90,21 @@ export function buildTree(
     { owner: string; host: string; provider: ScmProvider; projects: TreeProject[] }
   >()
   const archived: TreeProject[] = []
+  let unregistered = 0
   let skipped = 0
   for (const project of projects) {
-    const hosted = project.repoIds
-      .map((id) => repoById.get(id))
-      .filter(
-        (repo): repo is RepoFact & { provider: ScmProvider } =>
-          repo !== undefined && (repo.provider === 'github' || repo.provider === 'gitlab')
-      )
+    const bound = project.repoIds.map((id) => repoById.get(id))
+    // A project the repo registry has no record for (import mints the
+    // binding; adoption proves it) can never join a provider row — the
+    // sidebar must say that, not imply the project has no remote.
+    if (bound.every((repo) => repo === undefined)) {
+      unregistered += 1
+      continue
+    }
+    const hosted = bound.filter(
+      (repo): repo is RepoFact & { provider: ScmProvider } =>
+        repo !== undefined && (repo.provider === 'github' || repo.provider === 'gitlab')
+    )
     if (hosted.length === 0) {
       skipped += 1
       continue
@@ -152,6 +162,7 @@ export function buildTree(
   return {
     owners: ordered,
     archived: archived.toSorted((a, b) => a.name.localeCompare(b.name)),
+    unregistered,
     skipped,
   }
 }

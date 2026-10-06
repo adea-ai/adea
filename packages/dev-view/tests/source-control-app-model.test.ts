@@ -343,9 +343,36 @@ describe('sidebar tree', () => {
     expect(tree.owners[1]!.projects[0]!.name).toBe('dotfiles')
     expect(tree.archived.map((row) => row.name)).toEqual(['old'])
     expect(tree.skipped).toBe(1)
+    expect(tree.unregistered).toBe(0)
     expect(repositoryName('git@github.com:acme/widgets.git')).toBe('widgets')
     expect(monogram('adea-ai')).toBe('AA')
     expect(monogram('labs')).toBe('LA')
+  })
+
+  test('counts imported-but-unregistered projects separately from providerless ones', () => {
+    // The owner report: gh is connected, projects exist in the Dev view, and
+    // the source-control sidebar shows none — import mints the binding, but
+    // only adoption proves a registry record that can join a provider row.
+    const tree = buildTree(
+      [
+        { id: 'p1', name: 'Imported', repoIds: ['minted-1'], archived: false },
+        { id: 'p2', name: 'Local', repoIds: ['r1'], archived: false },
+      ],
+      [
+        {
+          id: 'r1',
+          provider: 'other',
+          host: 'example.com',
+          ownerPath: 'me',
+          displayUrl: 'https://example.com/me/local',
+        },
+      ],
+      new Map(),
+      { github: VIEWER }
+    )
+    expect(tree.owners).toEqual([])
+    expect(tree.unregistered).toBe(1)
+    expect(tree.skipped).toBe(1)
   })
 
   test('labels GitLab groups and resolves the viewer per provider', () => {
