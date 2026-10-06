@@ -46,6 +46,10 @@ updatedAt, revision }`, where `source` is `user` or `agent`.
 
 ### Connections: git hosting credentials and harness accounts, per workspace
 
+Amended by [ADR 0013](0013-control-plane-workspace-mapping.md): a workspace may
+also hold cloud connections stored in the Control Plane credential vault for
+cloud executions; device-local bindings below are unchanged.
+
 - A **connection** binds a workspace to credential material the user already
   holds. Two kinds land first:
   - **Git hosting**: a Dev `CredentialRef` (GitHub or GitLab) used for clone,
