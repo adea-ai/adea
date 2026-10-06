@@ -2,13 +2,16 @@ import { decodeCbor, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
 import type {
   DevRuntimePage,
   DevStreamFrame,
-  Group,
   Project,
   RuntimeEvent,
   RuntimeSession,
   Scope,
 } from '@adea-ai/types/dev-runtime'
-import type { DevRuntimeService, DevStreamTransportSocket } from '../../platform'
+import {
+  devProjectDisplayName,
+  type DevRuntimeService,
+  type DevStreamTransportSocket,
+} from '../../platform'
 
 import { buildDevCommand } from '../../browser/command'
 import {
@@ -29,7 +32,6 @@ import type {
   ChatConversation,
   ChatConversationProjection,
   ChatConversationStatus,
-  ChatGroupProjection,
   ChatInputTransport,
   ChatProjectProjection,
   ConversationCreateInput,
@@ -175,15 +177,6 @@ export function deriveConversationStatus(
   return (latest ? lifecycleByEvent[latest.kind] : undefined) ?? session.lifecycle
 }
 
-function groupsForProject(project: Project, groups: readonly Group[]): string[] {
-  return groups
-    .filter(
-      (group) => project.groupIds.includes(group.id) && scopeMatches(group.scope, project.scope)
-    )
-    .toSorted((left, right) => left.sortKey.localeCompare(right.sortKey))
-    .map((group) => group.id)
-}
-
 export function projectChatConversations(
   input: ConversationRegistryInput
 ): ChatConversationProjection {
@@ -192,14 +185,6 @@ export function projectChatConversations(
       .filter((project) => scopeMatches(project.scope, input.scope))
       .map((project) => [project.id, project])
   )
-  const groups = input.groups
-    .filter((group) => scopeMatches(group.scope, input.scope))
-    .toSorted((left, right) => left.sortKey.localeCompare(right.sortKey))
-    .map<ChatGroupProjection>((group) => ({
-      id: group.id,
-      name: group.name,
-      projectIds: [...group.projectIds],
-    }))
   const conversations: ChatConversation[] = []
   for (const session of input.sessions) {
     if (!scopeMatches(session.scope, input.scope)) continue
@@ -214,7 +199,6 @@ export function projectChatConversations(
       projectId: session.projectId,
       repoId: session.repoId,
       worktreeId: session.worktreeId,
-      groupIds: groupsForProject(project, input.groups),
       title: deriveConversationTitle(session, events),
       status: deriveConversationStatus(session, events),
       archived: session.archived,
@@ -249,11 +233,10 @@ export function projectChatConversations(
     .filter((project) => scopeMatches(project.scope, input.scope))
     .map<ChatProjectProjection>((project) => ({
       id: project.id,
-      name: project.name,
-      groupIds: groupsForProject(project, input.groups),
+      name: devProjectDisplayName(project.id, input.projectNames),
       conversationIds: conversationIdsByProject.get(project.id) ?? [],
     }))
-  return { scope: input.scope, groups, projects, conversations }
+  return { scope: input.scope, projects, conversations }
 }
 
 export type ChatConversationModel = Readonly<{
@@ -308,7 +291,6 @@ export function createChatConversationModel(
   const events = new Map<string, RuntimeEvent[]>()
   const drafts = new Map<string, ChatDraftValue>()
   const draftRevisions = new Map<string, number>()
-  const groups: Group[] = []
   const projects: Project[] = []
   type CreateRequest = {
     fingerprint: string
@@ -323,34 +305,29 @@ export function createChatConversationModel(
   let selectedRuntimeSessionId: string | undefined
   let pasteBlockSequence = 0
 
-  const registry = (): ChatConversationProjection =>
-    projectChatConversations({
+  const registry = (): ChatConversationProjection => {
+    const projectNames = options.projectNames?.()
+    return projectChatConversations({
       scope,
-      groups,
       projects,
+      ...(projectNames ? { projectNames } : {}),
       sessions: [...sessions.values()],
       events,
       drafts,
     })
+  }
   const loadHierarchy = async (): Promise<void> => {
-    const [projectPage, groupPage] = await Promise.all([
-      executeChatCommand<DevRuntimePage<Project>>(
-        service,
-        buildDevCommand({ operation: 'dev.project.list', scope, body: {} })
-      ),
-      executeChatCommand<DevRuntimePage<Group>>(
-        service,
-        buildDevCommand({ operation: 'dev.group.list', scope, body: {} })
-      ),
-    ])
-    if (projectPage.nextCursor !== undefined || groupPage.nextCursor !== undefined)
+    const projectPage = await executeChatCommand<DevRuntimePage<Project>>(
+      service,
+      buildDevCommand({ operation: 'dev.project.list', scope, body: {} })
+    )
+    if (projectPage.nextCursor !== undefined)
       throw new ChatRuntimeError({
         code: 'invalid_state',
         retryable: true,
-        message: 'Project and group registry pages must be complete before projection.',
+        message: 'The project registry page must be complete before projection.',
       })
     projects.splice(0, projects.length, ...projectPage.items)
-    groups.splice(0, groups.length, ...groupPage.items)
   }
   const requireConversation = (runtimeSessionId: string): ChatConversation => {
     const conversation = registry().conversations.find(

@@ -18,7 +18,7 @@ import {
   type DevCommand,
   type DevOperation,
   type DevReply,
-  type Group,
+  type Project,
   type RetainedDataRecord,
   type Scope,
   type Worktree,
@@ -350,12 +350,11 @@ describe('dev runtime composition', () => {
       // Providers with existing production implementations are registered.
       const expectedProviders = [
         'dev.capability.snapshot',
-        'dev.group.list',
         'dev.project.list',
         'dev.project.get',
-        'dev.project.reorder',
         'dev.project.update',
         'dev.project.archive',
+        'dev.project.unbind',
         'dev.project.bookmarks',
         'dev.repo.list',
         'dev.repo.credentialRefs',
@@ -957,18 +956,17 @@ describe('dev runtime composition', () => {
       const first = await shell.openChannel()
       const ok = await first.execute(commandFor('dev.project.list', SCOPE_A, {}))
       expect(ok.ok).toBe(true)
-      const aGroup: Group = {
+      const aProject: Project = {
         id: randomUUID(),
         scope: SCOPE_A,
-        name: 'workspace-a',
-        projectIds: [],
-        sortKey: 'workspace-a',
+        repoIds: [],
+        lifecycle: 'ready',
         version: 1,
       }
-      shell.currentHost().projectSession!.upsertGroup(aGroup)
-      expect(await first.execute(commandFor('dev.group.list', SCOPE_A, {}))).toMatchObject({
+      shell.currentHost().projectSession!.upsertProject(aProject)
+      expect(await first.execute(commandFor('dev.project.list', SCOPE_A, {}))).toMatchObject({
         ok: true,
-        value: { items: [aGroup] },
+        value: { items: [aProject] },
       })
 
       // Re-bind under a different workspace: the composition revokes every
@@ -981,27 +979,77 @@ describe('dev runtime composition', () => {
       const second = await shell.openChannel()
       const rebound = await second.execute(commandFor('dev.project.list', SCOPE_B, {}))
       expect(rebound.ok).toBe(true)
-      const bGroup: Group = {
+      const bProject: Project = {
         id: randomUUID(),
         scope: SCOPE_B,
-        name: 'workspace-b',
-        projectIds: [],
-        sortKey: 'workspace-b',
+        repoIds: [],
+        lifecycle: 'ready',
         version: 1,
       }
-      shell.currentHost().projectSession!.upsertGroup(bGroup)
-      expect(await second.execute(commandFor('dev.group.list', SCOPE_B, {}))).toMatchObject({
+      shell.currentHost().projectSession!.upsertProject(bProject)
+      expect(await second.execute(commandFor('dev.project.list', SCOPE_B, {}))).toMatchObject({
         ok: true,
-        value: { items: [bGroup] },
+        value: { items: [bProject] },
       })
       const oldScope = await second.execute(commandFor('dev.project.list', SCOPE_A, {}))
       expect(oldScope).toMatchObject({ ok: false, error: { code: 'channel_unauthorized' } })
 
       await shell.bind(SCOPE_A)
       const third = await shell.openChannel()
-      expect(await third.execute(commandFor('dev.group.list', SCOPE_A, {}))).toMatchObject({
+      expect(await third.execute(commandFor('dev.project.list', SCOPE_A, {}))).toMatchObject({
         ok: true,
-        value: { items: [aGroup] },
+        value: { items: [aProject] },
+      })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('dev.project.unbind is gated by the manage capability and the project resource binding', async () => {
+    const shell = await boot({ verifier: fakeCloudVerifier({ workspaces: [SCOPE_A.workspaceId] }) })
+    try {
+      const channel = await shell.openChannel()
+      const project: Project = {
+        id: randomUUID(),
+        scope: SCOPE_A,
+        repoIds: [],
+        lifecycle: 'ready',
+        version: 1,
+      }
+      shell.currentHost().projectSession!.upsertProject(project)
+      const body = { projectId: project.id, expectedVersion: project.version }
+      const resource = { kind: 'project', id: project.id, generation: project.version } as const
+
+      // A read-only capability set does not authorize removing a binding.
+      const denied = await channel.execute(
+        commandFor('dev.project.unbind', SCOPE_A, body, {
+          capabilities: ['dev.project.read'],
+          resource,
+        } as Partial<DevCommand>)
+      )
+      expect(denied).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+      // The project resource binding is mandatory and must name the body's project.
+      const unbound = await channel.execute(commandFor('dev.project.unbind', SCOPE_A, body))
+      expect(unbound).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+      const foreign = await channel.execute(
+        commandFor('dev.project.unbind', SCOPE_A, body, {
+          resource: { ...resource, id: randomUUID() },
+        } as Partial<DevCommand>)
+      )
+      expect(foreign).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+      expect(await channel.execute(commandFor('dev.project.list', SCOPE_A))).toMatchObject({
+        ok: true,
+        value: { items: [project] },
+      })
+
+      expect(
+        await channel.execute(
+          commandFor('dev.project.unbind', SCOPE_A, body, { resource } as Partial<DevCommand>)
+        )
+      ).toMatchObject({ ok: true, value: project })
+      expect(await channel.execute(commandFor('dev.project.list', SCOPE_A))).toMatchObject({
+        ok: true,
+        value: { items: [] },
       })
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
@@ -1178,8 +1226,6 @@ describe('production worktrees (ADR 0011)', () => {
       host.projectSession!.upsertProject({
         id: projectId,
         scope: SCOPE_A,
-        name: 'App',
-        groupIds: [],
         repoIds: [repoId],
         repos: [{ repoId, rootBookmarkId: bookmark.id, canonicalRoot: repoPath }],
         lifecycle: 'ready',

@@ -908,36 +908,6 @@
       "body": "{ pullRequestId: string; expectedVersion: integer; patch: GitHubPullRequestMutableFields }",
       "reply": "MutationPlan"
     },
-    "dev.group.create": {
-      "capabilities": ["dev.project.manage"],
-      "resource": null,
-      "body": "{ name: string(1..128); colorToken?: string; afterGroupId?: string }",
-      "reply": "Group"
-    },
-    "dev.group.delete": {
-      "capabilities": ["dev.project.manage"],
-      "resource": "group:required",
-      "body": "{ groupId: string; expectedVersion: integer; confirmationId: string }",
-      "reply": "Group"
-    },
-    "dev.group.list": {
-      "capabilities": ["dev.project.read"],
-      "resource": null,
-      "body": "{ cursor?: string; limit?: integer(1..500) }",
-      "reply": "Page<Group>"
-    },
-    "dev.group.reorder": {
-      "capabilities": ["dev.project.manage"],
-      "resource": null,
-      "body": "{ orderedGroupIds: string[]<=1000 }",
-      "reply": "Page<Group>"
-    },
-    "dev.group.update": {
-      "capabilities": ["dev.project.manage"],
-      "resource": "group:required",
-      "body": "{ groupId: string; expectedVersion: integer; patch: GroupMutableFields }",
-      "reply": "Group"
-    },
     "dev.harness.acpClose": {
       "capabilities": ["dev.harness.manage"],
       "resource": "acp_connection:required",
@@ -1025,13 +995,13 @@
     "dev.project.clone": {
       "capabilities": ["dev.project.manage", "dev.repo.manage"],
       "resource": null,
-      "body": "{ name: string(1..128); remote: RedactedRemoteInput; credentialRefId?: string; destinationBookmarkId: string; groupIds: string[]<=32 }",
+      "body": "{ projectId: string; remote: RedactedRemoteInput; credentialRefId?: string; destinationBookmarkId: string }",
       "reply": "Project"
     },
     "dev.project.create": {
       "capabilities": ["dev.project.manage"],
       "resource": null,
-      "body": "{ name: string(1..128); groupIds: string[]<=32; repoIds: string[]<=128; preferredRuntimeNodeId?: string; defaultBaseRef?: string; bootstrapWorkflowId?: string; defaultHarnessId?: string }",
+      "body": "{ projectId: string; repoIds: string[]<=128; preferredRuntimeNodeId?: string; defaultBaseRef?: string; bootstrapWorkflowId?: string; defaultHarnessId?: string }",
       "reply": "Project"
     },
     "dev.project.get": {
@@ -1043,7 +1013,7 @@
     "dev.project.import": {
       "capabilities": ["dev.project.manage"],
       "resource": null,
-      "body": "{ name: string(1..128); rootBookmarkId: string; groupIds: string[]<=32; preferredRuntimeNodeId?: string }",
+      "body": "{ projectId: string; rootBookmarkId: string; preferredRuntimeNodeId?: string }",
       "reply": "Project"
     },
     "dev.project.list": {
@@ -1052,17 +1022,17 @@
       "body": "{ cursor?: string; limit?: integer(1..500) }",
       "reply": "Page<Project>"
     },
-    "dev.project.reorder": {
-      "capabilities": ["dev.project.manage"],
-      "resource": null,
-      "body": "{ groupId: string; orderedProjectIds: string[]<=10000; expectedGroupVersion: integer }",
-      "reply": "Group"
-    },
     "dev.project.scan": {
       "capabilities": ["dev.files.read", "dev.project.read"],
       "resource": null,
       "body": "{ rootBookmarkId: string; cursor?: string; force?: boolean }",
       "reply": "ProjectScanPage"
+    },
+    "dev.project.unbind": {
+      "capabilities": ["dev.project.manage"],
+      "resource": "project:required",
+      "body": "{ projectId: string; expectedVersion: integer }",
+      "reply": "Project"
     },
     "dev.project.update": {
       "capabilities": ["dev.project.manage"],

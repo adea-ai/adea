@@ -456,8 +456,6 @@ async function sessionWithRun(shell: Boot, channel: Awaited<ReturnType<Boot['ope
   shell.host().projectSession?.upsertProject({
     id: '00000000-0000-4000-8000-0000000000aa',
     scope: SCOPE_A,
-    name: 'Events Project',
-    groupIds: [],
     repoIds: ['00000000-0000-4000-8000-0000000000ab'],
     lifecycle: 'ready',
     version: 1,

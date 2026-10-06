@@ -279,8 +279,6 @@ async function sessionReady(
   shell.host().projectSession?.upsertProject({
     id: PROJECT_ID,
     scope: SCOPE_A,
-    name: 'PTY Spawn Project',
-    groupIds: [],
     repoIds: [REPO_ID],
     lifecycle: 'ready',
     version: 1,

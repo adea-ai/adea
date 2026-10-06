@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { Database } from 'bun:sqlite'
-import { chmodSync, existsSync, lstatSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type {
@@ -8,9 +7,9 @@ import type {
   DevCommand,
   DevError,
   DevOperation,
-  Group,
   DevRuntimePage,
   Project,
+  ProjectRepoBinding,
   RuntimeSession,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
@@ -29,7 +28,7 @@ export type ProjectRepoBindingView = Readonly<{
 
 export type ProjectSessionRuntime = Readonly<{
   providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>>
-  upsertGroup(group: Group): void
+  /** Seeds or advances one binding; `project.id` is the cloud project id. */
   upsertProject(project: Project): void
   upsertSession(session: RuntimeSession): void
   /** Read-only resolution for sibling slices (e.g. the harness substrate);
@@ -49,13 +48,14 @@ export type ProjectSessionRuntime = Readonly<{
 /**
  * The canonical project/runtime-session authority shared by Dev View and Chat.
  *
- * One snapshot record commits groups, projects, sessions, and the archive
+ * One v2 snapshot record commits project bindings, sessions, and the archive
  * journal together, so `dev.session.archive`/`dev.session.unarchive` persist
- * the session flip and its `ArchiveRecord` in one SQLite transaction. The
- * authority database uses WAL/full sync and retains the legacy JSON envelope
- * as a retryable migration source. The legacy `projection.json` written by
- * the earlier local projection is seeded once and never deleted; it was never
- * an authority, but its records are user data and are migrated losslessly.
+ * the session flip and its `ArchiveRecord` in one SQLite transaction. A
+ * binding is keyed by the cloud project id and holds only local facts
+ * (repositories, base ref, lifecycle): the cloud owns project names, order,
+ * and grouping. The authority database uses WAL/full sync. Records written by
+ * the v1 schema (groups, local project names) live in differently named files
+ * and are left on disk unread — never migrated, rewritten, or deleted.
  *
  * Every mutation enforces the scope triple (a foreign scope is
  * `unauthorized`, never a silent drop), the ownership epoch
@@ -65,10 +65,24 @@ export type ProjectSessionRuntime = Readonly<{
  * coerced into success.
  */
 
+/** One local repository binding for a cloud project. */
+type ProjectBinding = Readonly<{
+  /** The cloud project id (opaque lowercase UUID supplied by the client). */
+  projectId: string
+  repoIds: string[]
+  /** Authoritative repository bindings minted at import. */
+  repos?: ProjectRepoBinding[]
+  preferredRuntimeNodeId?: string
+  defaultBaseRef?: string
+  bootstrapWorkflowId?: string
+  defaultHarnessId?: string
+  lifecycle: Project['lifecycle']
+  version: number
+}>
+
 type AuthorityRecord = Readonly<{
   scope: Scope
-  groups: Group[]
-  projects: Project[]
+  projects: ProjectBinding[]
   sessions: RuntimeSession[]
   archiveRecords: ArchiveRecord[]
   /** One canonical session per create key within the protocol retention window. */
@@ -81,10 +95,11 @@ type AuthorityRecord = Readonly<{
 }>
 
 const AUTHORITY_STORE_DIRECTORY = join('dev-runtime', 'project-session')
-const AUTHORITY_STORE_FILE = join(AUTHORITY_STORE_DIRECTORY, 'authority.sqlite3')
-const LEGACY_AUTHORITY_STORE_FILE = join('dev-runtime', 'project-session', 'authority.json')
-const LEGACY_PROJECTION_FILE = join('dev-runtime', 'project-session', 'projection.json')
-const AUTHORITY_SCHEMA_VERSION = 1
+/** v2 partitions carry the schema version in their file name, so a v1
+ * `authority.sqlite3` / `authority-<digest>.sqlite3` file is never opened. */
+const AUTHORITY_STORE_PREFIX = 'authority-v2-'
+const AUTHORITY_SCHEMA_VERSION = 2
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** The bounded clone window: a shallow clone of a normal repository is
  *  seconds of work; a loaded host or a large default branch gets a full
@@ -175,7 +190,8 @@ const corruptRecord = () =>
 function validateStoredRecord(record: AuthorityRecord): void {
   const fail = corruptRecord
   if (!isScope(record.scope)) throw fail()
-  if (!Array.isArray(record.groups) || !Array.isArray(record.projects)) throw fail()
+  if (!Array.isArray(record.projects)) throw fail()
+  if ('groups' in record) throw fail()
   if (!Array.isArray(record.sessions) || !Array.isArray(record.archiveRecords)) throw fail()
   if (record.sessionCreates !== undefined) {
     if (!Array.isArray(record.sessionCreates)) throw fail()
@@ -196,33 +212,19 @@ function validateStoredRecord(record: AuthorityRecord): void {
   const inScope = (candidate: unknown) =>
     isScope(candidate) && JSON.stringify(candidate) === JSON.stringify(scope)
   const positive = (value: unknown) => isPositiveInteger(value)
-  for (const group of record.groups) {
-    if (
-      typeof group !== 'object' ||
-      group === null ||
-      typeof group.id !== 'string' ||
-      typeof group.name !== 'string' ||
-      !Array.isArray(group.projectIds) ||
-      group.projectIds.some((id) => typeof id !== 'string') ||
-      typeof group.sortKey !== 'string' ||
-      !positive(group.version) ||
-      !inScope(group.scope)
-    )
-      throw fail()
-  }
   for (const project of record.projects) {
     if (
       typeof project !== 'object' ||
       project === null ||
-      typeof project.id !== 'string' ||
-      typeof project.name !== 'string' ||
+      typeof project.projectId !== 'string' ||
+      !UUID_PATTERN.test(project.projectId) ||
+      'name' in project ||
+      'groupIds' in project ||
       !Array.isArray(project.repoIds) ||
       project.repoIds.some((id) => typeof id !== 'string') ||
-      !Array.isArray(project.groupIds) ||
-      project.groupIds.some((id) => typeof id !== 'string') ||
+      (project.repos !== undefined && !Array.isArray(project.repos)) ||
       !PROJECT_STATES.has(project.lifecycle) ||
-      !positive(project.version) ||
-      !inScope(project.scope)
+      !positive(project.version)
     )
       throw fail()
   }
@@ -290,37 +292,16 @@ function scopeKey(scope: Scope): string {
 }
 
 /**
- * One durable file belongs to one authority scope. The old unpartitioned file
- * remains readable when its stored row belongs to the requested scope; a
- * different scope gets its own file instead of being allowed to overwrite or
- * reject the first workspace's records.
+ * One durable file belongs to one authority scope and schema version. The v2
+ * name differs from every v1 file name, so opening v2 never reads, rewrites,
+ * or deletes a v1 database; v1 rows are left on disk unread.
  */
 function authorityStoreFile(dataDir: string, scope: Scope): string {
-  const directory = join(dataDir, AUTHORITY_STORE_DIRECTORY)
-  const scopedFile = join(directory, `authority-${sha256Text(scopeKey(scope))}.sqlite3`)
-  if (existsSync(scopedFile)) return scopedFile
-  const sharedFile = join(dataDir, AUTHORITY_STORE_FILE)
-  try {
-    const stats = lstatSync(sharedFile)
-    if (stats.isSymbolicLink() || !stats.isFile()) return sharedFile
-  } catch {
-    return scopedFile
-  }
-
-  let database: Database | undefined
-  try {
-    database = new Database(sharedFile, { readonly: true })
-    const rows = database
-      .query('SELECT scope_key AS scopeKey FROM durable_store_records')
-      .all() as Array<{ scopeKey?: unknown }>
-    return rows.some((row) => row.scopeKey === scopeKey(scope)) ? sharedFile : scopedFile
-  } catch {
-    // Let the durable store own corruption retention and fail closed for the
-    // legacy path rather than routing an unreadable shared file elsewhere.
-    return sharedFile
-  } finally {
-    database?.close()
-  }
+  return join(
+    dataDir,
+    AUTHORITY_STORE_DIRECTORY,
+    `${AUTHORITY_STORE_PREFIX}${sha256Text(scopeKey(scope))}.sqlite3`
+  )
 }
 
 /** The envelope resource for runtime_session operations must name this
@@ -342,21 +323,6 @@ function requireSessionResource(command: DevCommand, session: RuntimeSession): v
   }
 }
 
-/** Group operations carry a group resource binding (no generation: groups
- * fence through their optimistic version alone). */
-function requireGroupResource(command: DevCommand, groupId: string): void {
-  const resource = command.resource
-  if (resource === undefined) {
-    throw devError('identity_mismatch', 'operation requires a group resource binding')
-  }
-  if (resource.kind !== 'group') {
-    throw devError('identity_mismatch', 'resource kind must be group')
-  }
-  if (resource.id !== groupId) {
-    throw devError('identity_mismatch', 'resource id does not match the request body')
-  }
-}
-
 /** Project operations carry a project resource binding. Projects fence
  * through their optimistic version alone, so the envelope's numeric
  * generation must equal that version (spec: a record without a `generation`
@@ -373,10 +339,6 @@ function requireProjectResource(command: DevCommand, projectId: string): void {
     throw devError('identity_mismatch', 'resource id does not match the request body')
   }
 }
-
-/** The register's display order is the record-array order; sortKeys are the
- * padded positions assigned on every ordering decision. */
-const sortKeyFor = (index: number): string => String(index).padStart(10, '0')
 
 function archiveRecord(
   session: RuntimeSession,
@@ -395,50 +357,6 @@ function archiveRecord(
     generation: session.generation,
     ...(reason ? { reason } : {}),
     ...(state === 'restored' ? { restoredAt: new Date().toISOString() } : {}),
-  }
-}
-
-/**
- * Seed from the earlier local projection exactly once. The legacy file is read
- * only when the authority store does not exist yet and is never rewritten or
- * deleted: it was not authoritative, but its records are user data.
- */
-function legacySeedRecords(dataDir: string, scope: Scope): AuthorityRecord | undefined {
-  const legacyFile = join(dataDir, LEGACY_PROJECTION_FILE)
-  let stats
-  try {
-    stats = lstatSync(legacyFile)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-    throw new DevAuthorityError('corrupt_state', 'legacy projection cannot be inspected')
-  }
-  if (stats.isSymbolicLink() || !stats.isFile())
-    throw new DevAuthorityError('corrupt_state', 'legacy projection is not a regular file')
-  chmodSync(legacyFile, 0o600)
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(readFileSync(legacyFile, 'utf8'))
-  } catch {
-    // An unreadable legacy projection is retained untouched on disk; the new
-    // store starts empty rather than guessing at its contents.
-    return undefined
-  }
-  const envelope = parsed as { schemaVersion?: unknown; records?: unknown }
-  if (envelope.schemaVersion !== 1 || !Array.isArray(envelope.records)) return undefined
-  const matches = envelope.records.filter((record) => {
-    const candidate = record as AuthorityRecord | null
-    return Boolean(candidate && isScope(candidate.scope) && sameScope(candidate.scope, scope))
-  }) as AuthorityRecord[]
-  if (matches.length > 1)
-    throw new DevAuthorityError('corrupt_state', 'legacy projection has duplicate scope records')
-  const candidate = matches[0]
-  if (!candidate) return undefined
-  return {
-    scope,
-    groups: Array.isArray(candidate.groups) ? [...candidate.groups] : [],
-    projects: Array.isArray(candidate.projects) ? [...candidate.projects] : [],
-    sessions: Array.isArray(candidate.sessions) ? [...candidate.sessions] : [],
-    archiveRecords: [],
   }
 }
 
@@ -481,35 +399,17 @@ export function registerProjectSessionRuntime(input: {
     file: authorityStoreFile(input.dataDir, input.scope),
     schemaVersion: AUTHORITY_SCHEMA_VERSION,
     label: 'project/session authority',
-    legacyFile: join(input.dataDir, LEGACY_AUTHORITY_STORE_FILE),
     scope: input.scope,
-    migrateLegacy: (value) => {
-      const records = (value as { records?: unknown } | null)?.records
-      if (!Array.isArray(records)) return []
-      const scoped = records.filter((record): record is AuthorityRecord => {
-        const candidate = record as Partial<AuthorityRecord> | null
-        if (!candidate || !isScope(candidate.scope))
-          throw new DevAuthorityError('corrupt_state', 'legacy authority record is malformed')
-        return sameScope(candidate.scope, input.scope)
-      })
-      if (scoped.length > 1)
-        throw new DevAuthorityError('corrupt_state', 'legacy authority has duplicate scope records')
-      return scoped.length > 0 ? scoped : undefined
-    },
   })
   const emptyRecord = (): AuthorityRecord => ({
     scope: input.scope,
-    groups: [],
     projects: [],
     sessions: [],
     archiveRecords: [],
     sessionCreates: [],
   })
   const loaded = store.load()
-  const seededFromLegacy = !loaded.records[0]
-  let record: AuthorityRecord = seededFromLegacy
-    ? (legacySeedRecords(input.dataDir, input.scope) ?? emptyRecord())
-    : loaded.records[0]!
+  let record: AuthorityRecord = loaded.records[0] ?? emptyRecord()
   validateStoredRecord(record)
   if (!sameScope(record.scope, input.scope))
     throw new DevAuthorityError(
@@ -517,12 +417,50 @@ export function registerProjectSessionRuntime(input: {
       'authority store belongs to another account/workspace/runtime node'
     )
   const save = () => store.save([record])
-  // A legacy seed commits immediately so the very first restart cannot lose it.
-  if (
-    seededFromLegacy &&
-    (record.groups.length > 0 || record.projects.length > 0 || record.sessions.length > 0)
-  )
-    save()
+
+  /** The wire record for one binding: `id` is the cloud project id. */
+  const toProject = (binding: ProjectBinding): Project => {
+    const { projectId, ...rest } = binding
+    return { id: projectId, scope: input.scope, ...rest }
+  }
+  const findBinding = (projectId: string): ProjectBinding => {
+    const binding = record.projects.find((entry) => entry.projectId === projectId)
+    if (!binding) throw new DevAuthorityError('not_found', `project ${projectId} is unknown`)
+    return binding
+  }
+  const requireExpectedVersion = (binding: ProjectBinding, expectedVersion: number) => {
+    if (binding.version !== expectedVersion)
+      throw new DevAuthorityError(
+        'stale_version',
+        `project ${binding.projectId} moved on: version ${binding.version}`,
+        binding.version
+      )
+  }
+  /** Bindings are keyed by the client-supplied cloud project id: a second
+   * binding for the same id is an identity collision, never a silent merge. */
+  const requireUnboundProjectId = (projectId: string) => {
+    if (!UUID_PATTERN.test(projectId))
+      throw new DevAuthorityError('identity_mismatch', 'project id must be a lowercase UUID')
+    if (record.projects.some((entry) => entry.projectId === projectId))
+      throw new DevAuthorityError(
+        'identity_mismatch',
+        `cloud project ${projectId} already has a local binding`
+      )
+  }
+  const replaceBinding = (next: ProjectBinding) => {
+    record = {
+      ...record,
+      projects: record.projects.map((entry) => (entry.projectId === next.projectId ? next : entry)),
+    }
+  }
+  /** Sessions that still reference execution block archive and unbind. */
+  const liveSessionCount = (projectId: string) =>
+    record.sessions.filter(
+      (session) =>
+        session.projectId === projectId &&
+        !session.archived &&
+        LIVE_SESSION_STATES.has(session.lifecycle)
+    ).length
 
   /** Optimistic-concurrency upsert shared by every entity kind. */
   const upsert = <T extends { id: string; scope: Scope; version: number; generation?: number }>(
@@ -581,19 +519,19 @@ export function registerProjectSessionRuntime(input: {
   }
 
   /**
-   * The one import path (#398): bind an authorized root bookmark into a new
-   * project and its groups in a single atomic snapshot write. Both import
-   * kinds — the owner-authorized local root (`dev.project.import`) and the
-   * bounded clone (`dev.project.clone`) — end here, so refusal and
-   * membership semantics cannot drift between them.
+   * The one import path (#398): bind an authorized root bookmark to a cloud
+   * project id in a single atomic snapshot write. Both import kinds — the
+   * owner-authorized local root (`dev.project.import`) and the bounded clone
+   * (`dev.project.clone`) — end here, so refusal semantics cannot drift.
    */
   function importAuthorizedRoot(
-    name: string,
+    projectId: string,
     rootBookmarkId: string,
-    groupIds: readonly string[],
     preferredRuntimeNodeId: string | undefined,
     canonicalRoot: string
   ): Project {
+    // One canonical root is bound once: a second registration for the same
+    // bookmark is an identity collision, not a silent duplicate.
     if (
       record.projects.some((project) =>
         project.repos?.some((repo) => repo.rootBookmarkId === rootBookmarkId)
@@ -601,207 +539,37 @@ export function registerProjectSessionRuntime(input: {
     )
       throw new DevAuthorityError(
         'identity_mismatch',
-        'a project is already registered for this authorized root'
+        'a project is already bound to this authorized root'
       )
-    for (const groupId of groupIds)
-      if (!record.groups.some((group) => group.id === groupId))
-        throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
     const repoId = randomUUID()
-    const created: Project = {
-      id: randomUUID(),
-      scope: input.scope,
-      name,
-      groupIds: [...groupIds],
+    const created: ProjectBinding = {
+      projectId,
       repoIds: [repoId],
       repos: [{ repoId, rootBookmarkId, canonicalRoot }],
       lifecycle: 'ready',
       version: 1,
       ...(preferredRuntimeNodeId !== undefined ? { preferredRuntimeNodeId } : {}),
     }
-    record = {
-      ...record,
-      projects: [...record.projects, created],
-      groups: record.groups.map((group) =>
-        groupIds.includes(group.id)
-          ? {
-              ...group,
-              projectIds: [...group.projectIds, created.id],
-              version: group.version + 1,
-            }
-          : group
-      ),
-    }
+    record = { ...record, projects: [...record.projects, created] }
     save()
-    return created
+    return toProject(created)
   }
 
   const providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>> = {
-    'dev.group.list': (command) => {
-      requireScope(command, input.scope)
-      return page(record.groups)
-    },
-    'dev.group.reorder': (command) => {
-      requireScope(command, input.scope)
-      const body = command.body as { orderedGroupIds: string[] }
-      const known = new Map(record.groups.map((group) => [group.id, group]))
-      const ordered = body.orderedGroupIds
-      if (ordered.some((id) => !known.has(id)))
-        throw new DevAuthorityError('not_found', 'group reorder contains an unknown group')
-      if (new Set(ordered).size !== ordered.length)
-        throw new DevAuthorityError('invalid_state', 'group reorder contains duplicates')
-      const moved =
-        ordered.length !== record.groups.length ||
-        record.groups.some((group, index) => group.id !== ordered[index])
-      if (moved) {
-        record = {
-          ...record,
-          groups: ordered.map((id, index) => {
-            const group = known.get(id)!
-            return {
-              ...group,
-              sortKey: sortKeyFor(index),
-              version: group.version + 1,
-            }
-          }),
-        }
-        save()
-      }
-      return page(record.groups)
-    },
-    'dev.group.create': (command) => {
-      requireScope(command, input.scope)
-      const body = devOperationDecoders['dev.group.create'].request(command.body)
-      const name = body.name as string
-      const colorToken = body.colorToken as string | undefined
-      const afterGroupId = body.afterGroupId as string | undefined
-      if (afterGroupId !== undefined && !record.groups.some((group) => group.id === afterGroupId))
-        throw new DevAuthorityError('not_found', `group ${afterGroupId} is unknown`)
-      const created: Group = {
-        id: randomUUID(),
-        scope: input.scope,
-        name,
-        projectIds: [],
-        sortKey: '',
-        version: 1,
-        ...(colorToken !== undefined ? { colorToken } : {}),
-      }
-      // `create` places the group after `afterGroupId` or at the end, then
-      // reassigns the affected sort positions; every moved group's version
-      // bumps with the ordering decision.
-      const insertionIndex = afterGroupId
-        ? record.groups.findIndex((group) => group.id === afterGroupId) + 1
-        : record.groups.length
-      const next = [...record.groups]
-      next.splice(insertionIndex, 0, created)
-      record = {
-        ...record,
-        groups: next.map((group, index) =>
-          group.id === created.id ? { ...group, sortKey: sortKeyFor(index) } : group
-        ),
-      }
-      // Existing groups whose position moved advance their version.
-      record = {
-        ...record,
-        groups: record.groups.map((group, index) =>
-          group.id !== created.id && group.sortKey !== sortKeyFor(index)
-            ? { ...group, sortKey: sortKeyFor(index), version: group.version + 1 }
-            : group
-        ),
-      }
-      save()
-      // The persisted record carries the assigned sort position.
-      return record.groups.find((group) => group.id === created.id) ?? created
-    },
-    'dev.group.update': (command) => {
-      requireScope(command, input.scope)
-      const body = devOperationDecoders['dev.group.update'].request(command.body)
-      const groupId = body.groupId as string
-      const expectedVersion = body.expectedVersion as number
-      const patch = body.patch as { name?: string; colorToken?: string }
-      requireGroupResource(command, groupId)
-      const group = record.groups.find((entry) => entry.id === groupId)
-      if (!group) throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
-      if (group.version !== expectedVersion)
-        throw new DevAuthorityError(
-          'stale_version',
-          `group ${group.id} moved on: version ${group.version}`,
-          group.version
-        )
-      const next: Group = {
-        ...group,
-        ...(patch.name !== undefined ? { name: patch.name } : {}),
-        ...(patch.colorToken !== undefined ? { colorToken: patch.colorToken } : {}),
-        version: group.version + 1,
-      }
-      record = {
-        ...record,
-        groups: record.groups.map((entry) => (entry.id === group.id ? next : entry)),
-      }
-      save()
-      return next
-    },
-    'dev.group.delete': (command) => {
-      requireScope(command, input.scope)
-      const body = devOperationDecoders['dev.group.delete'].request(command.body)
-      const groupId = body.groupId as string
-      requireGroupResource(command, groupId)
-      const group = record.groups.find((entry) => entry.id === groupId)
-      if (!group) throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
-      if (group.version !== (body.expectedVersion as number))
-        throw new DevAuthorityError(
-          'stale_version',
-          `group ${group.id} moved on: version ${group.version}`,
-          group.version
-        )
-      if (group.projectIds.length > 0)
-        throw new DevAuthorityError(
-          'invalid_state',
-          `group ${group.id} still contains projects; move or remove them first`
-        )
-      record = { ...record, groups: record.groups.filter((entry) => entry.id !== groupId) }
-      save()
-      return group
-    },
     'dev.project.list': (command) => {
       requireScope(command, input.scope)
-      return page(record.projects)
+      return page(record.projects.map(toProject))
     },
     'dev.project.get': (command) => {
       requireScope(command, input.scope)
       const projectId = (command.body as { projectId: string }).projectId
-      const project = record.projects.find((entry) => entry.id === projectId)
-      if (!project) throw new DevAuthorityError('not_found', `project ${projectId} is unknown`)
-      return project
-    },
-    'dev.project.reorder': (command) => {
-      requireScope(command, input.scope)
-      const body = command.body as {
-        groupId: string
-        orderedProjectIds: string[]
-        expectedGroupVersion: number
-      }
-      const group = record.groups.find((entry) => entry.id === body.groupId)
-      if (!group) throw new DevAuthorityError('not_found', `group ${body.groupId} is unknown`)
-      if (group.version !== body.expectedGroupVersion)
-        throw new DevAuthorityError(
-          'stale_version',
-          `group ${group.id} moved on: version ${group.version}`,
-          group.version
-        )
-      const known = new Set(group.projectIds)
-      if (body.orderedProjectIds.some((id) => !known.has(id)))
-        throw new DevAuthorityError('not_found', 'project reorder contains a foreign project')
-      const next = { ...group, projectIds: [...body.orderedProjectIds], version: group.version + 1 }
-      record = {
-        ...record,
-        groups: record.groups.map((entry) => (entry.id === group.id ? next : entry)),
-      }
-      save()
-      return next
+      return toProject(findBinding(projectId))
     },
     'dev.project.import': (command) => {
       requireScope(command, input.scope)
       const body = devOperationDecoders['dev.project.import'].request(command.body)
+      const projectId = body.projectId as string
+      requireUnboundProjectId(projectId)
       // The canonical root never comes from the command: the composition
       // resolves the authorized bookmark fail-closed (unknown, revoked,
       // drifted, or replaced roots throw before this record is touched).
@@ -813,9 +581,8 @@ export function registerProjectSessionRuntime(input: {
       }
       const root = input.resolveImportRoot(body.rootBookmarkId as string)
       return importAuthorizedRoot(
-        body.name as string,
+        projectId,
         body.rootBookmarkId as string,
-        body.groupIds as string[],
         body.preferredRuntimeNodeId as string | undefined,
         root.canonicalRoot
       )
@@ -823,6 +590,9 @@ export function registerProjectSessionRuntime(input: {
     'dev.project.clone': async (command) => {
       requireScope(command, input.scope)
       const body = devOperationDecoders['dev.project.clone'].request(command.body)
+      const projectId = body.projectId as string
+      // An already-bound cloud project refuses before any clone runs.
+      requireUnboundProjectId(projectId)
       // The remote arrives redacted into parts (never a raw URL body): the
       // provider reconstructs the URL from trusted components. The owner's
       // approve action over the scope-bound channel is the authorization for
@@ -876,27 +646,21 @@ export function registerProjectSessionRuntime(input: {
           'no bookmark authority is available to bind the cloned root'
         )
       }
-      const minted = input.authorizeRoot(targetDir, body.name as string)
-      return importAuthorizedRoot(
-        body.name as string,
-        minted.id,
-        body.groupIds as string[],
-        body.preferredRuntimeNodeId as string | undefined,
-        targetDir
-      )
+      // The bookmark label is the repository name: the register stores no
+      // project names (the cloud project record owns it).
+      const minted = input.authorizeRoot(targetDir, remote.repository)
+      // Re-check after the await: a concurrent bind of the same cloud
+      // project id must not produce a second binding.
+      requireUnboundProjectId(projectId)
+      return importAuthorizedRoot(projectId, minted.id, undefined, targetDir)
     },
     'dev.project.create': (command) => {
       requireScope(command, input.scope)
       const body = devOperationDecoders['dev.project.create'].request(command.body)
-      const groupIds = body.groupIds as string[]
-      for (const groupId of groupIds)
-        if (!record.groups.some((group) => group.id === groupId))
-          throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
-      const created: Project = {
-        id: randomUUID(),
-        scope: input.scope,
-        name: body.name as string,
-        groupIds: [...groupIds],
+      const projectId = body.projectId as string
+      requireUnboundProjectId(projectId)
+      const created: ProjectBinding = {
+        projectId,
         repoIds: [...(body.repoIds as string[])],
         lifecycle: 'ready',
         version: 1,
@@ -913,59 +677,30 @@ export function registerProjectSessionRuntime(input: {
           ? { defaultHarnessId: body.defaultHarnessId as string }
           : {}),
       }
-      record = {
-        ...record,
-        projects: [...record.projects, created],
-        groups: record.groups.map((group) =>
-          groupIds.includes(group.id)
-            ? {
-                ...group,
-                projectIds: [...group.projectIds, created.id],
-                version: group.version + 1,
-              }
-            : group
-        ),
-      }
+      record = { ...record, projects: [...record.projects, created] }
       save()
-      return created
+      return toProject(created)
     },
     'dev.project.update': (command) => {
       requireScope(command, input.scope)
       const body = devOperationDecoders['dev.project.update'].request(command.body)
       const projectId = body.projectId as string
-      const expectedVersion = body.expectedVersion as number
       const patch = body.patch as {
-        name?: string
-        groupIds?: string[]
         preferredRuntimeNodeId?: string
         defaultBaseRef?: string
         bootstrapWorkflowId?: string
         defaultHarnessId?: string
       }
       requireProjectResource(command, projectId)
-      const project = record.projects.find((entry) => entry.id === projectId)
-      if (!project) throw new DevAuthorityError('not_found', `project ${projectId} is unknown`)
-      if (project.version !== expectedVersion)
-        throw new DevAuthorityError(
-          'stale_version',
-          `project ${project.id} moved on: version ${project.version}`,
-          project.version
-        )
+      const project = findBinding(projectId)
+      requireExpectedVersion(project, body.expectedVersion as number)
       if (project.lifecycle === 'archived')
         throw new DevAuthorityError(
           'invalid_state',
-          `project ${project.id} is archived; unarchive it before editing`
+          `project ${project.projectId} is archived; unarchive it before editing`
         )
-      // Group membership is validated against known groups before any write:
-      // an unknown group in the patch refuses the whole update.
-      const nextGroupIds = patch.groupIds ?? project.groupIds
-      for (const groupId of nextGroupIds)
-        if (!record.groups.some((group) => group.id === groupId))
-          throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
-      const next: Project = {
+      const next: ProjectBinding = {
         ...project,
-        ...(patch.name !== undefined ? { name: patch.name } : {}),
-        ...(patch.groupIds !== undefined ? { groupIds: [...patch.groupIds] } : {}),
         ...(patch.preferredRuntimeNodeId !== undefined
           ? { preferredRuntimeNodeId: patch.preferredRuntimeNodeId }
           : {}),
@@ -978,77 +713,70 @@ export function registerProjectSessionRuntime(input: {
           : {}),
         version: project.version + 1,
       }
-      // One atomic snapshot write keeps the project and every affected
-      // group's membership ordering consistent (adds and removals together).
-      const before = new Set(project.groupIds)
-      const after = new Set(next.groupIds)
-      record = {
-        ...record,
-        projects: record.projects.map((entry) => (entry.id === project.id ? next : entry)),
-        groups: record.groups.map((group) => {
-          const gained = after.has(group.id) && !before.has(group.id)
-          const lost = before.has(group.id) && !after.has(group.id)
-          if (!gained && !lost) return group
-          return {
-            ...group,
-            projectIds: gained
-              ? [...group.projectIds, project.id]
-              : group.projectIds.filter((id) => id !== project.id),
-            version: group.version + 1,
-          }
-        }),
-      }
+      replaceBinding(next)
       save()
-      publishProject(next, 'project.updated')
-      return next
+      const projected = toProject(next)
+      publishProject(projected, 'project.updated')
+      return projected
     },
     'dev.project.archive': (command) => {
       requireScope(command, input.scope)
       const body = devOperationDecoders['dev.project.archive'].request(command.body)
       const projectId = body.projectId as string
-      const expectedVersion = body.expectedVersion as number
       const archived = body.archived as boolean
       requireProjectResource(command, projectId)
-      const project = record.projects.find((entry) => entry.id === projectId)
-      if (!project) throw new DevAuthorityError('not_found', `project ${projectId} is unknown`)
-      if (project.version !== expectedVersion)
-        throw new DevAuthorityError(
-          'stale_version',
-          `project ${project.id} moved on: version ${project.version}`,
-          project.version
-        )
+      const project = findBinding(projectId)
+      requireExpectedVersion(project, body.expectedVersion as number)
       if (archived === (project.lifecycle === 'archived'))
         throw new DevAuthorityError(
           'invalid_state',
-          `project ${project.id} is ${archived ? 'already archived' : 'not archived'}`
+          `project ${project.projectId} is ${archived ? 'already archived' : 'not archived'}`
         )
       if (archived) {
         // Archive is navigation metadata only — it never stops or deletes —
         // so it refuses while any session on the project is still live.
-        const live = record.sessions.filter(
-          (session) =>
-            session.projectId === project.id &&
-            !session.archived &&
-            LIVE_SESSION_STATES.has(session.lifecycle)
-        )
-        if (live.length > 0)
+        const live = liveSessionCount(project.projectId)
+        if (live > 0)
           throw new DevAuthorityError(
             'invalid_state',
-            `project ${project.id} still has ${live.length} live session(s); archive them first`
+            `project ${project.projectId} still has ${live} live session(s); archive them first`
           )
       }
-      const next: Project = {
+      const next: ProjectBinding = {
         ...project,
         lifecycle: archived ? 'archived' : 'ready',
         version: project.version + 1,
       }
+      replaceBinding(next)
+      save()
+      const projected = toProject(next)
+      publishProject(projected, archived ? 'project.archived' : 'project.unarchived')
+      return projected
+    },
+    'dev.project.unbind': (command) => {
+      requireScope(command, input.scope)
+      const body = devOperationDecoders['dev.project.unbind'].request(command.body)
+      const projectId = body.projectId as string
+      requireProjectResource(command, projectId)
+      const project = findBinding(projectId)
+      requireExpectedVersion(project, body.expectedVersion as number)
+      // Unbinding removes only the local binding record — it never stops a
+      // process or touches repository files — so, like archive, it refuses
+      // while any session on the project is still live.
+      const live = liveSessionCount(project.projectId)
+      if (live > 0)
+        throw new DevAuthorityError(
+          'invalid_state',
+          `project ${project.projectId} still has ${live} live session(s); archive them first`
+        )
       record = {
         ...record,
-        projects: record.projects.map((entry) => (entry.id === project.id ? next : entry)),
+        projects: record.projects.filter((entry) => entry.projectId !== projectId),
       }
       save()
-      publishProject(next, archived ? 'project.archived' : 'project.unarchived')
-      return next
+      const projected = toProject(project)
+      publishProject(projected, 'project.unbound')
+      return projected
     },
     'dev.session.create': (command) => {
       requireScope(command, input.scope)
@@ -1085,12 +813,11 @@ export function registerProjectSessionRuntime(input: {
           throw devError('idempotency_conflict', 'session create key was used for another request')
         return findSession(prior.sessionId)
       }
-      const project = record.projects.find((entry) => entry.id === body.projectId)
-      if (!project) throw new DevAuthorityError('not_found', `project ${body.projectId} is unknown`)
+      const project = findBinding(body.projectId)
       if (!project.repoIds.includes(body.repoId))
         throw new DevAuthorityError(
           'identity_mismatch',
-          `repository ${body.repoId} is not bound to project ${project.id}`
+          `repository ${body.repoId} is not bound to project ${project.projectId}`
         )
       if (command.resource !== undefined) {
         throw devError('identity_mismatch', 'dev.session.create carries no resource binding')
@@ -1105,7 +832,7 @@ export function registerProjectSessionRuntime(input: {
       const created: RuntimeSession = {
         id: randomUUID(),
         scope: input.scope,
-        projectId: project.id,
+        projectId: project.projectId,
         repoId: body.repoId,
         worktreeId: body.worktreeId,
         lifecycle: 'preparing',
@@ -1254,12 +981,35 @@ export function registerProjectSessionRuntime(input: {
   }
   return {
     providers,
-    upsertGroup(group) {
-      record = { ...record, groups: upsert(record.groups, group) }
-      save()
-    },
     upsertProject(project) {
-      record = { ...record, projects: upsert(record.projects, project) }
+      if (!UUID_PATTERN.test(project.id))
+        throw new DevAuthorityError('identity_mismatch', 'project id must be a lowercase UUID')
+      // Scope, generation, and version checks run against the wire projection.
+      upsert(record.projects.map(toProject), project)
+      const binding: ProjectBinding = {
+        projectId: project.id,
+        repoIds: [...project.repoIds],
+        ...(project.repos ? { repos: [...project.repos] } : {}),
+        ...(project.preferredRuntimeNodeId !== undefined
+          ? { preferredRuntimeNodeId: project.preferredRuntimeNodeId }
+          : {}),
+        ...(project.defaultBaseRef !== undefined ? { defaultBaseRef: project.defaultBaseRef } : {}),
+        ...(project.bootstrapWorkflowId !== undefined
+          ? { bootstrapWorkflowId: project.bootstrapWorkflowId }
+          : {}),
+        ...(project.defaultHarnessId !== undefined
+          ? { defaultHarnessId: project.defaultHarnessId }
+          : {}),
+        lifecycle: project.lifecycle,
+        version: project.version,
+      }
+      const exists = record.projects.some((entry) => entry.projectId === project.id)
+      record = {
+        ...record,
+        projects: exists
+          ? record.projects.map((entry) => (entry.projectId === project.id ? binding : entry))
+          : [...record.projects, binding],
+      }
       save()
     },
     upsertSession(session) {
@@ -1277,7 +1027,7 @@ export function registerProjectSessionRuntime(input: {
             repoId: repo.repoId,
             rootBookmarkId: repo.rootBookmarkId,
             canonicalRoot: repo.canonicalRoot,
-            projectId: project.id,
+            projectId: project.projectId,
           }))
       )
     },

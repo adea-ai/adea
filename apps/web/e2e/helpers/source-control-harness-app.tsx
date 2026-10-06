@@ -510,8 +510,6 @@ async function execute(command: DevCommand): Promise<DevReply> {
           repos.map((repo) => ({
             id: repo.project,
             scope,
-            name: repo.projectName,
-            groupIds: [],
             repoIds: [repo.id],
             lifecycle: repo.archived ? 'archived' : 'ready',
             version: 1,
@@ -784,7 +782,7 @@ const runtime: DevRuntimeService = {
   state: () => ({ status: 'ready' }),
   ready: Promise.resolve(),
   preferenceScope: () => scope,
-  projection: async () => ({ groups: [] }),
+  projection: async () => ({ projects: [] }),
   capabilitySnapshot: async (requestScope) => ({
     scope: requestScope,
     granted: [],
@@ -822,4 +820,16 @@ if (params.get('reset') !== 'keep') {
 
 const root = document.getElementById('harness-root')!
 const toolbar = document.getElementById('harness-toolbar') ?? undefined
-render(() => <SourceControlApp runtime={runtime} now={() => now} toolbarMount={toolbar} />, root)
+// The register stores no names; the host supplies them from the cloud list.
+const projectNames = new Map(repos.map((repo) => [repo.project, repo.projectName]))
+render(
+  () => (
+    <SourceControlApp
+      runtime={runtime}
+      now={() => now}
+      toolbarMount={toolbar}
+      projectNames={projectNames}
+    />
+  ),
+  root
+)

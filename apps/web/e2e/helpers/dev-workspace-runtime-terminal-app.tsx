@@ -143,37 +143,30 @@ const runtime: DevRuntimeService = {
     observedAt: new Date().toISOString(),
     // The no-session scenario is a project-less runtime: the add-project
     // empty states are exactly what a fresh machine must show.
-    groups:
+    projects:
       scenario === 'no-session'
         ? []
         : [
             {
-              id: 'group-fixture',
-              name: 'Fixture group',
-              projects: [
+              id: projectId,
+              repoIds: ['fixture/repository'],
+              branch: 'main',
+              sessions: [
                 {
-                  id: projectId,
-                  name: 'Terminal integration project',
-                  repository: 'fixture/repository',
-                  branch: 'main',
-                  sessions: [
-                    {
-                      id: primarySessionId,
-                      title: 'Primary session',
-                      worktreeId: primaryWorktreeId,
-                      state: 'active',
-                      generation: 5,
-                      terminalId: primaryTerminalId,
-                    },
-                    {
-                      id: otherSessionId,
-                      title: 'Other session',
-                      worktreeId: otherWorktreeId,
-                      state: 'active',
-                      generation: 6,
-                      terminalId: otherTerminalId,
-                    },
-                  ],
+                  id: primarySessionId,
+                  title: 'Primary session',
+                  worktreeId: primaryWorktreeId,
+                  state: 'active',
+                  generation: 5,
+                  terminalId: primaryTerminalId,
+                },
+                {
+                  id: otherSessionId,
+                  title: 'Other session',
+                  worktreeId: otherWorktreeId,
+                  state: 'active',
+                  generation: 6,
+                  terminalId: otherTerminalId,
                 },
               ],
             },
@@ -397,6 +390,7 @@ function mount() {
     () => (
       <DevWorkspaceEntry
         runtime={runtime}
+        projectNames={new Map([[projectId, 'Terminal integration project']])}
         {...(scenario === 'explicit'
           ? {
               storage: {

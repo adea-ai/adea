@@ -20,51 +20,66 @@ export type DevRuntimeAvailability =
  * selection uses them for reorder concurrency and stale detection, and never
  * invents them when absent.
  */
+/**
+ * The Dev register's flat projection: one entry per local repository binding,
+ * keyed by the cloud project id. The register holds no names, order, or
+ * groups — the cloud project list owns those — so hosts supply display names
+ * through `DevProjectNames` and order follows the projection.
+ */
 export type DevWorkspaceProjection = Readonly<{
   observedAt?: string
-  groups: readonly Readonly<{
+  projects: readonly Readonly<{
+    /** The cloud project id the binding is keyed by. */
     id: string
-    name: string
+    repoIds: readonly string[]
+    /** The binding's default base ref, or empty when none is set. */
+    branch: string
     version?: number
-    projects: readonly Readonly<{
+    sessions: readonly Readonly<{
       id: string
-      name: string
-      repository: string
-      branch: string
-      version?: number
-      sessions: readonly Readonly<{
-        id: string
-        title: string
-        /**
-         * The session's own worktree. Panes resolve their worktree from this
-         * rather than taking the first ready one on the node, which showed and
-         * committed against the wrong worktree whenever a node had more than
-         * one. `RuntimeSession.worktreeId` is required upstream, so this is
-         * required too.
-         */
-        worktreeId: string
-        /**
-         * The canonical RuntimeSession lifecycle from the register (#398).
-         * States beyond the historical three render with a neutral status
-         * dot and their own accessible name instead of being coerced into
-         * `active`/`ready`.
-         */
-        state:
-          | 'preparing'
-          | 'ready'
-          | 'active'
-          | 'disconnected'
-          | 'completed'
-          | 'failed'
-          | 'cancelled'
-          | 'archived'
-        generation?: number
-        /** The session primary PTY; absence never selects another terminal. */
-        terminalId?: string
-      }>[]
+      title: string
+      /**
+       * The session's own worktree. Panes resolve their worktree from this
+       * rather than taking the first ready one on the node, which showed and
+       * committed against the wrong worktree whenever a node had more than
+       * one. `RuntimeSession.worktreeId` is required upstream, so this is
+       * required too.
+       */
+      worktreeId: string
+      /**
+       * The canonical RuntimeSession lifecycle from the register (#398).
+       * States beyond the historical three render with a neutral status
+       * dot and their own accessible name instead of being coerced into
+       * `active`/`ready`.
+       */
+      state:
+        | 'preparing'
+        | 'ready'
+        | 'active'
+        | 'disconnected'
+        | 'completed'
+        | 'failed'
+        | 'cancelled'
+        | 'archived'
+      generation?: number
+      /** The session primary PTY; absence never selects another terminal. */
+      terminalId?: string
     }>[]
   }>[]
 }>
+
+/** Host-supplied display names keyed by cloud project id. */
+export type DevProjectNames = ReadonlyMap<string, string>
+
+/**
+ * The display label for a bound project: the host's cloud project name when
+ * known, otherwise the short form of the project id (its first UUID group).
+ */
+export function devProjectDisplayName(projectId: string, names?: DevProjectNames): string {
+  const name = names?.get(projectId)?.trim()
+  if (name) return name
+  return projectId.split('-')[0] || projectId
+}
 
 /** One attached, single-use stream socket over the authenticated channel
  *  (`dev.runtime.stream.attach.v1`). */

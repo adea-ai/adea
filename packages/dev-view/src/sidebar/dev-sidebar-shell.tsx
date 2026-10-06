@@ -5,8 +5,8 @@
  * Substantially translated from KiroCrew website/src/pages/ChatSidebar.tsx and
  * website/src/pages/chat/SidePanel.tsx at revision
  * 283e136c0f902e965a535a7c9548c57c7504fed0. Modified for Solid, semantic
- * tree controls, typed fixtures, Adea authority boundaries, and accessible
- * group/project reordering (pointer drag plus Alt+Arrow keyboard moves).
+ * tree controls, typed fixtures, and Adea authority boundaries. Projects
+ * render as one flat list: the cloud owns project order and grouping.
  */
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ContextualSidebar } from '@adea-ai/ui/components/layout/contextual-sidebar'
@@ -16,7 +16,12 @@ import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
 import { For, Show, children, createEffect, createMemo, createSignal, type JSX } from 'solid-js'
 
-import type { DevGroupFixture, DevProjectFixture } from '../dev-workspace-entry'
+import type { DevProjectFixture } from '../dev-workspace-entry'
+import {
+  devProjectDisplayName,
+  type DevProjectNames,
+  type DevWorkspaceProjection,
+} from '../platform'
 import type { ArchiveShelfState } from './archive-shelf-model'
 import { sessionBadges } from './badges'
 import { ArchiveShelf } from './archive-shelf'
@@ -51,22 +56,22 @@ function applyDevSidebarWidth(root: HTMLElement, width: number) {
   root.style.setProperty('--conventional-sidebar-width', `${clampSidebarWidth(width)}px`)
 }
 
-export type SidebarReorderHandlers = {
-  /** Keyboard move (Alt+Arrow) of a group. */
-  onMoveGroup(id: string, direction: 'up' | 'down'): void
-  /** Keyboard move of a project within its group. */
-  onMoveProject(groupId: string, id: string, direction: 'up' | 'down'): void
-  /** Pointer drop of a group before `targetId`. */
-  onDropGroup(id: string, targetId: string): void
-  /** Pointer drop of a project before `targetId` inside its group. */
-  onDropProject(groupId: string, id: string, targetId: string): void
-}
-
 /**
- * The keyboard reorder contract: Alt+ArrowUp/Down on a focused row moves it.
- * Documented for screen readers through the row's description below.
+ * The sidebar rows for a flat register projection, in projection order. The
+ * label is the host-supplied cloud project name, or the short project id.
  */
-export const SIDEBAR_REORDER_HINT = 'Press Alt with Arrow Up or Arrow Down to move this item.'
+export function devProjectsFromProjection(
+  projection: DevWorkspaceProjection,
+  names?: DevProjectNames
+): readonly DevProjectFixture[] {
+  return projection.projects.map((project) => ({
+    id: project.id,
+    name: devProjectDisplayName(project.id, names),
+    repository: project.repoIds[0] ?? '',
+    branch: project.branch,
+    sessions: project.sessions,
+  }))
+}
 
 const badgeVariant = {
   neutral: 'secondary',
@@ -86,32 +91,22 @@ const sessionStateTone: Record<DevProjectFixture['sessions'][number]['state'], S
   archived: 'unknown',
 }
 
-/** Alt+Arrow moves the focused row; every other chord keeps its default. */
-function reorderAndRestoreFocus(triggerId: string, move: () => void): void {
-  move()
-  // A reorder re-renders the tree; stable trigger IDs restore focus on the moved row.
-  requestAnimationFrame(() => document.getElementById(triggerId)?.focus())
-}
-
 type DevSidebarNavigationProps = {
-  groups: readonly DevGroupFixture[]
+  projects: readonly DevProjectFixture[]
   selectedProject: string
   selectedSession: string
-  collapsedGroups: ReadonlySet<string>
   collapsedProjects: ReadonlySet<string>
   compactOpen: boolean
   onOpenChange(open: boolean): void
   wideViewportAtLoad: boolean
   restoreFocusRef?: () => HTMLElement | undefined
   navigationLabel?: string
-  reorder?: SidebarReorderHandlers
   /** Registry add/scan surface slot (#398); absent in E2E fixture mode. */
   addProject?: JSX.Element
   /** Repository registry surface slot (#398 follow-up); absent in fixture mode. */
   repoRegistry?: JSX.Element
   onProjectSelect(id: string): void
   onSessionSelect(projectId: string, sessionId: string): void
-  onToggleGroup(id: string): void
   onToggleProject(id: string): void
   children?: JSX.Element
 }
@@ -120,7 +115,6 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
   // Children arrive as an unmemoized JSX getter; resolve them once so the
   // footer condition and body share a single constructed instance.
   const resolvedChildren = children(() => props.children)
-  let dragged: { kind: 'group' | 'project'; groupId: string; id: string } | undefined
   const [sidebar, setSidebar] = createSignal<HTMLElement>()
   const [sidebarWidth, setSidebarWidth] = createSignal(SIDEBAR_DEFAULT_WIDTH)
   const [rootTick, setRootTick] = createSignal(0)
@@ -179,160 +173,66 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
             <Show when={props.repoRegistry}>{props.repoRegistry}</Show>
             <nav class="flex flex-col gap-1" aria-label={props.navigationLabel ?? 'Dev projects'}>
               <Show
-                when={props.groups.length > 0}
+                when={props.projects.length > 0}
                 fallback={<EmptyDescription>No runtime projects available.</EmptyDescription>}
               >
-                <For each={props.groups}>
-                  {(group) => {
-                    const groupOpen = () => !props.collapsedGroups.has(group.id)
-                    const groupRowId = `dev-sidebar-group-${group.id}`
-                    const groupTriggerProps = props.reorder
-                      ? {
-                          id: groupRowId,
-                          'data-row-id': `group:${group.id}`,
-                          'aria-description': SIDEBAR_REORDER_HINT,
-                          draggable: true,
-                          onReorder: (direction: 'up' | 'down') =>
-                            reorderAndRestoreFocus(groupRowId, () =>
-                              props.reorder?.onMoveGroup(group.id, direction)
-                            ),
-                          onDragStart: (event: DragEvent) => {
-                            dragged = { kind: 'group', groupId: group.id, id: group.id }
-                            event.dataTransfer?.setData('text/plain', group.name)
-                            if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-                          },
-                          onDragEnd: () => {
-                            dragged = undefined
-                          },
-                        }
-                      : {
-                          id: groupRowId,
-                          'data-row-id': `group:${group.id}`,
-                        }
-
+                <For each={props.projects}>
+                  {(project) => {
+                    const projectOpen = () => !props.collapsedProjects.has(project.id)
+                    const triggerProps = {
+                      id: `dev-sidebar-project-${project.id}`,
+                      'data-row-id': `project:${project.id}`,
+                      onClick: () => {
+                        props.onProjectSelect(project.id)
+                        if (context.mobile && project.id !== props.selectedProject)
+                          props.onOpenChange(false)
+                      },
+                    }
                     return (
                       <SidebarNavSection
-                        label={group.name}
+                        label={project.name}
+                        active={props.selectedProject === project.id}
                         headingAs="h2"
                         collapsible
-                        open={groupOpen()}
-                        onOpenChange={() => props.onToggleGroup(group.id)}
-                        triggerProps={groupTriggerProps}
-                        onDragOver={(event) => {
-                          if (dragged?.kind !== 'group') return
-                          event.preventDefault()
-                          if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-                        }}
-                        onDrop={(event) => {
-                          if (dragged?.kind !== 'group') return
-                          event.preventDefault()
-                          event.stopPropagation()
-                          if (dragged.id !== group.id)
-                            props.reorder?.onDropGroup(dragged.id, group.id)
-                          dragged = undefined
-                        }}
+                        count={project.sessions.length}
+                        open={projectOpen()}
+                        onOpenChange={() => props.onToggleProject(project.id)}
+                        triggerProps={triggerProps}
                       >
-                        <For each={group.projects}>
-                          {(project) => {
-                            const projectOpen = () => !props.collapsedProjects.has(project.id)
-                            const projectRowId = `dev-sidebar-project-${group.id}-${project.id}`
-                            const onProjectClick = () => {
-                              props.onProjectSelect(project.id)
-                              if (context.mobile && project.id !== props.selectedProject)
-                                props.onOpenChange(false)
-                            }
-                            const projectTriggerProps = props.reorder
-                              ? {
-                                  id: projectRowId,
-                                  'data-row-id': `project:${group.id}:${project.id}`,
-                                  'aria-description': SIDEBAR_REORDER_HINT,
-                                  draggable: true,
-                                  onClick: onProjectClick,
-                                  onReorder: (direction: 'up' | 'down') =>
-                                    reorderAndRestoreFocus(projectRowId, () =>
-                                      props.reorder?.onMoveProject(group.id, project.id, direction)
-                                    ),
-                                  onDragStart: (event: DragEvent) => {
-                                    dragged = { kind: 'project', groupId: group.id, id: project.id }
-                                    event.dataTransfer?.setData('text/plain', project.name)
-                                    if (event.dataTransfer)
-                                      event.dataTransfer.effectAllowed = 'move'
-                                  },
-                                  onDragEnd: () => {
-                                    dragged = undefined
-                                  },
-                                }
-                              : {
-                                  id: projectRowId,
-                                  'data-row-id': `project:${group.id}:${project.id}`,
-                                  onClick: onProjectClick,
-                                }
-
-                            return (
-                              <SidebarNavSection
-                                class="ms-2"
-                                label={project.name}
-                                active={props.selectedProject === project.id}
-                                headingAs="h3"
-                                collapsible
-                                count={project.sessions.length}
-                                open={projectOpen()}
-                                onOpenChange={() => props.onToggleProject(project.id)}
-                                triggerProps={projectTriggerProps}
-                                onDragOver={(event) => {
-                                  if (dragged?.kind !== 'project' || dragged.groupId !== group.id)
-                                    return
-                                  event.preventDefault()
-                                  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-                                }}
-                                onDrop={(event) => {
-                                  if (dragged?.kind !== 'project' || dragged.groupId !== group.id)
-                                    return
-                                  event.preventDefault()
-                                  event.stopPropagation()
-                                  if (dragged.id !== project.id)
-                                    props.reorder?.onDropProject(group.id, dragged.id, project.id)
-                                  dragged = undefined
-                                }}
-                              >
-                                <For each={project.sessions}>
-                                  {(session) => (
-                                    <SidebarNavItem
-                                      as="button"
-                                      type="button"
-                                      active={props.selectedSession === session.id}
-                                      nested
-                                      data-row-id={`session:${project.id}:${session.id}`}
-                                      onClick={() => {
-                                        props.onSessionSelect(project.id, session.id)
-                                        if (context.mobile) props.onOpenChange(false)
-                                      }}
+                        <For each={project.sessions}>
+                          {(session) => (
+                            <SidebarNavItem
+                              as="button"
+                              type="button"
+                              active={props.selectedSession === session.id}
+                              nested
+                              data-row-id={`session:${project.id}:${session.id}`}
+                              onClick={() => {
+                                props.onSessionSelect(project.id, session.id)
+                                if (context.mobile) props.onOpenChange(false)
+                              }}
+                            >
+                              <StatusChip
+                                tone={sessionStateTone[session.state]}
+                                label={session.state}
+                                compact
+                              />
+                              <span class="dev-tree-row__title">{session.title}</span>
+                              <span class="flex shrink-0 items-center gap-1 ms-auto">
+                                <For each={sessionBadges(session.badges)}>
+                                  {(badge) => (
+                                    <Badge
+                                      size="sm"
+                                      variant={badgeVariant[badge.tone]}
+                                      title={badge.label}
                                     >
-                                      <StatusChip
-                                        tone={sessionStateTone[session.state]}
-                                        label={session.state}
-                                        compact
-                                      />
-                                      <span class="dev-tree-row__title">{session.title}</span>
-                                      <span class="flex shrink-0 items-center gap-1 ms-auto">
-                                        <For each={sessionBadges(session.badges)}>
-                                          {(badge) => (
-                                            <Badge
-                                              size="sm"
-                                              variant={badgeVariant[badge.tone]}
-                                              title={badge.label}
-                                            >
-                                              {badge.short}
-                                            </Badge>
-                                          )}
-                                        </For>
-                                      </span>
-                                    </SidebarNavItem>
+                                      {badge.short}
+                                    </Badge>
                                   )}
                                 </For>
-                              </SidebarNavSection>
-                            )
-                          }}
+                              </span>
+                            </SidebarNavItem>
+                          )}
                         </For>
                       </SidebarNavSection>
                     )

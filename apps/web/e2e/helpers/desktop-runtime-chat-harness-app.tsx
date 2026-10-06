@@ -81,25 +81,18 @@ const runtime: DevRuntimeService = {
   state: () => ({ status: 'ready' }),
   preferenceScope: () => scope,
   projection: async () => ({
-    groups: [
+    projects: [
       {
-        id: 'group',
-        name: 'Runtime group',
-        projects: [
-          {
-            id: projectId,
-            name: 'Canonical project',
-            repository: 'Repository',
-            branch: 'main',
-            sessions: sessions.map((session) => ({
-              id: session.id,
-              title: session.displayName!,
-              worktreeId: session.worktreeId,
-              state: session.lifecycle,
-              generation: session.generation,
-            })),
-          },
-        ],
+        id: projectId,
+        repoIds: ['Repository'],
+        branch: 'main',
+        sessions: sessions.map((session) => ({
+          id: session.id,
+          title: session.displayName!,
+          worktreeId: session.worktreeId,
+          state: session.lifecycle,
+          generation: session.generation,
+        })),
       },
     ],
   }),
@@ -157,16 +150,12 @@ const runtime: DevRuntimeService = {
           {
             id: projectId,
             scope,
-            name: 'Canonical project',
-            groupIds: [],
             repoIds: [sessions[0]!.repoId],
             lifecycle: 'ready',
             version: 1,
           },
         ],
       }
-    } else if (command.operation === 'dev.group.list') {
-      value = { items: [] }
     } else if (command.operation === 'dev.session.events') {
       value = { resource: { generation: 3 }, fromSequence: '0' }
     }
@@ -223,6 +212,7 @@ render(
         client={client}
         fallback={<p>Legacy team chat</p>}
         workspaceId={scope.workspaceId}
+        projectNames={new Map([[projectId, 'Canonical project']])}
         temporary={false}
         onSignIn={() => undefined}
         onOpenDev={() => setMounted(false)}

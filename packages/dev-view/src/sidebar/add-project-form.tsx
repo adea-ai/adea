@@ -8,9 +8,9 @@
  * ChatSidebar and Orca's AddRepoDialog (donor audit #398), rebuilt for Solid,
  * Adea tokens, and the authority boundary: this component issues only
  * `dev.project.bookmarks`, `dev.project.authorizeRoot`, `dev.project.scan`,
- * `dev.group.list`, `dev.group.create`, and `dev.project.import` commands.
- * Scan results are previews requiring confirmation; nothing here ever
- * executes install/bootstrap commands.
+ * and `dev.project.import` commands. Each import binds the cloud project id
+ * the host supplies (`mintProjectId`). Scan results are previews requiring
+ * confirmation; nothing here ever executes install/bootstrap commands.
  */
 import type {
   DevCommand,
@@ -59,9 +59,6 @@ export function AddProjectForm(props: AddProjectPanelProps) {
   const [authorizeError, setAuthorizeError] = createSignal('')
   const [scan, setScan] = createSignal<ScanState>({ status: 'idle' })
   const [confirmed, setConfirmed] = createSignal<ReadonlySet<string>>(new Set<string>())
-  const [targetGroupId, setTargetGroupId] = createSignal('')
-  const [newGroupName, setNewGroupName] = createSignal('')
-  const [groups, setGroups] = createSignal<readonly { id: string; name: string }[]>([])
   const [importing, setImporting] = createSignal(false)
 
   /** Narrowed accessor for the ready scan; Show keys off its truthiness. */
@@ -93,21 +90,10 @@ export function AddProjectForm(props: AddProjectPanelProps) {
   }
 
   onMount(() => {
-    void (async () => {
-      await loadBookmarks()
-      const groupsReply = await run(buildCommand('dev.group.list', {})).catch(() => undefined)
-      if (groupsReply?.ok) {
-        const groupPage = groupsReply.value as { items: readonly Record<string, unknown>[] }
-        setGroups(
-          groupPage.items.flatMap((raw) =>
-            typeof raw.id === 'string' && typeof raw.name === 'string'
-              ? [{ id: raw.id, name: raw.name }]
-              : []
-          )
-        )
-      }
-    })()
+    void loadBookmarks()
   })
+
+  const mintProjectId = () => props.mintProjectId?.() ?? crypto.randomUUID()
 
   /** Authorize one absolute host path as a project root, then scan it. The
    *  runtime proves owner consent host-side over the scope-bound channel;
@@ -163,31 +149,9 @@ export function AddProjectForm(props: AddProjectPanelProps) {
     })
   }
 
-  const resolveTargetGroup = async (): Promise<string | undefined> => {
-    const existing = targetGroupId()
-    if (existing !== '') return existing
-    const name = newGroupName().trim()
-    if (name === '') {
-      props.announce('Choose a group for the import, or name a new one.')
-      return undefined
-    }
-    const reply = await run(buildCommand('dev.group.create', { name }))
-    if (!reply.ok) {
-      props.announce(`Group creation was refused: ${reply.error.message}`)
-      return undefined
-    }
-    const group = reply.value as { id: string }
-    setGroups((current) => [...current, { id: group.id, name }])
-    setTargetGroupId(group.id)
-    setNewGroupName('')
-    return group.id
-  }
-
   const importConfirmed = async () => {
     const state = scan()
     if (state.status !== 'ready' || importing()) return
-    const groupId = await resolveTargetGroup()
-    if (groupId === undefined) return
     const rootBookmarkId = state.rootBookmarkId
     const rows = importableRows(state.rows).filter((row) => confirmed().has(row.entry.relativeDir))
     if (rows.length === 0) {
@@ -199,7 +163,7 @@ export function AddProjectForm(props: AddProjectPanelProps) {
     const failures: string[] = []
     for (const row of rows) {
       const reply = await run(
-        buildCommand('dev.project.import', importBodyFor(row, rootBookmarkId, [groupId]))
+        buildCommand('dev.project.import', importBodyFor(rootBookmarkId, mintProjectId()))
       )
       if (reply.ok) imported += 1
       else failures.push(`${row.entry.name}: ${reply.error.message}`)
@@ -320,29 +284,6 @@ export function AddProjectForm(props: AddProjectPanelProps) {
                 />
               )}
             </For>
-            <p class="dev-tree-empty">Group</p>
-            <Label class="dev-tree-row dev-tree-row--project">
-              <span class="sr-only">Import into group</span>
-              <NativeSelect
-                value={targetGroupId()}
-                onChange={(event) => setTargetGroupId(event.currentTarget.value)}
-                options={[
-                  { value: '', label: 'New group…' },
-                  ...groups().map((group) => ({ value: group.id, label: group.name })),
-                ]}
-              />
-            </Label>
-            <Show when={targetGroupId() === ''}>
-              <Label class="dev-tree-row dev-tree-row--project">
-                <span class="sr-only">New group name</span>
-                <Input
-                  type="text"
-                  value={newGroupName()}
-                  placeholder="New group name"
-                  onInput={(event) => setNewGroupName(event.currentTarget.value)}
-                />
-              </Label>
-            </Show>
             <Button
               type="button"
               class="dev-button dev-button--secondary"

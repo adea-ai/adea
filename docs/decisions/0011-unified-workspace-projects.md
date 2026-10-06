@@ -80,6 +80,13 @@ lifecycle }` keyed by the cloud project id, plus sessions and archive records.
 removes a binding and never touches files. Existing v1 records are left unread
 on disk (owner decision; no migration).
 
+Landed as schema v2 of the register (see
+[Dev Runtime](../specs/dev-runtime.md#durable-projectsession-authority-desktop-host)):
+v2 partitions live in `authority-v2-<sha256(scope)>.sqlite3`, so no v1 file is
+opened. `dev.project.create`/`import`/`clone` take the client-supplied cloud
+`projectId`, and the Dev client projection is a flat list whose display names
+the host supplies.
+
 ### Device workspace scope
 
 A new trusted shell command selects the Dev scope for a cloud workspace the

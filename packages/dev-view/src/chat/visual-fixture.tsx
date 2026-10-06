@@ -83,7 +83,6 @@ function conversation(
     projectId: '00000000-0000-4000-8000-000000000005',
     repoId: '00000000-0000-4000-8000-000000000006',
     worktreeId: '00000000-0000-4000-8000-000000000007',
-    groupIds: ['00000000-0000-4000-8000-000000000008'],
     title:
       state === 'attention'
         ? 'Approval and question review'

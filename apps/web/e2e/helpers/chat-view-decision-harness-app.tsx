@@ -26,7 +26,6 @@ const conversation: ChatConversation = {
   projectId: '00000000-0000-4000-8000-000000000105',
   repoId: '00000000-0000-4000-8000-000000000106',
   worktreeId: '00000000-0000-4000-8000-000000000107',
-  groupIds: [],
   title: 'Decision seam contract conversation',
   status: 'ready',
   archived: false,

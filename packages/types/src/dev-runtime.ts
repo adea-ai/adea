@@ -744,8 +744,6 @@ export type RuntimeSession = Readonly<{
 export type Project = Readonly<{
   id: string
   scope: Scope
-  name: string
-  groupIds: readonly string[]
   repoIds: readonly string[]
   /** Authoritative repository bindings minted at import (#398). */
   repos?: readonly ProjectRepoBinding[]
@@ -764,16 +762,6 @@ export type ProjectRepoBinding = Readonly<{
   repoId: string
   rootBookmarkId: string
   canonicalRoot: string
-}>
-
-export type Group = Readonly<{
-  id: string
-  scope: Scope
-  name: string
-  colorToken?: string
-  projectIds: readonly string[]
-  sortKey: string
-  version: number
 }>
 
 // One scanner recommendation: a preview of an importable workspace package.
@@ -2983,18 +2971,9 @@ function namedType(name: string, value: unknown, path: string): unknown {
     exactKeys(
       item,
       [],
-      [
-        'name',
-        'groupIds',
-        'preferredRuntimeNodeId',
-        'defaultBaseRef',
-        'bootstrapWorkflowId',
-        'defaultHarnessId',
-      ],
+      ['preferredRuntimeNodeId', 'defaultBaseRef', 'bootstrapWorkflowId', 'defaultHarnessId'],
       path
     )
-    if (item.name !== undefined) stringValue(item.name, `${path}.name`, 1, 128)
-    if (item.groupIds !== undefined) validateType('string[]<=32', item.groupIds, `${path}.groupIds`)
     for (const key of [
       'preferredRuntimeNodeId',
       'defaultBaseRef',
@@ -3002,14 +2981,6 @@ function namedType(name: string, value: unknown, path: string): unknown {
       'defaultHarnessId',
     ] as const)
       if (item[key] !== undefined) stringValue(item[key], `${path}.${key}`, 1)
-    return value
-  }
-  if (name === 'GroupMutableFields') {
-    const item = record(value, path)
-    exactKeys(item, [], ['name', 'colorToken', 'sortKey'], path)
-    if (item.name !== undefined) stringValue(item.name, `${path}.name`, 1, 128)
-    if (item.colorToken !== undefined) stringValue(item.colorToken, `${path}.colorToken`, 1, 64)
-    if (item.sortKey !== undefined) stringValue(item.sortKey, `${path}.sortKey`, 1, 64)
     return value
   }
   if (name === 'GitHubPullRequestMutableFields') {
@@ -3422,31 +3393,6 @@ function namedType(name: string, value: unknown, path: string): unknown {
   }
   // #398 project registry DTOs. Shapes mirror the spec's project registry
   // model; the registry bodies and replies validate through here.
-  if (name === 'Group') {
-    const item = record(value, path)
-    exactKeys(
-      item,
-      ['id', 'scope', 'name', 'projectIds', 'sortKey', 'version'],
-      ['colorToken'],
-      path
-    )
-    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
-      fail(`${path}.id`, 'expected lowercase UUID')
-    decodeScope(item.scope, `${path}.scope`)
-    stringValue(item.name, `${path}.name`, 1, 128)
-    if (item.colorToken !== undefined) stringValue(item.colorToken, `${path}.colorToken`, 1, 64)
-    validateType('string[]<=10000', item.projectIds, `${path}.projectIds`)
-    stringValue(item.sortKey, `${path}.sortKey`, 1, 64)
-    integerValue(item.version, `${path}.version`, 1)
-    return value
-  }
-  if (name === 'GroupMutableFields') {
-    const item = record(value, path)
-    exactKeys(item, [], ['name', 'colorToken'], path)
-    if (item.name !== undefined) stringValue(item.name, `${path}.name`, 1, 128)
-    if (item.colorToken !== undefined) stringValue(item.colorToken, `${path}.colorToken`, 1, 64)
-    return value
-  }
   if (name === 'ProjectScanEntry') {
     const item = record(value, path)
     exactKeys(
@@ -3726,12 +3672,6 @@ export function decodeAcpConnection(value: unknown): AcpConnection {
   return value as AcpConnection
 }
 
-/** Strict decoder for the registry Group record (#398). */
-export function decodeGroup(value: unknown): Group {
-  namedType('Group', value, 'group')
-  return value as Group
-}
-
 /** Strict decoder for the registry Project record (#398). */
 export function decodeProject(value: unknown): Project {
   namedType('Project', value, 'project')
@@ -3827,16 +3767,14 @@ function decodeDevRuntimePage(
 // DTO. Every operation without an entry keeps failing closed in decodeDevReply.
 const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
   // Project registry (#398): import/create mint Project records, scan returns
-  // a bounded preview page, and the group lifecycle commands return Group.
-  // update/archive reply with the re-read Project record (same decoder).
+  // a bounded preview page. update/archive/unbind reply with the Project
+  // binding record (same decoder; unbind returns the removed binding).
   'dev.project.import': (value) => decodeProject(value),
   'dev.project.create': (value) => decodeProject(value),
   'dev.project.update': (value) => decodeProject(value),
   'dev.project.archive': (value) => decodeProject(value),
+  'dev.project.unbind': (value) => decodeProject(value),
   'dev.project.scan': (value) => decodeProjectScanPage(value),
-  'dev.group.create': (value) => decodeGroup(value),
-  'dev.group.update': (value) => decodeGroup(value),
-  'dev.group.delete': (value) => decodeGroup(value),
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.project.authorizeRoot': (value) => decodeRootBookmark(value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),

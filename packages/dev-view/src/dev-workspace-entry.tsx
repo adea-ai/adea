@@ -15,15 +15,10 @@ import type {
   DevCapability,
   DevUtilityPane,
   DevUtilityPreference,
-  DevReply,
   DevStreamFrame,
   PaneLeaf,
   Scope,
 } from '@adea-ai/types/dev-runtime'
-import {
-  devOperationMetadataFor_dev_group_reorder,
-  devOperationMetadataFor_dev_project_reorder,
-} from '@adea-ai/types/dev-runtime-operation-metadata'
 import '@adea-ai/app-ui/dev-view.css'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
@@ -53,7 +48,6 @@ import { Portal } from 'solid-js/web'
 
 import { createDevKeyboardController } from './keyboard'
 import { SelectProjectEmptyState } from './select-project-empty'
-import { buildDevCommandFromMetadata } from './browser/command-core'
 import {
   closePane,
   countLeaves,
@@ -70,7 +64,7 @@ import {
   type DevLayoutState,
 } from './layout/operations'
 import type { LayoutStorage } from './layout/storage'
-import type { DevRuntimeService, DevWorkspaceProjection } from './platform'
+import type { DevProjectNames, DevRuntimeService, DevWorkspaceProjection } from './platform'
 import type { CanonicalRuntimeBinding } from './utility-context'
 import { createSharedDevUtilityOwner, type SharedDevUtilityOwner } from './utility-owner'
 import { defaultLeftUtilitySize, utilityPaneById } from './utility-preferences'
@@ -79,15 +73,8 @@ import type { TerminalStreamSocket } from './terminal/transport'
 import type { ShellObservation } from './terminal/blocks'
 import { resolveDevSelection, type DevSelection, type DevSelectionReason } from './selection'
 import { AddProjectPanel } from './sidebar/add-project-panel'
-import { DevSidebarShell } from './sidebar/dev-sidebar-shell'
+import { DevSidebarShell, devProjectsFromProjection } from './sidebar/dev-sidebar-shell'
 import type { DevSessionBadgeState } from './sidebar/badges'
-import {
-  announcementForMove,
-  reorderGroups,
-  reorderGroupsRelativeTo,
-  reorderProjects,
-  reorderProjectsRelativeTo,
-} from './sidebar/reorder'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { ButtonGroup } from '@adea-ai/ui/components/ui/button-group'
@@ -107,11 +94,8 @@ const FixtureTerminalPane = import.meta.env.DEV
     )
   : undefined
 
-const devWorkspaceReorderMetadata = {
-  'dev.group.reorder': devOperationMetadataFor_dev_group_reorder,
-  'dev.project.reorder': devOperationMetadataFor_dev_project_reorder,
-} as const
-
+/** The sidebar's display model for one bound project. `name` is the display
+ *  label: the host-supplied cloud project name, or the short project id. */
 export type DevProjectFixture = Readonly<{
   id: string
   name: string
@@ -138,12 +122,6 @@ export type DevProjectFixture = Readonly<{
   }>[]
 }>
 
-export type DevGroupFixture = Readonly<{
-  id: string
-  name: string
-  projects: readonly DevProjectFixture[]
-}>
-
 /** A URL-owning host's current deep-link request (`?devProject=`/`?devSession=`). */
 export type DevWorkspaceDeepLinkSelection = Readonly<{
   projectId?: string
@@ -157,7 +135,13 @@ export type DevWorkspaceEntryProps = Readonly<{
   /** The global shell owns the right host and its toolbar control. */
   utilityHostOwnedByShell?: boolean
   /** E2E/development fixtures only; production consumes the runtime projection. */
-  groups?: readonly DevGroupFixture[]
+  projects?: readonly DevProjectFixture[]
+  /**
+   * Display names keyed by cloud project id. The register stores only local
+   * bindings; names come from the cloud project list the host already holds.
+   * Absent entries render the short project id.
+   */
+  projectNames?: DevProjectNames
   storage?: LayoutStorage
   toolbarMount?: HTMLElement
   /**
@@ -190,21 +174,7 @@ export type DevWorkspaceEntryProps = Readonly<{
   ) => void
 }>
 
-function toDevGroups(projection: DevWorkspaceProjection): readonly DevGroupFixture[] {
-  return projection.groups.map((group) => ({
-    id: group.id,
-    name: group.name,
-    projects: group.projects.map((project) => ({
-      id: project.id,
-      name: project.name,
-      repository: project.repository,
-      branch: project.branch,
-      sessions: project.sessions,
-    })),
-  }))
-}
-
-export { devViewFixtureGroups } from './sidebar/fixture-scale'
+export { devViewFixtureProjects } from './sidebar/fixture-scale'
 
 /** The read capability each utility pane depends on for its provider state. */
 const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {
@@ -387,12 +357,14 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       }
     | undefined
   >(undefined)
-  const [projectedGroups, setProjectedGroups] = createSignal<readonly DevGroupFixture[]>([])
-  // Fixture mode keeps a local, reorderable copy: `props.groups` itself is
-  // readonly E2E input and never mutates.
-  const [fixtureGroups, setFixtureGroups] = createSignal<readonly DevGroupFixture[] | undefined>()
   const [projection, setProjection] = createSignal<DevWorkspaceProjection | undefined>()
-  const groups = () => fixtureGroups() ?? props.groups ?? projectedGroups()
+  // Production renders the authoritative flat projection with host-supplied
+  // names; fixture mode renders the readonly E2E input as given.
+  const projectedProjects = createMemo(() => {
+    const current = projection()
+    return current ? devProjectsFromProjection(current, props.projectNames) : []
+  })
+  const projects = () => props.projects ?? projectedProjects()
   const selectedProjectState = useWorkspaceState((state) => state.selectedDevProjectId)
   const selectedSessionState = useWorkspaceState((state) => state.selectedRuntimeSessionId)
   // The effective selection request: a present deep-link param wins over the
@@ -415,7 +387,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     if (request?.projectId) return request.sessionId ?? null
     return request?.sessionId ?? selectedSessionState()
   }
-  const collapsedGroupIds = useWorkspaceState((state) => state.collapsedDevGroupIds)
   const collapsedProjectIds = useWorkspaceState((state) => state.collapsedDevProjectIds)
   const focusMode = useWorkspaceState((state) => state.devFocusMode)
   const compactSidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
@@ -444,42 +415,35 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // top-bar toggle reopens the pane that was visible before the collapse.
   const [runtimeBindingReady, setRuntimeBindingReady] = createSignal(false)
   const runtimeState = createMemo(() => props.runtime.state())
-  const fixtureMode = () => props.groups !== undefined
+  const fixtureMode = () => props.projects !== undefined
 
   const activeScope = () => props.runtime.preferenceScope?.()
 
   /** Production path: the authoritative projection, reloaded on demand. */
   const loadProjection = async () => {
-    if (props.groups !== undefined) return
+    if (props.projects !== undefined) return
     const scope = activeScope()
     if (!scope || !props.runtime.projection) return
     try {
-      const next = await props.runtime.projection(scope)
-      setProjection(next)
-      setProjectedGroups(toDevGroups(next))
+      setProjection(await props.runtime.projection(scope))
     } catch {
-      setProjectedGroups([])
+      setProjection(undefined)
     }
   }
 
   onMount(() => {
-    if (props.groups !== undefined) {
-      setFixtureGroups(props.groups)
+    if (props.projects !== undefined) {
       utilityOwner.setArchiveShelfFixture(
-        props.groups.flatMap((group) =>
-          group.projects.flatMap((project) =>
-            project.sessions
-              .filter((session) => session.state === 'archived')
-              .map((session) => ({
-                id: session.id,
-                projectId: project.id,
-                title: session.title,
-                archivedAt: 'fixture',
-                ...(typeof session.generation === 'number'
-                  ? { generation: session.generation }
-                  : {}),
-              }))
-          )
+        props.projects.flatMap((project) =>
+          project.sessions
+            .filter((session) => session.state === 'archived')
+            .map((session) => ({
+              id: session.id,
+              projectId: project.id,
+              title: session.title,
+              archivedAt: 'fixture',
+              ...(typeof session.generation === 'number' ? { generation: session.generation } : {}),
+            }))
         )
       )
       return
@@ -542,16 +506,14 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // once. Fixture selections resolve against the fixture projection.
   const selection = createMemo<DevSelection>(() =>
     resolveDevSelection({
-      projects: groups().flatMap((group) =>
-        group.projects.map((project) => ({
-          id: project.id,
-          sessions: project.sessions.map((session) => ({
-            id: session.id,
-            archived: session.state === 'archived',
-            generation: session.generation,
-          })),
-        }))
-      ),
+      projects: projects().map((project) => ({
+        id: project.id,
+        sessions: project.sessions.map((session) => ({
+          id: session.id,
+          archived: session.state === 'archived',
+          generation: session.generation,
+        })),
+      })),
       requestedProjectId: requestedProjectId(),
       requestedSessionId: requestedSessionId(),
       scope: activeScope(),
@@ -578,9 +540,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     // The record comes from the same list the selection resolved against, so
     // fixture mounts (no runtime projection) still publish a canonical
     // binding with the session's generation.
-    for (const group of groups())
-      for (const project of group.projects)
-        for (const session of project.sessions) if (session.id === sessionId) return session
+    for (const project of projects())
+      for (const session of project.sessions) if (session.id === sessionId) return session
     return undefined
   })
   const selectedSessionWorktreeId = createMemo(
@@ -589,9 +550,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const selectedProjectLabel = createMemo(() => {
     const projectId = selectedProject()
     if (!projectId) return undefined
-    for (const group of groups())
-      for (const project of group.projects) if (project.id === projectId) return project.name
-    return undefined
+    return projects().find((project) => project.id === projectId)?.name
   })
   const selectedCanonicalBinding = (): CanonicalRuntimeBinding | undefined => {
     const current = selection()
@@ -754,116 +713,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   }
   const setPaneSize = (pane: DevUtilityPane, size: number) => {
     utilityOwner.setUtilityPaneSize(pane, size, selectedCanonicalBinding() ?? null)
-  }
-
-  /*
-   * Accessible reordering. Keyboard moves and pointer drops funnel through
-   * one pure model; in production the resulting order is sent to the runtime
-   * (`dev.group.reorder` / `dev.project.reorder`) and the authoritative
-   * projection is reloaded — a refused reorder is reverted, never kept.
-   */
-  const reorderVersionOf = (groupId: string) =>
-    projection()?.groups.find((g) => g.id === groupId)?.version
-
-  const executeReorder = async (
-    operation: 'dev.group.reorder' | 'dev.project.reorder',
-    body: Record<string, unknown>
-  ): Promise<boolean> => {
-    const scope = activeScope()
-    if (!scope) return false
-    const reply: DevReply = await props.runtime.execute(
-      buildDevCommandFromMetadata(devWorkspaceReorderMetadata[operation], { scope, body })
-    )
-    if (!reply.ok) {
-      setAnnouncement(`Reorder was refused: ${reply.error.message}`)
-      await loadProjection()
-      return false
-    }
-    await loadProjection()
-    return true
-  }
-
-  const applyGroups = (next: readonly DevGroupFixture[]) => {
-    if (fixtureMode()) {
-      setFixtureGroups(next)
-      return
-    }
-    // Optimistic local reorder; the authoritative projection reloads after
-    // the runtime command resolves (or refuses).
-    setProjectedGroups(next)
-  }
-
-  const moveGroupHandler = (id: string, direction: 'up' | 'down') => {
-    const current = groups()
-    const next = reorderGroups(current, id, direction)
-    const moved = next !== current
-    applyGroups(next)
-    const position = next.findIndex((group) => group.id === id) + 1
-    const label = current.find((group) => group.id === id)?.name ?? id
-    setAnnouncement(announcementForMove(label, position, next.length, moved))
-    if (!moved || fixtureMode()) return
-    void executeReorder('dev.group.reorder', { orderedGroupIds: next.map((group) => group.id) })
-  }
-
-  const dropGroupHandler = (id: string, targetId: string) => {
-    const current = groups()
-    const next = reorderGroupsRelativeTo(current, id, targetId)
-    if (next === current) return
-    applyGroups(next)
-    const label = current.find((group) => group.id === id)?.name ?? id
-    const position = next.findIndex((group) => group.id === id) + 1
-    setAnnouncement(announcementForMove(label, position, next.length, true))
-    if (fixtureMode()) return
-    void executeReorder('dev.group.reorder', { orderedGroupIds: next.map((group) => group.id) })
-  }
-
-  const commitProjectReorder = (groupId: string, next: ReturnType<typeof groups>) => {
-    const expectedGroupVersion = reorderVersionOf(groupId)
-    if (expectedGroupVersion === undefined) {
-      setAnnouncement(
-        'Reorder needs the connected provider to expose group versions; nothing was changed on the runtime.'
-      )
-      return
-    }
-    void executeReorder('dev.project.reorder', {
-      groupId,
-      orderedProjectIds:
-        next.find((candidate) => candidate.id === groupId)?.projects.map((project) => project.id) ??
-        [],
-      expectedGroupVersion,
-    })
-  }
-
-  const moveProjectHandler = (groupId: string, id: string, direction: 'up' | 'down') => {
-    const current = groups()
-    const group = current.find((candidate) => candidate.id === groupId)
-    const next = reorderProjects(current, groupId, id, direction)
-    applyGroups(next)
-    const position =
-      next.find((candidate) => candidate.id === groupId)?.projects.findIndex((p) => p.id === id) ??
-      -1
-    const label = group?.projects.find((project) => project.id === id)?.name ?? id
-    const total = group?.projects.length ?? 0
-    const moved = next !== current
-    if (position >= 0) setAnnouncement(announcementForMove(label, position + 1, total, moved))
-    if (!moved || fixtureMode()) return
-    commitProjectReorder(groupId, next)
-  }
-
-  const dropProjectHandler = (groupId: string, id: string, targetId: string) => {
-    const current = groups()
-    const group = current.find((candidate) => candidate.id === groupId)
-    const next = reorderProjectsRelativeTo(current, groupId, id, targetId)
-    if (next === current) return
-    applyGroups(next)
-    const position =
-      next.find((candidate) => candidate.id === groupId)?.projects.findIndex((p) => p.id === id) ??
-      -1
-    const label = group?.projects.find((project) => project.id === id)?.name ?? id
-    if (position >= 0)
-      setAnnouncement(announcementForMove(label, position + 1, group?.projects.length ?? 0, true))
-    if (fixtureMode()) return
-    commitProjectReorder(groupId, next)
   }
 
   const restoreFromArchive = async (runtimeSessionId: string) => {
@@ -1107,10 +956,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
 
       <div class="dev-workspace__body">
         <DevSidebarShell
-          groups={groups()}
+          projects={projects()}
           selectedProject={selectedProject()}
           selectedSession={selectedSession()}
-          collapsedGroups={new Set(collapsedGroupIds())}
           collapsedProjects={new Set(collapsedProjectIds())}
           compactOpen={
             compactSidebarOpen() &&
@@ -1121,12 +969,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           onOpenChange={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
           wideViewportAtLoad={wideViewportAtLoad}
           restoreFocusRef={props.sidebarOpener}
-          reorder={{
-            onMoveGroup: moveGroupHandler,
-            onMoveProject: moveProjectHandler,
-            onDropGroup: dropGroupHandler,
-            onDropProject: dropProjectHandler,
-          }}
           archiveShelf={utilityOwner.archiveShelf()}
           archiveHandoffMessage={utilityOwner.archiveHandoffMessage()}
           addProject={
@@ -1134,9 +976,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
               <AddProjectPanel
                 scope={activeScope()!}
                 execute={(command) => props.runtime.execute(command)}
-                knownProjectNames={groups().flatMap((group) =>
-                  group.projects.map((project) => project.name)
-                )}
+                knownProjectNames={projects().map((project) => project.name)}
                 onImported={() => void loadProjection()}
                 announce={setAnnouncement}
                 registerOpen={(open) => {
@@ -1152,6 +992,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                   scope={activeScope()!}
                   execute={(command) => props.runtime.execute(command)}
                   announce={setAnnouncement}
+                  projectNames={props.projectNames}
                 />
               </Suspense>
             ) : undefined
@@ -1177,7 +1018,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             workspaceStore.getState().setSelectedRuntimeSessionId(sessionId)
             props.onSelectionChange?.({ projectId, sessionId })
           }}
-          onToggleGroup={(id) => workspaceStore.getState().toggleDevGroupCollapsed(id)}
           onToggleProject={(id) => workspaceStore.getState().toggleDevProjectCollapsed(id)}
         />
 

@@ -43,6 +43,7 @@ import {
 import { For, Show, createSignal, onMount } from 'solid-js'
 
 import { buildDevCommand } from '../browser/command'
+import { devProjectDisplayName, type DevProjectNames } from '../platform'
 import {
   archiveNoticeForError,
   beginRegistryLoad,
@@ -73,6 +74,8 @@ export type RepoRegistryPanelProps = Readonly<{
   scope: Scope
   execute(command: DevCommand): Promise<DevReply>
   announce(message: string): void
+  /** Cloud project names keyed by project id; absent names show the short id. */
+  projectNames?: DevProjectNames
 }>
 
 type Notice = Readonly<{ tone: 'status' | 'alert'; text: string }>
@@ -121,7 +124,9 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
       ])
       setBookmarks(roots)
       setCredentials(refs)
-      setState(registryReady(repoRows(projectBindings(projects), repos), projects))
+      setState(
+        registryReady(repoRows(projectBindings(projects, props.projectNames), repos), projects)
+      )
     } catch (error) {
       if (error instanceof TypeError) {
         // A strict decoder refused a success value: fail closed, never render.
@@ -287,7 +292,7 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
       }
       decodeProject(reply.value)
       props.announce(
-        `${project.name} ${archived ? 'archived' : 'restored'}; navigation only, nothing was stopped or deleted.`
+        `${devProjectDisplayName(project.id, props.projectNames)} ${archived ? 'archived' : 'restored'}; navigation only, nothing was stopped or deleted.`
       )
       await load()
     })
@@ -495,16 +500,17 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
               {(project) => {
                 const archived = () => project.lifecycle === 'archived'
                 const pending = () => state().pendingArchiveProjectId === project.id
+                const name = () => devProjectDisplayName(project.id, props.projectNames)
                 return (
                   <li class="dev-tree-row dev-tree-row--project" data-project-id={project.id}>
-                    <span class="dev-tree-row__title">{project.name}</span>
+                    <span class="dev-tree-row__title">{name()}</span>
                     <Show
                       when={!pending()}
                       fallback={
                         <span
                           class="dev-archive-shelf__confirm"
                           role="alert"
-                          aria-label={`Confirm archiving ${project.name}`}
+                          aria-label={`Confirm archiving ${name()}`}
                         >
                           Archive this project?
                           <Button

@@ -51,7 +51,6 @@ const targetIdFields = {
   computeruse_lane: 'computerUseLaneId',
   device_inventory: 'inventoryId',
   device_session: 'deviceSessionId',
-  group: 'groupId',
   process: 'processRecordId',
   project: 'projectId',
   pull_request: 'pullRequestId',

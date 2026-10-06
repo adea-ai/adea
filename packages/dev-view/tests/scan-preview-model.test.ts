@@ -71,10 +71,9 @@ describe('scan preview model (#398)', () => {
     )
     const importable = importableRows(rows)
     expect(importable.length).toBe(1)
-    expect(importBodyFor(importable[0]!, 'bookmark', ['group-1'])).toEqual({
-      name: 'app',
+    expect(importBodyFor('bookmark', '00000000-0000-4000-8000-000000000020')).toEqual({
+      projectId: '00000000-0000-4000-8000-000000000020',
       rootBookmarkId: 'bookmark',
-      groupIds: ['group-1'],
     })
   })
 })

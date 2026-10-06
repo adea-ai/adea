@@ -1,6 +1,5 @@
 export {
   DevWorkspaceEntry,
-  type DevGroupFixture,
   type DevProjectFixture,
   type DevWorkspaceEntryProps,
 } from './dev-workspace-entry'
@@ -15,4 +14,4 @@ export { sessionBadges, type DevSessionBadge, type DevSessionBadgeState } from '
 export * from './layout/persistence'
 export * from './layout/storage'
 export * from './platform'
-export { devViewFixtureGroups, scaleDevFixtureGroups } from './sidebar/fixture-scale'
+export { devViewFixtureProjects, scaleDevFixtureProjects } from './sidebar/fixture-scale'

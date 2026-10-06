@@ -57,8 +57,6 @@ describe('desktop chat host', () => {
                   {
                     id: 'project-1',
                     scope: SCOPE,
-                    name: 'Project',
-                    groupIds: [],
                     repoIds: ['repo-1'],
                     lifecycle: 'ready',
                     version: 1,
