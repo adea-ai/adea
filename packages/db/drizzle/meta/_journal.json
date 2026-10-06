@@ -232,6 +232,13 @@
       "when": 1791248060809,
       "tag": "0032_project-sharing",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791298585820,
+      "tag": "0033_control-plane-scopes",
+      "breakpoints": true
     }
   ]
 }

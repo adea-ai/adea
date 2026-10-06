@@ -44,6 +44,32 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+      # Prune before the cut, never after: the release this run creates must
+      # not exist while the keep-newest-ten window is computed, or the fresh
+      # tag can be pruned moments after publication while release-assets is
+      # still validating it (the dev channel saw exactly that race).
+      - name: Prune old dev releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          # Keep the newest ten dev builds. Decide the order here from
+          # created_at: the releases endpoint serves a just-created release
+          # at the END of the response until GitHub re-sorts it, so slicing
+          # the raw order selects the newest release instead of the oldest —
+          # that is how dev.100 and dev.104 pruned themselves.
+          gh api "repos/$repo/releases?per_page=100" --jq '
+            [.[]
+            | select(.prerelease == true)
+            | select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-dev\\.[0-9]+$"))]
+            | sort_by(.created_at) | reverse
+            | .[10:] | .[].tag_name
+          ' | while read -r old; do
+            echo "Pruning old dev release $old"
+            gh release delete "$old" --repo "$repo" --yes --cleanup-tag
+          done
+
       - name: Publish the dev pre-release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -88,20 +114,3 @@ jobs:
             # existing release whose prior asset build never completed.
             gh workflow run release-assets.yml --repo "$repo" --ref main -f tag="$tag"
           fi
-
-      - name: Prune old dev releases
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          repo="$GITHUB_REPOSITORY"
-          # Keep the newest ten dev builds; the API returns newest first.
-          gh api "repos/$repo/releases?per_page=100" --jq '
-            .[]
-            | select(.prerelease == true)
-            | select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-dev\\.[0-9]+$"))
-            | .tag_name
-          ' | tail -n +11 | while read -r old; do
-            echo "Pruning old dev release $old"
-            gh release delete "$old" --repo "$repo" --yes --cleanup-tag
-          done

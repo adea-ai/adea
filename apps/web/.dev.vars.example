@@ -8,6 +8,12 @@ AUTH_TRUSTED_ORIGINS=http://localhost:3000
 CONTROL_PLANE_ORIGIN=https://control-plane.example
 CONTROL_PLANE_SERVICE_TOKEN=replace-with-service-token
 CONTROL_PLANE_SCOPE_WORKSPACE_ID=replace-with-workspace-id
+# Per-request signed Control Plane credentials (ADR 0013,
+# docs/control-plane-credentials.md). Leave CONTROL_PLANE_SIGNING_KEY empty to
+# use the static token above (the deployment then reports `unscoped`).
+CONTROL_PLANE_SIGNING_KEY=
+CONTROL_PLANE_SIGNING_KEY_ID=
+CONTROL_PLANE_SIGNING_ISSUER=
 # Optional account allowlist (comma-separated). When set, only these emails may
 # hold a workspace principal and guest sessions are disabled. Unset = open.
 ADEA_ALLOWED_EMAILS=you@example.com
