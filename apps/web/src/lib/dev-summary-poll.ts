@@ -4,6 +4,22 @@ import { createSignal, onCleanup, type Accessor } from 'solid-js'
 
 import { workspaceSummaries } from './desktop-dev-runtime'
 
+/** Same workspaces, in the same order, with the same counts. */
+export function sameSummaryItems(
+  left: readonly WorkspaceRunSummaryItem[] | undefined,
+  right: readonly WorkspaceRunSummaryItem[]
+): boolean {
+  if (!left || left.length !== right.length) return false
+  return left.every((item, index) => {
+    const other = right[index]!
+    return (
+      item.workspaceId === other.workspaceId &&
+      item.running === other.running &&
+      item.needsInput === other.needsInput
+    )
+  })
+}
+
 const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden'
 
 /** The cross-workspace run counts refresh this often while the window is visible. */
@@ -14,7 +30,9 @@ export const DEV_SUMMARY_POLL_MS = 30_000
  * 0011) for the sidebar's collapsed workspace chips and "Needs you" strip:
  * once the runtime is ready, every 30s while the document is visible, and
  * again whenever it becomes visible. Hidden windows issue no reads. A failed
- * read keeps the last observed counts rather than guessing zeros.
+ * read keeps the last observed counts rather than guessing zeros, and a read
+ * that observed the same counts keeps the previous array, so an idle poll
+ * notifies nothing downstream.
  */
 export function createDevSummaryPoll(
   runtime: Pick<DevRuntimeService, 'execute' | 'preferenceScope' | 'ready' | 'state'>,
@@ -33,6 +51,7 @@ export function createDevSummaryPoll(
     const current = ++generation
     const summary = await read(runtime, scope)
     if (disposed || current !== generation || !summary) return
+    if (sameSummaryItems(items(), summary.items)) return
     setItems(summary.items)
   }
 

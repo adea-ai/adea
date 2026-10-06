@@ -35,6 +35,13 @@
       "import": "./dist/breadcrumbs.js",
       "default": "./dist/breadcrumbs.js"
     },
+    "./sidebar-width": {
+      "types": "./dist/sidebar-width.d.ts",
+      "solid": "./src/sidebar-width.ts",
+      "development": "./src/sidebar-width.ts",
+      "import": "./dist/sidebar-width.js",
+      "default": "./dist/sidebar-width.js"
+    },
     "./workspace-nav": {
       "types": "./dist/workspace-nav.d.ts",
       "solid": "./src/workspace-nav.tsx",
