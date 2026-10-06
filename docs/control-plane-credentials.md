@@ -39,12 +39,17 @@ as the owner, against the environment you mean to change.
   - `projectIds: [<mapped prj_>]`, or `[]` for workspace routes;
   - only the scopes the route needs.
 
-  | Call                                  | Scopes                     | `projectIds` |
-  | ------------------------------------- | -------------------------- | ------------ |
-  | Marketplace catalog, installation get | `marketplace:read`         | `[]`         |
-  | Marketplace install, install-plan     | `marketplace:install`      | `[]`         |
-  | Marketplace installation uninstall    | `marketplace:uninstall`    | `[]`         |
-  | Project-state initialization          | `project-state:initialize` | `[<prj_>]`   |
+  | Call                                    | Scopes                     | `projectIds` |
+  | --------------------------------------- | -------------------------- | ------------ |
+  | Marketplace catalog, installation get   | `marketplace:read`         | `[]`         |
+  | Marketplace install, install-plan       | `marketplace:install`      | `[]`         |
+  | Marketplace installation uninstall      | `marketplace:uninstall`    | `[]`         |
+  | Project-state initialization            | `project-state:initialize` | `[<prj_>]`   |
+  | Workspace skills and profiles: list     | `catalog:read`             | `[]`         |
+  | Workspace skill publish                 | `catalog:publish`          | `[]`         |
+  | Skill/profile deprecate, revoke         | `catalog:manage`           | `[]`         |
+  | Cloud connections: list                 | `credential:read`          | `[]`         |
+  | Cloud connection create, rotate, revoke | `credential:write`         | `[]`         |
 
   The Control Plane trusted keys (`CONTROL_PLANE_SERVICE_AUTH_TRUSTED_KEYS`)
   carry only `keyId` and `publicKey`; they do not restrict scopes. Each route
@@ -68,6 +73,23 @@ as the owner, against the environment you mean to change.
   project-scoped Control Plane call awaits it first, so a project whose
   initialization failed, or that predates this change, is initialized on
   first use. No project-scoped call exists yet.
+
+- **Workspace Skills and cloud connections.** The catalog and credential
+  vault routes (Workspace settings › Skills and › Connections › Cloud) speak
+  contract major 3
+  (`/v1/catalog/{skills,profiles}/*`, `/v1/credentials/*`) and run only under a signed credential: in the
+  static-token fallback they answer `503 CONTROL_PLANE_UNSCOPED` without
+  calling the Control Plane, because that token's single shared workspace
+  would leak every skill and connection across Adea workspaces. Any member
+  may read; publish, deprecate, revoke and every credential write need
+  `workspace.update` (owners and admins). The cloud connection secret is
+  write-only: Adea accepts it on create and rotate, forwards it once in the
+  request payload, leaves it out of `payloadHash` (the Control Plane hashes
+  the same non-secret fields), never logs it, never stores it, and rebuilds
+  every response from an allow-list of metadata fields. Adea's database holds
+  nothing for cloud connections; the Control Plane is the source of truth.
+  Proxy failures log one `control_plane.admin.failed` line with the
+  operation, status, a sanitized code and the request id — never a body.
 
 - **Marketplace.** The proxy sets both the envelope `workspaceId` and the
   nested `workspaceIdentity.workspaceId` to the active workspace's mapped

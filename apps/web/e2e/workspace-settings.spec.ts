@@ -262,3 +262,138 @@ test('missing desktop bridge degrades private health and System Settings actions
   await expect(page.locator('#settings-panel-input-notifications')).toBeVisible()
   expect(errors).toEqual([])
 })
+
+/** Inert canary standing in for a connector secret; it must never reappear on the page. */
+const CLOUD_SECRET_CANARY = 'canary-cloud-secret-0b7e'
+
+async function openControlPlaneHarness(
+  page: Page,
+  mode: 'scoped' | 'unscoped',
+  section: 'connections' | 'skills'
+): Promise<Error[]> {
+  const path = '/__workspace-settings'
+  const errors: Error[] = []
+  page.on('pageerror', (error) => errors.push(error))
+  await page.route('**' + path, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body><div id="harness-root"></div></body></html>',
+    })
+  )
+  await page.goto(`${path}#settings/${section}`)
+  await page
+    .locator('#harness-root')
+    .evaluate((element, value) => element.setAttribute('data-control-plane', value), mode)
+  await page.evaluate(
+    async (url) => {
+      await import(url)
+    },
+    '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-settings-harness-app.tsx')
+  )
+  return errors
+}
+
+async function recordedRequests(page: Page) {
+  return JSON.parse(
+    (await page.locator('#harness-root').getAttribute('data-requests')) ?? '[]'
+  ) as Array<{ method: string; path: string; body: Record<string, unknown> | null }>
+}
+
+test('Skills lists workspace and read-only system skills and deprecates after confirmation', async ({
+  page,
+}) => {
+  const errors = await openControlPlaneHarness(page, 'scoped', 'skills')
+  const panel = page.locator('#settings-panel-skills')
+  await expect(panel.getByText('Release notes')).toBeVisible()
+  await expect(panel.getByText('This workspace · 1.0.0 · revision 2')).toBeVisible()
+  await expect(panel.getByText('Code review')).toBeVisible()
+  await expect(panel.getByText('Read-only', { exact: true })).toHaveCount(1)
+  // System items offer no lifecycle actions.
+  await expect(panel.getByRole('button', { name: 'Deprecate Code review' })).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Revoke Code review' })).toHaveCount(0)
+  await expect(
+    panel.getByText('No agent profiles are visible to this workspace yet.')
+  ).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Reload skills' })).toBeVisible()
+
+  await panel.getByRole('button', { name: 'Deprecate Release notes' }).click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText('Deprecate Release notes?')
+  await confirm.getByRole('textbox', { name: 'Reason' }).fill('Replaced by 2.0.0')
+  await confirm.getByRole('button', { name: 'Deprecate', exact: true }).click()
+  await expect(
+    panel.getByRole('status').filter({ hasText: 'Release notes deprecated.' })
+  ).toBeVisible()
+  await expect(panel.getByText('Deprecated', { exact: true })).toBeVisible()
+  const deprecation = (await recordedRequests(page)).find(({ path }) => path.endsWith('/deprecate'))
+  expect(deprecation?.method).toBe('POST')
+  expect(deprecation?.body).toMatchObject({ reason: 'Replaced by 2.0.0' })
+  expect(String(deprecation?.body?.idempotencyKey)).toMatch(/^adea-/u)
+  expect(errors).toEqual([])
+})
+
+test('Cloud connections adds a connection with a write-only secret, rotates and revokes', async ({
+  page,
+}) => {
+  const errors = await openControlPlaneHarness(page, 'scoped', 'connections')
+  const panel = page.locator('#settings-panel-connections')
+  await expect(panel.getByRole('heading', { name: 'Cloud' })).toBeVisible()
+  await expect(panel.getByText('connector:github · revision 1 · added 2026-10-06')).toBeVisible()
+
+  await panel.getByRole('button', { name: 'Add cloud connection…' }).click()
+  await panel.getByLabel('Provider').fill('openai')
+  const secret = panel.getByLabel('Secret', { exact: true })
+  await expect(secret).toHaveAttribute('type', 'password')
+  await secret.fill(CLOUD_SECRET_CANARY)
+  await panel.getByRole('button', { name: 'Add connection' }).click()
+  await expect(
+    panel.getByRole('status').filter({ hasText: 'openai cloud connection added.' })
+  ).toBeVisible()
+  await expect(panel.getByText('openai', { exact: true })).toBeVisible()
+  await expect(panel.getByLabel('Secret', { exact: true })).toHaveCount(0)
+
+  const created = (await recordedRequests(page)).find(
+    ({ method, path }) => method === 'POST' && path.endsWith('/cloud-connections')
+  )
+  // The fixture records only the secret's length, so the page itself never holds it.
+  expect(created?.body).toMatchObject({
+    connectorRef: 'connector:openai',
+    provider: 'openai',
+    secret: `<${CLOUD_SECRET_CANARY.length} characters>`,
+  })
+
+  await panel.getByRole('button', { name: 'Rotate the github secret' }).click()
+  await panel.getByLabel('New github secret').fill(`${CLOUD_SECRET_CANARY}-2`)
+  await panel.getByRole('button', { name: 'Rotate secret' }).click()
+  await expect(
+    panel.getByRole('status').filter({ hasText: 'github secret rotated.' })
+  ).toBeVisible()
+  await expect(panel.getByText(/revision 2 · rotated 2026-10-07/u)).toBeVisible()
+
+  await panel.getByRole('button', { name: 'Revoke the github cloud connection' }).click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText('Revoke the github connection?')
+  await confirm.getByRole('button', { name: 'Revoke', exact: true }).click()
+  await expect(panel.getByText('Revoked', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Rotate the github secret' })).toHaveCount(0)
+
+  // The secret left once per write and never appears anywhere in the page.
+  expect(await page.content()).not.toContain(CLOUD_SECRET_CANARY)
+  expect(errors).toEqual([])
+})
+
+test('an unscoped deployment explains why Skills and cloud connections are unavailable', async ({
+  page,
+}) => {
+  const errors = await openControlPlaneHarness(page, 'unscoped', 'connections')
+  const connections = page.locator('#settings-panel-connections')
+  await expect(connections.getByText(/need per-workspace Control Plane credentials/u)).toBeVisible()
+  await expect(connections.getByRole('button', { name: 'Add cloud connection…' })).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Skills', exact: true }).click()
+  await expect(
+    page
+      .locator('#settings-panel-skills')
+      .getByText(/need per-workspace Control Plane credentials/u)
+  ).toHaveCount(2)
+  expect(errors).toEqual([])
+})

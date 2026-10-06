@@ -129,5 +129,21 @@ Status (2026-10-06):
   project-scoped calls that consume it remain open.
 - Adea marketplace installation get and uninstall, with an Uninstall action
   in Plugins: delivered ([marketplace consumer](../marketplace-consumer.md)).
-- Workspace settings surfaces for skills and cloud connections, and the
-  credential-vault API: open.
+- Workspace settings › Skills: delivered. Adea proxies the Control Plane
+  workspace catalog (`/v1/catalog/{skills,profiles}/*`, contract 3.0) under
+  `catalog:read`, `catalog:publish` and `catalog:manage`; Settings › Skills
+  lists workspace and read-only system items, publishes a skill from a pasted
+  JSON manifest and content (shape-checked in the browser, validated by the
+  Control Plane), and deprecates or revokes workspace items after a
+  destructive confirmation. Agent profiles are listed and managed but not
+  published from Adea; publishing a profile stays a Control Plane task.
+- Workspace settings › Connections › Cloud: delivered in Adea against the
+  Control Plane `feat/credential-vault-api` contract (`/v1/credentials/*`,
+  `credential:read`, `credential:write`). It lists, adds, rotates and revokes
+  vault credentials; Adea stores nothing for them and forwards the secret
+  once, never returning it. Until that API is deployed the section reports
+  that the Control Plane does not offer cloud connections yet.
+- Both surfaces refuse the unscoped static-token fallback
+  (`503 CONTROL_PLANE_UNSCOPED`) rather than write into its shared workspace
+  ([runbook](../control-plane-credentials.md)).
+- Control Plane credential-vault HTTP API: open (in review upstream).

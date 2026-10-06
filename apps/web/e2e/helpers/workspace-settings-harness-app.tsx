@@ -4,11 +4,13 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { render } from 'solid-js/web'
 import { WorkspaceSettingsDialog } from '@adea-ai/workspace-ui/workspace-settings'
 import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
+import { AgentHqQueryProvider } from '@adea-ai/data/provider'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import type { TranscriptionProvider, WorkspacePreferences } from '@adea-ai/workspace-ui/platform'
 import { createDesktopSettingsProvider } from '../../src/lib/desktop-platform-services'
 import { localContentAuthority } from '../../src/lib/desktop-local-content'
 import { desktopMacPermissionsService } from '../../src/lib/desktop-permissions'
+import { controlPlaneSettingsClient } from './control-plane-settings-fixture'
 
 let permissionRequests = 0
 let resolvePermission: ((state: 'granted') => void) | undefined
@@ -68,6 +70,13 @@ function Harness() {
     .querySelector('#harness-root')
     ?.hasAttribute('data-missing-desktop-bridge')
   const [open, setOpen] = createSignal(true)
+  const controlPlaneMode = document
+    .querySelector('#harness-root')
+    ?.getAttribute('data-control-plane')
+  const client =
+    controlPlaneMode === 'scoped' || controlPlaneMode === 'unscoped'
+      ? controlPlaneSettingsClient(controlPlaneMode)
+      : undefined
   return (
     <>
       <Button onClick={() => setOpen(true)}>Open settings fixture</Button>
@@ -80,6 +89,7 @@ function Harness() {
         accountLabel="Guest"
         agents={[]}
         busy={false}
+        client={client}
         onClose={() => setOpen(false)}
         onOpenAgents={() => undefined}
         onSignIn={() => undefined}
@@ -102,14 +112,26 @@ function Harness() {
   )
 }
 
+// The query provider is mounted only for the Control Plane fixtures, so the
+// default harness still proves every section renders with no providers.
+function Providers() {
+  return document.querySelector('#harness-root')?.hasAttribute('data-control-plane') ? (
+    <AgentHqQueryProvider>
+      <Harness />
+    </AgentHqQueryProvider>
+  ) : (
+    <Harness />
+  )
+}
+
 render(
   () =>
     document.querySelector('#harness-root')?.hasAttribute('data-theme-provider') ? (
       <ThemeProvider>
-        <Harness />
+        <Providers />
       </ThemeProvider>
     ) : (
-      <Harness />
+      <Providers />
     ),
   document.querySelector('#harness-root')!
 )

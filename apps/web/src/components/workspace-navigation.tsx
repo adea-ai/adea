@@ -331,6 +331,7 @@ function WorkspaceSettingsOverlay(props: {
       accountLabel={props.accountLabel}
       agents={settledData(agentsQuery) ?? []}
       busy={props.busy}
+      client={props.client}
       onClose={props.onClose}
       onOpenAgents={props.onOpenAgents}
       onSignIn={props.onSignIn}

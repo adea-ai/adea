@@ -33,7 +33,9 @@ import { Route as ApiAuthDesktopRevokeRouteImport } from './routes/api/auth/desk
 import { Route as ApiMarketplaceInstallationsGetRouteImport } from './routes/api/marketplace/installations/get'
 import { Route as ApiMarketplaceInstallationsUninstallRouteImport } from './routes/api/marketplace/installations/uninstall'
 import { Route as ApiV1AccountSummaryRouteImport } from './routes/api/v1/account/summary'
+import { Route as ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/cloud-connections'
 import { Route as ApiWorkspacesWorkspaceIdReopenRouteImport } from './routes/api/workspaces/$workspaceId/reopen'
+import { Route as ApiWorkspacesWorkspaceIdSkillsRouteImport } from './routes/api/workspaces/$workspaceId/skills'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents'
 import { Route as ApiV1WorkspacesWorkspaceIdArtifactsRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifacts'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels'
@@ -45,6 +47,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdProjectsRouteImport } from './routes
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state'
 import { Route as ApiV1WorkspacesWorkspaceIdSearchRouteImport } from './routes/api/v1/workspaces/$workspaceId/search'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks'
+import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesRouteImport } from './routes/api/workspaces/$workspaceId/skills/profiles'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs/$contentId'
@@ -54,6 +57,10 @@ import { Route as ApiV1WorkspacesWorkspaceIdProjectsReorderRouteImport } from '.
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/index'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId'
+import { Route as ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRouteImport } from './routes/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke'
+import { Route as ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRouteImport } from './routes/api/workspaces/$workspaceId/cloud-connections/$credentialId/rotate'
+import { Route as ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRouteImport } from './routes/api/workspaces/$workspaceId/skills/$skillId/deprecate'
+import { Route as ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRouteImport } from './routes/api/workspaces/$workspaceId/skills/$skillId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/project'
@@ -81,6 +88,8 @@ import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRouteImport } from
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRouteImport } from './routes/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
+import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRouteImport } from './routes/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -209,10 +218,22 @@ const ApiV1AccountSummaryRoute = ApiV1AccountSummaryRouteImport.update({
   path: '/api/v1/account/summary',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWorkspacesWorkspaceIdCloudConnectionsRoute =
+  ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport.update({
+    id: '/cloud-connections',
+    path: '/cloud-connections',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
 const ApiWorkspacesWorkspaceIdReopenRoute =
   ApiWorkspacesWorkspaceIdReopenRouteImport.update({
     id: '/reopen',
     path: '/reopen',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
+const ApiWorkspacesWorkspaceIdSkillsRoute =
+  ApiWorkspacesWorkspaceIdSkillsRouteImport.update({
+    id: '/skills',
+    path: '/skills',
     getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
   } as any)
 const ApiV1WorkspacesWorkspaceIdAgentsRoute =
@@ -281,6 +302,12 @@ const ApiV1WorkspacesWorkspaceIdTasksRoute =
     path: '/api/v1/workspaces/$workspaceId/tasks',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiWorkspacesWorkspaceIdSkillsProfilesRoute =
+  ApiWorkspacesWorkspaceIdSkillsProfilesRouteImport.update({
+    id: '/profiles',
+    path: '/profiles',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdSkillsRoute,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute =
   ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteImport.update({
     id: '/$agentId',
@@ -334,6 +361,30 @@ const ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute =
     id: '/$taskId',
     path: '/$taskId',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdTasksRoute,
+  } as any)
+const ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute =
+  ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRouteImport.update({
+    id: '/$credentialId/revoke',
+    path: '/$credentialId/revoke',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdCloudConnectionsRoute,
+  } as any)
+const ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRoute =
+  ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRouteImport.update({
+    id: '/$credentialId/rotate',
+    path: '/$credentialId/rotate',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdCloudConnectionsRoute,
+  } as any)
+const ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRoute =
+  ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRouteImport.update({
+    id: '/$skillId/deprecate',
+    path: '/$skillId/deprecate',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdSkillsRoute,
+  } as any)
+const ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRoute =
+  ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRouteImport.update({
+    id: '/$skillId/revoke',
+    path: '/$skillId/revoke',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdSkillsRoute,
   } as any)
 const ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute =
   ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRouteImport.update({
@@ -501,6 +552,18 @@ const ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute =
     path: '/start',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute,
   } as any)
+const ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute =
+  ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRouteImport.update({
+    id: '/$profileId/deprecate',
+    path: '/$profileId/deprecate',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdSkillsProfilesRoute,
+  } as any)
+const ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute =
+  ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRouteImport.update({
+    id: '/$profileId/revoke',
+    path: '/$profileId/revoke',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdSkillsProfilesRoute,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute =
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRouteImport.update({
     id: '/$userId',
@@ -534,7 +597,9 @@ export interface FileRoutesByFullPath {
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
+  '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
+  '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
@@ -546,6 +611,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
+  '/api/workspaces/$workspaceId/skills/profiles': typeof ApiWorkspacesWorkspaceIdSkillsProfilesRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteWithChildren
@@ -554,6 +620,10 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/projects/reorder': typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
+  '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke': typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute
+  '/api/workspaces/$workspaceId/cloud-connections/$credentialId/rotate': typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRoute
+  '/api/workspaces/$workspaceId/skills/$skillId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRoute
+  '/api/workspaces/$workspaceId/skills/$skillId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
@@ -582,6 +652,8 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
+  '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute
+  '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
 }
 export interface FileRoutesByTo {
@@ -609,7 +681,9 @@ export interface FileRoutesByTo {
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
+  '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
+  '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
@@ -621,6 +695,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
+  '/api/workspaces/$workspaceId/skills/profiles': typeof ApiWorkspacesWorkspaceIdSkillsProfilesRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteWithChildren
@@ -629,6 +704,10 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/projects/reorder': typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
+  '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke': typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute
+  '/api/workspaces/$workspaceId/cloud-connections/$credentialId/rotate': typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRoute
+  '/api/workspaces/$workspaceId/skills/$skillId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRoute
+  '/api/workspaces/$workspaceId/skills/$skillId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
@@ -657,6 +736,8 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
+  '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute
+  '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
 }
 export interface FileRoutesById {
@@ -685,7 +766,9 @@ export interface FileRoutesById {
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
+  '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
+  '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
@@ -697,6 +780,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
+  '/api/workspaces/$workspaceId/skills/profiles': typeof ApiWorkspacesWorkspaceIdSkillsProfilesRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteWithChildren
@@ -705,6 +789,10 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/projects/reorder': typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
+  '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke': typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute
+  '/api/workspaces/$workspaceId/cloud-connections/$credentialId/rotate': typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRoute
+  '/api/workspaces/$workspaceId/skills/$skillId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRoute
+  '/api/workspaces/$workspaceId/skills/$skillId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
@@ -733,6 +821,8 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
+  '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute
+  '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
 }
 export interface FileRouteTypes {
@@ -762,7 +852,9 @@ export interface FileRouteTypes {
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
+    | '/api/workspaces/$workspaceId/cloud-connections'
     | '/api/workspaces/$workspaceId/reopen'
+    | '/api/workspaces/$workspaceId/skills'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
@@ -774,6 +866,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/search'
     | '/api/v1/workspaces/$workspaceId/tasks'
+    | '/api/workspaces/$workspaceId/skills/profiles'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
@@ -782,6 +875,10 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/projects/reorder'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
+    | '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke'
+    | '/api/workspaces/$workspaceId/cloud-connections/$credentialId/rotate'
+    | '/api/workspaces/$workspaceId/skills/$skillId/deprecate'
+    | '/api/workspaces/$workspaceId/skills/$skillId/revoke'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
@@ -810,6 +907,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+    | '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
+    | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -837,7 +936,9 @@ export interface FileRouteTypes {
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
+    | '/api/workspaces/$workspaceId/cloud-connections'
     | '/api/workspaces/$workspaceId/reopen'
+    | '/api/workspaces/$workspaceId/skills'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
@@ -849,6 +950,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/search'
     | '/api/v1/workspaces/$workspaceId/tasks'
+    | '/api/workspaces/$workspaceId/skills/profiles'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
@@ -857,6 +959,10 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/projects/reorder'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
+    | '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke'
+    | '/api/workspaces/$workspaceId/cloud-connections/$credentialId/rotate'
+    | '/api/workspaces/$workspaceId/skills/$skillId/deprecate'
+    | '/api/workspaces/$workspaceId/skills/$skillId/revoke'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
@@ -885,6 +991,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+    | '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
+    | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
   id:
     | '__root__'
@@ -912,7 +1020,9 @@ export interface FileRouteTypes {
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
+    | '/api/workspaces/$workspaceId/cloud-connections'
     | '/api/workspaces/$workspaceId/reopen'
+    | '/api/workspaces/$workspaceId/skills'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
@@ -924,6 +1034,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/search'
     | '/api/v1/workspaces/$workspaceId/tasks'
+    | '/api/workspaces/$workspaceId/skills/profiles'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
@@ -932,6 +1043,10 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/projects/reorder'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
+    | '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke'
+    | '/api/workspaces/$workspaceId/cloud-connections/$credentialId/rotate'
+    | '/api/workspaces/$workspaceId/skills/$skillId/deprecate'
+    | '/api/workspaces/$workspaceId/skills/$skillId/revoke'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
@@ -960,6 +1075,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+    | '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
+    | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
   fileRoutesById: FileRoutesById
 }
@@ -1175,11 +1292,25 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1AccountSummaryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/workspaces/$workspaceId/cloud-connections': {
+      id: '/api/workspaces/$workspaceId/cloud-connections'
+      path: '/cloud-connections'
+      fullPath: '/api/workspaces/$workspaceId/cloud-connections'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
+    }
     '/api/workspaces/$workspaceId/reopen': {
       id: '/api/workspaces/$workspaceId/reopen'
       path: '/reopen'
       fullPath: '/api/workspaces/$workspaceId/reopen'
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdReopenRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
+    }
+    '/api/workspaces/$workspaceId/skills': {
+      id: '/api/workspaces/$workspaceId/skills'
+      path: '/skills'
+      fullPath: '/api/workspaces/$workspaceId/skills'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdSkillsRouteImport
       parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
     }
     '/api/v1/workspaces/$workspaceId/agents': {
@@ -1259,6 +1390,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdTasksRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/workspaces/$workspaceId/skills/profiles': {
+      id: '/api/workspaces/$workspaceId/skills/profiles'
+      path: '/profiles'
+      fullPath: '/api/workspaces/$workspaceId/skills/profiles'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdSkillsProfilesRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdSkillsRoute
+    }
     '/api/v1/workspaces/$workspaceId/agents/$agentId': {
       id: '/api/v1/workspaces/$workspaceId/agents/$agentId'
       path: '/$agentId'
@@ -1321,6 +1459,34 @@ declare module '@tanstack/solid-router' {
       fullPath: '/api/v1/workspaces/$workspaceId/tasks/$taskId'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdTasksRoute
+    }
+    '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke': {
+      id: '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke'
+      path: '/$credentialId/revoke'
+      fullPath: '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsRoute
+    }
+    '/api/workspaces/$workspaceId/cloud-connections/$credentialId/rotate': {
+      id: '/api/workspaces/$workspaceId/cloud-connections/$credentialId/rotate'
+      path: '/$credentialId/rotate'
+      fullPath: '/api/workspaces/$workspaceId/cloud-connections/$credentialId/rotate'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsRoute
+    }
+    '/api/workspaces/$workspaceId/skills/$skillId/deprecate': {
+      id: '/api/workspaces/$workspaceId/skills/$skillId/deprecate'
+      path: '/$skillId/deprecate'
+      fullPath: '/api/workspaces/$workspaceId/skills/$skillId/deprecate'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdSkillsRoute
+    }
+    '/api/workspaces/$workspaceId/skills/$skillId/revoke': {
+      id: '/api/workspaces/$workspaceId/skills/$skillId/revoke'
+      path: '/$skillId/revoke'
+      fullPath: '/api/workspaces/$workspaceId/skills/$skillId/revoke'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdSkillsRoute
     }
     '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': {
       id: '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
@@ -1511,6 +1677,20 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute
     }
+    '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': {
+      id: '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
+      path: '/$profileId/deprecate'
+      fullPath: '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdSkillsProfilesRoute
+    }
+    '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': {
+      id: '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
+      path: '/$profileId/revoke'
+      fullPath: '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdSkillsProfilesRoute
+    }
     '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': {
       id: '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
       path: '/$userId'
@@ -1521,13 +1701,76 @@ declare module '@tanstack/solid-router' {
   }
 }
 
+interface ApiWorkspacesWorkspaceIdCloudConnectionsRouteChildren {
+  ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute
+  ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRoute
+}
+
+const ApiWorkspacesWorkspaceIdCloudConnectionsRouteChildren: ApiWorkspacesWorkspaceIdCloudConnectionsRouteChildren =
+  {
+    ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute:
+      ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute,
+    ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRoute:
+      ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRotateRoute,
+  }
+
+const ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren =
+  ApiWorkspacesWorkspaceIdCloudConnectionsRoute._addFileChildren(
+    ApiWorkspacesWorkspaceIdCloudConnectionsRouteChildren,
+  )
+
+interface ApiWorkspacesWorkspaceIdSkillsProfilesRouteChildren {
+  ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute: typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute
+  ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute: typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
+}
+
+const ApiWorkspacesWorkspaceIdSkillsProfilesRouteChildren: ApiWorkspacesWorkspaceIdSkillsProfilesRouteChildren =
+  {
+    ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute:
+      ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute,
+    ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute:
+      ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute,
+  }
+
+const ApiWorkspacesWorkspaceIdSkillsProfilesRouteWithChildren =
+  ApiWorkspacesWorkspaceIdSkillsProfilesRoute._addFileChildren(
+    ApiWorkspacesWorkspaceIdSkillsProfilesRouteChildren,
+  )
+
+interface ApiWorkspacesWorkspaceIdSkillsRouteChildren {
+  ApiWorkspacesWorkspaceIdSkillsProfilesRoute: typeof ApiWorkspacesWorkspaceIdSkillsProfilesRouteWithChildren
+  ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRoute: typeof ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRoute
+  ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRoute: typeof ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRoute
+}
+
+const ApiWorkspacesWorkspaceIdSkillsRouteChildren: ApiWorkspacesWorkspaceIdSkillsRouteChildren =
+  {
+    ApiWorkspacesWorkspaceIdSkillsProfilesRoute:
+      ApiWorkspacesWorkspaceIdSkillsProfilesRouteWithChildren,
+    ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRoute:
+      ApiWorkspacesWorkspaceIdSkillsSkillIdDeprecateRoute,
+    ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRoute:
+      ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRoute,
+  }
+
+const ApiWorkspacesWorkspaceIdSkillsRouteWithChildren =
+  ApiWorkspacesWorkspaceIdSkillsRoute._addFileChildren(
+    ApiWorkspacesWorkspaceIdSkillsRouteChildren,
+  )
+
 interface ApiWorkspacesWorkspaceIdRouteChildren {
+  ApiWorkspacesWorkspaceIdCloudConnectionsRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   ApiWorkspacesWorkspaceIdReopenRoute: typeof ApiWorkspacesWorkspaceIdReopenRoute
+  ApiWorkspacesWorkspaceIdSkillsRoute: typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
 }
 
 const ApiWorkspacesWorkspaceIdRouteChildren: ApiWorkspacesWorkspaceIdRouteChildren =
   {
+    ApiWorkspacesWorkspaceIdCloudConnectionsRoute:
+      ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren,
     ApiWorkspacesWorkspaceIdReopenRoute: ApiWorkspacesWorkspaceIdReopenRoute,
+    ApiWorkspacesWorkspaceIdSkillsRoute:
+      ApiWorkspacesWorkspaceIdSkillsRouteWithChildren,
   }
 
 const ApiWorkspacesWorkspaceIdRouteWithChildren =
