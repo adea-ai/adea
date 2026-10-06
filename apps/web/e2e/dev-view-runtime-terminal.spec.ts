@@ -274,6 +274,21 @@ test('a workspace with no selected project asks for one instead of reporting a r
   await openHarness(page, 'no-session')
   await expect(page.getByText('Select a project from the sidebar to begin.')).toBeVisible()
   await expect(page.getByText('Select a project to browse files.')).toBeVisible()
+  // The ask-for-a-project title is the state's heading: it reads in the
+  // primary foreground rung the pane headers use, not the muted caption
+  // color the other empty-state paragraphs share; the hint stays secondary.
+  const emptyState = page.locator('.dev-empty-state--center-pane')
+  const title = emptyState.getByText('Select a project from the sidebar to begin.')
+  const titleColor = await title.evaluate((node) => getComputedStyle(node).color)
+  const headingColor = await page
+    .locator('.dev-center-pane-label')
+    .first()
+    .evaluate((node) => getComputedStyle(node).color)
+  const hintColor = await emptyState
+    .locator('.dev-empty-state__hint')
+    .evaluate((node) => getComputedStyle(node).color)
+  expect(titleColor).toBe(headingColor)
+  expect(titleColor).not.toBe(hintColor)
   const addProject = page.getByRole('button', { name: 'Add project' })
   await expect(addProject.first()).toBeVisible()
   // The action expands the sidebar's authorize panel rather than dying quietly.

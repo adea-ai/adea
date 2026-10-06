@@ -11,6 +11,11 @@ export function devWorkspaceRuntimeTerminalHtml(): string {
   return [
     '<!doctype html>',
     '<html><head><meta charset="utf-8"><title>Dev Runtime terminal mount</title>',
+    // The app stylesheet provides the semantic theme tokens (--foreground,
+    // --muted-foreground, ...) the shell styles compute against; without it
+    // every token-backed color falls back to the canvas default and computed
+    // color assertions read black-on-black.
+    '<link rel="stylesheet" href="/src/start/globals.css" />',
     `<link rel="stylesheet" href="${xtermCss}" />`,
     '<style>html,body{margin:0;min-height:100%;}#harness-root{min-height:100vh;}</style>',
     '</head><body><div id="harness-root"></div></body></html>',

@@ -239,6 +239,10 @@
 }
 
 .dev-empty-state--center-pane > p:first-child {
+  /* The ask-for-a-project title is the state's heading: it reads in the
+     primary foreground rung like the pane headers, not the muted caption
+     color every other empty-state paragraph shares. The hint stays muted. */
+  color: var(--foreground);
   font-size: calc(1.125rem * var(--font-ui-scale, 1));
   font-weight: 500;
 }
