@@ -161,6 +161,7 @@ const SourceControlView = lazyComponent(
         return (entryProps: {
           runtime?: WorkspacePlatformServices['devRuntime']
           toolbarMount?: HTMLElement
+          titleMount?: HTMLElement
           onOpenDev(): void
         }) => (
           <SourceControlApp
@@ -169,6 +170,7 @@ const SourceControlView = lazyComponent(
               createSourceControlRuntime({ reason: 'channel_unauthenticated' })
             }
             toolbarMount={entryProps.toolbarMount}
+            titleMount={entryProps.titleMount}
             onOpenDev={entryProps.onOpenDev}
           />
         )
@@ -479,6 +481,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const openExternal = isDesktopRuntime() ? openExternalUrl : undefined
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
+  // Source control portals its pull-request search into the top bar's title
+  // slot so the field replaces the plain workspace-name title, center aligned.
+  const [scmSearchMount, setScmSearchMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
   const [utilityOpener, setUtilityOpener] = createSignal<HTMLButtonElement>()
   // The Help Center closes imperatively (its panel mounts through a Show, not
@@ -923,6 +928,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         actionsMount={setToolbarMount}
         showDevActions={activeAppId() === 'dev'}
         resources={<RuntimeResourcesControl runtime={props.services.devRuntime} />}
+        titleMount={setScmSearchMount}
+        showTitleControls={activeAppId() === 'source-control'}
         sidebarMount={setSidebarActionMount}
         showSidebarDivider={contextualUtilitiesAvailable()}
         sidebarToggleRef={setSidebarOpener}
@@ -1094,6 +1101,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                         <SourceControlView
                           runtime={utilityRuntime}
                           toolbarMount={mount()}
+                          titleMount={scmSearchMount()}
                           onOpenDev={() => changeApp('dev')}
                         />
                       </Show>

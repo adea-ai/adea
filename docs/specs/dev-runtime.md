@@ -5610,7 +5610,11 @@ leaf (the workspace's first project's default leaf, or the project's) and is
 plain text when that would reopen what is already shown. Dev, not yet on the
 shared sidebar, reports its selected project and checked-out branch, shown in
 mono; branch names stay on the client and Dev crumbs are a readout. App
-Library, the designers and views without a path keep the plain title.
+Library, the designers and views without a path keep the plain title. Source
+control is the one view that owns the slot instead: it portals its
+pull-request search into the title mount, so the centered field replaces the
+plain workspace-name title, while its sync state and control stay in the
+leading actions group.
 Room and Character designer entries use the same global app container and retain
 the global rail even when the private engine is unavailable. Both designers hide
 the left and right contextual sidebars and their toolbar collapse toggles. The
@@ -6176,6 +6180,13 @@ defaultBaseRef?: string(1..256) }`. `checkout` (the default) is #1061's
   the minted bookmark with the repository name, and re-checks the id after
   the clone completes. See "Durable project/session authority (desktop
   host)".
+
+- **2026-10-06 — source control search in the title slot.** The Source
+  control view portals its pull-request search into the top bar's title slot,
+  center aligned in place of the plain workspace-name title; the sync state
+  and sync control stay in the leading actions group, and hosts without a
+  title mount (the test harness) keep the search in the toolbar group. The
+  title-slot paragraph above moves with the behavior.
 
 - **2026-10-05 — ADR 0012: workspace memory.** Launch step 7 now compiles
   the session workspace's active memory entries into a bounded (16 KiB) preamble

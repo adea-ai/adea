@@ -35,6 +35,16 @@ export function WorkspaceTopBar(props: {
   /** Workspace-wide actions rendered before the appearance control. */
   resources?: JSX.Element
   /**
+   * Mount for the active view's title-slot control: the source-control view
+   * portals its pull-request search here so it sits where the plain title
+   * (the workspace name) would, centered in the bar. Rendered only while
+   * `showTitleControls` is set, which also suppresses the plain title and
+   * breadcrumbs for that view.
+   */
+  titleMount?(element: HTMLDivElement): void
+  /** Whether the active view owns the title slot with its own control. */
+  showTitleControls?: boolean
+  /**
    * Mount for the active view's sidebar toggle: the top bar's trailing icon,
    * separated from the workspace actions by a divider.
    */
@@ -180,8 +190,15 @@ export function WorkspaceTopBar(props: {
         </div>
       </TopBarSection>
       <TopBarTitle class="workspace-topbar__title">
-        <Show when={props.breadcrumbs?.length} fallback={props.title}>
-          <WorkspaceBreadcrumbs crumbs={props.breadcrumbs ?? []} />
+        <Show
+          when={props.showTitleControls}
+          fallback={
+            <Show when={props.breadcrumbs?.length} fallback={props.title}>
+              <WorkspaceBreadcrumbs crumbs={props.breadcrumbs ?? []} />
+            </Show>
+          }
+        >
+          <div class="workspace-topbar__title-mount" ref={props.titleMount} />
         </Show>
       </TopBarTitle>
       <TopBarSection align="end" class="workspace-topbar__actions">
