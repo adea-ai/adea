@@ -270,6 +270,25 @@ test.describe('appearance', () => {
       editor(panel).getByText('Violet · Controls, glyphs, selections, code, and activity.')
     ).toBeVisible()
     await expect(accent.getByRole('radio', { name: 'Custom', exact: true })).toHaveCount(1)
+
+    // The picker renders the designed swatch grid: exactly six preset
+    // swatches — each painted with its catalogue color for the resolved
+    // appearance — plus the single Custom control, and no default entry.
+    const swatches = accent.locator('svg.size-full circle')
+    await expect(swatches).toHaveCount(6)
+    const fills = await swatches.evaluateAll((nodes) =>
+      nodes.map((node) => getComputedStyle(node).fill)
+    )
+    expect(new Set(fills).size).toBe(6)
+    for (const fill of fills) expect(fill).not.toBe('rgba(0, 0, 0, 0)')
+    for (const name of ['Violet', 'Blue', 'Green', 'Amber', 'Cyan', 'Pink']) {
+      await expect(accent.getByRole('radio', { name, exact: true })).toHaveCount(1)
+    }
+
+    // The text (font) settings close the option list: the shared font group
+    // is the divided stack's last row (owner-requested order).
+    const stack = editor(panel).locator(':scope > div.divide-y')
+    await expect(stack.locator(':scope > *').last()).toHaveClass(/global-appearance-font-settings/)
   })
 
   test('the glass control switches the resolved surface', async ({ page }) => {
