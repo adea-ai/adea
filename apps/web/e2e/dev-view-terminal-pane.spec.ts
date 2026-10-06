@@ -227,8 +227,12 @@ test.describe('terminal pane (real xterm surface)', () => {
       selectionBox.y + selectionBox.height / 2
     )
     const copy = pane.locator('.dev-terminal-copy-button').first()
-    await expect(copy).toBeEnabled()
+    // xterm >= 6 paints the theme background on its `.xterm-scrollable-element`
+    // (the propagation boundary for `terminal.options.theme`); the legacy
+    // `.xterm-viewport` backdrop follows the palette through the pane's own
+    // stylesheet override (#1057).
     const viewport = pane.locator('.xterm-viewport')
+    const scrollable = pane.locator('.xterm-scrollable-element')
     await pane.locator('.xterm-helper-textarea').evaluate((element) => {
       element.setAttribute('data-theme-owner-proof', 'original')
     })
@@ -245,10 +249,9 @@ test.describe('terminal pane (real xterm surface)', () => {
         },
         { background, foreground }
       )
-      await expect(viewport).toHaveCSS(
-        'background-color',
-        background === '#f1f5f9' ? 'rgb(241, 245, 249)' : 'rgb(17, 24, 39)'
-      )
+      const expectedBackground = background === '#f1f5f9' ? 'rgb(241, 245, 249)' : 'rgb(17, 24, 39)'
+      await expect(viewport).toHaveCSS('background-color', expectedBackground)
+      await expect(scrollable).toHaveCSS('background-color', expectedBackground)
       await expect(pane.locator('.xterm-helper-textarea')).toHaveAttribute(
         'data-theme-owner-proof',
         'original'
