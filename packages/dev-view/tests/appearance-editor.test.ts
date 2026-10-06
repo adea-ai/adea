@@ -12,7 +12,7 @@ const committed: AppearancePreferencesV2 = {
   lightThemeId: 'adea-light',
   darkThemeId: 'adea-dark',
   terminalThemeId: 'theme',
-  accent: 'theme',
+  accent: 'violet',
   surface: 'frosted',
   reduceTransparency: false,
 }
@@ -96,6 +96,18 @@ describe('appearance editor (Zeron setter semantics with the save/revert contrac
     const editor = createAppearanceEditor()
     editor.open({ version: 3 } as unknown as AppearancePreferencesV2)
     expect(editor.draft()).toEqual(defaultAppearancePreferences)
+  })
+
+  test('a legacy stored theme default migrates to the default accent on open', () => {
+    // The default accent is the Violet preset; documents saved before the
+    // default became a preset carry 'theme' (the theme's own primary), and
+    // open() must not resurrect it as an unpickable editor state. The
+    // migration applies to the draft and its snapshot alike, so an untouched
+    // legacy record never presents itself as an unsaved change.
+    const editor = createAppearanceEditor()
+    editor.open({ ...committed, accent: 'theme' })
+    expect(editor.draft().accent).toBe('violet')
+    expect(editor.dirty()).toBe(false)
   })
 
   test('differsFromDefaults drives the Reset affordance', () => {

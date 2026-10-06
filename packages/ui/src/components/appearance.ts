@@ -53,7 +53,7 @@ export type AppearancePreferencesV2 = Readonly<{
    * theme id pins that theme's terminal colours regardless of appearance.
    */
   terminalThemeId: 'theme' | string
-  /** `'theme'`, a built-in preset id, a theme-carried `ansi-<slot>` id, or a validated `#rrggbb` color. */
+  /** A built-in preset id, a theme-carried `ansi-<slot>` id, or a validated `#rrggbb` color. Legacy documents may still store `'theme'`; normalization migrates it. */
   accent: 'theme' | string
   surface: 'opaque' | 'frosted' | 'translucent'
   reduceTransparency: boolean
@@ -88,13 +88,22 @@ export type AppearanceRecoveryEnvelope = Readonly<{
 export const DARK_QUERY = '(prefers-color-scheme: dark)'
 export const REDUCED_TRANSPARENCY_QUERY = '(prefers-reduced-transparency: reduce)'
 
+/**
+ * The default accent is the catalogue's Violet brand preset — one of the six
+ * accents, not a separate "theme default" entry beside them. Documents stored
+ * before the default became a preset carry `'theme'` (the theme's own
+ * primary); normalization migrates those to this id, and an unknown value
+ * degrades to it too.
+ */
+export const DEFAULT_ACCENT_PRESET_ID = 'violet'
+
 export const defaultAppearancePreferences: AppearancePreferencesV2 = Object.freeze({
   version: 2,
   mode: 'system',
   lightThemeId: 'adea-light',
   darkThemeId: 'adea-dark',
   terminalThemeId: 'theme',
-  accent: 'theme',
+  accent: DEFAULT_ACCENT_PRESET_ID,
   surface: 'opaque',
   reduceTransparency: false,
 })
@@ -319,9 +328,11 @@ export type AccentRoles = Readonly<{
 }>
 
 /**
- * Derive the accent roles for a selection against a variant. `'theme'` keeps
- * the variant's own accent; published presets and custom colors are normalized
- * through the shared colour engine to the host's 3:1 interaction minimum.
+ * Derive the accent roles for a selection against a variant. Published presets,
+ * theme slots, and custom colors are normalized through the shared colour
+ * engine to the host's 3:1 interaction minimum. A literal `'theme'` keeps the
+ * variant's own accent; preferences can no longer store it (the default is the
+ * Violet preset now), but drafts and recovery paths still tolerate it.
  */
 export function deriveAccentRoles(selection: string, variant: ThemeVariant): AccentRoles {
   const background = variant.colors.background
@@ -715,11 +726,13 @@ function normalizeThemeId(value: unknown, fallback: string): string {
 }
 
 function normalizeAccent(value: unknown): string {
-  if (value === 'theme') return 'theme'
-  if (typeof value !== 'string') return 'theme'
+  // `'theme'` was the pre-preset default ("use the theme's own primary").
+  // The default accent is now the catalogue's Violet preset, so a stored
+  // legacy value migrates instead of surviving as an unpickable state.
+  if (value === 'theme' || typeof value !== 'string') return DEFAULT_ACCENT_PRESET_ID
   if (accentPresetById(value) || isThemeAccentId(value)) return value
   const parsed = parseColor(value)
-  return parsed ? colorToHex(parsed) : 'theme'
+  return parsed ? colorToHex(parsed) : DEFAULT_ACCENT_PRESET_ID
 }
 
 export type NormalizedPreferences = Readonly<{
@@ -885,7 +898,13 @@ export function resolveAppearanceState(
     resolvedMode,
     variant,
     fonts: normalizeAppearanceEditorFontSettings(preferences.fonts).settings,
-    accent: deriveAccentRoles(preferences.accent, variant),
+    // Resolution is the single migration seam for a legacy `'theme'` accent:
+    // storage reads, editor drafts, and direct resolve calls all reach the
+    // default preset here, so no consumer can paint one and show another.
+    accent: deriveAccentRoles(
+      preferences.accent === 'theme' ? DEFAULT_ACCENT_PRESET_ID : preferences.accent,
+      variant
+    ),
     terminalOverride: resolveTerminalOverride(preferences.terminalThemeId, registry),
     effectiveSurface: resolveSurface(preferences.surface, {
       osReducedTransparency: environment.osReducedTransparency,

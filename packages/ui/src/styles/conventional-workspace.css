@@ -908,7 +908,9 @@
   display: grid;
   gap: 0.375rem;
   color: var(--muted-foreground);
-  font-size: 0.8125rem;
+  /* The UI text tier, like every other caption in the shell (dev-view.css
+     uses the same expression): zooming the tiers must move this text too. */
+  font-size: calc(0.8125rem * var(--font-ui-scale, 1));
 }
 .conventional-task-panel__actions {
   display: grid;

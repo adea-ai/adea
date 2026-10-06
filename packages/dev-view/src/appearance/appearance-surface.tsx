@@ -6,8 +6,6 @@
  * accepted compatibility IDs, and declared-license theme-library flow.
  */
 import {
-  AppearanceEditor,
-  AppearancePopover,
   type AppearanceDraft,
   type AppearanceEditorProps,
 } from '@adea-ai/ui/components/composites/appearance-editor'
@@ -30,6 +28,7 @@ import { readCustomThemeLibrary, removeCustomTheme } from '@adea-ai/app-ui/compo
 import { For, Show } from 'solid-js'
 import { themeAccentPresets } from '@adea-ai/themes'
 
+import { AdeaAppearanceEditor, AdeaAppearancePopover } from './appearance-editor'
 import { draftVariants } from './composition'
 import { createAppearanceEditor } from './editor'
 import { importCustomTheme } from './custom-theme-import'
@@ -304,12 +303,12 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
                 </p>
               </div>
             </header>
-            <AppearanceEditor {...editorProps} />
+            <AdeaAppearanceEditor {...editorProps} />
           </section>
         }
       >
         {(control) => (
-          <AppearancePopover
+          <AdeaAppearancePopover
             {...editorProps}
             open={control().open}
             onOpen={() => {
