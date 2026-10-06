@@ -52,6 +52,9 @@ import {
   type ResolvedHarnessInstallation,
 } from './acp-lane'
 import type { MemoryPreamble } from '../../memory/preamble'
+import type { HarnessAccountResolution } from '../connections/register'
+import { harnessFamilySpec } from '../discovery/families'
+import type { VaultSecret } from '../vault'
 import { createSessionEventLog, type SessionEventLog } from './events'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
 import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } from './preferences'
@@ -119,6 +122,15 @@ export type HarnessRuntimeInput = {
     workspaceId: string,
     text: string
   ) => Readonly<{ id: string; status: 'active' | 'pending'; createdAt: string }>
+  /**
+   * Workspace connections (ADR 0012): resolves the active workspace's harness
+   * account binding for a family. Absent keeps every launch on the device's
+   * own harness authentication (`device_default`).
+   */
+  resolveHarnessAccount?: (input: {
+    harnessId: string
+    operation: string
+  }) => HarnessAccountResolution
   audit?: AuthorityAudit
   now?: () => number
 }
@@ -136,6 +148,12 @@ export type HarnessPtySpawnSeam = (request: {
   worktreeId: string
   /** Host-resolved harness executable identity; never renderer-supplied. */
   shell: string
+  /**
+   * A workspace-bound harness account (ADR 0012): the sanitized-env key and
+   * the just-unsealed vault secret, delivered only into this PTY child's
+   * environment. Never persisted, logged, or echoed into a reply or event.
+   */
+  launchCredential?: Readonly<{ envKey: string; secret: VaultSecret }>
 }) => HarnessPtySpawnResult | Promise<HarnessPtySpawnResult>
 
 /** One sidecar-observed terminal termination. `exitCode: null` is a signal. */
@@ -192,6 +210,9 @@ export type HarnessRuntimeRegistration = Readonly<{
    * Harness publishes are emitted, never re-ingested.
    */
   ingestSessionPublish(event: string, payload: unknown): void
+  /** Harness families this node can launch (managed Pi when ready plus the
+   *  discovered inventory) — the workspace connections settings rows. */
+  discoveredFamilies(): readonly { harnessId: string; displayName: string }[]
 }>
 
 function devError(code: DevError['code'], message: string, retryable = false): DevError {
@@ -318,6 +339,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           executableLabel: managedStatus.executableLabel ?? 'managed Pi',
           acpAvailability: 'unavailable',
           version: managedStatus.resolvedVersion,
+          family: 'pi',
           auth: 'ready',
           health: 'healthy',
           capabilities: ['managed', 'resume'],
@@ -335,11 +357,27 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         acpAvailability: entry.acpAvailability,
         ...(entry.acpVersion !== undefined ? { acpVersion: entry.acpVersion } : {}),
         ...(entry.version !== undefined ? { version: entry.version } : {}),
+        family: entry.family,
         auth: entry.auth,
         health: entry.health,
         capabilities: entry.capabilities,
       },
     }
+  }
+
+  function discoveredFamilies(): { harnessId: string; displayName: string }[] {
+    const families = new Map<string, string>()
+    const managedStatus = managedPi.status()
+    if (managedStatus.state === 'ready' && managedStatus.installationId)
+      families.set('pi', harnessFamilySpec('pi')?.displayName ?? 'Pi')
+    try {
+      for (const entry of inventory.read(input.scope).connections) {
+        if (!families.has(entry.family)) families.set(entry.family, entry.displayName)
+      }
+    } catch {
+      // An unreadable inventory projects no discovered families (fail closed).
+    }
+    return [...families].map(([harnessId, displayName]) => ({ harnessId, displayName }))
   }
 
   /** Turns an installation resolution into a launch-eligible installation,
@@ -364,8 +402,16 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   /** Auto-launch guard (spec: a missing, unauthenticated, incompatible, or
    * unhealthy installation is never auto-launched). Explicit selection
    * surfaces the same facts as typed launch refusals. */
-  function requireAutoLaunchable(installation: ResolvedHarnessInstallation): void {
-    if (installation.auth !== 'ready') {
+  function requireAutoLaunchable(
+    installation: ResolvedHarnessInstallation,
+    options: { accountInjected?: boolean } = {}
+  ): void {
+    // A workspace-bound account delivered into the launch satisfies a
+    // missing native login; an expired native login still refuses.
+    const satisfiedByAccount =
+      options.accountInjected === true &&
+      (installation.auth === 'required' || installation.auth === 'unknown')
+    if (installation.auth !== 'ready' && !satisfiedByAccount) {
       throw devError(
         'auth_required',
         `harness authentication is ${installation.auth}; it cannot launch until the owner authorizes it`
@@ -745,7 +791,18 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       )
     }
     const installation = requireLaunchInstallation(params.installationId)
-    requireAutoLaunchable(installation)
+    // Workspace connections (ADR 0012): the active workspace's account
+    // binding for this harness family, resolved fail-closed. Only ids reach
+    // provenance; the secret is unsealed below, at the spawn seam only.
+    const account: HarnessAccountResolution | undefined =
+      installation.family !== undefined && input.resolveHarnessAccount
+        ? input.resolveHarnessAccount({
+            harnessId: installation.family,
+            operation: 'dev.session.launchHarness',
+          })
+        : undefined
+    const injectAccount = account?.connection === 'workspace' && params.attachTerminal === true
+    requireAutoLaunchable(installation, { accountInjected: injectAccount })
     // #400 residue: harness-in-PTY spawn (pre-`starting`, pre-record). The
     // argv template is the host-resolved installation executable identity —
     // never renderer input. The terminal runtime owns the process: this
@@ -762,6 +819,9 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         runtimeSessionId: params.session.id,
         worktreeId: params.session.worktreeId,
         shell: installation.executableIdentity,
+        ...(account?.connection === 'workspace'
+          ? { launchCredential: { envKey: account.envKey, secret: account.readSecret() } }
+          : {}),
       })
       if (!spawn.ok) {
         throw devError('spawn_failed', `harness terminal spawn failed: ${spawn.message}`)
@@ -802,6 +862,20 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         ...(run.modelId !== undefined ? { modelId: run.modelId } : {}),
         ...(spawned
           ? { terminalId: run.terminalId, terminalGeneration: run.terminalGeneration }
+          : {}),
+        // Account provenance: which binding the launch resolved — the
+        // profile id, never the secret.
+        ...(account
+          ? {
+              accountConnection: account.connection,
+              ...(account.connection === 'workspace'
+                ? {
+                    accountProfileId: account.profileId,
+                    accountProfileVersion: account.profileVersion,
+                    accountInjected: injectAccount,
+                  }
+                : {}),
+            }
           : {}),
       },
       sourceEventId: `host:run-created:${run.id}`,
@@ -1539,6 +1613,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     preferences,
     history: runs,
     ingestSessionPublish,
+    discoveredFamilies,
   }
 }
 

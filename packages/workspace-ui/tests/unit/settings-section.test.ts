@@ -26,7 +26,8 @@ describe('settings deep links and keyboard navigation', () => {
 
   test('wraps arrow navigation and honors Home and End', () => {
     expect(nextSettingsSection('account', 'ArrowUp')).toBe('permissions')
-    expect(nextSettingsSection('integrations', 'ArrowDown')).toBe('permissions')
+    expect(nextSettingsSection('integrations', 'ArrowDown')).toBe('connections')
+    expect(nextSettingsSection('connections', 'ArrowDown')).toBe('permissions')
     expect(nextSettingsSection('permissions', 'ArrowDown')).toBe('account')
     expect(nextSettingsSection('workspace', 'Home')).toBe('account')
     expect(nextSettingsSection('workspace', 'End')).toBe('permissions')

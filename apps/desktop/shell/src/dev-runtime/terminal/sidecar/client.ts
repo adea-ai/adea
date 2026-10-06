@@ -7,6 +7,7 @@ import {
   createFrameDecoder,
   encodeByteFrame,
   encodeControl,
+  SIDECAR_LAUNCH_ENV_MINOR,
   SIDECAR_PROTOCOL,
   type ByteDuplex,
   type ByteFrameMeta,
@@ -53,6 +54,9 @@ export type SidecarClient = {
     cwd: string
     shell: string
     args: readonly string[]
+    /** Allowlisted launch-credential env; refused by sidecars older than
+     *  protocol minor 1 rather than silently dropped. */
+    launchEnv?: Readonly<Record<string, string>>
   }): Promise<SidecarResult<{ terminalId: string }>>
   /** Attach to a terminal; replays covered sequences then streams live. */
   attach(args: {
@@ -200,8 +204,21 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
           ok: true,
           client: {
             welcome,
-            create: (args) =>
-              request<{ terminalId: string }>({
+            create: (args) => {
+              if (
+                args.launchEnv !== undefined &&
+                (message.protocol.major !== SIDECAR_PROTOCOL.major ||
+                  message.protocol.minor < SIDECAR_LAUNCH_ENV_MINOR)
+              ) {
+                // An adopted older sidecar would drop the credential and
+                // launch on the device default instead: refuse, typed.
+                return Promise.resolve({
+                  ok: false as const,
+                  code: 'sidecar_incompatible',
+                  message: 'the terminal sidecar predates launch credentials; restart Adea',
+                })
+              }
+              return request<{ terminalId: string }>({
                 type: 'terminal.create',
                 requestId: nextRequestId(),
                 terminalId: args.terminalId,
@@ -211,7 +228,9 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
                 cwd: args.cwd,
                 shell: args.shell,
                 args: args.args,
-              }),
+                ...(args.launchEnv !== undefined ? { launchEnv: { ...args.launchEnv } } : {}),
+              })
+            },
             attach: (args) =>
               request<
                 | { resyncRequired: false; replayed: number; nextSeq: string }

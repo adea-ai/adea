@@ -44,6 +44,8 @@ import type {
 } from '../../../../../../packages/types/src/dev-runtime'
 import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority } from '../channel/authority'
+import type { ConnectionsRuntime } from '../connections/register'
+import { glabTokenEnv, hostnameArg } from '../connections/transport-env'
 import { gitChildEnv, resolveCliExecutable, runGit } from '../worktrees/git-run'
 import { BODY_MAX, PATCH_MAX, cleanText, graphqlData } from '../github/graphql'
 import {
@@ -109,7 +111,13 @@ export type GlabRunResult = Readonly<{
 
 export type GlabRunner = (
   args: readonly string[],
-  options?: { timeoutMs?: number; maxOutputBytes?: number; stdin?: string }
+  options?: {
+    timeoutMs?: number
+    maxOutputBytes?: number
+    stdin?: string
+    /** Workspace-connection token env for this one child (ADR 0012). */
+    env?: Readonly<Record<string, string>>
+  }
 ) => Promise<GlabRunResult>
 
 /** Bounded, argv-only glab runner; glab resolves credentials from its own
@@ -120,7 +128,7 @@ export const defaultRunGlab: GlabRunner = async (args, options) => {
   let proc: Bun.Subprocess<'ignore' | Uint8Array, 'pipe', 'pipe'>
   try {
     proc = Bun.spawn([resolveCliExecutable('glab') ?? 'glab', ...args], {
-      env: { ...gitChildEnv(), GLAB_NO_PROMPT: '1', NO_COLOR: '1' },
+      env: { ...gitChildEnv(), GLAB_NO_PROMPT: '1', NO_COLOR: '1', ...options?.env },
       stdin: options?.stdin !== undefined ? new TextEncoder().encode(options.stdin) : 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
@@ -720,6 +728,9 @@ export type GitLabRegistrarInput = {
   listRepos(): readonly GitLabRepoContext[]
   /** Test seam: a scripted glab transport. */
   runGlab?: GlabRunner
+  /** Workspace connections (ADR 0012): the active workspace's git hosting
+   *  resolution. Absent keeps glab on the device's own credentials. */
+  resolveGitHosting?: ConnectionsRuntime['resolveGitHosting']
   now?: () => number
   cacheTtlMs?: number
   /** Self-managed GitLab hosts trusted explicitly; gitlab.com is implied. */
@@ -762,7 +773,17 @@ export function registerGitlabRuntime(input: GitLabRegistrarInput): {
   registeredCommands: number
 } {
   const now = input.now ?? Date.now
-  const runGlab = input.runGlab ?? defaultRunGlab
+  const baseRunGlab = input.runGlab ?? defaultRunGlab
+  // Every glab child resolves its host's workspace connection (token env for
+  // this child only); no binding is the device's own `glab auth`.
+  const runGlab: GlabRunner = async (args, options) => {
+    const resolution = input.resolveGitHosting?.({
+      host: hostnameArg(args) ?? DEFAULT_HOST,
+      operation: 'gitlab.api',
+    })
+    const env = resolution ? glabTokenEnv(resolution) : undefined
+    return baseRunGlab(args, env ? { ...options, env } : options)
+  }
   const cacheTtlMs = input.cacheTtlMs ?? CACHE_TTL_MS
   const trustedHosts = [...new Set([...(input.trustedHosts ?? []), DEFAULT_HOST])]
   const plans = new Map<string, Plan>()

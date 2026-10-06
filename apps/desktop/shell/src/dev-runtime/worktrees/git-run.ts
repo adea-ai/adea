@@ -16,9 +16,10 @@ export type GitRunOptions = Readonly<{
   /** Map a non-zero exit to a typed error; return undefined to use the default mapping. */
   classify?: (result: { exitCode: number; stderr: string }) => WorktreeErrorCode | undefined
   signal?: AbortSignal
-  /** Extra child environment merged over the fixed minimal environment
-   *  (e.g. the non-interactive SSH transport for managed clones). Never
-   *  credential material. */
+  /** Extra child environment merged over the fixed minimal environment:
+   *  the non-interactive SSH transport for managed clones, or the
+   *  workspace-connection additions for ONE credentialed network child
+   *  (connections/transport-env.ts). Never set for local reads. */
   env?: Readonly<Record<string, string>>
 }>
 
@@ -135,7 +136,7 @@ export async function runGit(
   const maxOutputBytes = options.maxOutputBytes ?? GIT_CHILD_MAX_OUTPUT_BYTES
   const proc = Bun.spawn(['git', ...args], {
     cwd: options.cwd,
-    env: { ...gitChildEnv(), ...options.env },
+    env: options.env ? { ...gitChildEnv(), ...options.env } : gitChildEnv(),
     stdin: 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',

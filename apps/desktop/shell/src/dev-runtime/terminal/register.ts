@@ -19,6 +19,7 @@ import type {
 import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority, ChannelIdentity } from '../channel/authority'
 import type { ChannelGateway, StreamProvider } from '../channel/server'
+import type { VaultSecret } from '../vault'
 import type { SidecarClient } from './sidecar/client'
 import type { ByteFrameMeta } from './sidecar/protocol'
 import { TERMINAL_LIMITS } from './limits'
@@ -122,6 +123,9 @@ export type TerminalRuntimeRegistration = {
     shell: string
     cols?: number
     rows?: number
+    /** A workspace harness account (ADR 0012), revealed only into the
+     *  sidecar's allowlisted launch env for this one PTY child. */
+    launchCredential?: Readonly<{ envKey: string; secret: VaultSecret }>
   }): Promise<
     | { ok: true; terminalId: string; terminalGeneration: number }
     | { ok: false; code: DevError['code']; message: string }
@@ -1147,6 +1151,7 @@ export function registerTerminalRuntime(
     shell: string
     cols?: number
     rows?: number
+    launchCredential?: Readonly<{ envKey: string; secret: VaultSecret }>
   }): Promise<
     | { ok: true; terminalId: string; terminalGeneration: number }
     | { ok: false; code: DevError['code']; message: string }
@@ -1173,6 +1178,13 @@ export function registerTerminalRuntime(
       cwd,
       shell: request.shell,
       args: [],
+      ...(request.launchCredential
+        ? {
+            launchEnv: {
+              [request.launchCredential.envKey]: request.launchCredential.secret.reveal(),
+            },
+          }
+        : {}),
     })
     if (!created.ok) {
       const failure = sidecarFailure(created.code, created.message)

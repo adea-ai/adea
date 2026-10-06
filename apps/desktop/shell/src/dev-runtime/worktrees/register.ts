@@ -69,6 +69,8 @@ type RegistrarInput = {
   vault: CredentialVault
   /** Test seam: inject a service; production constructs the real one. */
   service?: WorktreeService
+  /** Workspace connections (ADR 0012): base-update fetch credentials. */
+  resolveFetchEnv?: import('../connections/transport-env').GitRemoteEnvResolver
   now?: () => number
 }
 
@@ -199,6 +201,7 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
       dataDir: input.dataDir,
       runtimeNodeId: input.runtimeNodeId,
       roots: input.roots,
+      ...(input.resolveFetchEnv ? { resolveFetchEnv: input.resolveFetchEnv } : {}),
     })
   // Plan/commit pairs: the host holds the immutable unexpired plan between
   // the two calls; the commit rechecks the digest and the live generation.

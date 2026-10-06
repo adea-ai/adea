@@ -4,7 +4,11 @@ import {
   devRuntimeTransportMethods,
   devStreamProtocolDefinitions,
 } from './dev-runtime-registry'
-import { decodeRegistryDto, worktreeLifecycles } from './dev-runtime-registry-dto'
+import {
+  decodeRegistryDto,
+  harnessAccountFamilies,
+  worktreeLifecycles,
+} from './dev-runtime-registry-dto'
 export { worktreeLifecycles } from './dev-runtime-registry-dto'
 import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
 import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
@@ -943,6 +947,50 @@ export type CredentialRef = Readonly<{
   version: number
 }>
 
+// Workspace connections (ADR 0012): device-local bindings, stored in the
+// workspace's Dev scope partition, from a workspace to credential material the
+// user already holds. Bindings carry ids only — secrets stay in the vault.
+export { harnessAccountFamilies } from './dev-runtime-registry-dto'
+export type HarnessAccountFamily = (typeof harnessAccountFamilies)[number]
+
+export type GitHostingBinding = Readonly<{
+  /** Bare git hosting host (`github.com` or a GitLab host). */
+  host: string
+  credentialRefId: string
+}>
+
+export type HarnessAccountBinding = Readonly<{
+  harnessId: HarnessAccountFamily
+  profileId: string
+}>
+
+/** One harness family this runtime node can launch, with the provider hosts
+ *  an account profile for it may name. Host-projected, never stored. */
+export type ConnectableHarness = Readonly<{
+  harnessId: HarnessAccountFamily
+  displayName: string
+  accountHosts: readonly string[]
+}>
+
+export type WorkspaceConnections = Readonly<{
+  scope: Scope
+  gitHosting: readonly GitHostingBinding[]
+  harnessAccounts: readonly HarnessAccountBinding[]
+  /** Optimistic version of the workspace's binding document; 0 = never set. */
+  version: number
+  availableHarnesses: readonly ConnectableHarness[]
+}>
+
+/** A reusable, device-wide harness account: which vaulted API key a harness
+ *  uses when a workspace binds this profile. Ids only, never the secret. */
+export type HarnessAccountProfile = Readonly<{
+  id: string
+  harnessId: HarnessAccountFamily
+  label: string
+  credentialRefId: string
+  version: number
+}>
+
 // M10 discovery is the sole authority for harness installation truth; Dev View
 // renders these projections and never re-probes. `executableIdentity` uses
 // host-native path form inside authorized host DTOs only — remote clients
@@ -1781,7 +1829,9 @@ function namedType(name: string, value: unknown, path: string): unknown {
     name === 'Repo' ||
     name === 'RepoInspection' ||
     name === 'Worktree' ||
-    name === 'WorktreeDiffSummary'
+    name === 'WorktreeDiffSummary' ||
+    name === 'WorkspaceConnections' ||
+    name === 'HarnessAccountProfile'
   )
     return decodeRegistryDto(name, value, path)
   if (decodeGithubCollaborationDto(name, value, path)) return value
@@ -3535,6 +3585,7 @@ function validateType(type: string, value: unknown, path: string): unknown {
   const quoted = trimmed.match(/^'([^']*)'$/)
   if (quoted) return literal(value, [quoted[1]], path)
   if (trimmed === 'true') return literal(value, [true], path)
+  if (trimmed === 'null') return literal(value, [null], path)
   if (trimmed.startsWith('{') && trimmed.endsWith('}'))
     return validateObjectType(trimmed, value, path)
 
@@ -3599,6 +3650,18 @@ export function decodeRootBookmark(value: unknown): RootBookmark {
 export function decodeCredentialRef(value: unknown): CredentialRef {
   namedType('CredentialRef', value, 'credentialRef')
   return value as CredentialRef
+}
+
+/** Strict decoder for a workspace's connection bindings (ADR 0012). */
+export function decodeWorkspaceConnections(value: unknown): WorkspaceConnections {
+  namedType('WorkspaceConnections', value, 'workspaceConnections')
+  return value as WorkspaceConnections
+}
+
+/** Strict decoder for a reusable harness account profile (never a secret). */
+export function decodeHarnessAccountProfile(value: unknown): HarnessAccountProfile {
+  namedType('HarnessAccountProfile', value, 'harnessAccountProfile')
+  return value as HarnessAccountProfile
 }
 
 /** Strict decoder for the terminal lifecycle record. */
@@ -3797,6 +3860,15 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.project.authorizeRoot': (value) => decodeRootBookmark(value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
+  // Workspace connections (ADR 0012): the binding document and the reusable
+  // device-wide harness account profiles. Ids only — never secret material.
+  'dev.connections.get': (value) => decodeWorkspaceConnections(value),
+  'dev.connections.setGitHosting': (value) => decodeWorkspaceConnections(value),
+  'dev.connections.setHarnessAccount': (value) => decodeWorkspaceConnections(value),
+  'dev.harness.accountProfiles.list': (value) =>
+    decodeDevRuntimePage(decodeHarnessAccountProfile, value),
+  'dev.harness.accountProfiles.create': (value) => decodeHarnessAccountProfile(value),
+  'dev.harness.accountProfiles.delete': (value) => decodeHarnessAccountProfile(value),
   // Repository registry (#398 follow-up): adopt/authorize/refresh reply with
   // the re-read Repo record, inspect with fresh read-only facts, and list
   // with a bounded Repo page.
