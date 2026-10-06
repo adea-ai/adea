@@ -1,6 +1,7 @@
-import { env } from 'cloudflare:workers'
+import { env, waitUntil } from 'cloudflare:workers'
 import handler, { createServerEntry } from '@tanstack/solid-start/server-entry'
 
+import { captureWaitUntil } from '../server/background-task'
 import { readWorkspaceEntryAccess } from '../server/workspace-entry-access'
 import { captureWorkerBindings, hydrateSecretStoreBindings } from '../server/worker-bindings'
 import { withRequestScope } from '../server/request-scope'
@@ -27,6 +28,9 @@ import {
 export default createServerEntry({
   async fetch(request, opts) {
     captureWorkerBindings(env)
+    // Post-response work (Control Plane project-state initialization) keeps
+    // the isolate alive through the runtime's own `waitUntil`.
+    captureWaitUntil(waitUntil)
     // Secrets Store bindings resolve lazily and must land on `process.env`
     // before the gate, the auth boundary, or the marketplace proxy read
     // their values; text vars and worker secrets are already strings.

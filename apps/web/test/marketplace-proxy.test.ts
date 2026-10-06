@@ -4,8 +4,12 @@ import { createHash } from 'node:crypto'
 import {
   inboundCorrelation,
   proxyMarketplaceCatalog,
+  MAX_REINSTALL_GENERATIONS,
   proxyMarketplaceInstall,
+  proxyMarketplaceInstallationGet,
   proxyMarketplaceInstallPlan,
+  proxyMarketplaceUninstall,
+  reinstallIdempotencyKey,
 } from '../src/server/marketplace-proxy'
 
 const environmentKeys = [
@@ -369,5 +373,189 @@ describe('per-workspace Control Plane scopes (ADR 0013)', () => {
     expect(sent[1]?.body.idempotencyKey).toBe(
       `marketplace-plan:${createHash('sha256').update(canonical).digest('hex')}`
     )
+  })
+})
+
+describe('marketplace installation get and uninstall', () => {
+  const installationId = 'ins_0123456789abcdef0123456789'
+  const homeScope = 'wsp_01JABCDEF0123456789ABCDEF0'
+  const workScope = 'wsp_01JABCDEF0123456789ABCDEF1'
+
+  type Hop = { url: string; body: Record<string, unknown>; claims: unknown; token: string }
+
+  function capture(hops: Hop[], respond: () => Response = () => Response.json({ data: {} })) {
+    globalThis.fetch = (async (input, init) => {
+      const token = String(new Headers(init?.headers).get('Authorization')).replace(/^Bearer /u, '')
+      const part = token.split('.')[1]
+      hops.push({
+        body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+        claims: part ? JSON.parse(Buffer.from(part, 'base64url').toString('utf8')) : null,
+        token,
+        url: String(input),
+      })
+      return respond()
+    }) as typeof fetch
+  }
+
+  test('scoped: get reads and uninstall removes in the mapped workspace only', async () => {
+    await configureSigning()
+    const hops: Hop[] = []
+    capture(hops)
+    for (const scope of [homeScope, workScope]) {
+      const dependencies = { resolveControlPlaneScope: async () => ({ workspaceId: scope }) }
+      await proxyMarketplaceInstallationGet({ installationId, userId: 'user-1' }, {}, dependencies)
+      await proxyMarketplaceUninstall({ installationId, userId: 'user-1' }, {}, dependencies)
+    }
+    expect(hops.map((hop) => new URL(hop.url).pathname)).toEqual([
+      '/v1/marketplace/installations/get',
+      '/v1/marketplace/installations/uninstall',
+      '/v1/marketplace/installations/get',
+      '/v1/marketplace/installations/uninstall',
+    ])
+    const expectedScopes = ['marketplace:read', 'marketplace:uninstall']
+    for (const [index, hop] of hops.entries()) {
+      const scope = index < 2 ? homeScope : workScope
+      expect(hop.claims).toMatchObject({
+        projectIds: [],
+        scopes: [expectedScopes[index % 2]],
+        workspaceIds: [scope],
+      })
+      expect(hop.body.workspaceId).toBe(scope)
+      const identity =
+        (hop.body.parameters as { workspaceIdentity?: unknown } | undefined)?.workspaceIdentity ??
+        (hop.body.payload as { workspaceIdentity?: unknown }).workspaceIdentity
+      expect(identity).toEqual({ userId: 'user-1', workspaceId: scope })
+    }
+    expect(hops[0]?.body).toMatchObject({
+      operation: 'marketplace.installation.get',
+      parameters: { installationId },
+    })
+    const uninstall = hops[1]?.body ?? {}
+    expect(uninstall).toMatchObject({
+      operation: 'marketplace.installation.uninstall',
+      payload: { installationId },
+    })
+    expect(uninstall.commandId).toMatch(/^cmd_[0-9A-HJKMNP-TV-Z]{26}$/u)
+    expect(uninstall.payloadHash).toBe(
+      createHash('sha256')
+        .update(
+          `{"installationId":"${installationId}","workspaceIdentity":{"userId":"user-1","workspaceId":"${homeScope}"}}`
+        )
+        .digest('hex')
+    )
+    // A retry replays: the key is a pure function of the scoped payload.
+    expect(uninstall.idempotencyKey).toBe(`marketplace-uninstall:${uninstall.payloadHash}`)
+    expect(String(uninstall.idempotencyKey).length).toBeLessThanOrEqual(128)
+    expect(hops[3]?.body.idempotencyKey).not.toBe(uninstall.idempotencyKey)
+  })
+
+  test('fallback: uses the static token and its single scope', async () => {
+    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
+    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
+    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
+    const hops: Hop[] = []
+    capture(hops, () =>
+      Response.json({ data: { installation: { installationId }, replayed: true } })
+    )
+    let resolved = false
+    const response = await proxyMarketplaceUninstall(
+      { installationId, userId: 'user-1' },
+      {},
+      {
+        resolveControlPlaneScope: async () => {
+          resolved = true
+          return { workspaceId: homeScope }
+        },
+      }
+    )
+    expect(await response.json()).toEqual({ installation: { installationId }, replayed: true })
+    expect(resolved).toBeFalse()
+    expect(hops[0]?.token).toBe('test-token')
+    expect(hops[0]?.body.workspaceId).toBe('wsp_01JABCDEF0123456789ABCDEFG')
+  })
+
+  test('rejects a malformed installation id before any hop', async () => {
+    await configureSigning()
+    const hops: Hop[] = []
+    capture(hops)
+    for (const proxy of [proxyMarketplaceInstallationGet, proxyMarketplaceUninstall]) {
+      const failure = await proxy({ installationId: '../ins_x', userId: 'user-1' }).catch(
+        (error: unknown) => error as { status?: number }
+      )
+      expect(failure?.status).toBe(400)
+    }
+    expect(hops).toHaveLength(0)
+  })
+
+  test('maps a Control Plane 404 to a rejected request', async () => {
+    await configureSigning()
+    capture([], () =>
+      Response.json({ error: { code: 'MARKETPLACE_INSTALLATION_NOT_FOUND' } }, { status: 404 })
+    )
+    const failure = await proxyMarketplaceUninstall(
+      { installationId, userId: 'user-1' },
+      {},
+      { resolveControlPlaneScope: async () => ({ workspaceId: homeScope }) }
+    ).catch((error: unknown) => error as { code?: string; status?: number })
+    expect(failure).toMatchObject({ code: 'MARKETPLACE_REQUEST_REJECTED', status: 404 })
+  })
+
+  test('reinstalls after an uninstall under the next derived idempotency key', async () => {
+    await configureSigning()
+    const hops: Hop[] = []
+    let uninstalledGenerations = 2
+    capture(hops, () =>
+      uninstalledGenerations-- > 0
+        ? Response.json(
+            { error: { code: 'MARKETPLACE_INSTALLATION_UNINSTALLED' } },
+            { status: 409 }
+          )
+        : Response.json({ data: { installationId: 'ins_next', state: 'installed' } })
+    )
+    const response = await proxyMarketplaceInstall(
+      {
+        canonicalContentDigest: `sha256:${'a'.repeat(64)}`,
+        idempotencyKey: 'marketplace-install-same-key',
+        pluginId: 'plugin:openai-official:gmail',
+        releaseId: `release:${'b'.repeat(64)}`,
+        requestedHarness: 'codex',
+        workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-home' },
+      },
+      {},
+      { resolveControlPlaneScope: async () => ({ workspaceId: homeScope }) }
+    )
+    expect(await response.json()).toEqual({ installationId: 'ins_next', state: 'installed' })
+    expect(hops.map((hop) => hop.body.idempotencyKey)).toEqual([
+      'marketplace-install-same-key',
+      'marketplace-install-same-key:reinstall-1',
+      'marketplace-install-same-key:reinstall-2',
+    ])
+    // Other rejections are never retried.
+    hops.length = 0
+    capture(hops, () => Response.json({ error: { code: 'OTHER' } }, { status: 409 }))
+    await proxyMarketplaceInstall(
+      {
+        canonicalContentDigest: `sha256:${'a'.repeat(64)}`,
+        idempotencyKey: 'marketplace-install-same-key',
+        pluginId: 'plugin:openai-official:gmail',
+        releaseId: `release:${'b'.repeat(64)}`,
+        requestedHarness: 'codex',
+        workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-home' },
+      },
+      {},
+      { resolveControlPlaneScope: async () => ({ workspaceId: homeScope }) }
+    ).catch(() => undefined)
+    expect(hops).toHaveLength(1)
+  })
+
+  test('derived reinstall keys stay within the Control Plane key limit', () => {
+    const long = `k${'x'.repeat(126)}`
+    for (let generation = 1; generation < MAX_REINSTALL_GENERATIONS; generation += 1) {
+      const key = reinstallIdempotencyKey(long, generation)
+      expect(key.length).toBeLessThanOrEqual(128)
+      expect(key).toMatch(/^[A-Za-z0-9._:-]+$/u)
+    }
+    expect(reinstallIdempotencyKey(long, 1)).not.toBe(reinstallIdempotencyKey(long, 2))
+    expect(reinstallIdempotencyKey('key-0000000000000000', 0)).toBe('key-0000000000000000')
   })
 })

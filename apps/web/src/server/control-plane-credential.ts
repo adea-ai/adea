@@ -31,6 +31,8 @@ const SCOPE_PATTERN = /^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$/u
 export type ControlPlaneServiceScope =
   | 'marketplace:install'
   | 'marketplace:read'
+  | 'marketplace:uninstall'
+  | 'project-state:initialize'
   | 'system:authenticate'
 
 export type ControlPlaneScopeIds = Readonly<{ workspaceId: string; projectId?: string }>

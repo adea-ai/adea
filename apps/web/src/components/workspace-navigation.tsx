@@ -350,6 +350,11 @@ export function createDeferredPluginsProvider(
     getState: () => loaded?.getState?.() ?? 'idle',
     list: () => load().then((value) => value.list()),
     requestInstall: (pluginId) => load().then((value) => value.requestInstall(pluginId)),
+    requestUninstall: (pluginId) =>
+      load().then((value) => {
+        if (!value.requestUninstall) throw new Error('Uninstall is unavailable')
+        return value.requestUninstall(pluginId)
+      }),
   }
 }
 

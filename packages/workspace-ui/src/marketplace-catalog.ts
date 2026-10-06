@@ -105,6 +105,7 @@ export type VerifiedRegistryCatalog = Readonly<{
     pluginId: string
     releaseId: string
     canonicalContentDigest: string
+    installationId?: string
     installationInstanceId?: string
     packageDigest?: string
     state: WorkspacePluginInstallationStatus
@@ -596,15 +597,18 @@ export function mapRegistryCatalog(
     const installable =
       release.contentResolution !== 'metadata-only' && agentPluginsStatus !== 'unavailable'
     const releasePackageDigest = release.packageDigest ?? packageDigest
-    const installationStatus =
+    const currentInstallation =
       installation &&
       installation.releaseId === release.releaseId &&
       installation.canonicalContentDigest === release.canonicalContentDigest &&
       (releasePackageDigest === undefined || installation.packageDigest === releasePackageDigest)
-        ? installation.state
-        : installable
-          ? 'available'
-          : 'unavailable'
+        ? installation
+        : undefined
+    const installationStatus = currentInstallation
+      ? currentInstallation.state
+      : installable
+        ? 'available'
+        : 'unavailable'
     const capabilities = release.capabilities.map((capability) => capability.name)
     const capabilityTypes = new Set(release.capabilities.map((capability) => capability.type))
     const connector =
@@ -634,6 +638,9 @@ export function mapRegistryCatalog(
       icons: plugin.icons,
       id: plugin.pluginId,
       installed: installationStatus === 'installed',
+      ...(currentInstallation?.installationId
+        ? { installationId: currentInstallation.installationId }
+        : {}),
       installationPolicy: installationStatus === 'unavailable' ? 'not-available' : 'available',
       ...(agentPluginsStatus ? { agentPluginsStatus } : {}),
       installationStatus,

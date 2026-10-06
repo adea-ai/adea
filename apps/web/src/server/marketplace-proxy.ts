@@ -155,17 +155,126 @@ export async function proxyMarketplaceInstall(
       workspaceId: credential.workspaceId,
     },
   }
+  // The Control Plane never replays an uninstalled installation: a reinstall
+  // needs a new idempotency key. The client key is deterministic, so each
+  // uninstall/reinstall cycle moves to the next derived key. Every probe is
+  // itself idempotent, so a retried reinstall still lands on the same
+  // installation.
+  for (let generation = 0; ; generation += 1) {
+    try {
+      return await proxyControlPlane(
+        credential,
+        '/v1/marketplace/install',
+        {
+          caller: { servicePrincipalId },
+          commandId: generation === 0 ? commandId : identifier('cmd'),
+          contractVersion,
+          correlation: { traceId },
+          idempotencyKey: reinstallIdempotencyKey(input.idempotencyKey, generation),
+          issuedAt: new Date().toISOString(),
+          operation: 'marketplace.install.request',
+          payload,
+          payloadHash: sha256(canonicalJson(payload)),
+          requestId,
+          workspaceId: credential.workspaceId,
+        },
+        requestId
+      )
+    } catch (error) {
+      if (
+        !(error instanceof MarketplaceProxyError) ||
+        error.upstreamCode !== 'MARKETPLACE_INSTALLATION_UNINSTALLED' ||
+        generation + 1 >= MAX_REINSTALL_GENERATIONS
+      )
+        throw error
+    }
+  }
+}
+
+/** Bounds the reinstall probe; each step is one Control Plane round trip. */
+export const MAX_REINSTALL_GENERATIONS = 16
+
+export function reinstallIdempotencyKey(key: string, generation: number): string {
+  if (generation === 0) return key
+  const derived = `${key}:reinstall-${generation}`
+  // The Control Plane caps keys at 128 characters; a long client key is
+  // hashed instead of truncated so distinct keys stay distinct.
+  return derived.length <= 128 ? derived : `marketplace-reinstall:${sha256(key)}:${generation}`
+}
+
+/** The Control Plane installation handle grammar (`ins_…`). */
+export const MARKETPLACE_INSTALLATION_ID_PATTERN = /^ins_[a-z0-9]{1,124}$/u
+
+export async function proxyMarketplaceInstallationGet(
+  input: Readonly<{ installationId: string; userId: string }>,
+  inbound: InboundCorrelation = {},
+  dependencies: MarketplaceProxyDependencies = {}
+): Promise<Response> {
+  if (!MARKETPLACE_INSTALLATION_ID_PATTERN.test(input.installationId))
+    throw new MarketplaceProxyError(
+      'MARKETPLACE_REQUEST_REJECTED',
+      'Invalid marketplace installation',
+      400
+    )
+  const credential = await marketplaceCredential('marketplace:read', dependencies)
+  const requestId = inbound.requestId ?? identifier('req')
+  const traceId = inbound.traceId ?? identifier('trc')
   return proxyControlPlane(
     credential,
-    '/v1/marketplace/install',
+    '/v1/marketplace/installations/get',
     {
       caller: { servicePrincipalId },
-      commandId,
       contractVersion,
       correlation: { traceId },
-      idempotencyKey: input.idempotencyKey,
+      operation: 'marketplace.installation.get',
+      // As for the catalog: the identity names the authenticated scope, so a
+      // workspace can only ever read its own installations.
+      parameters: {
+        installationId: input.installationId,
+        workspaceIdentity: { userId: input.userId, workspaceId: credential.workspaceId },
+      },
+      requestId,
+      requestedAt: new Date().toISOString(),
+      workspaceId: credential.workspaceId,
+    },
+    requestId
+  )
+}
+
+export async function proxyMarketplaceUninstall(
+  input: Readonly<{ installationId: string; userId: string }>,
+  inbound: InboundCorrelation = {},
+  dependencies: MarketplaceProxyDependencies = {}
+): Promise<Response> {
+  if (!MARKETPLACE_INSTALLATION_ID_PATTERN.test(input.installationId))
+    throw new MarketplaceProxyError(
+      'MARKETPLACE_REQUEST_REJECTED',
+      'Invalid marketplace installation',
+      400
+    )
+  const credential = await marketplaceCredential('marketplace:uninstall', dependencies)
+  const requestId = inbound.requestId ?? identifier('req')
+  const traceId = inbound.traceId ?? identifier('trc')
+  const payload = {
+    installationId: input.installationId,
+    workspaceIdentity: { userId: input.userId, workspaceId: credential.workspaceId },
+  }
+  // Uninstall is terminal, so one key per (scope, installation, user) is
+  // enough: a retry replays the original transition, and a second user's
+  // uninstall of the same installation reports it as already uninstalled.
+  // The Control Plane keys idempotency by (envelope workspace, key).
+  const idempotencyKey = `marketplace-uninstall:${sha256(canonicalJson(payload))}`
+  return proxyControlPlane(
+    credential,
+    '/v1/marketplace/installations/uninstall',
+    {
+      caller: { servicePrincipalId },
+      commandId: identifier('cmd'),
+      contractVersion,
+      correlation: { traceId },
+      idempotencyKey,
       issuedAt: new Date().toISOString(),
-      operation: 'marketplace.install.request',
+      operation: 'marketplace.installation.uninstall',
       payload,
       payloadHash: sha256(canonicalJson(payload)),
       requestId,
@@ -231,7 +340,8 @@ async function proxyControlPlane(
         status === 503
           ? 'Control Plane is unavailable'
           : 'Control Plane rejected the marketplace request',
-        status
+        status,
+        status === 503 ? undefined : await upstreamErrorCode(response)
       )
     }
     // Large reads (the marketplace catalog is tens of megabytes) stream
@@ -269,10 +379,25 @@ export class MarketplaceProxyError extends Error {
   constructor(
     readonly code: 'CONTROL_PLANE_UNAVAILABLE' | 'MARKETPLACE_REQUEST_REJECTED',
     message: string,
-    readonly status = 503
+    readonly status = 503,
+    /**
+     * The Control Plane's own error code for a rejection, when it sent a
+     * well-formed one. Proxy logic branches on it; it is never forwarded.
+     */
+    readonly upstreamCode?: string
   ) {
     super(message)
     this.name = 'MarketplaceProxyError'
+  }
+}
+
+async function upstreamErrorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { error?: { code?: unknown } } | null
+    const code = body?.error?.code
+    return typeof code === 'string' && /^[A-Z0-9_]{1,96}$/u.test(code) ? code : undefined
+  } catch {
+    return undefined
   }
 }
 

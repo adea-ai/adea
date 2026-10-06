@@ -307,6 +307,68 @@ describe('registry marketplace catalog', () => {
     expect(filterWorkspacePlugins(after, 'yours', '').map(({ id }) => id)).toEqual([])
   })
 
+  test('uninstalls the workspace installation through the Control Plane handle', async () => {
+    const fixture = await fixtureArtifacts()
+    const [mapped] = mapRegistryCatalog(fixture.catalog, [])
+    const installation = {
+      canonicalContentDigest: mapped!.canonicalContentDigest!,
+      installationId: 'ins_0123456789abcdef0123456789',
+      pluginId: mapped!.id,
+      releaseId: mapped!.releaseId!,
+      state: 'installed' as const,
+      ...(mapped!.packageDigest ? { packageDigest: mapped!.packageDigest } : {}),
+    }
+    const uninstalls: [string, string][] = []
+    let reported: string = installation.installationId
+    const client = {
+      getMarketplaceCatalog: async () => ({
+        artifacts: fixture.artifacts,
+        catalogId: fixture.catalog.catalogId,
+        installations: [installation],
+        releaseId: fixture.catalog.catalogId,
+        state: 'ready' as const,
+      }),
+      uninstallMarketplaceInstallation: async (workspaceId: string, installationId: string) => {
+        uninstalls.push([workspaceId, installationId])
+        return {
+          installation: { ...installation, installationId: reported, state: 'uninstalled' },
+          replayed: false,
+        }
+      },
+    } as unknown as AgentHqApiClient
+    const provider = createRegistryPluginsProvider({
+      client,
+      getWorkspaceId: () => 'workspace-1',
+      getUserId: () => 'user-1',
+    })
+    const before = await provider.list()
+    expect(before[0]).toMatchObject({
+      installationId: installation.installationId,
+      installed: true,
+    })
+
+    // A mismatched result is refused and the installation stays listed.
+    reported = 'ins_somethingelse'
+    await expect(provider.requestUninstall!(installation.pluginId)).rejects.toMatchObject({
+      state: 'verification-failure',
+    })
+
+    reported = installation.installationId
+    const after = await provider.requestUninstall!(installation.pluginId)
+    expect(uninstalls).toEqual([
+      ['workspace-1', installation.installationId],
+      ['workspace-1', installation.installationId],
+    ])
+    expect(after[0]?.installed).toBeFalse()
+    expect(after[0]?.installationId).toBeUndefined()
+    expect(filterWorkspacePlugins(after, 'yours', '')).toEqual([])
+
+    // Nothing left to uninstall.
+    await expect(provider.requestUninstall!(installation.pluginId)).rejects.toMatchObject({
+      state: 'unavailable',
+    })
+  })
+
   test('skips the full read when the published index reports the identity already held', async () => {
     // A catalog release is immutable and a new one only appears under a new
     // catalogId, so the index — a megabyte or so — answers "was anything
