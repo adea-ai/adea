@@ -422,6 +422,18 @@ export function registerProjectSessionRuntime(input: {
       }>
     | undefined
   >
+  /**
+   * Bound-project notification (auto-adopt): the register fires it once,
+   * after a binding is durably written by `dev.project.import`,
+   * `dev.project.create`, or the checkout-clone import path. The hook is
+   * never awaited — a command reply must not wait on adoption — and the
+   * register contains a synchronous throw, so the binding always stands
+   * even when the hook fails. It never runs for `bindManagedClone` (the
+   * managed path writes the registry record itself) and never runs again
+   * on load: auto-adopt is an import/creation side effect, not a
+   * reconciler, so removing a registry record is never silently undone.
+   */
+  onProjectBound?: (project: Project) => void
 }): ProjectSessionRuntime {
   const store = createDurableSqliteStore<AuthorityRecord>({
     file: authorityStoreFile(input.dataDir, input.scope),
@@ -580,7 +592,22 @@ export function registerProjectSessionRuntime(input: {
     }
     record = { ...record, projects: [...record.projects, created] }
     save()
-    return toProject(created)
+    const projected = toProject(created)
+    notifyBound(projected)
+    return projected
+  }
+
+  /**
+   * Fire the auto-adopt notification once the binding is durable. The hook
+   * is fire-and-forget: a synchronous failure must never fail or roll back
+   * the import/creation that already committed.
+   */
+  function notifyBound(project: Project): void {
+    try {
+      input.onProjectBound?.(project)
+    } catch {
+      // Best-effort by contract; the binding stands.
+    }
   }
 
   const providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>> = {
@@ -774,7 +801,9 @@ export function registerProjectSessionRuntime(input: {
       }
       record = { ...record, projects: [...record.projects, created] }
       save()
-      return toProject(created)
+      const projected = toProject(created)
+      notifyBound(projected)
+      return projected
     },
     'dev.project.update': (command) => {
       requireScope(command, input.scope)

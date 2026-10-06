@@ -41,6 +41,14 @@ export { redactRemoteUrl } from './registry-store'
 
 export type RepoRuntime = Readonly<{
   providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>>
+  /**
+   * Auto-adopt seam: adopt one import-minted binding through the exact
+   * `dev.repo.adopt` proof path (bookmark defaults to the binding's own;
+   * a not-yet-materialized binding adopts at version 1). Returns undefined
+   * without side effects when a durable record already exists; refusals
+   * throw the manual operation's typed errors.
+   */
+  adoptUnadopted(repoId: string): Promise<Repo | undefined>
 }>
 
 type RepoRecord = RepoRegistryRecord
@@ -501,6 +509,25 @@ export function registerRepoRuntime(input: {
     return toRepoDto(record)
   }
 
+  /**
+   * Auto-adopt seam (composition only): adopt a not-yet-materialized binding
+   * through the exact `dev.repo.adopt` proof path — no forked semantics. A
+   * repo that already has a durable record is returned untouched (no
+   * re-proof, no version bump, no re-adopt loop); a managed clone is skipped
+   * the same way (`dev.project.clone` registered it). A repo with no binding
+   * and no record refuses `not_found`, exactly like the manual operation.
+   * The caller decides failure policy; this seam only refuses to invent one.
+   */
+  async function adoptUnadopted(repoId: string): Promise<Repo | undefined> {
+    if (findRecord(repoId) !== undefined) return undefined
+    return adoptOrAuthorize({
+      repoId,
+      rootBookmarkId: undefined,
+      credentialRefId: undefined,
+      expectedVersion: 1,
+    }).then(reconciled)
+  }
+
   const providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>> = {
     // The one registry serves the listing too (ADR 0011): the worktree
     // service reads these same records, so the list and every worktree
@@ -622,5 +649,5 @@ export function registerRepoRuntime(input: {
       operationProvider(command)
     )
   }
-  return { providers }
+  return { providers, adoptUnadopted }
 }

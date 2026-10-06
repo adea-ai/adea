@@ -3411,6 +3411,21 @@ decoder still fails closed. Git children run through the bounded, argv-only
 fixed time and output budgets) — never a shell, never credential material in
 arguments or environment.
 
+**Auto-adoption on import and creation.** Binding a project —
+`dev.project.import`, `dev.project.create`, or the checkout clone's shared
+import path — fires a best-effort, non-blocking adoption of each minted
+binding through the exact `dev.repo.adopt` proof (the binding's own
+bookmark, initial version 1, the primary checkout reconciliation included).
+The command reply never waits on the adoption and never fails with it: a
+refused proof (vanished checkout, drifted root, stale race) leaves the
+honest binding-only state for the panel's manual Adopt. An archived project
+is skipped entirely — this path never mints a registry record for one.
+Auto-adoption runs once per binding event; it is not a reconciler and never
+re-runs on load or sync, so a removed registry record is never silently
+re-adopted — only an explicit import/creation or a manual Adopt proves the
+repository again. A repository that already has a durable record is left
+untouched (no re-proof, no version bump, no loop).
+
 The Dev View sidebar is the registry's client surface and adds no authority
 of its own. The repository panel rides a lazy chunk inside the Dev boundary
 and reads the authoritative state through the authenticated command path only
