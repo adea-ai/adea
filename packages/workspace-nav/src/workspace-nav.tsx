@@ -5,7 +5,6 @@ import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accen
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { SidebarNavButton, SidebarNavLabel } from '@adea-ai/ui/components/layout/sidebar-nav'
-import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import {
   DropdownMenu,
@@ -16,7 +15,6 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@adea-ai/ui/components/ui/dropdown-menu'
-import { Input } from '@adea-ai/ui/components/ui/input'
 import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 import {
   AtSign,
@@ -31,13 +29,13 @@ import {
   For,
   Match,
   Show,
+  Suspense,
   Switch,
   createEffect,
   createMemo,
   createSignal,
   createUniqueId,
-  on,
-  onMount,
+  lazy,
   type JSX,
 } from 'solid-js'
 
@@ -54,6 +52,14 @@ import {
   type WorkspaceChip,
 } from './model'
 import { NavLeafTree } from './nav-leaf-tree'
+
+// Creating a workspace is rare, so its inline row (and the shared Input it
+// renders) loads on demand: hovering or focusing "New workspace" starts the
+// import before the click mounts the row.
+const loadWorkspaceDraftRow = () => import('./workspace-draft-row')
+const WorkspaceDraftRow = lazy(() =>
+  loadWorkspaceDraftRow().then((module) => ({ default: module.WorkspaceDraftRow }))
+)
 
 export type WorkspaceNavProps = {
   tree: NavTree
@@ -215,6 +221,8 @@ export function WorkspaceNav(props: WorkspaceNavProps) {
               size="icon-xs"
               tooltip={props.tooltips === false ? undefined : 'New workspace'}
               aria-label="New workspace"
+              onPointerEnter={() => void loadWorkspaceDraftRow()}
+              onFocus={() => void loadWorkspaceDraftRow()}
               onClick={() => setCreating(true)}
             >
               <Plus aria-hidden="true" />
@@ -236,20 +244,22 @@ export function WorkspaceNav(props: WorkspaceNavProps) {
             </Show>
           )}
         </For>
-        <Show when={creating()}>
-          <WorkspaceDraftRow
-            controlled={props.creatingWorkspace !== undefined}
-            error={props.workspaceDraftError}
-            pending={props.workspaceDraftPending}
-            onCreate={(name) => {
-              // A host-owned draft stays open until the host closes it, so a
-              // failure can be shown beside the name the user typed.
-              if (props.creatingWorkspace === undefined) setCreating(false)
-              props.onCreateWorkspace(name)
-            }}
-            onCancel={() => setCreating(false)}
-          />
-        </Show>
+        <Suspense>
+          <Show when={creating()}>
+            <WorkspaceDraftRow
+              controlled={props.creatingWorkspace !== undefined}
+              error={props.workspaceDraftError}
+              pending={props.workspaceDraftPending}
+              onCreate={(name) => {
+                // A host-owned draft stays open until the host closes it, so a
+                // failure can be shown beside the name the user typed.
+                if (props.creatingWorkspace === undefined) setCreating(false)
+                props.onCreateWorkspace(name)
+              }}
+              onCancel={() => setCreating(false)}
+            />
+          </Show>
+        </Suspense>
       </section>
       <Show when={props.conversations}>{props.conversations}</Show>
       <Show when={props.footer}>{props.footer}</Show>
@@ -413,100 +423,6 @@ function ActiveWorkspace(
           portalMount={props.portalMount}
           tooltips={props.tooltips}
         />
-      </Show>
-    </div>
-  )
-}
-
-/**
- * Inline workspace creation: Enter creates, Escape cancels, and leaving the
- * field creates when a name was typed and cancels when it is empty. The mark
- * previews the initials the new workspace will get. A host-controlled draft
- * stays mounted after Enter: a failure shows beside the kept name, Enter
- * retries, and leaving the field no longer resubmits until the name changes.
- */
-function WorkspaceDraftRow(props: {
-  controlled: boolean
-  error?: string
-  pending?: boolean
-  onCreate: (name: string) => void
-  onCancel: () => void
-}) {
-  const [name, setName] = createSignal('')
-  const errorId = `workspace-nav-draft-error-${createUniqueId()}`
-  let input: HTMLInputElement | undefined
-  let settled = false
-  let submittedName: string | undefined
-  // A reported failure re-arms the row so the user can retry.
-  createEffect(
-    on(
-      () => props.error,
-      (error) => {
-        if (error) settled = false
-      },
-      { defer: true }
-    )
-  )
-  const finish = (create: boolean, fromBlur = false) => {
-    if (settled || props.pending) return
-    const value = name().trim()
-    if (create && value === '') return
-    // Leaving the field after a failure keeps the draft instead of retrying.
-    if (create && fromBlur && submittedName === value) return
-    settled = true
-    if (create) {
-      submittedName = value
-      props.onCreate(value)
-    } else props.onCancel()
-  }
-
-  onMount(() => input?.focus())
-
-  return (
-    <div class="flex min-w-0 flex-col gap-1 px-2 py-1" data-slot="workspace-nav-draft">
-      <div class="flex min-w-0 items-center gap-2">
-        <span aria-hidden="true" class="flex shrink-0">
-          <WorkspaceIdentityMark
-            accent={null}
-            logo={{ kind: 'monogram' }}
-            name={name().trim()}
-            size="xs"
-          />
-        </span>
-        <Input
-          ref={(element) => {
-            input = element
-          }}
-          aria-label="New workspace name"
-          aria-invalid={props.error ? true : undefined}
-          aria-describedby={props.error ? errorId : undefined}
-          aria-busy={props.pending ? true : undefined}
-          placeholder="New workspace name"
-          value={name()}
-          onInput={(event) => {
-            setName(event.currentTarget.value)
-            if (props.controlled) settled = false
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              finish(true)
-            } else if (event.key === 'Escape') {
-              event.preventDefault()
-              event.stopPropagation()
-              settled = false
-              finish(false)
-            }
-          }}
-          onBlur={() => finish(name().trim() !== '', true)}
-        />
-      </div>
-      <Show when={props.error}>
-        {(message) => (
-          <Alert variant="destructive" id={errorId}>
-            <AlertDescription>{message()}</AlertDescription>
-          </Alert>
-        )}
       </Show>
     </div>
   )

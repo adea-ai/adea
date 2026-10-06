@@ -82,12 +82,21 @@ const AppLibraryPage = lazyComponent(
 const DevWorkspace = lazyComponent(
   () =>
     import('@adea-ai/dev-view').then(
-      ({
+      async ({
         DevWorkspaceEntry,
         createUnavailableDevRuntimeService: createUnavailableDevRuntimeServiceFromView,
-        devViewFixtureProjects,
-        scaleDevFixtureProjects,
       }) => {
+        // Fixture mode is DEV-only (`devE2e=preserved`). Reading the fixture
+        // workspace behind the build constant lets a production build drop
+        // it from the Dev entry chunk instead of shipping dead data.
+        const fixtures = import.meta.env.DEV
+          ? await import('@adea-ai/dev-view').then(
+              ({ devViewFixtureProjects, scaleDevFixtureProjects }) => ({
+                devViewFixtureProjects,
+                scaleDevFixtureProjects,
+              })
+            )
+          : undefined
         return (entryProps: {
           fixture: boolean
           runtime?: WorkspacePlatformServices['devRuntime']
@@ -117,16 +126,19 @@ const DevWorkspace = lazyComponent(
           // #666 render-cost case: a DEV-only URL param scales the fixture
           // workspace so the sidebar can be exercised at 1,000+ rows.
           const fixtureScale =
-            entryProps.fixture && import.meta.env.DEV
+            import.meta.env.DEV && entryProps.fixture
               ? Number(new URLSearchParams(window.location.search).get('devSidebarScale') ?? '0')
               : 0
           return (
             <DevWorkspaceEntry
               projects={
-                entryProps.fixture
+                import.meta.env.DEV && entryProps.fixture && fixtures
                   ? fixtureScale > 1
-                    ? scaleDevFixtureProjects(devViewFixtureProjects, fixtureScale)
-                    : devViewFixtureProjects
+                    ? fixtures.scaleDevFixtureProjects(
+                        fixtures.devViewFixtureProjects,
+                        fixtureScale
+                      )
+                    : fixtures.devViewFixtureProjects
                   : undefined
               }
               storage={typeof window === 'undefined' ? undefined : window.localStorage}
@@ -273,7 +285,10 @@ function WorkspaceEntryLoading() {
 // a preload that races the mount itself.
 function preloadView(nextView: WorkspaceView) {
   if (nextView === 'virtual') void import('./workspace-shell')
-  else if (nextView === 'dev') void import('@adea-ai/dev-view')
+  // Destructured, not a bare namespace import: a namespace use keeps every
+  // barrel export (the DEV-only fixtures among them) in the production chunk.
+  else if (nextView === 'dev')
+    void import('@adea-ai/dev-view').then(({ DevWorkspaceEntry }) => DevWorkspaceEntry)
   else void import('./conventional-workspace-entry')
 }
 
