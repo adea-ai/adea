@@ -1,9 +1,26 @@
 import { createHash, randomBytes } from 'node:crypto'
 
+import {
+  CONTROL_PLANE_SERVICE_PRINCIPAL_ID,
+  controlPlaneCredential,
+  type ControlPlaneCredential,
+  type ControlPlaneScopeIds,
+  type ControlPlaneServiceScope,
+} from './control-plane-credential'
+
 const contractVersion = { major: 2, minor: 0 } as const
 // The service principal the Control Plane registered for this shell. One
 // spelling; a mismatch makes the Control Plane reject marketplace calls.
-const servicePrincipalId = 'svc_agent-hq'
+const servicePrincipalId = CONTROL_PLANE_SERVICE_PRINCIPAL_ID
+
+/**
+ * How the proxy learns the active Adea workspace's Control Plane scope
+ * (ADR 0013). Routes pass a resolver bound to the workspace they already
+ * authorized; it is only consulted when per-request signing is configured.
+ */
+export type MarketplaceProxyDependencies = Readonly<{
+  resolveControlPlaneScope?: () => Promise<ControlPlaneScopeIds | null>
+}>
 
 /**
  * Inbound correlation for a Control Plane hop. A caller that already has a
@@ -28,11 +45,14 @@ export function inboundCorrelation(request: Request | undefined): InboundCorrela
 
 export async function proxyMarketplaceCatalog(
   input: Readonly<{ workspaceId: string; userId: string }>,
-  inbound: InboundCorrelation = {}
+  inbound: InboundCorrelation = {},
+  dependencies: MarketplaceProxyDependencies = {}
 ): Promise<Response> {
+  const credential = await marketplaceCredential('marketplace:read', dependencies)
   const requestId = inbound.requestId ?? identifier('req')
   const traceId = inbound.traceId ?? identifier('trc')
   return proxyControlPlane(
+    credential,
     '/v1/marketplace/catalog',
     {
       caller: { servicePrincipalId },
@@ -40,15 +60,15 @@ export async function proxyMarketplaceCatalog(
       correlation: { traceId },
       operation: 'marketplace.catalog.read',
       // Control Plane scopes every marketplace identity to the authenticated
-      // service workspace: the caller's Agent HQ workspace id never crosses
+      // service workspace: the caller's Adea workspace id never crosses
       // this boundary, and an identity outside the envelope workspace is
       // rejected before any catalog read.
       parameters: {
-        workspaceIdentity: { userId: input.userId, workspaceId: requiredControlPlaneWorkspaceId() },
+        workspaceIdentity: { userId: input.userId, workspaceId: credential.workspaceId },
       },
       requestId,
       requestedAt: new Date().toISOString(),
-      workspaceId: requiredControlPlaneWorkspaceId(),
+      workspaceId: credential.workspaceId,
     },
     requestId,
     // The catalog is tens of megabytes; buffer-free streaming keeps the
@@ -65,22 +85,30 @@ export async function proxyMarketplaceInstallPlan(
     requestedHarness: string
     workspaceIdentity: Readonly<{ userId: string; workspaceId: string }>
   }>,
-  inbound: InboundCorrelation = {}
+  inbound: InboundCorrelation = {},
+  dependencies: MarketplaceProxyDependencies = {}
 ): Promise<Response> {
+  const credential = await marketplaceCredential('marketplace:install', dependencies)
   const requestId = inbound.requestId ?? identifier('req')
   const traceId = inbound.traceId ?? identifier('trc')
   const commandId = identifier('cmd')
-  const idempotencyKey = `marketplace-plan:${sha256(canonicalJson(input))}`
   // Installations are tracked under the authenticated scope, so the identity
   // in the payload names the same workspace as the envelope.
   const payload = {
     ...input,
     workspaceIdentity: {
       userId: input.workspaceIdentity.userId,
-      workspaceId: requiredControlPlaneWorkspaceId(),
+      workspaceId: credential.workspaceId,
     },
   }
+  // Scoped: the key hashes the payload, which names the workspace's own
+  // `wsp_` scope, so each workspace has its own plan namespace. Unscoped
+  // keeps the original derivation unchanged.
+  const idempotencyKey = `marketplace-plan:${sha256(
+    canonicalJson(credential.mode === 'scoped' ? payload : input)
+  )}`
   return proxyControlPlane(
+    credential,
     '/v1/marketplace/install-plan',
     {
       caller: { servicePrincipalId },
@@ -93,7 +121,7 @@ export async function proxyMarketplaceInstallPlan(
       payload,
       payloadHash: sha256(canonicalJson(payload)),
       requestId,
-      workspaceId: requiredControlPlaneWorkspaceId(),
+      workspaceId: credential.workspaceId,
     },
     requestId
   )
@@ -109,21 +137,26 @@ export async function proxyMarketplaceInstall(
     installationInstanceId?: string
     workspaceIdentity: Readonly<{ userId: string; workspaceId: string }>
   }>,
-  inbound: InboundCorrelation = {}
+  inbound: InboundCorrelation = {},
+  dependencies: MarketplaceProxyDependencies = {}
 ): Promise<Response> {
+  const credential = await marketplaceCredential('marketplace:install', dependencies)
   const requestId = inbound.requestId ?? identifier('req')
   const traceId = inbound.traceId ?? identifier('trc')
   const commandId = identifier('cmd')
   // Installations are tracked under the authenticated scope, so the identity
-  // in the payload names the same workspace as the envelope.
+  // in the payload names the same workspace as the envelope. The Control
+  // Plane keys idempotency by (envelope workspace, key), so a scoped request
+  // already replays only within its own workspace.
   const payload = {
     ...input,
     workspaceIdentity: {
       userId: input.workspaceIdentity.userId,
-      workspaceId: requiredControlPlaneWorkspaceId(),
+      workspaceId: credential.workspaceId,
     },
   }
   return proxyControlPlane(
+    credential,
     '/v1/marketplace/install',
     {
       caller: { servicePrincipalId },
@@ -136,28 +169,40 @@ export async function proxyMarketplaceInstall(
       payload,
       payloadHash: sha256(canonicalJson(payload)),
       requestId,
-      workspaceId: requiredControlPlaneWorkspaceId(),
+      workspaceId: credential.workspaceId,
     },
     requestId
   )
 }
 
-function requiredControlPlaneWorkspaceId(): string {
-  const value = process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID?.trim()
-  if (!value || !/^wsp_[0-9A-HJKMNP-TV-Z]{26}$/u.test(value)) {
+/**
+ * The credential for one marketplace hop: a per-request signed JWT for the
+ * active workspace's mapped scope, or — until the signing key is provisioned
+ * — the static token and its single configured workspace, unchanged.
+ */
+async function marketplaceCredential(
+  scope: ControlPlaneServiceScope,
+  dependencies: MarketplaceProxyDependencies
+): Promise<ControlPlaneCredential> {
+  try {
+    return await controlPlaneCredential({
+      resolveScope: dependencies.resolveControlPlaneScope,
+      scopes: [scope],
+    })
+  } catch {
     throw new MarketplaceProxyError('CONTROL_PLANE_UNAVAILABLE', 'Control Plane is not configured')
   }
-  return value
 }
 
 async function proxyControlPlane(
+  credential: ControlPlaneCredential,
   path: string,
   body: Record<string, unknown>,
   requestId: string,
   options: Readonly<{ streamThrough?: boolean }> = {}
 ): Promise<Response> {
   const origin = process.env.CONTROL_PLANE_ORIGIN?.trim()
-  const token = process.env.CONTROL_PLANE_SERVICE_TOKEN?.trim()
+  const token = credential.token
   if (!origin || !token)
     throw new MarketplaceProxyError('CONTROL_PLANE_UNAVAILABLE', 'Control Plane is not configured')
   let url: URL

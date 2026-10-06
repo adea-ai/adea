@@ -2,6 +2,7 @@ import type { ProjectSourceKind, ProjectSummary, UserPrincipalRef } from '@adea-
 import { and, asc, eq, inArray, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { mintControlPlaneIdentifier } from './control-plane-identifiers'
 import { provisionPrimaryProjectChannelInTransaction } from './conversations'
 import {
   canReadProject,
@@ -125,6 +126,7 @@ export async function createProject(
       .insert(projects)
       .values({
         ...(input.id ? { id: input.id } : {}),
+        controlPlaneProjectId: mintControlPlaneIdentifier('prj'),
         iconKey,
         name,
         sortOrder: (position?.value ?? -1) + 1,

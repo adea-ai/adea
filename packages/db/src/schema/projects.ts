@@ -1,7 +1,12 @@
 import { sql } from 'drizzle-orm'
 import { check, index, integer, text, unique, uuid } from 'drizzle-orm/pg-core'
 
-import { entityId, softDeleteColumns, timestampColumns } from './conventions'
+import {
+  controlPlaneIdentifierColumn,
+  entityId,
+  softDeleteColumns,
+  timestampColumns,
+} from './conventions'
 import { users } from './identity'
 import { appSchema } from './schema'
 import { workspaces } from './workspaces'
@@ -39,10 +44,17 @@ export const projects = appSchema.table(
     sortOrder: integer('sort_order').default(0).notNull(),
     lifecycleState: projectLifecycleState('lifecycle_state').default('active').notNull(),
     visibility: projectVisibility('visibility').default('workspace').notNull(),
+    /** The Control Plane project scope (`prj_…`, ADR 0013); never reused. */
+    controlPlaneProjectId: controlPlaneIdentifierColumn('control_plane_project_id', 'prj'),
     ...timestampColumns(),
     ...softDeleteColumns(),
   },
   (table) => [
+    unique('projects_control_plane_project_id_unique').on(table.controlPlaneProjectId),
+    check(
+      'projects_control_plane_project_id_valid',
+      sql`${table.controlPlaneProjectId} ~ '^prj_[0-9A-HJKMNP-TV-Z]{26}$'`
+    ),
     check('projects_name_nonempty', sql`length(btrim(${table.name})) > 0`),
     check('projects_icon_key_nonempty', sql`length(btrim(${table.iconKey})) > 0`),
     check('projects_sort_order_nonnegative', sql`${table.sortOrder} >= 0`),
