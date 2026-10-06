@@ -80,7 +80,18 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // modules replace the retired Dev sidebar shell and add-project panel.
   // Raw moves to 2,815,000 (~1.0% headroom); gzip holds (~1.4%); file count
   // moves to the next 5-file step (145).
-  total: { rawBytes: 2_815_000, gzipBytes: 840 * 1024, fileCount: 145 },
+  // Sidebar bundle trim (2026-10-06), measured against the same build of
+  // main (51a0d9a37): main itself measures 2,859,277 raw / 867,923 gzip /
+  // 145 files — over both byte caps, because the machine-wide resources
+  // sheet (#1067) landed after the #1065 re-baseline without re-running
+  // this gate, and at the file cap. This change takes it to 2,854,705 /
+  // 866,964 / 146 (−4,572 / −959): the Dev entry no longer ships the
+  // DEV-only fixture workspace or the barrel's unused exports, and the inline
+  // workspace-create row moves into its own lazy chunk (+1 file). The byte
+  // caps move up to cover what main already ships, not this change: raw to
+  // 2,880,000 (~0.9% headroom), gzip to 855 KiB (~1.0%); file count moves to
+  // the next 5-file step (150).
+  total: { rawBytes: 2_880_000, gzipBytes: 855 * 1024, fileCount: 150 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -102,7 +113,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Badge, Input and typography composites, and the workspace identity
     // mark join the route; the Share host stays a lazy edge. Raw ratchets to
     // 124 KiB (~2.4% headroom); gzip to 42 KiB (~2.5%).
-    virtual: { rawBytes: 124 * 1024, gzipBytes: 42 * 1024 },
+    // Sidebar bundle trim (2026-10-06): 112,385 raw / 37,459 gzip across 14
+    // files against the same build of main's 116,663 / 39,232 / 16. The
+    // inline workspace-create row and the shared Input/form-field chunks it
+    // alone pulled into this route now load when "New workspace" is hovered,
+    // focused or clicked. Raw ratchets down to 111 KiB (~1.1% headroom);
+    // gzip to 37 KiB (~1.1%).
+    virtual: { rawBytes: 111 * 1024, gzipBytes: 37 * 1024 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and
@@ -140,7 +157,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // (the views share the chunk, so a Chat-then-Virtual journey pays it
     // once). Raw ratchets to 300 KiB (~0.9% headroom) and gzip to 100 KiB
     // (~2%).
-    chat: { rawBytes: 300 * 1024, gzipBytes: 100 * 1024 },
+    // Sidebar bundle trim (2026-10-06): 296,246 raw / 97,633 gzip against the
+    // same build of main's 297,244 / 97,895. Chat's own entry still imports the
+    // shared Input, so only the workspace-create row itself leaves the route.
+    // Raw ratchets down to 294 KiB (~1.6% headroom); gzip to 97 KiB (~1.7%).
+    chat: { rawBytes: 294 * 1024, gzipBytes: 97 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
@@ -197,7 +218,14 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // entry), and the shared Input/FormField and the activity sets leaf status
     // reuses. The retired Dev sidebar shell and StatusChip leave the route.
     // Raw ratchets to 182 KiB (~1.5% headroom); gzip to 62 KiB (~1.7%).
-    devShell: { rawBytes: 182 * 1024, gzipBytes: 62 * 1024 },
+    // Sidebar bundle trim (2026-10-06): 173,768 raw / 59,026 gzip across 27
+    // files against the same build of main's 183,435 / 62,366 / 29. The lazy
+    // Dev loader names the exports it reads (a namespace preload had kept
+    // every `@adea-ai/dev-view` barrel export, the DEV-only fixture workspace
+    // among them), and the workspace-create row and its Input/form-field
+    // chunks leave the route. Raw ratchets down to 173 KiB (~1.9% headroom);
+    // gzip to 59 KiB (~2.4%).
+    devShell: { rawBytes: 173 * 1024, gzipBytes: 59 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested
@@ -251,11 +279,20 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the shell's sidebar modules, partly offset by a smaller command chunk
     // split on this route). Raw ratchets to 888 KiB (~0.8% headroom); gzip
     // to 234 KiB (~0.6%).
+    // Main then measured 911,248 raw / 240,075 gzip (51a0d9a37) — over both
+    // caps after the resources sheet (#1067). The sidebar bundle trim
+    // (2026-10-06) brings the route to 904,867 / 238,237 with the Dev-shell
+    // savings above (the terminal pane keeps its own Input import). Both caps
+    // hold.
     devTerminal: { rawBytes: 888 * 1024, gzipBytes: 234 * 1024 },
     // Same delta on the editor route (2026-10-06, ADR 0011 PR 10b): 541,499
     // raw / 171,081 gzip against its base build's 490,226 / 154,545. Raw
     // ratchets to 532 KiB (~0.6% headroom); gzip to 168 KiB (~0.6%).
-    devEditor: { rawBytes: 532 * 1024, gzipBytes: 168 * 1024 },
+    // Sidebar bundle trim (2026-10-06): 532,750 raw / 167,820 gzip against
+    // the same build of main's 542,417 / 171,160 — the Dev-shell savings.
+    // Raw ratchets down to 525 KiB (~0.9% headroom, the terminal route's
+    // ratio); gzip to 166 KiB (~1.3%).
+    devEditor: { rawBytes: 525 * 1024, gzipBytes: 166 * 1024 },
   },
 }
 

@@ -33,11 +33,13 @@ if (
   !renderedModules.every((id) => typeof id === 'string' && modules.includes(id))
 )
   throw new Error('Missing or invalid rendered client module evidence')
-const fixtureModules = renderedModules.filter((id) =>
-  id.endsWith('/packages/dev-view/src/terminal/fixture-terminal-pane.tsx')
+const fixtureModules = renderedModules.filter(
+  (id) =>
+    id.endsWith('/packages/dev-view/src/terminal/fixture-terminal-pane.tsx') ||
+    id.endsWith('/packages/dev-view/src/sidebar/fixture-scale.ts')
 )
 if (fixtureModules.length)
-  throw new Error(`Test terminal fixture in production output: ${fixtureModules.join(', ')}`)
+  throw new Error(`Dev View test fixture in production output: ${fixtureModules.join(', ')}`)
 const desktopOnlyWorkspaceModules = renderedModules.filter(desktopOnlyClientModule)
 if (desktopOnlyWorkspaceModules.length)
   throw new Error(`Desktop-only workspace in web output: ${desktopOnlyWorkspaceModules.join(', ')}`)
