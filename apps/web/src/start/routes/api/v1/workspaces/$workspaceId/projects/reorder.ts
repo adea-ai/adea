@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../server/request-scope'
-import { reorderRooms } from '@adea-ai/db'
+import { reorderProjects } from '@adea-ai/db'
 
 import { applicationDatabase } from '../../../../../../../server/database'
 import {
@@ -32,20 +32,20 @@ async function post(request: Request, { params }: { params: { workspaceId: strin
   } catch {
     return workspaceInvalidRequestResponse(request)
   }
-  const roomIds = (body as Record<string, unknown>).roomIds
-  if (!Array.isArray(roomIds) || roomIds.some((id) => typeof id !== 'string' || !id.trim())) {
+  const projectIds = (body as Record<string, unknown>).projectIds
+  if (!Array.isArray(projectIds) || projectIds.some((id) => typeof id !== 'string' || !id.trim())) {
     return workspaceInvalidRequestResponse(request)
   }
   try {
-    const rooms = await reorderRooms(
+    const projects = await reorderProjects(
       applicationDatabase(),
       workspaceId,
       resolution.principal,
-      roomIds
+      projectIds
     )
-    return workspaceJsonResponse(rooms, resolution, request)
+    return workspaceJsonResponse(projects, resolution, request)
   } catch (error) {
-    if (error instanceof Error && error.message === 'Room order conflict') {
+    if (error instanceof Error && error.message === 'Project order conflict') {
       return workspaceInvalidRequestResponse(request)
     }
     throw error
@@ -55,7 +55,7 @@ async function post(request: Request, { params }: { params: { workspaceId: strin
 function options(request: Request) {
   return handleDesktopWorkspacePreflight(request)
 }
-export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/rooms/reorder')({
+export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/projects/reorder')({
   server: {
     handlers: {
       POST: ({ request, params }) => withRequestScope(() => post(request, { params })),

@@ -6,7 +6,7 @@ import { agents } from './agents'
 import { contentRefs } from './content-refs'
 import { entityId, timestampColumns } from './conventions'
 import { users } from './identity'
-import { rooms } from './rooms'
+import { projects } from './projects'
 import { runtimeNodes } from './runtime-nodes'
 import { appSchema } from './schema'
 import { workspaces } from './workspaces'
@@ -34,7 +34,7 @@ export const tasks = appSchema.table(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
-    roomId: uuid('room_id').references(() => rooms.id, { onDelete: 'set null' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     objective: text('objective'),
     objectiveContentRefId: uuid('objective_content_ref_id').references(() => contentRefs.id, {
@@ -69,7 +69,7 @@ export const tasks = appSchema.table(
       table.createdAt
     ),
     index('tasks_workspace_agent_idx').on(table.workspaceId, table.agentId),
-    index('tasks_workspace_room_idx').on(table.workspaceId, table.roomId),
+    index('tasks_workspace_project_idx').on(table.workspaceId, table.projectId),
     index('tasks_conversation_idx').on(table.workspaceId, table.channelId, table.messageId),
   ]
 )

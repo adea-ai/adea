@@ -4,7 +4,7 @@ import { and, asc, eq, ilike, inArray, isNotNull, isNull, or } from 'drizzle-orm
 import type { AgentHqDatabase } from './connection'
 import { listAccessibleChannelIds } from './read-state'
 import { searchPageWindow } from './search-paging'
-import { agents, artifacts, channels, messages, rooms, tasks } from './schema'
+import { agents, artifacts, channels, messages, projects, tasks } from './schema'
 
 function pattern(query: string) {
   return `%${query.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
@@ -49,26 +49,26 @@ export async function searchWorkspaceForUser(
   const scopedChannelIds = options.channelId ? [options.channelId] : allowedChannelIds
   const like = pattern(normalized)
 
-  const [roomRows, channelRows, agentRows, taskRows, artifactRows, messageRows, privateRows] =
+  const [projectRows, channelRows, agentRows, taskRows, artifactRows, messageRows, privateRows] =
     await Promise.all([
       options.channelId
         ? Promise.resolve([])
         : database
-            .select({ id: rooms.id, label: rooms.name })
-            .from(rooms)
+            .select({ id: projects.id, label: projects.name })
+            .from(projects)
             .where(
               and(
-                eq(rooms.workspaceId, workspaceId),
-                eq(rooms.lifecycleState, 'active'),
-                or(ilike(rooms.name, like), ilike(rooms.functionKey, like))
+                eq(projects.workspaceId, workspaceId),
+                eq(projects.lifecycleState, 'active'),
+                or(ilike(projects.name, like), ilike(projects.iconKey, like))
               )
             )
-            .orderBy(asc(rooms.name), asc(rooms.id))
+            .orderBy(asc(projects.name), asc(projects.id))
             .limit(candidateLimit),
       options.channelId || !allowedChannelIds.length
         ? Promise.resolve([])
         : database
-            .select({ id: channels.id, label: channels.title, roomId: channels.roomId })
+            .select({ id: channels.id, label: channels.title, projectId: channels.projectId })
             .from(channels)
             .where(
               and(
@@ -101,7 +101,7 @@ export async function searchWorkspaceForUser(
               id: tasks.id,
               label: tasks.title,
               objective: tasks.objective,
-              roomId: tasks.roomId,
+              projectId: tasks.projectId,
             })
             .from(tasks)
             .where(
@@ -139,7 +139,7 @@ export async function searchWorkspaceForUser(
               channelId: messages.channelId,
               channelTitle: channels.title,
               id: messages.id,
-              roomId: channels.roomId,
+              projectId: channels.projectId,
               taskId: messages.taskId,
               threadRootMessageId: messages.threadRootMessageId,
             })
@@ -173,19 +173,19 @@ export async function searchWorkspaceForUser(
     ])
 
   const results: WorkspaceSearchResult[] = [
-    ...roomRows.map((row) => ({
+    ...projectRows.map((row) => ({
       id: row.id,
-      kind: 'room' as const,
+      kind: 'project' as const,
       label: row.label,
-      secondary: 'Room',
+      secondary: 'Project',
       workspaceId,
     })),
     ...channelRows.map((row) => ({
       id: row.id,
       kind: 'channel' as const,
       label: row.label,
-      ...(row.roomId ? { roomId: row.roomId } : {}),
-      secondary: row.roomId ? 'Room conversation' : 'Conversation',
+      ...(row.projectId ? { projectId: row.projectId } : {}),
+      secondary: row.projectId ? 'Project conversation' : 'Conversation',
       workspaceId,
     })),
     ...agentRows.map((row) => ({
@@ -200,7 +200,7 @@ export async function searchWorkspaceForUser(
       id: row.id,
       kind: 'task' as const,
       label: row.label,
-      ...(row.roomId ? { roomId: row.roomId } : {}),
+      ...(row.projectId ? { projectId: row.projectId } : {}),
       secondary: row.objective ? snippet(row.objective, normalized) : 'Private objective',
       taskId: row.id,
       workspaceId,
@@ -219,7 +219,7 @@ export async function searchWorkspaceForUser(
       kind: 'message' as const,
       label: snippet(row.bodyText!, normalized),
       messageId: row.id,
-      ...(row.roomId ? { roomId: row.roomId } : {}),
+      ...(row.projectId ? { projectId: row.projectId } : {}),
       secondary: `${row.channelTitle} · ${row.threadRootMessageId ? 'Thread reply' : 'Message'}`,
       ...(row.taskId ? { taskId: row.taskId } : {}),
       ...(row.threadRootMessageId ? { threadRootMessageId: row.threadRootMessageId } : {}),

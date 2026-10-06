@@ -6,24 +6,24 @@ import { Input } from '@adea-ai/ui/components/ui/input'
 import { createSignal, For, Show } from 'solid-js'
 
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
-import { RoomIcon } from './room-icon'
+import { ProjectIcon } from './project-icon'
 
-const roomTemplates: readonly Readonly<{ functionKey: string; name: string }>[] = [
-  { functionKey: 'study', name: 'Study' },
-  { functionKey: 'kitchen', name: 'Kitchen' },
-  { functionKey: 'travel', name: 'Travel' },
-  { functionKey: 'engineering', name: 'Engineering' },
-  { functionKey: 'marketing', name: 'Marketing' },
-  { functionKey: 'operations', name: 'Operations' },
-  { functionKey: 'gym', name: 'Gym' },
-  { functionKey: 'music', name: 'Music' },
-  { functionKey: 'garden', name: 'Garden' },
+const projectTemplates: readonly Readonly<{ iconKey: string; name: string }>[] = [
+  { iconKey: 'study', name: 'Study' },
+  { iconKey: 'kitchen', name: 'Kitchen' },
+  { iconKey: 'travel', name: 'Travel' },
+  { iconKey: 'engineering', name: 'Engineering' },
+  { iconKey: 'marketing', name: 'Marketing' },
+  { iconKey: 'operations', name: 'Operations' },
+  { iconKey: 'gym', name: 'Gym' },
+  { iconKey: 'music', name: 'Music' },
+  { iconKey: 'garden', name: 'Garden' },
 ]
 
-export function CreateRoomDialog(props: {
+export function CreateProjectDialog(props: {
   busy: boolean
   onClose: () => void
-  onCreate: (input: Readonly<{ functionKey: string; name: string }>) => Promise<void>
+  onCreate: (input: Readonly<{ iconKey: string; name: string }>) => Promise<void>
   open: boolean
   template: WorkspaceSceneId
 }) {
@@ -34,25 +34,28 @@ export function CreateRoomDialog(props: {
       class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
-      title="Create Room"
-      description="Rooms are the primary functional contexts in Adea."
+      title="Create Project"
+      description="Projects hold the work, Agents, Tasks and conversations of one effort. A repository is optional."
     >
-      <div class="conventional-template-options" aria-label={`${props.template} Room suggestions`}>
-        <For each={roomTemplates}>
-          {(room) => (
+      <div
+        class="conventional-template-options"
+        aria-label={`${props.template} Project suggestions`}
+      >
+        <For each={projectTemplates}>
+          {(project) => (
             <Button
               type="button"
               variant="outline"
               disabled={props.busy}
               onClick={() =>
                 void props
-                  .onCreate(room)
+                  .onCreate(project)
                   .then(() => props.onClose())
-                  .catch(() => setError('Room could not be created.'))
+                  .catch(() => setError('Project could not be created.'))
               }
             >
-              <RoomIcon functionKey={room.functionKey} />
-              <strong>{room.name}</strong>
+              <ProjectIcon iconKey={project.iconKey} />
+              <strong>{project.name}</strong>
             </Button>
           )}
         </For>
@@ -63,21 +66,21 @@ export function CreateRoomDialog(props: {
           event.preventDefault()
           const form = new FormData(event.currentTarget)
           void props
-            .onCreate(roomFormInputFromForm(form))
+            .onCreate(projectFormInputFromForm(form))
             .then(() => props.onClose())
-            .catch(() => setError('Room could not be created. Check the fields and retry.'))
+            .catch(() => setError('Project could not be created. Check the fields and retry.'))
         }}
       >
         <div class="flex flex-col gap-5">
           <div class="flex flex-col gap-2">
-            <Label for="room-name">Room name</Label>
-            <Input id="room-name" name="name" required maxLength={120} />
+            <Label for="project-name">Project name</Label>
+            <Input id="project-name" name="name" required maxLength={120} />
           </div>
           <div class="flex flex-col gap-2">
-            <Label for="room-function-key">Function key</Label>
+            <Label for="project-icon-key">Icon key</Label>
             <Input
-              id="room-function-key"
-              name="functionKey"
+              id="project-icon-key"
+              name="iconKey"
               required
               pattern={'[a-z0-9\\-]+'}
               maxLength={80}
@@ -92,14 +95,14 @@ export function CreateRoomDialog(props: {
           )}
         </Show>
         <Button type="submit" disabled={props.busy}>
-          {props.busy ? 'Creating…' : 'Create Room'}
+          {props.busy ? 'Creating…' : 'Create Project'}
         </Button>
       </form>
     </ModalDialog>
   )
 }
 
-export const roomFunctionKeySuggestions = [
+export const projectIconKeySuggestions = [
   'study',
   'kitchen',
   'travel',
@@ -108,23 +111,23 @@ export const roomFunctionKeySuggestions = [
   'operations',
 ] as const
 
-export function roomFormInputFromForm(
+export function projectFormInputFromForm(
   form: FormData
-): Readonly<{ functionKey: string; name: string }> {
+): Readonly<{ iconKey: string; name: string }> {
   return {
-    functionKey: String(form.get('functionKey') ?? ''),
+    iconKey: String(form.get('iconKey') ?? ''),
     name: String(form.get('name') ?? ''),
   }
 }
 
-export function EditRoomDialog(props: {
+export function EditProjectDialog(props: {
   busy: boolean
-  initialFunctionKey: string
+  initialIconKey: string
   initialName: string
   onClose: () => void
-  onSave: (input: Readonly<{ functionKey: string; name: string }>) => Promise<void>
+  onSave: (input: Readonly<{ iconKey: string; name: string }>) => Promise<void>
   open: boolean
-  roomName: string
+  projectName: string
 }) {
   const [error, setError] = createSignal<string | null>(null)
   return (
@@ -133,8 +136,8 @@ export function EditRoomDialog(props: {
       class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
-      title={`Edit ${props.roomName}`}
-      description="Rename the Room or change its function key to update its sidebar icon."
+      title={`Edit ${props.projectName}`}
+      description="Rename the Project or change its icon key to update its sidebar icon."
     >
       <form
         class="conventional-dialog-form"
@@ -143,16 +146,16 @@ export function EditRoomDialog(props: {
           const form = new FormData(event.currentTarget)
           setError(null)
           void props
-            .onSave(roomFormInputFromForm(form))
+            .onSave(projectFormInputFromForm(form))
             .then(() => props.onClose())
-            .catch(() => setError('Room could not be updated. Check the fields and retry.'))
+            .catch(() => setError('Project could not be updated. Check the fields and retry.'))
         }}
       >
         <div class="flex flex-col gap-5">
           <div class="flex flex-col gap-2">
-            <Label for="edit-room-name">Room name</Label>
+            <Label for="edit-project-name">Project name</Label>
             <Input
-              id="edit-room-name"
+              id="edit-project-name"
               name="name"
               required
               maxLength={120}
@@ -160,15 +163,15 @@ export function EditRoomDialog(props: {
             />
           </div>
           <div class="flex flex-col gap-2">
-            <Label for="edit-room-function-key">Function key</Label>
+            <Label for="edit-project-icon-key">Icon key</Label>
             <Input
-              id="edit-room-function-key"
-              name="functionKey"
+              id="edit-project-icon-key"
+              name="iconKey"
               required
               pattern={'[a-z0-9\\-]+'}
               maxLength={80}
-              value={props.initialFunctionKey}
-              suggestions={roomFunctionKeySuggestions}
+              value={props.initialIconKey}
+              suggestions={projectIconKeySuggestions}
             />
           </div>
         </div>
@@ -256,7 +259,7 @@ export function CreateGroupDialog(props: {
       open={props.open}
       onClose={props.onClose}
       title="New group conversation"
-      description="A durable conversation for users and multiple Agents, without requiring a Room."
+      description="A durable conversation for users and multiple Agents, without requiring a Project."
     >
       <form
         class="conventional-dialog-form"

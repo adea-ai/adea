@@ -13,7 +13,7 @@ refetch remounts every row. Open menus close, focus and hover state drop, images
 reload, and the whole subtree's DOM is rebuilt.
 
 - Use `keyedRows` (`packages/workspace-ui/src/keyed-rows.ts`) for any list whose
-  items arrive from the server: the transcript, thread replies, the room and
+  items arrive from the server: the transcript, thread replies, the project and
   channel sidebar, task board columns, the agent roster, plugin groups.
 - Pass an `equals` comparator over the item's `version`/`updatedAt` stamps so
   unchanged rows skip downstream updates entirely. Every `*Summary` type carries

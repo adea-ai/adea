@@ -28,7 +28,7 @@ describe('Agent API client', () => {
       profileId: 'engineer',
       profileVersion: '1',
     })
-    await client.assignAgentToRoom('workspace-1', 'agent-1', 'room-1')
+    await client.assignAgentToProject('workspace-1', 'agent-1', 'project-1')
     await client.updateAgentPresentation('workspace-1', 'agent-1', { avatarRef: 'avatar:ada' })
     await client.changeAgentProfile('workspace-1', 'agent-1', {
       profileId: 'engineer',
@@ -39,7 +39,7 @@ describe('Agent API client', () => {
     expect(requests.map((request) => [request.method, new URL(request.url).pathname])).toEqual([
       ['GET', '/api/v1/workspaces/workspace-1/agents'],
       ['POST', '/api/v1/workspaces/workspace-1/agents'],
-      ['POST', '/api/v1/workspaces/workspace-1/agents/agent-1/room'],
+      ['POST', '/api/v1/workspaces/workspace-1/agents/agent-1/project'],
       ['PATCH', '/api/v1/workspaces/workspace-1/agents/agent-1/presentation'],
       ['POST', '/api/v1/workspaces/workspace-1/agents/agent-1/profile'],
       ['DELETE', '/api/v1/workspaces/workspace-1/agents/agent-1'],

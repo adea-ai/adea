@@ -29,7 +29,7 @@ export {
 } from './runtime-nodes'
 export { authIdentities, temporaryUserSessions, users } from './identity'
 export { desktopAuthorizationCodes, desktopSessions } from './desktop-auth'
-export { roomLifecycleState, rooms } from './rooms'
+export { projectLifecycleState, projects } from './projects'
 export { agentLifecycleState, agentProfileState, agents } from './agents'
 export {
   contentAvailability,

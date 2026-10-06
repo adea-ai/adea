@@ -13,7 +13,7 @@ import {
   markChannelReadState,
   markThreadReadState,
 } from '../../src/read-state'
-import { createRoom } from '../../src/rooms'
+import { createProject } from '../../src/projects'
 import { searchWorkspaceForUser } from '../../src/search'
 import {
   agents,
@@ -25,7 +25,7 @@ import {
   messageArtifactReferences,
   messageMentions,
   messages,
-  rooms,
+  projects,
   taskMutations,
   tasks,
   temporaryUserSessions,
@@ -61,8 +61,8 @@ describe.skipIf(!connectionUrl)('read state and workspace search', () => {
       name: 'Searchable HQ',
       owner: owner.principal,
     })
-    const room = await createRoom(connection.db, workspace.id, owner.principal, {
-      functionKey: 'research',
+    const project = await createProject(connection.db, workspace.id, owner.principal, {
+      iconKey: 'research',
       name: 'Research Lab',
     })
     const agent = await createAgent(connection.db, workspace.id, owner.principal, {
@@ -265,7 +265,7 @@ describe.skipIf(!connectionUrl)('read state and workspace search', () => {
         limit: 50,
       })
     ).toMatchObject({
-      results: expect.arrayContaining([expect.objectContaining({ id: room.id })]),
+      results: expect.arrayContaining([expect.objectContaining({ id: project.id })]),
     })
     expect(
       await searchWorkspaceForUser(connection.db, workspace.id, owner.principal, 'scout', {
@@ -296,7 +296,7 @@ describe.skipIf(!connectionUrl)('read state and workspace search', () => {
     await connection.db.delete(taskMutations).where(eq(taskMutations.workspaceId, workspace.id))
     await connection.db.delete(tasks).where(eq(tasks.workspaceId, workspace.id))
     await connection.db.delete(agents).where(eq(agents.workspaceId, workspace.id))
-    await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspace.id))
+    await connection.db.delete(projects).where(eq(projects.workspaceId, workspace.id))
     await connection.db.delete(workspaceEvents).where(eq(workspaceEvents.workspaceId, workspace.id))
     await connection.db
       .delete(workspaceMemberships)

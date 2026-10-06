@@ -21,7 +21,7 @@ import {
   messageArtifactReferences,
   messageMentions,
   messages,
-  rooms,
+  projects,
   tasks,
   workspaceMemberships,
 } from './schema'
@@ -82,20 +82,20 @@ async function requireMembership(
   if (!membership) throw new Error('Channel unavailable')
 }
 
-async function requireActiveRoom(database: Database, workspaceId: string, roomId: string) {
-  const [room] = await database
+async function requireActiveProject(database: Database, workspaceId: string, projectId: string) {
+  const [project] = await database
     .select()
-    .from(rooms)
+    .from(projects)
     .where(
       and(
-        eq(rooms.id, roomId),
-        eq(rooms.workspaceId, workspaceId),
-        eq(rooms.lifecycleState, 'active')
+        eq(projects.id, projectId),
+        eq(projects.workspaceId, workspaceId),
+        eq(projects.lifecycleState, 'active')
       )
     )
     .limit(1)
-  if (!room) throw new Error('Room unavailable')
-  return room
+  if (!project) throw new Error('Project unavailable')
+  return project
 }
 
 async function requireActiveAgent(database: Database, workspaceId: string, agentId: string) {
@@ -158,11 +158,11 @@ async function channelSummary(database: Database, row: ChannelRow): Promise<Chan
     ...(row.agentId ? { agentId: row.agentId } : {}),
     createdAt: row.createdAt.toISOString(),
     id: row.id,
-    isPrimaryRoomChannel: row.isPrimaryRoomChannel,
+    isPrimaryProjectChannel: row.isPrimaryProjectChannel,
     kind: row.kind,
     lifecycleState: row.lifecycleState,
     participants: Object.freeze(participants),
-    ...(row.roomId ? { roomId: row.roomId } : {}),
+    ...(row.projectId ? { projectId: row.projectId } : {}),
     sortOrder: row.sortOrder,
     ...(row.taskId ? { taskId: row.taskId } : {}),
     title: row.title,
@@ -242,22 +242,22 @@ async function findActiveDirectAgentChannel(
   return row ?? null
 }
 
-export async function provisionPrimaryRoomChannelInTransaction(
+export async function provisionPrimaryProjectChannelInTransaction(
   transaction: AgentHqTransaction,
   workspaceId: string,
-  roomId: string,
-  roomName: string
+  projectId: string,
+  projectName: string
 ): Promise<ChannelSummary> {
-  const idempotencyKey = `primary-room:${roomId}`
+  const idempotencyKey = `primary-project:${projectId}`
   const [created] = await transaction
     .insert(channels)
     .values({
       idempotencyKey,
-      isPrimaryRoomChannel: true,
-      kind: 'room',
-      roomId,
+      isPrimaryProjectChannel: true,
+      kind: 'project',
+      projectId,
       sortOrder: await nextChannelSortOrder(transaction, workspaceId),
-      title: roomName.trim(),
+      title: projectName.trim(),
       visibility: 'workspace',
       workspaceId,
     })
@@ -266,7 +266,7 @@ export async function provisionPrimaryRoomChannelInTransaction(
   if (created) {
     await appendWorkspaceEvent(transaction, {
       eventType: 'channel.created',
-      payload: { channelId: created.id, kind: 'room', roomId },
+      payload: { channelId: created.id, kind: 'project', projectId },
       workspaceId,
     })
     return channelSummary(transaction, created)
@@ -276,8 +276,8 @@ export async function provisionPrimaryRoomChannelInTransaction(
     .from(channels)
     .where(and(eq(channels.workspaceId, workspaceId), eq(channels.idempotencyKey, idempotencyKey)))
     .limit(1)
-  if (!existing || existing.kind !== 'room' || existing.roomId !== roomId)
-    throw new Error('Primary Room Channel conflict')
+  if (!existing || existing.kind !== 'project' || existing.projectId !== projectId)
+    throw new Error('Primary Project Channel conflict')
   if (existing.lifecycleState === 'archived') {
     const [restored] = await transaction
       .update(channels)
@@ -290,16 +290,21 @@ export async function provisionPrimaryRoomChannelInTransaction(
   return channelSummary(transaction, existing)
 }
 
-export async function provisionPrimaryRoomChannel(
+export async function provisionPrimaryProjectChannel(
   database: AgentHqDatabase,
   workspaceId: string,
-  roomId: string,
+  projectId: string,
   principal: UserPrincipalRef
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
-    const room = await requireActiveRoom(transaction, workspaceId, roomId)
-    return provisionPrimaryRoomChannelInTransaction(transaction, workspaceId, roomId, room.name)
+    const project = await requireActiveProject(transaction, workspaceId, projectId)
+    return provisionPrimaryProjectChannelInTransaction(
+      transaction,
+      workspaceId,
+      projectId,
+      project.name
+    )
   })
 }
 
@@ -310,8 +315,8 @@ async function createChannel(
   input: Readonly<{
     agentId?: string
     idempotencyKey: string
-    kind: 'room' | 'direct_agent' | 'group'
-    roomId?: string
+    kind: 'project' | 'direct_agent' | 'group'
+    projectId?: string
     taskId?: string
     title: string
     visibility: 'workspace' | 'participants'
@@ -319,7 +324,7 @@ async function createChannel(
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
-    if (input.roomId) await requireActiveRoom(transaction, workspaceId, input.roomId)
+    if (input.projectId) await requireActiveProject(transaction, workspaceId, input.projectId)
     if (input.agentId) await requireActiveAgent(transaction, workspaceId, input.agentId)
     if (input.taskId) {
       const [task] = await transaction
@@ -335,7 +340,7 @@ async function createChannel(
         agentId: input.agentId ?? null,
         idempotencyKey: input.idempotencyKey.trim(),
         kind: input.kind,
-        roomId: input.roomId ?? null,
+        projectId: input.projectId ?? null,
         sortOrder: await nextChannelSortOrder(transaction, workspaceId),
         taskId: input.taskId ?? null,
         title: input.title.trim(),
@@ -359,7 +364,7 @@ async function createChannel(
       if (
         !channel ||
         channel.kind !== input.kind ||
-        channel.roomId !== (input.roomId ?? null) ||
+        channel.projectId !== (input.projectId ?? null) ||
         channel.agentId !== (input.agentId ?? null) ||
         channel.taskId !== (input.taskId ?? null) ||
         channel.title !== input.title.trim() ||
@@ -397,17 +402,17 @@ async function createChannel(
   })
 }
 
-export const createRoomChannel = (
+export const createProjectChannel = (
   database: AgentHqDatabase,
   workspaceId: string,
-  roomId: string,
+  projectId: string,
   principal: UserPrincipalRef,
   input: Readonly<{ idempotencyKey: string; taskId?: string; title: string }>
 ) =>
   createChannel(database, workspaceId, principal, {
     ...input,
-    kind: 'room',
-    roomId,
+    kind: 'project',
+    projectId,
     visibility: 'workspace',
   })
 
@@ -567,13 +572,13 @@ export async function archiveChannel(
     await requireMembership(transaction, workspaceId, principal)
     const channel = await requireChannel(transaction, workspaceId, channelId)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
-    if (channel.isPrimaryRoomChannel && channel.roomId) {
-      const [room] = await transaction
-        .select({ lifecycleState: rooms.lifecycleState })
-        .from(rooms)
-        .where(and(eq(rooms.id, channel.roomId), eq(rooms.workspaceId, workspaceId)))
+    if (channel.isPrimaryProjectChannel && channel.projectId) {
+      const [project] = await transaction
+        .select({ lifecycleState: projects.lifecycleState })
+        .from(projects)
+        .where(and(eq(projects.id, channel.projectId), eq(projects.workspaceId, workspaceId)))
         .limit(1)
-      if (room?.lifecycleState === 'active') throw new Error('Primary Room Channel required')
+      if (project?.lifecycleState === 'active') throw new Error('Primary Project Channel required')
     }
     const [archived] = await transaction
       .update(channels)

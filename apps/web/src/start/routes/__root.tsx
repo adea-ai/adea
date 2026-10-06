@@ -39,7 +39,7 @@ export const Route = createRootRoute({
       { title: 'Adea' },
       {
         name: 'description',
-        content: 'A durable workspace for Rooms, Agents, Tasks, and conversations',
+        content: 'A durable workspace for Projects, Agents, Tasks, and conversations',
       },
       { name: 'robots', content: 'noindex, nofollow, noarchive' },
       { name: 'theme-color', media: '(prefers-color-scheme: light)', content: '#ffffff' },

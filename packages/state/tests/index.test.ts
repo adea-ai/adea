@@ -19,7 +19,7 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
     'cameraViewMode',
     'collapsedDevGroupIds',
     'collapsedDevProjectIds',
-    'collapsedRoomIds',
+    'collapsedProjectIds',
     'devFocusMode',
     'drafts',
     'globalPanel',
@@ -29,7 +29,7 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
     'selectedChannelId',
     'selectedDevPaneId',
     'selectedDevProjectId',
-    'selectedRoomId',
+    'selectedProjectId',
     'selectedRuntimeNodeId',
     'selectedRuntimeSessionId',
     'selectedTaskId',
@@ -44,7 +44,7 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
     'setSelectedChannelId',
     'setSelectedDevPaneId',
     'setSelectedDevProjectId',
-    'setSelectedRoomId',
+    'setSelectedProjectId',
     'setSelectedRuntimeNodeId',
     'setSelectedRuntimeSessionId',
     'setSelectedTaskId',
@@ -54,7 +54,7 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
     'threadRootMessageId',
     'toggleDevGroupCollapsed',
     'toggleDevProjectCollapsed',
-    'toggleRoomCollapsed',
+    'toggleProjectCollapsed',
   ])
 })
 
@@ -95,13 +95,13 @@ test('switchWorkspace starts a fresh workspace context', () => {
   workspaceStore.setState({
     activeSurface: 'tasks',
     cameraViewMode: 'perspective',
-    collapsedRoomIds: ['room-work'],
+    collapsedProjectIds: ['project-work'],
     drafts: { 'channel-work': 'unsent work' },
     globalPanel: 'plugins',
     mobileSidebarOpen: true,
     selectedAgentId: 'agent-work',
     selectedChannelId: 'channel-work',
-    selectedRoomId: 'room-work',
+    selectedProjectId: 'project-work',
     selectedTaskId: 'task-work',
     selectedWorkspaceId: 'workspace-work',
     selectedRuntimeNodeId: 'node-work',
@@ -119,7 +119,7 @@ test('switchWorkspace starts a fresh workspace context', () => {
   expect(workspaceStore.getState()).toMatchObject({
     activeSurface: 'conversation',
     cameraViewMode: 'orthographic',
-    collapsedRoomIds: [],
+    collapsedProjectIds: [],
     drafts: {},
     globalPanel: null,
     // The sidebar open/closed choice persists across workspace switches at
@@ -127,7 +127,7 @@ test('switchWorkspace starts a fresh workspace context', () => {
     mobileSidebarOpen: true,
     selectedAgentId: null,
     selectedChannelId: null,
-    selectedRoomId: null,
+    selectedProjectId: null,
     selectedTaskId: null,
     selectedWorkspaceId: 'workspace-home',
     selectedRuntimeNodeId: null,
@@ -144,7 +144,7 @@ test('switchWorkspace starts a fresh workspace context', () => {
 test('switchWorkspace preserves the Dev selection family when asked', () => {
   workspaceStore.setState({
     selectedWorkspaceId: 'workspace-work',
-    selectedRoomId: 'room-work',
+    selectedProjectId: 'project-work',
     selectedChannelId: 'channel-work',
     drafts: { 'channel-work': 'unsent work' },
     selectedDevProjectId: 'project-recovered',
@@ -162,7 +162,7 @@ test('switchWorkspace preserves the Dev selection family when asked', () => {
     selectedDevProjectId: 'project-recovered',
     selectedRuntimeSessionId: 'session-recovered',
     // Only the Dev selection family survives; the context reset still runs.
-    selectedRoomId: null,
+    selectedProjectId: null,
     selectedChannelId: null,
     drafts: {},
   })

@@ -11,7 +11,7 @@ import {
   createMessage,
   deleteMessage,
   editMessage,
-  provisionPrimaryRoomChannel,
+  provisionPrimaryProjectChannel,
 } from '../../src/conversations'
 import {
   assertCloudSafeEventPayload,
@@ -27,7 +27,7 @@ import {
   workspaceEventWindow,
 } from '../../src/event-log'
 import { createTemporaryUserSession } from '../../src/identity'
-import { createRoom } from '../../src/rooms'
+import { createProject } from '../../src/projects'
 import { workspaceEventDispatches } from '../../src/schema'
 import { appendWorkspaceEvent, inTransaction } from '../../src/transactions'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
@@ -68,21 +68,21 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
 
   test('commits the event, its sequence, and its publication record with the mutation', async () => {
     const { start, workspace } = await fixture('events-atomic')
-    const roomId = crypto.randomUUID()
+    const projectId = crypto.randomUUID()
 
     const committed = await inTransaction(connection.db, async (transaction) => {
       const event = await appendWorkspaceEvent(transaction, {
-        eventType: 'room.created',
-        payload: { actorUserId: null, roomId },
+        eventType: 'project.created',
+        payload: { actorUserId: null, projectId },
         workspaceId: workspace.id,
       })
       return event
     })
 
     expect(committed.workspaceSequence).toBe(start + 1)
-    expect(committed.schemaVersion).toBe(WORKSPACE_EVENT_CONTRACTS['room.created'].schemaVersion)
-    expect(committed.aggregateType).toBe('room')
-    expect(committed.aggregateId).toBe(roomId)
+    expect(committed.schemaVersion).toBe(WORKSPACE_EVENT_CONTRACTS['project.created'].schemaVersion)
+    expect(committed.aggregateType).toBe('project')
+    expect(committed.aggregateId).toBe(projectId)
 
     const [replayed] = await listWorkspaceEventsAfter(connection.db, workspace.id, start)
     expect(replayed?.eventId).toBe(committed.eventId)
@@ -95,13 +95,13 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
 
   test('a rolled-back mutation publishes no event and leaves no sequence gap', async () => {
     const { start, workspace } = await fixture('events-rollback')
-    const first = await append(workspace.id, 'room.created', { roomId: crypto.randomUUID() })
+    const first = await append(workspace.id, 'project.created', { projectId: crypto.randomUUID() })
 
     await expect(
       inTransaction(connection.db, async (transaction) => {
         await appendWorkspaceEvent(transaction, {
-          eventType: 'room.created',
-          payload: { roomId: crypto.randomUUID() },
+          eventType: 'project.created',
+          payload: { projectId: crypto.randomUUID() },
           workspaceId: workspace.id,
         })
         throw new Error('mutation failed after appending its event')
@@ -115,7 +115,7 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
     })
 
     // The next committed event continues the sequence: no phantom reservation.
-    const next = await append(workspace.id, 'room.created', { roomId: crypto.randomUUID() })
+    const next = await append(workspace.id, 'project.created', { projectId: crypto.randomUUID() })
     expect(next.workspaceSequence).toBe(first.workspaceSequence + 1)
   })
 
@@ -125,7 +125,7 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
 
     const written = await Promise.all(
       Array.from({ length: writers }, (_, index) =>
-        append(workspace.id, 'room.updated', { roomId: crypto.randomUUID(), index })
+        append(workspace.id, 'project.updated', { projectId: crypto.randomUUID(), index })
       )
     )
 
@@ -140,7 +140,7 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
   test('replays strictly after a cursor in sequence order and stops at the head', async () => {
     const { start, workspace } = await fixture('events-replay')
     for (let index = 0; index < 5; index += 1) {
-      await append(workspace.id, 'room.updated', { roomId: crypto.randomUUID(), index })
+      await append(workspace.id, 'project.updated', { projectId: crypto.randomUUID(), index })
     }
 
     const firstPage = await listWorkspaceEventsAfter(connection.db, workspace.id, start, 2)
@@ -178,7 +178,7 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
   test('retention prunes the oldest events and their publication records only', async () => {
     const { start, workspace } = await fixture('events-retention')
     for (let index = 0; index < 4; index += 1) {
-      await append(workspace.id, 'room.updated', { roomId: crypto.randomUUID(), index })
+      await append(workspace.id, 'project.updated', { projectId: crypto.randomUUID(), index })
     }
 
     const retainedFrom = start + 3
@@ -206,14 +206,14 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
 
   test('a lost wake-up never loses the durable event', async () => {
     const { start, workspace } = await fixture('events-wakeup')
-    const first = await append(workspace.id, 'room.created', { roomId: crypto.randomUUID() })
+    const first = await append(workspace.id, 'project.created', { projectId: crypto.randomUUID() })
     // Nothing marked the publication record: the wake-up was lost.
     expect((await pendingEventDispatches(connection.db, workspace.id)).at(-1)).toEqual({
       eventId: first.eventId,
       workspaceSequence: start + 1,
     })
 
-    const second = await append(workspace.id, 'room.updated', { roomId: crypto.randomUUID() })
+    const second = await append(workspace.id, 'project.updated', { projectId: crypto.randomUUID() })
     // Catch-up reads answer from the log regardless of the record's state.
     const replayed = await listWorkspaceEventsAfter(connection.db, workspace.id, start)
     expect(replayed.map((event) => event.eventId)).toEqual([first.eventId, second.eventId])
@@ -271,9 +271,9 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
   test('bounded payloads: an oversized event is refused', async () => {
     const { start, workspace } = await fixture('events-bounded')
     await expect(
-      append(workspace.id, 'room.updated', {
+      append(workspace.id, 'project.updated', {
         blob: 'x'.repeat(9 * 1024),
-        roomId: crypto.randomUUID(),
+        projectId: crypto.randomUUID(),
       })
     ).rejects.toThrow(/durable event budget/)
     expect(await countWorkspaceEvents(connection.db, workspace.id)).toBe(start)
@@ -281,14 +281,14 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
 
   test('conversation mutations emit cloud-safe create, update, and delete events', async () => {
     const { owner, workspace } = await fixture('events-conversation')
-    const room = await createRoom(connection.db, workspace.id, owner.principal, {
-      functionKey: 'engineering',
-      name: 'Event Room',
+    const project = await createProject(connection.db, workspace.id, owner.principal, {
+      iconKey: 'engineering',
+      name: 'Event Project',
     })
-    const channel = await provisionPrimaryRoomChannel(
+    const channel = await provisionPrimaryProjectChannel(
       connection.db,
       workspace.id,
-      room.id,
+      project.id,
       owner.principal
     )
 
@@ -321,13 +321,13 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
       expect(JSON.stringify(event.payload)).not.toContain('durable message body')
       expect(JSON.stringify(event.payload)).not.toContain('edited durable body')
     }
-    // Room and channel provisioning are visible in the same ordered log, in
+    // Project and channel provisioning are visible in the same ordered log, in
     // sequence order with no gaps.
     expect(events.map((event) => event.workspaceSequence)).toEqual(
       events.map((_, index) => index + 1)
     )
     expect(events.map((event) => event.eventType)).toEqual(
-      expect.arrayContaining(['workspace.created', 'room.created', 'channel.created'])
+      expect.arrayContaining(['workspace.created', 'project.created', 'channel.created'])
     )
   })
 

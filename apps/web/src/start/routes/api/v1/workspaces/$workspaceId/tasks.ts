@@ -68,7 +68,7 @@ async function post(request: Request, { params }: Context) {
     (candidate.priority !== undefined && !priorities.includes(candidate.priority as never)) ||
     (candidate.kind !== undefined && !kinds.includes(candidate.kind as never)) ||
     (candidate.agentId !== undefined && !isUuid(candidate.agentId)) ||
-    (candidate.roomId !== undefined && !isUuid(candidate.roomId)) ||
+    (candidate.projectId !== undefined && !isUuid(candidate.projectId)) ||
     (candidate.dependencyIds !== undefined &&
       (!Array.isArray(candidate.dependencyIds) ||
         candidate.dependencyIds.length > 64 ||

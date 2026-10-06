@@ -34,25 +34,26 @@ import { Route as ApiV1WorkspacesWorkspaceIdArtifactsRouteImport } from './route
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs'
 import { Route as ApiV1WorkspacesWorkspaceIdEventsRouteImport } from './routes/api/v1/workspaces/$workspaceId/events'
+import { Route as ApiV1WorkspacesWorkspaceIdProjectsRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state'
-import { Route as ApiV1WorkspacesWorkspaceIdRoomsRouteImport } from './routes/api/v1/workspaces/$workspaceId/rooms'
 import { Route as ApiV1WorkspacesWorkspaceIdSearchRouteImport } from './routes/api/v1/workspaces/$workspaceId/search'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs/$contentId'
 import { Route as ApiV1WorkspacesWorkspaceIdMessagesMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/messages/$messageId'
-import { Route as ApiV1WorkspacesWorkspaceIdRoomsRoomIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/rooms/$roomId'
-import { Route as ApiV1WorkspacesWorkspaceIdRoomsReorderRouteImport } from './routes/api/v1/workspaces/$workspaceId/rooms/reorder'
+import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId'
+import { Route as ApiV1WorkspacesWorkspaceIdProjectsReorderRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/reorder'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/index'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
-import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/room'
+import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/project'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
+import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
@@ -66,9 +67,9 @@ import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdCancelRouteImport } from 
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdCompleteRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/complete'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdConversationRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/conversation'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdDependenciesRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/dependencies'
+import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/project'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
-import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/room'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
 
 const IndexRoute = IndexRouteImport.update({
@@ -205,16 +206,16 @@ const ApiV1WorkspacesWorkspaceIdEventsRoute =
     path: '/api/v1/workspaces/$workspaceId/events',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiV1WorkspacesWorkspaceIdProjectsRoute =
+  ApiV1WorkspacesWorkspaceIdProjectsRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/projects',
+    path: '/api/v1/workspaces/$workspaceId/projects',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdReadStateRoute =
   ApiV1WorkspacesWorkspaceIdReadStateRouteImport.update({
     id: '/api/v1/workspaces/$workspaceId/read-state',
     path: '/api/v1/workspaces/$workspaceId/read-state',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiV1WorkspacesWorkspaceIdRoomsRoute =
-  ApiV1WorkspacesWorkspaceIdRoomsRouteImport.update({
-    id: '/api/v1/workspaces/$workspaceId/rooms',
-    path: '/api/v1/workspaces/$workspaceId/rooms',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiV1WorkspacesWorkspaceIdSearchRoute =
@@ -253,17 +254,17 @@ const ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute =
     path: '/api/v1/workspaces/$workspaceId/messages/$messageId',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute =
-  ApiV1WorkspacesWorkspaceIdRoomsRoomIdRouteImport.update({
-    id: '/$roomId',
-    path: '/$roomId',
-    getParentRoute: () => ApiV1WorkspacesWorkspaceIdRoomsRoute,
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute =
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteImport.update({
+    id: '/$projectId',
+    path: '/$projectId',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsRoute,
   } as any)
-const ApiV1WorkspacesWorkspaceIdRoomsReorderRoute =
-  ApiV1WorkspacesWorkspaceIdRoomsReorderRouteImport.update({
+const ApiV1WorkspacesWorkspaceIdProjectsReorderRoute =
+  ApiV1WorkspacesWorkspaceIdProjectsReorderRouteImport.update({
     id: '/reorder',
     path: '/reorder',
-    getParentRoute: () => ApiV1WorkspacesWorkspaceIdRoomsRoute,
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsRoute,
   } as any)
 const ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute =
   ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRouteImport.update({
@@ -295,10 +296,10 @@ const ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute =
     path: '/profile',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute,
   } as any)
-const ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute =
-  ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRouteImport.update({
-    id: '/room',
-    path: '/room',
+const ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute =
+  ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRouteImport.update({
+    id: '/project',
+    path: '/project',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute,
   } as any)
 const ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute =
@@ -318,6 +319,12 @@ const ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute =
     id: '/replicas',
     path: '/replicas',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdContentRefsContentIdRoute,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute =
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRouteImport.update({
+    id: '/delete',
+    path: '/delete',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute,
   } as any)
 const ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute =
   ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRouteImport.update({
@@ -401,6 +408,12 @@ const ApiV1WorkspacesWorkspaceIdTasksTaskIdDependenciesRoute =
     path: '/dependencies',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRoute =
+  ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRouteImport.update({
+    id: '/project',
+    path: '/project',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute =
   ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRouteImport.update({
     id: '/queue',
@@ -411,12 +424,6 @@ const ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute =
   ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRouteImport.update({
     id: '/review',
     path: '/review',
-    getParentRoute: () => ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute,
-  } as any)
-const ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRoute =
-  ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRouteImport.update({
-    id: '/room',
-    path: '/room',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute,
   } as any)
 const ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute =
@@ -452,25 +459,26 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
+  '/api/v1/workspaces/$workspaceId/projects': typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
-  '/api/v1/workspaces/$workspaceId/rooms': typeof ApiV1WorkspacesWorkspaceIdRoomsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
-  '/api/v1/workspaces/$workspaceId/rooms/$roomId': typeof ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute
-  '/api/v1/workspaces/$workspaceId/rooms/reorder': typeof ApiV1WorkspacesWorkspaceIdRoomsReorderRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/reorder': typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/runtime-nodes/': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
-  '/api/v1/workspaces/$workspaceId/agents/$agentId/room': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute
+  '/api/v1/workspaces/$workspaceId/agents/$agentId/project': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
@@ -484,9 +492,9 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/complete': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdCompleteRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/conversation': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdConversationRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/dependencies': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdDependenciesRoute
+  '/api/v1/workspaces/$workspaceId/tasks/$taskId/project': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
-  '/api/v1/workspaces/$workspaceId/tasks/$taskId/room': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
 }
 export interface FileRoutesByTo {
@@ -515,25 +523,26 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
+  '/api/v1/workspaces/$workspaceId/projects': typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
-  '/api/v1/workspaces/$workspaceId/rooms': typeof ApiV1WorkspacesWorkspaceIdRoomsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
-  '/api/v1/workspaces/$workspaceId/rooms/$roomId': typeof ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute
-  '/api/v1/workspaces/$workspaceId/rooms/reorder': typeof ApiV1WorkspacesWorkspaceIdRoomsReorderRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/reorder': typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/runtime-nodes': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
-  '/api/v1/workspaces/$workspaceId/agents/$agentId/room': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute
+  '/api/v1/workspaces/$workspaceId/agents/$agentId/project': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
@@ -547,9 +556,9 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/complete': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdCompleteRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/conversation': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdConversationRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/dependencies': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdDependenciesRoute
+  '/api/v1/workspaces/$workspaceId/tasks/$taskId/project': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
-  '/api/v1/workspaces/$workspaceId/tasks/$taskId/room': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
 }
 export interface FileRoutesById {
@@ -579,25 +588,26 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
+  '/api/v1/workspaces/$workspaceId/projects': typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
-  '/api/v1/workspaces/$workspaceId/rooms': typeof ApiV1WorkspacesWorkspaceIdRoomsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
-  '/api/v1/workspaces/$workspaceId/rooms/$roomId': typeof ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute
-  '/api/v1/workspaces/$workspaceId/rooms/reorder': typeof ApiV1WorkspacesWorkspaceIdRoomsReorderRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/reorder': typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/runtime-nodes/': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
-  '/api/v1/workspaces/$workspaceId/agents/$agentId/room': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute
+  '/api/v1/workspaces/$workspaceId/agents/$agentId/project': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
@@ -611,9 +621,9 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/complete': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdCompleteRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/conversation': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdConversationRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/dependencies': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdDependenciesRoute
+  '/api/v1/workspaces/$workspaceId/tasks/$taskId/project': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
-  '/api/v1/workspaces/$workspaceId/tasks/$taskId/room': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
 }
 export interface FileRouteTypes {
@@ -644,25 +654,26 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
     | '/api/v1/workspaces/$workspaceId/events'
+    | '/api/v1/workspaces/$workspaceId/projects'
     | '/api/v1/workspaces/$workspaceId/read-state'
-    | '/api/v1/workspaces/$workspaceId/rooms'
     | '/api/v1/workspaces/$workspaceId/search'
     | '/api/v1/workspaces/$workspaceId/tasks'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
-    | '/api/v1/workspaces/$workspaceId/rooms/$roomId'
-    | '/api/v1/workspaces/$workspaceId/rooms/reorder'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId'
+    | '/api/v1/workspaces/$workspaceId/projects/reorder'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
-    | '/api/v1/workspaces/$workspaceId/agents/$agentId/room'
+    | '/api/v1/workspaces/$workspaceId/agents/$agentId/project'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
@@ -676,9 +687,9 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/complete'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/conversation'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/dependencies'
+    | '/api/v1/workspaces/$workspaceId/tasks/$taskId/project'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
-    | '/api/v1/workspaces/$workspaceId/tasks/$taskId/room'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -707,25 +718,26 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
     | '/api/v1/workspaces/$workspaceId/events'
+    | '/api/v1/workspaces/$workspaceId/projects'
     | '/api/v1/workspaces/$workspaceId/read-state'
-    | '/api/v1/workspaces/$workspaceId/rooms'
     | '/api/v1/workspaces/$workspaceId/search'
     | '/api/v1/workspaces/$workspaceId/tasks'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
-    | '/api/v1/workspaces/$workspaceId/rooms/$roomId'
-    | '/api/v1/workspaces/$workspaceId/rooms/reorder'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId'
+    | '/api/v1/workspaces/$workspaceId/projects/reorder'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
-    | '/api/v1/workspaces/$workspaceId/agents/$agentId/room'
+    | '/api/v1/workspaces/$workspaceId/agents/$agentId/project'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
@@ -739,9 +751,9 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/complete'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/conversation'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/dependencies'
+    | '/api/v1/workspaces/$workspaceId/tasks/$taskId/project'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
-    | '/api/v1/workspaces/$workspaceId/tasks/$taskId/room'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
   id:
     | '__root__'
@@ -770,25 +782,26 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
     | '/api/v1/workspaces/$workspaceId/events'
+    | '/api/v1/workspaces/$workspaceId/projects'
     | '/api/v1/workspaces/$workspaceId/read-state'
-    | '/api/v1/workspaces/$workspaceId/rooms'
     | '/api/v1/workspaces/$workspaceId/search'
     | '/api/v1/workspaces/$workspaceId/tasks'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
-    | '/api/v1/workspaces/$workspaceId/rooms/$roomId'
-    | '/api/v1/workspaces/$workspaceId/rooms/reorder'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId'
+    | '/api/v1/workspaces/$workspaceId/projects/reorder'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
-    | '/api/v1/workspaces/$workspaceId/agents/$agentId/room'
+    | '/api/v1/workspaces/$workspaceId/agents/$agentId/project'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
@@ -802,9 +815,9 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/complete'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/conversation'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/dependencies'
+    | '/api/v1/workspaces/$workspaceId/tasks/$taskId/project'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
-    | '/api/v1/workspaces/$workspaceId/tasks/$taskId/room'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
   fileRoutesById: FileRoutesById
 }
@@ -830,8 +843,8 @@ export interface RootRouteChildren {
   ApiV1WorkspacesWorkspaceIdChannelsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdContentRefsRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdEventsRoute: typeof ApiV1WorkspacesWorkspaceIdEventsRoute
+  ApiV1WorkspacesWorkspaceIdProjectsRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdReadStateRoute: typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
-  ApiV1WorkspacesWorkspaceIdRoomsRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdSearchRoute: typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   ApiV1WorkspacesWorkspaceIdTasksRoute: typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute: typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
@@ -1020,18 +1033,18 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/workspaces/$workspaceId/projects': {
+      id: '/api/v1/workspaces/$workspaceId/projects'
+      path: '/api/v1/workspaces/$workspaceId/projects'
+      fullPath: '/api/v1/workspaces/$workspaceId/projects'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/workspaces/$workspaceId/read-state': {
       id: '/api/v1/workspaces/$workspaceId/read-state'
       path: '/api/v1/workspaces/$workspaceId/read-state'
       fullPath: '/api/v1/workspaces/$workspaceId/read-state'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdReadStateRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/v1/workspaces/$workspaceId/rooms': {
-      id: '/api/v1/workspaces/$workspaceId/rooms'
-      path: '/api/v1/workspaces/$workspaceId/rooms'
-      fullPath: '/api/v1/workspaces/$workspaceId/rooms'
-      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/workspaces/$workspaceId/search': {
@@ -1076,19 +1089,19 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/workspaces/$workspaceId/rooms/$roomId': {
-      id: '/api/v1/workspaces/$workspaceId/rooms/$roomId'
-      path: '/$roomId'
-      fullPath: '/api/v1/workspaces/$workspaceId/rooms/$roomId'
-      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsRoomIdRouteImport
-      parentRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsRoute
+    '/api/v1/workspaces/$workspaceId/projects/$projectId': {
+      id: '/api/v1/workspaces/$workspaceId/projects/$projectId'
+      path: '/$projectId'
+      fullPath: '/api/v1/workspaces/$workspaceId/projects/$projectId'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsRoute
     }
-    '/api/v1/workspaces/$workspaceId/rooms/reorder': {
-      id: '/api/v1/workspaces/$workspaceId/rooms/reorder'
+    '/api/v1/workspaces/$workspaceId/projects/reorder': {
+      id: '/api/v1/workspaces/$workspaceId/projects/reorder'
       path: '/reorder'
-      fullPath: '/api/v1/workspaces/$workspaceId/rooms/reorder'
-      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsReorderRouteImport
-      parentRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsRoute
+      fullPath: '/api/v1/workspaces/$workspaceId/projects/reorder'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsRoute
     }
     '/api/v1/workspaces/$workspaceId/runtime-nodes/': {
       id: '/api/v1/workspaces/$workspaceId/runtime-nodes/'
@@ -1125,11 +1138,11 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute
     }
-    '/api/v1/workspaces/$workspaceId/agents/$agentId/room': {
-      id: '/api/v1/workspaces/$workspaceId/agents/$agentId/room'
-      path: '/room'
-      fullPath: '/api/v1/workspaces/$workspaceId/agents/$agentId/room'
-      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRouteImport
+    '/api/v1/workspaces/$workspaceId/agents/$agentId/project': {
+      id: '/api/v1/workspaces/$workspaceId/agents/$agentId/project'
+      path: '/project'
+      fullPath: '/api/v1/workspaces/$workspaceId/agents/$agentId/project'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute
     }
     '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': {
@@ -1152,6 +1165,13 @@ declare module '@tanstack/solid-router' {
       fullPath: '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRoute
+    }
+    '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': {
+      id: '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
+      path: '/delete'
+      fullPath: '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute
     }
     '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': {
       id: '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
@@ -1244,6 +1264,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdDependenciesRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute
     }
+    '/api/v1/workspaces/$workspaceId/tasks/$taskId/project': {
+      id: '/api/v1/workspaces/$workspaceId/tasks/$taskId/project'
+      path: '/project'
+      fullPath: '/api/v1/workspaces/$workspaceId/tasks/$taskId/project'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute
+    }
     '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': {
       id: '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
       path: '/queue'
@@ -1256,13 +1283,6 @@ declare module '@tanstack/solid-router' {
       path: '/review'
       fullPath: '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRouteImport
-      parentRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute
-    }
-    '/api/v1/workspaces/$workspaceId/tasks/$taskId/room': {
-      id: '/api/v1/workspaces/$workspaceId/tasks/$taskId/room'
-      path: '/room'
-      fullPath: '/api/v1/workspaces/$workspaceId/tasks/$taskId/room'
-      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute
     }
     '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': {
@@ -1308,7 +1328,7 @@ const ApiWorkspacesRouteWithChildren = ApiWorkspacesRoute._addFileChildren(
 interface ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
-  ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute
+  ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute
 }
 
 const ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteChildren: ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteChildren =
@@ -1317,8 +1337,8 @@ const ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteChildren: ApiV1WorkspacesWorks
       ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute,
     ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute:
       ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute,
-    ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute:
-      ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute,
+    ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute:
+      ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute,
   }
 
 const ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren =
@@ -1404,6 +1424,39 @@ const ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren =
     ApiV1WorkspacesWorkspaceIdContentRefsRouteChildren,
   )
 
+interface ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren {
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
+}
+
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren: ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren =
+  {
+    ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute:
+      ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute,
+  }
+
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteWithChildren =
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute._addFileChildren(
+    ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren,
+  )
+
+interface ApiV1WorkspacesWorkspaceIdProjectsRouteChildren {
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdProjectsReorderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRoute
+}
+
+const ApiV1WorkspacesWorkspaceIdProjectsRouteChildren: ApiV1WorkspacesWorkspaceIdProjectsRouteChildren =
+  {
+    ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute:
+      ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteWithChildren,
+    ApiV1WorkspacesWorkspaceIdProjectsReorderRoute:
+      ApiV1WorkspacesWorkspaceIdProjectsReorderRoute,
+  }
+
+const ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren =
+  ApiV1WorkspacesWorkspaceIdProjectsRoute._addFileChildren(
+    ApiV1WorkspacesWorkspaceIdProjectsRouteChildren,
+  )
+
 interface ApiV1WorkspacesWorkspaceIdReadStateRouteChildren {
   ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute: typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute: typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
@@ -1422,24 +1475,6 @@ const ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren =
     ApiV1WorkspacesWorkspaceIdReadStateRouteChildren,
   )
 
-interface ApiV1WorkspacesWorkspaceIdRoomsRouteChildren {
-  ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute
-  ApiV1WorkspacesWorkspaceIdRoomsReorderRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsReorderRoute
-}
-
-const ApiV1WorkspacesWorkspaceIdRoomsRouteChildren: ApiV1WorkspacesWorkspaceIdRoomsRouteChildren =
-  {
-    ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute:
-      ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute,
-    ApiV1WorkspacesWorkspaceIdRoomsReorderRoute:
-      ApiV1WorkspacesWorkspaceIdRoomsReorderRoute,
-  }
-
-const ApiV1WorkspacesWorkspaceIdRoomsRouteWithChildren =
-  ApiV1WorkspacesWorkspaceIdRoomsRoute._addFileChildren(
-    ApiV1WorkspacesWorkspaceIdRoomsRouteChildren,
-  )
-
 interface ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRoute
   ApiV1WorkspacesWorkspaceIdTasksTaskIdArtifactsRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArtifactsRoute
@@ -1448,9 +1483,9 @@ interface ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdTasksTaskIdCompleteRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdCompleteRoute
   ApiV1WorkspacesWorkspaceIdTasksTaskIdConversationRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdConversationRoute
   ApiV1WorkspacesWorkspaceIdTasksTaskIdDependenciesRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdDependenciesRoute
+  ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRoute
   ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
-  ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRoute
   ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
 }
 
@@ -1470,12 +1505,12 @@ const ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteChildren: ApiV1WorkspacesWorkspa
       ApiV1WorkspacesWorkspaceIdTasksTaskIdConversationRoute,
     ApiV1WorkspacesWorkspaceIdTasksTaskIdDependenciesRoute:
       ApiV1WorkspacesWorkspaceIdTasksTaskIdDependenciesRoute,
+    ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRoute:
+      ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRoute,
     ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute:
       ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute,
     ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute:
       ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute,
-    ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRoute:
-      ApiV1WorkspacesWorkspaceIdTasksTaskIdRoomRoute,
     ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute:
       ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute,
   }
@@ -1526,10 +1561,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1WorkspacesWorkspaceIdContentRefsRoute:
     ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdEventsRoute: ApiV1WorkspacesWorkspaceIdEventsRoute,
+  ApiV1WorkspacesWorkspaceIdProjectsRoute:
+    ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdReadStateRoute:
     ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren,
-  ApiV1WorkspacesWorkspaceIdRoomsRoute:
-    ApiV1WorkspacesWorkspaceIdRoomsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdSearchRoute: ApiV1WorkspacesWorkspaceIdSearchRoute,
   ApiV1WorkspacesWorkspaceIdTasksRoute:
     ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren,

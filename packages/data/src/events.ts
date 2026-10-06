@@ -5,7 +5,7 @@ import {
   artifactQueryKeys,
   channelQueryKeys,
   readStateQueryKeys,
-  roomQueryKeys,
+  projectQueryKeys,
   taskQueryKeys,
   workspaceQueryKeys,
 } from './index'
@@ -96,12 +96,12 @@ export function queryKeysForEvent(
       return [
         channelQueryKeys.all(workspaceId),
         readStateQueryKeys.detail(workspaceId),
-        roomQueryKeys.all(workspaceId),
+        projectQueryKeys.all(workspaceId),
       ]
     case 'thread':
       return [readStateQueryKeys.detail(workspaceId), channelQueryKeys.all(workspaceId)]
-    case 'room':
-      return [roomQueryKeys.all(workspaceId), channelQueryKeys.all(workspaceId)]
+    case 'project':
+      return [projectQueryKeys.all(workspaceId), channelQueryKeys.all(workspaceId)]
     case 'agent':
       return [agentQueryKeys.all(workspaceId)]
     case 'artifact':

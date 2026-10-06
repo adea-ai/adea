@@ -17,7 +17,7 @@ import {
   messageArtifactReferences,
   messageMentions,
   messages,
-  rooms,
+  projects,
   taskDependencies,
   taskMutations,
   tasks,
@@ -41,7 +41,7 @@ describe('persistence schema', () => {
       workspaceEvents,
       commandOutbox,
       eventInbox,
-      rooms,
+      projects,
       channels,
       contentRefs,
       channelParticipants,
@@ -164,14 +164,18 @@ describe('persistence schema', () => {
     ).toBe(true)
   })
 
-  test('keeps room identity workspace scoped without coupling it to channels or scene objects', () => {
-    const config = getTableConfig(rooms)
+  test('keeps project identity workspace scoped without coupling it to channels or scene objects', () => {
+    const config = getTableConfig(projects)
+    const columns = config.columns.map((column) => column.name)
 
     expect(config.foreignKeys).toHaveLength(1)
     expect(config.foreignKeys[0]?.reference().foreignTable).toBe(workspaces)
-    expect(config.columns.some((column) => column.name === 'layout_ref')).toBe(true)
-    expect(config.columns.some((column) => column.name === 'spatial_ref')).toBe(true)
-    expect(config.columns.some((column) => column.name === 'channel_id')).toBe(false)
+    // A repository is a boolean-level fact; paths, remotes and scene refs never land here.
+    expect(columns).toContain('source_kind')
+    expect(columns).toContain('deleted_at')
+    for (const removed of ['template_key', 'layout_ref', 'spatial_ref', 'channel_id']) {
+      expect(columns).not.toContain(removed)
+    }
   })
 
   test('carries no filesystem path: the only location-ish columns are opaque references (#87)', () => {

@@ -19,7 +19,7 @@ import {
   artifacts,
   channels,
   messages,
-  rooms,
+  projects,
   taskDependencies,
   taskExecutionAttempts,
   taskMutations,
@@ -49,7 +49,7 @@ export type TaskCreateInput = Readonly<{
   objective?: string
   objectiveContentRefId?: string
   priority?: TaskPriority
-  roomId?: string
+  projectId?: string
   title: string
 }>
 
@@ -102,19 +102,19 @@ async function requireMembership(
   if (!membership) throw new Error('Task unavailable')
 }
 
-async function requireActiveRoom(database: Database, workspaceId: string, roomId: string) {
-  const [room] = await database
-    .select({ id: rooms.id })
-    .from(rooms)
+async function requireActiveProject(database: Database, workspaceId: string, projectId: string) {
+  const [project] = await database
+    .select({ id: projects.id })
+    .from(projects)
     .where(
       and(
-        eq(rooms.id, roomId),
-        eq(rooms.workspaceId, workspaceId),
-        eq(rooms.lifecycleState, 'active')
+        eq(projects.id, projectId),
+        eq(projects.workspaceId, workspaceId),
+        eq(projects.lifecycleState, 'active')
       )
     )
     .limit(1)
-  if (!room) throw new Error('Room unavailable')
+  if (!project) throw new Error('Project unavailable')
 }
 
 async function requireActiveAgent(database: Database, workspaceId: string, agentId: string) {
@@ -246,7 +246,7 @@ function summarizeRow(row: TaskRow, reads: TaskSummaryReads): TaskSummary {
     ...(row.objective ? { objective: row.objective } : {}),
     ...(row.objectiveContentRefId ? { objectiveContentRefId: row.objectiveContentRefId } : {}),
     priority: row.priority,
-    ...(row.roomId ? { roomId: row.roomId } : {}),
+    ...(row.projectId ? { projectId: row.projectId } : {}),
     title: row.title,
     updatedAt: row.updatedAt.toISOString(),
     version: row.version,
@@ -400,7 +400,7 @@ export async function createTask(
         if (Boolean(input.objective?.trim()) === Boolean(input.objectiveContentRefId))
           throw new Error('Task objective invalid')
         if (input.agentId) await requireActiveAgent(transaction, workspaceId, input.agentId)
-        if (input.roomId) await requireActiveRoom(transaction, workspaceId, input.roomId)
+        if (input.projectId) await requireActiveProject(transaction, workspaceId, input.projectId)
         const artifactRefs = [...new Set(input.artifactRefs?.map((value) => value.trim()) ?? [])]
         if (artifactRefs.some((value) => !value)) throw new Error('Task Artifact reference invalid')
         const [created] = await transaction
@@ -417,7 +417,7 @@ export async function createTask(
             objective: input.objective?.trim() || null,
             objectiveContentRefId: input.objectiveContentRefId ?? null,
             priority: input.priority ?? 'normal',
-            roomId: input.roomId ?? null,
+            projectId: input.projectId ?? null,
             threadRootMessageId: input.conversation?.threadRootMessageId ?? null,
             title: input.title.trim(),
             workspaceId,
@@ -640,12 +640,12 @@ export async function assignTask(
   )
 }
 
-export async function moveTaskToRoom(
+export async function moveTaskToProject(
   database: AgentHqDatabase,
   workspaceId: string,
   taskId: string,
   principal: UserPrincipalRef,
-  roomId: string | null,
+  projectId: string | null,
   command: TaskCommand
 ) {
   return mutateExisting(
@@ -653,15 +653,15 @@ export async function moveTaskToRoom(
     workspaceId,
     taskId,
     principal,
-    'task.move_room',
-    'task.room_changed',
-    { roomId },
+    'task.move_project',
+    'task.project_changed',
+    { projectId },
     command,
     async (transaction, row) => {
-      if (roomId) await requireActiveRoom(transaction, workspaceId, roomId)
+      if (projectId) await requireActiveProject(transaction, workspaceId, projectId)
       const [updated] = await transaction
         .update(tasks)
-        .set({ roomId, updatedAt: new Date(), version: row.version + 1 })
+        .set({ projectId, updatedAt: new Date(), version: row.version + 1 })
         .where(
           and(
             eq(tasks.id, taskId),

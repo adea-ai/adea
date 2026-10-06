@@ -18,6 +18,7 @@ import { workspaces } from './workspaces'
 
 export const workspaceEventAggregateType = appSchema.enum('workspace_event_aggregate_type', [
   'workspace',
+  // Historical aggregate for events written before rooms became projects.
   'room',
   'channel',
   'message',
@@ -26,6 +27,7 @@ export const workspaceEventAggregateType = appSchema.enum('workspace_event_aggre
   'artifact',
   'content_ref',
   'runtime_node',
+  'project',
 ])
 
 export const workspaceEventActorKind = appSchema.enum('workspace_event_actor_kind', [

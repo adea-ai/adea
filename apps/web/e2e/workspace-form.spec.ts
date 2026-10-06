@@ -27,9 +27,9 @@ test.beforeEach(async ({ page }) => {
 test('creation fields retain the published control appearance across themes and text sizes', async ({
   page,
 }) => {
-  await page.getByRole('button', { name: 'Open room', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create Room', exact: true })
-  const field = dialog.getByLabel('Room name', { exact: true })
+  await page.getByRole('button', { name: 'Open project', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Create Project', exact: true })
+  const field = dialog.getByLabel('Project name', { exact: true })
   const reference = page.getByRole('textbox', {
     name: 'Shared input reference',
     includeHidden: true,
@@ -74,27 +74,25 @@ test('creation fields retain the published control appearance across themes and 
   }
 })
 
-test('room form keeps native validation, submitted data, retry and async close cleanup', async ({
+test('project form keeps native validation, submitted data, retry and async close cleanup', async ({
   page,
 }) => {
-  await page.getByRole('button', { name: 'Open room', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create Room', exact: true })
+  await page.getByRole('button', { name: 'Open project', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Create Project', exact: true })
   await expect(page.locator('#harness-root')).not.toHaveAttribute('aria-hidden', 'true')
-  await dialog.getByRole('button', { name: 'Create Room', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Create Project', exact: true }).click()
   await expect(page.getByLabel('Requests')).toHaveText('[]')
-  await dialog.getByLabel('Room name', { exact: true }).fill('New room')
-  await dialog.getByLabel('Function key', { exact: true }).fill('study')
-  await dialog.getByRole('button', { name: 'Create Room', exact: true }).click()
+  await dialog.getByLabel('Project name', { exact: true }).fill('New project')
+  await dialog.getByLabel('Icon key', { exact: true }).fill('study')
+  await dialog.getByRole('button', { name: 'Create Project', exact: true }).click()
   await expect(dialog.getByRole('alert')).toHaveText(
-    'Room could not be created. Check the fields and retry.'
+    'Project could not be created. Check the fields and retry.'
   )
-  await expect(page.getByLabel('Requests')).toHaveText(
-    '[{"functionKey":"study","name":"New room"}]'
-  )
-  await expect(dialog.getByLabel('Room name', { exact: true })).toHaveValue('New room')
+  await expect(page.getByLabel('Requests')).toHaveText('[{"iconKey":"study","name":"New project"}]')
+  await expect(dialog.getByLabel('Project name', { exact: true })).toHaveValue('New project')
   // Change the scripted service result without interacting with inert background UI.
   await page.evaluate(() => (document.querySelector('#allow-success') as HTMLButtonElement).click())
-  await dialog.getByRole('button', { name: 'Create Room', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Create Project', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('inert', '')
   await expect(page.locator('#harness-root')).not.toHaveAttribute('aria-hidden', 'true')
@@ -102,12 +100,12 @@ test('room form keeps native validation, submitted data, retry and async close c
   await expect(page.getByRole('button', { name: 'Open edit', exact: true })).toBeEnabled()
 })
 
-test('shared room modal dismisses and reopens without stale background containment', async ({
+test('shared project modal dismisses and reopens without stale background containment', async ({
   page,
 }) => {
-  const opener = page.getByRole('button', { name: 'Open room', exact: true })
+  const opener = page.getByRole('button', { name: 'Open project', exact: true })
   await opener.click()
-  const dialog = page.getByRole('dialog', { name: 'Create Room', exact: true })
+  const dialog = page.getByRole('dialog', { name: 'Create Project', exact: true })
   await expect(dialog).toBeVisible()
   await expect(page.locator('#harness-root')).toHaveAttribute('inert', '')
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
@@ -125,12 +123,12 @@ test('shared room modal dismisses and reopens without stale background containme
   await expect(opener).toBeFocused()
 })
 
-test('shared room modal keeps its content and close action contained in a narrow viewport', async ({
+test('shared project modal keeps its content and close action contained in a narrow viewport', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 320, height: 568 })
-  await page.getByRole('button', { name: 'Open room', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create Room', exact: true })
+  await page.getByRole('button', { name: 'Open project', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Create Project', exact: true })
   await expect(dialog).toBeVisible()
   await expect(dialog).toHaveCSS('overflow', 'auto')
   const positioner = dialog.locator('xpath=..')
@@ -208,8 +206,8 @@ test('edit, rename and group forms retain initial values and native label associ
   await page.getByRole('button', { name: 'Allow success', exact: true }).click()
   await page.getByRole('button', { name: 'Open edit', exact: true }).click()
   let dialog = page.getByRole('dialog', { name: 'Edit Study', exact: true })
-  await expect(dialog.getByLabel('Room name', { exact: true })).toHaveValue('Study')
-  await dialog.getByLabel('Room name', { exact: true }).fill('Renamed room')
+  await expect(dialog.getByLabel('Project name', { exact: true })).toHaveValue('Study')
+  await dialog.getByLabel('Project name', { exact: true }).fill('Renamed project')
   await dialog.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await page.getByRole('button', { name: 'Open rename', exact: true }).click()
@@ -224,7 +222,7 @@ test('edit, rename and group forms retain initial values and native label associ
   await dialog.getByRole('button', { name: 'Create conversation', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByLabel('Requests')).toHaveText(
-    '[{"functionKey":"study","name":"Renamed room"},"New title","Team"]'
+    '[{"iconKey":"study","name":"Renamed project"},"New title","Team"]'
   )
 })
 

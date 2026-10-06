@@ -8,7 +8,7 @@ import {
   useArchiveChannelMutation,
   useArchiveTaskMutation,
   useArtifactListQuery,
-  useAssignAgentRoomMutation,
+  useAssignAgentProjectMutation,
   useAssignTaskMutation,
   useCancelTaskMutation,
   useChangeAgentProfileMutation,
@@ -17,24 +17,24 @@ import {
   useCreateAgentMutation,
   useCreateDirectChannelMutation,
   useCreateGroupChannelMutation,
-  useCreateRoomMutation,
+  useCreateProjectMutation,
   useCreateTaskMutation,
   useUpdateTaskMutation,
-  useMoveTaskRoomMutation,
+  useMoveTaskProjectMutation,
   useMarkAllReadMutation,
   useMarkChannelReadMutation,
   useMarkThreadReadMutation,
   useQueueTaskMutation,
   useReadStateQuery,
   useReviewTaskMutation,
-  useRoomListQuery,
+  useProjectListQuery,
   useSetTaskConversationMutation,
   useSetTaskDependenciesMutation,
   useStartTaskMutation,
   useTaskListQuery,
   useUpdateAgentPresentationMutation,
   useUpdateChannelMutation,
-  useUpdateRoomMutation,
+  useUpdateProjectMutation,
   useWorkspaceBootstrapQuery,
 } from '@adea-ai/data'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
@@ -70,21 +70,21 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
     bootstrapData()?.activeWorkspace
   const workspaceId = () => activeWorkspace()?.id
-  const rooms = useRoomListQuery(client(), workspaceId)
+  const projects = useProjectListQuery(client(), workspaceId)
   const channels = useChannelListQuery(client(), workspaceId)
   const agents = useAgentListQuery(client(), workspaceId)
   const tasks = useTaskListQuery(client(), workspaceId)
   const artifacts = useArtifactListQuery(client(), workspaceId)
   const readState = useReadStateQuery(client(), workspaceId)
   const navigation = createMemo(() =>
-    projectWorkspaceNavigation(settledData(rooms) ?? [], settledData(channels) ?? [])
+    projectWorkspaceNavigation(settledData(projects) ?? [], settledData(channels) ?? [])
   )
-  const createRoom = useCreateRoomMutation(client(), () => workspaceId() ?? '')
+  const createProject = useCreateProjectMutation(client(), () => workspaceId() ?? '')
   const createGroup = useCreateGroupChannelMutation(client(), () => workspaceId() ?? '')
   const createDirect = useCreateDirectChannelMutation(client(), () => workspaceId() ?? '')
   const createAgent = useCreateAgentMutation(client(), () => workspaceId() ?? '')
   const archiveAgent = useArchiveAgentMutation(client(), () => workspaceId() ?? '')
-  const assignAgentRoom = useAssignAgentRoomMutation(client(), () => workspaceId() ?? '')
+  const assignAgentProject = useAssignAgentProjectMutation(client(), () => workspaceId() ?? '')
   const changeAgentProfile = useChangeAgentProfileMutation(client(), () => workspaceId() ?? '')
   const updateAgentPresentation = useUpdateAgentPresentationMutation(
     client(),
@@ -93,7 +93,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const createTask = useCreateTaskMutation(client(), () => workspaceId() ?? '')
   const updateTask = useUpdateTaskMutation(client(), () => workspaceId() ?? '')
   const assignTask = useAssignTaskMutation(client(), () => workspaceId() ?? '')
-  const moveTask = useMoveTaskRoomMutation(client(), () => workspaceId() ?? '')
+  const moveTask = useMoveTaskProjectMutation(client(), () => workspaceId() ?? '')
   const dependencies = useSetTaskDependenciesMutation(client(), () => workspaceId() ?? '')
   const queueTask = useQueueTaskMutation(client(), () => workspaceId() ?? '')
   const startTask = useStartTaskMutation(client(), () => workspaceId() ?? '')
@@ -105,7 +105,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const markAllRead = useMarkAllReadMutation(client(), () => workspaceId() ?? '')
   const markChannelRead = useMarkChannelReadMutation(client(), () => workspaceId() ?? '')
   const markThreadRead = useMarkThreadReadMutation(client(), () => workspaceId() ?? '')
-  const updateRoom = useUpdateRoomMutation(client(), () => workspaceId() ?? '')
+  const updateProject = useUpdateProjectMutation(client(), () => workspaceId() ?? '')
   const updateChannel = useUpdateChannelMutation(client(), () => workspaceId() ?? '')
   const archiveChannel = useArchiveChannelMutation(client(), () => workspaceId() ?? '')
 
@@ -128,7 +128,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       return
     }
     if (decision.action !== 'select') return
-    workspaceStore.getState().setSelectedRoomId(decision.roomId)
+    workspaceStore.getState().setSelectedProjectId(decision.projectId)
     workspaceStore.getState().setSelectedChannelId(decision.channelId)
   })
 
@@ -139,9 +139,9 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     // store reset here covers only the workspace's own context.
     workspaceStore.getState().switchWorkspace(nextWorkspace.id)
   }
-  const selectChannel = (channelId: string, roomId?: string) => {
+  const selectChannel = (channelId: string, projectId?: string) => {
     explicitSelection = channelId
-    workspaceStore.getState().setSelectedRoomId(roomId ?? null)
+    workspaceStore.getState().setSelectedProjectId(projectId ?? null)
     workspaceStore.getState().setSelectedChannelId(channelId)
   }
 
@@ -157,8 +157,8 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     },
     agentActions: {
       archive: (agentId: string) => archiveAgent.mutateAsync(agentId).then(() => undefined),
-      assignRoom: (agentId: string, roomId: string | null) =>
-        assignAgentRoom.mutateAsync({ agentId, roomId }).then(() => undefined),
+      assignProject: (agentId: string, projectId: string | null) =>
+        assignAgentProject.mutateAsync({ agentId, projectId }).then(() => undefined),
       profile: (
         agentId: string,
         profile: Parameters<typeof changeAgentProfile.mutateAsync>[0]['profile']
@@ -169,7 +169,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       ) => updateAgentPresentation.mutateAsync({ agentId, presentation }).then(() => undefined),
     },
     get agentBusy() {
-      return [archiveAgent, assignAgentRoom, changeAgentProfile, updateAgentPresentation].some(
+      return [archiveAgent, assignAgentProject, changeAgentProfile, updateAgentPresentation].some(
         ({ isPending }) => isPending
       )
     },
@@ -193,27 +193,27 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     get createGroupBusy() {
       return createGroup.isPending
     },
-    createRoom: async (input: Readonly<{ functionKey: string; name: string }>) => {
-      const result = await createRoom.mutateAsync(input)
+    createProject: async (input: Readonly<{ iconKey: string; name: string }>) => {
+      const result = await createProject.mutateAsync(input)
       const refreshedChannels = await channels.refetch()
       const primaryChannel = settledData(refreshedChannels)?.find(
         (channel) =>
-          channel.kind === 'room' &&
-          channel.roomId === result.room.id &&
-          channel.isPrimaryRoomChannel
+          channel.kind === 'project' &&
+          channel.projectId === result.project.id &&
+          channel.isPrimaryProjectChannel
       )
-      if (primaryChannel) selectChannel(primaryChannel.id, result.room.id)
-      else workspaceStore.getState().setSelectedRoomId(result.room.id)
+      if (primaryChannel) selectChannel(primaryChannel.id, result.project.id)
+      else workspaceStore.getState().setSelectedProjectId(result.project.id)
     },
-    get createRoomBusy() {
-      return createRoom.isPending
+    get createProjectBusy() {
+      return createProject.isPending
     },
-    roomActions: {
-      update: (roomId: string, update: Readonly<{ functionKey?: string; name?: string }>) =>
-        updateRoom.mutateAsync({ roomId, update }).then(() => undefined),
+    projectActions: {
+      update: (projectId: string, update: Readonly<{ iconKey?: string; name?: string }>) =>
+        updateProject.mutateAsync({ projectId, update }).then(() => undefined),
     },
-    get roomBusy() {
-      return updateRoom.isPending
+    get projectBusy() {
+      return updateProject.isPending
     },
     channelActions: {
       archive: (channel: ChannelSummary) =>
@@ -250,8 +250,8 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     get persistenceReady() {
       return persistenceReady()
     },
-    get rooms() {
-      return settledData(rooms) ?? []
+    get projects() {
+      return settledData(projects) ?? []
     },
     selectChannel,
     selectWorkspace,
@@ -293,13 +293,17 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
           dependencyIds,
           taskId: task.id,
         }),
-      moveRoom: (task: TaskSummary, roomId: string | null) =>
-        taskMutation(moveTask, { command: taskInput(task, 'move-room'), roomId, taskId: task.id }),
+      moveProject: (task: TaskSummary, projectId: string | null) =>
+        taskMutation(moveTask, {
+          command: taskInput(task, 'move-project'),
+          projectId,
+          taskId: task.id,
+        }),
       openConversation: async (task: TaskSummary) => {
         let channelId = task.conversation.channelId
-        if (!channelId && task.roomId)
-          channelId = navigation().rooms.find(
-            ({ room }) => room.id === task.roomId
+        if (!channelId && task.projectId)
+          channelId = navigation().projects.find(
+            ({ project }) => project.id === task.projectId
           )?.selectionChannelId
         if (!channelId) throw new Error('Task conversation unavailable')
         if (!task.conversation.channelId)
@@ -308,7 +312,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
             conversation: { channelId },
             taskId: task.id,
           })
-        selectChannel(channelId, task.roomId)
+        selectChannel(channelId, task.projectId)
       },
       queue: (task: TaskSummary) =>
         taskMutation(queueTask, { command: taskInput(task, 'queue'), taskId: task.id }),
@@ -341,6 +345,6 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     get workspaceId() {
       return workspaceId()
     },
-    workspaceQueries: [rooms, channels, agents, tasks, artifacts, readState],
+    workspaceQueries: [projects, channels, agents, tasks, artifacts, readState],
   }
 }

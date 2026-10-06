@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../server/request-scope'
-import type { ApiRoomResponse, ApiRoomUpdateInput } from '@adea-ai/api-client'
-import { archiveRoom, getRoomForUser, updateRoom } from '@adea-ai/db'
+import type { ApiProjectResponse, ApiProjectUpdateInput } from '@adea-ai/api-client'
+import { archiveProject, getProjectForUser, isProjectSourceKind, updateProject } from '@adea-ai/db'
 
 import { applicationDatabase } from '../../../../../../../server/database'
 import {
@@ -16,11 +16,11 @@ import {
   workspaceUnavailableResponse,
 } from '../../../../../../../server/workspace-response'
 
-type Context = { params: { roomId: string; workspaceId: string } }
+type Context = { params: { projectId: string; workspaceId: string } }
 async function get(request: Request, { params }: Context) {
   const rejected = guardDesktopWorkspaceRequest(request)
   if (rejected) return rejected
-  const { roomId, workspaceId } = await params
+  const { projectId, workspaceId } = await params
   const resolution = await resolveWorkspacePrincipal(request)
   if (!resolution) return workspaceUnavailableResponse(request, 401)
   const authorization = await authorizeWorkspace(
@@ -29,14 +29,14 @@ async function get(request: Request, { params }: Context) {
     workspaceId
   )
   if (!authorization.allowed) return workspaceUnavailableResponse(request)
-  const room = await getRoomForUser(
+  const project = await getProjectForUser(
     applicationDatabase(),
     workspaceId,
-    roomId,
+    projectId,
     resolution.principal
   )
-  if (!room) return workspaceUnavailableResponse(request)
-  const payload: ApiRoomResponse = { room }
+  if (!project) return workspaceUnavailableResponse(request)
+  const payload: ApiProjectResponse = { project }
   return workspaceJsonResponse(payload, resolution, request, {
     headers: { 'cache-control': 'private, no-store' },
   })
@@ -45,7 +45,7 @@ async function get(request: Request, { params }: Context) {
 async function patch(request: Request, { params }: Context) {
   const rejected = guardDesktopWorkspaceRequest(request)
   if (rejected) return rejected
-  const { roomId, workspaceId } = await params
+  const { projectId, workspaceId } = await params
   const resolution = await resolveWorkspacePrincipal(request)
   if (!resolution) return workspaceUnavailableResponse(request, 401)
   const authorization = await authorizeWorkspace(
@@ -62,38 +62,39 @@ async function patch(request: Request, { params }: Context) {
     return workspaceInvalidRequestResponse(request)
   }
   const candidate = body as Record<string, unknown>
-  const input: ApiRoomUpdateInput = {}
-  for (const field of ['functionKey', 'layoutRef', 'name', 'spatialRef', 'templateKey'] as const) {
+  const input: ApiProjectUpdateInput = {}
+  for (const field of ['iconKey', 'name'] as const) {
     if (!(field in candidate)) continue
     const value = candidate[field]
-    if ((field === 'name' || field === 'functionKey') && typeof value !== 'string') {
-      return workspaceInvalidRequestResponse(request)
-    }
-    if (value !== null && typeof value !== 'string') return workspaceInvalidRequestResponse(request)
-    Object.assign(input, { [field]: typeof value === 'string' ? value.trim() : null })
+    if (typeof value !== 'string') return workspaceInvalidRequestResponse(request)
+    Object.assign(input, { [field]: value.trim() })
+  }
+  if ('sourceKind' in candidate) {
+    if (!isProjectSourceKind(candidate.sourceKind)) return workspaceInvalidRequestResponse(request)
+    Object.assign(input, { sourceKind: candidate.sourceKind })
   }
   if (
     Object.keys(input).length === 0 ||
     input.name === '' ||
-    input.functionKey === '' ||
+    input.iconKey === '' ||
     (input.name?.length ?? 0) > 80 ||
-    (input.functionKey?.length ?? 0) > 80
+    (input.iconKey?.length ?? 0) > 80
   ) {
     return workspaceInvalidRequestResponse(request)
   }
   try {
-    const payload: ApiRoomResponse = {
-      room: await updateRoom(
+    const payload: ApiProjectResponse = {
+      project: await updateProject(
         applicationDatabase(),
         workspaceId,
-        roomId,
+        projectId,
         resolution.principal,
         input
       ),
     }
     return workspaceJsonResponse(payload, resolution, request)
   } catch (error) {
-    if (error instanceof Error && error.message === 'Room unavailable') {
+    if (error instanceof Error && error.message === 'Project unavailable') {
       return workspaceUnavailableResponse(request)
     }
     throw error
@@ -103,7 +104,7 @@ async function patch(request: Request, { params }: Context) {
 async function remove(request: Request, { params }: Context) {
   const rejected = guardDesktopWorkspaceRequest(request)
   if (rejected) return rejected
-  const { roomId, workspaceId } = await params
+  const { projectId, workspaceId } = await params
   const resolution = await resolveWorkspacePrincipal(request)
   if (!resolution) return workspaceUnavailableResponse(request, 401)
   const authorization = await authorizeWorkspace(
@@ -113,10 +114,10 @@ async function remove(request: Request, { params }: Context) {
   )
   if (!authorization.allowed) return workspaceUnavailableResponse(request)
   try {
-    await archiveRoom(applicationDatabase(), workspaceId, roomId, resolution.principal)
+    await archiveProject(applicationDatabase(), workspaceId, projectId, resolution.principal)
     return workspaceJsonResponse({ archived: true as const }, resolution, request)
   } catch (error) {
-    if (error instanceof Error && error.message === 'Room unavailable') {
+    if (error instanceof Error && error.message === 'Project unavailable') {
       return workspaceUnavailableResponse(request)
     }
     throw error
@@ -126,7 +127,7 @@ async function remove(request: Request, { params }: Context) {
 function options(request: Request) {
   return handleDesktopWorkspacePreflight(request)
 }
-export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/rooms/$roomId')({
+export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/projects/$projectId')({
   server: {
     handlers: {
       GET: ({ request, params }) => withRequestScope(() => get(request, { params })),

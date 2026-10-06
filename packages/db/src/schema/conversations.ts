@@ -18,12 +18,12 @@ import { artifacts } from './artifacts'
 import { contentRefs } from './content-refs'
 import { entityId, timestampColumns } from './conventions'
 import { users } from './identity'
-import { rooms } from './rooms'
+import { projects } from './projects'
 import { appSchema } from './schema'
 import { tasks } from './tasks'
 import { workspaces } from './workspaces'
 
-export const channelKind = appSchema.enum('channel_kind', ['room', 'direct_agent', 'group'])
+export const channelKind = appSchema.enum('channel_kind', ['project', 'direct_agent', 'group'])
 export const channelLifecycleState = appSchema.enum('channel_lifecycle_state', [
   'active',
   'archived',
@@ -43,12 +43,12 @@ export const channels = appSchema.table(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     kind: channelKind('kind').notNull(),
-    roomId: uuid('room_id').references(() => rooms.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'restrict' }),
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     visibility: channelVisibility('visibility').default('workspace').notNull(),
-    isPrimaryRoomChannel: boolean('is_primary_room_channel').default(false).notNull(),
+    isPrimaryProjectChannel: boolean('is_primary_project_channel').default(false).notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),
     lifecycleState: channelLifecycleState('lifecycle_state').default('active').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
@@ -57,10 +57,10 @@ export const channels = appSchema.table(
   },
   (table) => [
     unique('channels_workspace_idempotency_unique').on(table.workspaceId, table.idempotencyKey),
-    uniqueIndex('channels_active_primary_room_unique')
-      .on(table.roomId)
+    uniqueIndex('channels_active_primary_project_unique')
+      .on(table.projectId)
       .where(
-        sql`${table.isPrimaryRoomChannel} = true and ${table.lifecycleState} = 'active' and ${table.roomId} is not null`
+        sql`${table.isPrimaryProjectChannel} = true and ${table.lifecycleState} = 'active' and ${table.projectId} is not null`
       ),
     uniqueIndex('channels_active_direct_agent_unique')
       .on(table.workspaceId, table.agentId)
@@ -71,11 +71,11 @@ export const channels = appSchema.table(
     check('channels_version_positive', sql`${table.version} > 0`),
     check(
       'channels_kind_association',
-      sql`(${table.kind} = 'room' and ${table.roomId} is not null and ${table.agentId} is null) or (${table.kind} = 'direct_agent' and ${table.roomId} is null and ${table.agentId} is not null) or (${table.kind} = 'group' and ${table.roomId} is null and ${table.agentId} is null)`
+      sql`(${table.kind} = 'project' and ${table.projectId} is not null and ${table.agentId} is null) or (${table.kind} = 'direct_agent' and ${table.projectId} is null and ${table.agentId} is not null) or (${table.kind} = 'group' and ${table.projectId} is null and ${table.agentId} is null)`
     ),
     check(
-      'channels_primary_room_only',
-      sql`${table.isPrimaryRoomChannel} = false or (${table.kind} = 'room' and ${table.roomId} is not null)`
+      'channels_primary_project_only',
+      sql`${table.isPrimaryProjectChannel} = false or (${table.kind} = 'project' and ${table.projectId} is not null)`
     ),
     index('channels_workspace_order_idx').on(
       table.workspaceId,
@@ -83,7 +83,7 @@ export const channels = appSchema.table(
       table.sortOrder,
       table.id
     ),
-    index('channels_room_idx').on(table.workspaceId, table.roomId, table.lifecycleState),
+    index('channels_project_idx').on(table.workspaceId, table.projectId, table.lifecycleState),
   ]
 )
 

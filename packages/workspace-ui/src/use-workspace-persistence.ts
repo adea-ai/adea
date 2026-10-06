@@ -7,11 +7,11 @@ const STORAGE_KEY = 'adea:conventional-workspace:v2'
 type PersistedState = Pick<
   WorkspaceState,
   | 'activeSurface'
-  | 'collapsedRoomIds'
+  | 'collapsedProjectIds'
   | 'drafts'
   | 'selectedAgentId'
   | 'selectedChannelId'
-  | 'selectedRoomId'
+  | 'selectedProjectId'
   | 'selectedTaskId'
   | 'selectedWorkspaceId'
   | 'threadRootMessageId'
@@ -21,7 +21,7 @@ const ACTIVE_SURFACES = new Set(['agents', 'conversation', 'tasks'])
 const NULLABLE_ID_FIELDS = [
   'selectedAgentId',
   'selectedChannelId',
-  'selectedRoomId',
+  'selectedProjectId',
   'selectedTaskId',
   'selectedWorkspaceId',
   'threadRootMessageId',
@@ -47,10 +47,10 @@ export function validatePersistedState(parsed: unknown): Partial<PersistedState>
       return undefined
     restored.activeSurface = candidate.activeSurface as PersistedState['activeSurface']
   }
-  if ('collapsedRoomIds' in candidate) {
-    const ids = candidate.collapsedRoomIds
+  if ('collapsedProjectIds' in candidate) {
+    const ids = candidate.collapsedProjectIds
     if (!Array.isArray(ids) || !ids.every((entry) => typeof entry === 'string')) return undefined
-    restored.collapsedRoomIds = ids as readonly string[]
+    restored.collapsedProjectIds = ids as readonly string[]
   }
   if ('drafts' in candidate) {
     const drafts = candidate.drafts
@@ -75,11 +75,11 @@ export function validatePersistedState(parsed: unknown): Partial<PersistedState>
 function persistedState(state: WorkspaceState): PersistedState {
   return {
     activeSurface: state.activeSurface,
-    collapsedRoomIds: state.collapsedRoomIds,
+    collapsedProjectIds: state.collapsedProjectIds,
     drafts: state.drafts,
     selectedAgentId: state.selectedAgentId,
     selectedChannelId: state.selectedChannelId,
-    selectedRoomId: state.selectedRoomId,
+    selectedProjectId: state.selectedProjectId,
     selectedTaskId: state.selectedTaskId,
     selectedWorkspaceId: state.selectedWorkspaceId,
     threadRootMessageId: state.threadRootMessageId,

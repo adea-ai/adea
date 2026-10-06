@@ -127,7 +127,7 @@ describe('workspace event client', () => {
     expect(queryKeysForEvent(workspaceId, 'channel.archived')).toContainEqual([
       'workspaces',
       workspaceId,
-      'rooms',
+      'projects',
     ])
     expect(queryKeysForEvent(workspaceId, 'thread.read')).toContainEqual([
       'workspaces',

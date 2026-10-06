@@ -176,7 +176,7 @@ const client = {
     workspaces: [workspace],
   }),
   getWorkspace: async () => ({ workspace, agents: [], tasks: [] }),
-  listRooms: async () => [],
+  listProjects: async () => [],
   listChannels: async () => [],
   listAgents: async () => [],
   listTasks: async () => [],

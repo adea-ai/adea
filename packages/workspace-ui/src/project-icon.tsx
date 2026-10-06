@@ -16,8 +16,8 @@ import {
   Wrench,
 } from 'lucide-solid'
 
-export function roomIconFor(functionKey: string) {
-  const key = functionKey.toLowerCase()
+export function projectIconFor(iconKey: string) {
+  const key = iconKey.toLowerCase()
   if (key.includes('kitchen') || key.includes('cook') || key.includes('dining')) return Utensils
   if (key.includes('study') || key.includes('librar') || key.includes('read')) return BookOpen
   if (key.includes('travel') || key.includes('trip') || key.includes('flight')) return Plane
@@ -35,7 +35,7 @@ export function roomIconFor(functionKey: string) {
   return Shapes
 }
 
-export function RoomIcon(props: { functionKey: string }) {
-  const Icon = roomIconFor(props.functionKey)
+export function ProjectIcon(props: { iconKey: string }) {
+  const Icon = projectIconFor(props.iconKey)
   return <Icon aria-hidden="true" />
 }

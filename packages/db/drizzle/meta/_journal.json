@@ -211,6 +211,13 @@
       "when": 1791236768777,
       "tag": "0029_workspace-identity",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791240297948,
+      "tag": "0030_rooms-become-projects",
+      "breakpoints": true
     }
   ]
 }

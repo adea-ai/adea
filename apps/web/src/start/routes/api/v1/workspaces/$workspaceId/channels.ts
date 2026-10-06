@@ -4,7 +4,7 @@ import type { ApiChannelResponse } from '@adea-ai/api-client'
 import {
   createDirectAgentChannel,
   createGroupChannel,
-  createRoomChannel,
+  createProjectChannel,
   listChannelsForUser,
 } from '@adea-ai/db'
 
@@ -61,7 +61,7 @@ async function post(request: Request, { params }: Context) {
     !body ||
     !idempotencyKey ||
     idempotencyKey.length > 128 ||
-    !['room', 'direct_agent', 'group'].includes(String(body.kind)) ||
+    !['project', 'direct_agent', 'group'].includes(String(body.kind)) ||
     typeof body.title !== 'string' ||
     !body.title.trim() ||
     body.title.length > 120 ||
@@ -70,12 +70,12 @@ async function post(request: Request, { params }: Context) {
     return workspaceInvalidRequestResponse(request)
   try {
     let channel
-    if (body.kind === 'room') {
-      if (!isConversationUuid(body.roomId)) return workspaceInvalidRequestResponse(request)
-      channel = await createRoomChannel(
+    if (body.kind === 'project') {
+      if (!isConversationUuid(body.projectId)) return workspaceInvalidRequestResponse(request)
+      channel = await createProjectChannel(
         applicationDatabase(),
         workspaceId,
-        body.roomId,
+        body.projectId,
         resolution.principal,
         {
           idempotencyKey,

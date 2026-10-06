@@ -2,12 +2,12 @@ import type {
   AgentSummary,
   ChannelSummary,
   ConversationParticipantRef,
-  RoomSummary,
+  ProjectSummary,
 } from '@adea-ai/types'
 
-export type RoomNavigationItem = Readonly<{
+export type ProjectNavigationItem = Readonly<{
   primaryChannel?: ChannelSummary
-  room: RoomSummary
+  project: ProjectSummary
   selectionChannelId?: string
   visibleChannels: readonly ChannelSummary[]
 }>
@@ -15,13 +15,13 @@ export type RoomNavigationItem = Readonly<{
 export type WorkspaceNavigation = Readonly<{
   directAgentChannels: readonly ChannelSummary[]
   groupChannels: readonly ChannelSummary[]
-  rooms: readonly RoomNavigationItem[]
+  projects: readonly ProjectNavigationItem[]
 }>
 
 export type WorkspaceSelectionDecision =
   | Readonly<{ action: 'wait' }>
   | Readonly<{ action: 'preserve'; clearExplicitSelection: boolean }>
-  | Readonly<{ action: 'select'; channelId: string; roomId: string | null }>
+  | Readonly<{ action: 'select'; channelId: string; projectId: string | null }>
 
 /**
  * Preserve a valid selection, including one just created while its list query
@@ -49,13 +49,15 @@ export function reconcileWorkspaceChannelSelection(
     return { action: 'preserve', clearExplicitSelection: false }
   }
 
-  const firstRoom = input.navigation.rooms.find(({ selectionChannelId }) => selectionChannelId)
+  const firstProject = input.navigation.projects.find(
+    ({ selectionChannelId }) => selectionChannelId
+  )
   const channelId =
-    firstRoom?.selectionChannelId ??
+    firstProject?.selectionChannelId ??
     input.navigation.directAgentChannels[0]?.id ??
     input.navigation.groupChannels[0]?.id
   return channelId
-    ? { action: 'select', channelId, roomId: firstRoom?.room.id ?? null }
+    ? { action: 'select', channelId, projectId: firstProject?.project.id ?? null }
     : { action: 'wait' }
 }
 
@@ -68,11 +70,11 @@ function compareChannels(left: ChannelSummary, right: ChannelSummary) {
 }
 
 export function projectWorkspaceNavigation(
-  rooms: readonly RoomSummary[],
+  projects: readonly ProjectSummary[],
   channels: readonly ChannelSummary[]
 ): WorkspaceNavigation {
   const activeChannels = channels.filter(({ lifecycleState }) => lifecycleState === 'active')
-  const roomItems = [...rooms]
+  const projectItems = [...projects]
     .filter(({ lifecycleState }) => lifecycleState === 'active')
     .toSorted(
       (left, right) =>
@@ -80,18 +82,20 @@ export function projectWorkspaceNavigation(
         left.name.localeCompare(right.name) ||
         left.id.localeCompare(right.id)
     )
-    .map((room) => {
-      const roomChannels = activeChannels
-        .filter((channel) => channel.kind === 'room' && channel.roomId === room.id)
+    .map((project) => {
+      const projectChannels = activeChannels
+        .filter((channel) => channel.kind === 'project' && channel.projectId === project.id)
         .toSorted(compareChannels)
-      const primaryChannel = roomChannels.find(({ isPrimaryRoomChannel }) => isPrimaryRoomChannel)
+      const primaryChannel = projectChannels.find(
+        ({ isPrimaryProjectChannel }) => isPrimaryProjectChannel
+      )
       return Object.freeze({
         ...(primaryChannel ? { primaryChannel } : {}),
-        room,
-        ...(primaryChannel || roomChannels[0]
-          ? { selectionChannelId: (primaryChannel ?? roomChannels[0])!.id }
+        project,
+        ...(primaryChannel || projectChannels[0]
+          ? { selectionChannelId: (primaryChannel ?? projectChannels[0])!.id }
           : {}),
-        visibleChannels: Object.freeze(roomChannels.length > 1 ? roomChannels : []),
+        visibleChannels: Object.freeze(projectChannels.length > 1 ? projectChannels : []),
       })
     })
   return Object.freeze({
@@ -101,7 +105,7 @@ export function projectWorkspaceNavigation(
     groupChannels: Object.freeze(
       activeChannels.filter(({ kind }) => kind === 'group').toSorted(compareChannels)
     ),
-    rooms: Object.freeze(roomItems),
+    projects: Object.freeze(projectItems),
   })
 }
 

@@ -5,18 +5,18 @@ import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
   archiveAgent,
-  assignAgentToRoom,
+  assignAgentToProject,
   changeAgentProfile,
   createAgent,
   getAgentForUser,
   listAgentsForUser,
   updateAgentPresentation,
 } from '../../src/agents'
-import { createRoom } from '../../src/rooms'
+import { createProject } from '../../src/projects'
 import {
   agents,
   channels,
-  rooms,
+  projects,
   temporaryUserSessions,
   users,
   workspaceMemberships,
@@ -34,7 +34,7 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
   })
   afterAll(async () => connection.close())
 
-  test('preserves identity while room, presentation, and explicit profile version change', async () => {
+  test('preserves identity while project, presentation, and explicit profile version change', async () => {
     const owner = await createTemporaryUserSession(connection.db, {
       credentialDigest: `agent-owner-${crypto.randomUUID()}`,
       expiresAt: new Date(Date.now() + 60_000),
@@ -48,8 +48,8 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
       name: 'Adea',
       owner: owner.principal,
     })
-    const room = await createRoom(connection.db, workspace.id, owner.principal, {
-      functionKey: 'engineering',
+    const project = await createProject(connection.db, workspace.id, owner.principal, {
+      iconKey: 'engineering',
       name: 'Engineering',
     })
     const created = await createAgent(connection.db, workspace.id, owner.principal, {
@@ -69,12 +69,12 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
       await getAgentForUser(connection.db, workspace.id, created.id, outsider.principal)
     ).toBeNull()
 
-    const assigned = await assignAgentToRoom(
+    const assigned = await assignAgentToProject(
       connection.db,
       workspace.id,
       created.id,
       owner.principal,
-      room.id
+      project.id
     )
     const customized = await updateAgentPresentation(
       connection.db,
@@ -102,7 +102,7 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
     )
     expect(assigned.id).toBe(created.id)
     expect(customized.id).toBe(created.id)
-    expect(changed).toMatchObject({ id: created.id, roomId: room.id })
+    expect(changed).toMatchObject({ id: created.id, projectId: project.id })
     expect(changed.profile).toEqual({
       id: 'software-engineer',
       state: 'deprecated',
@@ -115,7 +115,7 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
 
     await connection.db.delete(agents).where(eq(agents.workspaceId, workspace.id))
     await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
-    await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspace.id))
+    await connection.db.delete(projects).where(eq(projects.workspaceId, workspace.id))
     await connection.db
       .delete(workspaceMemberships)
       .where(eq(workspaceMemberships.workspaceId, workspace.id))
@@ -128,9 +128,9 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
     }
   })
 
-  test('rejects assigning an Agent to a Room from another workspace', async () => {
+  test('rejects assigning an Agent to a Project from another workspace', async () => {
     const owner = await createTemporaryUserSession(connection.db, {
-      credentialDigest: `agent-room-scope-${crypto.randomUUID()}`,
+      credentialDigest: `agent-project-scope-${crypto.randomUUID()}`,
       expiresAt: new Date(Date.now() + 60_000),
     })
     const a = await createWorkspaceWithOwner(connection.db, {
@@ -148,19 +148,25 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
       profileId: 'general',
       profileVersion: '1',
     })
-    const otherRoom = await createRoom(connection.db, b.workspace.id, owner.principal, {
-      functionKey: 'general',
+    const otherProject = await createProject(connection.db, b.workspace.id, owner.principal, {
+      iconKey: 'general',
       name: 'Other',
     })
 
     await expect(
-      assignAgentToRoom(connection.db, a.workspace.id, agent.id, owner.principal, otherRoom.id)
-    ).rejects.toThrow('Room unavailable')
+      assignAgentToProject(
+        connection.db,
+        a.workspace.id,
+        agent.id,
+        owner.principal,
+        otherProject.id
+      )
+    ).rejects.toThrow('Project unavailable')
 
     await connection.db.delete(agents).where(eq(agents.workspaceId, a.workspace.id))
     for (const workspaceId of [a.workspace.id, b.workspace.id])
       await connection.db.delete(channels).where(eq(channels.workspaceId, workspaceId))
-    await connection.db.delete(rooms).where(eq(rooms.workspaceId, b.workspace.id))
+    await connection.db.delete(projects).where(eq(projects.workspaceId, b.workspace.id))
     for (const workspaceId of [a.workspace.id, b.workspace.id]) {
       await connection.db
         .delete(workspaceMemberships)

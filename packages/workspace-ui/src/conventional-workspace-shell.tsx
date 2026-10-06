@@ -20,8 +20,8 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
 )
-const CreateRoomDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateRoomDialog }))
+const CreateProjectDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateProjectDialog }))
 )
 const ModalDialog = lazy(() =>
   import('@adea-ai/ui/components/ui/modal-dialog').then((module) => ({
@@ -40,7 +40,7 @@ const WorkspaceSettingsDialog = lazy(() =>
 type DialogId =
   | 'conversation-search'
   | 'create-group'
-  | 'create-room'
+  | 'create-project'
   | 'details'
   | 'search'
   | 'settings'
@@ -98,7 +98,7 @@ export function ConventionalWorkspaceShell(props: {
     if (props.taskBoardOnly) props.onViewChange?.('chat')
   }
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
-  const collapsedRoomIds = useWorkspaceState((state) => state.collapsedRoomIds)
+  const collapsedProjectIds = useWorkspaceState((state) => state.collapsedProjectIds)
   const drafts = useWorkspaceState((state) => state.drafts)
   const mobileSidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
   const selectedAgentId = useWorkspaceState((state) => state.selectedAgentId)
@@ -116,10 +116,10 @@ export function ConventionalWorkspaceShell(props: {
 
   createEffect(on(sessionIdentity, () => setSessionNoticeDismissed(false), { defer: true }))
 
-  const selectChannel = (channelId: string, roomId?: string) => {
+  const selectChannel = (channelId: string, projectId?: string) => {
     setSelectedArtifactId(null)
     setSearchTargetMessageId(null)
-    controller.selectChannel(channelId, roomId)
+    controller.selectChannel(channelId, projectId)
     setSurface('conversation')
     // Selecting a conversation collapses the drawer only on narrow
     // viewports; at wider widths the sidebar stays as the user left it.
@@ -224,7 +224,7 @@ export function ConventionalWorkspaceShell(props: {
           )
           const direction = event.key === 'ArrowDown' ? 1 : -1
           const next = (current + direction + destinations.length) % destinations.length
-          selectChannel(destinations[next]!.id, destinations[next]!.roomId)
+          selectChannel(destinations[next]!.id, destinations[next]!.projectId)
         }
       }
       if (event.key === 'Escape' && threadRootMessageId())
@@ -275,7 +275,7 @@ export function ConventionalWorkspaceShell(props: {
     const taskId = query.task
     if (channelId && controller.channels.some(({ id }) => id === channelId)) {
       const channel = controller.channels.find(({ id }) => id === channelId)!
-      selectChannel(channel.id, channel.roomId)
+      selectChannel(channel.id, channel.projectId)
       workspaceStore.getState().setThreadRootMessageId(query.thread ?? null)
       setSearchTargetMessageId(query.message ?? null)
     } else if (taskId && controller.tasks.some(({ id }) => id === taskId)) {
@@ -298,9 +298,9 @@ export function ConventionalWorkspaceShell(props: {
       return
     }
     if (result.kind === 'channel') return selectChannel(result.id)
-    if (result.kind === 'room') {
-      const item = controller.navigation().rooms.find(({ room }) => room.id === result.id)
-      if (item?.selectionChannelId) selectChannel(item.selectionChannelId, item.room.id)
+    if (result.kind === 'project') {
+      const item = controller.navigation().projects.find(({ project }) => project.id === result.id)
+      if (item?.selectionChannelId) selectChannel(item.selectionChannelId, item.project.id)
       return
     }
     if (result.kind === 'agent') {
@@ -310,7 +310,7 @@ export function ConventionalWorkspaceShell(props: {
       return
     }
     if (result.kind === 'message' && result.channelId) {
-      selectChannel(result.channelId, result.roomId)
+      selectChannel(result.channelId, result.projectId)
       workspaceStore.getState().setThreadRootMessageId(result.threadRootMessageId ?? null)
       setSearchTargetMessageId(result.messageId ?? result.id)
       return
@@ -368,12 +368,12 @@ export function ConventionalWorkspaceShell(props: {
                 agents={controller.agents}
                 restoreFocusRef={props.restoreFocusRef}
                 channelBusy={controller.channelBusy}
-                collapsedRoomIds={collapsedRoomIds()}
+                collapsedProjectIds={collapsedProjectIds()}
                 mobileOpen={mobileSidebarOpen()}
                 navigation={controller.navigation()}
                 onArchiveChannel={controller.channelActions.archive}
                 onCreateGroup={() => setDialog('create-group')}
-                onCreateRoom={() => setDialog('create-room')}
+                onCreateProject={() => setDialog('create-project')}
                 onRenameChannel={controller.channelActions.rename}
                 onOpenAgents={() => {
                   setSelectedArtifactId(null)
@@ -383,9 +383,11 @@ export function ConventionalWorkspaceShell(props: {
                 onChannelIntent={prefetchChannelMessages}
                 onSelectChannel={selectChannel}
                 onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
-                onToggleRoom={(roomId) => workspaceStore.getState().toggleRoomCollapsed(roomId)}
-                onUpdateRoom={controller.roomActions.update}
-                roomBusy={controller.roomBusy}
+                onToggleProject={(projectId) =>
+                  workspaceStore.getState().toggleProjectCollapsed(projectId)
+                }
+                onUpdateProject={controller.projectActions.update}
+                projectBusy={controller.projectBusy}
                 selectedChannelId={selectedChannelId()}
                 readState={controller.readState}
                 workspaceName={controller.activeWorkspace!.name}
@@ -446,7 +448,7 @@ export function ConventionalWorkspaceShell(props: {
                               onComplete={controller.taskActions.complete}
                               onCreate={controller.taskActions.create}
                               onDependencies={controller.taskActions.dependencies}
-                              onMoveRoom={controller.taskActions.moveRoom}
+                              onMoveProject={controller.taskActions.moveProject}
                               onUpdate={controller.taskActions.update}
                               onOpenConversation={(task) =>
                                 void controller.taskActions
@@ -460,7 +462,7 @@ export function ConventionalWorkspaceShell(props: {
                               }
                               onStart={controller.taskActions.start}
                               privateContent={services()?.privateContent}
-                              rooms={controller.rooms}
+                              projects={controller.projects}
                               selectedTaskId={selectedTaskId()}
                               tasks={controller.tasks}
                             />
@@ -488,8 +490,11 @@ export function ConventionalWorkspaceShell(props: {
                                   name: input.name,
                                   roleSummary: input.roleSummary,
                                 })
-                              if (input.roomId !== (agent.roomId ?? null))
-                                await controller.agentActions.assignRoom(agent.id, input.roomId)
+                              if (input.projectId !== (agent.projectId ?? null))
+                                await controller.agentActions.assignProject(
+                                  agent.id,
+                                  input.projectId
+                                )
                               if (
                                 input.profileId.trim() !== agent.profile.id ||
                                 input.profileVersion.trim() !== agent.profile.version
@@ -499,7 +504,7 @@ export function ConventionalWorkspaceShell(props: {
                                   profileVersion: input.profileVersion,
                                 })
                             }}
-                            rooms={controller.rooms}
+                            projects={controller.projects}
                           />
                         </Show>
                       }
@@ -593,11 +598,11 @@ export function ConventionalWorkspaceShell(props: {
                   load-time half of the dynamic-import boundary. The dialog
                   primitives already mount only while open, so opening and
                   closing behaves exactly as before. */}
-              <Show when={dialog() === 'create-room'}>
-                <CreateRoomDialog
-                  busy={controller.createRoomBusy}
+              <Show when={dialog() === 'create-project'}>
+                <CreateProjectDialog
+                  busy={controller.createProjectBusy}
                   onClose={() => setDialog(null)}
-                  onCreate={controller.createRoom}
+                  onCreate={controller.createProject}
                   open
                   template={controller.activeWorkspace!.scene}
                 />
@@ -622,7 +627,7 @@ export function ConventionalWorkspaceShell(props: {
                   onSelect={selectSearchResult}
                   open
                   privateContent={services()?.privateContent}
-                  rooms={controller.rooms}
+                  projects={controller.projects}
                   scopeChannelId={
                     dialog() === 'conversation-search' ? controller.selectedChannel?.id : undefined
                   }

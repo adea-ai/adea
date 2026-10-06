@@ -106,6 +106,56 @@ It fails when credentials are client-prefixed, hosted TLS is disabled, environme
 - Use point-in-time restore only for data-loss recovery, not as the normal schema rollback mechanism.
 - Pull-request CI applies the full migration history twice and compares the Drizzle journal before running transaction integration tests on its isolated Neon branch.
 
+### Rooms become projects (maintenance window)
+
+Migration `0030_rooms-become-projects` renames the cloud room entity to
+projects ([ADR 0011](decisions/0011-unified-workspace-projects.md)). It is the
+one deliberate exception to expand/contract: the owner chose a single rename
+with a short maintenance window and no compatibility shim, so the schema and
+the Worker change together.
+
+What the migration does, in place and without copying data:
+
+- `app.rooms` becomes `app.projects` (ids, rows, and foreign keys keep their
+  values); `function_key` becomes `icon_key`; `template_key`, `layout_ref` and
+  `spatial_ref` are dropped; `source_kind` (`none` or `repository`, default
+  `none`) and the soft-delete column `deleted_at` are added.
+- `channels.room_id`, `tasks.room_id` and `agents.room_id` become `project_id`;
+  `channels.is_primary_room_channel` becomes `is_primary_project_channel`;
+  their foreign keys, indexes, and check constraints are renamed with them.
+- The `channel_kind` value `room` is renamed to `project`, and
+  `room_lifecycle_state` to `project_lifecycle_state`.
+- `workspace_event_aggregate_type` gains `project`. `room` stays so historical
+  events remain readable.
+- Primary-channel idempotency keys `primary-room:<id>` become
+  `primary-project:<id>`.
+
+Order of operations:
+
+1. Announce the window. Nothing durable is lost, but room/project requests fail
+   while the window is open.
+2. Run the production migration workflow (or `db:migrate` with
+   `DATABASE_MIGRATION_URL`) and confirm it finished and `db:verify` passed.
+3. Deploy the Worker built from the same commit immediately afterwards.
+4. Smoke-check the hosted host: list projects, create one, open its primary
+   channel, and confirm the workspace event stream delivers `project.created`.
+
+What breaks during the window (between steps 2 and 3):
+
+- The previous Worker still queries `app.rooms`, `room_id` and the `room`
+  channel kind, so Chat and Virtual sidebars, channel lists, task and agent
+  reads, search, and any create or update touching rooms answer 5xx.
+- `/api/v1/workspaces/:id/rooms*`, `.../tasks/:id/room` and
+  `.../agents/:id/room` disappear once the new Worker ships; old desktop or web
+  clients calling them get 404 until they reload or update.
+- Clients replaying old `room.*` events refresh the whole workspace (an unknown
+  family), which is safe.
+
+Rollback is forward-only: if the new Worker misbehaves, fix forward. Rolling
+the Worker back without reversing the rename leaves the old code pointed at
+tables and values that no longer exist; a reverse migration would be a new,
+reviewed migration, not an edit of `0030`.
+
 ## Backup and restore
 
 Neon retains branch history according to the project restore window. The current free-plan project reports a six-hour window. A restore drill must use a disposable child of `development`, never `main`:

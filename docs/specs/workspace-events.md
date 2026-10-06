@@ -9,9 +9,15 @@ the workspace events route, or `packages/data/src/events.ts`.
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
-**Pending redesign:** [ADR 0011](../decisions/0011-unified-workspace-projects.md)
-renames the room family to projects. The registry
-below stays authoritative until that change lands with its amendment.
+**Projects, not rooms:** [ADR 0011](../decisions/0011-unified-workspace-projects.md)
+renamed the cloud room entity to projects in one migration (`0030`). The
+`project` family (`project.created`, `project.updated`, `project.archived`,
+`project.reordered`, `project.deleted`) replaced `room.*`, `task.room_changed`
+became `task.project_changed`, and `agent.room_assigned` became
+`agent.project_assigned`. The `room` aggregate type survives in the database
+enum only so historical rows stay readable; no current contract emits it, and a
+client that replays an old `room.*` event treats it as an unknown family and
+refreshes the workspace.
 
 ## The log is authoritative; delivery is not
 
@@ -89,7 +95,7 @@ optional correlation id.
 The stream's guarantees are checkable against a running host without special
 tooling:
 
-- **Replay and cursors**: bootstrap a guest, open the stream, create a Room, then
+- **Replay and cursors**: bootstrap a guest, open the stream, create a Project, then
   reconnect with the cursor printed in the earlier frame's `id:` — only events
   after it are replayed.
 - **Recovery**: present a cursor from another workspace, a tampered one, or one
