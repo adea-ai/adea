@@ -41,6 +41,14 @@
   gap: 0.5rem;
 }
 
+/* The refresh action belongs beside the title, vertically centered with it,
+   not pushed to the far edge next to the sheet's close button. */
+.dev-resources__title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .dev-resources__header-actions {
   display: flex;
   gap: 0.125rem;

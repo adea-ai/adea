@@ -303,28 +303,30 @@ export function ResourcesPane(props: ResourcesPaneProps) {
     <div class="dev-resources" role="region" aria-label="Runtime resources">
       <div class="dev-resources__header">
         <div class="dev-resources__row-main">
-          <span class="dev-resources__title">Runtime resources</span>
+          <div class="dev-resources__title-row">
+            <span class="dev-resources__title">Runtime resources</span>
+            <ActionButton
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Refresh resources"
+              tooltip={
+                serviceReady()
+                  ? 'Refresh runtime resources'
+                  : 'Connect a runtime to refresh resources'
+              }
+              disabled={!serviceReady()}
+              onClick={refresh}
+            >
+              <RefreshCw aria-hidden="true" />
+            </ActionButton>
+          </div>
           <span class="dev-resources__row-detail">
             {preferences().coverage === 'machine' ? 'This machine' : 'Adea only'}
             <Show when={current()}> · sampled every {preferences().sampling.visibleSeconds} s</Show>
           </span>
         </div>
         <span class="dev-resources__header-actions">
-          <ActionButton
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Refresh resources"
-            tooltip={
-              serviceReady()
-                ? 'Refresh runtime resources'
-                : 'Connect a runtime to refresh resources'
-            }
-            disabled={!serviceReady()}
-            onClick={refresh}
-          >
-            <RefreshCw aria-hidden="true" />
-          </ActionButton>
           <ActionButton
             type="button"
             variant="ghost"
