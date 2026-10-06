@@ -16,6 +16,10 @@ export type GitRunOptions = Readonly<{
   /** Map a non-zero exit to a typed error; return undefined to use the default mapping. */
   classify?: (result: { exitCode: number; stderr: string }) => WorktreeErrorCode | undefined
   signal?: AbortSignal
+  /** Extra child environment merged over the fixed minimal environment
+   *  (e.g. the non-interactive SSH transport for managed clones). Never
+   *  credential material. */
+  env?: Readonly<Record<string, string>>
 }>
 
 export type GitRunResult = Readonly<{
@@ -26,6 +30,26 @@ export type GitRunResult = Readonly<{
 
 export const GIT_CHILD_TIMEOUT_MS = 60_000
 export const GIT_CHILD_MAX_OUTPUT_BYTES = 10 * 1024 * 1024
+/** After a timeout/cancel SIGTERM, how long the runner waits before SIGKILL. */
+export const GIT_CHILD_TERM_GRACE_MS = 1_000
+/** After the SIGKILL, how long the runner waits for the child to be reaped
+ *  before it gives up and reports the exit as unconfirmed. */
+export const GIT_CHILD_KILL_GRACE_MS = 5_000
+
+/** A git child the runner killed (timeout, cancellation, or output budget).
+ *  `exited` is true only when the runner observed the child's exit after
+ *  the SIGKILL, so callers may clean up what it was writing; false means the
+ *  child may still be running and nothing it touched may be deleted. */
+export class GitChildKilledError extends WorktreeError {
+  constructor(
+    code: WorktreeErrorCode,
+    message: string,
+    readonly exited: boolean
+  ) {
+    super(code, message)
+    this.name = 'GitChildKilledError'
+  }
+}
 
 export function gitChildEnv(): Record<string, string> {
   return {
@@ -111,36 +135,66 @@ export async function runGit(
   const maxOutputBytes = options.maxOutputBytes ?? GIT_CHILD_MAX_OUTPUT_BYTES
   const proc = Bun.spawn(['git', ...args], {
     cwd: options.cwd,
-    env: gitChildEnv(),
+    env: { ...gitChildEnv(), ...options.env },
     stdin: 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',
   })
 
+  /** Stop the child and wait (bounded) until it is reaped, so a caller never
+   *  cleans up files a still-running child is writing. SIGTERM first — git
+   *  then stops its own helpers (upload-pack, index-pack, remote helpers) —
+   *  and SIGKILL if it has not exited within the term grace. The first kill
+   *  wins; once killing, the run settles only with the kill's typed error. */
+  let killing: Promise<never> | undefined
+  function killAndReap(code: WorktreeErrorCode, message: string): Promise<never> {
+    killing ??= (async (): Promise<never> => {
+      const exitedWithin = async (ms: number): Promise<boolean> => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const exited = await Promise.race([
+          proc.exited.then(() => true),
+          new Promise<boolean>((resolveGrace) => {
+            timer = setTimeout(() => resolveGrace(false), ms)
+            timer.unref?.()
+          }),
+        ])
+        if (timer) clearTimeout(timer)
+        return exited
+      }
+      const signal = (name: 'SIGTERM' | 'SIGKILL') => {
+        try {
+          proc.kill(name)
+        } catch {
+          // Already exited.
+        }
+      }
+      signal('SIGTERM')
+      let exited = await exitedWithin(GIT_CHILD_TERM_GRACE_MS)
+      if (!exited) {
+        signal('SIGKILL')
+        exited = await exitedWithin(GIT_CHILD_KILL_GRACE_MS)
+      }
+      throw new GitChildKilledError(code, message, exited)
+    })()
+    return killing
+  }
+
   let onAbort: (() => void) | undefined
   const aborted = new Promise<never>((_, reject) => {
     onAbort = () => {
-      try {
-        proc.kill()
-      } catch {
-        // Already exited.
-      }
-      reject(new WorktreeError('cancelled', 'git operation was cancelled'))
+      killAndReap('cancelled', 'git operation was cancelled').catch(reject)
     }
     if (options.signal?.aborted) onAbort()
     else options.signal?.addEventListener('abort', onAbort, { once: true })
   })
 
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
     const timer = setTimeout(() => {
-      try {
-        proc.kill()
-      } catch {
-        // Already exited.
-      }
-      reject(new WorktreeError('timeout', `git ${args[0]} exceeded ${timeoutMs}ms`))
+      killAndReap('timeout', `git ${args[0]} exceeded ${timeoutMs}ms`).catch(reject)
     }, timeoutMs)
     timer.unref?.()
+    timeoutTimer = timer
   })
 
   async function readCapped(stream: ReadableStream<Uint8Array>, what: string): Promise<string> {
@@ -149,14 +203,8 @@ export async function runGit(
     let text = ''
     for await (const chunk of stream) {
       total += chunk.byteLength
-      if (total > maxOutputBytes) {
-        try {
-          proc.kill()
-        } catch {
-          // Already exited.
-        }
-        throw new WorktreeError('limit_exceeded', `git ${args[0]} ${what} exceeded output budget`)
-      }
+      if (total > maxOutputBytes)
+        return killAndReap('limit_exceeded', `git ${args[0]} ${what} exceeded output budget`)
       text += decoder.decode(chunk, { stream: true })
     }
     text += decoder.decode()
@@ -169,12 +217,16 @@ export async function runGit(
       readCapped(proc.stderr, 'stderr'),
       proc.exited,
     ])
+    // A child we killed exits too: report the kill, never its exit status.
+    if (killing) return killing
     return { stdout, stderr, exitCode }
   })()
 
   try {
     return await Promise.race([work, aborted, timeout])
   } finally {
+    // A finished run must never be killed later by its own budget timer.
+    if (timeoutTimer) clearTimeout(timeoutTimer)
     if (onAbort) options.signal?.removeEventListener('abort', onAbort)
   }
 }

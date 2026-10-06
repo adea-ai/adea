@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -37,6 +38,12 @@ import { registerRepoRuntime } from '../shell/src/dev-runtime/repos/register'
 import { createRootBookmarkAuthority } from '../shell/src/dev-runtime/roots'
 import { createCredentialVault, createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import { createWorktreeService } from '../shell/src/dev-runtime/worktrees/service'
+import {
+  GitChildKilledError,
+  runGit,
+  type GitRunOptions,
+} from '../shell/src/dev-runtime/worktrees/git-run'
+import type { AuthorityAuditEntry as AuditEntry } from '../shell/src/dev-runtime/audit'
 
 const scope: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -85,7 +92,15 @@ function initOrigin(root: string): string {
 }
 
 let consentSequence = 0
-function fixture(options: { limits?: { timeoutMs?: number; maxBytes?: number } } = {}) {
+function fixture(
+  options: {
+    limits?: { timeoutMs?: number; maxBytes?: number }
+    /** Production composition: local remotes refused (the default here is
+     *  the test-only opt-in, since fixtures clone a local origin). */
+    production?: boolean
+    runGit?: typeof runGit
+  } = {}
+) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'adea-managed-clone-')))
   const dataDir = join(root, 'data')
   mkdirSync(dataDir, { mode: 0o700 })
@@ -117,6 +132,7 @@ function fixture(options: { limits?: { timeoutMs?: number; maxBytes?: number } }
     approval: approval('enroll a credential'),
   })
   const service = createWorktreeService({ dataDir, runtimeNodeId: scope.runtimeNodeId, roots })
+  const audits: AuditEntry[] = []
   const providers = new Map<string, (command: DevCommand) => unknown>()
   const authority = {
     registerCommandProvider(operation: string, provider: (command: DevCommand) => unknown) {
@@ -127,7 +143,10 @@ function fixture(options: { limits?: { timeoutMs?: number; maxBytes?: number } }
     dataDir,
     scope,
     worktreeService: service,
+    audit: { append: (entry: AuditEntry) => void audits.push(entry) },
     ...(options.limits ? { limits: options.limits } : {}),
+    ...(options.production ? {} : { allowLocalRemotes: true }),
+    ...(options.runGit ? { runGit: options.runGit } : {}),
   })
   const projectSession = registerProjectSessionRuntime({
     authority,
@@ -153,6 +172,7 @@ function fixture(options: { limits?: { timeoutMs?: number; maxBytes?: number } }
     credential,
     managedRoot,
     registry: createRepoRegistryStore(dataDir),
+    audits,
     projectSession,
     run(operation: string, body: Record<string, unknown>, resource?: DevCommand['resource']) {
       const provider = providers.get(operation)
@@ -425,6 +445,9 @@ describe('dev.project.clone (remote-only projects)', () => {
           await codeOf(() => f.run('dev.project.clone', { projectId, remoteUrl, mode: 'managed' }))
         ).toBe('invalid_state')
       expect(admitCloneRemote('git@github.com:owner/repo.git')).toBe('ssh')
+      // Local remotes are a test-only opt-in.
+      expect(await codeOf(() => admitCloneRemote(`file://${f.origin}`))).toBe('invalid_state')
+      expect(admitCloneRemote(`file://${f.origin}`, { allowLocalRemotes: true })).toBe('file')
       expect(admitCloneRemote('ssh://git@github.com/owner/repo.git')).toBe('ssh')
       expect(admitCloneRemote('https://github.com/owner/repo.git')).toBe('https')
 
@@ -519,6 +542,120 @@ describe('dev.project.clone (remote-only projects)', () => {
     } finally {
       slow.cleanup()
     }
+  })
+})
+
+describe('hardened transport and cleanup', () => {
+  test('the production composition refuses file:// remotes before touching disk', async () => {
+    const f = fixture({ production: true })
+    try {
+      expect(await codeOf(() => cloneProject(f))).toBe('invalid_state')
+      expect(existsSync(f.managedRoot)).toBe(false)
+      expect(f.registry.load()).toHaveLength(0)
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  test('the shipped shell never opts into local clone remotes', () => {
+    const shellEntry = readFileSync(join(import.meta.dir, '../shell/src/bun/index.ts'), 'utf8')
+    expect(shellEntry).not.toContain('allowLocalCloneRemotes')
+    expect(shellEntry).not.toContain('allowLocalRemotes')
+  })
+
+  test('ssh clones run non-interactively and type host-key and auth refusals', async () => {
+    const seen: Array<{ args: readonly string[]; env?: GitRunOptions['env'] }> = []
+    let stderr = ''
+    const stub = (async (args: readonly string[], options: GitRunOptions = {}) => {
+      seen.push({ args, ...(options.env ? { env: options.env } : {}) })
+      return { stdout: '', stderr, exitCode: 128 }
+    }) as typeof runGit
+    const f = fixture({ production: true, runGit: stub })
+    try {
+      const remoteUrl = 'git@github.com:owner/repo.git'
+      const clone = () => f.run('dev.project.clone', { projectId, remoteUrl, mode: 'managed' })
+      stderr = 'Host key verification failed.\nfatal: Could not read from remote repository.'
+      expect(await codeOf(clone)).toBe('remote_unavailable')
+      stderr = 'git@github.com: Permission denied (publickey,password).'
+      expect(await codeOf(clone)).toBe('auth_required')
+      const cloneCall = seen.find((call) => call.args.includes('clone'))!
+      expect(cloneCall.args).toEqual(
+        expect.arrayContaining([
+          'protocol.allow=never',
+          'protocol.ssh.allow=always',
+          '--bare',
+          '--',
+        ])
+      )
+      expect(cloneCall.env).toMatchObject({
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_SSH_VARIANT: 'ssh',
+        SSH_ASKPASS_REQUIRE: 'never',
+      })
+      expect(cloneCall.env?.GIT_SSH_COMMAND).toContain('BatchMode=yes')
+      expect(cloneCall.env?.GIT_SSH_COMMAND).toContain('StrictHostKeyChecking=yes')
+      // Each refusal removed its staging directory.
+      expect(readdirSync(f.managedRoot).filter((name) => name !== '.adea-worktree-trash')).toEqual(
+        []
+      )
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  test('an unconfirmed child exit quarantines without deleting and reports cleanup_partial', async () => {
+    let exited = false
+    const stub = (async (args: readonly string[]) => {
+      if (args.includes('clone'))
+        throw new GitChildKilledError('timeout', 'git clone exceeded 1ms', exited)
+      return { stdout: '', stderr: '', exitCode: 0 }
+    }) as typeof runGit
+    const f = fixture({ runGit: stub })
+    try {
+      expect(await codeOf(() => cloneProject(f))).toBe('cleanup_partial')
+      // The staging dir sits owner-only in the managed trash, never deleted.
+      const trash = join(f.managedRoot, '.adea-worktree-trash')
+      const entries = readdirSync(trash).filter((name) => !name.endsWith('.record.json'))
+      expect(entries).toHaveLength(1)
+      expect(lstatSync(join(trash, entries[0]!)).mode & 0o777).toBe(0o700)
+      expect(readdirSync(f.managedRoot).filter((name) => name !== '.adea-worktree-trash')).toEqual(
+        []
+      )
+      expect(f.audits).toContainEqual(
+        expect.objectContaining({
+          action: 'repo.managed_clone_discard',
+          outcome: 'failed',
+          detail: { cause: 'timeout', reason: 'child_exit_unconfirmed' },
+        })
+      )
+      expect(f.registry.load()).toHaveLength(0)
+
+      // A confirmed exit cleans up fully and keeps the original typed code.
+      exited = true
+      expect(await codeOf(() => cloneProject(f))).toBe('timeout')
+      expect(readdirSync(trash).filter((name) => !name.endsWith('.record.json'))).toHaveLength(1)
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  test('the git runner reaps a killed child before rejecting', async () => {
+    // A git builtin that blocks in-process (no grandchildren to orphan).
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'adea-git-reap-')))
+    chmodSync(dir, 0o700)
+    const started = Date.now()
+    let error: unknown
+    try {
+      await runGit(['credential-cache--daemon', join(dir, 'socket')], { timeoutMs: 200 })
+    } catch (caught) {
+      error = caught
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+    expect(error).toBeInstanceOf(GitChildKilledError)
+    expect((error as GitChildKilledError).code).toBe('timeout')
+    expect((error as GitChildKilledError).exited).toBe(true)
+    expect(Date.now() - started).toBeLessThan(5_000)
   })
 })
 

@@ -28,7 +28,11 @@ import { createDurableJsonStore } from '../host-store'
 import type { AuthorityAudit } from '../audit'
 import type { RootBookmarkAuthority } from '../roots'
 import { createRepoRegistryStore, type RepoRegistryRecord } from '../repos/registry-store'
-import { ensureManagedWorktreeBase, proveManagedBareRepo } from '../repos/managed'
+import {
+  ensureManagedWorktreeBase,
+  nonInteractiveTransportEnv,
+  proveManagedBareRepo,
+} from '../repos/managed'
 import { WorktreeError, type WorktreeErrorCode } from './errors'
 import { runGit, runGitChecked, gitRevParse } from './git-run'
 import {
@@ -875,6 +879,8 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
           cwd: repo.canonicalRoot,
           timeoutMs: fetchTimeoutMs,
           signal: input.signal,
+          // A managed clone's network children never prompt (batch SSH).
+          ...(repo.layout === 'bare_managed' ? { env: nonInteractiveTransportEnv() } : {}),
         })
       } catch (error) {
         const code: WorktreeErrorCode =

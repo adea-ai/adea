@@ -176,6 +176,12 @@ export type CreateDevRuntimeHostInput = {
    * and the shell must never await it.
    */
   managedPiAutoInstall?: boolean
+  /**
+   * Test-only: let `dev.project.clone` admit `file://` remotes (local fixture
+   * origins). The shipped shell (`bun/index.ts`) never sets it, so production
+   * accepts only https and ssh remotes.
+   */
+  allowLocalCloneRemotes?: boolean
   /** Overrides the ACP lane driver (#32; tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
   /**
@@ -319,6 +325,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         scope: input.scope,
         ...(worktreeService ? { worktreeService } : {}),
         ...(input.audit ? { audit: input.audit } : {}),
+        ...(input.allowLocalCloneRemotes === true ? { allowLocalRemotes: true } : {}),
       })
     : undefined
   const projectSession = input.scope

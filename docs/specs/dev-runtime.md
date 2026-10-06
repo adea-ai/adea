@@ -3005,32 +3005,59 @@ no primary checkout. The envelope carries no resource (a binding refuses with
 
 - **Admission.** The cloud `projectId` must be an unbound lowercase UUID
   (`identity_mismatch` otherwise, checked again under the binding write). The
-  remote must be `https://`, `ssh://`, scp-like `user@host:path`, or `file://`
-  (local mirrors); `http://`, `ext::`/`fd::` and every other transport, bare
-  paths, a leading `-`, whitespace/control characters, an embedded password,
-  and https user-info tokens refuse with `invalid_state` before anything
-  touches disk — credentials come from a vault reference, never the URL.
-  `credentialRefId` resolves fail-closed exactly like `dev.repo.authorize`
-  (unknown `not_found`, not `ready` `invalid_state`, host mismatch
-  `identity_mismatch`) and is recorded on the repository; secret material
-  never enters git arguments, the environment, the registry, a reply, an
-  event, or a log, so transport authentication uses the user's own git
-  credential configuration and a refusal is typed `auth_required`.
-  `defaultBaseRef` must be a plain ref name and must resolve in the clone
-  (`base_not_found`).
-- **Clone.** The clone runs `git -c protocol.allow=never -c
-protocol.<scheme>.allow=always clone --bare -- <url> <staging>` through the
-  bounded argv-only runner into a fresh owner-only staging directory inside
-  the managed root, then configures the remote-tracking refspec
-  `+refs/heads/*:refs/remotes/origin/*`, runs one bounded `fetch --prune
-origin`, and points `refs/remotes/origin/HEAD` at the remote default
-  branch. Budgets (limits registry): 10 minutes per network child, 4 GiB on
-  disk (a 500 ms size watchdog aborts the child; `limit_exceeded`), at most
-  two clones in flight per node and one per project id. Failures are typed:
-  `auth_required`, `not_found`, `remote_unavailable`, `timeout`,
-  `limit_exceeded`. Any failure removes the staging (or published) directory
-  through the quarantine/trash path, and no registry record or binding
-  survives it.
+  remote must be `https://`, `ssh://`, or scp-like `user@host:path` (ssh).
+  `file://` remotes and local paths are refused in production: a local remote
+  would let a caller copy any repository the user can read into app data.
+  Only a composition that passes the test-only `allowLocalCloneRemotes` flag
+  admits `file://` (fixture origins); the shipped shell (`bun/index.ts`)
+  never sets it, and a test pins that. `http://`, `ext::`/`fd::` and every
+  other transport, bare paths, a leading `-`, whitespace/control characters,
+  an embedded password, and https user-info tokens refuse too — all with
+  `invalid_state` (the contract has no separate input-validation code) before
+  anything touches disk. Credentials come from a vault reference, never the
+  URL. `credentialRefId` resolves fail-closed exactly like
+  `dev.repo.authorize` (unknown `not_found`, not `ready` `invalid_state`,
+  host mismatch `identity_mismatch`) and is recorded on the repository;
+  secret material never enters git arguments, the environment, the registry,
+  a reply, an event, or a log, so transport authentication uses the user's
+  own git credential configuration (and `SSH_AUTH_SOCK`, a socket path, for
+  agent-held keys). `defaultBaseRef` must be a plain ref name and must
+  resolve in the clone (`base_not_found`).
+- **Clone.** The clone runs
+  `git -c protocol.allow=never -c protocol.<scheme>.allow=always clone --bare -- <url> <staging>`
+  through the bounded argv-only runner into a fresh owner-only staging
+  directory inside the managed root, then configures the remote-tracking
+  refspec `+refs/heads/*:refs/remotes/origin/*`, runs one bounded
+  `fetch --prune origin`, and points `refs/remotes/origin/HEAD` at the remote
+  default branch. Budgets (limits registry): 10 minutes per network child,
+  4 GiB on disk (a 500 ms size watchdog aborts the child; `limit_exceeded`),
+  at most two clones in flight per node and one per project id.
+- **Nothing prompts.** Every network git child of a managed clone (the
+  clone, its fetch, later base fetches in `dev.worktree.create`, and the
+  `dev.repo.refresh` probe) runs with `GIT_TERMINAL_PROMPT=0`, askpass
+  disabled (`GIT_ASKPASS`/`SSH_ASKPASS` empty, `SSH_ASKPASS_REQUIRE=never`),
+  `GIT_SSH_VARIANT=ssh`, and
+  `GIT_SSH_COMMAND='ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30'`.
+  A password or passphrase prompt fails at once as `auth_required`; an
+  unknown or changed host key fails at once as `remote_unavailable` (the
+  remote could not be proven), never waiting out the clone budget. Other
+  failures are typed `auth_required`, `not_found`, `remote_unavailable`,
+  `timeout`, or `limit_exceeded`.
+- **Cleanup after exit.** A timeout, cancellation, size, or output kill
+  sends `SIGTERM` (so git stops its own helpers), escalates to `SIGKILL`
+  after 1 s, and the runner then waits (bounded, 5 s) for the git child to be
+  reaped before it rejects; a run that was killed reports the kill,
+  never the child's exit status. (The reap covers the git process itself;
+  after a `SIGKILL` its transport helpers — `ssh`, `git-remote-https` — lose
+  their pipes and exit on their own.) Only a confirmed exit lets the failed clone
+  remove its staging (or published) directory, through the quarantine/trash
+  path. When the exit is unconfirmed, or the quarantine or deletion fails,
+  the partial clone stays owner-only in the managed root or its trash
+  (`managed-repos/.adea-worktree-trash`, with its provenance record for the
+  sweep), the audit log records `repo.managed_clone_discard` `failed` with
+  the cause and reason (`child_exit_unconfirmed` or `discard_failed`), and
+  the command answers `cleanup_partial` — never a silently swallowed
+  leftover. No registry record or binding survives any failed clone.
 - **Managed roots.** The clone is published as
   `<dataDir>/dev-runtime/managed-repos/<repoId>.git`; its managed worktrees
   live under `<dataDir>/dev-runtime/managed-worktrees/<repoId>/<name>`. Both
@@ -5299,7 +5326,7 @@ never truncates silently or allocates an unbounded fallback.
 | files                 | directory page 500; inline read/write 256 KiB on the control path; bulk via `file-bytes-v1` stream (64 MiB, 64 KiB frames, 1 MiB read credit); editable 8 MiB; preview 64 MiB; 30-second operation; tree plans: depth 64, 5,000 items, 256 MiB copy volume, 10-minute plan TTL |
 | editor/diff           | reduced tokenization after 10,000 lines or 5 MiB; 10,000 hunks/20 MiB rendered diff before metadata fallback                                                                                                                                                                   |
 | search                | 10,000 matches; 1,000 matched files; 50 MiB scan-result budget; 1 MiB emitted; 30 seconds                                                                                                                                                                                      |
-| git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies                                                                                                                                                                                                  |
+| git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies; a timed-out, cancelled, or over-budget child gets `SIGTERM`, then `SIGKILL` after 1 s, and is reaped (5 s grace) before the run rejects                                                         |
 | harness discovery     | 1 MiB input; 1,000 models/commands; 64 KiB/record; 10 seconds                                                                                                                                                                                                                  |
 | workspace memory      | entry 2,000 characters; 200 entries and 20 pending proposals per workspace; launch preamble 16 KiB of whole entries, overflow reported as `memory_truncated`                                                                                                                   |
 | cookie import         | 10,000 cookies; 16 MiB serialized; atomic transaction                                                                                                                                                                                                                          |
@@ -5312,7 +5339,7 @@ Screenshot references include lane/profile provenance, origin, viewport, and red
 | usage refresh | provider backoff plus 60-second manual-refresh floor |
 | cleanup lock/lease | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s |
 | device workspace scope | verified membership cached 24 hours per credential digest; 256 cached memberships (`IDENTITY_LIMITS`) |
-| managed clone | 10 minutes per network git child; 4 GiB on disk (500 ms size watchdog, 1,000,000 entries per sample); 2 clones in flight per node, 1 per project id; remote URL 2,048 chars; default base ref 256 chars |
+| managed clone | 10 minutes per network git child; SSH connect 30 s in batch mode; kill escalation 1 s `SIGTERM` then 5 s reap grace after `SIGKILL`; 4 GiB on disk (500 ms size watchdog, 1,000,000 entries per sample); 2 clones in flight per node, 1 per project id; remote URL 2,048 chars; default base ref 256 chars |
 
 ## Performance and retention budgets
 
@@ -5503,7 +5530,11 @@ defaultBaseRef?: string(1..256) }` (the unimplemented
   repositories stay refused except a proven managed clone; managed roots,
   the managed proof, the unbind cleanup order, the limits, and the
   classification are in "Remote-only projects (managed bare clone)". The
-  operation total is unchanged (213).
+  operation total is unchanged (213). Hardened in the same PR: production
+  refuses `file://` and local remotes (a test-only `allowLocalCloneRemotes`
+  composition flag admits fixtures), every managed-clone network child runs
+  batch-mode SSH with no prompts, and failed-clone cleanup waits for the
+  reaped git child and reports a retained partial clone as `cleanup_partial`.
 - **2026-10-06 — project groups removed; v2 project bindings (ADR 0011).**
   Removed `dev.group.list`/`reorder`/`create`/`update`/`delete` and
   `dev.project.reorder`, the `Group`/`GroupMutableFields` DTOs, and the
@@ -6308,10 +6339,14 @@ files in the same commit:
   quarantining and deleting the clone; a replaced clone refusing unbind;
   unsafe remotes, credential host mismatch, bound project ids, a resource
   binding, transport/size/time/base-ref failures leaving nothing behind;
+  production refusing `file://` and the shell entry never opting in; the
+  batch-mode SSH environment with host-key `remote_unavailable` and prompt
+  `auth_required`; an unconfirmed child exit quarantining without deleting
+  as `cleanup_partial`; the runner reaping a killed child;
   user bare repositories, forged out-of-root records, planted names, `..`
   spellings, widened or symlinked roots, and symlinked clones refusing),
   `apps/desktop/tests/dev-runtime-composition.test.ts` (the provider is
-  composed; capability and resource deny tests over the real channel; the
+  composed; the production composition refuses `file://`; capability and resource deny tests over the real channel; the
   `dev.repo.list` layout fact; no primary worktree),
   `packages/types/tests/dev-runtime.test.ts` (the clone body, the managed
   `ProjectRepoBinding` arm, and the `Repo` layout fact),

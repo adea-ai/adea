@@ -135,6 +135,8 @@ async function boot(
     ) => Promise<readonly { pid: number; cpuSeconds?: number; residentBytes?: number }[]>
     /** #424: scripted retained-data source. */
     retainedData?: () => readonly RetainedDataRecord[]
+    /** Test-only clone of local `file://` fixture origins. */
+    allowLocalCloneRemotes?: boolean
   } = {}
 ): Promise<Boot> {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-composition-'))
@@ -198,6 +200,7 @@ async function boot(
     ...(options.supervisionAdapter ? { supervisionAdapter: options.supervisionAdapter } : {}),
     ...(options.sampleProcesses ? { sampleProcesses: options.sampleProcesses } : {}),
     ...(options.retainedData ? { retainedData: options.retainedData } : {}),
+    ...(options.allowLocalCloneRemotes ? { allowLocalCloneRemotes: true } : {}),
   }
   let host = createDevRuntimeHost(compositionInput)
   // Mirror bun/index.ts: a re-bind under a new scope recomposes the host
@@ -1058,8 +1061,33 @@ describe('dev runtime composition', () => {
     }
   })
 
-  test('dev.project.clone is capability-gated, resource-free, and binds a managed bare clone', async () => {
+  test('the production composition refuses local clone remotes', async () => {
+    // No `allowLocalCloneRemotes`: exactly what bun/index.ts composes.
     const shell = await boot({ verifier: fakeCloudVerifier({ workspaces: [SCOPE_A.workspaceId] }) })
+    try {
+      const channel = await shell.openChannel()
+      const refused = await channel.execute(
+        commandFor('dev.project.clone', SCOPE_A, {
+          projectId: randomUUID(),
+          remoteUrl: `file://${shell.dataDir}/origin.git`,
+          mode: 'managed',
+        })
+      )
+      expect(refused).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+      expect(await channel.execute(commandFor('dev.project.list', SCOPE_A))).toMatchObject({
+        ok: true,
+        value: { items: [] },
+      })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('dev.project.clone is capability-gated, resource-free, and binds a managed bare clone', async () => {
+    const shell = await boot({
+      verifier: fakeCloudVerifier({ workspaces: [SCOPE_A.workspaceId] }),
+      allowLocalCloneRemotes: true,
+    })
     const fixtureRoot = realpathSync(mkdtempSync(join(tmpdir(), 'adea-clone-origin-')))
     try {
       const origin = join(fixtureRoot, 'origin.git')

@@ -40,13 +40,14 @@ import {
   MANAGED_CLONE_SIZE_POLL_MS,
   MANAGED_CLONE_TIMEOUT_MS,
   MANAGED_WORKTREES_DIR,
+  nonInteractiveTransportEnv,
   proveManagedBareRepo,
   provenManagedReposRoot,
 } from '../repos/managed'
 import { createRepoRegistryStore, redactRemoteUrl } from '../repos/registry-store'
 import { discoverWorktrees } from '../worktrees/discovery'
 import { WorktreeError, type WorktreeErrorCode } from '../worktrees/errors'
-import { runGit, type GitRunResult } from '../worktrees/git-run'
+import { GitChildKilledError, runGit, type GitRunResult } from '../worktrees/git-run'
 import { identityOfPath } from '../worktrees/identity'
 import type { WorktreeService } from '../worktrees/service'
 import {
@@ -72,14 +73,19 @@ function devError(code: DevError['code'], message: string): DevError {
 const CONTROL_OR_SPACE = /[\u0000- \u007f]/
 
 /**
- * Admit a clone remote. Only `https://`, `ssh://`, scp-like `user@host:path`
- * (ssh), and `file://` (local mirrors) are accepted; the URL may not carry a
+ * Admit a clone remote. Production accepts only `https://`, `ssh://`, and
+ * scp-like `user@host:path` (ssh). `file://` is admitted only when the
+ * composition passes the test-only `allowLocalRemotes` flag (the shipped
+ * shell never does); local paths are never remotes. The URL may not carry a
  * password or an https user-info token (credentials come from a vault
  * reference, never the URL), may not start with `-` (option injection), and
  * may not contain whitespace or control characters. Everything else —
- * `http://`, `ext::`, `fd::`, bare paths — refuses.
+ * `http://`, `ext::`, `fd::`, bare paths — refuses with `invalid_state`.
  */
-export function admitCloneRemote(remoteUrl: string): CloneProtocol {
+export function admitCloneRemote(
+  remoteUrl: string,
+  options: { allowLocalRemotes?: boolean } = {}
+): CloneProtocol {
   const refuse = (why: string) => devError('invalid_state', `clone remote refused: ${why}`)
   if (remoteUrl.length < 1 || remoteUrl.length > 2048) throw refuse('length')
   if (CONTROL_OR_SPACE.test(remoteUrl)) throw refuse('whitespace or control characters')
@@ -108,6 +114,9 @@ export function admitCloneRemote(remoteUrl: string): CloneProtocol {
     return 'ssh'
   }
   if (parsed.protocol === 'file:') {
+    // A local remote would let a caller copy any repository the user can
+    // read into app data; only test compositions opt in.
+    if (options.allowLocalRemotes !== true) throw refuse('local remotes are not allowed')
     if (parsed.host !== '' || parsed.pathname.length < 2) throw refuse('malformed file remote')
     return 'file'
   }
@@ -137,13 +146,21 @@ function transportArgs(protocol: CloneProtocol): string[] {
 
 function classifyTransport(stderr: string): WorktreeErrorCode {
   const text = stderr.toLowerCase()
+  // Batch-mode SSH refuses an unknown or changed host key outright: the
+  // remote could not be proven, which is a reachability failure, not auth.
+  if (
+    text.includes('host key verification failed') ||
+    text.includes('no matching host key') ||
+    /no [a-z0-9-]+ host key is known/.test(text) ||
+    text.includes('remote host identification has changed')
+  )
+    return 'remote_unavailable'
   if (
     text.includes('authentication failed') ||
     text.includes('could not read username') ||
     text.includes('could not read password') ||
     text.includes('permission denied') ||
     text.includes('terminal prompts disabled') ||
-    text.includes('host key verification failed') ||
     text.includes('403')
   )
     return 'auth_required'
@@ -172,6 +189,9 @@ export function createManagedCloneAuthority(input: {
   runGit?: typeof runGit
   /** Test seam: tighter clone budgets than the limits registry defaults. */
   limits?: Partial<CloneLimits>
+  /** Test-only: admit `file://` remotes (local fixture origins). The shipped
+   *  shell composition never sets it, so production refuses local remotes. */
+  allowLocalRemotes?: boolean
 }): ManagedCloneAuthority {
   const git = input.runGit ?? runGit
   const registry = createRepoRegistryStore(input.dataDir)
@@ -226,15 +246,25 @@ export function createManagedCloneAuthority(input: {
         timeoutMs: limits.timeoutMs,
         maxOutputBytes: GIT_LOCAL_MAX_OUTPUT_BYTES,
         signal: controller.signal,
+        // Nothing may prompt: batch-mode SSH and no askpass/terminal prompt.
+        env: nonInteractiveTransportEnv(),
       })
     } catch (error) {
+      // The runner reaps a killed child before rejecting; `exited` says
+      // whether that was confirmed, which decides what cleanup may delete.
+      const exited = error instanceof GitChildKilledError ? error.exited : true
       if (overBudget)
-        throw new WorktreeError(
+        throw new GitChildKilledError(
           'limit_exceeded',
-          'the clone exceeded the managed clone size budget'
+          'the clone exceeded the managed clone size budget',
+          exited
         )
       if (error instanceof WorktreeError && error.code === 'timeout')
-        throw new WorktreeError('timeout', 'the clone exceeded the managed clone time budget')
+        throw new GitChildKilledError(
+          'timeout',
+          'the clone exceeded the managed clone time budget',
+          exited
+        )
       throw error
     } finally {
       clearInterval(watchdog)
@@ -255,10 +285,21 @@ export function createManagedCloneAuthority(input: {
   }
 
   /** Remove a directory this call created and proved (staging or a final
-   *  clone that failed a later step) through the quarantine/trash path. */
-  function discard(path: string, managedRoot: string, subjectId: string): void {
+   *  clone that failed a later step) through the quarantine/trash path. With
+   *  `deleteAfter: false` (the git child's exit was not confirmed) the
+   *  directory is only quarantined: it stays owner-only in the managed trash
+   *  and is never deleted while a writer may still hold it. Returns whether
+   *  the directory is fully gone. */
+  function discard(
+    path: string,
+    managedRoot: string,
+    subjectId: string,
+    deleteAfter: boolean
+  ): boolean {
     const stat = lstatSync(path, { throwIfNoEntry: false })
-    if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return
+    if (!stat) return true
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new WorktreeError('dangerous_path', 'the partial clone is not a real directory')
     const identity = identityOfPath(path)
     const moved = quarantineWorktree({
       worktreeId: subjectId,
@@ -266,7 +307,10 @@ export function createManagedCloneAuthority(input: {
       repoPath: managedRoot,
       expectedIdentity: { device: identity.device ?? '', inode: identity.inode ?? '' },
     })
+    chmodSync(moved.trashPath, 0o700)
+    if (!deleteAfter) return false
     deleteQuarantinedWorktree({ trashRoot: moved.trashRoot, entryName: moved.entryName })
+    return true
   }
 
   async function clone(
@@ -284,7 +328,9 @@ export function createManagedCloneAuthority(input: {
     const credentialRefId = body.credentialRefId as string | undefined
     const defaultBaseRef = body.defaultBaseRef as string | undefined
     projectSession.assertUnboundProjectId(projectId)
-    const protocol = admitCloneRemote(remoteUrl)
+    const protocol = admitCloneRemote(remoteUrl, {
+      allowLocalRemotes: input.allowLocalRemotes === true,
+    })
     if (defaultBaseRef !== undefined) admitBaseRef(defaultBaseRef)
     if (credentialRefId !== undefined) {
       // The same fail-closed resolution `dev.repo.authorize` uses: unknown
@@ -430,14 +476,34 @@ export function createManagedCloneAuthority(input: {
       log('repo.managed_cloned', repoId, 'granted', { protocol: request.protocol })
       return project
     } catch (error) {
-      log('repo.managed_clone', repoId, 'failed')
+      const cause =
+        typeof (error as { code?: unknown })?.code === 'string'
+          ? ((error as { code: string }).code as string)
+          : 'unknown'
+      log('repo.managed_clone', repoId, 'failed', { cause })
+      // Cleanup runs only after the git child is reaped; an unconfirmed exit
+      // quarantines without deleting.
+      const childExited = !(error instanceof GitChildKilledError) || error.exited
+      let removed = false
+      let discardFailure: string | undefined
       try {
-        discard(cloned, managedRoot, repoId)
-      } catch {
-        // The partial clone stays in the owner-only managed root (or its
-        // trash) for the sweep; the original failure is what the caller sees.
+        removed = discard(cloned, managedRoot, repoId, childExited)
+      } catch (discardError) {
+        discardFailure = (discardError as Error).message
       }
-      throw error
+      if (removed) throw error
+      // Never a silent leftover: the outcome is typed and audited, and the
+      // partial clone stays owner-only in the managed root or its trash.
+      log('repo.managed_clone_discard', repoId, 'failed', {
+        cause,
+        reason: discardFailure !== undefined ? 'discard_failed' : 'child_exit_unconfirmed',
+      })
+      throw new WorktreeError(
+        'cleanup_partial',
+        `the clone failed (${cause}) and its partial data could not be removed ` +
+          `(${discardFailure ?? 'the git child exit was not confirmed'}); it is retained ` +
+          'owner-only in the managed root for the trash sweep'
+      )
     }
   }
 

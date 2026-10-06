@@ -29,7 +29,7 @@ import { DevAuthorityError, sameScope } from '../authority'
 import type { ChannelAuthority } from '../channel/authority'
 import { identityOfPath, sameIdentity, type FileIdentityValue } from '../worktrees/identity'
 import { runGit, type GitRunResult } from '../worktrees/git-run'
-import { proveManagedBareRepo } from './managed'
+import { nonInteractiveTransportEnv, proveManagedBareRepo } from './managed'
 import {
   createRepoRegistryStore,
   redactRemoteUrl,
@@ -460,6 +460,8 @@ export function registerRepoRuntime(input: {
           cwd: proven.canonicalRoot,
           timeoutMs: LS_REMOTE_TIMEOUT_MS,
           maxOutputBytes: GIT_READ_MAX_OUTPUT_BYTES,
+          // A managed clone's network children never prompt (batch SSH).
+          ...(stored.layout === 'bare_managed' ? { env: nonInteractiveTransportEnv() } : {}),
         }).catch(() => undefined)
         if (probe?.exitCode !== 0) lifecycle = 'stale'
       }

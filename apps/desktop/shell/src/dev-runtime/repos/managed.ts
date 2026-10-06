@@ -108,6 +108,27 @@ export function ensureManagedWorktreeBase(dataDir: string, repoId: string): stri
   return managedDir(dataDir, join(MANAGED_WORKTREES_DIR, repoId), true)
 }
 
+/**
+ * The child environment for every network git child of a managed clone
+ * (clone, its fetch, and later base fetches). Nothing may prompt: git's own
+ * terminal prompt is off, askpass helpers are disabled, and SSH runs in
+ * batch mode with strict host-key checking, so an unknown host key, a
+ * password, or a passphrase prompt fails immediately instead of waiting out
+ * the clone budget. `SSH_AUTH_SOCK` (a socket path, not key material) passes
+ * through so agent-held keys still authenticate.
+ */
+export function nonInteractiveTransportEnv(): Record<string, string> {
+  return {
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: '',
+    SSH_ASKPASS: '',
+    SSH_ASKPASS_REQUIRE: 'never',
+    GIT_SSH_VARIANT: 'ssh',
+    GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30',
+    ...(process.env.SSH_AUTH_SOCK ? { SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK } : {}),
+  }
+}
+
 /** Structural containment: `path` is the managed root itself or below it. */
 export function isWithin(root: string, path: string): boolean {
   const resolved = resolve(path)
