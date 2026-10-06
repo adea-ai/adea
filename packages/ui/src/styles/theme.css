@@ -23,6 +23,8 @@
    *   --z-dialog   (120) dialogs, inset sheets
    *   --z-menu     (140) dropdown/popover menus
    *   --z-tooltip  (160) tooltips
+   *   --z-toast    (180) the published toast rung, above menus and tooltips,
+   *                      so an open dialog or menu never buries a toast
    * `.virtual-view-engine` consumes this token to become one stacking
    * context, confining the pack's internal z-indexes to the scene layer. */
   --z-agent-sim: 5;

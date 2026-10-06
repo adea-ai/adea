@@ -434,6 +434,33 @@ test.describe('source control app', () => {
     await expect(dialog).toContainText('Signed in as octocat on github.com')
   })
 
+  test('an error toast paints above the Git providers dialog and leaves on its own', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    await openHarness(page, '?scenario=gitlab-disconnected')
+    await page.getByRole('button', { name: 'Connect account' }).first().click()
+    const dialog = page.getByRole('dialog', { name: 'Git providers' })
+    await expect(dialog).toBeVisible()
+    // Opening the dialog checks every provider; the disconnected GitLab
+    // check reports its refusal as an error toast.
+    const toast = page.getByRole('status').filter({ hasText: 'GitLab:' }).first()
+    await expect(toast).toBeVisible()
+    // The toast owns the pointer at its own centre while the dialog is open:
+    // it is the top-most layer on screen, never buried by the dialog.
+    await expect
+      .poll(() =>
+        toast.evaluate((node) => {
+          const box = node.getBoundingClientRect()
+          const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+          return node === hit || node.contains(hit)
+        })
+      )
+      .toBe(true)
+    // Errors are not dismiss-only: the toast leaves on its own timer.
+    await expect(toast).toBeHidden({ timeout: 10_000 })
+  })
+
   test('keyboard reaches the inbox and opens a pull request', async ({ page }) => {
     await openHarness(page)
     const target = page.getByRole('button', { name: /Persist split layout sizes per room/ }).first()
