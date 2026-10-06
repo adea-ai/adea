@@ -89,6 +89,13 @@ cloud workspace gets its own register partition and switching workspaces
 switches Dev projects with it. Verified memberships are cached with an expiry so
 offline switching is limited to workspaces already verified.
 
+Landed as `desktop_identity_select_workspace` (see
+[desktop authentication](../specs/desktop-auth.md#device-workspace-scope)):
+memberships are cached for 24 hours per credential digest, a paired cloud
+binding takes precedence (selecting another workspace while bound is refused),
+and the previous device-local guest partition is left on disk unread — never
+deleted or migrated.
+
 ### The primary checkout is a worktree record
 
 Registering a repository creates a `kind: 'primary'` worktree record whose

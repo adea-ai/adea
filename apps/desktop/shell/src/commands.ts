@@ -90,7 +90,16 @@ function openInSystemBrowser(url: string): void {
   Bun.spawn(command)
 }
 
-export type BridgeResult = { ok: true; value: unknown } | { ok: false; error: string }
+/**
+ * `rehandshake` is set only by the shell entry's identity family when the call
+ * changed the active Dev scope and so revoked every channel, including the
+ * caller's: it is a fresh single-use launch bootstrap, delivered only in the
+ * reply to an authenticated trusted-window request, which the injected bridge
+ * consumes in its closure to re-handshake (it never reaches the renderer).
+ */
+export type BridgeResult =
+  | { ok: true; value: unknown; rehandshake?: string }
+  | { ok: false; error: string }
 
 export function createCommandSurface(
   dataDir: string,

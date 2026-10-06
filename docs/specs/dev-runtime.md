@@ -16,9 +16,11 @@ Read this page before touching any routed Dev Runtime path in `AGENTS.md`.
 - Threat model: [Dev View threat model](../security/dev-view-threat-model.md)
 - Delivery order: [M12 implementation plan](../plans/m12-dev-view.md)
 - Pending redesign: [ADR 0011](../decisions/0011-unified-workspace-projects.md)
-  removes project groups, binds the Dev scope to the selected cloud workspace,
-  and makes the primary checkout a worktree record. The sections below stay
-  normative until each change lands with its amendment.
+  removes project groups and makes the primary checkout a worktree record. The
+  sections below stay normative until each change lands with its amendment.
+  The device workspace scope (the Dev scope bound to the selected cloud
+  workspace) has landed; see "Durable project/session authority" and scope
+  admission below.
 
 **Changelog discipline:** behavior described here and its tests change in the
 same commit. M12 code cannot weaken an M10/M11 authority; if this page and an
@@ -1726,7 +1728,11 @@ projects, sessions, and `ArchiveRecord`s together in the WAL-backed per-scope
 durable record in one SQLite transaction. The store enables `journal_mode=WAL`,
 `synchronous=FULL`, and foreign keys on every open, uses a format-version guard,
 and binds its single row to the `(accountId, workspaceId, runtimeNodeId)` scope
-key before returning records. Each scope has an independent database and
+key before returning records. For a device workspace scope the `workspaceId`
+is the selected cloud workspace (the account and runtime node stay the local
+ones), so each cloud workspace owns its own partition; the earlier device-local
+guest partition is left on disk, never read, migrated, or deleted by a
+selection. Each scope has an independent database and
 ledger, so switching workspaces never makes one scope open or overwrite another
 scope's file. The pre-slice `authority.sqlite3` is reused only when its stored
 row belongs to the requested scope; a different scope gets a new partition.
@@ -1962,9 +1968,19 @@ stream negotiated from an authorized execute reply).
 Scope admission is identity-first and account-optional: the shell mints a
 durable device-local identity on first boot (a guest scope triple persisted
 owner-only; see [desktop authentication](./desktop-auth.md)), so the whole
-catalog serves a signed-out, offline machine with no prompt. A cloud bind
-supersedes the guest scope until sign-out returns to the same device-local
-identity; the renderer can never self-assert either. `dev.capability.snapshot`
+catalog serves a signed-out, offline machine with no prompt. The trusted
+window selects a device workspace scope (`desktop_identity_select_workspace`)
+for each cloud workspace the presented desktop session or guest temporary
+credential is a verified member of: `{ local accountId, cloud workspaceId,
+local runtimeNodeId }`, kind `device`. Membership is proven against the cloud
+workspace listing and cached per credential digest for 24 hours, so offline
+selection reaches only already-verified workspaces; a non-member, an
+unverifiable workspace, or a lapsed membership fails closed with a typed error
+(`unauthorized`, `workspace_unavailable`). A scope change revokes every channel
+and the host recomposes under the new scope. A paired cloud bind takes
+precedence over the device selection until sign-out returns to the device
+selection or the device-local identity; the renderer can never self-assert any
+of them. `dev.capability.snapshot`
 projects the ACTIVE identity's availability surface: the shell's own window —
 guest or cloud-bound — holds the machine's FULL capability catalog, because
 the real authorization lives in scope admission and the command providers
@@ -4990,6 +5006,7 @@ Screenshot references include lane/profile provenance, origin, viewport, and red
 | metrics | 2 s active, 10 s visible idle, 60 s hidden; concurrency 4/node; 5-second/1 MiB child limits; 720 points and 24 hours |
 | usage refresh | provider backoff plus 60-second manual-refresh floor |
 | cleanup lock/lease | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s |
+| device workspace scope | verified membership cached 24 hours per credential digest; 256 cached memberships (`IDENTITY_LIMITS`) |
 
 ## Performance and retention budgets
 
