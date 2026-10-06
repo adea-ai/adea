@@ -28,8 +28,9 @@ export type CleanupFacts = Readonly<{
   upstreamKnown: boolean
   ahead: number | null
   behind: number | null
-  /** Commits on the branch that no remote ref contains. */
-  unpushedCommits: number
+  /** Commits on the branch that no remote ref contains; null when it could
+   *  not be measured (unknown push state fails closed). */
+  unpushedCommits: number | null
   isDefaultBranch: boolean
   isProtectedBranch: boolean
   hasLiveLeases: boolean
@@ -89,7 +90,7 @@ export function computeCleanupBlockers(facts: CleanupFacts): CleanupBlocker[] {
   if (facts.conflicted) add('conflicted', 'merge conflicts are unresolved')
   if (!facts.upstreamKnown) add('unpushed', 'no upstream is configured; push state is unknown')
   else {
-    if ((facts.ahead ?? 0) > 0 || facts.unpushedCommits > 0) {
+    if ((facts.ahead ?? 0) > 0 || facts.unpushedCommits !== 0) {
       add('unpushed', 'the branch has unpushed commits')
     }
     if (facts.behind === null) add('behind', 'behind state is unknown')
