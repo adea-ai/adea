@@ -97,6 +97,16 @@ function fakeCloudVerifier(options: {
   }
 }
 
+/** Bun's test runner has no expect.poll: a bounded manual poll, 100 ms steps. */
+async function until(probe: () => Promise<boolean>, timeoutMs = 15_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await probe()) return true
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return probe()
+}
+
 type Boot = {
   authority: ReturnType<typeof createChannelAuthority>
   identity: ReturnType<typeof createDesktopIdentityAuthority>
@@ -1456,4 +1466,88 @@ describe('production worktrees (ADR 0011)', () => {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
   }, 30_000)
+})
+
+describe('auto-adopt on import (owner request)', () => {
+  test('importing a project registers its repository without a manual adopt', async () => {
+    const shell = await boot()
+    const workspace = mkdtempSync(join(tmpdir(), 'adea-composition-adopt-'))
+    try {
+      const host = shell.currentHost()
+
+      // A real git checkout under the directory the bookmark authorizes.
+      const repoPath = join(realpathSync(workspace), 'app')
+      mkdirSync(repoPath)
+      const runGit = (args: string[]) =>
+        Bun.spawnSync(['git', ...args], {
+          cwd: repoPath,
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: 'Adea Tests',
+            GIT_AUTHOR_EMAIL: 'adea@example.com',
+            GIT_COMMITTER_NAME: 'Adea Tests',
+            GIT_COMMITTER_EMAIL: 'adea@example.com',
+          },
+          timeout: 60_000,
+        })
+      runGit(['init', '-q', '-b', 'main'])
+      runGit(['config', 'core.hooksPath', '/dev/null'])
+      writeFileSync(join(repoPath, 'README.md'), '# app\n')
+      runGit(['add', '.'])
+      runGit(['commit', '-qm', 'initial'])
+
+      const approval = {
+        method: 'owner_dialog' as const,
+        reference: `composition-adopt-${randomUUID()}`,
+        scope: SCOPE_A,
+        issuedAt: new Date(Date.now() - 1_000).toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }
+      createOwnerApprovalVerifier({ dataDir: shell.dataDir }).recordIssuance(
+        approval,
+        SCOPE_A,
+        'authorize a root bookmark'
+      )
+      const bookmark = host.roots.mint({
+        scope: SCOPE_A,
+        label: 'Checkout',
+        kind: 'repository',
+        absolutePath: repoPath,
+        approval,
+      })
+
+      const channel = await shell.openChannel()
+      const projectId = randomUUID()
+      const imported = await channel.execute(
+        commandFor('dev.project.import', SCOPE_A, { projectId, rootBookmarkId: bookmark.id })
+      )
+      expect(imported).toMatchObject({ ok: true })
+      if (!imported.ok) throw new Error('import failed')
+      const repoId = (imported.value as Project).repoIds[0]!
+      expect(repoId).toBeDefined()
+
+      // No dev.repo.adopt command was ever issued: adoption is the import's
+      // background side effect. It must appear without any further command.
+      const recordAppeared = await until(async () => {
+        const listed = await channel.execute(commandFor('dev.repo.list', SCOPE_A, {}))
+        if (!listed.ok) return false
+        return (listed.value as { items: readonly { id: string }[] }).items.some(
+          (entry) => entry.id === repoId
+        )
+      })
+      expect(recordAppeared).toBe(true)
+
+      // The proof reconciled the primary checkout record too (ADR 0011).
+      const primaryAppeared = await until(async () => {
+        const listed = await channel.execute(commandFor('dev.worktree.list', SCOPE_A, { repoId }))
+        if (!listed.ok) return false
+        const items = (listed.value as { items: readonly Worktree[] }).items
+        return items.some((entry) => entry.kind === 'primary' && entry.repoId === repoId)
+      })
+      expect(primaryAppeared).toBe(true)
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
 })

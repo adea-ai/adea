@@ -458,6 +458,7 @@ export const devOperationMetadata = {
   'dev.repo.inspect': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_inspect),
   'dev.repo.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_list),
   'dev.repo.refresh': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_refresh),
+  'dev.repo.remove': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_remove),
   'dev.resources.foreignStopCommit': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_foreignStopCommit
   ),

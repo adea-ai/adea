@@ -2079,7 +2079,7 @@ All privileged commands use a versioned authenticated channel:
 type DevOperation =
   | `dev.capability.${'snapshot'}`
   | `dev.project.${'list' | 'get' | 'import' | 'clone' | 'scan' | 'create' | 'update' | 'archive' | 'unbind' | 'bookmarks'}`
-  | `dev.repo.${'list' | 'inspect' | 'refresh' | 'authorize' | 'adopt' | 'credentialRefs'}`
+  | `dev.repo.${'list' | 'inspect' | 'refresh' | 'authorize' | 'adopt' | 'remove' | 'credentialRefs'}`
   | `dev.connections.${'get' | 'setGitHosting' | 'setHarnessAccount'}`
   | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
@@ -2520,7 +2520,7 @@ audit classification, and deny-by-default tests in the same change.
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dev.capability`             | `snapshot`                                                                                                                                                                                                                                                                                                             |
 | `dev.project`                | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `archive`, `unbind`, `bookmarks`                                                                                                                                                                                                                         |
-| `dev.repo`                   | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                                                                                                   |
+| `dev.repo`                   | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `remove`, `credentialRefs`                                                                                                                                                                                                                                         |
 | `dev.connections`            | `get`, `setGitHosting`, `setHarnessAccount`                                                                                                                                                                                                                                                                            |
 | `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `rename`, `diffSummary`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                               |
 | `dev.terminal`               | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                                                                               |
@@ -3339,7 +3339,8 @@ and `archived: false` restores `ready`. All three publish a
 replies decode through the strict `Project` decoder.
 
 `dev.repo.adopt`, `dev.repo.authorize`, `dev.repo.inspect`,
-`dev.repo.refresh`, and `dev.repo.list` form the repository registry (a
+`dev.repo.refresh`, `dev.repo.remove`, and `dev.repo.list` form the
+repository registry (a
 companion register owning `dev-runtime/repos/registry.json` with the same atomic fsync+rename store,
 single-scope validation, and corrupt-state fail-closed behavior as the
 project/session authority). A repoId becomes known through the
@@ -3391,6 +3392,19 @@ origin HEAD symbolic ref with local `init.defaultBranch` as fallback.
   keeps the version. The envelope resource for every repo operation binds
   `repository:<repoId>` at the record's current `version` (a `Repo` carries
   no `generation` field), so a stale client loses before the record is read.
+- `remove { repoId, expectedVersion }` is the owner's undo for an unwanted
+  adoption (auto or manual): it drops exactly the durable registry record —
+  never the project, its bindings, a worktree record, or a byte on disk —
+  under the same scope/version/resource discipline as `refresh` (`not_found`
+  when absent, `stale_version` on a moved record) and replies with the record
+  as it was when dropped. A managed clone refuses `invalid_state`: its
+  record is owned by its project binding, and `dev.project.unbind`
+  quarantines the clone and drops the record itself. Because adoption runs
+  on import/creation only — never as a reconciler — the project falls back
+  to the honest binding-only state and stays there until a manual Adopt (or
+  a fresh import of a new binding); existing worktree records keep existing
+  but their operations refuse `not_found` until the repository is adopted
+  again.
 
 The registry is the ONE repository authority (ADR 0011): the worktree
 service reads its records (and its test/script `registerRepo` seam writes
@@ -3411,6 +3425,21 @@ decoder still fails closed. Git children run through the bounded, argv-only
 fixed time and output budgets) — never a shell, never credential material in
 arguments or environment.
 
+**Auto-adoption on import and creation.** Binding a project —
+`dev.project.import`, `dev.project.create`, or the checkout clone's shared
+import path — fires a best-effort, non-blocking adoption of each minted
+binding through the exact `dev.repo.adopt` proof (the binding's own
+bookmark, initial version 1, the primary checkout reconciliation included).
+The command reply never waits on the adoption and never fails with it: a
+refused proof (vanished checkout, drifted root, stale race) leaves the
+honest binding-only state for the panel's manual Adopt. An archived project
+is skipped entirely — this path never mints a registry record for one.
+Auto-adoption runs once per binding event; it is not a reconciler and never
+re-runs on load or sync, so a removed registry record is never silently
+re-adopted — only an explicit import/creation or a manual Adopt proves the
+repository again. A repository that already has a durable record is left
+untouched (no re-proof, no version bump, no loop).
+
 The Dev View sidebar is the registry's client surface and adds no authority
 of its own. The repository panel rides a lazy chunk inside the Dev boundary
 and reads the authoritative state through the authenticated command path only
@@ -3424,10 +3453,15 @@ bookmark is the default — a client never supplies a path),
 `dev.repo.authorize` binds a vault `CredentialRef` chosen from the refs the
 runtime already serves, so secret material never enters the client, and
 `dev.repo.inspect`/`dev.repo.refresh` surface the typed lifecycle verbatim
-(`stale` and `unavailable` render as states, not errors). `dev.project.archive`
-passes the same explicit confirmation gate as the archive shelf; refusals
-(live sessions, `stale_version`) surface as typed non-blocking notices and the
-view reloads the authoritative state rather than keeping a fabricated outcome.
+(`stale` and `unavailable` render as states, not errors). `dev.repo.remove`
+rides the panel's explicit confirm gate on adopted, non-managed rows — the
+confirm copy says the project stays bound and returns to the unregistered
+state — so the owner can undo an adoption the auto-adopt flow chose for
+them; refusals surface as typed non-blocking notices.
+`dev.project.archive` passes the same explicit confirmation gate as the
+archive shelf; refusals (live sessions, `stale_version`) surface as typed
+non-blocking notices and the view reloads the authoritative state rather
+than keeping a fabricated outcome.
 A runtime without the registry providers answers `capability_unavailable`, and
 the panel renders that typed-unavailable state instead of dead controls.
 
@@ -4869,6 +4903,24 @@ The source control app reads and acts on pull requests across every
 registered repository whose `origin` is a trusted GitHub remote. Its
 operations extend the provider above under the same credential rule: GitHub
 auth is the user's `gh` CLI context, and Adea stores no GitHub token.
+
+- **Sidebar tree and the show-more line.** The tree groups registered
+  repositories under their provider owners, counts active projects whose
+  every binding has no registry record separately from archived ones (the
+  empty state names auto-adoption, its failure fallback, and the panel's
+  remove action, and always states unregistered archived projects
+  separately — auto-adopt skips them), and collapses archived projects into
+  their own section. Repositories the viewer does not want listed sit below
+  a show-more line: hiding is a per-repository display preference in the
+  app's scope-scoped browser storage (`hiddenRepoIds`), never an unlink —
+  hidden repositories stay adopted and registered, keep their rows inside
+  the collapsed group, and are excluded from the shortcut counts and the
+  default selection while every newly adopted repository is visible by
+  default (membership is an explicit set, so auto-adopt lands above the
+  line). The divider's drag-to-reorder interaction is an upstream shared-UI
+  seam: no published sortable-list primitive exists yet, so the shipped
+  composition offers explicit hide/show controls per row instead of
+  hand-rolling drag-and-drop.
 
 - **Read models.** `pullRequestSummaries` (one repository, newest update
   first, at most 50 a page) and `pullRequestSummary` (one PR, plus `body` and

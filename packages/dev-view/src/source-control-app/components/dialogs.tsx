@@ -478,8 +478,9 @@ export function ProvidersDialog(props: {
           )}
         </For>
         <p class="dev-scm-caption">
-          Projects appear here once their repository is registered — in the Dev view's Repositories
-          panel, adopt it — and its origin is on GitHub or GitLab.
+          Projects appear here once their repository is registered on this device and its origin is
+          on GitHub or GitLab. Adoption runs automatically when a project is added; the Dev view's
+          Repositories panel can also adopt or remove repositories.
         </p>
         <div class="dev-scm-form__footer">
           <span class="flex-1" />

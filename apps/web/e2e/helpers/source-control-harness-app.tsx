@@ -35,6 +35,10 @@ const scope: Scope = {
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 }
 const now = Date.parse('2026-10-03T12:00:00.000Z')
+/** How many `dev.repo.list` reads have run (the `auto-adopt` scenario). */
+let repoListReads = 0
+/** Advanceable offset so a focus event crosses the app's 10 s re-sync gate. */
+let clockSkewMs = 0
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString()
 const sha = (seed: string) => seed.repeat(40).slice(0, 40)
 
@@ -544,6 +548,14 @@ async function execute(command: DevCommand): Promise<DevReply> {
       // record was ever proven (import mints bindings; adoption proves
       // records) — the sidebar's honest empty state for the owner report.
       if (scenario === 'unregistered') return ok(command, page([]))
+      // `auto-adopt`: the host's import-time adoption is a background side
+      // effect. The first read sees nothing registered; every later read
+      // sees the proof, mirroring a completed auto-adopt without any
+      // dev.repo.adopt command the client could have issued.
+      if (scenario === 'auto-adopt') {
+        repoListReads += 1
+        if (repoListReads === 1) return ok(command, page([]))
+      }
       return ok(
         command,
         page(
@@ -838,6 +850,8 @@ declare global {
       commands(): { operation: string; body: Record<string, unknown> }[]
       setFonts(settings: AppearanceEditorFontSettings): void
       resetFonts(): void
+      /** Moves the app's clock past its 10 s focus re-sync gate. */
+      advanceClock(ms: number): void
     }
   }
 }
@@ -846,6 +860,9 @@ window.sourceControlHarness = {
   setFonts: (settings) => applyAppearanceFontSettings(document.documentElement, settings),
   resetFonts: () =>
     applyAppearanceFontSettings(document.documentElement, DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS),
+  advanceClock: (ms) => {
+    clockSkewMs += ms
+  },
 }
 
 if (params.get('reset') !== 'keep') {
@@ -865,7 +882,7 @@ render(
   () => (
     <SourceControlApp
       runtime={runtime}
-      now={() => now}
+      now={() => now + clockSkewMs}
       toolbarMount={toolbar}
       projectNames={projectNames}
     />

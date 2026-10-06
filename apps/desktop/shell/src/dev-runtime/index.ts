@@ -84,6 +84,7 @@ import {
 import { WorktreeError } from './worktrees/errors'
 import { registerProjectScanRuntime } from './projects/register'
 import { createManagedCloneAuthority } from './projects/clone'
+import { autoAdoptBindings } from './repos/auto-adopt'
 import { registerRepoRuntime } from './repos/register'
 import { registerFilesRuntime } from './files/register'
 import { registerGitRuntime } from './git/register'
@@ -376,6 +377,10 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         ...(input.allowLocalCloneRemotes === true ? { allowLocalRemotes: true } : {}),
       })
     : undefined
+  // Late-bound so the import-time auto-adopt hook can reach the repository
+  // registry that composes below (the project register comes first, and the
+  // hook must not delay or fail the command that just bound the project).
+  let repos: ReturnType<typeof registerRepoRuntime> | undefined
   const projectSession = input.scope
     ? registerProjectSessionRuntime({
         authority: input.authority,
@@ -431,6 +436,22 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
                 }),
             }
           : {}),
+        // Auto-adopt (owner request): a project bound by import or creation
+        // joins the repository registry without the manual Adopt step. The
+        // hook is fire-and-forget — the command already committed, and this
+        // must never fail or hang it. Archived projects are skipped
+        // entirely: they get no registry records from this path. Each
+        // binding adopts through the same `dev.repo.adopt` proof the
+        // Repositories panel issues; a refusal (missing checkout, drifted
+        // root, stale race) leaves the honest unregistered state for a
+        // manual Adopt, never a fabricated success. This is an
+        // import/creation side effect, not a reconciler: removing a
+        // registry record is never undone by reloading.
+        onProjectBound: (project) => {
+          const repoRuntime = repos
+          if (!repoRuntime) return
+          autoAdoptBindings(project, (repoId) => repoRuntime.adoptUnadopted(repoId))
+        },
         ...(input.allowLocalCloneRemotes === true ? { allowLocalCloneRemotes: true } : {}),
       })
     : undefined
@@ -453,7 +474,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
   // authorized bookmark through the roots authority; the vault seam resolves
   // credential references without exposing secret material; git reads run
   // through the bounded argv-only runner.
-  const repos = input.scope
+  repos = input.scope
     ? registerRepoRuntime({
         authority: input.authority,
         dataDir: input.dataDir,

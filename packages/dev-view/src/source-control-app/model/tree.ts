@@ -59,8 +59,12 @@ export type TreeOwner = Readonly<{
 export type SourceControlTree = Readonly<{
   owners: readonly TreeOwner[]
   archived: readonly TreeProject[]
-  /** Projects whose every repository binding has no registry record. */
+  /** Active projects whose every repository binding has no registry record. */
   unregistered: number
+  /** Archived projects whose every repository binding has no registry
+   *  record: stated separately so the notice stays honest about what auto-
+   *  adoption skipped (archived projects are never auto-adopted). */
+  unregisteredArchived: number
   /** Projects with no GitHub or GitLab repository among registered records. */
   skipped: number
 }>
@@ -91,14 +95,18 @@ export function buildTree(
   >()
   const archived: TreeProject[] = []
   let unregistered = 0
+  let unregisteredArchived = 0
   let skipped = 0
   for (const project of projects) {
     const bound = project.repoIds.map((id) => repoById.get(id))
     // A project the repo registry has no record for (import mints the
     // binding; adoption proves it) can never join a provider row — the
-    // sidebar must say that, not imply the project has no remote.
+    // sidebar must say that, not imply the project has no remote. Archived
+    // projects count separately: auto-adopt skips them entirely, so their
+    // emptiness is expected and the notice should say so.
     if (bound.every((repo) => repo === undefined)) {
-      unregistered += 1
+      if (project.archived) unregisteredArchived += 1
+      else unregistered += 1
       continue
     }
     const hosted = bound.filter(
@@ -163,6 +171,7 @@ export function buildTree(
     owners: ordered,
     archived: archived.toSorted((a, b) => a.name.localeCompare(b.name)),
     unregistered,
+    unregisteredArchived,
     skipped,
   }
 }
@@ -172,4 +181,27 @@ export function monogram(name: string): string {
   const words = name.split(/[^A-Za-z0-9]+/).filter((word) => word.length > 0)
   if (words.length >= 2) return `${words[0]![0]}${words[1]![0]}`.toUpperCase()
   return name.slice(0, 2).toUpperCase()
+}
+
+/**
+ * The empty-state notice for projects the registry does not list. Honest
+ * about the auto-adopt contract: adoption runs when a project is added, so
+ * an unlisted project means adoption failed, was skipped (the runtime was
+ * unavailable), or its record was removed — and archived projects are
+ * always stated separately, because auto-adopt skips them entirely.
+ */
+export function unregisteredNotice(unregistered: number, unregisteredArchived: number): string {
+  const sentences: string[] = []
+  if (unregistered === 1)
+    sentences.push(
+      '1 project is not listed because its repository is not registered. Adoption runs automatically when a project is added; open the Dev view’s Repositories panel to adopt it or remove the repository from the registry.'
+    )
+  else if (unregistered > 1)
+    sentences.push(
+      `${unregistered} projects are not listed because their repositories are not registered. Adoption runs automatically when a project is added; open the Dev view’s Repositories panel to adopt them or remove repositories from the registry.`
+    )
+  if (unregisteredArchived === 1) sentences.push('1 archived project is also not registered.')
+  else if (unregisteredArchived > 1)
+    sentences.push(`${unregisteredArchived} archived projects are also not registered.`)
+  return sentences.join(' ')
 }

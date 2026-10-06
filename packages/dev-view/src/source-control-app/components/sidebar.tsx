@@ -1,8 +1,11 @@
 /*
  * Left sidebar: the two cross-project shortcuts, then GitHub owners with the
  * Adea projects whose repository lives there, each with its default-branch
- * CI state and open pull request count, archived projects collapsed at the
- * bottom, and Connect account in the footer. It shares the Dev view's
+ * CI state and open pull request count. Registered repositories the viewer
+ * does not want listed sit collapsed below a show-more line (a persistent
+ * display preference — hiding is never an unlink, and auto-adopted
+ * repositories land above the line); archived projects collapse at the
+ * bottom; Connect account stays in the footer. It shares the Dev view's
  * contextual sidebar frame, so the top bar's toggle and the drawer behave
  * the same.
  */
@@ -13,17 +16,19 @@ import {
   SidebarNavFooter,
   SidebarNavHeader,
   SidebarNavItem,
+  SidebarNavRow,
   SidebarNavSection,
   SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
-import { GitMerge, Inbox, Plus } from 'lucide-solid'
+import { Eye, EyeOff, GitMerge, Inbox, Plus } from 'lucide-solid'
 import { For, Show, createSignal, type JSX } from 'solid-js'
 
-import { monogram, type TreeProject } from '../model/tree'
+import { monogram, unregisteredNotice, type TreeProject } from '../model/tree'
 import type { Tone } from '../model/types'
 import type { SourceControlState } from '../state'
 
@@ -40,7 +45,17 @@ const ciWord: Record<string, string> = {
   none: 'has no checks',
 }
 
-function ProjectRow(props: { row: TreeProject; state: SourceControlState }): JSX.Element {
+function ProjectRow(props: {
+  row: TreeProject
+  state: SourceControlState
+  /**
+   * The row's place relative to the show-more line: `false` above (the
+   * control hides it), `true` below in the collapsed group (the control
+   * restores it), `undefined` where hiding does not apply (the archived
+   * section is already collapsed).
+   */
+  hidden?: boolean
+}): JSX.Element {
   const selected = () => {
     const current = props.state.selection()
     return current?.kind === 'project' && current.repoId === props.row.repoId
@@ -49,41 +64,75 @@ function ProjectRow(props: { row: TreeProject; state: SourceControlState }): JSX
     props.row.openCount === undefined
       ? undefined
       : `${props.row.openCount}${props.row.openCountMore ? '+' : ''}`
+  const hiddenControl = () =>
+    props.hidden === undefined
+      ? undefined
+      : props.hidden
+        ? {
+            label: `Show ${props.row.name} in the sidebar`,
+            icon: <Eye aria-hidden="true" />,
+          }
+        : {
+            label: `Hide ${props.row.name} below the show-more line`,
+            icon: <EyeOff aria-hidden="true" />,
+          }
   return (
-    <SidebarNavItem
-      as="button"
-      type="button"
-      nested
-      active={selected()}
-      aria-current={selected() ? 'page' : undefined}
-      title={
-        props.row.projectName === props.row.name ? undefined : `Project ${props.row.projectName}`
+    <SidebarNavRow
+      actions={
+        props.hidden === undefined ? undefined : (
+          <Show when={hiddenControl()}>
+            {(control) => (
+              <ActionButton
+                variant="ghost"
+                size="icon-2xs"
+                tooltip={control().label}
+                aria-label={control().label}
+                onClick={() => props.state.setRepoHidden(props.row.repoId, props.hidden !== true)}
+              >
+                {control().icon}
+              </ActionButton>
+            )}
+          </Show>
+        )
       }
-      onClick={() =>
-        props.state.select({
-          kind: 'project',
-          repoId: props.row.repoId,
-          projectId: props.row.projectId,
-        })
-      }
-      data-repo-id={props.row.repoId}
     >
-      <StatusChip
-        compact
-        tone={props.row.ci ? (ciTone[props.row.ci] ?? 'unknown') : 'unknown'}
-        label={
-          props.row.ci ? `Default branch ${ciWord[props.row.ci]}` : 'Default branch status unknown'
+      <SidebarNavItem
+        as="button"
+        type="button"
+        nested
+        active={selected()}
+        aria-current={selected() ? 'page' : undefined}
+        title={
+          props.row.projectName === props.row.name ? undefined : `Project ${props.row.projectName}`
         }
-      />
-      <span class="dev-scm-truncate">{props.row.name}</span>
-      <Show when={count()}>
-        {(value) => (
-          <span class="dev-scm-count" aria-label={`${value()} open pull requests`}>
-            {value()}
-          </span>
-        )}
-      </Show>
-    </SidebarNavItem>
+        onClick={() =>
+          props.state.select({
+            kind: 'project',
+            repoId: props.row.repoId,
+            projectId: props.row.projectId,
+          })
+        }
+        data-repo-id={props.row.repoId}
+      >
+        <StatusChip
+          compact
+          tone={props.row.ci ? (ciTone[props.row.ci] ?? 'unknown') : 'unknown'}
+          label={
+            props.row.ci
+              ? `Default branch ${ciWord[props.row.ci]}`
+              : 'Default branch status unknown'
+          }
+        />
+        <span class="dev-scm-truncate">{props.row.name}</span>
+        <Show when={count()}>
+          {(value) => (
+            <span class="dev-scm-count" aria-label={`${value()} open pull requests`}>
+              {value()}
+            </span>
+          )}
+        </Show>
+      </SidebarNavItem>
+    </SidebarNavRow>
   )
 }
 
@@ -94,6 +143,7 @@ export function SourceControlSidebar(props: {
 }): JSX.Element {
   const [collapsed, setCollapsed] = createSignal<ReadonlySet<string>>(new Set())
   const [archivedOpen, setArchivedOpen] = createSignal(false)
+  const [hiddenOpen, setHiddenOpen] = createSignal(false)
   const toggle = (key: string) =>
     setCollapsed((current) => {
       const next = new Set(current)
@@ -101,6 +151,12 @@ export function SourceControlSidebar(props: {
       else next.add(key)
       return next
     })
+  /** Active rows below the show-more line, across every owner. */
+  const hiddenRows = () =>
+    props.state
+      .tree()
+      .owners.flatMap((owner) => owner.projects)
+      .filter((row) => props.state.isRepoHidden(row.repoId))
   const shortcutActive = (id: 'needs_you' | 'ready') => {
     const current = props.state.selection()
     return current?.kind === 'shortcut' && current.id === id
@@ -150,11 +206,14 @@ export function SourceControlSidebar(props: {
           </nav>
           <nav class="mt-3 flex flex-col gap-3" aria-label="Accounts and projects">
             <Show
-              when={props.state.tree().owners.length > 0}
+              when={props.state.tree().owners.some((owner) => owner.projects.length > 0)}
               fallback={
                 <Show when={props.state.catalogLoaded()}>
                   <Show
-                    when={props.state.tree().unregistered > 0}
+                    when={
+                      props.state.tree().unregistered > 0 ||
+                      props.state.tree().unregisteredArchived > 0
+                    }
                     fallback={
                       <EmptyDescription>
                         No projects with a GitHub or GitLab repository yet. Add one in the Dev view.
@@ -162,9 +221,10 @@ export function SourceControlSidebar(props: {
                     }
                   >
                     <EmptyDescription>
-                      {props.state.tree().unregistered === 1
-                        ? '1 project has not been registered yet, so it is not listed here. Open the Dev view’s Repositories panel and adopt its repository.'
-                        : `${props.state.tree().unregistered} projects have not been registered yet, so they are not listed here. Open the Dev view’s Repositories panel and adopt their repositories.`}
+                      {unregisteredNotice(
+                        props.state.tree().unregistered,
+                        props.state.tree().unregisteredArchived
+                      )}
                     </EmptyDescription>
                   </Show>
                 </Show>
@@ -172,25 +232,45 @@ export function SourceControlSidebar(props: {
             >
               <For each={props.state.tree().owners}>
                 {(owner) => (
-                  <SidebarNavSection
-                    label={owner.owner}
-                    headingAs="h3"
-                    collapsible
-                    open={!collapsed().has(owner.key)}
-                    onOpenChange={() => toggle(owner.key)}
-                    action={
-                      <span class="dev-scm-tree__owner" aria-hidden="true">
-                        <span class="dev-scm-mark">{monogram(owner.owner)}</span>
-                        <span class="dev-scm-provider">{owner.providerName}</span>
-                      </span>
-                    }
-                  >
-                    <For each={owner.projects}>
-                      {(row) => <ProjectRow row={row} state={props.state} />}
-                    </For>
-                  </SidebarNavSection>
+                  <Show when={owner.projects.some((row) => !props.state.isRepoHidden(row.repoId))}>
+                    <SidebarNavSection
+                      label={owner.owner}
+                      headingAs="h3"
+                      collapsible
+                      open={!collapsed().has(owner.key)}
+                      onOpenChange={() => toggle(owner.key)}
+                      action={
+                        <span class="dev-scm-tree__owner" aria-hidden="true">
+                          <span class="dev-scm-mark">{monogram(owner.owner)}</span>
+                          <span class="dev-scm-provider">{owner.providerName}</span>
+                        </span>
+                      }
+                    >
+                      <For each={owner.projects}>
+                        {(row) => (
+                          <Show when={!props.state.isRepoHidden(row.repoId)}>
+                            <ProjectRow row={row} state={props.state} hidden={false} />
+                          </Show>
+                        )}
+                      </For>
+                    </SidebarNavSection>
+                  </Show>
                 )}
               </For>
+            </Show>
+            <Show when={hiddenRows().length > 0}>
+              <SidebarNavSection
+                label="Hidden repositories"
+                headingAs="h3"
+                collapsible
+                open={hiddenOpen()}
+                onOpenChange={setHiddenOpen}
+                count={hiddenRows().length}
+              >
+                <For each={hiddenRows()}>
+                  {(row) => <ProjectRow row={row} state={props.state} hidden />}
+                </For>
+              </SidebarNavSection>
             </Show>
             <Show when={props.state.tree().archived.length > 0}>
               <SidebarNavSection

@@ -14,7 +14,9 @@ import {
   archiveNoticeForError,
   beginRegistryLoad,
   cancelPendingArchive,
+  cancelPendingRemove,
   confirmPendingArchive,
+  confirmPendingRemove,
   credentialRefsForHost,
   defaultAdoptBookmarkId,
   expectedRepoVersion,
@@ -25,10 +27,14 @@ import {
   registryReady,
   registryUnavailable,
   registryUnavailableNotice,
+  removeConfirmLine,
+  removeNoticeForError,
   repoBaseName,
   repoCommandNotice,
   repoRows,
+  removable,
   requestArchive,
+  requestRemove,
   type RepoRegistryState,
 } from '../src/sidebar/repo-registry-model'
 
@@ -363,6 +369,61 @@ describe('registry state machine', () => {
     const again = confirmPendingArchive(ready)
     expect(again.projectId).toBeUndefined()
     expect(again.state).toBe(ready)
+  })
+
+  test('removal passes an explicit confirmation gate on removable rows', () => {
+    const adopted = repo({ id: uuid('r1'), version: 4 })
+    const managed = repo({ id: uuid('r2'), layout: 'bare_managed' })
+    const bindingOnly = repo({ id: uuid('r3') })
+    const rows = repoRows(
+      [
+        {
+          repoId: bindingOnly.id,
+          canonicalRoot: bindingOnly.canonicalRoot,
+          rootBookmarkId: '',
+          projects: [],
+        },
+      ],
+      [adopted, managed]
+    )
+    // Adopted, non-managed rows are removable; a managed clone's record is
+    // owned by dev.project.unbind, and a binding-only row has no record.
+    const adoptedRow = rows.find((row) => row.repoId === adopted.id)!
+    const managedRow = rows.find((row) => row.repoId === managed.id)!
+    const bindingRow = rows.find((row) => row.repoId === bindingOnly.id)!
+    expect(removable(adoptedRow)).toBe(true)
+    expect(removable(managedRow)).toBe(false)
+    expect(removable(bindingRow)).toBe(false)
+
+    let state: RepoRegistryState = registryReady(rows, [])
+    state = requestRemove(state, adopted.id)
+    expect(state.pendingRemoveRepoId).toBe(adopted.id)
+    // The confirm copy says exactly what removal does and does not touch.
+    expect(removeConfirmLine(adopted.canonicalRoot)).toContain('stays bound')
+    expect(removeConfirmLine(adopted.canonicalRoot)).toContain('nothing on disk is deleted')
+    state = cancelPendingRemove(state)
+    expect(state.pendingRemoveRepoId).toBeUndefined()
+    state = requestRemove(state, adopted.id)
+    const commit = confirmPendingRemove(state)
+    expect(commit.repoId).toBe(adopted.id)
+    expect(commit.state.pendingRemoveRepoId).toBeUndefined()
+  })
+
+  test('removal cancel and confirm without a pending request are no-ops', () => {
+    const ready = registryReady([], [])
+    expect(cancelPendingRemove(ready)).toBe(ready)
+    const again = confirmPendingRemove(ready)
+    expect(again.repoId).toBeUndefined()
+    expect(again.state).toBe(ready)
+  })
+
+  test('removal notices explain retries, managed clones, and unavailable runtimes', () => {
+    expect(removeNoticeForError(refusal('stale_version', 'moved on'))).toContain('moved on')
+    expect(removeNoticeForError(refusal('invalid_state', 'managed'))).toContain('unbinding')
+    expect(removeNoticeForError(refusal('capability_unavailable', 'missing'))).toContain(
+      'capability_unavailable'
+    )
+    expect(removeNoticeForError(refusal('not_found', 'absent'))).toContain('absent')
   })
 })
 

@@ -24,7 +24,12 @@ import {
   defaultPreferences,
 } from '../src/source-control-app/model/persistence'
 import { indexSessions, linkPullRequest } from '../src/source-control-app/model/sessions'
-import { buildTree, monogram, repositoryName } from '../src/source-control-app/model/tree'
+import {
+  buildTree,
+  monogram,
+  repositoryName,
+  unregisteredNotice,
+} from '../src/source-control-app/model/tree'
 import {
   capabilitiesOf,
   githubCapabilities,
@@ -375,6 +380,35 @@ describe('sidebar tree', () => {
     expect(tree.skipped).toBe(1)
   })
 
+  test('an archived unregistered project is stated separately, never folded into the count', () => {
+    // Auto-adopt skips archived projects entirely (owner requirement), so
+    // their emptiness is expected and must not alarm the active count.
+    const tree = buildTree(
+      [
+        { id: 'p1', name: 'Imported', repoIds: ['minted-1'], archived: false },
+        { id: 'p2', name: 'Old import', repoIds: ['minted-2'], archived: true },
+      ],
+      [],
+      new Map(),
+      { github: VIEWER }
+    )
+    expect(tree.owners).toEqual([])
+    expect(tree.unregistered).toBe(1)
+    expect(tree.unregisteredArchived).toBe(1)
+    expect(unregisteredNotice(tree.unregistered, tree.unregisteredArchived)).toBe(
+      '1 project is not listed because its repository is not registered. Adoption runs automatically when a project is added; open the Dev view’s Repositories panel to adopt it or remove the repository from the registry. 1 archived project is also not registered.'
+    )
+  })
+
+  test('the unregistered notice names auto-adoption, the fallback, and removal', () => {
+    expect(unregisteredNotice(1, 0)).toContain('Adoption runs automatically')
+    expect(unregisteredNotice(1, 0)).toContain('remove the repository from the registry')
+    expect(unregisteredNotice(3, 0)).toContain('3 projects are not listed')
+    expect(unregisteredNotice(3, 0)).toContain('adopt them or remove repositories')
+    expect(unregisteredNotice(0, 2)).toContain('2 archived projects are also not registered')
+    expect(unregisteredNotice(0, 0)).toBe('')
+  })
+
   test('labels GitLab groups and resolves the viewer per provider', () => {
     const tree = buildTree(
       [
@@ -541,7 +575,22 @@ describe('persistence', () => {
       details: { conversation: true, commits: false, checks: false, files: true },
       diffLayout: 'split',
       deleteBranch: true,
+      hiddenRepoIds: [],
     })
+  })
+
+  test('hidden repositories are a strict, bounded display preference', () => {
+    // Malformed entries fall back to visible rather than guessing; a
+    // well-formed set round-trips; the bound caps a runaway store.
+    expect(decodePreferences({ hiddenRepoIds: ['r1', 42, '', 'r2'] }).hiddenRepoIds).toEqual([
+      'r1',
+      'r2',
+    ])
+    expect(decodePreferences({ hiddenRepoIds: 'r1' }).hiddenRepoIds).toEqual([])
+    expect(
+      decodePreferences({ hiddenRepoIds: Array.from({ length: 600 }, (_, i) => `r${i}`) })
+        .hiddenRepoIds
+    ).toHaveLength(512)
   })
 
   test('drafts drop malformed comments and survive a reload', () => {

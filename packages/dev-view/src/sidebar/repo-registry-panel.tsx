@@ -17,6 +17,12 @@
  *    enters the client.
  *  - `dev.repo.inspect` / `dev.repo.refresh` surface the typed lifecycle
  *    (`stale`/`unavailable` are truths, not failures to hide).
+ *  - `dev.repo.remove` forgets one adopted record behind an explicit confirm
+ *    gate (the owner's undo for an unwanted auto- or manual adoption): only
+ *    the registry record is dropped — the project, its bindings, and every
+ *    worktree record stay — and the row returns to the binding-only state.
+ *    Auto-adoption never re-runs for it: adoption happens on import and
+ *    creation, never as a reconciler.
  *  - `dev.project.archive` flips the navigation lifecycle behind the same
  *    explicit confirmation gate the archive shelf uses; refusals (live
  *    sessions, stale version) surface as typed non-blocking notices.
@@ -48,7 +54,9 @@ import {
   archiveNoticeForError,
   beginRegistryLoad,
   cancelPendingArchive,
+  cancelPendingRemove,
   confirmPendingArchive,
+  confirmPendingRemove,
   credentialRefsForHost,
   defaultAdoptBookmarkId,
   expectedRepoVersion,
@@ -59,10 +67,14 @@ import {
   registryReady,
   registryUnavailable,
   registryUnavailableNotice,
+  removeConfirmLine,
+  removeNoticeForError,
   repoBaseName,
   repoCommandNotice,
   repoRows,
+  removable,
   requestArchive,
+  requestRemove,
   type RepoRegistryRow,
   type RepoRegistryState,
 } from './repo-registry-model'
@@ -270,6 +282,34 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
       await load()
     })
 
+  // Owner removal (owner request): forget one adopted registry record. Only
+  // the record is dropped — the project, its bindings, and every worktree
+  // record stay, and the row returns to the honest binding-only state.
+  // Auto-adoption never re-runs for it: adoption happens on import/creation,
+  // never as a reconciler, so removal is permanent until a manual Adopt.
+  const remove = (row: RepoRegistryRow) =>
+    void withBusy(`remove:${row.repoId}`, async () => {
+      const expectedVersion = expectedRepoVersion(row)
+      const reply = await props.execute(
+        buildDevCommand({
+          operation: 'dev.repo.remove',
+          scope: props.scope,
+          body: { repoId: row.repoId, expectedVersion },
+          resource: { kind: 'repository', id: row.repoId, generation: expectedVersion },
+        })
+      )
+      if (!reply.ok) {
+        setNotice({ tone: 'alert', text: removeNoticeForError(reply.error) })
+        await load()
+        return
+      }
+      decodeRepo(reply.value)
+      props.announce(
+        `Removed ${repoBaseName(row.canonicalRoot)} from the registry; its project stays bound.`
+      )
+      await load()
+    })
+
   const confirmArchive = (projectId: string) => {
     const commit = confirmPendingArchive(state())
     setState(commit.state)
@@ -365,50 +405,92 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                     <Show
                       when={adoptPickerRepo() === row.repoId}
                       fallback={
-                        <span class="dev-archive-shelf__actions">
-                          <Show
-                            when={row.lifecycle === 'binding-only'}
-                            fallback={
-                              <>
+                        <Show
+                          when={state().pendingRemoveRepoId === row.repoId}
+                          fallback={
+                            <span class="dev-archive-shelf__actions">
+                              <Show
+                                when={row.lifecycle === 'binding-only'}
+                                fallback={
+                                  <>
+                                    <Button
+                                      type="button"
+                                      class="dev-archive-action"
+                                      disabled={busy() !== ''}
+                                      onClick={() => void inspect(row)}
+                                    >
+                                      Inspect
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      class="dev-archive-action"
+                                      disabled={busy() !== ''}
+                                      onClick={() => void refresh(row)}
+                                    >
+                                      Refresh
+                                    </Button>
+                                    <Show when={host() !== undefined}>
+                                      <Button
+                                        type="button"
+                                        class="dev-archive-action"
+                                        disabled={busy() !== ''}
+                                        onClick={() => openAuthorizePicker(row)}
+                                      >
+                                        Authorize…
+                                      </Button>
+                                    </Show>
+                                    <Show when={removable(row)}>
+                                      <Button
+                                        type="button"
+                                        class="dev-archive-action dev-archive-action--destructive"
+                                        disabled={busy() !== ''}
+                                        onClick={() => setState(requestRemove(state(), row.repoId))}
+                                      >
+                                        Remove…
+                                      </Button>
+                                    </Show>
+                                  </>
+                                }
+                              >
                                 <Button
                                   type="button"
                                   class="dev-archive-action"
                                   disabled={busy() !== ''}
-                                  onClick={() => void inspect(row)}
+                                  onClick={() => openAdoptPicker(row)}
                                 >
-                                  Inspect
+                                  Adopt…
                                 </Button>
-                                <Button
-                                  type="button"
-                                  class="dev-archive-action"
-                                  disabled={busy() !== ''}
-                                  onClick={() => void refresh(row)}
-                                >
-                                  Refresh
-                                </Button>
-                                <Show when={host() !== undefined}>
-                                  <Button
-                                    type="button"
-                                    class="dev-archive-action"
-                                    disabled={busy() !== ''}
-                                    onClick={() => openAuthorizePicker(row)}
-                                  >
-                                    Authorize…
-                                  </Button>
-                                </Show>
-                              </>
-                            }
+                              </Show>
+                            </span>
+                          }
+                        >
+                          <span
+                            class="dev-archive-shelf__confirm"
+                            role="alert"
+                            aria-label={`Confirm removing ${repoBaseName(row.canonicalRoot)}`}
                           >
+                            {removeConfirmLine(row.canonicalRoot)}
+                            <Button
+                              type="button"
+                              class="dev-archive-action dev-archive-action--destructive"
+                              disabled={busy() !== ''}
+                              onClick={() => {
+                                const commit = confirmPendingRemove(state())
+                                setState(commit.state)
+                                if (commit.repoId !== undefined) void remove(row)
+                              }}
+                            >
+                              Remove
+                            </Button>
                             <Button
                               type="button"
                               class="dev-archive-action"
-                              disabled={busy() !== ''}
-                              onClick={() => openAdoptPicker(row)}
+                              onClick={() => setState(cancelPendingRemove(state()))}
                             >
-                              Adopt…
+                              Keep
                             </Button>
-                          </Show>
-                        </span>
+                          </span>
+                        </Show>
                       }
                     >
                       <span
