@@ -15,6 +15,11 @@ import { noteUpdatePhase } from '@adea-ai/workspace-ui/update-pending'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { invoke, listen } from '../lib/desktop-bridge'
 import { createDesktopDevRuntimeService } from '../lib/desktop-dev-runtime'
+import {
+  createDesktopDevScopeSelector,
+  devScopeCredential,
+  type DesktopDevScopeSelector,
+} from '../lib/desktop-dev-scope'
 import { localContentAuthority } from '../lib/desktop-local-content'
 import {
   desktopCapabilityProvider,
@@ -81,6 +86,13 @@ export function DesktopWorkspaceEntry(props: {
   let clientRef: AgentHqApiClient | undefined
   const workspaceRequestGuard = createWorkspaceRequestGuard()
   let authCallbackObserved = false
+  // Each cloud workspace owns its own Dev partition: the shell selects the
+  // device workspace scope only after proving membership with this session's
+  // credential (ADR 0011). Dev mounts per workspace and re-reads its scope
+  // after the selection settles.
+  const devScope = createDesktopDevScopeSelector({
+    credential: () => devScopeCredential(session(), temporaryCredential),
+  })
   const activeWorkspace = (): WorkspaceSummary | undefined => {
     const state = workspaceState()
     return state
@@ -129,6 +141,13 @@ export function DesktopWorkspaceEntry(props: {
       })
       if (!requestIsCurrent()) return
       await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
+      if (!requestIsCurrent()) return
+      // Select the Dev scope for the bootstrapped workspace before Dev mounts.
+      // A refusal never blocks the workspace: Dev reports itself unavailable.
+      await devScope.select(
+        nextWorkspace.workspace.id,
+        devScopeCredential(activeSession, nextWorkspace.temporaryCredential)
+      )
       if (!requestIsCurrent()) return
       // The scene is a router fact; WorkspaceNavigation reconciles the URL to
       // this workspace's scene once it mounts with the summary.
@@ -256,24 +275,33 @@ export function DesktopWorkspaceEntry(props: {
       }
     >
       {(workspace) => (
-        <DesktopWorkspace
-          accountLabel={workspaceState()?.accountLabel ?? undefined}
-          activeWorkspace={workspace()}
-          appVersion={appVersion()}
-          busy={busy()}
-          client={client()!}
-          plugins={plugins}
-          characterDesigner={props.characterDesigner ?? false}
-          roomDesigner={props.roomDesigner ?? false}
-          session={session()}
-          onBeginSignIn={beginSignIn}
-          onSignOut={signOut}
-          onUpdatesOpenChange={setUpdatesOpen}
-          updatesOpen={updatesOpen()}
-          virtual={props.virtual}
-          virtualProps={props.virtualProps}
-          workspaces={workspaceState()?.workspaces ?? []}
-        />
+        // Keyed by workspace id: Dev's runtime, utility owner and chat host
+        // bind one verified scope for their lifetime, so a switch remounts
+        // them under the newly selected scope instead of reusing the old one.
+        <Show when={workspace().id} keyed>
+          {(workspaceId) => (
+            <DesktopWorkspace
+              accountLabel={workspaceState()?.accountLabel ?? undefined}
+              activeWorkspace={workspace()}
+              devScope={devScope}
+              devScopeWorkspaceId={workspaceId}
+              appVersion={appVersion()}
+              busy={busy()}
+              client={client()!}
+              plugins={plugins}
+              characterDesigner={props.characterDesigner ?? false}
+              roomDesigner={props.roomDesigner ?? false}
+              session={session()}
+              onBeginSignIn={beginSignIn}
+              onSignOut={signOut}
+              onUpdatesOpenChange={setUpdatesOpen}
+              updatesOpen={updatesOpen()}
+              virtual={props.virtual}
+              virtualProps={props.virtualProps}
+              workspaces={workspaceState()?.workspaces ?? []}
+            />
+          )}
+        </Show>
       )}
     </Show>
   )
@@ -285,6 +313,8 @@ function DesktopWorkspace(props: {
   appVersion: string
   busy: boolean
   client: AgentHqApiClient
+  devScope: DesktopDevScopeSelector
+  devScopeWorkspaceId: string
   plugins: ReturnType<typeof createDeferredPluginsProvider>
   characterDesigner: boolean
   roomDesigner: boolean
@@ -301,7 +331,12 @@ function DesktopWorkspace(props: {
   const accountLabel = () => (signedIn() ? (props.accountLabel ?? 'Account') : 'Not signed in')
   // Invariant services are built once: rebuilding the object per evaluation
   // would also rebuild the dev runtime service on every busy/version update.
-  const devRuntime = createDesktopDevRuntimeService()
+  // The scope is read only after this workspace's selection settles; a shell
+  // scope for any other workspace keeps Dev unavailable (fail closed).
+  const devRuntime = createDesktopDevRuntimeService({
+    scopeSelection: props.devScope.ensure(props.devScopeWorkspaceId),
+    expectedWorkspaceId: props.devScopeWorkspaceId,
+  })
   const chatModelHost = createDesktopChatModelHost(devRuntime)
   const utilityOwner = createSharedDevUtilityOwner(
     devRuntime,
@@ -366,7 +401,12 @@ function DesktopWorkspace(props: {
         />
       )}
       client={props.client}
-      onAuthorizeWorkspace={(workspaceId) => localContentAuthority.authorizeWorkspace(workspaceId)}
+      onAuthorizeWorkspace={async (workspaceId) => {
+        await localContentAuthority.authorizeWorkspace(workspaceId)
+        // Switching workspaces switches the Dev scope before the store does;
+        // the selection result is awaited, never thrown.
+        await props.devScope.select(workspaceId)
+      }}
       platform="desktop"
       characterDesigner={props.characterDesigner}
       roomDesigner={props.roomDesigner}

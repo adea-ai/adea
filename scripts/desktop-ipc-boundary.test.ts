@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const registrySource = join(root, 'apps/desktop/shell/src/commands.ts')
+// The Dev Runtime scope family composes in the shell entry (it needs the
+// identity authority and the gateway), not in the `commands.ts` registry.
+const identitySource = join(root, 'apps/desktop/shell/src/dev-runtime/channel/identity-commands.ts')
 // The desktop client is the web app now; every browser-safe source in the web
 // app and the shared packages can reach the shell through the bridge.
 const client = join(root, 'apps/web/src')
@@ -57,6 +60,17 @@ async function invokedCommands(): Promise<Set<string>> {
   return invoked
 }
 
+/** The identity family the shell entry routes before the registry. */
+async function identityCommands(): Promise<Set<string>> {
+  const source = await readFile(identitySource, 'utf8')
+  const start = source.indexOf('export const IDENTITY_COMMANDS = [')
+  expect(start).toBeGreaterThan(-1)
+  const body = source.slice(start, source.indexOf('] as const', start))
+  const family = new Set([...body.matchAll(/'([a-z][a-z0-9_]*)'/g)].map((match) => match[1]!))
+  expect(family.has('desktop_identity_select_workspace')).toBe(true)
+  return family
+}
+
 function difference(left: Set<string>, right: Set<string>) {
   return [...left].filter((value) => !right.has(value)).toSorted()
 }
@@ -87,7 +101,7 @@ describe('desktop IPC contract', () => {
   })
 
   test('calls only commands the shell registers', async () => {
-    const registered = await registeredCommands()
+    const registered = new Set([...(await registeredCommands()), ...(await identityCommands())])
     const invoked = await invokedCommands()
 
     expect(invoked.size).toBeGreaterThan(0)
@@ -115,5 +129,6 @@ describe('desktop IPC contract', () => {
     expect(invoked.has('local_content_rotate_key')).toBe(true)
     expect(invoked.has('desktop_auth_take_callback')).toBe(true)
     expect(invoked.has('adea_app_version')).toBe(true)
+    expect(invoked.has('desktop_identity_select_workspace')).toBe(true)
   })
 })

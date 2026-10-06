@@ -18,9 +18,8 @@ import { createPresentedRuntimeSession } from '../notifications/presented-runtim
 import {
   createCloudIdentityVerifier,
   createDesktopIdentityAuthority,
-  type DesktopSessionCredential,
-  type Scope,
 } from '../dev-runtime/channel/identity'
+import { createIdentityCommandSurface } from '../dev-runtime/channel/identity-commands'
 import { createChannelAuthority } from '../dev-runtime/channel/authority'
 import {
   createChannelGateway,
@@ -168,40 +167,18 @@ const authority = createChannelAuthority({
   },
 })
 
-// The signed identity bind/scope/unbind commands ride the guarded legacy
-// invoke path (the trusted window's channel), so the renderer can never
-// assert a scope directly: the shell verifies the presented desktop session
-// against the cloud before any binding exists.
-const identityCommands: Record<
-  string,
-  (args?: Record<string, unknown>) => unknown | Promise<unknown>
-> = {
-  desktop_identity_bind: (args) => {
-    const session = args?.session as DesktopSessionCredential | undefined
-    const claimed = args?.claimed as Scope | undefined
-    if (!session || !claimed) throw new Error('identity bind requires session and claimed scope')
-    return identity.bind({ session, claimed })
-  },
-  // The device-local identity means this always answers: a signed-out shell
-  // projects its guest scope, so the Dev View works with no account.
-  desktop_identity_scope: () => identity.currentScope(),
-  desktop_identity_unbind: () => {
-    identity.unbind('owner sign-out')
-    return null
-  },
-}
+// The signed identity family (bind/scope/select/unbind) rides the guarded
+// legacy invoke path (the trusted window's channel), so the renderer can never
+// assert a scope directly: the shell verifies the presented credential against
+// the cloud before any binding or device selection exists. A scope change
+// hands the bridge a fresh launch bootstrap so it can re-handshake after its
+// own channel was revoked (see identity-commands.ts).
+const identityCommands = createIdentityCommandSurface({
+  identity,
+  issueRehandshake: () => gateway.bootstrapToken(),
+})
 async function invoke(cmd: string, args?: Record<string, unknown>): Promise<BridgeResult> {
-  const identityHandler = identityCommands[cmd]
-  if (identityHandler) {
-    try {
-      return { ok: true, value: (await identityHandler(args)) ?? null }
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : 'identity command failed',
-      }
-    }
-  }
+  if (identityCommands.handles(cmd)) return identityCommands.invoke(cmd, args)
   const relayHandler = streamRelayCommands[cmd]
   if (relayHandler) {
     try {

@@ -10,6 +10,7 @@ import {
 import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
 
 import { createDesktopStreamTransport } from './desktop-stream-transport'
+import type { DevScopeSelection } from './desktop-dev-scope'
 
 /** The structural slice of the injected bridge this module touches. Declared
  *  locally, never imported: the boundary test pins that this module does not
@@ -172,7 +173,19 @@ export function createDesktopEventSurface(options: {
  * the service is truthfully unavailable — a guessed or synthetic scope is
  * never used to build commands (spec: provider invariant 4).
  */
-export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}): DevRuntimeService {
+export function createDesktopDevRuntimeService(
+  options: {
+    scope?: Scope
+    /** The device workspace scope selection this runtime must wait for; the
+     *  shell's scope is read only AFTER it settles (ADR 0011). A refusal keeps
+     *  the service unavailable with the shell's typed reason. */
+    scopeSelection?: Promise<DevScopeSelection>
+    /** The cloud workspace this runtime serves. A shell scope for any other
+     *  workspace (a stale selection, a paired binding elsewhere) keeps the
+     *  service unavailable instead of showing another workspace's Dev data. */
+    expectedWorkspaceId?: string
+  } = {}
+): DevRuntimeService {
   const unavailable = createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
   const bridge = typeof window === 'undefined' ? undefined : window.__adeaDesktop
   const execute = bridge?.devExecute as ((command: DevCommand) => Promise<DevReply>) | undefined
@@ -200,8 +213,23 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
   // with the shell's reason — the renderer never self-asserts a scope.
   let shellScope: Scope | undefined
   let bindRefusal: { code: string; message: string } | undefined
-  const projectedScope = bridgeInvoke<Scope>('desktop_identity_scope')
+  const projectedScope = (options.scopeSelection ?? Promise.resolve(undefined))
+    .then((selection) => {
+      if (selection && !selection.ok) {
+        bindRefusal = { code: selection.code, message: selection.message }
+        return undefined
+      }
+      return bridgeInvoke<Scope>('desktop_identity_scope')
+    })
     .then((scope) => {
+      if (!scope) return undefined
+      if (options.expectedWorkspaceId && scope.workspaceId !== options.expectedWorkspaceId) {
+        bindRefusal = {
+          code: 'identity_mismatch',
+          message: 'the shell scope belongs to a different workspace',
+        }
+        return undefined
+      }
       shellScope = scope
       return scope
     })

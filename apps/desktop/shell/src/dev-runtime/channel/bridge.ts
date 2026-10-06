@@ -192,6 +192,16 @@ export function createBridgeScript(options: {
       })
       .then(function (result) {
         if (!result.ok) throw new Error(result.error || 'desktop command failed')
+        // A scope change (identity bind/select/unbind) revoked every channel,
+        // this one included; the shell answered that authenticated call with
+        // a fresh single-use bootstrap. It stays in this closure: the next
+        // request re-handshakes under the new scope. A repeated token (two
+        // calls observing one change) is ignored so a channel already opened
+        // with it is not dropped.
+        if (typeof result.rehandshake === 'string' && result.rehandshake !== BOOTSTRAP) {
+          BOOTSTRAP = result.rehandshake
+          channel = null
+        }
         return result.value
       })
   }
