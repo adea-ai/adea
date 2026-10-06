@@ -336,6 +336,14 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           const bookmark = roots.validate({ scope: input.scope!, bookmarkId: rootBookmarkId })
           return { canonicalRoot: bookmark.canonicalRoot }
         },
+        // The clone-URL import kind mints its bookmark through the same
+        // roots authority after the bounded clone lands inside the
+        // authorized destination; the approve action over the scope-bound
+        // channel is the owner confirmation for both.
+        authorizeRoot: (absolutePath, label) => {
+          const minted = roots.authorize({ scope: input.scope!, absolutePath, label })
+          return { id: minted.id }
+        },
       })
     : undefined
 

@@ -26,6 +26,8 @@ export type DevAuthorityCode =
   | 'unsupported_version'
   | 'auth_required'
   | 'limit_exceeded'
+  | 'unavailable'
+  | 'spawn_failed'
 
 const RETRYABLE_CODES: ReadonlySet<DevAuthorityCode> = new Set(['corrupt_state'])
 

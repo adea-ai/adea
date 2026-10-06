@@ -18,6 +18,7 @@ import { devOperationDecoders } from '../../../../../../packages/types/src/dev-r
 import type { ChannelAuthority } from '../channel/authority'
 import { DevAuthorityError } from '../authority'
 import { createDurableSqliteStore } from '../host-store'
+import { runGit } from '../worktrees/git-run'
 
 export type ProjectRepoBindingView = Readonly<{
   repoId: string
@@ -84,6 +85,31 @@ const AUTHORITY_STORE_FILE = join(AUTHORITY_STORE_DIRECTORY, 'authority.sqlite3'
 const LEGACY_AUTHORITY_STORE_FILE = join('dev-runtime', 'project-session', 'authority.json')
 const LEGACY_PROJECTION_FILE = join('dev-runtime', 'project-session', 'projection.json')
 const AUTHORITY_SCHEMA_VERSION = 1
+
+/** The bounded clone window: a shallow clone of a normal repository is
+ *  seconds of work; a loaded host or a large default branch gets a full
+ *  minute before the child is abandoned. The runner enforces it. */
+const GIT_CLONE_TIMEOUT_MS = 60_000
+
+/**
+ * Rebuild the clone URL from the redacted remote parts. GitHub and GitLab
+ * hosts are always https; an `other` host may carry its own scheme
+ * (`file://` fixture sources in tests, an ssh alias, a self-hosted origin).
+ */
+function buildCloneUrl(remote: {
+  provider: 'github' | 'gitlab' | 'other'
+  host: string
+  ownerPath: string
+  repository: string
+}): string {
+  if (remote.provider === 'other') {
+    const host = remote.host
+    return /^[a-z][a-z0-9+.-]*:\/\//.test(host)
+      ? `${host}/${remote.ownerPath}/${remote.repository}`
+      : `https://${host}/${remote.ownerPath}/${remote.repository}`
+  }
+  return `https://${remote.host}/${remote.ownerPath}/${remote.repository}.git`
+}
 const SESSION_CREATE_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
 const HASH_PATTERN = /^[0-9a-f]{64}$/
 
@@ -428,6 +454,20 @@ export function registerProjectSessionRuntime(input: {
    * the register touches the record; client-supplied paths never reach it.
    */
   resolveImportRoot?: (rootBookmarkId: string) => { canonicalRoot: string }
+  /**
+   * Bookmark-minting hook for the clone-URL import kind (`dev.project.clone`):
+   * after a bounded clone lands inside an authorized destination root, the
+   * composition mints the clone's bookmark through the roots authority (the
+   * owner's approve action is the command itself, issued over the
+   * scope-bound channel). Absent, the clone kind refuses `unavailable`
+   * instead of importing an unauthorized path.
+   */
+  authorizeRoot?: (absolutePath: string, label: string) => { id: string }
+  /**
+   * Test seam: inject the bounded clone runner; production shells out to the
+   * real bounded git runner. Returns the child's exit code.
+   */
+  runClone?: (args: { argv: readonly string[]; cwd: string }) => Promise<{ exitCode: number }>
 }): ProjectSessionRuntime {
   const store = createDurableSqliteStore<AuthorityRecord>({
     file: authorityStoreFile(input.dataDir, input.scope),
@@ -530,6 +570,61 @@ export function registerProjectSessionRuntime(input: {
       lifecycle: project.lifecycle,
       observedAt: new Date().toISOString(),
     })
+  }
+
+  /**
+   * The one import path (#398): bind an authorized root bookmark into a new
+   * project and its groups in a single atomic snapshot write. Both import
+   * kinds — the owner-authorized local root (`dev.project.import`) and the
+   * bounded clone (`dev.project.clone`) — end here, so refusal and
+   * membership semantics cannot drift between them.
+   */
+  function importAuthorizedRoot(
+    name: string,
+    rootBookmarkId: string,
+    groupIds: readonly string[],
+    preferredRuntimeNodeId: string | undefined,
+    canonicalRoot: string
+  ): Project {
+    if (
+      record.projects.some((project) =>
+        project.repos?.some((repo) => repo.rootBookmarkId === rootBookmarkId)
+      )
+    )
+      throw new DevAuthorityError(
+        'identity_mismatch',
+        'a project is already registered for this authorized root'
+      )
+    for (const groupId of groupIds)
+      if (!record.groups.some((group) => group.id === groupId))
+        throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
+    const repoId = randomUUID()
+    const created: Project = {
+      id: randomUUID(),
+      scope: input.scope,
+      name,
+      groupIds: [...groupIds],
+      repoIds: [repoId],
+      repos: [{ repoId, rootBookmarkId, canonicalRoot }],
+      lifecycle: 'ready',
+      version: 1,
+      ...(preferredRuntimeNodeId !== undefined ? { preferredRuntimeNodeId } : {}),
+    }
+    record = {
+      ...record,
+      projects: [...record.projects, created],
+      groups: record.groups.map((group) =>
+        groupIds.includes(group.id)
+          ? {
+              ...group,
+              projectIds: [...group.projectIds, created.id],
+              version: group.version + 1,
+            }
+          : group
+      ),
+    }
+    save()
+    return created
   }
 
   const providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>> = {
@@ -699,10 +794,6 @@ export function registerProjectSessionRuntime(input: {
     'dev.project.import': (command) => {
       requireScope(command, input.scope)
       const body = devOperationDecoders['dev.project.import'].request(command.body)
-      const name = body.name as string
-      const rootBookmarkId = body.rootBookmarkId as string
-      const groupIds = body.groupIds as string[]
-      const preferredRuntimeNodeId = body.preferredRuntimeNodeId as string | undefined
       // The canonical root never comes from the command: the composition
       // resolves the authorized bookmark fail-closed (unknown, revoked,
       // drifted, or replaced roots throw before this record is touched).
@@ -712,50 +803,79 @@ export function registerProjectSessionRuntime(input: {
           'no authorized root authority is available for project import'
         )
       }
-      const root = input.resolveImportRoot(rootBookmarkId)
-      // One canonical root is imported once: a second registration for the
-      // same bookmark is an identity collision, not a silent duplicate.
-      if (
-        record.projects.some((project) =>
-          project.repos?.some((repo) => repo.rootBookmarkId === rootBookmarkId)
-        )
+      const root = input.resolveImportRoot(body.rootBookmarkId as string)
+      return importAuthorizedRoot(
+        body.name as string,
+        body.rootBookmarkId as string,
+        body.groupIds as string[],
+        body.preferredRuntimeNodeId as string | undefined,
+        root.canonicalRoot
       )
+    },
+    'dev.project.clone': async (command) => {
+      requireScope(command, input.scope)
+      const body = devOperationDecoders['dev.project.clone'].request(command.body)
+      // The remote arrives redacted into parts (never a raw URL body): the
+      // provider reconstructs the URL from trusted components. The owner's
+      // approve action over the scope-bound channel is the authorization for
+      // both the destination root and the clone itself.
+      const remote = body.remote as {
+        provider: 'github' | 'gitlab' | 'other'
+        host: string
+        ownerPath: string
+        repository: string
+      }
+      if (body.credentialRefId !== undefined) {
+        // Private-remote clones need vault credential wiring that no slice
+        // has shipped; refuse typed instead of attempting an unauthenticated
+        // clone against a private host.
         throw new DevAuthorityError(
-          'identity_mismatch',
-          'a project is already registered for this authorized root'
+          'unavailable',
+          'credential-backed clone sources are not wired yet; use a publicly readable remote'
         )
-      for (const groupId of groupIds)
-        if (!record.groups.some((group) => group.id === groupId))
-          throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
-      const repoId = randomUUID()
-      const created: Project = {
-        id: randomUUID(),
-        scope: input.scope,
-        name,
-        groupIds: [...groupIds],
-        repoIds: [repoId],
-        repos: [{ repoId, rootBookmarkId, canonicalRoot: root.canonicalRoot }],
-        lifecycle: 'ready',
-        version: 1,
-        ...(preferredRuntimeNodeId !== undefined ? { preferredRuntimeNodeId } : {}),
       }
-      // One atomic snapshot write keeps the project and every group's
-      // membership ordering consistent.
-      record = {
-        ...record,
-        projects: [...record.projects, created],
-        groups: record.groups.map((group) =>
-          groupIds.includes(group.id)
-            ? {
-                ...group,
-                projectIds: [...group.projectIds, created.id],
-                version: group.version + 1,
-              }
-            : group
-        ),
+      if (!input.resolveImportRoot) {
+        throw new DevAuthorityError(
+          'not_found',
+          'no authorized root authority is available for project clone'
+        )
       }
-      save()
-      return created
+      const destination = input.resolveImportRoot(body.destinationBookmarkId as string)
+      const cloneUrl = buildCloneUrl(remote)
+      const targetDir = join(destination.canonicalRoot, 'clones', remote.repository)
+      if (existsSync(targetDir)) {
+        throw new DevAuthorityError(
+          'invalid_state',
+          `the clone destination already exists: ${targetDir}`
+        )
+      }
+      const runClone =
+        input.runClone ??
+        ((args: { argv: readonly string[]; cwd: string }) =>
+          runGit(args.argv.slice(1), { cwd: args.cwd, timeoutMs: GIT_CLONE_TIMEOUT_MS }))
+      // `--depth 1`: the import kind provisions a working copy, not history.
+      const argv = ['git', 'clone', '--depth', '1', cloneUrl, targetDir] as const
+      const result = await runClone({ argv, cwd: destination.canonicalRoot })
+      if (result.exitCode !== 0) {
+        throw new DevAuthorityError(
+          'spawn_failed',
+          `git clone exited ${result.exitCode} for the authorized destination`
+        )
+      }
+      if (!input.authorizeRoot) {
+        throw new DevAuthorityError(
+          'unavailable',
+          'no bookmark authority is available to bind the cloned root'
+        )
+      }
+      const minted = input.authorizeRoot(targetDir, body.name as string)
+      return importAuthorizedRoot(
+        body.name as string,
+        minted.id,
+        body.groupIds as string[],
+        body.preferredRuntimeNodeId as string | undefined,
+        targetDir
+      )
     },
     'dev.project.create': (command) => {
       requireScope(command, input.scope)
