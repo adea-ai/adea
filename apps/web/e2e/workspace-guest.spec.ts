@@ -42,9 +42,17 @@ test('a guest can use a workspace before opening the optional persistence flow',
   // Workspaces are switched from the contextual sidebar's accordion (ADR
   // 0011); the rail keeps only the static product mark.
   await expect(page.getByRole('button', { name: /Switch workspace/ })).toHaveCount(0)
+  // Below 48rem the contextual sidebar is a sheet: open it to reach the
+  // accordion, then dismiss it before the layout checks below.
+  const narrow = (page.viewportSize()?.width ?? 1280) < 768
+  if (narrow) await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
   const workspaceNav = page.getByRole('navigation', { name: 'Workspaces' })
   await expect(workspaceNav.getByRole('heading', { name: 'My Adea', level: 3 })).toBeVisible()
   await expect(workspaceNav.getByRole('button', { name: 'New workspace' })).toBeVisible()
+  if (narrow) {
+    await page.keyboard.press('Escape')
+    await expect(workspaceNav).toBeHidden()
+  }
 
   for (const viewport of [
     { width: 1280, height: 800 },
