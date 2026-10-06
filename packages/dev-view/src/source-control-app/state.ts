@@ -160,6 +160,29 @@ export function createSourceControlState(options: {
 
   const activeProjects = createMemo(() => tree().owners.flatMap((owner) => owner.projects))
 
+  /**
+   * Repositories collapsed below the sidebar's show-more line. Hiding is a
+   * display preference, never an unlink: hidden repositories stay adopted
+   * and registered (their rows remain reachable from the collapsed group),
+   * and every newly adopted repository is visible by default — auto-adopt
+   * lands above the line because membership is an explicit set.
+   */
+  const hiddenRepoIds = createMemo(() => new Set(preferences().hiddenRepoIds))
+  const isRepoHidden = (repoId: string): boolean => hiddenRepoIds().has(repoId)
+
+  const setRepoHidden = (repoId: string, hidden: boolean) =>
+    setPreferences((current) => ({
+      ...current,
+      hiddenRepoIds: hidden
+        ? [...new Set([...current.hiddenRepoIds, repoId])]
+        : current.hiddenRepoIds.filter((entry) => entry !== repoId),
+    }))
+
+  /** Active rows above the show-more line: what the shortcuts count. */
+  const visibleProjects = createMemo(() =>
+    activeProjects().filter((row) => !hiddenRepoIds().has(row.repoId))
+  )
+
   const projectFor = (repoId: string): TreeProject | undefined =>
     activeProjects().find((row) => row.repoId === repoId) ??
     tree().archived.find((row) => row.repoId === repoId)
@@ -171,9 +194,11 @@ export function createSourceControlState(options: {
   const link = (pr: GitHubPullRequestSummary): PullRequestView =>
     linkPullRequest(pr, sessionIndex())
 
-  /** Every open pull request across active projects, for the shortcuts. */
+  /** Every open pull request across visible projects, for the shortcuts.
+   *  Hidden repositories are a display preference and are excluded from the
+   *  counts; they keep their rows in the collapsed group. */
   const everyOpen = createMemo(() =>
-    activeProjects().flatMap((row) => openPulls(row.repoId).map((pr) => ({ pr, project: row })))
+    visibleProjects().flatMap((row) => openPulls(row.repoId).map((pr) => ({ pr, project: row })))
   )
 
   const shortcutCounts = createMemo(() => {
@@ -190,7 +215,8 @@ export function createSourceControlState(options: {
     const stored = preferences().selection
     if (stored?.kind === 'shortcut') return stored
     if (stored?.kind === 'project' && projectFor(stored.repoId)) return stored
-    const first = activeProjects()[0]
+    // A hidden repository is never the default: the first visible row wins.
+    const first = visibleProjects()[0] ?? activeProjects()[0]
     return first ? { kind: 'project', repoId: first.repoId, projectId: first.projectId } : stored
   })
 
@@ -390,6 +416,9 @@ export function createSourceControlState(options: {
     disconnected,
     tree,
     activeProjects,
+    visibleProjects,
+    isRepoHidden,
+    setRepoHidden,
     projectFor,
     openPulls,
     everyOpen,

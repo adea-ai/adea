@@ -4904,6 +4904,24 @@ registered repository whose `origin` is a trusted GitHub remote. Its
 operations extend the provider above under the same credential rule: GitHub
 auth is the user's `gh` CLI context, and Adea stores no GitHub token.
 
+- **Sidebar tree and the show-more line.** The tree groups registered
+  repositories under their provider owners, counts active projects whose
+  every binding has no registry record separately from archived ones (the
+  empty state names auto-adoption, its failure fallback, and the panel's
+  remove action, and always states unregistered archived projects
+  separately — auto-adopt skips them), and collapses archived projects into
+  their own section. Repositories the viewer does not want listed sit below
+  a show-more line: hiding is a per-repository display preference in the
+  app's scope-scoped browser storage (`hiddenRepoIds`), never an unlink —
+  hidden repositories stay adopted and registered, keep their rows inside
+  the collapsed group, and are excluded from the shortcut counts and the
+  default selection while every newly adopted repository is visible by
+  default (membership is an explicit set, so auto-adopt lands above the
+  line). The divider's drag-to-reorder interaction is an upstream shared-UI
+  seam: no published sortable-list primitive exists yet, so the shipped
+  composition offers explicit hide/show controls per row instead of
+  hand-rolling drag-and-drop.
+
 - **Read models.** `pullRequestSummaries` (one repository, newest update
   first, at most 50 a page) and `pullRequestSummary` (one PR, plus `body` and
   the compare-derived `behindBy`) return `GitHubPullRequestSummary`: author

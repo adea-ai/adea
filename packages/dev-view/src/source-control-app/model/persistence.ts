@@ -22,12 +22,22 @@ export type AppPreferences = Readonly<{
   mergeMethod?: GitHubMergeMethod
   diffLayout: 'unified' | 'split'
   deleteBranch: boolean
+  /**
+   * Repositories collapsed below the sidebar's show-more line. Hiding is a
+   * display preference, never an unlink: hidden repositories stay adopted
+   * and registered, remain reachable from the collapsed group, and every
+   * newly adopted repository is visible by default (auto-adopt lands above
+   * the line). The row order of the drag-bar this models is an upstream
+   * shared-UI seam; v1 ships explicit hide/show controls.
+   */
+  hiddenRepoIds: readonly string[]
 }>
 
 export const defaultPreferences: AppPreferences = {
   details: { conversation: true, commits: false, checks: false, files: false },
   diffLayout: 'unified',
   deleteBranch: true,
+  hiddenRepoIds: [],
 }
 
 export type PendingComment = Readonly<{
@@ -95,12 +105,21 @@ export function decodePreferences(value: unknown): AppPreferences {
   if (isRecord(value.details))
     for (const tab of Object.keys(details) as PrTab[])
       if (typeof value.details[tab] === 'boolean') details[tab] = value.details[tab] as boolean
+  // A bounded set of repo ids; anything unreadable falls back to the default
+  // (visible) rather than guessing.
+  const hiddenRepoIds: string[] = []
+  if (Array.isArray(value.hiddenRepoIds))
+    for (const entry of value.hiddenRepoIds) {
+      if (typeof entry === 'string' && isString(entry, 128)) hiddenRepoIds.push(entry)
+      if (hiddenRepoIds.length >= 512) break
+    }
   return {
     ...(selection ? { selection } : {}),
     details,
     ...(isMethod(value.mergeMethod) ? { mergeMethod: value.mergeMethod } : {}),
     diffLayout: value.diffLayout === 'split' ? 'split' : 'unified',
     deleteBranch: value.deleteBranch !== false,
+    hiddenRepoIds,
   }
 }
 
