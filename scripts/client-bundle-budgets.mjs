@@ -168,7 +168,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // partition shift and shared-composition cost documented there (main
     // measured 839,726 / 215,424 in the same build). Raw keeps its cap;
     // gzip ratchets to the next whole KiB step (~2.5% headroom).
-    devTerminal: { rawBytes: 832 * 1024, gzipBytes: 221 * 1024 },
+    // seroval 1.5.6 → 1.6.8 (the security override for GHSA-p6vx-979v-rg4c /
+    // GHSA-jp82-f5mq-hwhp; solid-js still pins ~1.5.4, so the override moves
+    // the whole runtime) costs this route 852,808 raw on the same build —
+    // +840 bytes over the 832 KiB cap. Ratchet raw one whole KiB; gzip stays
+    // at its measured step.
+    devTerminal: { rawBytes: 833 * 1024, gzipBytes: 221 * 1024 },
     devEditor: { rawBytes: 512 * 1024, gzipBytes: 160 * 1024 },
   },
 }
