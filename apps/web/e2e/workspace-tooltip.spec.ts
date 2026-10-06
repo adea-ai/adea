@@ -66,6 +66,39 @@ test('an icon tooltip repeats the trigger glyph in a single icon+label row', asy
   expect(await tooltip.evaluate((node) => getComputedStyle(node).whiteSpace)).toBe('nowrap')
 })
 
+test('an ActionButton tooltipIcon repeats the trigger glyph like the raw tooltip', async ({
+  page,
+}) => {
+  const path = '/__workspace-tooltip'
+  await page.route('**' + path, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body><div id="harness-root"></div></body></html>',
+    })
+  )
+  await page.goto(path)
+  await page.evaluate(
+    async (url) => {
+      await import(url)
+    },
+    '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-tooltip-harness-app.tsx')
+  )
+  // The top bar's icon actions run through ActionButton, so its tooltipIcon
+  // passthrough must reach the same decorative icon cell the raw tooltip uses.
+  await page
+    .getByRole('region', { name: 'Icon action button' })
+    .getByRole('button', { name: 'Notifications' })
+    .hover()
+  const tooltip = page.getByRole('tooltip')
+  await expect(tooltip).toHaveText('Notifications are not available yet.')
+  const icon = tooltip.locator('[data-slot="tooltip-icon"]')
+  await expect(icon).toHaveCount(1)
+  await expect(icon.locator('svg')).toHaveCount(1)
+  await expect(icon).toHaveAttribute('aria-hidden', 'true')
+  expect(await tooltip.evaluate((node) => getComputedStyle(node).display)).toBe('flex')
+  expect(await tooltip.evaluate((node) => getComputedStyle(node).whiteSpace)).toBe('nowrap')
+})
+
 test('agent status follows profile and lifecycle updates without remounting', async ({ page }) => {
   const path = '/__workspace-tooltip'
   await page.route('**' + path, (route) =>

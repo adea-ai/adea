@@ -1,13 +1,14 @@
 import '../../src/start/globals.css'
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import { Search } from 'lucide-solid'
+import { Bell, Search } from 'lucide-solid'
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@adea-ai/ui/components/ui/tooltip'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { AgentStatus, AgentStatusBadge } from '../../../../packages/workspace-ui/src/agent-status'
 import type { AgentSummary } from '@adea-ai/types'
 import { Button } from '@adea-ai/ui/components/ui/button'
@@ -54,6 +55,19 @@ render(
             Search this conversation (Mod+F)
           </TooltipContent>
         </Tooltip>
+      </section>
+      <section aria-label="Icon action button">
+        <ActionButton
+          variant="ghost"
+          size="icon-sm"
+          tooltip="Notifications are not available yet."
+          tooltipIcon={<Bell aria-hidden="true" />}
+          aria-label="Notifications"
+          aria-description="Notifications are not available yet."
+          disabled
+        >
+          <Bell aria-hidden="true" />
+        </ActionButton>
       </section>
     </TooltipProvider>
   ),

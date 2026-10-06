@@ -14,6 +14,7 @@ function AppearanceLoading() {
       variant="ghost"
       size="icon-sm"
       tooltip="Loading appearance settings"
+      tooltipIcon={<Palette aria-hidden="true" />}
       aria-label="Appearance settings"
       aria-busy="true"
       disabled
@@ -35,6 +36,7 @@ export function WorkspaceAppearanceControl() {
           variant="ghost"
           size="icon-sm"
           tooltip="Open appearance settings"
+          tooltipIcon={<Palette aria-hidden="true" />}
           aria-label="Appearance settings"
           onClick={() => {
             setOpen(true)
