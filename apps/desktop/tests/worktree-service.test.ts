@@ -26,6 +26,12 @@ function scratch(prefix = 'adea-service-'): string {
   return dir
 }
 
+/** The primary checkout is a record too (ADR 0011); creation tests count
+ *  only the worktrees they made. */
+function managedAndExternal<T extends { kind: string }>(records: readonly T[]): T[] {
+  return records.filter((record) => record.kind !== 'primary')
+}
+
 async function codeOf(run: () => unknown): Promise<string> {
   try {
     await run()
@@ -80,6 +86,248 @@ describe('repository registration', () => {
           })
         )
       ).toBe('unauthorized_root')
+    } finally {
+      f.cleanup()
+    }
+  })
+})
+
+describe('the primary checkout record (ADR 0011)', () => {
+  test('registering a git repo yields exactly one primary record with the inspected branch', async () => {
+    const f = fixture()
+    try {
+      git(f.repoPath, ['checkout', '-q', '-b', 'feature/sidebar'])
+      const head = git(f.repoPath, ['rev-parse', 'HEAD']).stdout.trim()
+      const repo = await f.registerRepo()
+      // Re-registration (another project) never mints a second primary.
+      await f.service.registerRepo({
+        scope,
+        projectId: '00000000-0000-4000-8000-00000000bbbb',
+        absolutePath: f.repoPath,
+        bookmarkId: f.bookmarkId,
+      })
+      const primaries = f.service
+        .listWorktrees({ scope, repoId: repo.id })
+        .filter((record) => record.kind === 'primary')
+      expect(primaries).toHaveLength(1)
+      const primary = primaries[0]!
+      expect(primary.canonicalRoot).toBe(f.repoPath)
+      expect(primary.headRef).toBe('refs/heads/feature/sidebar')
+      expect(primary.branchRef).toBe('refs/heads/feature/sidebar')
+      expect(primary.headSha).toBe(head)
+      expect(primary.lifecycle).toBe('ready')
+      expect(primary.projectId).toBe(projectIdA)
+      // The primary is never adoptable as an external worktree.
+      expect(
+        await codeOf(() =>
+          f.service.adoptWorktree({
+            scope,
+            repoId: repo.id,
+            projectId: projectIdA,
+            worktreePath: f.repoPath,
+          })
+        )
+      ).toBe('invalid_state')
+
+      // A branch switch is picked up by the fingerprint-gated refresh.
+      git(f.repoPath, ['checkout', '-q', '-b', 'feature/next'])
+      await f.service.refreshRepo({ scope, repoId: repo.id })
+      const refreshed = f.service.getWorktree(scope, primary.id)
+      expect(refreshed.headRef).toBe('refs/heads/feature/next')
+      expect(refreshed.version).toBe(primary.version + 1)
+      expect(refreshed.generation).toBe(primary.generation)
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  test('a folder registration has no primary worktree record', async () => {
+    const f = fixture()
+    try {
+      const folder = join(f.workspace, 'notes')
+      mkdirSync(folder)
+      const bookmark = f.roots.mint({
+        scope,
+        label: 'Notes',
+        kind: 'directory',
+        absolutePath: folder,
+        approval: approved(),
+      })
+      const repo = await f.service.registerRepo({
+        scope,
+        projectId: projectIdA,
+        absolutePath: folder,
+        bookmarkId: bookmark.id,
+      })
+      expect(f.service.listWorktrees({ scope, repoId: repo.id })).toHaveLength(0)
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  test('the primary refuses archive, cleanup, merge-back, and rename with typed codes', async () => {
+    const f = fixture()
+    try {
+      const repo = await f.registerRepo()
+      const primary = f.service
+        .listWorktrees({ scope, repoId: repo.id })
+        .find((record) => record.kind === 'primary')!
+      expect(
+        await codeOf(() =>
+          f.service.archiveWorktree({
+            scope,
+            worktreeId: primary.id,
+            expectedGeneration: primary.generation,
+          })
+        )
+      ).toBe('invalid_state')
+      expect(
+        await codeOf(() =>
+          f.service.planCleanup({
+            scope,
+            worktreeId: primary.id,
+            expectedGeneration: primary.generation,
+            selectedSteps: ['quarantine_worktree'],
+          })
+        )
+      ).toBe('invalid_state')
+      expect(
+        await codeOf(() =>
+          f.service.merge.plan({
+            scope,
+            worktreeId: primary.id,
+            expectedGeneration: primary.generation,
+            targetRef: 'main',
+            commitMessage: 'merge',
+          })
+        )
+      ).toBe('invalid_state')
+      expect(
+        await codeOf(() =>
+          f.service.resumeCleanup({ scope, worktreeId: primary.id, jobId: 'job-1' })
+        )
+      ).toBe('invalid_state')
+      expect(
+        await codeOf(() =>
+          f.service.renameWorktree({
+            scope,
+            worktreeId: primary.id,
+            expectedVersion: primary.version,
+            title: 'Main',
+          })
+        )
+      ).toBe('invalid_state')
+      // Nothing moved.
+      expect(f.service.getWorktree(scope, primary.id)).toEqual(primary)
+      // Leases still work: terminals and harnesses run in the primary.
+      const lease = f.service.leases.acquire({
+        scope,
+        worktreeId: primary.id,
+        expectedGeneration: primary.generation,
+        ownerKind: 'terminal',
+        ownerId: 'terminal:primary',
+      })
+      expect(lease.worktreeId).toBe(primary.id)
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  test('rename sets a local title on managed worktrees under the expected version', async () => {
+    const f = fixture()
+    try {
+      const repo = await f.registerRepo()
+      const { worktree } = await f.service.createWorktree({
+        scope,
+        repoId: repo.id,
+        projectId: projectIdA,
+        baseRef: 'main',
+        worktreeBaseDir: f.workspace,
+      })
+      expect(worktree.kind).toBe('managed')
+      const renamed = f.service.renameWorktree({
+        scope,
+        worktreeId: worktree.id,
+        expectedVersion: worktree.version,
+        title: '  Fix the login flow  ',
+      })
+      expect(renamed.title).toBe('Fix the login flow')
+      expect(renamed.version).toBe(worktree.version + 1)
+      expect(renamed.generation).toBe(worktree.generation)
+      expect(
+        await codeOf(() =>
+          f.service.renameWorktree({
+            scope,
+            worktreeId: worktree.id,
+            expectedVersion: worktree.version,
+            title: 'stale',
+          })
+        )
+      ).toBe('stale_version')
+      expect(
+        await codeOf(() =>
+          f.service.renameWorktree({
+            scope,
+            worktreeId: worktree.id,
+            expectedVersion: renamed.version,
+            title: 'bad\u0007title',
+          })
+        )
+      ).toBe('invalid_state')
+      const cleared = f.service.renameWorktree({
+        scope,
+        worktreeId: worktree.id,
+        expectedVersion: renamed.version,
+        title: '',
+      })
+      expect(cleared.title).toBeUndefined()
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  test('diffSummary counts tracked changes against the base or HEAD, counts only', async () => {
+    const f = fixture()
+    try {
+      const repo = await f.registerRepo()
+      const primary = f.service
+        .listWorktrees({ scope, repoId: repo.id })
+        .find((record) => record.kind === 'primary')!
+      const { worktree } = await f.service.createWorktree({
+        scope,
+        repoId: repo.id,
+        projectId: projectIdA,
+        baseRef: 'main',
+        worktreeBaseDir: f.workspace,
+      })
+      // Managed: a committed change plus an unstaged edit, both vs the base.
+      writeFileSync(join(worktree.canonicalRoot, 'new.txt'), 'one\ntwo\n')
+      git(worktree.canonicalRoot, ['add', 'new.txt'])
+      git(worktree.canonicalRoot, ['commit', '-qm', 'add new'])
+      writeFileSync(join(worktree.canonicalRoot, 'README.md'), 'changed\n')
+      // Primary: an unstaged edit vs HEAD.
+      writeFileSync(join(f.repoPath, 'README.md'), '# fixture\nmore\n')
+      const summaries = await f.service.diffSummary({
+        scope,
+        worktreeIds: [worktree.id, primary.id, worktree.id],
+      })
+      expect(summaries).toEqual([
+        { worktreeId: worktree.id, added: 3, removed: 1, filesChanged: 2 },
+        { worktreeId: primary.id, added: 1, removed: 0, filesChanged: 1 },
+      ])
+      expect(
+        await codeOf(() =>
+          f.service.diffSummary({ scope, worktreeIds: ['00000000-0000-4000-8000-0000000000ff'] })
+        )
+      ).toBe('not_found')
+      expect(
+        await codeOf(() =>
+          f.service.diffSummary({
+            scope,
+            worktreeIds: Array.from({ length: 51 }, () => worktree.id),
+          })
+        )
+      ).toBe('limit_exceeded')
     } finally {
       f.cleanup()
     }
@@ -208,7 +456,9 @@ describe('create worktree from an updated base', () => {
           (error) => (error as WorktreeError).code
         )
       expect(code).toBe('remote_unavailable')
-      expect(f.service.listWorktrees({ scope, repoId: repo.id })).toHaveLength(0)
+      expect(managedAndExternal(f.service.listWorktrees({ scope, repoId: repo.id }))).toHaveLength(
+        0
+      )
       f.cleanup()
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -230,7 +480,9 @@ describe('create worktree from an updated base', () => {
       const first = await f.service.createWorktree(input)
       const second = await f.service.createWorktree(input)
       expect(second.worktree.id).toBe(first.worktree.id)
-      expect(f.service.listWorktrees({ scope, repoId: repo.id })).toHaveLength(1)
+      expect(managedAndExternal(f.service.listWorktrees({ scope, repoId: repo.id }))).toHaveLength(
+        1
+      )
     } finally {
       f.cleanup()
     }
@@ -407,7 +659,7 @@ describe('bootstrap and failure retention', () => {
       ).rejects.toMatchObject({ code: 'bootstrap_failed' })
 
       // Exactly one record: failed, inspectable, never deleted.
-      const records = f.service.listWorktrees({ scope, repoId: repo.id })
+      const records = managedAndExternal(f.service.listWorktrees({ scope, repoId: repo.id }))
       expect(records).toHaveLength(1)
       const record = records[0]
       expect(record.lifecycle).toBe('failed')

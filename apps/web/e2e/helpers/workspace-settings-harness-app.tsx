@@ -49,6 +49,10 @@ const workspace: WorkspaceSummary = {
   id: 'workspace-settings-e2e',
   name: 'Settings harness',
   scene: 'work',
+  accent: null,
+  logo: { kind: 'monogram' as const },
+  sortOrder: 0,
+  version: 1,
   updatedAt: '2026-10-02T00:00:00.000Z',
 } as WorkspaceSummary
 

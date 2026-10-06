@@ -16,11 +16,24 @@ import { canonicalThemeCssTokens } from '../../../packages/ui/src/components/can
 import { verifyRegistryArtifacts } from '../../../packages/workspace-ui/src/marketplace-catalog'
 
 const timestamp = '2026-08-30T12:00:00.000Z'
-const workspace = { id: 'workspace-e2e', name: 'Work', scene: 'work', updatedAt: timestamp }
+const workspace = {
+  accent: null,
+  id: 'workspace-e2e',
+  logo: { kind: 'monogram' as const },
+  name: 'Work',
+  scene: 'work',
+  sortOrder: 0,
+  updatedAt: timestamp,
+  version: 1,
+}
 const homeWorkspace = {
   id: 'workspace-home-e2e',
   name: 'Home',
   scene: 'home',
+  accent: null,
+  logo: { kind: 'monogram' as const },
+  sortOrder: 0,
+  version: 1,
   updatedAt: timestamp,
 }
 const user = { kind: 'user' as const, userId: 'user-e2e' }

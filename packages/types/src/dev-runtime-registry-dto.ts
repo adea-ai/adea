@@ -1,4 +1,11 @@
-import type { CredentialRef, Project, Repo, RepoInspection, RootBookmark } from './dev-runtime'
+import type {
+  CredentialRef,
+  Project,
+  Repo,
+  RepoInspection,
+  RootBookmark,
+  Worktree,
+} from './dev-runtime'
 import {
   decodeScope,
   exactKeys,
@@ -12,6 +19,30 @@ import {
   timestamp,
   uuidPattern,
 } from './dev-runtime-validation-internal'
+
+/** Every worktree lifecycle state (spec "State machines › Worktree"). */
+export const worktreeLifecycles = [
+  'discovered',
+  'authorizing',
+  'creating',
+  'bootstrapping',
+  'ready',
+  'archived',
+  'merging',
+  'conflicted',
+  'cleanup_planned',
+  'quiescing',
+  'teardown',
+  'quarantined',
+  'unregistered',
+  'deleting',
+  'branch_cleanup',
+  'cleaned',
+  'blocked',
+  'partial',
+  'recovery_required',
+  'failed',
+] as const
 
 function stringArray(value: unknown, path: string, maxLength: number): readonly unknown[] {
   if (!Array.isArray(value)) fail(path, 'expected array')
@@ -182,6 +213,65 @@ export function decodeRegistryDto(name: string, value: unknown, path: string): u
     timestamp(item.observedAt, `${path}.observedAt`)
     return value
   }
+  if (name === 'Worktree') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'kind',
+        'repoId',
+        'projectId',
+        'canonicalRoot',
+        'rootIdentity',
+        'provenance',
+        'lifecycle',
+        'bootstrap',
+        'archived',
+        'generation',
+        'version',
+      ],
+      ['branchRef', 'title', 'taskId', 'baseRef', 'baseSha', 'headRef', 'headSha'],
+      path
+    )
+    for (const key of ['id', 'repoId', 'projectId'] as const)
+      if (!uuidPattern.test(stringValue(item[key], `${path}.${key}`)))
+        fail(`${path}.${key}`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    literal(item.kind, ['primary', 'managed', 'external'], `${path}.kind`)
+    const canonicalRoot = stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
+    if (canonicalRoot.includes('\0')) fail(`${path}.canonicalRoot`, 'expected path without NUL')
+    decodeRegistryDto('FileIdentity', item.rootIdentity, `${path}.rootIdentity`)
+    literal(item.provenance, ['adea', 'external'], `${path}.provenance`)
+    for (const key of ['branchRef', 'baseRef', 'headRef'] as const)
+      if (item[key] !== undefined) stringValue(item[key], `${path}.${key}`, 1, 256)
+    if (item.title !== undefined) stringValue(item.title, `${path}.title`, 1, 120)
+    if (item.taskId !== undefined) stringValue(item.taskId, `${path}.taskId`, 1, 256)
+    for (const key of ['baseSha', 'headSha'] as const)
+      if (item[key] !== undefined && !gitShaPattern.test(stringValue(item[key], `${path}.${key}`)))
+        fail(`${path}.${key}`, 'expected git sha')
+    literal(item.lifecycle, worktreeLifecycles, `${path}.lifecycle`)
+    literal(
+      item.bootstrap,
+      ['not_started', 'running', 'completed', 'failed', 'cancelled'],
+      `${path}.bootstrap`
+    )
+    if (typeof item.archived !== 'boolean') fail(`${path}.archived`, 'expected boolean')
+    integerValue(item.generation, `${path}.generation`, 1)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'WorktreeDiffSummary') {
+    const item = record(value, path)
+    exactKeys(item, ['worktreeId', 'added', 'removed', 'filesChanged'], [], path)
+    if (!uuidPattern.test(stringValue(item.worktreeId, `${path}.worktreeId`)))
+      fail(`${path}.worktreeId`, 'expected lowercase UUID')
+    integerValue(item.added, `${path}.added`, 0)
+    integerValue(item.removed, `${path}.removed`, 0)
+    integerValue(item.filesChanged, `${path}.filesChanged`, 0)
+    return value
+  }
   fail(path, `unsupported registry DTO ${name}`)
 }
 
@@ -213,4 +303,10 @@ export function decodeRepo(value: unknown): Repo {
 export function decodeRepoInspection(value: unknown): RepoInspection {
   decodeRegistryDto('RepoInspection', value, 'repoInspection')
   return value as RepoInspection
+}
+
+/** Strict decoder for one worktree record DTO (ADR 0011). */
+export function decodeWorktree(value: unknown): Worktree {
+  decodeRegistryDto('Worktree', value, 'worktree')
+  return value as Worktree
 }

@@ -8,9 +8,10 @@ the contract to read before touching the desktop flows in
 `apps/desktop/shell/src/commands.ts`, or the client runtime in
 `apps/web/src/lib/desktop-runtime.ts`.
 
-**Pending redesign:** [ADR 0011](../decisions/0011-unified-workspace-projects.md)
-adds a membership-checked device workspace scope for the Dev runtime. It does
-not change the sign-in handoff below.
+[ADR 0011](../decisions/0011-unified-workspace-projects.md) adds the
+membership-checked device workspace scope for the Dev runtime (see
+[Device workspace scope](#device-workspace-scope)). It does not change the
+sign-in handoff below.
 
 > **Implementation note (2026-09-13):** the desktop shell is Electrobun (Bun +
 > CEF); see [ADR 0006](../decisions/0006-browser-lanes-and-desktop-shell.md).
@@ -76,6 +77,62 @@ sign-in an optional entry point for features that genuinely require an account
 between the guest scope and a cloud workspace is deliberately out of scope
 until a remote feature ships; today a bind starts authoring NEW work under the
 cloud scope and existing guest-keyed data stays device-local.
+
+## Device workspace scope
+
+`desktop_identity_select_workspace({ workspaceId, credential })` selects the
+Dev scope for one cloud workspace. `credential` is either
+`{ kind: 'desktop', session }` (the signed-in desktop session) or
+`{ kind: 'temporary', credential }` (the guest's `adea_tmp_…` temporary
+workspace credential); anything else, or a non-canonical workspace id, is
+refused `invalid_state` before any network call, and an expired desktop
+session is refused `unauthenticated`.
+
+- **Verification.** The shell calls the cloud's `GET /api/workspaces` with the
+  same desktop lane headers as `desktop_identity_bind` (`Authorization:
+Desktop …` plus `X-Adea-Desktop-Session`, or `Authorization: Temporary …`).
+  The listing is authoritative: the workspace must appear in it, otherwise the
+  call is refused `unauthorized` (403). A cloud refusal of the credential
+  (`unauthenticated`, malformed listing) also forgets that credential's cached
+  memberships.
+- **Membership cache.** Every workspace in a verified listing is cached owner-
+  only at `dev-runtime/identity/memberships.json`, keyed by a SHA-256 digest of
+  the credential (the credential itself is never written), with an expiry of
+  `IDENTITY_LIMITS.membershipCacheTtlMs` (24 hours; at most
+  `maxCachedMemberships` = 256 entries). A fresh listing replaces the
+  credential's entries, so a removed membership stops admitting selection at
+  the next online check.
+- **Offline.** Only when the cloud is unreachable (network failure,
+  `unavailable`) does the shell consult the cache: an unexpired entry for the
+  same credential digest and workspace admits the selection; anything else is
+  refused `workspace_unavailable` (503, retryable). Offline switching is
+  therefore limited to workspaces this credential already verified.
+- **Scope.** On success the active scope becomes `{ accountId: local
+accountId, workspaceId: <cloud workspace id>, runtimeNodeId: local
+runtimeNodeId }` with `identityKind()` `device`, persisted at
+  `dev-runtime/identity/device-scope.json`. While the admitting membership is
+  expired or forgotten the selection keeps its scope (so the composed host and
+  the gate agree) but every Dev command fails `workspace_unavailable` until a
+  fresh selection re-proves membership.
+- **Precedence.** A paired `desktop_identity_bind` binding is untouched and
+  wins: selecting its own workspace returns the bound scope (`kind: 'cloud'`);
+  selecting any other workspace is refused `identity_mismatch` (409). After
+  `desktop_identity_unbind` the device selection, not the guest scope, becomes
+  active.
+- **Channels.** An effective scope change revokes every channel through the
+  same path as a rebind, and the host recomposes under the new scope. Because
+  the caller's own channel is revoked, the reply to that authenticated call
+  carries a fresh single-use launch bootstrap (`rehandshake`) that the
+  injected bridge consumes inside its closure to re-handshake; the renderer
+  never receives it. Re-selecting the active workspace changes nothing.
+- **Partitions.** Each workspace scope has its own register partition. The
+  previous device-local guest partition is never read, migrated, or deleted by
+  a selection; it stays on disk for the owner.
+- **Failures.** Refusals reach the client as `<code>: <message>`; the active
+  scope is unchanged. The web client selects before the store switches
+  workspaces (`onAuthorizeWorkspace`) and on bootstrap, never blocks the
+  workspace switch on a refusal, and keeps Dev unavailable whenever the
+  selection failed or the shell scope names another workspace.
 
 ## One cloud origin
 
@@ -168,11 +225,14 @@ single-use launch bootstrap and signs every request with a per-channel HMAC
 (`apps/desktop/shell/src/dev-runtime/channel/`); unauthenticated,
 cross-origin, rebinding, replayed, and tampered requests fail closed with
 typed errors. The Dev Runtime scope family `desktop_identity_bind`,
-`desktop_identity_scope`, and `desktop_identity_unbind` rides the same signed
-path but is composed in the shell entry (`src/bun/index.ts`), not the
-`commands.ts` registry: bind verifies the presented desktop session against
-the cloud plus the paired runtime node before any Dev Runtime scope exists,
-and unbind (sign-out) revokes every channel minted under the binding. The
+`desktop_identity_scope`, `desktop_identity_select_workspace`, and
+`desktop_identity_unbind` rides the same signed path but is composed in the
+shell entry (`src/dev-runtime/channel/identity-commands.ts`, routed from
+`src/bun/index.ts`), not the `commands.ts` registry: bind verifies the
+presented desktop session against the cloud plus the paired runtime node
+before any Dev Runtime scope exists, select verifies workspace membership as
+described above, and unbind (sign-out) revokes every channel minted under the
+binding. The
 launch bootstrap itself is delivered only with document loads that present
 trusted browser fetch metadata, so a header-less local process cannot
 retrieve it from the served HTML. The bulk-stream relay family
@@ -224,6 +284,12 @@ boundary test bundles the real shell notification entry to check that graph.
 - `scripts/desktop-ipc-boundary.test.ts`: the command surface above.
 - `apps/desktop/tests/shell-server.test.ts`: the proxy targets the canonical
   origin, presents the trusted shell origin, and drops ambient headers.
+- `apps/desktop/tests/device-workspace-scope.test.ts`: device workspace scope
+  refusals (non-member, offline-unverified, expired cache, malformed
+  credential, paired binding elsewhere), the bridge re-handshake after a
+  switch, per-workspace partitions, and the untouched guest partition.
+- `apps/web/test/desktop-dev-scope.test.ts`: the client selects before it
+  reads the shell scope and keeps Dev unavailable on refusal or mismatch.
 - `apps/desktop/tests/shell-channel.test.ts`: the invoke path authenticates
   the shell channel (bootstrap handshake, per-request HMAC, replay and
   origin refusals) before a handler runs.

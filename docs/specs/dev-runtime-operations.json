@@ -1334,6 +1334,12 @@
       "body": "{ projectId: string; repoId: string; baseRef: string; branchName: string; destinationName?: string; includePlanDigest?: sha256; bootstrapWorkflowId?: string }",
       "reply": "WorktreeOperation"
     },
+    "dev.worktree.diffSummary": {
+      "capabilities": ["dev.git.read", "dev.worktree.read"],
+      "resource": null,
+      "body": "{ worktreeIds: string[]<=50 }",
+      "reply": "WorktreeDiffSummary[]"
+    },
     "dev.worktree.lease": {
       "capabilities": ["dev.worktree.manage"],
       "resource": "worktree:required",
@@ -1363,6 +1369,12 @@
       "resource": "worktree:required",
       "body": "{ worktreeId: string; expectedGeneration: integer; leaseId: string }",
       "reply": "Lease"
+    },
+    "dev.worktree.rename": {
+      "capabilities": ["dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; expectedVersion: integer; title: string(0..120) }",
+      "reply": "Worktree"
     },
     "dev.worktree.retryBootstrap": {
       "capabilities": ["dev.worktree.manage"],

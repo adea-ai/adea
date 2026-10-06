@@ -10,7 +10,7 @@ the workspace events route, or `packages/data/src/events.ts`.
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
 **Pending redesign:** [ADR 0011](../decisions/0011-unified-workspace-projects.md)
-renames the room family to projects and adds `workspace.updated`. The registry
+renames the room family to projects. The registry
 below stays authoritative until that change lands with its amendment.
 
 ## The log is authoritative; delivery is not
@@ -113,7 +113,11 @@ desktop sessions share one path, and the cursor travels explicitly.
   the cursor is persisted, so a reload resumes where the previous session
   stopped.
 - Each event family maps to the query groups it changes; an unknown family
-  refreshes the workspace rather than being dropped. Refreshes are coalesced:
+  refreshes the workspace rather than being dropped. The `workspace` family
+  (including `workspace.updated`, emitted when a member changes the name, logo,
+  accent or Virtual world) also refreshes the workspace list and detail
+  queries, which sit outside the per-workspace key prefix. The bootstrap query
+  establishes the session and is never refetched by an event. Refreshes are coalesced:
   the keys a stream chunk produces are deduplicated and invalidated once per
   chunk, so a burst of events costs one refetch per group, not one per event.
 - A sequence gap or `resync_required` refetches authoritative current state
