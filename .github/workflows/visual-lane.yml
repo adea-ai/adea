@@ -10,6 +10,21 @@ name: Workspace visual lane
 # workstation lane keeps the `-darwin` baselines; both sets must be refreshed
 # together when a UI change moves pixels.
 #
+# Subtle fills are below the comparator's sensitivity on purpose:
+# `toHaveScreenshot` compares in YIQ with a default threshold of 0.2, and the
+# two-toned overlay bands (packages/ui/src/styles/theme.css, --muted against
+# the panel surface) differ by roughly 0.05, so banded and flat renders both
+# "pass". Two guards cover what the pixels cannot: the computed-style e2e in
+# conventional-workspace.spec.ts asserts the band paint directly, and the
+# warm-up step below refuses to continue until the served stylesheet actually
+# contains the band rule. The guard exists because the 2026-10-06 refresh
+# dispatch for #1082 caught the documented cold-server assembly transient: the
+# render predated the route CSS assembly, its stylesheet lacked the band rules,
+# and flat renders were baked into the `-linux` baselines (PRs #1088/#1089
+# then churned them back). If the warm-up guard fails, re-dispatch the lane on
+# a fresh run instead of refreshing baselines from a partial render; never
+# hand-edit expectations.
+#
 # Both specs mock every workspace API response in the browser and were
 # verified to pass with an unreachable database, so this lane needs no
 # Postgres service (the desktop/mobile host suite in `tanstack-start.yml`
@@ -164,6 +179,55 @@ jobs:
                 await page.waitForTimeout(3_000)
               }
             }
+            // The route stylesheet is assembled from the module graph while the
+            // server is still re-optimizing, and a page captured mid-assembly
+            // can hold a stylesheet that predates the graph's tail imports —
+            // the flat-render transient that poisoned the #1082 refresh
+            // dispatch. The overlay band rule lives in that tail, is invisible
+            // to the pixel comparator (see the header comment), and is the
+            // sentinel: refuse to run any capture until it is actually served.
+            let stylesheetComplete = false
+            for (let attempt = 1; attempt <= 5 && !stylesheetComplete; attempt += 1) {
+              stylesheetComplete = await page.evaluate(() => {
+                // CSSOM serializes attribute selectors with double quotes, so
+                // compare with the quotes stripped rather than on raw text.
+                const normalize = (text) => text.replaceAll(`"`, '').replaceAll(`'`, '')
+                const needle = normalize(
+                  ".conventional-settings-dialog [data-slot='dialog-header']"
+                )
+                for (const sheet of document.styleSheets) {
+                  let rules
+                  try {
+                    rules = sheet.cssRules
+                  } catch {
+                    continue
+                  }
+                  for (const rule of rules) {
+                    if (
+                      rule instanceof CSSStyleRule &&
+                      rule.selectorText &&
+                      normalize(rule.selectorText).includes(needle)
+                    ) {
+                      return true
+                    }
+                  }
+                }
+                return false
+              })
+              if (!stylesheetComplete) {
+                console.log(`stylesheet sentinel missing after warm attempt ${attempt}; reloading`)
+                await page.reload({ waitUntil: 'domcontentloaded' })
+                await page.waitForTimeout(5_000)
+              }
+            }
+            if (!stylesheetComplete) {
+              throw new Error(
+                'the served stylesheet never contained the overlay band sentinel; ' +
+                  'the dev-server CSS assembly did not settle. Re-run this lane on a ' +
+                  'fresh container instead of refreshing baselines from this render.'
+              )
+            }
+            console.log('stylesheet sentinel present before captures')
             await browser.close()
           })().catch((error) => {
             console.error(error)
