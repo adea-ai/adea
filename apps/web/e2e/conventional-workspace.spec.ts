@@ -85,6 +85,19 @@ function marketplaceDigest(value: unknown): string {
   return `sha256:${createHash('sha256').update(marketplaceCanonicalJson(value)).digest('hex')}`
 }
 
+// Token values arrive as `#rrggbb`/`#rgb`; computed colors arrive as
+// `rgb(r, g, b)`. Normalize both to an [r, g, b] tuple before comparing — the
+// overlay band gate (below) asserts a computed paint equals its token.
+function parseColor(value: string): number[] {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim())
+  if (hex) {
+    const digits = hex[1]
+    const full = digits.length === 3 ? [...digits].map((d) => d + d).join('') : digits
+    return [0, 2, 4].map((offset) => Number.parseInt(full.slice(offset, offset + 2), 16))
+  }
+  return (value.match(/\d+(\.\d+)?/g) ?? []).map(Number).slice(0, 3)
+}
+
 function marketplaceFixture() {
   const plugins = marketplacePluginSpecs.map(([name, displayName, category, kind], index) => {
     const token = (index + 1).toString(16).padStart(2, '0').repeat(32)
@@ -2134,6 +2147,79 @@ test('the live appearance popover previews the visible workspace at wide and nar
   await expect(page).toHaveScreenshot('workspace-appearance-popover-narrow.png', {
     animations: 'disabled',
   })
+})
+
+// The two-toned overlay bands (packages/ui/src/styles/theme.css) paint --muted
+// on the published sheet header/footer and the settings dialog header. The
+// pixel lanes cannot gate them: the band's contrast against the panel surface
+// sits far below toHaveScreenshot's perceptual threshold, and a dev-server
+// cold start can transiently serve a page whose stylesheet predates the route
+// CSS assembly (the 2026-10-06 linux-lane divergence). This gate therefore
+// asserts the computed paint directly, so a selector drift, a cascade demotion
+// below the published utilities, or an incompletely assembled stylesheet fails
+// loudly instead of silently baking a flat render into the baselines.
+test('overlay bands paint the muted rung on sheets and the settings dialog', async ({ page }) => {
+  await mockWorkspace(page)
+  const probeSheetBands = () =>
+    page.evaluate(() => {
+      const header = document.querySelector("[data-slot='sheet-header']")
+      const footer = document.querySelector("[data-slot='sheet-footer']")
+      const body = document.querySelector("[data-slot='sheet-body']")
+      return {
+        mutedToken: getComputedStyle(document.documentElement).getPropertyValue('--muted').trim(),
+        sheetHeader: header ? getComputedStyle(header).backgroundColor : null,
+        sheetFooter: footer ? getComputedStyle(footer).backgroundColor : null,
+        sheetBody: body ? getComputedStyle(body).backgroundColor : null,
+      }
+    })
+
+  // The appearance sheet carries all three published sheet parts.
+  const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
+  const appearanceControl = page.getByRole('button', { name: 'Appearance settings', exact: true })
+  await expect(async () => {
+    const hydrated = await page
+      .getByRole('complementary', { name: 'Workspace navigation' })
+      .isVisible()
+      .catch(() => false)
+    if (!hydrated) {
+      await page.goto('/?view=chat&scene=work', { timeout: 30_000 })
+    }
+    await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible({
+      timeout: 30_000,
+    })
+    await expect(appearanceControl).toBeEnabled({ timeout: 30_000 })
+    if ((await appearanceControl.getAttribute('aria-expanded')) !== 'true') {
+      await appearanceControl.click()
+    }
+    await expect(popup).toBeVisible()
+  }).toPass({ timeout: 120_000 })
+  const modes = popup.getByRole('radiogroup', { name: 'Appearance mode' })
+  await modes.getByText('Light', { exact: true }).click()
+  const sheet = await probeSheetBands()
+  const muted = parseColor(sheet.mutedToken)
+  expect(muted.length).toBe(3)
+  expect(parseColor(sheet.sheetHeader!)).toEqual(muted)
+  expect(parseColor(sheet.sheetFooter!)).toEqual(muted)
+  expect(parseColor(sheet.sheetBody!)).not.toEqual(muted)
+
+  // The settings dialog band scopes by the conventional hook instead of the
+  // published data-variant marker, so it is probed on its own surface.
+  await page.goto('/#settings/privacy-data')
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(settings).toBeVisible()
+  const dialogBands = await page.evaluate(() => {
+    const dialog = document.querySelector('.conventional-settings-dialog')
+    const header = dialog?.querySelector("[data-slot='dialog-header']")
+    return {
+      mutedToken: getComputedStyle(document.documentElement).getPropertyValue('--muted').trim(),
+      header: header ? getComputedStyle(header).backgroundColor : null,
+      panel: dialog ? getComputedStyle(dialog).backgroundColor : null,
+    }
+  })
+  const dialogMuted = parseColor(dialogBands.mutedToken)
+  expect(dialogMuted.length).toBe(3)
+  expect(parseColor(dialogBands.header!)).toEqual(dialogMuted)
+  expect(parseColor(dialogBands.header!)).not.toEqual(parseColor(dialogBands.panel!))
 })
 
 test('deep-links settings and customizes an Agent without fabricating runtime status', async ({
