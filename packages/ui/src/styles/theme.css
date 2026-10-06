@@ -68,7 +68,22 @@
    keeps the panel surface. The published parts mark themselves with data-slot
    and carry their own hairlines, so the band meets the body on the existing
    rule. Settings-size dialogs are the dialog family with the same panel
-   anatomy (title band over a full-bleed shell), so their header follows. */
+   anatomy (title band over a full-bleed shell), so their header follows.
+
+   These three rules MUST stay top-level (outside every @layer and @media).
+   The placement is load-bearing, not stylistic: the published SheetFooter
+   paints its own `bg-background` utility on the same element, and only
+   unlayered author CSS outranks a layered declaration in the cascade. Filed
+   into any layer (base, components, utilities), the published utility would
+   win and silently flatten the band — a change the pixel lanes cannot see
+   (the band's contrast sits far below toHaveScreenshot's perceptual
+   threshold), so the placement is pinned by
+   scripts/overlay-band-boundary.test.ts and the paint itself by the
+   computed-style e2e in apps/web/e2e/conventional-workspace.spec.ts. The
+   cascade position is engine-defined and identical in every browser; the
+   2026-10-06 linux/darwin lane divergence was the visual lane's cold-start
+   stylesheet assembly transient (see .github/workflows/visual-lane.yml), not
+   an engine or layer-ordering difference. */
 [role='dialog'][data-variant] [data-slot='sheet-header'],
 [role='dialog'][data-variant] [data-slot='sheet-footer'],
 .conventional-settings-dialog [data-slot='dialog-header'] {
