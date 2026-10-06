@@ -198,10 +198,18 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   }
 
   const save = () => {
-    // The published action is disabled until the draft differs from the
-    // snapshot (saveDisabledReason below); this guard keeps a no-op open→close
-    // from writing even if the action were invoked through another path.
-    if (accentStatus() || !editor.dirty()) return
+    // The embedded section's published action stays disabled until the draft
+    // differs from the snapshot (saveDisabledReason below); this guard keeps a
+    // no-op open→close from writing even if the action were invoked through
+    // another path. The sheet keeps Save available instead: with nothing to
+    // write, saving is dismissing, so the sheet never shows disabled-state
+    // copy — it reverts the (unchanged) draft and closes.
+    if (accentStatus()) return
+    if (!editor.dirty()) {
+      revertDraft()
+      props.popover?.onClose()
+      return
+    }
     const committed = editor.save()
     appearance.update(committed)
     appearance.preview(undefined)
@@ -255,12 +263,15 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     get customAccentError() {
       return accentStatus()
     },
-    // The published composite disables Save while a reason is set and renders
-    // it as the action row's status line. Save stays unavailable until the
-    // draft differs from the snapshot the editor opened with, so a no-op
-    // open→close never writes; the reason clears (and Save enables) on the
-    // first edit and returns when the draft is reverted to the snapshot.
+    // The published composite renders the reason as the action row's status
+    // line and disables Save while it is set. The embedded settings section
+    // keeps that disabled-with-reason treatment: its action row sits at the
+    // bottom of a long scrolling form, where "Save" being unavailable needs
+    // its one-line why. The sheet renders Save always available instead —
+    // with no edits, saving is dismissing (save above) — so the sheet never
+    // opens showing "No changes to save yet." over its action row.
     get saveDisabledReason() {
+      if (props.popover) return undefined
       return editor.dirty() ? undefined : 'No changes to save yet.'
     },
     surfaceCapability: {
