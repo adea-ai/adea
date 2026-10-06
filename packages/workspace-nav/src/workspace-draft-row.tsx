@@ -1,6 +1,7 @@
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 import { Show, createEffect, createSignal, createUniqueId, on, onMount } from 'solid-js'
 
 /**
@@ -18,7 +19,9 @@ export function WorkspaceDraftRow(props: {
   onCancel: () => void
 }) {
   const [name, setName] = createSignal('')
-  const errorId = `workspace-nav-draft-error-${createUniqueId()}`
+  const uniqueId = createUniqueId()
+  const errorId = `workspace-nav-draft-error-${uniqueId}`
+  const hintId = `workspace-nav-draft-hint-${uniqueId}`
   let input: HTMLInputElement | undefined
   let settled = false
   let submittedName: string | undefined
@@ -64,7 +67,7 @@ export function WorkspaceDraftRow(props: {
           }}
           aria-label="New workspace name"
           aria-invalid={props.error ? true : undefined}
-          aria-describedby={props.error ? errorId : undefined}
+          aria-describedby={props.error ? `${errorId} ${hintId}` : hintId}
           aria-busy={props.pending ? true : undefined}
           placeholder="New workspace name"
           value={name()}
@@ -86,6 +89,9 @@ export function WorkspaceDraftRow(props: {
           onBlur={() => finish(name().trim() !== '', true)}
         />
       </div>
+      <Text variant="caption" tone="muted" id={hintId} class="ms-7">
+        Enter to create · Esc to cancel
+      </Text>
       <Show when={props.error}>
         {(message) => (
           <Alert variant="destructive" id={errorId}>

@@ -6,6 +6,7 @@ import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-iden
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { SidebarNavButton, SidebarNavLabel } from '@adea-ai/ui/components/layout/sidebar-nav'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,12 +19,14 @@ import {
 import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 import {
   AtSign,
+  ChevronDown,
   CircleAlert,
+  Inbox,
   ListFilter,
   LoaderCircle,
   MessageSquare,
   Plus,
-  Settings,
+  Settings2,
 } from 'lucide-solid'
 import {
   For,
@@ -41,6 +44,7 @@ import {
 
 import { createViewAdapter, type NavMenuItemId, type NavView, type ViewAdapter } from './adapters'
 import {
+  emptyWorkspaceHint,
   navGroupModes,
   needsYouFallbackGroupMode,
   sortWorkspaces,
@@ -159,8 +163,9 @@ export function WorkspaceNav(props: WorkspaceNavProps) {
             (props.onNeedsYou ?? (() => props.onGroupByChange(needsYouFallbackGroupMode)))()
           }
         >
-          <CircleAlert aria-hidden="true" class="text-warning" />
-          <SidebarNavLabel>Needs you</SidebarNavLabel>
+          <Inbox aria-hidden="true" class="text-warning" />
+          {/* The count sums every workspace, not just the open one. */}
+          <SidebarNavLabel>Needs you · all workspaces</SidebarNavLabel>
           <Badge variant="warning" size="sm">
             {props.tree.needsYou}
           </Badge>
@@ -182,14 +187,17 @@ export function WorkspaceNav(props: WorkspaceNavProps) {
           </h2>
           <span class="flex shrink-0 items-center gap-0.5" data-slot="workspace-nav-actions">
             <DropdownMenu>
+              {/* The current grouping is visible text, not only a tooltip. */}
               <DropdownMenuTrigger
-                as={ActionButton}
+                as={Button}
                 variant="ghost"
-                size="icon-xs"
-                tooltip={props.tooltips === false ? undefined : `Group by: ${groupLabel()}`}
+                size="xs"
                 aria-label={`Group by, currently ${groupLabel()}`}
+                data-slot="workspace-nav-group-by"
               >
                 <ListFilter aria-hidden="true" />
+                <span>{groupLabel()}</span>
+                <ChevronDown aria-hidden="true" />
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 hideArrow
@@ -395,7 +403,7 @@ function ActiveWorkspace(
               aria-label={`Workspace settings for ${props.workspace.name}`}
               onClick={() => props.onOpenWorkspaceSettings?.(props.workspace.id)}
             >
-              <Settings aria-hidden="true" />
+              <Settings2 aria-hidden="true" />
             </ActionButton>
           </Show>
         </span>
@@ -405,7 +413,10 @@ function ActiveWorkspace(
         fallback={
           <p class="ps-9 pe-2 py-1" data-slot="workspace-nav-empty">
             <Text variant="caption" tone="muted">
-              No {props.adapter.nouns.project.toLowerCase()}s yet.
+              {emptyWorkspaceHint(props.adapter.nouns.project, {
+                create: Boolean(props.onCreateProject),
+                settings: Boolean(props.onOpenWorkspaceSettings),
+              })}
             </Text>
           </p>
         }
