@@ -189,6 +189,18 @@
   text-transform: uppercase;
 }
 
+/* A sentence-case status or error line in the git pane; section titles keep
+   the small uppercase style above. */
+.dev-sc__notice {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  color: var(--muted-foreground);
+  font-family: var(--font-content, var(--font-sans));
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height, 1.5);
+  overflow-wrap: anywhere;
+}
+
 .dev-sc__list {
   min-height: 0;
   overflow-y: auto;

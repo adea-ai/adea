@@ -19,9 +19,16 @@ import { Download, GitCommitHorizontal, RefreshCw } from 'lucide-solid'
 import { For, Show, createResource, createSignal, onCleanup, type JSX } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
-import { branchLabel, groupStatus, statusLabel } from './source-control-model'
+import {
+  branchLabel,
+  commitPlaceholder,
+  groupStatus,
+  sentenceCase,
+  statusLabel,
+} from './source-control-model'
 import {
   aheadBehindLabel,
+  checkStateLabel,
   checksLabel,
   pullRequestStateLabel,
   reviewDecisionLabel,
@@ -242,7 +249,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     // second press before anything destructive happens.
     if (confirmDiscard() !== entry.path.relativePath) {
       setConfirmDiscard(entry.path.relativePath)
-      setNotice(`discard ${entry.path.relativePath}: press Discard again to confirm`)
+      setNotice(`Select Confirm to discard the changes to ${entry.path.relativePath}.`)
       return
     }
     setConfirmDiscard(undefined)
@@ -286,7 +293,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     if (!context || !activeScope || !current) return
     const trimmed = message().trim()
     if (trimmed.length === 0) {
-      setNotice('a commit message is required')
+      setNotice('A commit message is required.')
       return
     }
     try {
@@ -322,7 +329,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         { worktreeId: context.worktreeId, remoteName: 'origin', prune: true },
         { kind: 'worktree', id: context.worktreeId, generation: context.generation }
       )
-      setNotice('fetch completed')
+      setNotice('Fetch completed.')
     } catch (reply) {
       setNotice(describeError(reply))
     }
@@ -460,8 +467,8 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
       </div>
       <Show when={notice()}>
         {(shown) => (
-          <p class="dev-terminal-muted dev-sc__section-title" role="alert">
-            {shown()}
+          <p class="dev-sc__notice" role="alert">
+            {sentenceCase(shown())}
           </p>
         )}
       </Show>
@@ -482,7 +489,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         <div class="dev-sc__commit">
           <Textarea
             aria-label="Commit message"
-            placeholder={`Commit message (${(grouped().staged.length + grouped().unstaged.filter((entry) => entry.staged !== '.').length).toString()} staged files)`}
+            placeholder={commitPlaceholder(grouped())}
             value={message()}
             onInput={(event) => setMessage(event.currentTarget.value)}
           />
@@ -558,7 +565,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
             {(rendered) => (
               <>
                 <Show when={rendered().mode === 'main-thread'}>
-                  <p class="dev-terminal-muted dev-sc__section-title" role="status">
+                  <p class="dev-sc__notice" role="status">
                     Rendered on the main thread — the off-thread diff renderer is unavailable.
                   </p>
                 </Show>
@@ -765,7 +772,7 @@ function RemoteSection(props: {
     // Plan first, then an explicit second press on the same button commits.
     if (!pushArmed()) {
       setPushArmed(true)
-      setRemoteNotice(`push ${ref}: press again to confirm`)
+      setRemoteNotice(`Select Confirm push to push ${ref}.`)
       return
     }
     setPushArmed(false)
@@ -795,7 +802,7 @@ function RemoteSection(props: {
         { planId: plan.id, planDigest: plan.digest },
         { kind: 'repository', id: repoId, generation: 0 }
       )
-      setRemoteNotice(`pushed ${truncateUntrusted(ref)}`)
+      setRemoteNotice(`Pushed ${truncateUntrusted(ref)}.`)
       props.onRefresh()
     } catch (reply) {
       setRemoteNotice(describeError(reply))
@@ -809,7 +816,7 @@ function RemoteSection(props: {
     if (!activeScope || !repoId || !ref) return
     const base = prBase().trim()
     if (base.length === 0 || base === ref) {
-      setRemoteNotice('a distinct base branch is required')
+      setRemoteNotice('Choose a base branch other than the head.')
       return
     }
     try {
@@ -829,7 +836,9 @@ function RemoteSection(props: {
       )
       setPullRequest(pr)
       setRemoteNotice(
-        pr.reconciled === true ? 'existing pull request found' : 'draft pull request created'
+        pr.reconciled === true
+          ? 'An open pull request already existed.'
+          : 'Draft pull request created.'
       )
     } catch (reply) {
       setRemoteNotice(describeError(reply))
@@ -861,7 +870,7 @@ function RemoteSection(props: {
     if (!activeScope || !context || !pr) return
     if (!updateArmed()) {
       setUpdateArmed(true)
-      setRemoteNotice(`merge ${pr.baseRef} into ${pr.headRef}: press again to confirm`)
+      setRemoteNotice(`Select Confirm update branch to merge ${pr.baseRef} into ${pr.headRef}.`)
       return
     }
     setUpdateArmed(false)
@@ -900,10 +909,14 @@ function RemoteSection(props: {
       )
       if (result.state === 'conflicted') {
         setRemoteNotice(
-          `merge conflicted in ${(result.conflictedPaths ?? []).length} path(s); abort with git merge --abort`
+          `The merge conflicted in ${(result.conflictedPaths ?? []).length === 1 ? '1 path' : `${(result.conflictedPaths ?? []).length} paths`}; abort with git merge --abort.`
         )
       } else {
-        setRemoteNotice(`branch ${result.state}`)
+        setRemoteNotice(
+          result.state === 'up_to_date'
+            ? 'The branch is already up to date.'
+            : 'Merged the base into the branch.'
+        )
       }
       props.onRefresh()
       await loadPullRequest()
@@ -919,8 +932,8 @@ function RemoteSection(props: {
       <p class="dev-sc__section-title">Remote</p>
       <Show when={remoteNotice()}>
         {(shown) => (
-          <p class="dev-terminal-muted dev-sc__section-title" role="alert">
-            {shown()}
+          <p class="dev-sc__notice" role="alert">
+            {sentenceCase(shown())}
           </p>
         )}
       </Show>
@@ -998,7 +1011,7 @@ function RemoteSection(props: {
                     <span class="dev-files__name" title={truncateUntrusted(check.name, 400)}>
                       {truncateUntrusted(check.name)}
                     </span>
-                    <span class="dev-files__badge">{check.conclusion ?? check.status}</span>
+                    <span class="dev-files__badge">{checkStateLabel(check)}</span>
                   </div>
                 )}
               </For>
