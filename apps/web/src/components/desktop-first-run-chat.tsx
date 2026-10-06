@@ -2,11 +2,16 @@ import {
   ChatView,
   createFirstRunRuntimePort,
   FirstRunOnboarding,
-  DevSidebarNavigation,
-  devProjectsFromProjection,
+  DevWorkspaceSidebar,
+  devBindingsFromProjection,
   resolveDevSelection,
 } from '@adea-ai/dev-view/chat'
-import type { ChatConversation, ChatConversationModel, FirstRunFacts } from '@adea-ai/dev-view/chat'
+import type {
+  ChatConversation,
+  ChatConversationModel,
+  DevWorkspaceNavHost,
+  FirstRunFacts,
+} from '@adea-ai/dev-view/chat'
 import type {
   DevProjectNames,
   DevRuntimeService,
@@ -52,6 +57,8 @@ export type DesktopFirstRunChatProps = Readonly<{
   workspaceId: string
   /** Cloud project names keyed by project id; absent names show the short id. */
   projectNames?: DevProjectNames
+  /** The cloud workspace the shared sidebar renders (ADR 0011). */
+  workspaceNav?: DevWorkspaceNavHost
 }>
 
 type ReadyState = Readonly<{
@@ -79,9 +86,25 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   const lifecycle = createDesktopChatLifecycleFence()
   const selectedProject = useWorkspaceState((state) => state.selectedDevProjectId)
   const selectedSession = useWorkspaceState((state) => state.selectedRuntimeSessionId)
-  const collapsedProjects = useWorkspaceState((state) => state.collapsedDevProjectIds)
   const sidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
   const [attachmentError, setAttachmentError] = createSignal('')
+  const [announcement, setAnnouncement] = createSignal('')
+  // Names come from the host's cloud project list; an explicit map wins.
+  const projectNames = createMemo<DevProjectNames | undefined>(
+    () =>
+      props.projectNames ??
+      (props.workspaceNav?.projects
+        ? new Map(props.workspaceNav.projects.map((project) => [project.id, project.name]))
+        : undefined)
+  )
+  const reloadProjection = async () => {
+    const current = ready()
+    if (!current || !props.runtime.projection) return
+    const request = lifecycle.current()
+    const projection = await props.runtime.projection(current.scope).catch(() => undefined)
+    if (!projection || !lifecycle.isCurrent(request) || ready() !== current) return
+    setReady({ ...current, projection })
+  }
   const [retry, setRetry] = createSignal(0)
   let attachment = 0
   const selection = createMemo(() => {
@@ -310,27 +333,29 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
         return (
           <div class="dev-workspace dev-workspace--chat">
             <div class="dev-workspace__body">
-              <DevSidebarNavigation
-                projects={devProjectsFromProjection(state().projection, props.projectNames)}
-                selectedProject={selectedProject() ?? ''}
-                selectedSession={selectedSession() ?? ''}
-                collapsedProjects={new Set(collapsedProjects())}
+              <DevWorkspaceSidebar
+                runtime={props.runtime}
+                scope={state().scope}
+                bindings={devBindingsFromProjection(state().projection, projectNames())}
+                host={props.workspaceNav}
+                projectNames={projectNames()}
+                selectedProjectId={selectedProject() ?? ''}
+                selectedSessionId={selectedSession() ?? ''}
                 compactOpen={sidebarOpen()}
                 onOpenChange={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
                 wideViewportAtLoad={wideViewportAtLoad}
                 restoreFocusRef={props.sidebarOpener}
-                navigationLabel="Chat projects"
-                onProjectSelect={(id) => workspaceStore.getState().setSelectedDevProjectId(id)}
-                onSessionSelect={(projectId, sessionId) => {
+                navigationLabel="Chat workspaces"
+                footer={props.archiveAction}
+                onSelectSession={(projectId, sessionId) => {
                   const store = workspaceStore.getState()
                   if (store.selectedDevProjectId !== projectId)
                     store.setSelectedDevProjectId(projectId)
-                  store.setSelectedRuntimeSessionId(sessionId)
+                  if (sessionId) store.setSelectedRuntimeSessionId(sessionId)
                 }}
-                onToggleProject={(id) => workspaceStore.getState().toggleDevProjectCollapsed(id)}
-              >
-                {props.archiveAction}
-              </DevSidebarNavigation>
+                onBindingsChanged={reloadProjection}
+                announce={setAnnouncement}
+              />
               <div class="workspace-runtime-chat">
                 <Show
                   when={conversation()}
@@ -432,6 +457,9 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                 </Show>
               </div>
             </div>
+            <p class="sr-only" aria-live="polite">
+              {announcement()}
+            </p>
           </div>
         )
       }}

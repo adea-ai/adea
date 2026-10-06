@@ -139,7 +139,9 @@ async function main() {
     // toggle renames between its expand and collapse variants the moment the
     // store flips, so match the variant-agnostic anchored name.
     await page.setViewportSize({ width: 320, height: 900 })
-    const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+    // The shared workspace sidebar (ADR 0011): workspace › project › checkout
+    // and worktrees, presented as the contextual sheet at this width.
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
     if (!(await sidebar.isVisible().catch(() => false))) {
       await page
         .getByRole('button', { name: /^(Expand|Collapse) contextual sidebar$/ })

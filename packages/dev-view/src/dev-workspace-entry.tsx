@@ -72,9 +72,9 @@ import { UtilityResizeHandle } from './utility-resize-handle'
 import type { TerminalStreamSocket } from './terminal/transport'
 import type { ShellObservation } from './terminal/blocks'
 import { resolveDevSelection, type DevSelection, type DevSelectionReason } from './selection'
-import { AddProjectPanel } from './sidebar/add-project-panel'
-import { DevSidebarShell, devProjectsFromProjection } from './sidebar/dev-sidebar-shell'
-import type { DevSessionBadgeState } from './sidebar/badges'
+import { ArchiveShelf } from './sidebar/archive-shelf'
+import { devBindingsFromProjection, type DevNavBinding } from './sidebar/dev-nav-model'
+import { DevWorkspaceSidebar, type DevWorkspaceNavHost } from './sidebar/dev-workspace-sidebar'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { ButtonGroup } from '@adea-ai/ui/components/ui/button-group'
@@ -95,32 +95,9 @@ const FixtureTerminalPane = import.meta.env.DEV
   : undefined
 
 /** The sidebar's display model for one bound project. `name` is the display
- *  label: the host-supplied cloud project name, or the short project id. */
-export type DevProjectFixture = Readonly<{
-  id: string
-  name: string
-  repository: string
-  branch: string
-  sessions: readonly Readonly<{
-    id: string
-    title: string
-    /** Mirrors the projection record so fixtures resolve canonical bindings. */
-    worktreeId?: string
-    terminalId?: string
-    /** Canonical RuntimeSession lifecycle states (register-backed). */
-    state:
-      | 'preparing'
-      | 'ready'
-      | 'active'
-      | 'disconnected'
-      | 'completed'
-      | 'failed'
-      | 'cancelled'
-      | 'archived'
-    generation?: number
-    badges?: DevSessionBadgeState
-  }>[]
-}>
+ *  label: the host-supplied cloud project name, or the short project id.
+ *  Fixtures also carry their worktree records (checkout first). */
+export type DevProjectFixture = DevNavBinding
 
 /** A URL-owning host's current deep-link request (`?devProject=`/`?devSession=`). */
 export type DevWorkspaceDeepLinkSelection = Readonly<{
@@ -180,6 +157,12 @@ export type DevWorkspaceEntryProps = Readonly<{
   onBreadcrumbChange?: (
     crumb: Readonly<{ projectId: string; projectName: string; branch?: string }> | undefined
   ) => void
+  /**
+   * The cloud workspace the sidebar renders (ADR 0011): workspaces, the
+   * project list the local bindings join by id, cross-workspace counts and
+   * the cloud project mutations. Absent hosts render the bindings alone.
+   */
+  workspaceNav?: DevWorkspaceNavHost
 }>
 
 export { devViewFixtureProjects } from './sidebar/fixture-scale'
@@ -244,16 +227,6 @@ const CodeEditor = lazy(() =>
 const RuntimeTerminalPane = lazy(() =>
   import('./terminal/runtime-terminal-pane').then((module) => ({
     default: module.RuntimeTerminalPane,
-  }))
-)
-/*
- * #398 follow-up: the sidebar repository registry panel rides its own lazy
- * chunk exactly like the utility panes — the client budget the bundle check
- * enforces leaves no room for it in the Dev shell chunk.
- */
-const RepoRegistryPanel = lazy(() =>
-  import('./sidebar/repo-registry-panel').then((module) => ({
-    default: module.RepoRegistryPanel,
   }))
 )
 
@@ -368,9 +341,17 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const [projection, setProjection] = createSignal<DevWorkspaceProjection | undefined>()
   // Production renders the authoritative flat projection with host-supplied
   // names; fixture mode renders the readonly E2E input as given.
+  // Names come from the host's cloud project list; an explicit map wins.
+  const projectNames = createMemo(
+    () =>
+      props.projectNames ??
+      (props.workspaceNav?.projects
+        ? new Map(props.workspaceNav.projects.map((project) => [project.id, project.name]))
+        : undefined)
+  )
   const projectedProjects = createMemo(() => {
     const current = projection()
-    return current ? devProjectsFromProjection(current, props.projectNames) : []
+    return current ? devBindingsFromProjection(current, projectNames()) : []
   })
   const projects = () => props.projects ?? projectedProjects()
   const selectedProjectState = useWorkspaceState((state) => state.selectedDevProjectId)
@@ -395,7 +376,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     if (request?.projectId) return request.sessionId ?? null
     return request?.sessionId ?? selectedSessionState()
   }
-  const collapsedProjectIds = useWorkspaceState((state) => state.collapsedDevProjectIds)
   const focusMode = useWorkspaceState((state) => state.devFocusMode)
   const compactSidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
   const utilityPreferences = utilityOwner.utilityPreferences
@@ -560,26 +540,16 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     if (!projectId) return undefined
     return projects().find((project) => project.id === projectId)?.name
   })
-  const selectedBreadcrumb = createMemo(
-    () => {
-      const projectId = selectedProject()
-      if (!projectId) return undefined
-      const project = projects().find((entry) => entry.id === projectId)
-      if (!project) return undefined
-      return {
-        projectId,
-        projectName: project.name,
-        ...(project.branch ? { branch: project.branch } : {}),
-      }
-    },
-    undefined,
-    {
-      equals: (previous, next) =>
-        previous?.projectId === next?.projectId &&
-        previous?.projectName === next?.projectName &&
-        previous?.branch === next?.branch,
-    }
-  )
+  // The top bar's Workspace › Project › branch path follows the sidebar's
+  // selected leaf: its project and the branch that leaf has checked out.
+  const [selectedBreadcrumb, setSelectedBreadcrumb] = createSignal<
+    Readonly<{ projectId: string; projectName: string; branch?: string }> | undefined
+  >(undefined, {
+    equals: (previous, next) =>
+      previous?.projectId === next?.projectId &&
+      previous?.projectName === next?.projectName &&
+      previous?.branch === next?.branch,
+  })
   createEffect(() => props.onBreadcrumbChange?.(selectedBreadcrumb()))
   onCleanup(() => props.onBreadcrumbChange?.(undefined))
   const selectedCanonicalBinding = (): CanonicalRuntimeBinding | undefined => {
@@ -820,8 +790,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // The right collapse control remains available when its pane is full width;
   // the pane's own heading owns the separate restore-width action.
   let rightUtilityOpener: HTMLButtonElement | undefined
-  /** Registered by the sidebar's add-project panel; center-pane empty states
-   *  use it to expand the authorize surface (no-op when the panel is absent). */
+  /** Registered by the sidebar's "New project" flow; center-pane empty states
+   *  use it to start adding a project (no-op without a runtime scope). */
   let openAddProjectPanel: (() => void) | undefined
   const addProjectFromEmptyState = () => openAddProjectPanel?.()
   const sidebarToggleControl = () => {
@@ -982,11 +952,15 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       </Show>
 
       <div class="dev-workspace__body">
-        <DevSidebarShell
-          projects={projects()}
-          selectedProject={selectedProject()}
-          selectedSession={selectedSession()}
-          collapsedProjects={new Set(collapsedProjectIds())}
+        <DevWorkspaceSidebar
+          runtime={props.runtime}
+          scope={fixtureMode() ? undefined : activeScope()}
+          fixture={fixtureMode()}
+          bindings={projects()}
+          host={props.workspaceNav}
+          projectNames={projectNames()}
+          selectedProjectId={selectedProject()}
+          selectedSessionId={selectedSession()}
           compactOpen={
             compactSidebarOpen() &&
             !focusMode() &&
@@ -996,56 +970,36 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           onOpenChange={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
           wideViewportAtLoad={wideViewportAtLoad}
           restoreFocusRef={props.sidebarOpener}
-          archiveShelf={utilityOwner.archiveShelf()}
-          archiveHandoffMessage={utilityOwner.archiveHandoffMessage()}
-          addProject={
-            !fixtureMode() && activeScope() ? (
-              <AddProjectPanel
-                scope={activeScope()!}
-                execute={(command) => props.runtime.execute(command)}
-                knownProjectNames={projects().map((project) => project.name)}
-                onImported={() => void loadProjection()}
-                announce={setAnnouncement}
-                registerOpen={(open) => {
-                  openAddProjectPanel = open
-                }}
-              />
+          status={
+            !fixtureMode() && !activeScope() ? (
+              <p class="dev-tree-empty" role="status">
+                No runtime projects available.
+              </p>
             ) : undefined
           }
-          repoRegistry={
-            !fixtureMode() && activeScope() ? (
-              <Suspense fallback={<p class="dev-tree-empty">Loading repositories…</p>}>
-                <RepoRegistryPanel
-                  scope={activeScope()!}
-                  execute={(command) => props.runtime.execute(command)}
-                  announce={setAnnouncement}
-                  projectNames={props.projectNames}
-                />
-              </Suspense>
-            ) : undefined
+          footer={
+            <ArchiveShelf
+              state={utilityOwner.archiveShelf()}
+              handoffMessage={utilityOwner.archiveHandoffMessage()}
+              onRestore={(id) => void restoreFromArchive(id)}
+              onRequestDelete={utilityOwner.requestArchiveDelete}
+              onCancelDelete={utilityOwner.cancelArchiveDelete}
+              onConfirmDelete={utilityOwner.confirmArchiveDelete}
+            />
           }
-          onArchiveRestore={(id) => void restoreFromArchive(id)}
-          onArchiveRequestDelete={utilityOwner.requestArchiveDelete}
-          onArchiveCancelDelete={utilityOwner.cancelArchiveDelete}
-          onArchiveConfirmDelete={utilityOwner.confirmArchiveDelete}
-          onProjectSelect={(id) => {
-            setRecoveryNotice('')
-            // Clicking the current project's row is a collapse toggle, not a
-            // selection change: reporting it would strip the URL's session
-            // param, trip recovery, and churn the sidebar mid-toggle. The
-            // selection state already matches what the row shows.
-            if (workspaceStore.getState().selectedDevProjectId === id) return
-            workspaceStore.getState().setSelectedDevProjectId(id)
-            props.onSelectionChange?.({ projectId: id, sessionId: null })
-          }}
-          onSessionSelect={(projectId, sessionId) => {
+          onSelectSession={(projectId, sessionId) => {
             setRecoveryNotice('')
             const store = workspaceStore.getState()
             if (store.selectedDevProjectId !== projectId) store.setSelectedDevProjectId(projectId)
-            workspaceStore.getState().setSelectedRuntimeSessionId(sessionId)
+            if (sessionId) store.setSelectedRuntimeSessionId(sessionId)
             props.onSelectionChange?.({ projectId, sessionId })
           }}
-          onToggleProject={(id) => workspaceStore.getState().toggleDevProjectCollapsed(id)}
+          onBindingsChanged={() => loadProjection()}
+          onSelectedLeafChange={setSelectedBreadcrumb}
+          announce={setAnnouncement}
+          registerAddProject={(open) => {
+            openAddProjectPanel = open
+          }}
         />
 
         <Show when={visiblePaneOf('left')}>

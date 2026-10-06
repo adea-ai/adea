@@ -9,16 +9,17 @@ behind the authenticated Dev Runtime contracts in `@adea-ai/types/dev-runtime`.
 The default service is intentionally unavailable; it never fabricates runtime
 data or treats the generic desktop invoke bridge as authorization.
 
-The sidebar's Add Project form loads on first open. Collapsing it afterward
-keeps the form mounted, preserving its scan, confirmation, and group draft
-without repeating the initial authorized-root/group requests.
-
-The sidebar's shell, disclosures, navigation rows, status chips, and archive
-presentation come from the published shared UI package. The Dev package keeps
-runtime projections, selection, filtering, collapse preferences, and reorder
-and archive callbacks. Selected projects and sessions use the shared active
-section and row states; collapsing a project keeps its selection marker.
-Deletion uses the shared confirmation dialog, preserving
+The contextual sidebar is the shared `@adea-ai/workspace-nav` accordion (ADR
+0011), mounted by `sidebar/dev-workspace-sidebar.tsx`: the host's cloud
+projects joined by id with the register's local bindings, each bound project
+listing its checkout and worktrees (`dev.worktree.list`) with observed harness
+status and batched diff counts. The pure projection is `sidebar/dev-nav-model.ts`;
+runtime reads live in `sidebar/dev-nav-runtime.ts`, and mutations and dialogs
+load on first use (`sidebar/dev-nav-actions.ts`, `sidebar/dev-nav-dialogs.tsx`).
+"New project" and "Add repository…" open the add surface, which loads its form
+on first open and binds the cloud project id being added; the repository
+registry sits behind Project settings. The archive shelf is the sidebar footer.
+Archived-session deletion uses the shared confirmation dialog, preserving
 trigger focus after either choice. Restoring a focused archive row returns focus
 to the shelf toggle; failed reads retain their previous rows and show the error.
 Missing archive timestamps are labeled unavailable. A provider without an authenticated runtime scope shows

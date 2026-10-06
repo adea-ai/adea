@@ -10,11 +10,22 @@ export const devViewFixtureProjects: readonly DevProjectFixture[] = [
     id: 'fixture-adea',
     name: 'Example project',
     repository: 'example/repository',
-    branch: 'feature/example',
+    branch: 'main',
+    worktrees: [
+      { id: 'fixture-adea-checkout', projectId: 'fixture-adea', kind: 'primary', headRef: 'main' },
+      {
+        id: 'fixture-adea-example',
+        projectId: 'fixture-adea',
+        kind: 'managed',
+        branchRef: 'feature/example',
+        title: 'Dev View foundation',
+      },
+    ],
     sessions: [
       {
         id: 'fixture-shell',
         title: 'Dev View foundation',
+        worktreeId: 'fixture-adea-example',
         state: 'active',
         generation: 1,
         badges: {
@@ -24,7 +35,13 @@ export const devViewFixtureProjects: readonly DevProjectFixture[] = [
           ports: [3000],
         },
       },
-      { id: 'fixture-runtime', title: 'Runtime contracts', state: 'ready', generation: 1 },
+      {
+        id: 'fixture-runtime',
+        title: 'Runtime contracts',
+        worktreeId: 'fixture-adea-checkout',
+        state: 'ready',
+        generation: 1,
+      },
     ],
   },
   {
@@ -32,10 +49,25 @@ export const devViewFixtureProjects: readonly DevProjectFixture[] = [
     name: 'Runtime tools',
     repository: 'example/tools',
     branch: 'feature/runtime',
+    worktrees: [
+      {
+        id: 'fixture-tools-checkout',
+        projectId: 'fixture-tools',
+        kind: 'primary',
+        headRef: 'feature/runtime',
+      },
+      {
+        id: 'fixture-tools-docs',
+        projectId: 'fixture-tools',
+        kind: 'managed',
+        branchRef: 'docs/runtime-notes',
+      },
+    ],
     sessions: [
       {
         id: 'fixture-tools-session',
         title: 'Other project session',
+        worktreeId: 'fixture-tools-checkout',
         state: 'ready',
         generation: 1,
         badges: { checks: 'failed', harness: 'awaiting_input' },
@@ -43,6 +75,7 @@ export const devViewFixtureProjects: readonly DevProjectFixture[] = [
       {
         id: 'fixture-archived',
         title: 'Archived discovery',
+        worktreeId: 'fixture-tools-checkout',
         state: 'archived',
         generation: 1,
       },
@@ -54,8 +87,10 @@ export const devViewFixtureProjects: readonly DevProjectFixture[] = [
  * Scale a fixture workspace up for render-cost cases (#666): each project's
  * session list grows to `scale` entries (the real fixture session stays
  * first), with deterministic ids and titles so deep links and keyboard walks
- * stay stable across runs. A project already at or above `scale` is
- * untouched — never a truncation of named fixtures.
+ * stay stable across runs. Each generated session runs in its own generated
+ * worktree, so the shared sidebar (ADR 0011) renders one worktree row per
+ * generated session. A project already at or above `scale` is untouched —
+ * never a truncation of named fixtures.
  */
 export function scaleDevFixtureProjects(
   base: readonly DevProjectFixture[],
@@ -65,12 +100,29 @@ export function scaleDevFixtureProjects(
   return base.map((project) => {
     const existing = project.sessions
     if (existing.length >= scale) return project
-    const generated = Array.from({ length: scale - existing.length }, (_, index) => ({
-      id: `${project.id}-scale-${existing.length + index + 1}`,
-      title: `Session ${existing.length + index + 1}`,
-      state: 'ready' as const,
-      generation: 1,
-    }))
-    return { ...project, sessions: [...existing, ...generated] }
+    const generated = Array.from({ length: scale - existing.length }, (_, index) => {
+      const ordinal = existing.length + index + 1
+      const id = `${project.id}-scale-${ordinal}`
+      return {
+        session: {
+          id,
+          title: `Session ${ordinal}`,
+          worktreeId: `${id}-worktree`,
+          state: 'ready' as const,
+          generation: 1,
+        },
+        worktree: {
+          id: `${id}-worktree`,
+          projectId: project.id,
+          kind: 'managed' as const,
+          title: `Session ${ordinal}`,
+        },
+      }
+    })
+    return {
+      ...project,
+      sessions: [...existing, ...generated.map((entry) => entry.session)],
+      worktrees: [...(project.worktrees ?? []), ...generated.map((entry) => entry.worktree)],
+    }
   })
 }

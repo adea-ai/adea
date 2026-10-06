@@ -26,7 +26,9 @@ on `@adea-ai/ui`, `@adea-ai/app-ui`, `@adea-ai/types`, `solid-js` and
 
 Chat and Virtual mount it through `@adea-ai/workspace-ui`'s
 `WorkspaceNavSidebar` (the data projection is `workspace-nav-source.ts` there);
-the Dev sidebar shell is replaced in a later change. The Workspaces heading's
+Dev and the desktop runtime Chat mount it through `@adea-ai/dev-view`'s
+`DevWorkspaceSidebar` (projection: `sidebar/dev-nav-model.ts`). The `dev`
+adapter's menus add `add-repository` for a project with no local binding. The Workspaces heading's
 group-by and "New workspace" actions are always visible. A host that controls
 `creatingWorkspace` keeps the draft row open after Enter and can report
 `workspaceDraftError` beside the kept name. The active workspace paints its

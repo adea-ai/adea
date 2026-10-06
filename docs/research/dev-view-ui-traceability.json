@@ -7109,7 +7109,7 @@
           "review": "pending"
         },
         {
-          "path": "packages/dev-view/src/sidebar/dev-sidebar-shell.tsx",
+          "path": "packages/dev-view/src/sidebar/dev-workspace-sidebar.tsx",
           "matchedFiles": 1,
           "review": "pending"
         },
@@ -7442,7 +7442,7 @@
           "review": "pending"
         },
         {
-          "path": "packages/dev-view/src/sidebar/add-project-panel.tsx",
+          "path": "packages/dev-view/src/sidebar/dev-nav-dialogs.tsx",
           "matchedFiles": 1,
           "review": "first-open hardening subset at 162c1619; full donor/registry acceptance pending"
         },
@@ -7457,7 +7457,7 @@
           "review": "first-open hardening subset at 162c1619; full donor/registry acceptance pending"
         },
         {
-          "path": "packages/dev-view/src/sidebar/dev-sidebar-shell.tsx",
+          "path": "packages/dev-view/src/sidebar/dev-workspace-sidebar.tsx",
           "matchedFiles": 1,
           "review": "first-open hardening subset at 162c1619; full donor/registry acceptance pending"
         }
@@ -7493,9 +7493,9 @@
         "pullRequest": "https://github.com/adea-ai/adea/pull/760",
         "productionSourceChain": {
           "entry": "packages/dev-view/src/dev-workspace-entry.tsx",
-          "mount": "DevSidebarShell.addProject -> AddProjectPanel when the runtime preference scope is present and fixture projects are absent; command authorization remains host-owned",
-          "entryAction": "native Add project disclosure first opens",
-          "handler": "AddProjectPanel.onToggle latches visited; lazy AddProjectForm mounts once",
+          "mount": "DevWorkspaceSidebar (shared WorkspaceNav, ADR 0011) -> the active workspace header's New project action or a project's Add repository… item -> lazy DevNewProjectDialog/DevAddRepositoryDialog -> AddProjectForm when the runtime preference scope is present and fixture projects are absent; command authorization remains host-owned",
+          "entryAction": "New project (workspace header) or Add repository… (project menu) opens the dialog",
+          "handler": "the dialog module loads on first open; AddProjectForm binds the cloud project id the dialog names",
           "serviceOperation": ["dev.project.bookmarks", "dev.project.scan", "dev.project.import"],
           "visibleResult": "authorized roots, scan preview/confirmation, explicit import announcement (each import binds a client-supplied cloud projectId; project groups were removed by ADR 0011)",
           "recovery": "existing typed scan/import refusals preserved; collapse retains form owner and state"

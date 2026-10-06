@@ -8,7 +8,7 @@ async function exerciseContextualSidebarToggle(page: Page) {
   const toggle = page.getByRole('button', { name: /^(Expand|Collapse) contextual sidebar$/ })
   const closeSheet = page.getByRole('button', { name: 'Close', exact: true })
   const openSheetDialog = page.locator('[role="dialog"][data-expanded]')
-  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const projectsSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
 
   // Boot responses and the sheet's close/focus-restoration transition can
   // replace the toggle node between hit-testing and its handler running (the
@@ -99,6 +99,16 @@ async function exerciseContextualSidebarToggle(page: Page) {
   } else {
     await expect(projectsSidebar).toBeVisible()
   }
+}
+
+/** A Dev sidebar leaf (checkout or worktree) by the branch it shows. */
+function devLeaf(scope: Page | Locator, branch: string) {
+  return scope.getByRole('treeitem', { name: new RegExp(branch.replaceAll('/', '\\/')) })
+}
+
+/** A Dev sidebar project row by its name. */
+function devProjectRow(scope: Page | Locator, name: string) {
+  return scope.locator('[role="treeitem"][data-project-id]').filter({ hasText: name })
 }
 
 function devToolbarControl(page: Page, name: string) {
@@ -234,12 +244,12 @@ for (const width of [320, 768, 1280, 1920]) {
         page.getByRole('complementary', { name: 'Shared developer utilities' })
       ).toBeVisible()
     } else {
-      await expect(page.getByRole('complementary', { name: 'Projects and sessions' })).toBeVisible()
+      await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
     }
   })
 }
 
-test('Dev mobile sidebar closes after project and session selection and restores the global opener', async ({
+test('Dev mobile sidebar closes after leaf selection and restores the global opener', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 })
@@ -254,7 +264,7 @@ test('Dev mobile sidebar closes after project and session selection and restores
   const opener = page
     .getByLabel('Workspace toolbar')
     .getByRole('button', { name: 'Expand contextual sidebar', exact: true })
-  const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
 
   await expect(rail).toHaveCount(1)
   await expect(rail).toBeVisible()
@@ -266,25 +276,26 @@ test('Dev mobile sidebar closes after project and session selection and restores
   await expect(rail).toBeVisible()
   await expect(sheet.getByRole('button', { name: 'Close', exact: true })).toHaveCount(1)
 
-  // This project differs from the selected fixture project, so selecting it
-  // closes the mobile sheet and returns focus to the global opener.
-  await sidebar.getByRole('button', { name: /^Runtime tools/ }).click()
+  // Selecting another project's checkout opens its session, closes the
+  // mobile sheet and returns focus to the global opener.
+  await devLeaf(sidebar, 'feature/runtime').click()
   await expect(sidebar).not.toBeVisible()
   await expect(rail).toBeVisible()
   await expect(opener).toBeFocused()
 
-  // Reopen and expand the now-current project. Disclosure alone keeps the
-  // sheet open so its nested session rows remain available on mobile.
+  // Collapsing and expanding a project is disclosure only: the sheet stays.
   await opener.press('Enter')
   await expect(sidebar).toBeVisible()
-  await expect(rail).toBeVisible()
-  await expect(sheet.getByRole('button', { name: 'Close', exact: true })).toHaveCount(1)
-  const project = sidebar.getByRole('button', { name: /^Runtime tools/ })
+  const project = devProjectRow(sidebar, 'Runtime tools')
+  await expect(project).toHaveAttribute('aria-expanded', 'true')
+  await project.click()
+  await expect(project).toHaveAttribute('aria-expanded', 'false')
   await project.click()
   await expect(project).toHaveAttribute('aria-expanded', 'true')
   await expect(sidebar).toBeVisible()
+  await expect(devLeaf(sidebar, 'feature/runtime')).toHaveAttribute('aria-selected', 'true')
 
-  await sidebar.getByRole('button', { name: /Other project session/ }).click()
+  await devLeaf(sidebar, 'feature/example').click()
   await expect(sidebar).not.toBeVisible()
   await expect(rail).toBeVisible()
   await expect(opener).toBeFocused()
@@ -323,7 +334,7 @@ async function expectDevTopbarBoundary(page: Page, width: number) {
   const divider = navigation.locator('.workspace-topbar__view-divider')
   const actionGroup = devToolbarControl(page, 'Split pane').locator('..').locator('..')
   const rightUtilityToggle = devSidebarControl(page, 'Expand utility sidebar')
-  const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   const rail = page.locator('.global-rail')
 
   const assertBoundary = async (boundary: Locator) => {
@@ -408,14 +419,13 @@ test('Dev title slot shows Workspace › Project › branch with the branch in m
   const branch = crumbs.locator('[aria-current="page"]')
   await expect(branch).toHaveText('Worktree: feature/example')
   await expect(branch.locator('code')).toHaveText('feature/example')
-  // Dev crumbs are a readout until Dev joins the shared sidebar tree.
+  // Dev crumbs are a readout of the selected leaf's project and branch.
   await expect(crumbs.getByRole('link')).toHaveCount(0)
 
-  await page
-    .getByRole('complementary', { name: 'Projects and sessions' })
-    .getByRole('button', { name: /Runtime tools/ })
-    .first()
-    .click()
+  await devLeaf(
+    page.getByRole('complementary', { name: 'Workspace navigation' }),
+    'feature/runtime'
+  ).click()
   await expect(branch).toHaveText('Worktree: feature/runtime')
   await expect(crumbs.getByRole('listitem').nth(1)).toHaveText('Project: Runtime tools')
 })
@@ -444,15 +454,15 @@ test('Dev shell stays usable while its central layout loads', async ({ page }) =
     await expect(page.getByText('Loading workspace panes…', { exact: true })).toBeVisible()
     // The harness viewport is Playwright's 1280×720 default, so close-all shows.
     await expectDevToolbarHost(page, 1280)
-    const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
     const originalSidebar = await sidebar.elementHandle()
-    const session = page.getByRole('button', { name: 'Other project session' })
-    await session.click()
-    await expect(session).toHaveAttribute('aria-current', 'page')
+    const leaf = devLeaf(sidebar, 'feature/runtime')
+    await leaf.click()
+    await expect(leaf).toHaveAttribute('aria-selected', 'true')
     release()
     await expect(page.getByRole('region', { name: 'terminal pane' })).toBeVisible()
     await expect(page.getByText('Loading workspace panes…', { exact: true })).toBeHidden()
-    await expect(session).toHaveAttribute('aria-current', 'page')
+    await expect(leaf).toHaveAttribute('aria-selected', 'true')
     expect(
       await sidebar.evaluate((element, original) => element === original, originalSidebar)
     ).toBe(true)
@@ -477,22 +487,29 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await page.goto('/?view=dev&devE2e=preserved&sentinel=keep')
   await expectDevToolbarHost(page, 1280)
 
-  await page.getByRole('button', { name: 'Other project session' }).click()
-  await expect(page.getByRole('button', { name: 'Other project session' })).toHaveAttribute(
-    'aria-current',
-    'page'
+  const navigationSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  const runtimeCheckout = devLeaf(navigationSidebar, 'feature/runtime')
+  await runtimeCheckout.click()
+  await expect(runtimeCheckout).toHaveAttribute('aria-selected', 'true')
+  await expect(devLeaf(navigationSidebar, 'feature/example')).toHaveAttribute(
+    'aria-selected',
+    'false'
   )
 
-  const runtimeProject = page.getByRole('button', { name: /^Runtime tools/ })
-  const exampleProject = page.getByRole('button', { name: /^Example project/ })
-  await expect(runtimeProject).toHaveAttribute('aria-current', 'page')
-  await expect(exampleProject).not.toHaveAttribute('aria-current', 'page')
+  // Workspace › project › checkout/worktrees: the checkout leads its project.
+  const runtimeProject = devProjectRow(navigationSidebar, 'Runtime tools')
+  await expect(runtimeProject).toHaveAttribute('aria-level', '1')
+  await expect(runtimeCheckout).toHaveAttribute('aria-level', '2')
+  await expect(runtimeCheckout).toHaveAttribute('data-leaf-kind', 'checkout')
+  await expect(devLeaf(navigationSidebar, 'docs/runtime-notes')).toHaveAttribute(
+    'data-leaf-kind',
+    'worktree'
+  )
   await runtimeProject.click()
   await expect(runtimeProject).toHaveAttribute('aria-expanded', 'false')
-  await expect(runtimeProject).toHaveAttribute('aria-current', 'page')
   await runtimeProject.click()
   await expect(runtimeProject).toHaveAttribute('aria-expanded', 'true')
-  await expect(runtimeProject).toHaveAttribute('aria-current', 'page')
+  await expect(runtimeCheckout).toHaveAttribute('aria-selected', 'true')
 
   // Projects are a flat list (no groups); the collapsed project survives the
   // view switch below.
@@ -534,7 +551,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(rowSeparator).toHaveAttribute('aria-valuenow', '55')
 
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
-  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const projectsSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
   await expect(globalNavigation).toBeVisible()
   await expect(projectsSidebar).toBeVisible()
@@ -632,18 +649,63 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   ).toHaveCount(1)
 })
 
-test('session rows show independent state badges without hiding the row', async ({ page }) => {
+test('leaves show their harness status and the checkout keeps its house row', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved')
-  const row = page.getByRole('button', { name: /Dev View foundation/ })
-  await expect(row).toBeVisible({ timeout: 30_000 })
-  await expect(row.getByTitle('Harness working')).toBeVisible()
-  await expect(row.getByTitle('Uncommitted changes')).toBeVisible()
-  await expect(row.getByTitle('Checks running')).toBeVisible()
-  await expect(row.getByTitle('Owned ports 3000')).toBeVisible()
-  const otherRow = page.getByRole('button', { name: /Runtime contracts/ })
-  await expect(otherRow).toBeVisible()
-  await expect(otherRow.locator('.dev-row-badge')).toHaveCount(0)
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  const working = devLeaf(sidebar, 'feature/example')
+  await expect(working).toBeVisible({ timeout: 30_000 })
+  // Status is words as well as a glyph: colour is never the only signal.
+  await expect(working).toContainText('Running')
+  await expect(working).toHaveAttribute('data-leaf-kind', 'worktree')
+  const checkout = devLeaf(sidebar, 'feature/runtime')
+  await expect(checkout).toHaveAttribute('data-leaf-kind', 'checkout')
+  await expect(checkout).toContainText('Needs you')
+  await expect(devLeaf(sidebar, 'docs/runtime-notes')).toContainText('Idle')
+  // The checkout row never offers archive or delete.
+  await checkout.hover()
+  await checkout.getByRole('button', { name: 'Options for feature/runtime' }).click()
+  const menu = page.getByRole('menu')
+  await expect(menu.getByRole('menuitem', { name: 'Copy path' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Open in Finder' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Archive' })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: 'Delete' })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: /Switch branch/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  // A worktree row renames, links, reveals, archives and deletes.
+  await working.hover()
+  await working.getByRole('button', { name: 'Options for feature/example' }).click()
+  await expect(
+    page
+      .getByRole('menu')
+      .getByRole('menuitem')
+      .filter({ hasText: /^(Rename|Copy link|Open in Finder|Archive|Delete)$/ })
+  ).toHaveCount(5)
+  await page.keyboard.press('Escape')
+})
+
+test('the project + names a new branch for a new worktree', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/?view=dev&devE2e=preserved')
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  const project = devProjectRow(sidebar, 'Example project')
+  await expect(project).toBeVisible({ timeout: 30_000 })
+  await project.hover()
+  await project.getByRole('button', { name: 'New worktree in Example project' }).click()
+  const dialog = page.getByRole('dialog', { name: 'New worktree in Example project' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('Creates a branch from main')
+  const branch = dialog.getByRole('textbox', { name: 'Branch name' })
+  await expect(branch).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Create worktree' })).toBeDisabled()
+  await branch.fill('feature/sidebar')
+  await dialog.getByRole('button', { name: 'Create worktree' }).click()
+  // The E2E fixture has no runtime authority: the refusal stays in the dialog
+  // beside the typed name instead of pretending to create a worktree.
+  await expect(dialog.getByRole('alert')).toBeVisible()
+  await expect(branch).toHaveValue('feature/sidebar')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
 })
 
 test('center panes move by keyboard while keeping one primary session', async ({ page }) => {
@@ -746,7 +808,7 @@ test('the utility selector reveals its pane and the sidebar fills the workspace 
   // The contextual sidebar is a sibling of the center panes and owns the full
   // vertical space of the workspace body rather than its content height.
   const sidebarBox = await page
-    .getByRole('complementary', { name: 'Projects and sessions' })
+    .getByRole('complementary', { name: 'Workspace navigation' })
     .boundingBox()
   const panesBox = await page
     .getByRole('region', { name: 'Developer workspace panes' })
@@ -823,12 +885,11 @@ test('projects render as one flat list in projection order without reorder affor
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
-  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
-  const projectRows = projectsSidebar
-    .getByRole('button')
-    .filter({ hasText: /Runtime tools|Example project/ })
+  const projectsSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  const projectRows = projectsSidebar.locator('[role="treeitem"][data-project-id]')
   await expect(projectRows).toHaveCount(2)
-  await expect(projectRows.first()).toHaveText(/Example project/)
+  await expect(projectRows.first()).toContainText('Example project')
+  await expect(projectRows.nth(1)).toContainText('Runtime tools')
   // Order and grouping belong to the cloud: no group headings, no drag.
   await expect(projectsSidebar.getByRole('button', { name: 'PRODUCT' })).toHaveCount(0)
   for (const row of await projectRows.all()) {
@@ -1125,7 +1186,7 @@ test('Dev surfaces expose an aria snapshot and run under an eval-blocking CSP', 
   const snapshot = await page.locator('.workspace-frame').ariaSnapshot()
   expect(snapshot).toContain('Skip to workspace')
   expect(snapshot).toContain('Developer workspace actions')
-  expect(snapshot).toContain('Projects and sessions')
+  expect(snapshot).toContain('Workspace navigation')
 
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))

@@ -1816,57 +1816,111 @@ staleness state instead of silently trusting the stored selection. Deep-link
 selection (`devProject`/`devSession` query params) is deterministic: an
 unknown query key survives, and a stale, archived, revoked, generation-stale,
 or cross-scope link recovers to the closest live selection with a visible,
-announced banner while the URL converges on the corrected selection. The Dev
-sidebar renders bindings as one flat list in projection order and offers no
-reorder affordance; project order and grouping belong to the cloud project
-list.
+announced banner while the URL converges on the corrected selection.
 
-The sidebar's project filter is a local presentation projection. It trims the
-query and performs a case-insensitive substring match against project display
-names and session titles. A project name match reveals that project's sessions;
-a session-title match retains only the matching sessions and their project.
-While a query is active, those projects render expanded even when their stored
-collapse IDs are set, so collapsed navigation cannot hide a match. Clearing the
-query restores the full projection and the unchanged collapse state. Typing or
-clearing the filter MUST NOT issue runtime commands, change selected canonical
-IDs, or mutate stored collapse state.
+**Shared workspace sidebar (ADR 0011).** The Dev contextual sidebar is the
+shared `@adea-ai/workspace-nav` `WorkspaceNav` with the `dev` adapter, mounted
+by `packages/dev-view/src/sidebar/dev-workspace-sidebar.tsx` in both the Dev
+view and the desktop runtime Chat. Its hierarchy is workspace › project ›
+leaf: only the active workspace is expanded; other workspaces are one row
+each with running, needs-you, mention and unread chips, and selecting one
+switches through the host's authorized workspace switch. The pure projection
+is `buildDevNavSource` in `sidebar/dev-nav-model.ts`:
 
-The Dev sidebar consumes the published `@adea-ai/ui` `SidebarNav` shell,
-sections, and rows used by the workspace navigation. Shared UI owns the
-header, scrolling region, footer, row styling, disclosure interaction, status
-chips, and focus treatment. Adea supplies runtime project bindings and their
-sessions, display names, selection, and persisted project collapse IDs. The selected project
-uses the shared section active state even while collapsed; session selection
-uses the shared active row state. Shared navigation controls preserve 44px
-coarse-pointer targets without changing desktop density. Changing the shell
-does not change the commands or their authorization. Its archive shelf uses
-shared row, action, scrolling, empty-state, alert, and focus-managed destructive
-confirmation components. Failed archive reads name their error and preserve
-previously loaded rows; absent archive timestamps are labeled unavailable rather
-than implying recency. A successful restore returns focus to the persistent shelf
-control if its removed button still held focus. Restore still
-calls the authenticated unarchive contract, and deletion still requires
-confirmation and reports the missing host contract rather than fabricating
-success. An unavailable provider can leave only the filter and archive controls
-visible; it does not make the sidebar disconnected or authorize mock data.
+- **Projects** come from the cloud project list (names and order, active
+  lifecycle only), joined by project id with the register's local bindings
+  (`DevWorkspaceProjection`); the host's names also feed `projectNames`. A
+  cloud project with no binding on this device renders as source `none` with
+  an "Add repository…" menu item; a binding with no cloud row is hidden and
+  logged once (`hiddenBindingIds`). Without a cloud list (fixtures, direct
+  integrations) the bindings render in projection order with their host
+  names. The sidebar offers no reorder affordance. A bound project's source
+  is the projection's `source` as given (`local_repo`, `remote_only`,
+  `none`): a remote-only project (managed bare clone) shows the cloud icon
+  and never a checkout row; a `none` binding asks for a repository first.
+- **Leaves** come from `dev.worktree.list`: the `primary` record is the
+  checkout leaf (house row, labelled with the `headRef` it actually has checked
+  out, never archived or deleted from here); `managed` and `external` records
+  are worktree leaves, labelled with their branch and local title. Archived
+  records are omitted. A live session bound to a worktree the list did not
+  report keeps a session-derived leaf, so a refused or failed list never hides
+  a session. Worktree records carry no timestamps, so list order stands in for
+  recency within a project; the checkout leads.
+- **Status** is observed, never a session field: `leafActivity` over the
+  `dev.harness.runs` of the leaf's live sessions gives needs you, running or
+  idle; an idle leaf whose `taskId` names a cloud task in `in_review` is in
+  review. **Diff counts** come from one `dev.worktree.diffSummary` batch for
+  the worktree rows on screen (expanded projects only, checkout and
+  session-derived rows excluded, at most 50 ids).
+- **Counts** for collapsed workspaces and the "Needs you" strip add the
+  desktop `dev.summary.workspaces` counts (polled by the desktop lane every
+  30s while the document is visible and again when it becomes visible) to the
+  cloud account summary's mentions and unread channels.
 
-`DevSidebarNavigation` and the Chat/Virtual `WorkspaceNavSidebar` use the published
-`@adea-ai/ui` `ContextualSidebar` and `PixelResizeHandle` composition. Shared UI
-owns the responsive desktop/mobile shell, heading, scrolling and footer slots,
-collapse semantics, and edge resize handle. Adea owns the view-specific rows and
-archive content, the controlled open state, the persisted width preference, and
-projection of that width into the workspace frame. The shared component does
-not read Adea state or storage. Hosts pass the initial `wideViewportAtLoad` seed
-and update the same host state through `onOpenChange`; a desktop-open state is
-cleared when a wide-loaded view enters the mobile breakpoint, while an
-intentional open at narrow boot is retained. Closing the mobile sheet returns
-focus to the global sidebar opener through `restoreFocusRef`. Selecting a Chat
-or Virtual channel, or a Dev session or different project, closes the mobile
-sheet; activating the current Dev project still operates its disclosure without
-dismissing the navigation. Nested row menus use the context's `portalMount()` so
-they remain inside the mobile dialog's accessibility tree. Dev focus mode and
-full-width utility surfaces suppress conflicting contextual navigation while
-the shared owner remains mounted; the global rail remains visible.
+Runtime reads are bounded and fail closed: one scope-wide worktree list and
+one harness-run read (each at most 4 pages of 500) per refresh — on mount,
+scope or projection change, when the document becomes visible, and on a 30s
+poll while visible — and one diff batch whenever the visible worktree set
+changes, after a refresh, or (debounced 500ms) when `git.statusInvalidated`
+names a visible worktree. Typing, hovering or selecting never issues a read.
+A refused or malformed reply keeps the last observed rows instead of guessing
+an empty list. A refresh that changes nothing keeps the rendered rows (the
+tree reuses unchanged workspace, project and leaf objects, and counts-only
+changes keep the expanded workspace mounted), so polling never drops keyboard
+focus or an open menu.
+
+Selecting a leaf selects its worktree's most recent live session (the current
+selection when it is already on that leaf) and reports it through
+`onSelectionChange`, which keeps `?devProject`/`?devSession` deep links and
+`resolveDevSelection` authoritative; the top-bar breadcrumbs follow the
+selected leaf's project and checked-out branch. A leaf with no session starts
+one with `dev.session.create` on that worktree and selects it once the
+projection reloads. A project's "+" is "New worktree" (`dev.worktree.create`
+with an inline branch name, based on the binding's default base ref, else the
+checkout's branch) when it has a repository and "New session" otherwise, which
+first asks for a repository. Worktree menus offer Rename (`dev.worktree.rename`,
+local title), Copy link (the leaf's Dev deep link), Open in Finder
+(`dev.files.openExternal` on the worktree root), Archive (`dev.worktree.archive`)
+and Delete (`dev.worktree.cleanupPlan`, then a destructive confirmation listing
+every planned step and any blocker before `dev.worktree.cleanupCommit`). The
+checkout menu offers Copy path and Open in Finder only; Share stays out until
+leaf sharing ships and "Switch branch…" stays behind its flag. Project menus
+offer Rename (cloud project update), Project settings (the cloud name and, for
+a bound project, the repository registry), Add repository… (unbound projects;
+the import binds that project's id) and Archive/Delete (cloud archive or soft
+delete, then `dev.project.unbind` when bound — files are never touched). The
+active workspace header's "New project" names a cloud project and then offers
+the repository step. Mutations load on first use; refusals are shown inline
+and announced, never swallowed.
+
+The sidebar's shell is the published `@adea-ai/ui` `ContextualSidebar` and
+`PixelResizeHandle` composition, shared with the Chat/Virtual
+`WorkspaceNavSidebar`: landmark "Workspace navigation", one stored width
+(`adea:workspace-sidebar-width`, 208–448px) projected into the workspace
+frame, the archive shelf in the footer. Shared UI owns the responsive
+desktop/mobile shell, heading, scrolling and footer slots, collapse semantics,
+edge resize handle, tree keyboard model and focus treatment; Adea owns the
+data, the controlled open state and the width preference. Hosts pass the
+initial `wideViewportAtLoad` seed and update the same host state through
+`onOpenChange`; a desktop-open state is cleared when a wide-loaded view enters
+the mobile breakpoint, while an intentional open at narrow boot is retained.
+Closing the mobile sheet returns focus to the global sidebar opener through
+`restoreFocusRef`. Selecting a leaf or another workspace closes the mobile
+sheet; expanding or collapsing a project is disclosure only and keeps it open.
+Row menus use the context's `portalMount()` so they remain inside the mobile
+dialog's accessibility tree, and the sheet drops focus tooltips so Escape
+dismisses it. The archive shelf uses shared row, action, scrolling,
+empty-state, alert and focus-managed destructive confirmation components.
+Failed archive reads name their error and preserve previously loaded rows;
+absent archive timestamps are labeled unavailable rather than implying
+recency. A successful restore returns focus to the persistent shelf control if
+its removed button still held focus. Restore calls the authenticated unarchive
+contract, and deletion still requires confirmation and reports the missing
+host contract rather than fabricating success. An unavailable runtime shows
+"No runtime projects available." above the tree; it never authorizes mock
+data. Dev focus mode and full-width utility surfaces suppress conflicting
+contextual navigation while the shared owner remains mounted; the global rail
+remains visible.
 
 ### Browser lane
 
@@ -2949,14 +3003,16 @@ authenticated GitHub selection, monorepo package, and known external worktree.
 It displays host, canonical identity, duplicate state, and authorization before
 mutation.
 
-The contextual sidebar's Add Project disclosure loads its form and requests
-authorized roots only when first opened. After that first open, collapsing the
-disclosure preserves the mounted form's scan results and confirmations;
-reopening does not repeat those initial requests. Closing the disclosure never
+The Dev sidebar reaches the add surface from the active workspace header's
+"New project" (name the cloud project, then optionally add its repository) and
+from a project's "Add repository…" item; Project settings lists the bound
+project's repositories through the repository registry. The dialog loads its
+form and requests authorized roots only when it first opens. Closing it never
 initiates project imports or bootstrap commands. Each confirmed import sends
-`{ projectId, rootBookmarkId }`, where the host's `mintProjectId` seam supplies
-the cloud project id; until the host creates the cloud project first, the
-default mints a client UUID (the register never mints one).
+`{ projectId, rootBookmarkId }`, where the dialog's `mintProjectId` seam
+supplies the id of the cloud project being bound; a host without a cloud
+project list falls back to a client UUID (the register never mints one). A
+successful import records the cloud project's `sourceKind` as `repository`.
 
 Scanner defaults:
 
@@ -5748,6 +5804,14 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-10-06 — shared workspace sidebar in the Dev view (ADR 0011, PR 10b).**
+  `DevSidebarShell`/`DevSidebarNavigation` are replaced by the shared
+  `WorkspaceNav` (`dev` adapter): cloud projects joined with local bindings by
+  id, checkout and worktree leaves from `dev.worktree.list`, observed leaf
+  status, batched visible-row diff counts, desktop run counts on collapsed
+  workspaces, and the worktree/project menus above. The landmark is
+  "Workspace navigation". No Dev Runtime operation changed. See "Shared
+  workspace sidebar (ADR 0011)".
 - **2026-10-06 — workspace connections (ADR 0012).** Added
   `dev.connections.get`/`setGitHosting`/`setHarnessAccount` and
   `dev.harness.accountProfiles.list`/`create`/`delete` (total operations

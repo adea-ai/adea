@@ -37,6 +37,7 @@ import {
 } from '../lib/desktop-workspace-session'
 import { createDeferredPluginsProvider, WorkspaceNavigation } from './workspace-navigation'
 import { DesktopFirstRunChat } from './desktop-first-run-chat'
+import { createDevSummaryPoll } from '../lib/dev-summary-poll'
 import { createDesktopChatModelHost } from '../lib/desktop-chat-host'
 import { createSharedDevUtilityOwner } from '@adea-ai/dev-view/utility-owner'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -346,6 +347,8 @@ function DesktopWorkspace(props: {
     typeof window === 'undefined' ? undefined : window.localStorage
   )
   onCleanup(() => utilityOwner.dispose())
+  // Collapsed workspace chips and "Needs you" read the desktop run counts.
+  const devSummary = createDevSummaryPoll(devRuntime)
   const services = (): WorkspacePlatformServices => ({
     account: {
       authenticated: signedIn(),
@@ -382,8 +385,10 @@ function DesktopWorkspace(props: {
         onSignOut: () => void props.onSignOut(),
       }}
       activeWorkspace={props.activeWorkspace}
-      chatEntry={(fallback, archiveAction, sidebarOpener) => (
+      devSummary={devSummary}
+      chatEntry={(fallback, archiveAction, sidebarOpener, workspaceNav) => (
         <DesktopFirstRunChat
+          workspaceNav={workspaceNav}
           sidebarOpener={sidebarOpener}
           archiveAction={archiveAction}
           client={props.client}

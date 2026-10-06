@@ -300,10 +300,12 @@ Issue: [#398](https://github.com/adea-ai/adea/issues/398)
    and recommendation mapper. Preserve donor fixtures and expected discovery
    results; add the spec's symlink, cancellation, depth/count/byte/time budgets.
    Do not translate the 1,662-line file into one TypeScript file.
-2. Adapt Orca row/group/repository semantics to
-   `packages/dev-view/src/sidebar/dev-sidebar-shell.tsx` with the rows composing
-   inside the shell and the registry split across
-   `sidebar/repo-registry-model.ts` and `sidebar/repo-registry-panel.tsx`; use
+2. Adapt Orca row/group/repository semantics to the shared
+   `@adea-ai/workspace-nav` tree (ADR 0011): `packages/dev-view/src/sidebar/dev-nav-model.ts`
+   projects cloud projects, local bindings and worktree records into it,
+   `sidebar/dev-workspace-sidebar.tsx` mounts it, and the registry stays split
+   across `sidebar/repo-registry-model.ts` and `sidebar/repo-registry-panel.tsx`
+   behind project settings; use
    project intent → repository → worktree → runtime session rather than
    flattening identities.
 3. Use bb's normalized relationship idea, but keep durable truth on the

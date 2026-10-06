@@ -20,6 +20,9 @@ describe('scaleDevFixtureProjects (#666 render-cost case)', () => {
     expect(first.sessions[2]!.id).toBe('fixture-adea-scale-3')
     expect(first.sessions[999]!.id).toBe('fixture-adea-scale-1000')
     expect(first.sessions[999]!.title).toBe('Session 1000')
+    // Each generated session runs in its own worktree, one sidebar row each.
+    expect(first.sessions[999]!.worktreeId).toBe('fixture-adea-scale-1000-worktree')
+    expect(first.worktrees?.filter((worktree) => worktree.id.includes('-scale-'))).toHaveLength(998)
     const ids = new Set(scaled.flatMap((p) => p.sessions.map((s) => s.id)))
     expect(ids.size).toBe(scaled.reduce((n, p) => n + p.sessions.length, 0))
   })
