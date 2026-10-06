@@ -33,8 +33,8 @@ type AccountMenuProps = {
   onOpenUpdates?: (opener: HTMLButtonElement | undefined) => void
   onOpenHelp?: (opener: HTMLButtonElement | undefined) => void
   onOpenFeedback: (opener: HTMLButtonElement | undefined) => void
-  onOpenAbout: () => void
-  onOpenSettings: () => void
+  onOpenAbout: (opener: HTMLButtonElement | undefined) => void
+  onOpenSettings: (opener: HTMLButtonElement | undefined) => void
   onSignIn: () => void
   onSignOut: () => void
   platform: 'desktop' | 'web'
@@ -65,12 +65,12 @@ export function AccountMenu(props: AccountMenuProps) {
       // accepts Meta and Ctrl alike, so Windows and Linux see Ctrl, not ⌘.
       shortcut: item.id === 'settings' ? settingsShortcutLabel() : undefined,
       icon: ITEM_ICONS[item.id],
-      onSelect:
-        item.id === 'about'
-          ? () => props.onOpenAbout()
-          : item.id === 'settings'
-            ? () => props.onOpenSettings()
-            : undefined,
+      // Settings and About ride onSelectAfterClose (below) like the other
+      // panels: they open dialogs, and opening one while the menu's
+      // close-focus cycle is still running both races the dialog's opener
+      // capture and leaves the closing menu overlay competing with the
+      // dialog's focus restore. Handing the trigger over after the cycle is
+      // the contract the updates/feedback/help panels already use.
       onSelectAfterClose:
         item.id === 'updates' && props.onOpenUpdates
           ? (trigger: HTMLButtonElement | undefined) => props.onOpenUpdates?.(trigger)
@@ -78,7 +78,11 @@ export function AccountMenu(props: AccountMenuProps) {
             ? (trigger: HTMLButtonElement | undefined) => props.onOpenFeedback(trigger)
             : item.id === 'help' && props.onOpenHelp
               ? (trigger: HTMLButtonElement | undefined) => props.onOpenHelp?.(trigger)
-              : undefined,
+              : item.id === 'settings'
+                ? (trigger: HTMLButtonElement | undefined) => props.onOpenSettings(trigger)
+                : item.id === 'about'
+                  ? (trigger: HTMLButtonElement | undefined) => props.onOpenAbout(trigger)
+                  : undefined,
     }))
 
   let trigger: HTMLButtonElement | undefined
@@ -152,7 +156,6 @@ export function AccountMenu(props: AccountMenuProps) {
                   pendingAfterClose = item.onSelectAfterClose
                     ? { callback: item.onSelectAfterClose }
                     : undefined
-                  item.onSelect?.()
                 }}
               >
                 {item.icon}

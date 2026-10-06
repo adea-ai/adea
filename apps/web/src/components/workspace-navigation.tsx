@@ -2,7 +2,7 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, onCleanup, Show, type Accessor, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
@@ -287,6 +287,7 @@ function WorkspaceSettingsOverlay(props: {
   onSignIn: () => void
   onSignOut: () => void
   open: boolean
+  restoreFocusRef?: Accessor<HTMLButtonElement | undefined>
   services: WorkspacePlatformServices
   workspace: WorkspaceSummary
 }) {
@@ -307,6 +308,7 @@ function WorkspaceSettingsOverlay(props: {
         await updateWorkspace.mutateAsync({ update, workspaceId: props.workspace.id })
       }}
       open={props.open}
+      restoreFocusRef={props.restoreFocusRef}
       permissionsService={isDesktopRuntime() ? desktopMacPermissionsService : undefined}
       services={props.services}
       workspace={props.workspace}
@@ -457,6 +459,18 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
   const [utilityOpener, setUtilityOpener] = createSignal<HTMLButtonElement>()
+  // The Help Center closes imperatively (its panel mounts through a Show, not
+  // a trigger), so Kobalte's own focus restoration never runs — without the
+  // recorded opener, Escape drops keyboard focus to <body> (WCAG 2.4.3).
+  const [helpOpener, setHelpOpener] = createSignal<HTMLButtonElement>()
+  // The settings/about overlays open from the account menu's post-close cycle
+  // (the menu hands over the trigger after suppressing its own focus
+  // restore), from keyboard chords, and from deep links. The menu path
+  // records its opener so the dialog restores focus to the trigger instead of
+  // racing the closing menu; the other paths leave the signal undefined and
+  // the shared dialog falls back to capturing the then-focused element.
+  const [settingsOpener, setSettingsOpener] = createSignal<HTMLButtonElement>()
+  const [aboutOpener, setAboutOpener] = createSignal<HTMLButtonElement>()
   const [characterDesignerEnabled, setCharacterDesignerEnabled] = createSignal(
     props.characterDesigner ?? false
   )
@@ -805,6 +819,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       class={`workspace-frame workspace-frame--${view()}`}
       data-designer-mode={designerActive() ? 'true' : undefined}
     >
+      {/* The bypass mechanism must be the frame's first tabbable element: from
+          here the repeated top bar, global rail, and contextual sidebar are
+          all skippable in one Enter (WCAG 2.4.1). The per-view mains were too
+          late — the skip link sat behind ~21 repeated controls. */}
+      <a class="workspace-skip-link" href={view() === 'dev' ? '#dev-center' : '#workspace-main'}>
+        Skip to workspace content
+      </a>
       <WorkspaceTopBar
         hideSidebarToggle={designerActive()}
         platform={props.platform}
@@ -865,18 +886,24 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
               }
             : {}),
           onOpenHelp: (opener: HTMLButtonElement | undefined) => {
-            void opener
+            setHelpOpener(opener)
             workspaceStore.getState().setGlobalPanel('help')
           },
           onOpenFeedback: openFeedback,
           platform: props.platform,
         }}
-        onOpenAbout={() => workspaceStore.getState().setGlobalPanel('about')}
+        onOpenAbout={(opener) => {
+          setAboutOpener(opener)
+          workspaceStore.getState().setGlobalPanel('about')
+        }}
         onOpenPlugins={() => workspaceStore.getState().setGlobalPanel('plugins')}
         onOpenAppLibrary={() => openAppLibrary()}
         libraryActive={libraryOpen()}
         onOpenSearch={openSearch}
-        onOpenSettings={() => openSettings('account')}
+        onOpenSettings={(opener) => {
+          setSettingsOpener(opener)
+          openSettings('account')
+        }}
         activeWorkspace={props.activeWorkspace}
         onWorkspaceChange={(workspace) => void switchToWorkspace(workspace)}
         onViewChange={(id) => changeApp(id)}
@@ -1091,6 +1118,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           onSignIn={props.account.onSignIn}
           onSignOut={() => void props.account.onSignOut()}
           open
+          restoreFocusRef={settingsOpener}
           services={props.services}
           workspace={props.activeWorkspace!}
         />
@@ -1114,6 +1142,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           onOpenChange={(next) => {
             if (!next) workspaceStore.getState().setGlobalPanel(null)
           }}
+          restoreFocusRef={aboutOpener}
           openExternal={openExternal}
           platform={props.platform}
           sourceUrl="https://github.com/adea-ai/adea"
@@ -1124,6 +1153,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         <WorkspaceHelpCenter
           appName={props.services.app?.name ?? 'Adea'}
           open
+          restoreFocusRef={helpOpener}
           onClose={() => workspaceStore.getState().setGlobalPanel(null)}
           openExternal={openExternal}
         />

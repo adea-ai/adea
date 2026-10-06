@@ -920,9 +920,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         'dev-workspace--right-full': !props.utilityHostOwnedByShell && rightFullWidth(),
       })}
     >
-      <a class="dev-skip-link" href="#dev-center">
-        Skip to workspace
-      </a>
       <Show
         when={props.toolbarMount}
         fallback={

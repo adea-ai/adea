@@ -22,7 +22,17 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-solid'
-import { createEffect, createSignal, For, lazy, onCleanup, onMount, Show, type JSX } from 'solid-js'
+import {
+  createEffect,
+  createSignal,
+  For,
+  lazy,
+  onCleanup,
+  onMount,
+  Show,
+  type Accessor,
+  type JSX,
+} from 'solid-js'
 
 import { CapabilityList } from './capability-card'
 import { WorkspaceIdentitySettings } from './workspace-identity-settings'
@@ -96,6 +106,13 @@ export function WorkspaceSettingsDialog(props: {
     update: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
   ) => Promise<void>
   open: boolean
+  /**
+   * The control to restore focus to when the dialog closes. The account-menu
+   * path hands over the rail trigger after suppressing the menu's own focus
+   * restore; other paths leave this undefined and the shared dialog falls
+   * back to capturing the element focused before it opened.
+   */
+  restoreFocusRef?: Accessor<HTMLButtonElement | undefined>
   /**
    * The full appearance editor, injected by the host as an accessor
    * (dev-view's `AppearancePanel`) so it mounts only while this section is
@@ -287,6 +304,7 @@ export function WorkspaceSettingsDialog(props: {
       class="conventional-settings-dialog"
       open={props.open}
       onClose={close}
+      restoreFocusRef={props.restoreFocusRef}
       headerLeading={
         <WorkspaceLogo aria-hidden="true" class="conventional-settings-logo" role="presentation" />
       }

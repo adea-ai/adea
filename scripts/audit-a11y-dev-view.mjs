@@ -135,13 +135,35 @@ async function main() {
     results.push(await runAxe(page, 'dev-view-terminal'))
 
     // Surface 3 — Dev View at the narrow end of the viewport matrix, sidebar
-    // visible. The narrow layout may start with the sidebar collapsed.
+    // visible. The narrow layout may start with the sidebar collapsed. The
+    // toggle renames between its expand and collapse variants the moment the
+    // store flips, so match the variant-agnostic anchored name.
     await page.setViewportSize({ width: 320, height: 900 })
     const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
     if (!(await sidebar.isVisible().catch(() => false))) {
-      await page.getByRole('button', { name: 'Toggle projects sidebar' }).click()
+      await page
+        .getByRole('button', { name: /^(Expand|Collapse) contextual sidebar$/ })
+        .click({ timeout: 15_000 })
     }
     await sidebar.waitFor({ state: 'visible', timeout: 15_000 })
+    // The sidebar and topbar controls animate (transform/size transitions);
+    // an axe snapshot taken mid-transition measures a control at its
+    // in-flight geometry and reports a target-size violation the settled
+    // layout does not have. Let the transitions finish before scanning.
+    await page.evaluate(
+      () =>
+        new Promise((done) => {
+          const settled = () => {
+            if (document.getAnimations().every((animation) => animation.playState !== 'running')) {
+              done(undefined)
+              return
+            }
+            requestAnimationFrame(settled)
+          }
+          requestAnimationFrame(settled)
+        })
+    )
+    await page.waitForTimeout(400)
     results.push(await runAxe(page, 'dev-view-narrow-320'))
 
     // Surface 4 — Settings dialog, every rendered tab, including Permissions.

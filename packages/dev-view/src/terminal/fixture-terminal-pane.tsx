@@ -38,6 +38,7 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
   const [searchOpen, setSearchOpen] = createSignal(false)
   const [query, setQuery] = createSignal('')
   const [searchInput, setSearchInput] = createSignal<HTMLInputElement>()
+  const [surface, setSurface] = createSignal<HTMLElement>()
 
   const transport = createTerminalTransport({
     connect: props.connect,
@@ -65,6 +66,22 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
       setSearchOpen(true)
       requestAnimationFrame(() => searchInput()?.focus())
     }
+  }
+
+  /** The production pane's search contract: Escape closes and returns the
+   *  keyboard to the terminal surface. The fixture matches it so the pane
+   *  keyboard contract the E2E journey certifies is the same one users get. */
+  function onSearchKeyDown(event: KeyboardEvent): void {
+    if (event.isComposing) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeSearch()
+    }
+  }
+
+  function closeSearch(): void {
+    setSearchOpen(false)
+    surface()?.focus()
   }
 
   onMount(() => {
@@ -108,6 +125,7 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
         role="region"
         class="dev-terminal-surface"
         orientation="both"
+        ref={setSurface}
       >
         <pre>{output()}</pre>
       </ScrollArea>
@@ -129,6 +147,7 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
             ref={setSearchInput}
             type="search"
             value={query()}
+            onKeyDown={onSearchKeyDown}
             onInput={(event) => setQuery(event.currentTarget.value)}
           />
           <span class="dev-terminal-search-count">
