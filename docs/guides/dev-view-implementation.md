@@ -583,7 +583,10 @@ Issue: [#424](https://github.com/adea-ai/adea/issues/424)
    executable, process-group/session, owner, and generation; recheck before each
    signal or use stable handles.
 2. Port t3code's port presentation but derive ownership from launch/session
-   metadata and only confirm with OS inspection. External ports have no stop.
+   metadata and only confirm with OS inspection. External ports have no
+   Adea-owned stop; the owner may stop one only through the separate foreign
+   stop path (Dev Runtime spec "Machine-wide inventory and foreign stop"),
+   which re-proves identity before every signal and is never automatic.
 3. Build one inventory reducer joining terminal, harness, server, browser,
    device, process, port, metric, lease, and retained-data records. Unknown or
    stale relationships remain explicit.

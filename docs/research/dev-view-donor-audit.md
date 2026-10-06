@@ -910,3 +910,18 @@ NOTICE obligation changed — only paths.
   conversation paste-token/atomic-composer/transcript-composition entries the
   ledger described as pending in earlier checkpoints; those checkpoint
   statements describe their own dates and are not current claims.
+
+### Machine-wide resources concept review (2026-10-06)
+
+The machine-wide resources slice (Dev Runtime spec "Machine-wide inventory and
+foreign stop"; `apps/desktop/shell/src/dev-runtime/resources/{capped-command,machine-inventory,foreign-stop,worktree-storage,preferences}.ts`
+and `packages/dev-view/src/resources/**`) took product concepts only from
+[tomjohndesign/what-the-port](https://github.com/tomjohndesign/what-the-port)
+(MIT): its published README's feature description of a port list with
+per-server memory history, leak alerts, a review-before-stopping clean-up
+mode, protected databases, and links back to the agent session. No source
+file was read, copied, or translated, so no ledger row applies. Orca's resource
+and port manager menus were reviewed as UX counterexamples only. Every
+mechanism (bounded observation, identity re-proof before each signal,
+protection classes, attribution, storage measurement) is an independent Adea
+implementation under the spec and threat TM-018.

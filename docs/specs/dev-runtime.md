@@ -264,8 +264,10 @@ type DevCapability =
   | 'dev.device.control'
   | 'dev.github.read'
   | 'dev.github.write'
+  | 'dev.resources.configure'
   | 'dev.resources.read'
   | 'dev.resources.stop'
+  | 'dev.resources.stopForeign'
   | 'dev.cleanup.approve'
   | 'dev.appearance.read'
   | 'dev.appLibrary.manage'
@@ -1159,7 +1161,85 @@ type ResourceSnapshot = {
   ports: PortRecord[]
   metrics: ResourceMetric[]
   retainedData: RetainedDataRecord[]
+  // Present only under the `machine` resource coverage; see
+  // "Machine-wide inventory and foreign stop".
+  foreign?: ForeignProcessRecord[] // at most 512
+  machine?: MachineResourceSummary
   observedAt: string
+}
+// A process Adea did not launch. Never carries a ProcessRecord id and never
+// rides the Adea-owned stop path.
+type ForeignProcessRecord = {
+  id: string // host-derived from PID + start identity + executable identity
+  observationGeneration: number // the pull that first observed this identity
+  pid: number
+  startIdentity: string
+  executableIdentity: string
+  label: string // executable basename, bounded
+  commandPreview?: string // redacted, at most 160 characters
+  cwdLabel?: string // home-relative, bounded
+  worktreeId?: string // registered worktree whose root contains the cwd
+  attribution:
+    | { kind: 'harness'; harness: string } // a recognized harness ancestor
+    | { kind: 'automation'; label: string } // automation flags or app name
+    | { kind: 'adea_terminal' } // below a shell inside an Adea terminal
+    | { kind: 'unknown' }
+  listeningPorts: number[] // loopback/wildcard listeners only, at most 64
+  childCount: number
+  residentBytes?: string // process tree, decimal string; absent when unknown
+  cpuPercent?: number // absent on the first observation
+  residentHistory: string[] // at most 30 points over the last 10 minutes
+  protection: 'none' | 'protected_list' | 'system' | 'other_user'
+  stoppable: boolean // true only when protection is 'none' and owner is the Adea user
+  observedAt: string
+}
+type MachineResourceSummary = {
+  memoryTotalBytes?: string
+  memoryUsedBytes?: string
+  cpuPercent?: number
+  diskFreeBytes?: string
+  diskTotalBytes?: string
+  observedAt: string
+}
+type ForeignStopResult = {
+  foreignProcessId: string
+  outcome: 'stopped' | 'forced' | 'already_gone' | 'still_running'
+  signalledPids: number[] // children first
+  observedAt: string
+}
+type WorktreeStorageRecord = {
+  worktreeId: string
+  sourceBytes?: string // outside dependency and build roots
+  buildBytes?: string // dependency and build output roots
+  state: 'measured' | 'measuring' | 'stale' | 'unreadable'
+  measuredAt?: string
+}
+// `scope` is a reserved authority field, so the setting is named `coverage`.
+type ResourcePreferencesInput = {
+  coverage: 'adea' | 'machine'
+  includeAutomationApps: boolean
+  recognizedHarnesses: string[] // names of shipped matchers, at most 32
+  portRange: { from: number; to: number }
+  alerts: {
+    residentBytesAbove: string
+    growthBytes: string
+    growthWindowSeconds: number
+    notify: 'badge' | 'badge_and_notification' // stored; not yet acted on
+    snoozeSeconds: number // stored; not yet acted on
+  }
+  cleanup: {
+    mode: 'off' | 'ask' | 'automatic' // 'automatic' is not offered yet
+    serverIdleSeconds: number
+    suggestMergedWorktreesAfterSeconds: number // stored; not yet acted on
+    quarantineRetentionSeconds: number // stored; not yet acted on
+    retainedDataRetentionSeconds: number // stored; not yet acted on
+  }
+  protectedExecutables: string[] // basenames or `prefix*`, no `/`, at most 32
+  sampling: { visibleSeconds: number; backgroundSeconds: number }
+}
+type ResourcePreferences = ResourcePreferencesInput & {
+  version: number // optimistic-concurrency revision
+  updatedAt: string
 }
 type CleanupPredicate = CleanupPolicy['predicates'][number]
 type CleanupPolicyEvaluation = {
@@ -2009,7 +2089,7 @@ type DevOperation =
   | `dev.device.${'capabilities' | 'list' | 'sessions' | 'start' | 'attach' | 'input' | 'screenshot' | 'stop'}`
   | `dev.github.${'account' | 'repository' | 'issues' | 'milestones' | 'pullRequest' | 'pullRequests' | 'checks' | 'pushPlan' | 'pushCommit' | 'createPullRequest' | 'updatePlan' | 'updateCommit' | 'mergePlan' | 'mergeCommit'}`
   | `dev.github.${'pullRequestSummaries' | 'pullRequestSummary' | 'timeline' | 'commits' | 'files' | 'checkLog' | 'labels' | 'assignableUsers' | 'branches' | 'compare' | 'comment' | 'threadReply' | 'threadResolve' | 'metadataUpdate' | 'submitReview' | 'rerunFailedJobs' | 'autoMergePlan' | 'autoMergeCommit' | 'syncBranchPlan' | 'syncBranchCommit'}`
-  | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData'}`
+  | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData' | 'restartPlan' | 'restartCommit' | 'foreignStopPlan' | 'foreignStopCommit' | 'worktreeStorage' | 'preferences' | 'preferencesUpdate'}`
   | `dev.cleanupPolicy.${'list' | 'createDraft' | 'approve' | 'disable' | 'evaluate'}`
 
 type DevCommand<K extends DevOperation, T> = {
@@ -2451,7 +2531,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.device`                 | `capabilities`, `list`, `sessions`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                                                                                                   |
 | `dev.github`                 | `account`, `repository`, `issues`, `milestones`, `pullRequest`, `pullRequests`, `checks`, `pushPlan`, `pushCommit`, `createPullRequest`, `updatePlan`, `updateCommit`, `mergePlan`, `mergeCommit`                                                                                                                      |
 | `dev.github` (collaboration) | `pullRequestSummaries`, `pullRequestSummary`, `timeline`, `commits`, `files`, `checkLog`, `labels`, `assignableUsers`, `branches`, `compare`, `comment`, `threadReply`, `threadResolve`, `metadataUpdate`, `submitReview`, `rerunFailedJobs`, `autoMergePlan`, `autoMergeCommit`, `syncBranchPlan`, `syncBranchCommit` |
-| `dev.resources`              | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`                                                                                                                                                                                                                         |
+| `dev.resources`              | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`, `restartPlan`, `restartCommit`, `foreignStopPlan`, `foreignStopCommit`, `worktreeStorage`, `preferences`, `preferencesUpdate`                                                                                          |
 | `dev.cleanupPolicy`          | `list`, `createDraft`, `approve`, `disable`, `evaluate`                                                                                                                                                                                                                                                                |
 | `dev.appearance`             | client preference only; privileged host command only for capability snapshot                                                                                                                                                                                                                                           |
 | `dev.appLibrary`             | existing verified catalog/install-plan authority; no new dynamic-code command                                                                                                                                                                                                                                          |
@@ -2463,26 +2543,26 @@ preference storage or the existing verified App Library surfaces accordingly.
 
 Capability/resource binding is deny-by-default:
 
-| Family        | Read operations                                                             | Mutation operations                                                                                         | Resource kind                                                       |
-| ------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| capability    | authenticated channel; no feature capability (this snapshot reports grants) | none                                                                                                        | no resource                                                         |
-| project       | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `project` except top-level list/create/import/clone                 |
-| repo          | `dev.repo.read`                                                             | `dev.repo.manage`                                                                                           | `repository`                                                        |
-| connections   | `dev.harness.read` + `dev.repo.read` (`get`)                                | git hosting `dev.repo.manage`; harness account `dev.harness.manage`                                         | no resource; optimistic `expectedVersion` on the binding document   |
-| worktree      | `dev.worktree.read`; `diffSummary` additionally `dev.git.read`              | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`; `diffSummary` none (ids in the body)                    |
-| terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                        | `terminal`                                                          |
-| session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                                   |
-| summary       | `dev.summary.read` (counts only; same account + runtime node)               | none                                                                                                        | no resource                                                         |
-| harness       | `dev.harness.read`                                                          | installation/connection/run/account-profile control requires `dev.harness.manage`                           | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
-| memory        | none (entries are read through the trusted `memory_*` shell commands)       | `propose` requires `dev.memory.propose` and an active harness run; it writes `pending` entries only         | `runtime_session`                                                   |
-| files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity                         |
-| git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request                      |
-| browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                    | `browser_lane`                                                      |
-| computeruse   | `dev.computeruse.read`                                                      | `dev.computeruse.control`; input additionally requires an active consent record                             | `computeruse_lane`                                                  |
-| device        | `dev.device.read`                                                           | `dev.device.control`                                                                                        | `device_session`                                                    |
-| github        | `dev.github.read`                                                           | `dev.github.write`; merge/push additionally require plan digest and current M11 approval/policy             | `repository` or `pull_request`                                      |
-| resources     | `dev.resources.read`                                                        | stop requires `dev.resources.stop`; destructive cleanup also requires `dev.cleanup.approve`                 | target process/port/worktree resource                               |
-| cleanupPolicy | `dev.resources.read`                                                        | create/approve/disable requires `dev.cleanup.approve`; evaluate executes nothing                            | `cleanup_policy`                                                    |
+| Family        | Read operations                                                             | Mutation operations                                                                                                                                                                                                                    | Resource kind                                                       |
+| ------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| capability    | authenticated channel; no feature capability (this snapshot reports grants) | none                                                                                                                                                                                                                                   | no resource                                                         |
+| project       | `dev.project.read`                                                          | `dev.project.manage`                                                                                                                                                                                                                   | `project` except top-level list/create/import/clone                 |
+| repo          | `dev.repo.read`                                                             | `dev.repo.manage`                                                                                                                                                                                                                      | `repository`                                                        |
+| connections   | `dev.harness.read` + `dev.repo.read` (`get`)                                | git hosting `dev.repo.manage`; harness account `dev.harness.manage`                                                                                                                                                                    | no resource; optimistic `expectedVersion` on the binding document   |
+| worktree      | `dev.worktree.read`; `diffSummary` additionally `dev.git.read`              | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                                                                                                                                                      | `worktree`; `diffSummary` none (ids in the body)                    |
+| terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                                                                                                                                                   | `terminal`                                                          |
+| session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                                                                                                                                                         | `runtime_session`                                                   |
+| summary       | `dev.summary.read` (counts only; same account + runtime node)               | none                                                                                                                                                                                                                                   | no resource                                                         |
+| harness       | `dev.harness.read`                                                          | installation/connection/run/account-profile control requires `dev.harness.manage`                                                                                                                                                      | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
+| memory        | none (entries are read through the trusted `memory_*` shell commands)       | `propose` requires `dev.memory.propose` and an active harness run; it writes `pending` entries only                                                                                                                                    | `runtime_session`                                                   |
+| files         | `dev.files.read`                                                            | `dev.files.write`                                                                                                                                                                                                                      | `workspace_path` plus current root identity                         |
+| git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so                                                                                                                            | `repository` or `worktree` as named by request                      |
+| browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                                                                                                                                               | `browser_lane`                                                      |
+| computeruse   | `dev.computeruse.read`                                                      | `dev.computeruse.control`; input additionally requires an active consent record                                                                                                                                                        | `computeruse_lane`                                                  |
+| device        | `dev.device.read`                                                           | `dev.device.control`                                                                                                                                                                                                                   | `device_session`                                                    |
+| github        | `dev.github.read`                                                           | `dev.github.write`; merge/push additionally require plan digest and current M11 approval/policy                                                                                                                                        | `repository` or `pull_request`                                      |
+| resources     | `dev.resources.read`                                                        | stop and restart require `dev.resources.stop`; stopping a process Adea did not start requires `dev.resources.stopForeign`; settings updates require `dev.resources.configure`; destructive cleanup also requires `dev.cleanup.approve` | target process/port/worktree resource                               |
+| cleanupPolicy | `dev.resources.read`                                                        | create/approve/disable requires `dev.cleanup.approve`; evaluate executes nothing                                                                                                                                                       | `cleanup_policy`                                                    |
 
 An operation not present in this matrix is rejected at registration and dispatch.
 Read operations still require scope and capability. “Plan” responses contain a
@@ -4941,8 +5021,13 @@ parent, or port alone is insufficient. A replacement between scan and signal
 must survive.
 
 Ports derive first from launch/session metadata and are confirmed by scoped OS
-inspection. Unknown owners are displayed as external without a stop button. No
-LAN-wide scan, `pkill`, `killall`, or `lsof`-wide termination.
+inspection. A listener Adea did not launch is never stopped through the
+Adea-owned path above. With the default `machine` resource coverage it becomes a
+`ForeignProcessRecord`, and only the user-confirmed foreign stop in
+"Machine-wide inventory and foreign stop" may signal it. With the `adea` coverage
+it is displayed as external without a stop button. No LAN-wide scan,
+`pkill`, `killall`, `lsof`-wide termination, or termination selected by port,
+name, or argv.
 
 Metric defaults:
 
@@ -4984,7 +5069,8 @@ listing without a source is truthful-empty rather than fabricated:
   renders as `exited` for a bounded retention window. Exited-but-unrecorded
   and never-journaled processes are not listed at all.
 - Ports come from the #422 inventory (launch/session metadata confirmed by a
-  loopback-only scan); unknown listeners are `unknown` with no stop path.
+  loopback-only scan); unknown listeners are `unknown` with no Adea-owned
+  stop path (the foreign stop below is a separate, user-confirmed path).
 - Metrics are pull-based: a bounded sample is recorded when the snapshot or
   metrics surface is read, never on a timer. CPU is a monotonic delta
   between consecutive samples of one owner; the first sample carries no
@@ -5062,6 +5148,206 @@ listing without a source is truthful-empty rather than fabricated:
   resources) stay absent by design — every predicate over an absent fact
   fails closed.
 
+### Machine-wide inventory and foreign stop
+
+Agents leave servers, debuggers, and automation browsers running outside
+Adea's launch records: harnesses run in other terminals, and a dev server
+started in an Adea terminal has no launch record either. The resources sheet
+therefore defaults to the whole machine. `ResourcePreferences.coverage =
+'adea'` restores the Adea-only listing, and then the snapshot carries neither
+`foreign` nor `machine`.
+
+The host composes this surface only where it can observe processes: the
+desktop shell uses its bounded command runner on macOS, and a test or another
+host injects one (`runResourceCommand`). Without a runner, `foreign` and
+`machine` are absent, foreign stop fails closed with `capability_unavailable`,
+and external listeners keep the no-stop rendering above. The shell modules are
+`apps/desktop/shell/src/dev-runtime/resources/{capped-command,machine-inventory,foreign-stop,worktree-storage,preferences}.ts`.
+
+Inventory (one bounded pull per snapshot read):
+
+- Every observation goes through the capped runner: fixed argv, 5-second
+  timeout, 1 MiB output cap, and the child is killed when it exceeds either.
+  A killed, truncated, or failed run is reported as such and never read as
+  an empty answer.
+- One `ps -axww -o pid=,ppid=,uid=,rss=,time=,lstart=,comm=` listing gives
+  PID, parent, owner uid, resident bytes, cumulative CPU time, start identity
+  (the whitespace-collapsed `lstart`), and executable identity (`comm`). An
+  incomplete listing proves nothing: the pull reports no foreign rows and
+  forgets the previous observation, so no stop plan can bind to it. One
+  `ps -axww -o pid=,args=` listing supplies command lines for attribution and
+  the redacted preview.
+- `lsof -nP -iTCP -sTCP:LISTEN -F pcn` lists listeners, filtered to loopback or
+  wildcard binds inside `portRange`. It runs at most once per visible sample
+  interval and never faster than every 2 seconds. `lsof` exiting 1 with no
+  output is an empty answer; any other failure leaves `listeningPorts` absent
+  for that pull. One `lsof -a -d cwd -nP -F pn -p <pids>` call reads the
+  working directory of rows not seen before; it is cached per row.
+- The Adea tree is the shell, its descendants, and every proven launch with
+  its descendants. Inside it, a process below an interactive shell (`zsh`,
+  `bash`, `fish`, …) was started by the user in an Adea terminal and is
+  listed with `adea_terminal` attribution, because no launch record proves
+  it. Everything else in the Adea tree (helpers, sidecars, the shells
+  themselves) is never listed, and journal-proven `ProcessRecord`s are never
+  foreign rows.
+- A foreign row is emitted for every listener, every automation app (the top
+  of its tree only), and the 64 largest remaining Adea-user processes, at most
+  256 rows. Descendants that are not rows themselves fold into their row's
+  tree: `childCount`, tree `residentBytes`, and tree CPU.
+- Attribution walks the parent chain, at most 16 hops, and is a display hint
+  only:
+  - `automation` when the process proves it itself: a Chrome for Testing or
+    Simulator executable, or `--enable-automation`,
+    `--remote-debugging-port`, or `--remote-debugging-pipe` on its command
+    line (only with `includeAutomationApps`). Computer-use lanes launch no
+    apps of their own, so there is no separate computer-use attribution.
+  - `harness` when an enabled `recognizedHarnesses` entry matches the
+    executable basename or the first script argument (`node …/claude`). The
+    matchers are fixed executables shipped with Adea; the preference only
+    selects which are on.
+  - `adea_terminal` as above, otherwise `unknown`.
+- `worktreeId` is the registered worktree whose root contains the working
+  directory (longest root wins).
+- Metrics follow the existing rules: CPU is a monotonic delta over the tree,
+  absent on the first observation, and unknown values are absent, never zero.
+  Each row keeps 10 minutes of tree resident bytes and reports at most 30
+  evenly spaced points; history is dropped when the row disappears.
+- `commandPreview` and `cwdLabel` are redacted before they leave the host:
+  home becomes `~`, values after secret-looking flags (`--token`,
+  `--api-key`, …) and in secret-looking assignments (`GITHUB_TOKEN=…`) are
+  masked, and the preview is truncated to 160 characters. Both are
+  display-only and never become event payloads or telemetry.
+- `MachineResourceSummary` reads total and free memory, cumulative CPU times
+  (the percentage is a delta between pulls), and the free and total bytes of
+  the volume holding the home directory.
+
+Protection, evaluated by the host on every observation and again before
+every signal:
+
+- `other_user`: the process is owned by another uid.
+- `system`: PID 1 or lower, `kernel_task`, `launchd`, `WindowServer`,
+  `loginwindow`, an executable under `/System/`, `/usr/libexec/`,
+  `/usr/sbin/`, `/sbin/`, or `/Library/Apple/`, and the Adea tree outside its
+  terminals plus the chain of processes that launched the shell.
+- `protected_list`: the executable basename or `.app` name matches
+  `protectedExecutables` (an entry ending in `*` is a prefix). The default
+  list is postgres, redis-server, mysqld, `com.docker.*`, and ollama.
+
+A protected row is listed with its reason and has `stoppable: false`. No
+operation accepts it.
+
+Foreign stop is `dev.resources.foreignStopPlan` → `dev.resources.foreignStopCommit`,
+under the separate `dev.resources.stopForeign` capability:
+
+- The plan binds the envelope resource
+  `{kind: 'foreign_process', id: foreignProcessId, generation: observationGeneration}`
+  to the latest observation. It refuses an unknown row (`not_found`), another
+  generation (`stale_generation`), and a protected or unstoppable row
+  (`ownership_unproven`). It records PID, start identity, executable
+  identity, uid, and the descendant set, and its steps name every PID to be
+  signalled, children first. `force` is a plan option, so changing it means a
+  new plan. The plan expires after 60 seconds and is single use.
+- The renderer shows the plan in the shared `AlertDialog`: the redacted
+  command, folder, PID, start time, child count, attribution, that Adea did
+  not start it, that unsaved work may be lost, and the PIDs the plan names.
+  Confirmation is per process. There is no bulk confirm and no "remember
+  this choice".
+- The commit re-reads each PID (`ps -o uid=,lstart=,comm= -p <pid>`)
+  immediately before signalling it. If the root's start identity,
+  executable identity, or uid changed, or it became protected, nothing is
+  signalled and the commit fails `ownership_unproven`. A child that changed
+  or exited is skipped. A root that already exited reports `already_gone`.
+  The first signal is SIGTERM, children first. The commit then waits up to 10
+  seconds for the root to exit; without `force` an unexited root reports
+  `still_running`. With `force`, each survivor is re-proven and sent SIGKILL,
+  and the outcome is `forced` or `still_running`.
+- Foreign stop never participates in automatic cleanup, cleanup-policy
+  evaluation, or `Complete and clean…`. A worktree whose preflight is blocked
+  by a foreign process stays blocked until the user stops that process
+  through this path and the preflight is re-run.
+
+Restart (`dev.resources.restartPlan` → `dev.resources.restartCommit`, under
+`dev.resources.stop`) applies only to proven, running Adea launches of a
+supervised component. The plan binds `{kind: 'process', id, generation}` like
+the stop plan. The commit fences the generation and identity itself (the
+engine's restart takes a component id) and then calls the supervision
+engine's `restart`, which re-proves identity, stops, and relaunches the
+component from its manifest command as a new generation. The reply is the
+relaunched `ProcessRecord`. Without an engine restart the plan fails closed
+with `capability_unavailable`. Foreign processes have no restart.
+
+Worktree storage (`dev.resources.worktreeStorage`) returns one
+`WorktreeStorageRecord` per registered, non-quarantined worktree:
+
+- Measurement is lazy: a request schedules it and the reply carries the
+  current state (`measuring` until the first walk finishes). The sheet asks
+  only while its Storage tab or clean-up review is open.
+- One walker runs per runtime node with at most 4 concurrent directory reads.
+  It never follows symlinks, never crosses a mount point, and spends at most
+  2 minutes per worktree. A walk that runs out of budget reports `stale`,
+  keeps its previous bytes, and resumes from where it stopped on the next
+  request.
+- A finished result is served from cache and re-measured on request once it
+  is at least 15 minutes old.
+- Bytes inside `node_modules`, `target`, `.venv`, `venv`, `dist`, `build`,
+  `.next`, `.turbo`, `.output`, `.svelte-kit`, `__pycache__`, `.gradle`,
+  `Pods`, and `DerivedData` count as `buildBytes`; allocated blocks are
+  counted where the filesystem reports them.
+- An unreadable root is `unreadable` with bytes absent, never zero; an
+  unreadable subdirectory contributes nothing.
+
+Resource preferences (`dev.resources.preferences` under
+`dev.resources.read`, `dev.resources.preferencesUpdate` under
+`dev.resources.configure`) persist `ResourcePreferences` per device in the
+shell's private data directory (`dev-runtime/resources/preferences.json`):
+
+- The update carries `expectedVersion`; a different stored version fails
+  `stale_version`. Every accepted update increments `version`.
+- Every numeric field is clamped:
+  - memory alert: 256 MiB–64 GiB; growth: 16 MiB–64 GiB;
+  - growth window: 1–60 minutes; snooze: 0–7 days;
+  - idle time: 15 minutes–7 days;
+  - quarantine retention: 1–30 days;
+  - retained-data retention: 1–90 days;
+  - visible sampling: 2–60 seconds; background sampling: 30–600 seconds.
+- Lists are bounded to 32 printable entries without `/`. A harness name
+  without a shipped matcher is dropped.
+- A stored document that cannot be read is replaced field by field with
+  defaults, never rejected wholesale. Without a store, reads answer with the
+  defaults and updates fail closed with `capability_unavailable`.
+- These are the only resource settings. App Settings has no resource section.
+- What reads each setting today: the host reads `coverage`,
+  `includeAutomationApps`, `recognizedHarnesses`, `portRange`,
+  `protectedExecutables`, and `sampling.visibleSeconds` (listener scan
+  interval). The sheet reads `alerts.residentBytesAbove`,
+  `alerts.growthBytes`, `alerts.growthWindowSeconds`, `cleanup.mode`,
+  `cleanup.serverIdleSeconds`, and `sampling.visibleSeconds` (poll interval).
+  The remaining fields are stored and validated but not yet acted on, and the
+  sheet does not offer them. `cleanup.mode = 'automatic'` is shown as
+  unavailable: no background runner for approved cleanup policies exists.
+
+Clean-up review composes existing authorities and adds none:
+
+- Candidates:
+  - a running Adea launch whose worktree is no longer registered, or whose
+    CPU stayed under 1% for the whole `serverIdleSeconds` window;
+  - an archived, managed, Adea-provenance worktree;
+  - a stoppable foreign row that holds a port or is over the memory alert.
+- Pre-selected: those Adea launches unless they are leaking, and those
+  archived worktrees once their plan has no blockers. Leaking servers,
+  protected rows, and foreign rows are never pre-selected.
+- When the review opens, each archived worktree is planned through
+  `dev.worktree.cleanupPlan` with `quarantine_worktree` and
+  `unregister_worktree` (branch kept); a plan with blockers is listed under
+  "Can't be cleaned up" with the host's reasons.
+- Confirming runs each selected item in turn and plans it again first:
+  servers through the Adea-owned stop plan/commit, worktrees through
+  `dev.worktree.cleanupCommit`. Foreign rows each open their own foreign stop
+  confirmation.
+- Retained data is shown read-only in the Storage tab; no prune operation
+  exists for it, so the review does not offer one.
+- `cleanup.mode = 'off'` hides the banner and disables the review.
+
 ### Runtime activity
 
 The Agents pane mounts the harness status surface above the Activity section:
@@ -5082,12 +5368,42 @@ agent/profile, model, state, and elapsed time; `awaiting_input` and
 "what needs me?" without terminal scrolling. Stop controls ride the
 session-scoped, generation-fenced `dev.session.cancelHarness` command and
 are disabled while the session generation is unknown. The workspace top bar
-carries the runtime-resources action on every view; its detail sheet shows the
-process/port inventory, metric summaries, provider usage cards, and the
-retained-data breakdown with cleanup context, docked by the shared inset
-Sheet to the workspace's end edge below the bar on every host. Lanes without
-a Dev runtime channel render the typed unavailable state; absent capability
-renders as typed states.
+carries the runtime-resources action on every view. Its detail sheet is docked
+by the shared inset Sheet to the workspace's end edge below the bar on every
+host, widened to 37.5rem through its `dev-resources-sheet` hook. All resource
+management and all resource settings live in this one sheet
+(`packages/dev-view/src/resources/`):
+
+- **Header:** the title, the coverage (`This machine` or `Adea only`), and
+  the refresh and settings `ActionButton`s.
+- **Overview:** the memory used by Adea (proven launches plus processes in
+  Adea terminals) over a machine memory bar split into Adea, other listed
+  processes, other apps, and free; then CPU, ports, and storage tiles.
+- **Attention banner:** the pre-selected clean-up count and the disk it
+  would free, or the leaking servers and port-holding foreign processes that
+  need a look, with a Review action.
+- **Servers & apps tab:** rows grouped by worktree (proven launches and
+  foreign rows whose working directory is in a registered worktree), then
+  "Worktree deleted" for launches whose worktree is gone, then "Adea", then
+  "Elsewhere on this machine", then "Protected". Each row shows its port, what
+  it is, who started it, a memory sparkline, and tree memory, plus row actions:
+  restart (proven launches), stop (stoppable rows), and details. A row is
+  leaking when its memory grew by at least `alerts.growthBytes` within
+  `alerts.growthWindowSeconds`, and over its limit when it holds at least
+  `alerts.residentBytesAbove`; both use the warning tone. Protected rows show
+  why and have no stop.
+- **Storage tab:** a disk bar (worktree source, builds and dependencies,
+  retained data), the worktree list with state badges and sizes, and the
+  read-only retained-data breakdown.
+- **Agents & usage tab:** the provider usage cards.
+- **Drill-in views:** server details (memory and CPU history, facts, and
+  ownership), the clean-up review, resource settings, and the stop, restart,
+  and foreign-stop confirmation in the shared `AlertDialog`.
+- While the sheet is open and the page is visible, it re-reads the snapshot
+  every `sampling.visibleSeconds`.
+
+Lanes without a Dev runtime channel render the typed unavailable state; absent
+capability renders as typed states.
 The resource refresh icon uses the shared explanatory `ActionButton`; an
 unavailable runtime keeps the action inert while its tooltip explains how to
 enable it. Stop and cancel actions use shared destructive and outline button

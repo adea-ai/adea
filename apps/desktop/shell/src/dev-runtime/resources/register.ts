@@ -28,6 +28,7 @@ import type {
   MutationPlan,
   PortRecord,
   ProcessRecord,
+  ResourcePreferencesInput,
   RetainedDataRecord,
   ResourceSnapshot,
   Scope,
@@ -42,7 +43,11 @@ import type {
   SupervisionSnapshot,
 } from '../../supervision/supervisor'
 import type { UsageService } from '../usage/service'
+import type { ForeignStopAuthority } from './foreign-stop'
+import type { MachineInventory } from './machine-inventory'
 import { createMetricsHistory, type MetricsHistory, type ResourceSample } from './metrics'
+import { createMemoryResourcePreferenceStore, type ResourcePreferenceStore } from './preferences'
+import type { WorktreeStorage } from './worktree-storage'
 
 const PLAN_TTL_MS = 10 * 60_000
 /** Exited launch records stay visible (as `exited`) for this window. */
@@ -59,6 +64,9 @@ export type ResourcesSupervisionView = Readonly<{
     componentId: string,
     opts?: { generation?: number; confirmationId?: string; escalate?: boolean }
   ): Promise<SupervisionResult<ExitedRecord>>
+  /** Stops the component (re-proving its identity) and relaunches it from its
+   * manifest command as a new generation. Absent: restart is unavailable. */
+  restart?(componentId: string): Promise<SupervisionResult<unknown>>
 }>
 
 export type ResourceOwnerBinding = Readonly<{
@@ -98,6 +106,14 @@ export type RegisterResourcesRuntimeInput = {
     pids: readonly number[]
   ) => Promise<readonly ResourceSample[]> | readonly ResourceSample[]
   metrics?: MetricsHistory
+  /** Machine-wide foreign inventory (`machine` coverage); absent lists none. */
+  machine?: MachineInventory
+  /** The user-confirmed foreign stop path; absent fails closed. */
+  foreignStop?: ForeignStopAuthority
+  /** Lazy per-worktree disk measurement; absent lists nothing. */
+  worktreeStorage?: WorktreeStorage
+  /** Resource settings; absent keeps defaults and refuses updates. */
+  preferences?: ResourcePreferenceStore
   now?: () => number
   randomId?: () => string
 }
@@ -112,6 +128,15 @@ type ProvenLaunch = {
   processGroup: string
   startedAt: string
   exited: { at: string; expected: boolean } | undefined
+}
+
+type RestartPlanEntry = {
+  plan: MutationPlan
+  componentId: string
+  processRecordId: string
+  identity: ProcessIdentity
+  boundGeneration: number
+  expiresAt: number
 }
 
 type StopPlanEntry = {
@@ -206,11 +231,16 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
   commands: readonly DevOperation[]
   registeredCommands: number
   metrics: MetricsHistory
+  /** Live PIDs of proven, running Adea launches (never listed as foreign). */
+  ownedPids(): ReadonlySet<number>
 } {
   const now = input.now ?? Date.now
   const randomId = input.randomId ?? randomUUID
   const metrics = input.metrics ?? createMetricsHistory({ now })
   const stopPlans = new Map<string, StopPlanEntry>()
+  const restartPlans = new Map<string, RestartPlanEntry>()
+  /** Read-only defaults when no durable store is bound (updates refuse). */
+  const defaultPreferences = createMemoryResourcePreferenceStore({ now })
   /** Stop attempts per component: the second plan for the same component
    * escalates to SIGKILL inside the engine's bounded window (explicit
    * escalation after a graceful window was already tried). */
@@ -381,11 +411,15 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
     'dev.resources.snapshot': async (command) => {
       devOperationDecoders['dev.resources.snapshot'].request(command.body)
       await sampleIntoHistory()
+      const coverage = input.preferences?.current().coverage ?? 'machine'
+      const machine =
+        input.machine && coverage === 'machine' ? await input.machine.observe() : undefined
       const snapshot: ResourceSnapshot = {
         processes: inventory().records,
         ports: await portsForScope(),
         metrics: metrics.list(),
         retainedData: input.retainedData?.() ?? [],
+        ...(machine ? { foreign: machine.foreign, machine: machine.machine } : {}),
         observedAt: new Date(now()).toISOString(),
       }
       return snapshot
@@ -605,6 +639,178 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
         live
       )
     },
+
+    'dev.resources.restartPlan': (command) => {
+      const body = devOperationDecoders['dev.resources.restartPlan'].request(command.body)
+      const processRecordId = body.processRecordId as string
+      requireProcessResource(command, processRecordId)
+      if (!input.supervision?.restart) {
+        throw devError(
+          'capability_unavailable',
+          'no supervision engine with restart is bound; this process cannot be restarted'
+        )
+      }
+      const launch = inventory().byId.get(processRecordId)
+      if (!launch) throw devError('not_found', 'no proven launch record for this process id')
+      if (launch.exited) {
+        throw devError('already_completed', 'this launch record has already exited')
+      }
+      if (command.resource!.generation !== launch.generation) {
+        throw devError('stale_generation', 'resource generation does not match the launch record')
+      }
+      const digest = digestPlan({
+        componentId: launch.componentId,
+        executableIdentity: launch.identity.executableIdentity,
+        generation: launch.generation,
+        pid: launch.identity.pid,
+        pidStartIdentity: launch.identity.pidStartIdentity,
+        processGroup: launch.processGroup,
+        processRecordId,
+        reason: body.reason as string,
+      })
+      const plan: MutationPlan = {
+        id: randomId(),
+        operation: 'dev.resources.restartCommit',
+        scope: input.scope,
+        resource: { kind: 'process', id: processRecordId, generation: launch.generation },
+        factVersions: { launchDigest: digest },
+        steps: [
+          { id: 'stop', kind: 'stop_owned_resource', targetId: launch.componentId, dependsOn: [] },
+          {
+            id: 'relaunch',
+            kind: 'relaunch_owned_resource',
+            targetId: launch.componentId,
+            dependsOn: ['stop'],
+          },
+        ],
+        blockers: [],
+        requiredApprovalIds: [],
+        digest,
+        expiresAt: new Date(now() + PLAN_TTL_MS).toISOString(),
+      }
+      restartPlans.set(plan.id, {
+        plan,
+        componentId: launch.componentId,
+        processRecordId,
+        identity: launch.identity,
+        boundGeneration: launch.generation,
+        expiresAt: now() + PLAN_TTL_MS,
+      })
+      return plan
+    },
+
+    'dev.resources.restartCommit': async (command) => {
+      const body = devOperationDecoders['dev.resources.restartCommit'].request(command.body)
+      if (command.resource === undefined) {
+        throw devError('identity_mismatch', 'operation requires a process resource binding')
+      }
+      const planId = body.planId as string
+      const entry = restartPlans.get(planId)
+      if (!entry || entry.expiresAt <= now()) {
+        restartPlans.delete(planId)
+        throw devError('plan_stale', 'the plan is unknown, expired, or already consumed')
+      }
+      requireProcessResource(command, entry.processRecordId)
+      if (entry.boundGeneration !== command.resource.generation) {
+        throw devError('stale_generation', 'the plan is bound to another launch generation')
+      }
+      if ((body.planDigest as string) !== entry.plan.digest) {
+        throw devError('invalid_state', 'the plan digest does not match the staged plan')
+      }
+      restartPlans.delete(planId)
+      if (!input.supervision?.restart) {
+        throw devError(
+          'capability_unavailable',
+          'no supervision engine with restart is bound; this process cannot be restarted'
+        )
+      }
+      // The engine restarts by component id without a generation fence, so the
+      // fence is enforced here: the bound launch must still be the proven,
+      // running entry with the same identity.
+      const current = inventory().byId.get(entry.processRecordId)
+      if (current?.exited) {
+        throw devError('already_completed', 'this launch record has already exited')
+      }
+      if (
+        !current ||
+        current.generation !== entry.boundGeneration ||
+        !sameIdentity(current.identity, entry.identity)
+      ) {
+        throw devError('ownership_unproven', 'the launch record is no longer provably current')
+      }
+      const outcome = await input.supervision.restart(entry.componentId)
+      if (!outcome.ok) throw mapSupervisionError(outcome)
+      const after = inventory()
+      const relaunch = [...after.byId.values()].find(
+        (launch) =>
+          launch.componentId === entry.componentId &&
+          launch.generation > entry.boundGeneration &&
+          !launch.exited
+      )
+      const relaunched = relaunch
+        ? after.records.find((record) => record.id === relaunch.processRecordId)
+        : undefined
+      if (!relaunched) {
+        throw devError('invalid_state', 'the relaunched process is not yet in the proven inventory')
+      }
+      return relaunched
+    },
+
+    'dev.resources.foreignStopPlan': (command) => {
+      const body = devOperationDecoders['dev.resources.foreignStopPlan'].request(command.body)
+      if (!input.foreignStop) {
+        throw devError(
+          'capability_unavailable',
+          'machine-wide process inventory is not available on this runtime node'
+        )
+      }
+      return input.foreignStop.plan(command, body)
+    },
+
+    'dev.resources.foreignStopCommit': async (command) => {
+      const body = devOperationDecoders['dev.resources.foreignStopCommit'].request(command.body)
+      if (!input.foreignStop) {
+        throw devError(
+          'capability_unavailable',
+          'machine-wide process inventory is not available on this runtime node'
+        )
+      }
+      return input.foreignStop.commit(command, body)
+    },
+
+    'dev.resources.worktreeStorage': (command) => {
+      const body = devOperationDecoders['dev.resources.worktreeStorage'].request(command.body)
+      const records = input.worktreeStorage?.list(body.worktreeId as string | undefined) ?? []
+      const { slice, nextCursor } = paginate(
+        records,
+        body.cursor as string | undefined,
+        body.limit as number | undefined
+      )
+      return page(slice, nextCursor)
+    },
+
+    'dev.resources.preferences': (command) => {
+      devOperationDecoders['dev.resources.preferences'].request(command.body)
+      return preferenceStore().current()
+    },
+
+    'dev.resources.preferencesUpdate': (command) => {
+      const body = devOperationDecoders['dev.resources.preferencesUpdate'].request(command.body)
+      if (!input.preferences) {
+        throw devError(
+          'capability_unavailable',
+          'resource settings cannot be stored on this runtime node'
+        )
+      }
+      return input.preferences.update(
+        body.expectedVersion as number,
+        body.preferences as ResourcePreferencesInput
+      )
+    },
+  }
+
+  function preferenceStore(): ResourcePreferenceStore {
+    return input.preferences ?? defaultPreferences
   }
 
   function liveStopPlan(planId: string): StopPlanEntry {
@@ -623,6 +829,14 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
     return error
   }
 
+  function ownedPids(): ReadonlySet<number> {
+    return new Set(
+      inventory()
+        .records.filter((record) => record.state === 'running' || record.state === 'stopping')
+        .map((record) => record.pid)
+    )
+  }
+
   let registeredCommands = 0
   for (const [operation, handler] of Object.entries(handlers)) {
     if (!handler) continue
@@ -635,5 +849,10 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
     })
     registeredCommands += 1
   }
-  return { commands: Object.keys(handlers) as DevOperation[], registeredCommands, metrics }
+  return {
+    commands: Object.keys(handlers) as DevOperation[],
+    registeredCommands,
+    metrics,
+    ownedPids,
+  }
 }

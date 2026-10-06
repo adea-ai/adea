@@ -1112,6 +1112,18 @@
       "body": "{ repoId: string; expectedVersion: integer }",
       "reply": "Repo"
     },
+    "dev.resources.foreignStopCommit": {
+      "capabilities": ["dev.resources.stopForeign"],
+      "resource": "foreign_process:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "ForeignStopResult"
+    },
+    "dev.resources.foreignStopPlan": {
+      "capabilities": ["dev.resources.stopForeign"],
+      "resource": "foreign_process:required",
+      "body": "{ foreignProcessId: string; expectedGeneration: integer; force?: boolean; reason: string(1..512) }",
+      "reply": "MutationPlan"
+    },
     "dev.resources.metrics": {
       "capabilities": ["dev.resources.read"],
       "resource": null,
@@ -1124,11 +1136,35 @@
       "body": "{ runtimeSessionId?: string; worktreeId?: string; cursor?: string; limit?: integer(1..500) }",
       "reply": "Page<PortRecord>"
     },
+    "dev.resources.preferences": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{}",
+      "reply": "ResourcePreferences"
+    },
+    "dev.resources.preferencesUpdate": {
+      "capabilities": ["dev.resources.configure"],
+      "resource": null,
+      "body": "{ expectedVersion: integer(0..2147483647); preferences: ResourcePreferencesInput }",
+      "reply": "ResourcePreferences"
+    },
     "dev.resources.processes": {
       "capabilities": ["dev.resources.read"],
       "resource": null,
       "body": "{ runtimeSessionId?: string; worktreeId?: string; cursor?: string; limit?: integer(1..500) }",
       "reply": "Page<ProcessRecord>"
+    },
+    "dev.resources.restartCommit": {
+      "capabilities": ["dev.resources.stop"],
+      "resource": "process:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "ProcessRecord"
+    },
+    "dev.resources.restartPlan": {
+      "capabilities": ["dev.resources.stop"],
+      "resource": "process:required",
+      "body": "{ processRecordId: string; expectedGeneration: integer; reason: string(1..512) }",
+      "reply": "MutationPlan"
     },
     "dev.resources.retainedData": {
       "capabilities": ["dev.resources.read"],
@@ -1159,6 +1195,12 @@
       "resource": null,
       "body": "{ runtimeSessionId?: string; projectId?: string; provider?: string; cursor?: string; limit?: integer(1..500) }",
       "reply": "Page<UsageRecord>"
+    },
+    "dev.resources.worktreeStorage": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{ worktreeId?: string; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<WorktreeStorageRecord>"
     },
     "dev.session.archive": {
       "capabilities": ["dev.session.manage"],
