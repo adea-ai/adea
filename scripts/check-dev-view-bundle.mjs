@@ -7,7 +7,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const assets = path.join(root, 'apps/web/dist/client/start-assets')
 
 const DEV_ENTRY_MARKERS = ['Developer workspace panes', 'No runtime projects available.']
-const DEV_LAYOUT_MARKER = 'terminal-bytes-v1 stream'
+// The layout renderer's own landmark label: minified output drops comments,
+// so the marker must be a runtime string (the same one the client budget gate
+// keys on).
+const DEV_LAYOUT_MARKER = 'Developer center panes'
 // The entry/layout pair remains a small, separately lazy shell. The route-aware
 // client gate measures transitive view dependencies and the heavier panes.
 const DEV_CHUNK_BUDGET_BYTES = 112 * 1024

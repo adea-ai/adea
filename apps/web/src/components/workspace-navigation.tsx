@@ -55,7 +55,9 @@ import {
   type DevBreadcrumbSelection,
   type WorkspaceBreadcrumb,
 } from '@adea-ai/workspace-ui/workspace-breadcrumbs'
+import type { WorkspaceRunSummaryItem } from '@adea-ai/types/dev-runtime'
 import { WorkspaceTopBar } from './workspace-top-bar'
+import { createDevWorkspaceNavHost, type DevWorkspaceNavHost } from '../lib/dev-workspace-nav-host'
 import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
@@ -97,6 +99,7 @@ const DevWorkspace = lazyComponent(
           deepLinkSelection?: () => { projectId?: string; sessionId?: string } | undefined
           onSelectionChange?: (selection: { projectId: string; sessionId: string | null }) => void
           onBreadcrumbChange?: (crumb: DevBreadcrumbSelection | undefined) => void
+          workspaceNav?: DevWorkspaceNavHost
         }) => {
           const unavailable =
             entryProps.runtime ??
@@ -136,6 +139,7 @@ const DevWorkspace = lazyComponent(
               deepLinkSelection={entryProps.deepLinkSelection}
               onSelectionChange={entryProps.onSelectionChange}
               onBreadcrumbChange={entryProps.onBreadcrumbChange}
+              workspaceNav={entryProps.workspaceNav}
             />
           )
         }
@@ -364,9 +368,15 @@ export type WorkspaceNavigationProps = Readonly<{
   chatEntry?: (
     fallback: JSX.Element,
     archiveAction: JSX.Element,
-    sidebarOpener: () => HTMLElement | undefined
+    sidebarOpener: () => HTMLElement | undefined,
+    workspaceNav: DevWorkspaceNavHost
   ) => JSX.Element
   client: AgentHqApiClient
+  /**
+   * The desktop cross-workspace run counts (`dev.summary.workspaces`), polled
+   * by the desktop lane; the web lane has none (ADR 0011).
+   */
+  devSummary?: Accessor<readonly WorkspaceRunSummaryItem[] | undefined>
   /** Desktop authorizes local content per workspace before switching. */
   onAuthorizeWorkspace?(workspaceId: string): Promise<void>
   platform: 'desktop' | 'web'
@@ -720,6 +730,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     get workspaces() {
       return props.workspaces
     },
+    get devSummary() {
+      return props.devSummary?.()
+    },
     onSwitchWorkspace: (workspace) => switchToWorkspace(workspace),
     onOpenWorkspaceSettings: () => openSettings('workspace'),
     registerBreadcrumbs: (crumbs) => {
@@ -729,6 +742,17 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       }
     },
   }
+
+  // The Dev sidebar renders the same accordion from the same cloud queries,
+  // joined with the desktop runtime's local bindings (ADR 0011).
+  const devNavHost = createDevWorkspaceNavHost({
+    client: props.client,
+    activeWorkspace: () => props.activeWorkspace,
+    workspaces: () => props.workspaces,
+    switchToWorkspace,
+    openWorkspaceSettings: () => openSettings('workspace'),
+    devSummary: () => props.devSummary?.(),
+  })
 
   // The active workspace's accent themes the whole app while it is active
   // (ADR 0011): it overrides the appearance accent, and a workspace without
@@ -1063,6 +1087,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                             deepLinkSelection={devDeepLinkSelection}
                             onSelectionChange={applyDevSelection}
                             onBreadcrumbChange={setDevBreadcrumb}
+                            workspaceNav={devNavHost}
                           />
                         }
                       >
@@ -1097,7 +1122,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                               workspaceHost={workspaceHost}
                             />,
                             archiveAction,
-                            sidebarOpener
+                            sidebarOpener,
+                            devNavHost
                           )
                         ) : (
                           <ConventionalWorkspace

@@ -25,7 +25,9 @@ test('production WorkspaceNavigation reports its resolved Dev selection and clea
 
   const report = () => page.evaluate(() => window.workspaceNavigationPresentationHarness.report())
   const calls = async () => (await report()).calls
-  const runtimeSession = page.getByRole('button', { name: /Runtime contracts/ })
+  // The fixture's "Runtime contracts" session runs in Example project's
+  // checkout, so selecting that leaf selects it.
+  const runtimeSession = page.getByRole('treeitem', { name: 'main', exact: true })
   try {
     await expect(runtimeSession).toBeVisible()
   } catch (error) {

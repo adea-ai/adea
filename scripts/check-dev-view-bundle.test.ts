@@ -22,8 +22,7 @@ function layoutRenderer(bytes: number, gzipBytes = 1_000) {
     file: 'layout-view.js',
     bytes,
     gzipBytes,
-    source:
-      'const terminalCopy="Terminal output rides the authenticated terminal-bytes-v1 stream";',
+    source: 'const centerLabel="Developer center panes";',
   }
 }
 

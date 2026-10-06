@@ -132,7 +132,7 @@
         "apps/desktop/shell/src/dev-runtime/index.ts",
         "apps/desktop/shell/src/commands.ts",
         "packages/dev-view/src/layout/**",
-        "packages/dev-view/src/sidebar/dev-sidebar-shell.tsx",
+        "packages/dev-view/src/sidebar/dev-workspace-sidebar.tsx",
         "packages/dev-view/src/sidebar/archive-shelf.tsx",
         "packages/dev-view/src/dev-workspace-entry.tsx",
         "packages/dev-view/src/utility-resize-handle.tsx",
@@ -243,10 +243,10 @@
       "issue": 398,
       "destinations": [
         "apps/desktop/shell/src/dev-runtime/projects/**",
-        "packages/dev-view/src/sidebar/dev-sidebar-shell.tsx",
+        "packages/dev-view/src/sidebar/dev-workspace-sidebar.tsx",
         "packages/dev-view/src/sidebar/repo-registry-model.ts",
         "packages/dev-view/src/sidebar/repo-registry-panel.tsx",
-        "packages/dev-view/src/sidebar/add-project-panel.tsx",
+        "packages/dev-view/src/sidebar/dev-nav-dialogs.tsx",
         "packages/dev-view/src/sidebar/add-project-form.tsx",
         "packages/dev-view/src/sidebar/scan-preview-model.ts"
       ],

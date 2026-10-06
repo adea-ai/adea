@@ -27,8 +27,13 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('ready')).toHaveText('ready')
 })
 
-test('collapsed Add Project leaves its form and runtime requests unloaded', async ({ page }) => {
-  await expect(page.locator('details')).not.toHaveAttribute('open')
+const openDialog = (page: Page) =>
+  page.getByRole('button', { name: 'Add repository…', exact: true }).click()
+
+test('an unopened Add repository leaves its form and runtime requests unloaded', async ({
+  page,
+}) => {
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByTestId('operations')).toHaveText('[]')
   await expect(
     page.getByRole('combobox', { name: 'Authorized root to scan', includeHidden: true })
@@ -36,39 +41,44 @@ test('collapsed Add Project leaves its form and runtime requests unloaded', asyn
   expect(formRequests.get(page)).toEqual([])
 })
 
-test('first open loads once and collapse preserves scan and confirmation', async ({ page }) => {
-  await page.locator('summary').click()
-  const root = page.getByRole('combobox', { name: 'Authorized root to scan', includeHidden: true })
+test('the dialog loads once and imports the confirmed entry under the project id', async ({
+  page,
+}) => {
+  await openDialog(page)
+  const dialog = page.getByRole('dialog', { name: 'Add a repository to Fixture project' })
+  await expect(dialog).toBeVisible()
+  const root = dialog.getByRole('combobox', {
+    name: 'Authorized root to scan',
+    includeHidden: true,
+  })
   await expect(root).toBeVisible()
   expect(formRequests.get(page)).toHaveLength(1)
   await expect(page.getByTestId('operations')).toHaveText('["dev.project.bookmarks"]')
   await root.selectOption('root')
-  const confirmation = page.getByRole('checkbox', { name: 'Fixture projectbun' })
+  const confirmation = dialog.getByRole('checkbox', { name: 'Fixture projectbun' })
   await confirmation.focus()
   await confirmation.press('Space')
   await expect(confirmation).toBeChecked()
   // Projects are bound by cloud project id; the form offers no group choice.
   await expect(page.getByRole('textbox', { name: 'New group name' })).toHaveCount(0)
-  await page.locator('summary').click()
-  await expect(root).not.toBeVisible()
-  await expect(root).toHaveCount(1)
-  await page.locator('summary').click()
-  await expect(root).toHaveValue('root')
-  await expect(confirmation).toBeChecked()
-  expect(formRequests.get(page)).toHaveLength(1)
-  await expect(page.getByTestId('operations')).toHaveText(
-    '["dev.project.bookmarks","dev.project.scan"]'
-  )
-  await page.getByRole('button', { name: 'Import confirmed packages' }).click()
+  await dialog.getByRole('button', { name: 'Import confirmed packages' }).click()
   await expect(page.getByTestId('announcement')).toHaveText('Imported 1 project.')
   await expect(page.getByTestId('imports')).toHaveText('1')
+  await expect(page.getByTestId('imported-ids')).toHaveText(
+    '["0d9e4f1a-1111-4000-8000-00000000c10d"]'
+  )
   await expect(page.getByTestId('operations')).toHaveText(
     '["dev.project.bookmarks","dev.project.scan","dev.project.import"]'
   )
+  // A successful import closes the dialog; reopening reuses the loaded form.
+  await expect(dialog).toHaveCount(0)
+  await openDialog(page)
+  await expect(page.getByRole('dialog')).toBeVisible()
+  expect(formRequests.get(page)).toHaveLength(1)
 })
 
 test('authorizing a folder mints a root, lists it, and scans it', async ({ page }) => {
-  await page.locator('summary').click()
+  await openDialog(page)
   const path = page.getByRole('textbox', { name: 'Folder path to authorize' })
   await expect(path).toBeVisible()
   await path.fill('/srv/checkout')
@@ -88,7 +98,7 @@ test('authorizing a folder mints a root, lists it, and scans it', async ({ page 
 })
 
 test('a refused authorization explains itself and keeps the draft path', async ({ page }) => {
-  await page.locator('summary').click()
+  await openDialog(page)
   const path = page.getByRole('textbox', { name: 'Folder path to authorize' })
   await path.fill('/etc/disallowed')
   await page.getByRole('button', { name: 'Authorize folder' }).click()

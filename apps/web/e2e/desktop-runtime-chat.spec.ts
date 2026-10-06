@@ -39,7 +39,7 @@ test('returning desktop Chat mounts canonical sessions and retains draft through
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await mount(page)
-  await expect(page.getByRole('complementary', { name: 'Projects and sessions' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
   const layout = await page.evaluate(() => ({
     viewport: window.innerHeight,
     chat: document.querySelector('.dev-chat')!.getBoundingClientRect().height,
@@ -59,7 +59,14 @@ test('returning desktop Chat mounts canonical sessions and retains draft through
   expect(report.closes).toBeGreaterThan(0)
   expect(
     report.calls.every((operation) =>
-      ['dev.project.list', 'dev.session.list', 'dev.session.events'].includes(operation)
+      [
+        'dev.project.list',
+        'dev.session.list',
+        'dev.session.events',
+        // The shared sidebar's bounded reads: worktree rows and leaf status.
+        'dev.worktree.list',
+        'dev.harness.runs',
+      ].includes(operation)
     )
   ).toBe(true)
   expect(errors).toEqual([])
@@ -166,7 +173,7 @@ test('DesktopFirstRunChat direct project sidebar includes the shared archive foo
   page,
 }) => {
   await mount(page)
-  const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   const archiveAction = sidebar.getByRole('button', { name: /Archived sessions/ })
   await expect(archiveAction).toBeVisible()
   await archiveAction.click()
@@ -199,4 +206,20 @@ test('DesktopFirstRunChat direct project sidebar includes the shared archive foo
       generation: 9,
     },
   })
+})
+
+test('desktop Chat lists the project checkout from the shared workspace sidebar', async ({
+  page,
+}) => {
+  await mount(page)
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+  await expect(sidebar.getByRole('navigation', { name: 'Chat workspaces' })).toBeVisible()
+  const project = sidebar.locator('[role="treeitem"][data-project-id]')
+  await expect(project).toContainText('Canonical project')
+  const checkout = sidebar.getByRole('treeitem', { name: /main/ })
+  await expect(checkout).toHaveAttribute('data-leaf-kind', 'checkout')
+  // Both canonical sessions run in the checkout, so it is the selected leaf.
+  await expect(checkout).toHaveAttribute('aria-selected', 'true')
+  await checkout.click()
+  await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
 })

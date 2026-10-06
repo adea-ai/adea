@@ -2,7 +2,7 @@
  * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
  * Licensed under the Apache License, Version 2.0.
  *
- * Add/search surface for the contextual sidebar (#398): recent authorized
+ * Add/search surface for binding a repository (#398, ADR 0011): recent authorized
  * roots, bounded monorepo scan previews, and a confirm-before-import flow.
  * Composition follows the add flows substantially translated from KiroCrew's
  * ChatSidebar and Orca's AddRepoDialog (donor audit #398), rebuilt for Solid,
@@ -17,11 +17,10 @@ import type {
   DevOperation,
   DevReply,
   ProjectScanEntry,
+  Scope,
 } from '@adea-ai/types/dev-runtime'
 import { For, Show, createSignal, onMount } from 'solid-js'
 import { FolderPlus } from 'lucide-solid'
-
-import type { AddProjectPanelProps } from './add-project-panel'
 
 import { buildDevCommand } from '../browser/command'
 import {
@@ -39,6 +38,21 @@ import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 
+export type AddProjectFormProps = Readonly<{
+  scope: Scope
+  execute(command: DevCommand): Promise<DevReply>
+  /** Names of live projects, for the duplicate preview state. */
+  knownProjectNames: readonly string[]
+  onImported(): void
+  announce(message: string): void
+  /**
+   * Supplies the cloud project id each import binds. The register keys every
+   * binding by a cloud project id and never mints one itself; the Dev
+   * sidebar passes the project being bound. The default mints a client UUID.
+   */
+  mintProjectId?: () => string
+}>
+
 type ScanState =
   | Readonly<{ status: 'idle' }>
   | Readonly<{ status: 'scanning' }>
@@ -50,7 +64,7 @@ type ScanState =
       notice?: string
     }>
 
-export function AddProjectForm(props: AddProjectPanelProps) {
+export function AddProjectForm(props: AddProjectFormProps) {
   const [bookmarks, setBookmarks] = createSignal<readonly ScanBookmarkRow[]>([])
   const [bookmarksError, setBookmarksError] = createSignal('')
   const [selectedBookmarkId, setSelectedBookmarkId] = createSignal('')
