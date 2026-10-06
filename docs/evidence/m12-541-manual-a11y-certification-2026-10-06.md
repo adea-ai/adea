@@ -14,7 +14,9 @@ session:
 - **Driver**: Playwright/Chromium (the apps/web E2E harness), Dev View in the
   deterministic `devE2e=preserved` fixture mode, compose Postgres, web dev
   server, macOS arm64, repository state `feat/a11y-keyboard-sr-cert`
-  (= `origin/main` @ `10a81910f` + this fix set).
+  (= `origin/main` @ `3c04184fb` + this fix set; rebased after #1053 removed
+  `dev.project.reorder` and the group sections, so `cert 4.1.3` certifies the
+  shipped workspace-rail reorder surface instead of the removed sidebar one).
 - **Keyboard walkthrough**: per surface, focus was moved exclusively by
   keyboard (Tab/Shift+Tab, arrows, Enter/Space, Escape, the app's own
   chords). Each walk asserts reachability, operability, focus visibility,
@@ -30,7 +32,7 @@ session:
   packaged-CEF browser surface (tracked on #422/#426, engine-gated).
 
 Surfaces covered: workspace frame (top bar, global rail, skip link), the
-projects/sessions sidebar (disclosure rows, reorder, archive shelf, add-project
+projects/sessions sidebar (disclosure rows, archive shelf, add-project
 form), terminal pane (fixture stream — the production keyboard contract —
 including search open/close and compose), settings dialog (tab pattern, all
 sections), Help Center, About, keyboard reorder announcements, the right
@@ -55,7 +57,7 @@ utility rail, splitter/pane regions, and the source-control/add-project forms.
 | 3.3.1 Error identification   | PASS                   | `cert 3.3.1/3.3.2` (add-project form announces the refusal in the live region)                                                                                                                    |
 | 3.3.2 Labels or instructions | PASS                   | same test: labelled controls, required inputs announced                                                                                                                                           |
 | 4.1.2 Name, role, value      | PASS (fixed)           | finding 5 (session-row name tokens); snapshots assert `[expanded]`/`aria-current`/names across surfaces                                                                                           |
-| 4.1.3 Status messages        | PASS                   | `cert 4.1.3` (reorder position, import result, settings changes land in the polite live region)                                                                                                   |
+| 4.1.3 Status messages        | PASS                   | `cert 4.1.3` (workspace-rail keyboard reorder lands in the polite live region with position and focus); `cert 3.3.1/3.3.2` (import result announced)                                              |
 
 ## Findings → fixes (all fixed in this change set, each with a regression test)
 
@@ -140,10 +142,11 @@ unaffected.
 ## Environment
 
 - Repository: `adea-ai/adea`, branch `feat/a11y-keyboard-sr-cert` = `origin/main`
-  @ `10a81910f` + this fix set; macOS arm64 (darwin 25.6.0), Bun 1.4.0,
+  @ `3c04184fb` + this fix set; macOS arm64 (darwin 25.6.0), Bun 1.4.0,
   Playwright/Chromium headless, Vite dev server, compose Postgres.
-- Validation: the 12-test certification spec green; `dev-view.spec.ts`,
-  `dev-add-project.spec.ts`, `sidebar-resize.spec.ts`, `dev-files-window.spec.ts`,
-  `dev-view-terminal-pane.spec.ts` (minus the pre-existing palette case above),
-  `workspace-form.spec.ts` green; workspace-ui (107) and web (206) unit suites
-  green; typecheck/lint/format clean on the touched packages.
+- Validation: the 12-test certification spec green (re-run on this rebased
+  head); strict axe re-scan `0/0/0/0` on the same head; workspace-ui (117) and
+  web (213) unit suites green; typecheck/lint/format clean. The wider E2E
+  suite (`dev-view`, `dev-add-project`, `sidebar-resize`, `dev-files-window`,
+  `dev-view-terminal-pane` minus the pre-existing palette case above,
+  `workspace-form`) runs in this PR's validation lanes.

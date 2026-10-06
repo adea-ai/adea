@@ -220,10 +220,8 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                                 tone={sessionStateTone[session.state]}
                                 label={session.state}
                                 compact
-                              />
-                              {' '}
-                              <span class="dev-tree-row__title">{session.title}</span>
-                              {' '}
+                              />{' '}
+                              <span class="dev-tree-row__title">{session.title}</span>{' '}
                               <span class="flex shrink-0 items-center gap-1 ms-auto">
                                 <For each={sessionBadges(session.badges)}>
                                   {(badge) => (

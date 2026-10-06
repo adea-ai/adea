@@ -81,9 +81,10 @@ test('cert 2.5.8: sidebar disclosure rows and drag strips meet the 24px target m
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page)
 
-  // Disclosure triggers: the group and project rows. The published header
-  // wrapper keeps its padding; the button must still be a 24px-tall target.
-  for (const rowName of [/^PRODUCT$/i, /^Example project/, /^Runtime tools/]) {
+  // Disclosure triggers: the flat project rows (#1053 removed group
+  // sections). The published header wrapper keeps its padding; the button
+  // must still be a 24px-tall target.
+  for (const rowName of [/^Example project/, /^Runtime tools/]) {
     const row = page.getByRole('button', { name: rowName })
     await expect(row).toBeVisible()
     const box = await row.boundingBox()
@@ -357,21 +358,31 @@ test('cert dialogs: the settings tab pattern and help-center focus restore hold 
   await expect(userSettings).toBeFocused()
 })
 
-test('cert 4.1.3: keyboard reorder and settings state changes are announced', async ({ page }) => {
+test('cert 4.1.3: the workspace rail announces keyboard reorder moves', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page)
 
-  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
-  const projectRows = projectsSidebar
-    .getByRole('button')
-    .filter({ hasText: /Runtime tools|Example project/ })
-  const target = projectRows.filter({ hasText: 'Runtime tools' })
+  // #1053 removed the dev-sidebar project reorder; the workspace rail is the
+  // reorder surface the release ships. Alt+Arrow moves the focused view one
+  // slot, focus follows the moved row, and the rail's own live region
+  // announces the new position. Reorderable rows carry the documented
+  // aria-description (App Library does not), and the target is the last
+  // reorderable row so an upward move always exists.
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  const viewRows = rail.getByRole('button', {
+    description: 'Press Alt with Arrow Up or Arrow Down to move this view.',
+  })
+  const count = await viewRows.count()
+  expect(count, 'the rail has more than one reorderable view').toBeGreaterThan(1)
+  const target = viewRows.nth(count - 1)
+  const rowId = await target.getAttribute('data-row-id')
+  const targetName = await target.getAttribute('aria-label')
   await target.focus()
   await page.keyboard.press('Alt+ArrowUp')
-  await expect(projectRows.first()).toHaveText(/Runtime tools/)
-  await expect(target).toBeFocused()
-  await expect(page.locator('main > [aria-live="polite"]')).toContainText(
-    'Runtime tools moved to position 1 of 2'
+  await expect(viewRows.nth(count - 2)).toHaveAttribute('data-row-id', rowId!)
+  await expect(rail.getByRole('button', { name: targetName! })).toBeFocused()
+  await expect(rail.getByRole('status')).toContainText(
+    `${targetName} moved to position ${count - 1} of ${count}`
   )
 })
 
@@ -444,11 +455,7 @@ test('cert 3.3.1/3.3.2: the add-project form is keyboard-operable with labelled 
   await expect(alert).toBeHidden()
 
   // 3.3.2: every control carries a programmatic label.
-  for (const labelText of [
-    'Folder path to authorize',
-    'Authorized root to scan',
-    'Import into group',
-  ]) {
+  for (const labelText of ['Folder path to authorize', 'Authorized root to scan']) {
     expect(
       (await page.getByRole('combobox', { name: labelText, includeHidden: true }).count()) +
         (await page.getByRole('textbox', { name: labelText }).count())
@@ -464,7 +471,6 @@ test('cert 3.3.1/3.3.2: the add-project form is keyboard-operable with labelled 
   await confirm.focus()
   await page.keyboard.press('Space')
   await expect(confirm).toBeChecked()
-  await page.getByRole('textbox', { name: 'New group name' }).fill('Cert group')
   await page.getByRole('button', { name: 'Import confirmed packages' }).click()
   await expect(page.getByTestId('announcement')).toHaveText('Imported 1 project.')
 })
@@ -482,13 +488,11 @@ test('cert semantics: surfaces expose structured aria snapshots', async ({ page 
   await expect(page.getByRole('complementary', { name: 'Projects and sessions' }).locator('nav'))
     .toMatchAriaSnapshot(`
     - navigation "Dev projects":
-      - heading "Product" [level=2]:
-        - button "Product" [expanded]
-      - heading "Example project" [level=3]:
+      - heading "Example project" [level=2]:
         - button "Example project 2" [expanded]
       - button "active Dev View foundation harness dirty checks… :3000"
       - button "ready Runtime contracts"
-      - heading "Runtime tools" [level=3]:
+      - heading "Runtime tools" [level=2]:
         - button "Runtime tools 2" [expanded]
       - button "ready Other project session input checks ✗"
       - button "archived Archived discovery"
