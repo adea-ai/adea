@@ -973,6 +973,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                   ? 'Collapse utility sidebar'
                   : 'Expand utility sidebar'
               }
+              tooltipIcon={
+                <Show
+                  when={utilityOwner.rightUtilityOpen()}
+                  fallback={<PanelRightOpen aria-hidden="true" />}
+                >
+                  <PanelRightClose aria-hidden="true" />
+                </Show>
+              }
               aria-label={
                 utilityOwner.rightUtilityOpen()
                   ? 'Collapse utility sidebar'
