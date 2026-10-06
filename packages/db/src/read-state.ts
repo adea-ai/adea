@@ -6,7 +6,11 @@ import type {
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { requireProjectAccessScope, visibleProjectCondition } from './project-access'
+import {
+  type ProjectAccessScope,
+  requireProjectAccessScope,
+  visibleProjectCondition,
+} from './project-access'
 import { appendWorkspaceEvent } from './transactions'
 import {
   channelParticipants,
@@ -17,6 +21,45 @@ import {
 } from './schema'
 
 type Database = AgentHqDatabase | AgentHqTransaction
+
+// The participant row that makes a private channel visible to the principal.
+function participantJoin(principal: UserPrincipalRef) {
+  return and(
+    eq(channelParticipants.channelId, channels.id),
+    eq(channelParticipants.principalKind, 'user'),
+    eq(channelParticipants.userId, principal.userId)
+  )
+}
+
+// Active channels the principal can see: workspace-visible or listing them as
+// a participant, outside every hidden project. The id listing, the read state
+// summary and its thread aggregate all use this one predicate, so they can
+// never disagree about which channels are in scope.
+function accessibleChannelCondition(
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  scope: ProjectAccessScope
+) {
+  return and(
+    eq(channels.workspaceId, workspaceId),
+    eq(channels.lifecycleState, 'active'),
+    visibleProjectCondition(channels.projectId, scope),
+    or(eq(channels.visibility, 'workspace'), eq(channelParticipants.userId, principal.userId))
+  )
+}
+
+function accessibleChannelIds(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  scope: ProjectAccessScope
+) {
+  return database
+    .select({ id: channels.id })
+    .from(channels)
+    .leftJoin(channelParticipants, participantJoin(principal))
+    .where(accessibleChannelCondition(workspaceId, principal, scope))
+}
 
 export async function listAccessibleChannelIds(
   database: Database,
@@ -31,26 +74,7 @@ export async function listAccessibleChannelIds(
     principal,
     'Read state unavailable'
   )
-  return database
-    .select({ id: channels.id })
-    .from(channels)
-    .leftJoin(
-      channelParticipants,
-      and(
-        eq(channelParticipants.channelId, channels.id),
-        eq(channelParticipants.principalKind, 'user'),
-        eq(channelParticipants.userId, principal.userId)
-      )
-    )
-    .where(
-      and(
-        eq(channels.workspaceId, workspaceId),
-        eq(channels.lifecycleState, 'active'),
-        visibleProjectCondition(channels.projectId, scope),
-        or(eq(channels.visibility, 'workspace'), eq(channelParticipants.userId, principal.userId))
-      )
-    )
-    .orderBy(asc(channels.id))
+  return accessibleChannelIds(database, workspaceId, principal, scope).orderBy(asc(channels.id))
 }
 
 async function requireChannel(
@@ -63,120 +87,159 @@ async function requireChannel(
   if (!allowed.some(({ id }) => id === channelId)) throw new Error('Read state unavailable')
 }
 
+/**
+ * Per-channel unread state for one user, computed in the database.
+ *
+ * Four statements regardless of workspace size: the project access scope's
+ * two indexed reads (resolved first, because they decide which channels exist
+ * for the caller), then two aggregates issued together.
+ *
+ * - Channels. Each accessible channel with its read state row. The newest live
+ *   top-level sequence is `channels.latest_message_sequence`, which message
+ *   create and delete maintain in their own transactions. The top-level unread
+ *   count is only computed when that frontier is past the read frontier, and
+ *   then it is an index range scan over the unread messages alone, so a read
+ *   channel costs no message access at all.
+ * - Threads. One row per thread root with at least one live reply, grouped by
+ *   (channel, thread root) with that user's thread read state, carrying the
+ *   newest reply sequence and the replies past the thread's read frontier.
+ *
+ * This used to load every live message of every accessible channel into the
+ * application and count there, on every GET and after every mark.
+ */
 export async function listReadStateForUser(
   database: AgentHqDatabase,
   workspaceId: string,
   principal: UserPrincipalRef
 ): Promise<readonly ChannelReadStateSummary[]> {
-  const allowed = await listAccessibleChannelIds(database, workspaceId, principal)
-  const channelIds = allowed.map(({ id }) => id)
-  if (!channelIds.length) return Object.freeze([])
-  const [channelStates, threadStates, messageRows] = await Promise.all([
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Read state unavailable'
+  )
+  const channelReadFrontier = sql`coalesce(${channelReadStates.lastReadSequence}, 0)`
+  const threadReadFrontier = sql`coalesce(${threadReadStates.lastReadSequence}, 0)`
+  const [channelRows, threadRows] = await Promise.all([
     database
-      .select()
-      .from(channelReadStates)
-      .where(
+      .select({
+        channelId: channels.id,
+        lastReadSequence: channelReadStates.lastReadSequence,
+        latestTopLevelSequence: channels.latestMessageSequence,
+        manuallyUnread: channelReadStates.manuallyUnread,
+        readAt: channelReadStates.readAt,
+        // Scalar subqueries in a CASE branch run only when the branch is
+        // taken: a channel whose frontier is not past its read mark is 0
+        // without touching messages.
+        topLevelUnreadCount:
+          sql<number>`case when ${channels.latestMessageSequence} > ${channelReadFrontier} then (
+          select count(*) from ${messages}
+          where ${messages.workspaceId} = ${workspaceId}
+            and ${messages.channelId} = ${channels.id}
+            and ${messages.threadRootMessageId} is null
+            and ${messages.deletedAt} is null
+            and ${messages.sequence} > ${channelReadFrontier}
+        ) else 0 end`.mapWith(Number),
+        updatedAt: channelReadStates.updatedAt,
+      })
+      .from(channels)
+      .leftJoin(channelParticipants, participantJoin(principal))
+      .leftJoin(
+        channelReadStates,
         and(
           eq(channelReadStates.workspaceId, workspaceId),
           eq(channelReadStates.userId, principal.userId),
-          inArray(channelReadStates.channelId, channelIds)
+          eq(channelReadStates.channelId, channels.id)
         )
-      ),
-    database
-      .select()
-      .from(threadReadStates)
-      .where(
-        and(
-          eq(threadReadStates.workspaceId, workspaceId),
-          eq(threadReadStates.userId, principal.userId),
-          inArray(threadReadStates.channelId, channelIds)
-        )
-      ),
+      )
+      .where(accessibleChannelCondition(workspaceId, principal, scope))
+      .orderBy(asc(channels.id)),
     database
       .select({
         channelId: messages.channelId,
-        id: messages.id,
-        sequence: messages.sequence,
-        threadRootMessageId: messages.threadRootMessageId,
+        lastReadSequence: threadReadStates.lastReadSequence,
+        latestSequence: sql<number>`max(${messages.sequence})`.mapWith(Number),
+        manuallyUnread: threadReadStates.manuallyUnread,
+        readAt: threadReadStates.readAt,
+        threadRootMessageId: sql<string>`${messages.threadRootMessageId}`,
+        unreadCount:
+          sql<number>`count(*) filter (where ${messages.sequence} > ${threadReadFrontier})`.mapWith(
+            Number
+          ),
+        updatedAt: threadReadStates.updatedAt,
       })
       .from(messages)
+      .leftJoin(
+        threadReadStates,
+        and(
+          eq(threadReadStates.workspaceId, workspaceId),
+          eq(threadReadStates.userId, principal.userId),
+          eq(threadReadStates.threadRootMessageId, messages.threadRootMessageId)
+        )
+      )
       .where(
         and(
           eq(messages.workspaceId, workspaceId),
-          inArray(messages.channelId, channelIds),
+          inArray(
+            messages.channelId,
+            accessibleChannelIds(database, workspaceId, principal, scope)
+          ),
+          isNotNull(messages.threadRootMessageId),
           isNull(messages.deletedAt)
         )
       )
-      .orderBy(asc(messages.sequence)),
+      // At most one thread read state row exists per (workspace, user, root),
+      // so grouping by its columns never splits a thread.
+      .groupBy(
+        messages.channelId,
+        messages.threadRootMessageId,
+        threadReadStates.lastReadSequence,
+        threadReadStates.manuallyUnread,
+        threadReadStates.readAt,
+        threadReadStates.updatedAt
+      ),
   ])
-  const channelStateById = new Map(channelStates.map((state) => [state.channelId, state]))
-  const threadStateByRoot = new Map(threadStates.map((state) => [state.threadRootMessageId, state]))
-  // Group the message window by channel once, up front. Filtering the full
-  // window inside the per-channel map below was O(channels x messages), and
-  // `rows.at(-1)` / `topLevel.filter` re-walked each channel's slice again for
-  // every read — all invisible at fixture sizes, quadratic on a real workspace.
-  const messagesByChannel = new Map<string, typeof messageRows>()
-  for (const message of messageRows) {
-    const bucket = messagesByChannel.get(message.channelId)
-    if (bucket) bucket.push(message)
-    else messagesByChannel.set(message.channelId, [message])
+  if (!channelRows.length) return Object.freeze([])
+
+  const threadsByChannel = new Map<string, ThreadReadStateSummary[]>()
+  for (const row of threadRows) {
+    const thread: ThreadReadStateSummary = Object.freeze({
+      lastReadSequence: row.lastReadSequence ?? 0,
+      latestSequence: row.latestSequence,
+      manuallyUnread: row.manuallyUnread ?? false,
+      ...(row.readAt ? { readAt: row.readAt.toISOString() } : {}),
+      threadRootMessageId: row.threadRootMessageId,
+      unreadCount: row.unreadCount,
+      ...(row.updatedAt ? { updatedAt: row.updatedAt.toISOString() } : {}),
+    })
+    const bucket = threadsByChannel.get(row.channelId)
+    if (bucket) bucket.push(thread)
+    else threadsByChannel.set(row.channelId, [thread])
   }
 
   return Object.freeze(
-    channelIds.map((channelId) => {
-      const channelState = channelStateById.get(channelId)
-      const channelMessages = messagesByChannel.get(channelId) ?? []
-      const topLevel = channelMessages.filter((message) => !message.threadRootMessageId)
-      const lastReadSequence = channelState?.lastReadSequence ?? 0
-      const latestTopLevelSequence = topLevel.at(-1)?.sequence ?? 0
-      const topLevelUnreadCount = topLevel.filter(
-        ({ sequence }) => sequence > lastReadSequence
-      ).length
-      const repliesByRoot = new Map<string, (typeof channelMessages)[number][]>()
-      for (const message of channelMessages) {
-        if (!message.threadRootMessageId) continue
-        const bucket = repliesByRoot.get(message.threadRootMessageId)
-        // Push, never rebuild: `[...existing, message]` copied the whole
-        // bucket per reply, so a thread with R replies cost O(R^2).
-        if (bucket) bucket.push(message)
-        else repliesByRoot.set(message.threadRootMessageId, [message])
-      }
-      const threads: ThreadReadStateSummary[] = [...repliesByRoot.entries()]
-        .map(([threadRootMessageId, replies]) => {
-          const threadState = threadStateByRoot.get(threadRootMessageId)
-          const effectiveReadSequence = threadState?.lastReadSequence ?? 0
-          const latestReplySequence = replies.at(-1)?.sequence ?? 0
-          return Object.freeze({
-            lastReadSequence: threadState?.lastReadSequence ?? 0,
-            latestSequence: latestReplySequence,
-            manuallyUnread: threadState?.manuallyUnread ?? false,
-            ...(threadState?.readAt ? { readAt: threadState.readAt.toISOString() } : {}),
-            threadRootMessageId,
-            unreadCount: replies.filter(({ sequence }) => sequence > effectiveReadSequence).length,
-            ...(threadState?.updatedAt ? { updatedAt: threadState.updatedAt.toISOString() } : {}),
-          })
-        })
-        .toSorted(
-          (left, right) =>
-            right.latestSequence - left.latestSequence ||
-            left.threadRootMessageId.localeCompare(right.threadRootMessageId)
-        )
+    channelRows.map((row) => {
+      const threads = (threadsByChannel.get(row.channelId) ?? []).toSorted(
+        (left, right) =>
+          right.latestSequence - left.latestSequence ||
+          left.threadRootMessageId.localeCompare(right.threadRootMessageId)
+      )
       const threadUnreadCount = threads.reduce(
         (total, thread) => total + thread.unreadCount + (thread.manuallyUnread ? 1 : 0),
         0
       )
-      const manuallyUnread = channelState?.manuallyUnread ?? false
+      const manuallyUnread = row.manuallyUnread ?? false
       return Object.freeze({
-        channelId,
-        lastReadSequence,
-        latestTopLevelSequence,
+        channelId: row.channelId,
+        lastReadSequence: row.lastReadSequence ?? 0,
+        latestTopLevelSequence: row.latestTopLevelSequence,
         manuallyUnread,
-        ...(channelState?.readAt ? { readAt: channelState.readAt.toISOString() } : {}),
+        ...(row.readAt ? { readAt: row.readAt.toISOString() } : {}),
         threadUnreadCount,
         threads: Object.freeze(threads),
-        topLevelUnreadCount,
-        unread: manuallyUnread || topLevelUnreadCount > 0 || threadUnreadCount > 0,
-        ...(channelState?.updatedAt ? { updatedAt: channelState.updatedAt.toISOString() } : {}),
+        topLevelUnreadCount: row.topLevelUnreadCount,
+        unread: manuallyUnread || row.topLevelUnreadCount > 0 || threadUnreadCount > 0,
+        ...(row.updatedAt ? { updatedAt: row.updatedAt.toISOString() } : {}),
         workspaceId,
       })
     })
