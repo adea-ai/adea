@@ -6,6 +6,7 @@ import {
   groupByDirectory,
   parsePatch,
   splitRows,
+  threadExcerpt,
 } from '../src/source-control-app/model/diff'
 import { duration, prRef, relativeTime } from '../src/source-control-app/model/format'
 import {
@@ -588,6 +589,18 @@ describe('diff rows', () => {
         row.kind === 'pair' ? `${row.left?.kind ?? '-'}|${row.right?.kind ?? '-'}` : row.kind
       )
     ).toEqual(['hunk', 'context|context', 'delete|add', 'delete|-', 'context|context', 'meta'])
+  })
+
+  test("a thread excerpt keeps the whole hunk's line numbers", () => {
+    expect(
+      threadExcerpt(patch).map((row) => [row.kind, row.oldLine ?? null, row.newLine ?? null])
+    ).toEqual([
+      ['delete', 11, null],
+      ['delete', 12, null],
+      ['add', null, 11],
+      ['context', 13, 12],
+    ])
+    expect(threadExcerpt('@@ -1 +1 @@\n+only').map((row) => row.kind)).toEqual(['hunk', 'add'])
   })
 
   test('changed files group by directory', () => {
