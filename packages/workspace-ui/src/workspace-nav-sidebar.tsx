@@ -299,11 +299,12 @@ export function ConversationsSection(props: {
       </span>
     ) : null
   }
-  const row = (channel: ChannelSummary, icon: JSX.Element, label: string) => (
+  // `label` is a getter so a row renames when the agent list settles.
+  const row = (channel: ChannelSummary, icon: JSX.Element, label: () => string) => (
     <ConversationChannelRow
       channel={channel}
       icon={icon}
-      label={label}
+      label={label()}
       onArchive={props.onArchive}
       onCopyLink={props.onCopyLink}
       onRename={props.onRename}
@@ -340,9 +341,7 @@ export function ConversationsSection(props: {
       <div class="conventional-sidebar__nav-nested">
         <For each={directChannelRows()}>
           {(entry) =>
-            row(
-              entry.item(),
-              <Bot aria-hidden="true" />,
+            row(entry.item(), <Bot aria-hidden="true" />, () =>
               entry.item().agentId
                 ? (agentById().get(entry.item().agentId!)?.name ?? 'Agent')
                 : 'Agent'
@@ -350,7 +349,7 @@ export function ConversationsSection(props: {
           }
         </For>
         <For each={groupChannelRows()}>
-          {(entry) => row(entry.item(), <Users aria-hidden="true" />, entry.item().title)}
+          {(entry) => row(entry.item(), <Users aria-hidden="true" />, () => entry.item().title)}
         </For>
       </div>
       <Show when={!props.directChannels.length && !props.groupChannels.length}>
