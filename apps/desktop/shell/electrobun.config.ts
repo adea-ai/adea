@@ -27,6 +27,11 @@ export default {
       // Contents/Resources/app/dev-runtime-sidecar — the install location
       // shell/scripts/packaged-install.ts resolves for the component manifest.
       'build/sidecar-dist': 'dev-runtime-sidecar',
+      // The managed agent archive at the driver's pin. The driver installs
+      // it from Contents/Resources/app/managed-pi before trying the network,
+      // so a fresh install works offline and without a release endpoint.
+      // Bump this file with MANAGED_PI_PINNED_VERSION and its digest.
+      'resources/managed-pi': 'managed-pi',
     },
     mac: {
       bundleCEF: true,

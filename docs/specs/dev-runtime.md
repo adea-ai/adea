@@ -5426,6 +5426,21 @@ provider; otherwise it reports that appearance settings are unavailable in
 this view. Missing preference ownership must not throw, reset the document's
 theme, or prevent navigation to other settings sections.
 
+App Settings holds only app-wide sections: Account & app and Appearance
+(Account), Agents and Input & notifications (Workflows), and Privacy & data,
+Integrations & capabilities and Permissions (Data & access), deep-linked as
+`#settings/<section>`. Workspace-scoped settings live in the workspace
+settings dialog the sidebar's workspace gear opens (`WorkspaceDetailsDialog`,
+`@adea-ai/workspace-ui/workspace-details-dialog`, lazy like app Settings):
+titled "<workspace name> workspace settings" with the workspace's own mark,
+its sections are General (name, mark, accent and Virtual world, saved as they
+change against the workspace version), Memory, Skills and Connections (the
+device connections pane and Connections › Cloud), deep-linked as
+`#workspace-settings/<section>`. The retired `#settings/workspace`,
+`#settings/memory`, `#settings/skills` and `#settings/connections` links open
+the workspace settings dialog at the matching section and are rewritten to
+the canonical hash.
+
 Client preference schema:
 
 ```ts
@@ -5631,6 +5646,14 @@ active workspace's accent themes the app while it is active, overriding the
 appearance accent; a workspace without an accent keeps the appearance accent,
 and collapsed workspace marks show their own accent (or the appearance accent)
 rather than the active one.
+The quick actions (Agents, Mark all read), the Conversations section and the
+archive footer are global: the Dev sidebar, which the desktop runtime Chat also
+mounts, carries the same sections through the `globalNav` slots of its
+workspace nav host, rendered from the active workspace's cloud data
+(`@adea-ai/workspace-ui/global-nav-sections`). Opening Agents or a
+conversation from them goes to Chat; on the desktop the team surface shows
+beside the runtime sidebar (the conventional shell in its `embedded` mode)
+until a runtime leaf is selected again.
 The top bar's existing title slot shows the Workspace › Project › Leaf path as
 published `Breadcrumb` crumbs instead of the plain workspace name; there is no
 extra row and the slot keeps its single-line ellipsis and its sub-48rem hiding.

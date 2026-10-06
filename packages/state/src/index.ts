@@ -28,7 +28,7 @@ export type WorkspaceState = {
   devFocusMode: boolean
   drafts: Readonly<Record<string, string>>
   mobileSidebarOpen: boolean
-  globalPanel: 'about' | 'help' | 'plugins' | 'search' | 'settings' | null
+  globalPanel: 'about' | 'help' | 'plugins' | 'search' | 'settings' | 'workspace-settings' | null
   setCameraViewMode: (mode: WorkspaceViewMode) => void
   setSelectedWorkspaceId: (workspaceId: string | null) => void
   switchWorkspace: (workspaceId: string, options?: { preserveDevSelection?: boolean }) => void

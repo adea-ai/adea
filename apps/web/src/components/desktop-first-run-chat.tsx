@@ -6,6 +6,7 @@ import {
   devBindingsFromProjection,
   resolveDevSelection,
 } from '@adea-ai/dev-view/chat'
+import type { DesktopTeamChat } from './workspace-navigation'
 import type {
   ChatConversation,
   ChatConversationModel,
@@ -59,6 +60,8 @@ export type DesktopFirstRunChatProps = Readonly<{
   projectNames?: DevProjectNames
   /** The cloud workspace the shared sidebar renders (ADR 0011). */
   workspaceNav?: DevWorkspaceNavHost
+  /** The team conversation or Agents surface opened from the sidebar's global sections. */
+  teamChat?: DesktopTeamChat
 }>
 
 type ReadyState = Readonly<{
@@ -348,6 +351,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                 navigationLabel="Chat workspaces"
                 footer={props.archiveAction}
                 onSelectSession={(projectId, sessionId) => {
+                  props.teamChat?.onRuntimeSelection()
                   const store = workspaceStore.getState()
                   if (store.selectedDevProjectId !== projectId)
                     store.setSelectedDevProjectId(projectId)
@@ -357,103 +361,105 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                 announce={setAnnouncement}
               />
               <div class="workspace-runtime-chat">
-                <Show
-                  when={conversation()}
-                  fallback={
-                    <Show
-                      when={state().kind === 'first-run'}
-                      fallback={
-                        <div role="status">
-                          <p>
-                            {attachmentError() ||
-                              (selection()?.status === 'empty' || !conversationSelectionId()
-                                ? 'Select a project with a conversation.'
-                                : 'Opening conversation…')}
-                          </p>
-                          <Show when={attachmentError()}>
-                            <Button onClick={() => setRetry((value) => value + 1)}>
-                              Retry conversation
-                            </Button>
-                          </Show>
-                        </div>
-                      }
-                    >
-                      {(() => {
-                        const onboarding = state()
-                        if (onboarding.kind !== 'first-run') return undefined
-                        return (
-                          <FirstRunOnboarding
-                            facts={onboarding.facts}
-                            port={onboarding.port}
-                            onAction={async (kind) => {
-                              if (kind === 'sign_in') return props.onSignIn()
-                              if (kind === 'add_project' || kind === 'set_up_agent')
-                                props.onOpenDev()
-                              if (kind === 'retry_access' || kind === 'update_app') {
-                                const nextRequest = lifecycle.begin()
-                                setReady(undefined)
-                                setConversation(undefined)
-                                const next = await load(nextRequest)
-                                if (lifecycle.isCurrent(nextRequest) && next) setReady(next)
-                              }
-                            }}
-                            onConversation={createFirstRunConversationHandler({
-                              currentModel: () => ready()?.model,
-                              getModel: () => onboarding.model,
-                              lifecycle,
-                              onAttached: (next) => {
-                                setConversation(next)
-                                const store = workspaceStore.getState()
-                                store.setSelectedDevProjectId(next.projectId)
-                                store.setSelectedRuntimeSessionId(next.runtimeSessionId)
-                                void props.runtime
-                                  .projection?.(onboarding.scope)
-                                  .then((projection) => {
-                                    if (
-                                      !lifecycle.isCurrent(request) ||
-                                      ready()?.model !== onboarding.model
-                                    )
-                                      return
-                                    setReady({
-                                      kind: 'returning',
-                                      model: onboarding.model,
-                                      scope: onboarding.scope,
-                                      projection,
+                <Show when={!props.teamChat?.active()} fallback={props.teamChat?.surface()}>
+                  <Show
+                    when={conversation()}
+                    fallback={
+                      <Show
+                        when={state().kind === 'first-run'}
+                        fallback={
+                          <div role="status">
+                            <p>
+                              {attachmentError() ||
+                                (selection()?.status === 'empty' || !conversationSelectionId()
+                                  ? 'Select a project with a conversation.'
+                                  : 'Opening conversation…')}
+                            </p>
+                            <Show when={attachmentError()}>
+                              <Button onClick={() => setRetry((value) => value + 1)}>
+                                Retry conversation
+                              </Button>
+                            </Show>
+                          </div>
+                        }
+                      >
+                        {(() => {
+                          const onboarding = state()
+                          if (onboarding.kind !== 'first-run') return undefined
+                          return (
+                            <FirstRunOnboarding
+                              facts={onboarding.facts}
+                              port={onboarding.port}
+                              onAction={async (kind) => {
+                                if (kind === 'sign_in') return props.onSignIn()
+                                if (kind === 'add_project' || kind === 'set_up_agent')
+                                  props.onOpenDev()
+                                if (kind === 'retry_access' || kind === 'update_app') {
+                                  const nextRequest = lifecycle.begin()
+                                  setReady(undefined)
+                                  setConversation(undefined)
+                                  const next = await load(nextRequest)
+                                  if (lifecycle.isCurrent(nextRequest) && next) setReady(next)
+                                }
+                              }}
+                              onConversation={createFirstRunConversationHandler({
+                                currentModel: () => ready()?.model,
+                                getModel: () => onboarding.model,
+                                lifecycle,
+                                onAttached: (next) => {
+                                  setConversation(next)
+                                  const store = workspaceStore.getState()
+                                  store.setSelectedDevProjectId(next.projectId)
+                                  store.setSelectedRuntimeSessionId(next.runtimeSessionId)
+                                  void props.runtime
+                                    .projection?.(onboarding.scope)
+                                    .then((projection) => {
+                                      if (
+                                        !lifecycle.isCurrent(request) ||
+                                        ready()?.model !== onboarding.model
+                                      )
+                                        return
+                                      setReady({
+                                        kind: 'returning',
+                                        model: onboarding.model,
+                                        scope: onboarding.scope,
+                                        projection,
+                                      })
                                     })
-                                  })
-                                  .catch(() => undefined)
-                              },
-                              request,
-                            })}
-                          />
-                        )
-                      })()}
-                    </Show>
-                  }
-                >
-                  {(active) => (
-                    <ChatView
-                      conversation={active()}
-                      model={state().model}
-                      onJumpToTerminal={props.onOpenDev}
-                      readingPosition={props.modelHost.readingPosition(state().scope, active())}
-                      onReadingPositionChange={(identity, position) => {
-                        if (!lifecycle.isCurrent(request)) return
-                        props.modelHost.setReadingPosition(state().scope, identity, position)
-                      }}
-                      draftRevision={props.modelHost.draftRevision(
-                        state().scope,
-                        active().runtimeSessionId
-                      )}
-                      onDraftChange={createDesktopChatDraftChangeHandler({
-                        scope: state().scope,
-                        modelHost: props.modelHost,
-                        lifecycle,
-                        request,
-                        onConversationChange: setConversation,
-                      })}
-                    />
-                  )}
+                                    .catch(() => undefined)
+                                },
+                                request,
+                              })}
+                            />
+                          )
+                        })()}
+                      </Show>
+                    }
+                  >
+                    {(active) => (
+                      <ChatView
+                        conversation={active()}
+                        model={state().model}
+                        onJumpToTerminal={props.onOpenDev}
+                        readingPosition={props.modelHost.readingPosition(state().scope, active())}
+                        onReadingPositionChange={(identity, position) => {
+                          if (!lifecycle.isCurrent(request)) return
+                          props.modelHost.setReadingPosition(state().scope, identity, position)
+                        }}
+                        draftRevision={props.modelHost.draftRevision(
+                          state().scope,
+                          active().runtimeSessionId
+                        )}
+                        onDraftChange={createDesktopChatDraftChangeHandler({
+                          scope: state().scope,
+                          modelHost: props.modelHost,
+                          lifecycle,
+                          request,
+                          onConversationChange: setConversation,
+                        })}
+                      />
+                    )}
+                  </Show>
                 </Show>
               </div>
             </div>

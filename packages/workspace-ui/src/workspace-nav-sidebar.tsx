@@ -14,6 +14,21 @@ import type {
   TaskSummary,
   WorkspaceSummary,
 } from '@adea-ai/types'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@adea-ai/ui/components/ui/dropdown-menu'
+import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
+import {
+  SidebarNavButton,
+  SidebarNavItem,
+  SidebarNavLabel,
+  SidebarNavRow,
+  SidebarNavSection,
+} from '@adea-ai/ui/components/layout/sidebar-nav'
 import { Bot, EllipsisVertical, Link2, MessageCircle, Plus, Users, X } from 'lucide-solid'
 import {
   createMemo,
@@ -27,27 +42,12 @@ import {
   type Accessor,
   type JSX,
 } from 'solid-js'
-import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import {
   ContextualSidebar,
   type ContextualSidebarRenderContext,
 } from '@adea-ai/ui/components/layout/contextual-sidebar'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@adea-ai/ui/components/ui/dropdown-menu'
-import {
-  SidebarNavButton,
-  SidebarNavItem,
-  SidebarNavLabel,
-  SidebarNavRow,
-  SidebarNavSection,
-} from '@adea-ai/ui/components/layout/sidebar-nav'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
 import { useWorkspaceState, wideViewportAtLoad, workspaceStore } from '@adea-ai/state'
 import {
   createViewAdapter,
@@ -125,7 +125,7 @@ export type WorkspaceNavHost = Readonly<{
   registerBreadcrumbs?: (crumbs: Accessor<readonly WorkspaceBreadcrumb[]>) => () => void
 }>
 
-function ConversationChannelRow(props: {
+export function ConversationChannelRow(props: {
   channel: ChannelSummary
   icon: JSX.Element
   label: string
@@ -209,6 +209,157 @@ function ConversationChannelRow(props: {
         <SidebarNavLabel>{props.label}</SidebarNavLabel>
       </SidebarNavItem>
     </SidebarNavRow>
+  )
+}
+
+/** Whether any conversation in the read state has unread activity. */
+export function readStateHasUnread(readState: readonly ChannelReadStateSummary[]): boolean {
+  return readState.some(
+    (state) =>
+      (state.topLevelUnreadCount ?? 0) + (state.threadUnreadCount ?? 0) > 0 ||
+      Boolean(state.manuallyUnread)
+  )
+}
+
+/**
+ * The sidebar's global quick actions (ADR 0011): Agents and Mark all read.
+ * They sit above the Workspaces accordion in every view.
+ */
+export function GlobalQuickActions(props: {
+  hasUnread: boolean
+  onMarkAllRead: () => void
+  onOpenAgents: () => void
+}) {
+  return (
+    <div class="conventional-sidebar__quick-actions">
+      <SidebarNavButton type="button" onClick={() => props.onOpenAgents()}>
+        <Bot aria-hidden="true" />
+        Agents
+      </SidebarNavButton>
+      <SidebarNavButton
+        type="button"
+        aria-label="Mark all read"
+        aria-keyshortcuts="Meta+Shift+A"
+        disabled={!props.hasUnread}
+        onClick={() => props.onMarkAllRead()}
+      >
+        <MessageCircle aria-hidden="true" />
+        Mark all read
+        <KbdChord keys="⇧⌘A" size="compact" class="ml-auto" />
+      </SidebarNavButton>
+    </div>
+  )
+}
+
+/**
+ * The global Conversations section (direct agent and group conversations),
+ * below the Workspaces accordion in every view. Presentational: the host owns
+ * the data and every action.
+ */
+export function ConversationsSection(props: {
+  agents: readonly AgentSummary[]
+  createDisabled?: boolean
+  directChannels: readonly ChannelSummary[]
+  groupChannels: readonly ChannelSummary[]
+  readState: readonly ChannelReadStateSummary[]
+  selectedChannelId: string | null
+  onArchive: (channel: ChannelSummary) => void
+  onCopyLink: (channel: ChannelSummary) => void
+  onCreateGroup: () => void
+  onIntent?: (channelId: string) => void
+  onOpenAgents: () => void
+  onRename: (channel: ChannelSummary) => void
+  onSelect: (channelId: string) => void
+  portalMount?: HTMLElement
+  tooltips?: boolean
+  touchTarget?: 'comfortable'
+}) {
+  const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
+  const readStateByChannel = createMemo(
+    () => new Map(props.readState.map((state) => [state.channelId, state]))
+  )
+  const directChannelRows = keyedRows(
+    () => props.directChannels,
+    (channel) => channel.id,
+    (previous, next) => previous.version === next.version && previous.updatedAt === next.updatedAt
+  )
+  const groupChannelRows = keyedRows(
+    () => props.groupChannels,
+    (channel) => channel.id,
+    (previous, next) => previous.version === next.version && previous.updatedAt === next.updatedAt
+  )
+  const unreadBadge = (channelId: string) => {
+    const state = readStateByChannel().get(channelId)
+    const count = (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
+    // aria-hidden: the row button's accessible name stays the channel name;
+    // unread counts are surfaced by the row's own unread state.
+    return count || state?.manuallyUnread ? (
+      <span class="conventional-unread-badge" aria-hidden="true">
+        {count > 99 ? '99+' : count || '•'}
+      </span>
+    ) : null
+  }
+  const row = (channel: ChannelSummary, icon: JSX.Element, label: string) => (
+    <ConversationChannelRow
+      channel={channel}
+      icon={icon}
+      label={label}
+      onArchive={props.onArchive}
+      onCopyLink={props.onCopyLink}
+      onRename={props.onRename}
+      onIntent={() => props.onIntent?.(channel.id)}
+      onSelect={() => props.onSelect(channel.id)}
+      selected={channel.id === props.selectedChannelId}
+      unread={unreadBadge(channel.id)}
+      portalMount={props.portalMount}
+      tooltips={props.tooltips}
+      touchTarget={props.touchTarget}
+    />
+  )
+  return (
+    <SidebarNavSection
+      label="Conversations"
+      headingAs="h2"
+      role="region"
+      aria-label="Conversations"
+      action={
+        <ActionButton
+          type="button"
+          variant="ghost"
+          size="icon-md"
+          touchTarget={props.touchTarget}
+          tooltip={props.tooltips === false ? undefined : 'Create a group conversation'}
+          aria-label="Create group conversation"
+          disabled={props.createDisabled}
+          onClick={() => props.onCreateGroup()}
+        >
+          <Plus aria-hidden="true" />
+        </ActionButton>
+      }
+    >
+      <div class="conventional-sidebar__nav-nested">
+        <For each={directChannelRows()}>
+          {(entry) =>
+            row(
+              entry.item(),
+              <Bot aria-hidden="true" />,
+              entry.item().agentId
+                ? (agentById().get(entry.item().agentId!)?.name ?? 'Agent')
+                : 'Agent'
+            )
+          }
+        </For>
+        <For each={groupChannelRows()}>
+          {(entry) => row(entry.item(), <Users aria-hidden="true" />, entry.item().title)}
+        </For>
+      </div>
+      <Show when={!props.directChannels.length && !props.groupChannels.length}>
+        <SidebarNavButton type="button" onClick={() => props.onOpenAgents()}>
+          <MessageCircle aria-hidden="true" />
+          Start with an Agent
+        </SidebarNavButton>
+      </Show>
+    </SidebarNavSection>
   )
 }
 
@@ -371,38 +522,7 @@ export function WorkspaceNavSidebar(props: Props) {
     if (unregister) onCleanup(unregister)
   })
 
-  const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
-  const readStateByChannel = createMemo(
-    () => new Map(props.readState.map((state) => [state.channelId, state]))
-  )
-  const directChannelRows = keyedRows(
-    () => props.navigation.directAgentChannels,
-    (channel) => channel.id,
-    (previous, next) => previous.version === next.version && previous.updatedAt === next.updatedAt
-  )
-  const groupChannelRows = keyedRows(
-    () => props.navigation.groupChannels,
-    (channel) => channel.id,
-    (previous, next) => previous.version === next.version && previous.updatedAt === next.updatedAt
-  )
-  const hasUnread = () =>
-    props.readState.some(
-      (state) =>
-        (state.topLevelUnreadCount ?? 0) + (state.threadUnreadCount ?? 0) > 0 ||
-        Boolean(state.manuallyUnread)
-    )
-  const unreadBadge = (channelId: string) => {
-    const state = readStateByChannel().get(channelId)
-    const count = (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
-    // aria-hidden: the row button's accessible name stays the channel name;
-    // unread counts are surfaced by the row's own unread state.
-    return count || state?.manuallyUnread ? (
-      <span class="conventional-unread-badge" aria-hidden="true">
-        {count > 99 ? '99+' : count || '•'}
-      </span>
-    ) : null
-  }
-
+  const hasUnread = () => readStateHasUnread(props.readState)
   const copyLink = (params: Readonly<Record<string, string>>, failure: string) => {
     setActionError(null)
     const url = new URL(window.location.href)
@@ -569,23 +689,11 @@ export function WorkspaceNavSidebar(props: Props) {
         tooltips={rowTooltips}
         quickActions={
           <>
-            <div class="conventional-sidebar__quick-actions">
-              <SidebarNavButton type="button" onClick={() => props.onOpenAgents()}>
-                <Bot aria-hidden="true" />
-                Agents
-              </SidebarNavButton>
-              <SidebarNavButton
-                type="button"
-                aria-label="Mark all read"
-                aria-keyshortcuts="Meta+Shift+A"
-                disabled={!hasUnread()}
-                onClick={markAllRead}
-              >
-                <MessageCircle aria-hidden="true" />
-                Mark all read
-                <KbdChord keys="⇧⌘A" size="compact" class="ml-auto" />
-              </SidebarNavButton>
-            </div>
+            <GlobalQuickActions
+              hasUnread={hasUnread()}
+              onMarkAllRead={markAllRead}
+              onOpenAgents={() => props.onOpenAgents()}
+            />
             <Show when={actionError()}>
               {(message) => (
                 <Alert variant="destructive" class="conventional-sidebar-error">
@@ -597,82 +705,24 @@ export function WorkspaceNavSidebar(props: Props) {
           </>
         }
         conversations={
-          <SidebarNavSection
-            label="Conversations"
-            headingAs="h2"
-            role="region"
-            aria-label="Conversations"
-            action={
-              <ActionButton
-                type="button"
-                variant="ghost"
-                size="icon-md"
-                touchTarget="comfortable"
-                tooltip={rowTooltips ? 'Create a group conversation' : undefined}
-                aria-label="Create group conversation"
-                disabled={props.workspaceReady === false}
-                onClick={() => props.onCreateGroup()}
-              >
-                <Plus aria-hidden="true" />
-              </ActionButton>
-            }
-          >
-            <div class="conventional-sidebar__nav-nested">
-              <For each={directChannelRows()}>
-                {(entry) => (
-                  <ConversationChannelRow
-                    channel={entry.item()}
-                    icon={<Bot aria-hidden="true" />}
-                    label={
-                      entry.item().agentId
-                        ? (agentById().get(entry.item().agentId!)?.name ?? 'Agent')
-                        : 'Agent'
-                    }
-                    onArchive={archiveChannel}
-                    onCopyLink={copyChannelLink}
-                    onRename={(channel) => setRenaming({ kind: 'channel', channel })}
-                    onIntent={() => props.onChannelIntent?.(entry.item().id)}
-                    onSelect={() => selectChannel(entry.item().id)}
-                    selected={entry.item().id === props.selectedChannelId}
-                    unread={unreadBadge(entry.item().id)}
-                    portalMount={menuMount()}
-                    tooltips={rowTooltips}
-                    touchTarget={rowTouchTarget}
-                  />
-                )}
-              </For>
-              <For each={groupChannelRows()}>
-                {(entry) => (
-                  <ConversationChannelRow
-                    channel={entry.item()}
-                    icon={<Users aria-hidden="true" />}
-                    label={entry.item().title}
-                    onArchive={archiveChannel}
-                    onCopyLink={copyChannelLink}
-                    onRename={(channel) => setRenaming({ kind: 'channel', channel })}
-                    onIntent={() => props.onChannelIntent?.(entry.item().id)}
-                    onSelect={() => selectChannel(entry.item().id)}
-                    selected={entry.item().id === props.selectedChannelId}
-                    unread={unreadBadge(entry.item().id)}
-                    portalMount={menuMount()}
-                    tooltips={rowTooltips}
-                    touchTarget={rowTouchTarget}
-                  />
-                )}
-              </For>
-            </div>
-            <Show
-              when={
-                !props.navigation.directAgentChannels.length &&
-                !props.navigation.groupChannels.length
-              }
-            >
-              <SidebarNavButton type="button" onClick={() => props.onOpenAgents()}>
-                <MessageCircle aria-hidden="true" />
-                Start with an Agent
-              </SidebarNavButton>
-            </Show>
-          </SidebarNavSection>
+          <ConversationsSection
+            agents={props.agents}
+            createDisabled={props.workspaceReady === false}
+            directChannels={props.navigation.directAgentChannels}
+            groupChannels={props.navigation.groupChannels}
+            readState={props.readState}
+            selectedChannelId={props.selectedChannelId}
+            onArchive={archiveChannel}
+            onCopyLink={copyChannelLink}
+            onCreateGroup={() => props.onCreateGroup()}
+            onIntent={(channelId) => props.onChannelIntent?.(channelId)}
+            onOpenAgents={() => props.onOpenAgents()}
+            onRename={(channel) => setRenaming({ kind: 'channel', channel })}
+            onSelect={(channelId) => selectChannel(channelId)}
+            portalMount={menuMount()}
+            tooltips={rowTooltips}
+            touchTarget={rowTouchTarget}
+          />
         }
       />
     )

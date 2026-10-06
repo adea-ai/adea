@@ -308,6 +308,9 @@ jobs:
           # packaged component manifest resolves nothing and the shell boots
           # truthfully without supervision.
           grep -qx 'Adea.app/Contents/Resources/app/dev-runtime-sidecar/entry.js' <<<"$listing"
+          # The managed agent installs from the bundled pinned archive; a
+          # bundle without it falls back to a network fetch and fails offline.
+          grep -q '^Adea.app/Contents/Resources/app/managed-pi/managed-pi-.*\.archive$' <<<"$listing"
           # Hutch converts apps/desktop/shell/icon.iconset into AppIcon.icns
           # while packing the payload, so a bundle built without the iconset
           # ships an icon-less app to Finder and the Dock. Fail here rather
@@ -323,7 +326,7 @@ jobs:
             packaged_version="$(node ../../../scripts/check-desktop-payload-version.mjs "$payload" "$RELEASE_VERSION")"
             echo "Packaged native version verified: $packaged_version."
           fi
-          echo "Stable bundle verified: shell binary, bundled CEF framework, branded app icon, packaged client, and the terminal sidecar are present (unsigned)."
+          echo "Stable bundle verified: shell binary, bundled CEF framework, branded app icon, packaged client, the terminal sidecar, and the managed agent archive are present (unsigned)."
 
       - name: Stage desktop artifacts
         id: stage

@@ -18,6 +18,8 @@ export * from './onboarding'
 
 export {
   DevWorkspaceSidebar,
+  type DevGlobalNavContext,
+  type DevGlobalNavSlots,
   type DevWorkspaceNavHost,
   type DevWorkspaceSidebarProps,
 } from '../sidebar/dev-workspace-sidebar'

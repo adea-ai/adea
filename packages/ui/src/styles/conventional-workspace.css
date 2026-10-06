@@ -1024,6 +1024,12 @@
   height: 2.5rem;
   border-radius: 0.75rem;
 }
+/* The workspace settings dialog leads its title with the workspace's own mark
+   where the app Settings dialog shows the Adea logo. */
+.workspace-details-dialog__mark {
+  display: flex;
+  flex: 0 0 auto;
+}
 .conventional-dialog-form {
   display: grid;
 }

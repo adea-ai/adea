@@ -15,6 +15,10 @@ import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import type { SearchResult } from './workspace-utility-dialogs'
 import type { WorkspacePlatformServices } from './platform'
 import type { WorkspaceView } from './workspace-view-toggle'
+import {
+  workspaceSettingsHash,
+  workspaceSettingsSectionFromHash,
+} from './workspace-settings-section'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
 const CreateGroupDialog = lazy(() =>
@@ -36,6 +40,11 @@ const WorkspaceSearchDialog = lazy(() =>
 const WorkspaceSettingsDialog = lazy(() =>
   import('./workspace-settings').then((module) => ({ default: module.WorkspaceSettingsDialog }))
 )
+const WorkspaceDetailsDialog = lazy(() =>
+  import('./workspace-details-dialog').then((module) => ({
+    default: module.WorkspaceDetailsDialog,
+  }))
+)
 
 type DialogId =
   | 'conversation-search'
@@ -44,6 +53,7 @@ type DialogId =
   | 'details'
   | 'search'
   | 'settings'
+  | 'workspace-settings'
   | null
 
 export type { WorkspaceNavHost } from './workspace-nav-sidebar'
@@ -64,6 +74,11 @@ export function ConventionalWorkspaceShell(props: {
   restoreFocusRef?: () => HTMLElement | undefined
   /** Render only the task board, full width with no workspace sidebar: the Kanban app. */
   taskBoardOnly?: boolean
+  /**
+   * Render the Chat surfaces without the workspace sidebar, for a host that
+   * keeps its own sidebar beside them (the desktop runtime Chat, ADR 0011).
+   */
+  embedded?: boolean
   /**
    * Opens the standalone task board, when the host has one. Search results and
    * deep links to a Task go there; without it the board opens in place.
@@ -136,8 +151,9 @@ export function ConventionalWorkspaceShell(props: {
 
   createEffect(() => {
     const panel = globalPanel()
-    if (panel === 'settings' && !(props.manageSettings ?? true)) return
-    if (panel !== 'search' && panel !== 'settings') return
+    if ((panel === 'settings' || panel === 'workspace-settings') && !(props.manageSettings ?? true))
+      return
+    if (panel !== 'search' && panel !== 'settings' && panel !== 'workspace-settings') return
     setDialog(panel)
     workspaceStore.getState().setGlobalPanel(null)
   })
@@ -147,7 +163,10 @@ export function ConventionalWorkspaceShell(props: {
     // Captures setDialog from the component scope.
     // oxlint-disable-next-line unicorn/consistent-function-scoping
     const openDeepLinkedSettings = () => {
-      if (window.location.hash.startsWith('#settings')) setDialog('settings')
+      // Workspace settings links (and the retired `#settings/workspace|memory|
+      // skills|connections` ones) open the workspace dialog, not app Settings.
+      if (workspaceSettingsSectionFromHash(window.location.hash)) setDialog('workspace-settings')
+      else if (window.location.hash.startsWith('#settings')) setDialog('settings')
     }
     openDeepLinkedSettings()
     window.addEventListener('hashchange', openDeepLinkedSettings)
@@ -347,8 +366,8 @@ export function ConventionalWorkspaceShell(props: {
       onOpenWorkspaceSettings:
         (props.manageSettings ?? true)
           ? () => {
-              window.history.replaceState(null, '', '#settings/workspace')
-              setDialog('settings')
+              window.history.replaceState(null, '', workspaceSettingsHash('general'))
+              setDialog('workspace-settings')
             }
           : undefined,
     }
@@ -385,10 +404,10 @@ export function ConventionalWorkspaceShell(props: {
         <Show when={controller.activeWorkspace && controller.workspaceId}>
           <main
             class={cn('conventional-workspace', {
-              'conventional-workspace--board': props.taskBoardOnly,
+              'conventional-workspace--board': props.taskBoardOnly || props.embedded,
             })}
           >
-            <Show when={!props.taskBoardOnly}>
+            <Show when={!props.taskBoardOnly && !props.embedded}>
               <WorkspaceNavSidebar
                 view="chat"
                 client={controller.client}
@@ -695,6 +714,14 @@ export function ConventionalWorkspaceShell(props: {
                   }}
                   onSignIn={() => services()?.account?.onSignIn()}
                   onSignOut={() => void signOut()}
+                  open
+                  services={services()}
+                  workspace={controller.activeWorkspace!}
+                />
+              </Show>
+              <Show when={(props.manageSettings ?? true) && dialog() === 'workspace-settings'}>
+                <WorkspaceDetailsDialog
+                  onClose={() => setDialog(null)}
                   open
                   services={services()}
                   workspace={controller.activeWorkspace!}

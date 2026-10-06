@@ -386,9 +386,10 @@ function DesktopWorkspace(props: {
       }}
       activeWorkspace={props.activeWorkspace}
       devSummary={devSummary}
-      chatEntry={(fallback, archiveAction, sidebarOpener, workspaceNav) => (
+      chatEntry={(fallback, archiveAction, sidebarOpener, workspaceNav, teamChat) => (
         <DesktopFirstRunChat
           workspaceNav={workspaceNav}
+          teamChat={teamChat}
           sidebarOpener={sidebarOpener}
           archiveAction={archiveAction}
           client={props.client}

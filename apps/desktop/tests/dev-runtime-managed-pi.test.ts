@@ -22,9 +22,11 @@ import {
 import { createChannelGateway } from '../shell/src/dev-runtime/channel/server'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../shell/src/dev-runtime'
 import {
+  bundledResourcesDirFor,
   createManagedPiDriver,
   MANAGED_PI_ARCHIVE_MAX_BYTES,
   MANAGED_PI_MIN_RUNTIME_VERSION,
+  MANAGED_PI_PINNED_ARCHIVE_SHA256,
   MANAGED_PI_PINNED_ARCHIVE_URL,
   MANAGED_PI_PINNED_VERSION,
   type ManagedPiDriverInput,
@@ -923,4 +925,40 @@ describe('install matrix (#185): partial install and failure atomicity', () => {
       rmSync(dataDir, { recursive: true, force: true })
     }
   }, 30_000)
+})
+
+describe('the packaged app carries the pinned managed Pi archive', () => {
+  const shellRoot = join(import.meta.dir, '..', 'shell')
+
+  test('the bundled resource is the pinned file and hashes to the pinned digest', () => {
+    // The Electrobun copy stage ships resources/managed-pi as
+    // Contents/Resources/app/managed-pi; a pin bump must bump this file too.
+    const bundled = join(shellRoot, 'resources', 'managed-pi', PINNED_ARCHIVE_FILE)
+    expect(existsSync(bundled)).toBe(true)
+    const digest = createHash('sha256').update(readFileSync(bundled)).digest('hex')
+    expect(digest).toBe(MANAGED_PI_PINNED_ARCHIVE_SHA256)
+    const config = readFileSync(join(shellRoot, 'electrobun.config.ts'), 'utf8')
+    expect(config).toContain("'resources/managed-pi': 'managed-pi'")
+  })
+
+  test('the bundled root resolves from the flat-file entry by walk-up', () => {
+    const root = tempDir()
+    try {
+      const bundle = join(root, 'Applications', 'Adea.app')
+      mkdirSync(join(bundle, 'Contents', 'MacOS'), { recursive: true })
+      writeFileSync(join(bundle, 'Contents', 'MacOS', 'bun'), '')
+      const entryDir = join(bundle, 'Contents', 'Resources', 'app', 'bun')
+      mkdirSync(entryDir, { recursive: true })
+      const app = join(bundle, 'Contents', 'Resources', 'app')
+      expect(bundledResourcesDirFor(entryDir)).toBe(app)
+      expect(bundledResourcesDirFor(app)).toBe(app)
+      // A dev run, and an unrelated .app without the bundled runtime, have none.
+      expect(bundledResourcesDirFor(join(root, 'repo', 'src', 'bun'))).toBeNull()
+      const decoy = join(root, 'Decoy.app', 'Contents', 'Resources', 'app', 'bun')
+      mkdirSync(decoy, { recursive: true })
+      expect(bundledResourcesDirFor(decoy)).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

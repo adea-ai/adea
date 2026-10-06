@@ -131,8 +131,8 @@ Status (2026-10-06):
   in Plugins: delivered ([marketplace consumer](../marketplace-consumer.md)).
 - Workspace settings › Skills: delivered. Adea proxies the Control Plane
   workspace catalog (`/v1/catalog/{skills,profiles}/*`, contract 3.0) under
-  `catalog:read`, `catalog:publish` and `catalog:manage`; Settings › Skills
-  lists workspace and read-only system items, publishes a skill from a pasted
+  `catalog:read`, `catalog:publish` and `catalog:manage`; the section (in the
+  per-workspace settings dialog, not app Settings) lists workspace and read-only system items, publishes a skill from a pasted
   JSON manifest and content (shape-checked in the browser, validated by the
   Control Plane), and deprecates or revokes workspace items after a
   destructive confirmation. Agent profiles are listed and managed but not

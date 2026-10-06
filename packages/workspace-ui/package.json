@@ -48,6 +48,13 @@
       "import": "./dist/preferences.js",
       "default": "./dist/preferences.js"
     },
+    "./global-nav-sections": {
+      "types": "./dist/global-nav-sections.d.ts",
+      "solid": "./src/global-nav-sections.tsx",
+      "development": "./src/global-nav-sections.tsx",
+      "import": "./dist/global-nav-sections.js",
+      "default": "./dist/global-nav-sections.js"
+    },
     "./global-workspace-rail": {
       "types": "./dist/global-workspace-rail.d.ts",
       "solid": "./src/global-workspace-rail.tsx",
@@ -75,6 +82,20 @@
       "development": "./src/workspace-settings.tsx",
       "import": "./dist/workspace-settings.js",
       "default": "./dist/workspace-settings.js"
+    },
+    "./workspace-settings-section": {
+      "types": "./dist/workspace-settings-section.d.ts",
+      "solid": "./src/workspace-settings-section.ts",
+      "development": "./src/workspace-settings-section.ts",
+      "import": "./dist/workspace-settings-section.js",
+      "default": "./dist/workspace-settings-section.js"
+    },
+    "./workspace-details-dialog": {
+      "types": "./dist/workspace-details-dialog.d.ts",
+      "solid": "./src/workspace-details-dialog.tsx",
+      "development": "./src/workspace-details-dialog.tsx",
+      "import": "./dist/workspace-details-dialog.js",
+      "default": "./dist/workspace-details-dialog.js"
     },
     "./conventional-workspace-shell": {
       "types": "./dist/conventional-workspace-shell.d.ts",

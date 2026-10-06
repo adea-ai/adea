@@ -15,6 +15,8 @@ export function ConventionalWorkspaceEntry(props: {
   restoreFocusRef?: () => HTMLElement | undefined
   deepLink?: () => WorkspaceDeepLink
   taskBoardOnly?: boolean
+  /** Chat surfaces without the workspace sidebar; the host renders its own. */
+  embedded?: boolean
   manageSettings?: boolean
   onConsumeDeepLink?: () => void
   onOpenTaskBoard?: () => void
@@ -26,6 +28,7 @@ export function ConventionalWorkspaceEntry(props: {
     <TooltipProvider openDelay={200} closeDelay={300} skipDelayDuration={300}>
       <ConventionalWorkspaceShell
         taskBoardOnly={props.taskBoardOnly}
+        embedded={props.embedded}
         archiveAction={props.archiveAction}
         restoreFocusRef={props.restoreFocusRef}
         deepLink={props.deepLink}
