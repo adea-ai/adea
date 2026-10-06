@@ -17,6 +17,14 @@ export {
 } from './connection'
 export { readDatabaseUrl, type DatabaseEnvironment } from './config'
 export {
+  CONTROL_PLANE_IDENTIFIER_PATTERN,
+  controlPlaneScopeIds,
+  isControlPlaneIdentifier,
+  mintControlPlaneIdentifier,
+  type ControlPlaneIdentifierPrefix,
+  type ControlPlaneScopeIds,
+} from './control-plane-identifiers'
+export {
   createContentRef,
   getContentRefForUser,
   updateContentRef,

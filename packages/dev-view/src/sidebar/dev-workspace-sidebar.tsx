@@ -25,7 +25,19 @@ import {
   type NavMenuItemId,
   type ViewAdapter,
 } from '@adea-ai/workspace-nav/adapters'
-import { sortWorkspaces, type NavLeaf, type NavProject } from '@adea-ai/workspace-nav/model'
+import {
+  needsYouFallbackGroupMode,
+  nextWorkspaceNeedingYou,
+  stabilizeNavTree,
+  type NavLeaf,
+  type NavProject,
+} from '@adea-ai/workspace-nav/model'
+import {
+  createSidebarWidth,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_WIDTH_STEP,
+} from '@adea-ai/workspace-nav/sidebar-width'
 import { WorkspaceNav } from '@adea-ai/workspace-nav/workspace-nav'
 import {
   Show,
@@ -49,7 +61,6 @@ import {
   fixtureRuns,
   leafIdForSession,
   sessionForLeaf,
-  stabilizeNavTree,
   visibleDiffWorktreeIds,
   type DevNavAccountSummary,
   type DevNavBinding,
@@ -79,38 +90,9 @@ const DevProjectSettingsDialog = lazy(() =>
 )
 const loadActions = () => import('./dev-nav-actions')
 
-/*
- * The contextual sidebar shares one stored width with the Chat and Virtual
- * navigation (`@adea-ai/workspace-ui`'s WorkspaceNavSidebar owns the same key,
- * bounds and CSS variable). The constants are restated because dev-view does
- * not depend on workspace-ui; change them together.
- */
-const SIDEBAR_WIDTH_STORAGE_KEY = 'adea:workspace-sidebar-width'
-const SIDEBAR_MIN_WIDTH = 208
-const SIDEBAR_MAX_WIDTH = 448
-const SIDEBAR_DEFAULT_WIDTH = 272
 /** Leaf status follows harness runs; the poll stops while the window is hidden. */
 export const DEV_NAV_POLL_MS = 30_000
 const DIFF_INVALIDATION_DEBOUNCE_MS = 500
-
-function clampSidebarWidth(width: number): number {
-  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)))
-}
-
-function devSidebarRootFor(sidebar: HTMLElement | null | undefined): HTMLElement | null {
-  // The width variable must reach the workspace frame: the Dev top-bar's
-  // section alignment and the sidebar itself both read it there. Hosts without
-  // a frame (direct integrations) fall back to the dev workspace root.
-  return (
-    sidebar?.closest<HTMLElement>('.workspace-frame, .workspace-shell--contextual') ??
-    sidebar?.closest<HTMLElement>('.dev-workspace') ??
-    null
-  )
-}
-
-function applyDevSidebarWidth(root: HTMLElement, width: number) {
-  root.style.setProperty('--conventional-sidebar-width', `${clampSidebarWidth(width)}px`)
-}
 
 /**
  * What the host that owns the cloud workspace hands the Dev sidebar: the
@@ -212,14 +194,10 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
   // inline panel and the mobile sheet move one instance (the archive shelf
   // keeps its expanded state across the crossing).
   const footer = children(() => props.footer)
-  const [sidebar, setSidebar] = createSignal<HTMLElement>()
-  const [sidebarWidth, setSidebarWidth] = createSignal(SIDEBAR_DEFAULT_WIDTH)
-  const [rootTick, setRootTick] = createSignal(0)
-  const layoutRoot = createMemo(() => {
-    const element = sidebar()
-    void rootTick()
-    return element?.isConnected ? devSidebarRootFor(element) : null
-  })
+  // One stored width with the Chat and Virtual navigation. The variable must
+  // reach the workspace frame (the Dev top bar's section alignment reads it
+  // there); hosts without a frame fall back to the dev workspace root.
+  const sidebarWidth = createSidebarWidth({ fallbackRootSelector: '.dev-workspace' })
   const [worktrees, setWorktrees] = createSignal<readonly DevNavWorktreeRecord[]>([])
   const [runs, setRuns] = createSignal<readonly DevNavRun[]>([])
   const [diffs, setDiffs] = createSignal<ReadonlyMap<string, { added: number; removed: number }>>(
@@ -242,7 +220,8 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
   const groupBy = useWorkspaceState(
     (state) => state.sidebarGroupBy[activeWorkspaceId()] ?? 'project'
   )
-  const collapsedIds = useWorkspaceState((state) => state.collapsedDevProjectIds)
+  // One collapse set with Chat and Virtual: they render the same cloud projects.
+  const collapsedIds = useWorkspaceState((state) => state.collapsedProjectIds)
   const collapsed = createMemo(() => new Set(collapsedIds()))
 
   // Fixture statuses come from the session badges; production reads runs.
@@ -402,25 +381,6 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
     })
   })
 
-  // ─── Width ────────────────────────────────────────────────────────────────
-  const updateSidebarWidth = (nextWidth: number) => {
-    const root = layoutRoot()
-    if (!root) return
-    const width = clampSidebarWidth(nextWidth)
-    applyDevSidebarWidth(root, width)
-    setSidebarWidth(width)
-  }
-  createEffect(() => {
-    // Restore the shared stored width as soon as the layout root exists — the
-    // same value the Chat/Virtual navigation applies, so one drag sets both.
-    const root = layoutRoot()
-    if (!root) return
-    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
-    if (!Number.isFinite(stored) || stored <= 0) return
-    applyDevSidebarWidth(root, stored)
-    setSidebarWidth(clampSidebarWidth(stored))
-  })
-
   onMount(() => props.registerAddProject?.(() => openNewProject()))
 
   // ─── Adapter and menus ────────────────────────────────────────────────────
@@ -557,13 +517,9 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
   // "Needs you" sums every workspace: activating it moves to the first other
   // workspace that needs the user, else groups this one by status.
   const openNeedsYou = () => {
-    const next = sortWorkspaces(source().tree.workspaces).find(
-      (workspace) =>
-        workspace.id !== activeWorkspaceId() &&
-        (workspace.summary.mentions ?? 0) + workspace.summary.needsYou > 0
-    )
+    const next = nextWorkspaceNeedingYou(source().tree.workspaces, activeWorkspaceId())
     if (next && props.host?.onSwitchWorkspace) switchWorkspace(next.id)
-    else workspaceStore.getState().setSidebarGroupBy(activeWorkspaceId(), 'status')
+    else workspaceStore.getState().setSidebarGroupBy(activeWorkspaceId(), needsYouFallbackGroupMode)
   }
 
   const createWorkspace = (name: string) => {
@@ -695,21 +651,15 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
           onOpenChange={props.onOpenChange}
           wideViewportAtLoad={props.wideViewportAtLoad}
           restoreFocusRef={props.restoreFocusRef}
-          width={sidebarWidth()}
+          width={sidebarWidth.width()}
           minimum={SIDEBAR_MIN_WIDTH}
           maximum={SIDEBAR_MAX_WIDTH}
-          step={16}
+          step={SIDEBAR_WIDTH_STEP}
           resizeLabel="Resize workspace navigation"
           sidebarClass="h-full w-full"
           sheetClass="dev-sidebar__sheet"
           footerClass="max-h-1/2 overflow-y-auto"
-          onSidebarElement={(element, mobile) => {
-            if (mobile) return
-            setSidebar(element)
-            // Solid refs run before insertion; the root memo needs one nudge
-            // once the aside is attached to observe its frame ancestor.
-            if (element) queueMicrotask(() => setRootTick((tick) => tick + 1))
-          }}
+          onSidebarElement={sidebarWidth.onSidebarElement}
           content={(context) => {
             const closeSheet = () => {
               if (context.mobile) props.onOpenChange(false)
@@ -752,7 +702,7 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                 collapsedProjectIds={collapsed()}
                 onProjectExpandedChange={(projectId, expanded) => {
                   if (expanded === collapsed().has(projectId))
-                    workspaceStore.getState().toggleDevProjectCollapsed(projectId)
+                    workspaceStore.getState().toggleProjectCollapsed(projectId)
                 }}
                 onNeedsYou={openNeedsYou}
                 portalMount={context.mobile ? context.portalMount() : undefined}
@@ -775,10 +725,8 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
             )
           }}
           footer={footer() ? () => footer() : undefined}
-          onWidthChange={updateSidebarWidth}
-          onWidthCommit={(width) => {
-            window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(width)))
-          }}
+          onWidthChange={sidebarWidth.onWidthChange}
+          onWidthCommit={sidebarWidth.onWidthCommit}
         />
       </div>
       <Suspense fallback={null}>

@@ -165,20 +165,26 @@ The detailed model is [ADR 0012](0012-workspace-memory-connections-sharing.md).
 
 ## Delivery
 
-Stacked draft pull requests, each green on its own, in this order:
+Stacked draft pull requests, each green on its own, in this order. The
+delivered pull request follows each item:
 
-1. this decision;
-2. workspace update with logo and accent;
-3. rooms become projects;
-4. the cloud account summary;
-5. the device workspace scope;
-6. group removal and local project bindings;
-7. production worktrees and the primary checkout record;
-8. the desktop cross-workspace summary;
-9. the shared sidebar package and project tree;
-10. the workspace accordion, inline create and rail switcher removal;
-11. group-by modes and top-bar breadcrumbs;
-12. workspace memory isolation;
-13. workspace connections and branch switching;
-14. project sharing;
-15. remote-only projects.
+1. this decision — #1036;
+2. workspace update with logo and accent — #1038;
+3. rooms become projects — #1044;
+4. the cloud account summary — #1045;
+5. the device workspace scope — #1049;
+6. group removal and local project bindings — #1053;
+7. production worktrees and the primary checkout record — #1043;
+8. the desktop cross-workspace summary — #1047;
+9. the shared sidebar package and project tree — #1048, with the Dev view
+   adopting it in #1065;
+10. the workspace accordion, inline create and rail switcher removal — #1052;
+11. group-by modes and top-bar breadcrumbs — group-by modes in #1048
+    (model) and #1052 (heading control), breadcrumbs in #1063;
+12. workspace memory isolation — #1046;
+13. workspace connections and branch switching — connections in #1060;
+    branch switching is **not delivered** and remains a follow-up (the
+    checkout menu's "Switch branch…" stays behind the `branchSwitching`
+    flag);
+14. project sharing — #1050;
+15. remote-only projects — #1064.

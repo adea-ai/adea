@@ -106,6 +106,24 @@ It fails when credentials are client-prefixed, hosted TLS is disabled, environme
 - Use point-in-time restore only for data-loss recovery, not as the normal schema rollback mechanism.
 - Pull-request CI applies the full migration history twice and compares the Drizzle journal before running transaction integration tests on its isolated Neon branch.
 
+### Control Plane scopes (`0033`, expand only)
+
+Migration `0033_control-plane-scopes` (ADR 0013) adds
+`workspaces.control_plane_workspace_id` (`wsp_…`) and
+`projects.control_plane_project_id` (`prj_…`). Both are `text not null
+unique`, with a CHECK on the Control Plane identifier grammar
+`^(wsp|prj)_[0-9A-HJKMNP-TV-Z]{26}$`. Their default is the new function
+`app.control_plane_identifier(prefix)`, which produces a ULID: a millisecond
+timestamp plus 80 random bits from `gen_random_uuid()`. The default is
+volatile, so `ADD COLUMN` evaluates it per row, and the migration backfills
+every existing workspace and project with its own value in the same
+statement. That rewrites both tables under a brief exclusive lock. The
+application mints its own identifier on create; the default only covers
+other insert paths, including the previous Worker, so the migration can run
+before the deploy. Identifiers are never reassigned; treat a changed value as
+data loss for that workspace's Control Plane state. See
+[Control Plane credentials](control-plane-credentials.md).
+
 ### Account summary frontier (`0031`)
 
 Migration `0031_account-summary` is expand-only: it adds

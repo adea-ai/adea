@@ -24,7 +24,8 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // Kept at the same rounding step rather than pinning to the build.
   // Re-measured for the shared workspace sidebar (2026-10-01, #861) on top of
   // the runtime-resources control and the rail drag-and-drop work: Chat and
-  // Virtual compose one WorkspaceSidebar, the sidebar's shared Sheet adds raw
+  // Virtual compose one WorkspaceSidebar (now WorkspaceNavSidebar), the
+  // sidebar's shared Sheet adds raw
   // while the sidebar modules move into chunks both views import, and the
   // resources sheet rides its own lazy chunk. The aggregate lands at 2,341,306
   // raw / 705,668 gzip across 93 files once main rides along (Dev-pane top-bar
@@ -83,7 +84,8 @@ export const CLIENT_BUNDLE_BUDGETS = {
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
-    // Virtual view composes the shared WorkspaceSidebar instead of its own
+    // Virtual view composes the shared WorkspaceSidebar (now
+    // WorkspaceNavSidebar) instead of its own
     // room markup, so the route delta carries the sidebar and sidebar-nav
     // composites plus the shared Sheet: 77,771 raw / 26,357 gzip across 11
     // files (merged with main). Ratcheted past the measured value so the gate keeps ~3%
@@ -169,6 +171,7 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the Dev journey total moves 272,992 → 272,378 gzip — slightly better),
     // plus the genuinely new shared archive shelf (1.6 KiB gzip), the
     // published ContextualSidebar composition around DevSidebarNavigation
+    // (now DevWorkspaceSidebar)
     // (+1.5 KiB), the shared StatusChip/Badge/ListRowControl adoptions, and
     // the shell-owned utility owner while the standalone fallback still
     // constructs it eagerly. Raw ratchets to the next whole KiB (~1.4%

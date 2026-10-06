@@ -7427,19 +7427,9 @@
           "review": "pending"
         },
         {
-          "path": "packages/dev-view/src/sidebar/project-tree.tsx",
-          "matchedFiles": 0,
-          "review": "pending"
-        },
-        {
-          "path": "packages/dev-view/src/sidebar/project-row.tsx",
-          "matchedFiles": 0,
-          "review": "pending"
-        },
-        {
-          "path": "packages/dev-view/src/sidebar/worktree-row.tsx",
-          "matchedFiles": 0,
-          "review": "pending"
+          "path": "packages/workspace-nav/src/nav-leaf-tree.tsx",
+          "matchedFiles": 1,
+          "review": "pending; project and worktree rows compose here and in packages/dev-view/src/sidebar/dev-workspace-sidebar.tsx (the planned project-tree/project-row/worktree-row files never landed)"
         },
         {
           "path": "packages/dev-view/src/sidebar/dev-nav-dialogs.tsx",
