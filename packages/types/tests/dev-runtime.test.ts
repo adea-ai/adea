@@ -4,6 +4,8 @@ import {
   decodeCredentialRef,
   decodeRepo,
   decodeRepoInspection,
+  decodeWorktree,
+  decodeWorktreeDiffSummary,
   decodeDevCommand,
   decodeDevReply,
   decodeRootBookmark,
@@ -96,10 +98,11 @@ describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
     // 165 before dev.device.capabilities, 166 before the source control
     // app's 20 pull request collaboration operations, 186 before its 29
-    // GitLab mirrors, 215 before dev.project.authorizeRoot: the registry
-    // ratchet moves only when an operation is deliberately added, and the
+    // GitLab mirrors, 215 before dev.project.authorizeRoot, 216 before
+    // dev.worktree.rename and dev.worktree.diffSummary: the registry ratchet
+    // moves only when an operation is deliberately added, and the
     // decoder-key check below is what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(216)
+    expect(devOperations).toHaveLength(218)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
@@ -1172,6 +1175,109 @@ describe('Dev Runtime authenticated channel (M10 #33)', () => {
     expect(decodeCbor(trailing).byteLength).toBe(encoded.length)
     expect(() => encodeCbor(Number.NaN)).toThrow()
     expect(() => encodeCbor(undefined)).toThrow()
+  })
+})
+
+describe('worktree DTOs (ADR 0011)', () => {
+  const worktree = {
+    id: '00000000-0000-4000-8000-000000000040',
+    scope,
+    kind: 'primary',
+    repoId: '00000000-0000-4000-8000-000000000030',
+    projectId: '00000000-0000-4000-8000-000000000020',
+    canonicalRoot: '/Users/dev/work/adea',
+    rootIdentity: { device: '1', inode: '42', mtimeNs: '1700000000000000000', size: '4096' },
+    provenance: 'external',
+    branchRef: 'refs/heads/feature',
+    headRef: 'refs/heads/feature',
+    headSha: 'b'.repeat(40),
+    lifecycle: 'ready',
+    bootstrap: 'not_started',
+    archived: false,
+    generation: 1,
+    version: 1,
+  } as const
+
+  test('strictly decodes the Worktree record with kind, title, and task link', () => {
+    expect(decodeWorktree(worktree)).toEqual(worktree)
+    const managed = { ...worktree, kind: 'managed', title: 'Fix login', taskId: 'task-123' }
+    expect(decodeWorktree(managed)).toEqual(managed)
+    expect(() => decodeWorktree({ ...worktree, extra: true })).toThrow('unknown key')
+    expect(() => decodeWorktree({ ...worktree, kind: 'checkout' })).toThrow('kind')
+    expect(() => decodeWorktree({ ...worktree, kind: undefined })).toThrow()
+    expect(() => decodeWorktree({ ...worktree, lifecycle: 'gone' })).toThrow('lifecycle')
+    expect(() => decodeWorktree({ ...worktree, title: '' })).toThrow('string length')
+    expect(() => decodeWorktree({ ...worktree, title: 'x'.repeat(121) })).toThrow('string length')
+    expect(() => decodeWorktree({ ...worktree, headSha: 'nope' })).toThrow('git sha')
+    expect(() => decodeWorktree({ ...worktree, id: 'wt-1' })).toThrow('UUID')
+    expect(() => decodeWorktree({ ...worktree, generation: 0 })).toThrow('integer')
+  })
+
+  test('strictly decodes diff summaries and pins the new operation bodies', () => {
+    const summary = {
+      worktreeId: worktree.id,
+      added: 3,
+      removed: 1,
+      filesChanged: 2,
+    }
+    expect(decodeWorktreeDiffSummary(summary)).toEqual(summary)
+    expect(() => decodeWorktreeDiffSummary({ ...summary, path: 'a.ts' })).toThrow('unknown key')
+    expect(() => decodeWorktreeDiffSummary({ ...summary, added: -1 })).toThrow('integer')
+
+    const rename = devOperationDecoders['dev.worktree.rename']
+    expect(
+      rename.request({ worktreeId: worktree.id, expectedVersion: 1, title: 'Fix login' })
+    ).toEqual({ worktreeId: worktree.id, expectedVersion: 1, title: 'Fix login' })
+    expect(() =>
+      rename.request({ worktreeId: worktree.id, expectedVersion: 1, title: 'x'.repeat(121) })
+    ).toThrow()
+    expect(() => rename.request({ worktreeId: worktree.id, title: 'x' })).toThrow()
+    expect(devOperationDefinitions['dev.worktree.rename']).toMatchObject({
+      capabilities: ['dev.worktree.manage'],
+      resource: { kind: 'worktree', idField: 'worktreeId' },
+    })
+
+    const diff = devOperationDecoders['dev.worktree.diffSummary']
+    expect(diff.request({ worktreeIds: [worktree.id] })).toEqual({ worktreeIds: [worktree.id] })
+    expect(() => diff.request({ worktreeIds: Array.from({ length: 51 }, () => 'x') })).toThrow(
+      'array exceeds 50'
+    )
+    expect(devOperationDefinitions['dev.worktree.diffSummary']).toMatchObject({
+      capabilities: ['dev.git.read', 'dev.worktree.read'],
+      resource: null,
+    })
+
+    const observedAt = '2026-09-20T12:00:00.000Z'
+    const requestId = '00000000-0000-4000-8000-000000000004'
+    const reply = (operation: string, value: unknown) => ({
+      schemaVersion: 1,
+      operation,
+      requestId,
+      ok: true,
+      value,
+      observedAt,
+    })
+    for (const operation of [
+      'dev.worktree.rename',
+      'dev.worktree.archive',
+      'dev.worktree.unarchive',
+    ] as const)
+      expect(devOperationDecoders[operation].reply(reply(operation, worktree))).toBeTruthy()
+    expect(
+      devOperationDecoders['dev.worktree.list'].reply(
+        reply('dev.worktree.list', { items: [worktree], observedAt })
+      )
+    ).toBeTruthy()
+    expect(() =>
+      devOperationDecoders['dev.worktree.list'].reply(
+        reply('dev.worktree.list', { items: [{ ...worktree, kind: 'bogus' }], observedAt })
+      )
+    ).toThrow('kind')
+    expect(
+      devOperationDecoders['dev.worktree.diffSummary'].reply(
+        reply('dev.worktree.diffSummary', [summary])
+      )
+    ).toBeTruthy()
   })
 })
 

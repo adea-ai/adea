@@ -4,7 +4,8 @@ import {
   devRuntimeTransportMethods,
   devStreamProtocolDefinitions,
 } from './dev-runtime-registry'
-import { decodeRegistryDto } from './dev-runtime-registry-dto'
+import { decodeRegistryDto, worktreeLifecycles } from './dev-runtime-registry-dto'
+export { worktreeLifecycles } from './dev-runtime-registry-dto'
 import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
 import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
 import {
@@ -833,6 +834,49 @@ export type Repo = Readonly<{
   defaultRef?: string
   projectIds: readonly string[]
   version: number
+}>
+
+// One checkout of a registered repository (ADR 0011). `primary` is the
+// repository's own checkout — exactly one per registered git repository, its
+// branch/HEAD taken from local inspection; it is never archived, cleaned up,
+// renamed, or deleted. `managed` worktrees were created by Adea, `external`
+// ones adopted after gitdir proof. `title` is a local, workspace-private
+// display title that never leaves the device; `taskId` is an opaque cloud
+// task id link.
+export type WorktreeKind = 'primary' | 'managed' | 'external'
+
+export type WorktreeLifecycle = (typeof worktreeLifecycles)[number]
+
+export type Worktree = Readonly<{
+  id: string
+  scope: Scope
+  kind: WorktreeKind
+  repoId: string
+  projectId: string
+  canonicalRoot: string
+  rootIdentity: FileIdentity
+  provenance: 'adea' | 'external'
+  branchRef?: string
+  title?: string
+  taskId?: string
+  baseRef?: string
+  baseSha?: string
+  headRef?: string
+  headSha?: string
+  lifecycle: WorktreeLifecycle
+  bootstrap: 'not_started' | 'running' | 'completed' | 'failed' | 'cancelled'
+  archived: boolean
+  generation: number
+  version: number
+}>
+
+// `dev.worktree.diffSummary` item: counts only, from local git (tracked
+// changes in the working tree and index against the recorded base, or HEAD).
+export type WorktreeDiffSummary = Readonly<{
+  worktreeId: string
+  added: number
+  removed: number
+  filesChanged: number
 }>
 
 // Read-only `dev.repo.inspect` reply: repo record plus fresh on-disk facts
@@ -1688,7 +1732,9 @@ function namedType(name: string, value: unknown, path: string): unknown {
     name === 'ProjectRepoBinding' ||
     name === 'RedactedRemote' ||
     name === 'Repo' ||
-    name === 'RepoInspection'
+    name === 'RepoInspection' ||
+    name === 'Worktree' ||
+    name === 'WorktreeDiffSummary'
   )
     return decodeRegistryDto(name, value, path)
   if (decodeGithubCollaborationDto(name, value, path)) return value
@@ -3638,6 +3684,18 @@ export function decodeRepo(value: unknown): Repo {
   return value as Repo
 }
 
+/** Strict decoder for one worktree record DTO (ADR 0011). */
+export function decodeWorktree(value: unknown): Worktree {
+  namedType('Worktree', value, 'worktree')
+  return value as Worktree
+}
+
+/** Strict decoder for one `dev.worktree.diffSummary` item. */
+export function decodeWorktreeDiffSummary(value: unknown): WorktreeDiffSummary {
+  namedType('WorktreeDiffSummary', value, 'worktreeDiffSummary')
+  return value as WorktreeDiffSummary
+}
+
 /** Strict decoder for the `dev.repo.inspect` reply (#398). */
 export function decodeRepoInspection(value: unknown): RepoInspection {
   namedType('RepoInspection', value, 'repoInspection')
@@ -3696,6 +3754,15 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.repo.refresh': (value) => decodeRepo(value),
   'dev.repo.inspect': (value) => decodeRepoInspection(value),
   'dev.repo.list': (value) => decodeDevRuntimePage(decodeRepo, value),
+  // Worktree records (ADR 0011): the list, archive flips, and the title
+  // rename reply with strict Worktree DTOs; the diff summary with counts.
+  'dev.worktree.list': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('Worktree', item, path), value, 'reply.value'),
+  'dev.worktree.archive': (value) => namedType('Worktree', value, 'reply.value'),
+  'dev.worktree.unarchive': (value) => namedType('Worktree', value, 'reply.value'),
+  'dev.worktree.rename': (value) => namedType('Worktree', value, 'reply.value'),
+  'dev.worktree.diffSummary': (value) =>
+    validateType('WorktreeDiffSummary[]<=50', value, 'reply.value'),
   // Files/search slice (#399): strict DTO decoders installed by the
   // operation-owning provider slice before its handlers register.
   'dev.files.list': (value) =>

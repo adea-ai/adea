@@ -66,7 +66,12 @@ import { RUN_TERMINAL_STATES } from './harness/status'
 import { createUsageService, type UsageService } from './usage/service'
 import type { RetainedDataRecord } from '../../../../../packages/types/src/dev-runtime'
 import { registerWorktreeRuntime } from './worktrees/register'
-import type { WorktreeService } from './worktrees/service'
+import {
+  createWorktreeService,
+  type WorktreeRecord,
+  type WorktreeService,
+} from './worktrees/service'
+import { WorktreeError } from './worktrees/errors'
 import { registerProjectScanRuntime } from './projects/register'
 import { registerRepoRuntime } from './repos/register'
 import { registerFilesRuntime } from './files/register'
@@ -98,6 +103,11 @@ export type DevRuntimeHost = Readonly<{
   /** Present only when a verified scope exists at composition time. */
   harness?: HarnessRuntimeRegistration
   worktrees: ReturnType<typeof registerWorktreeRuntime>
+  /** The ONE worktree service of this composition (present with a verified
+   *  scope): session validation, the worktree register, the terminal/files/
+   *  git/github resolvers, and the repo registry's primary-checkout
+   *  reconciliation all read the same instance. */
+  worktreeService?: WorktreeService
   /** Present only when a verified scope exists at composition time (#399). */
   files?: ReturnType<typeof registerFilesRuntime>
   /** Present only when a verified scope exists at composition time (#399). */
@@ -265,7 +275,32 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     input.authority.capabilitySnapshot(command.scope, identity)
   )
 
-  const worktreeService = input.worktreeService
+  // ADR 0011: production composes exactly one worktree service per verified
+  // scope (tests may inject one). It reads repositories from the single
+  // `dev.repo.*` registry, so a repository adopted through the registry is
+  // immediately a source for worktree creation and its primary checkout is a
+  // worktree record sessions can bind to.
+  const worktreeService: WorktreeService | undefined =
+    input.worktreeService ??
+    (input.scope
+      ? createWorktreeService({
+          dataDir: input.dataDir,
+          runtimeNodeId: input.scope.runtimeNodeId,
+          roots,
+          ...(input.audit ? { audit: input.audit } : {}),
+        })
+      : undefined)
+  /** Non-throwing lookup for the resolver seams: an unknown or out-of-scope
+   *  worktree is `undefined`; every other failure (corrupt state) surfaces. */
+  const lookupWorktree = (worktreeId: string): WorktreeRecord | undefined => {
+    if (!worktreeService || !input.scope) return undefined
+    try {
+      return worktreeService.getWorktree(input.scope, worktreeId)
+    } catch (error) {
+      if (error instanceof WorktreeError && error.code === 'not_found') return undefined
+      throw error
+    }
+  }
   const projectSession = input.scope
     ? registerProjectSessionRuntime({
         authority: input.authority,
@@ -273,14 +308,24 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         scope: input.scope,
         ...(input.publish ? { publish: input.publish } : {}),
         validateSessionCreation: (body) => {
-          const worktree = worktreeService
-            ? worktreeService.getWorktree(input.scope!, body.worktreeId)
-            : undefined
+          const worktree = lookupWorktree(body.worktreeId)
           if (!worktree) {
             throw {
               code: 'not_found',
               retryable: false,
               message: 'session creation requires a registered worktree on this runtime node',
+            } satisfies DevError
+          }
+          // Any live checkout binds, the primary included; a removed one never.
+          if (
+            worktree.archived ||
+            worktree.lifecycle === 'cleaned' ||
+            worktree.lifecycle === 'quarantined'
+          ) {
+            throw {
+              code: 'invalid_state',
+              retryable: false,
+              message: 'session creation requires a live, unarchived worktree',
             } satisfies DevError
           }
         },
@@ -326,6 +371,16 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           return { id: credential.id, host: credential.host, state: credential.state }
         },
         findRepoBindings: (repoId) => projectSession?.findRepoBindings(repoId) ?? [],
+        // ADR 0011: a proven git repository's primary checkout is exactly one
+        // worktree record, created here once and re-inspected on every
+        // later proof (adopt/authorize/refresh/inspect with refresh).
+        ...(worktreeService
+          ? {
+              onRepoProven: async (repoId: string) => {
+                await worktreeService.ensurePrimaryWorktree({ scope: input.scope!, repoId })
+              },
+            }
+          : {}),
       })
     : undefined
 
@@ -341,8 +396,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           sidecar: input.sidecar,
           scope: input.scope,
           runtimeRoot: input.runtimeRoot,
-          resolveWorktreeRoot: (worktreeId) =>
-            worktreeService?.getWorktree(input.scope!, worktreeId)?.canonicalRoot ?? null,
+          resolveWorktreeRoot: (worktreeId) => lookupWorktree(worktreeId)?.canonicalRoot ?? null,
         })
       : undefined
 
@@ -431,7 +485,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         // typed-unavailable through the composition fallback.
         ...(input.gateway ? { gateway: input.gateway } : {}),
         resolveWorktree: (worktreeId) => {
-          const record = worktreeService?.getWorktree(input.scope!, worktreeId)
+          const record = lookupWorktree(worktreeId)
           if (!record) return undefined
           return {
             canonicalRoot: record.canonicalRoot,
@@ -447,7 +501,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         authority: input.authority,
         scope: input.scope,
         resolveWorktree: (worktreeId) => {
-          const record = worktreeService?.getWorktree(input.scope!, worktreeId)
+          const record = lookupWorktree(worktreeId)
           if (!record) return undefined
           return {
             canonicalRoot: record.canonicalRoot,
@@ -502,7 +556,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           registeredRepos(worktreeService)().find((repo) => repo.repoId === repoId),
         listRepos: registeredRepos(worktreeService),
         resolveWorktree: (worktreeId) => {
-          const record = worktreeService?.getWorktree(input.scope!, worktreeId)
+          const record = lookupWorktree(worktreeId)
           if (!record) return undefined
           return {
             canonicalRoot: record.canonicalRoot,
@@ -653,7 +707,10 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         return owned
       }
       return createCleanupWorktreeFacts({
-        worktrees: worktreeService,
+        worktrees: {
+          getWorktree: (_scope, worktreeId) => lookupWorktree(worktreeId),
+          leases: worktreeService.leases,
+        },
         scope: input.scope,
         mergeRecordsPath: join(input.dataDir, 'dev-runtime', 'worktrees', 'merge-records.json'),
         census: ownedResourceCensus,
@@ -749,6 +806,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ...(repos ? { repos } : {}),
     ...(harness ? { harness } : {}),
     worktrees: worktrees ?? { commands: [] as DevOperation[], registeredCommands: 0 },
+    ...(worktreeService ? { worktreeService } : {}),
     ...(files ? { files } : {}),
     ...(git ? { git } : {}),
     ...(github ? { github } : {}),

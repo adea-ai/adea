@@ -15,6 +15,8 @@ import type {
   DevRuntimePage,
   MutationPlan,
   Scope,
+  Worktree,
+  WorktreeDiffSummary,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority } from '../channel/authority'
@@ -23,7 +25,6 @@ import type { RootBookmarkAuthority } from '../roots'
 import {
   createWorktreeService,
   type CreateWorktreeResult,
-  type RepoRecord,
   type WorktreeRecord,
   type WorktreeService,
 } from './service'
@@ -35,24 +36,7 @@ const PLAN_TTL_MS = 10 * 60_000
 // Success-reply DTO shapes (spec-named types Lease/Worktree/Repo/…). The
 // shared contract module resolves these structurally; the client slice owns
 // the strict success decoders, so the host returns exactly these shapes.
-type WorktreeDto = Readonly<{
-  id: string
-  scope: Scope
-  repoId: string
-  projectId: string
-  canonicalRoot: string
-  rootIdentity: WorktreeRecord['rootIdentity']
-  provenance: 'adea' | 'external'
-  baseRef?: string
-  baseSha?: string
-  headRef?: string
-  headSha?: string
-  lifecycle: WorktreeRecord['lifecycle']
-  bootstrap: 'not_started' | 'running' | 'completed' | 'failed' | 'cancelled'
-  archived: boolean
-  generation: number
-  version: number
-}>
+type WorktreeDto = Worktree
 
 type LeaseDto = Readonly<{
   id: string
@@ -73,25 +57,6 @@ type WorktreeOperationDto = Readonly<{
   step: string
   state: 'not_started' | 'running' | 'completed' | 'failed' | 'cancelled'
   nextRetryAt?: string
-}>
-
-type RedactedRemoteDto = Readonly<{
-  provider: 'github' | 'gitlab' | 'other'
-  host: string
-  ownerPath: string
-  displayUrl: string
-}>
-
-type RepoDto = Readonly<{
-  id: string
-  scope: Scope
-  kind: 'git' | 'folder'
-  lifecycle: 'authorizing' | 'ready' | 'unavailable' | 'stale' | 'refreshing'
-  canonicalRoot: string
-  remote?: RedactedRemoteDto
-  defaultRef?: string
-  projectIds: string[]
-  version: number
 }>
 
 type RegistrarInput = {
@@ -190,11 +155,15 @@ function toWorktreeDto(record: WorktreeRecord): WorktreeDto {
   return {
     id: record.id,
     scope: record.scope,
+    kind: record.kind,
     repoId: record.repoId,
     projectId: record.projectId,
     canonicalRoot: record.canonicalRoot,
     rootIdentity: record.rootIdentity,
     provenance: record.provenance,
+    ...(record.branchRef !== undefined ? { branchRef: record.branchRef } : {}),
+    ...(record.title !== undefined ? { title: record.title } : {}),
+    ...(record.taskId !== undefined ? { taskId: record.taskId } : {}),
     ...(record.baseRef !== undefined ? { baseRef: record.baseRef } : {}),
     ...(record.baseSha !== undefined ? { baseSha: record.baseSha } : {}),
     ...(record.headRef !== undefined ? { headRef: record.headRef } : {}),
@@ -204,35 +173,6 @@ function toWorktreeDto(record: WorktreeRecord): WorktreeDto {
     archived: record.archived,
     generation: record.generation,
     version: record.version,
-  }
-}
-
-function toRepoDto(record: RepoRecord): RepoDto {
-  return {
-    id: record.id,
-    scope: record.scope,
-    kind: record.kind,
-    lifecycle: 'ready',
-    canonicalRoot: record.canonicalRoot,
-    ...(record.remote !== undefined ? { remote: redactRemote(record.remote) } : {}),
-    ...(record.defaultRef !== undefined ? { defaultRef: record.defaultRef } : {}),
-    projectIds: [...record.projectIds],
-    version: record.version,
-  }
-}
-
-/** Remote URLs are redacted before any DTO: embedded user-info is removed
- * while full nested namespace paths are preserved. */
-function redactRemote(remote: string): RedactedRemoteDto {
-  try {
-    const parsed = new URL(remote)
-    const host = parsed.host
-    const ownerPath = parsed.pathname.replace(/^\//, '').replace(/\.git$/, '')
-    const displayUrl = `${parsed.protocol}//${host}${parsed.pathname}`.replace(/\.git$/, '')
-    const provider = host === 'github.com' || host.endsWith('.github.com') ? 'github' : 'other'
-    return { provider, host, ownerPath, displayUrl }
-  } catch {
-    return { provider: 'other', host: 'unknown', ownerPath: '', displayUrl: '' }
   }
 }
 
@@ -492,6 +432,33 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
       return toWorktreeDto(record)
     },
 
+    'dev.worktree.rename': (command) => {
+      const body = devOperationDecoders['dev.worktree.rename'].request(command.body)
+      requireWorktreeResource(command, body as { worktreeId: string })
+      requireLiveGeneration(command, body.worktreeId as string)
+      const record = service.renameWorktree({
+        scope: input.scope,
+        worktreeId: body.worktreeId as string,
+        expectedVersion: body.expectedVersion as number,
+        title: body.title as string,
+      })
+      return toWorktreeDto(record)
+    },
+
+    'dev.worktree.diffSummary': async (command) => {
+      const body = devOperationDecoders['dev.worktree.diffSummary'].request(command.body)
+      // A batch read over several worktrees names them in the body; there is
+      // no single resource to bind, so a binding is refused outright.
+      if (command.resource !== undefined) {
+        throw devError('identity_mismatch', 'dev.worktree.diffSummary carries no resource binding')
+      }
+      const summaries: WorktreeDiffSummary[] = await service.diffSummary({
+        scope: input.scope,
+        worktreeIds: body.worktreeIds as string[],
+      })
+      return summaries
+    },
+
     'dev.worktree.cleanupPlan': async (command) => {
       const body = devOperationDecoders['dev.worktree.cleanupPlan'].request(command.body)
       requireWorktreeResource(command, body as { worktreeId: string })
@@ -599,23 +566,6 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
         })),
         observedAt: new Date(now()).toISOString(),
       }
-    },
-
-    'dev.repo.list': (command) => {
-      const body = devOperationDecoders['dev.repo.list'].request(command.body)
-      const records = service
-        .listRepos(input.scope)
-        .filter(
-          (entry) =>
-            body.projectId === undefined || entry.projectIds.includes(body.projectId as string)
-        )
-        .map(toRepoDto)
-      const { slice, nextCursor } = paginate(
-        records,
-        body.cursor as string | undefined,
-        body.limit as number | undefined
-      )
-      return page(slice, nextCursor)
     },
 
     'dev.repo.credentialRefs': (command) => {

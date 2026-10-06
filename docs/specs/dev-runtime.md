@@ -310,12 +310,18 @@ type Repo = {
 type Worktree = {
   id: string
   scope: Scope
+  // primary = the repository's own checkout (ADR 0011); managed = created by
+  // Adea; external = adopted after gitdir proof.
+  kind: 'primary' | 'managed' | 'external'
   repoId: string
   projectId: string
   canonicalRoot: string
   rootIdentity: FileIdentity
   gitDirIdentity?: FileIdentity
   provenance: 'adea' | 'external'
+  branchRef?: string
+  title?: string // local display title; workspace private, never leaves the device
+  taskId?: string // opaque cloud task id link
   baseRef?: string
   baseSha?: string
   headRef?: string
@@ -1388,7 +1394,10 @@ any cleanup state → blocked|partial|recovery_required
 
 `external` worktrees cannot transition to managed deletion unless the user runs
 a distinct adoption operation that proves repository, gitdir, path identity,
-and ownership. Archive does not stop or delete anything.
+and ownership. Archive does not stop or delete anything. A `primary` worktree
+record (the repository's own checkout) stays `ready` for as long as the
+repository is registered: it never enters `archived`, `merging`, or any
+cleanup state (see "The primary checkout record").
 
 ### Terminal
 
@@ -2342,7 +2351,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.group`                  | `list`, `create`, `update`, `delete`, `reorder`                                                                                                                                                                                                                                                                        |
 | `dev.project`                | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `reorder`, `archive`, `bookmarks`                                                                                                                                                                                                                        |
 | `dev.repo`                   | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                                                                                                   |
-| `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                                                        |
+| `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `rename`, `diffSummary`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                               |
 | `dev.terminal`               | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                                                                               |
 | `dev.session`                | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                                                                         |
 | `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`                                                                                                                                                           |
@@ -2371,7 +2380,7 @@ Capability/resource binding is deny-by-default:
 | group         | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `group` except top-level list/create/reorder                        |
 | project       | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `project` except top-level list/create/import/clone                 |
 | repo          | `dev.repo.read`                                                             | `dev.repo.manage`                                                                                           | `repository`                                                        |
-| worktree      | `dev.worktree.read`                                                         | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`                                                          |
+| worktree      | `dev.worktree.read`; `diffSummary` additionally `dev.git.read`              | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`; `diffSummary` none (ids in the body)                    |
 | terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                        | `terminal`                                                          |
 | session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                                   |
 | harness       | `dev.harness.read`                                                          | installation/connection/run control requires `dev.harness.manage`                                           | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
@@ -2993,9 +3002,9 @@ deletes anything), refuses a flip to the current state, bumps the version,
 and `archived: false` restores `ready`. Both publish a `dev.project.updated`
 shell event; both replies decode through the strict `Project` decoder.
 
-`dev.repo.adopt`, `dev.repo.authorize`, `dev.repo.inspect`, and
-`dev.repo.refresh` form the repository registry (a companion register owning
-`dev-runtime/repos/registry.json` with the same atomic fsync+rename store,
+`dev.repo.adopt`, `dev.repo.authorize`, `dev.repo.inspect`,
+`dev.repo.refresh`, and `dev.repo.list` form the repository registry (a
+companion register owning `dev-runtime/repos/registry.json` with the same atomic fsync+rename store,
 single-scope validation, and corrupt-state fail-closed behavior as the
 project/session authority). A repoId becomes known through the
 `Project.repos` binding an import mints; the binding names
@@ -3044,6 +3053,18 @@ origin HEAD symbolic ref with local `init.defaultBranch` as fallback.
   `repository:<repoId>` at the record's current `version` (a `Repo` carries
   no `generation` field), so a stale client loses before the record is read.
 
+The registry is the ONE repository authority (ADR 0011): the worktree
+service reads its records (and its test/script `registerRepo` seam writes
+them), so a repository adopted here is immediately a source for
+`dev.worktree.create` and for the GitHub/GitLab providers. The former
+worktree-private `dev-runtime/worktrees/repos.json` is left unread — no
+migration. Records also carry `fetchRemote`, the remote name new worktrees
+fetch their base from (`origin` for adopted repositories); it never appears
+in a DTO. After every proof that persists or re-proves a record (`adopt`,
+`authorize`, `refresh`, `inspect` with `refresh: true`) the composition
+reconciles the repository's primary checkout worktree record (see "The
+primary checkout record").
+
 Replies decode through the strict provider-owned `Repo`/`RepoInspection`
 decoders (and the `Repo` page for `dev.repo.list`); a success DTO without its
 decoder still fails closed. Git children run through the bounded, argv-only
@@ -3072,6 +3093,58 @@ A runtime without the registry providers answers `capability_unavailable`, and
 the panel renders that typed-unavailable state instead of dead controls.
 
 ## Worktree lifecycle
+
+The shipped shell composes exactly one worktree service per verified scope
+in the Dev Runtime composition root. Session validation
+(`dev.session.create` refuses an unknown, archived, or removed worktree with
+`not_found`/`invalid_state`), the worktree register, the terminal/files/git/
+GitHub resolvers, cleanup-policy facts, and the repository registry's primary
+reconciliation all read that one instance.
+
+### The primary checkout record
+
+Registering a git repository (a `dev.repo.*` proof, or the service's
+`registerRepo` seam) creates exactly one `kind: 'primary'` worktree record for
+the repository's own checkout (ADR 0011). Its `branchRef`/`headRef` come from
+`git symbolic-ref HEAD` and its `headSha` from `git rev-parse HEAD` — bounded
+local reads only; a detached or unborn HEAD leaves them absent. Later proofs
+and the fingerprint-gated `refreshRepo` pass (whose fingerprint stamps the
+main HEAD) re-inspect the checkout and persist moved facts at `version + 1`;
+the `generation` (the lease/plan fence) does not move. A folder repository
+has no primary record. The record's `projectId` is the repository's first
+bound project; `provenance` is `external` (Adea did not create it), so every
+ownership-gated path already fails closed for it.
+
+The primary is represented exactly once: re-registration reuses it,
+`adoptWorktree` refuses the primary path and any path that already has a
+live record (`invalid_state`). It cannot be archived, merged back, cleaned up
+(`cleanupPlan`/`cleanupCommit`/`cleanupResume`), renamed, or deleted — each
+refuses with `invalid_state` before any fact is observed. Leases and sessions
+bind to the primary like any other worktree.
+
+### Rename and diff summary
+
+`dev.worktree.rename { worktreeId, expectedVersion, title }` sets the local
+display title of a `managed` or `external` worktree (the primary refuses with
+`invalid_state`). The envelope binds `worktree:<id>` at the live generation;
+`expectedVersion` must equal the record's version (`stale_version`). The title
+is trimmed, at most 120 characters, and control characters refuse; a blank
+title clears it. Rename is metadata only: the version moves, the generation
+and everything on disk do not. Titles are `workspace_private` and never leave
+the device.
+
+`dev.worktree.diffSummary { worktreeIds: string[]<=50 }` returns
+`[{ worktreeId, added, removed, filesChanged }]`, computed with
+`git diff --numstat --no-renames --no-ext-diff --no-textconv <base> --` in each
+worktree (working tree and index against the recorded `baseSha`, or `HEAD`
+when none is recorded — the primary and adopted worktrees). Each child is
+bounded (10 s, 1 MiB); untracked files are not counted; binary files count as
+a changed file with zero lines. Only counts leave the host — never paths or
+content. The batch names its targets in the body, so it takes no envelope
+resource (a binding refuses with `identity_mismatch`) and requires both
+`dev.worktree.read` and `dev.git.read`. An unknown or out-of-scope id refuses
+the whole call with `not_found`; a worktree whose checkout cannot be observed
+right now is omitted rather than reported clean.
 
 ### Creation
 
@@ -4799,6 +4872,7 @@ type DataClassification =
 | --------------------------------------------------- | ------------------------------- | ---------------------------------------------- |
 | IDs, capability names, generic status               | workspace metadata              | authorized workspace clients                   |
 | local paths, repo names/remotes, command labels     | workspace private               | redact/home-alias remotely unless granted      |
+| branch names, worktree titles, diff counts          | workspace private               | desktop only; never leaves the device          |
 | terminal bytes, prompts/results, file content/diffs | restricted local by default     | bounded explicit projection only               |
 | screenshots/annotations/check logs                  | workspace private or restricted | provenance + retention + redaction             |
 | cookies, tokens, keys, auth headers, secret env     | credential                      | never renderer event/log; vault operation only |
@@ -5924,6 +5998,20 @@ files in the same commit:
   non-directory paths before any ledger write, and `dev.project.authorizeRoot`
   serves the add-project surface through the scope-bound channel;
 - `scripts/docs-boundary.test.ts` — this spec is routed and links resolve;
+- ADR 0011 production worktrees: `apps/desktop/tests/worktree-service.test.ts`
+  (one primary record per registered git repository with the inspected
+  branch, refreshed by the fingerprint-gated pass; no folder primary; typed
+  primary refusals for archive/cleanup/merge-back/rename; rename under the
+  expected version; diff summary counts against the base or HEAD),
+  `apps/desktop/tests/repo-registry.test.ts` (one registry shared by
+  `dev.repo.*` and the worktree service; adopt and later proofs reconcile
+  exactly one primary), `apps/desktop/tests/dev-runtime-composition.test.ts`
+  (the composition wires one service; `dev.session.create` binds to the
+  primary; rename/diffSummary success, refusal, and deny-by-default
+  capability/resource tests), `packages/types/tests/dev-runtime.test.ts` (the
+  strict `Worktree`/`WorktreeDiffSummary` DTOs and request bodies), and
+  `packages/dev-view/tests/leaf-activity.test.ts` (leaf activity from run
+  states);
 - M10 channel/desktop boundary tests — no loopback or browsed-page privilege;
 - `packages/types` contract/property tests — envelope and state decoders;
   `packages/types/tests/dev-runtime.test.ts` pins the `RootBookmark` and

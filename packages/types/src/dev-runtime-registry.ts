@@ -1499,6 +1499,13 @@ export const devOperationDefinitions = {
     resource: null,
     stream: null,
   },
+  'dev.worktree.diffSummary': {
+    body: '{ worktreeIds: string[]<=50 }',
+    capabilities: ['dev.git.read', 'dev.worktree.read'],
+    reply: 'WorktreeDiffSummary[]',
+    resource: null,
+    stream: null,
+  },
   'dev.worktree.lease': {
     body: '{ worktreeId: string; expectedGeneration: integer; ownerKind: LeaseOwnerKind; ownerId: string; ttlSeconds?: integer(15..86400) }',
     capabilities: ['dev.worktree.manage'],
@@ -1531,6 +1538,13 @@ export const devOperationDefinitions = {
     body: '{ worktreeId: string; expectedGeneration: integer; leaseId: string }',
     capabilities: ['dev.worktree.manage'],
     reply: 'Lease',
+    resource: { kind: 'worktree', idField: 'worktreeId' },
+    stream: null,
+  },
+  'dev.worktree.rename': {
+    body: '{ worktreeId: string; expectedVersion: integer; title: string(0..120) }',
+    capabilities: ['dev.worktree.manage'],
+    reply: 'Worktree',
     resource: { kind: 'worktree', idField: 'worktreeId' },
     stream: null,
   },
