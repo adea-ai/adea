@@ -1254,6 +1254,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'repository', idField: 'repoId' },
     stream: null,
   },
+  'dev.repo.remove': {
+    body: '{ repoId: string; expectedVersion: integer }',
+    capabilities: ['dev.repo.manage'],
+    reply: 'Repo',
+    resource: { kind: 'repository', idField: 'repoId' },
+    stream: null,
+  },
   'dev.resources.foreignStopCommit': {
     body: '{ planId: string; planDigest: sha256 }',
     capabilities: ['dev.resources.stopForeign'],

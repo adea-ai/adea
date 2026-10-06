@@ -1112,6 +1112,12 @@
       "body": "{ repoId: string; expectedVersion: integer }",
       "reply": "Repo"
     },
+    "dev.repo.remove": {
+      "capabilities": ["dev.repo.manage"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; expectedVersion: integer }",
+      "reply": "Repo"
+    },
     "dev.resources.foreignStopCommit": {
       "capabilities": ["dev.resources.stopForeign"],
       "resource": "foreign_process:required",

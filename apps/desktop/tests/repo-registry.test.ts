@@ -3,7 +3,7 @@
 // authorized root bookmark, and a real local git repository — no network (the
 // remote probe runs against a local bare "origin").
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -552,6 +552,79 @@ describe('repository registry (dev.repo.*)', () => {
       }
       expect(inspection.repo.lifecycle).toBe('unavailable')
       expect(inspection.dirty).toBe(false)
+    } finally {
+      fix.cleanup()
+    }
+  }, 60_000)
+
+  test('remove drops exactly the record: the binding, the checkout, and re-adoption survive', async () => {
+    const fix = fixture()
+    try {
+      const adopted = await adopt(fix)
+      // Stale version and a foreign scope refuse before any drop.
+      await expectCode(
+        () =>
+          provider(
+            fix,
+            'dev.repo.remove'
+          )(repoCommand('dev.repo.remove', { repoId, expectedVersion: 99 }, 99)),
+        'stale_version'
+      )
+      await expectCode(
+        () =>
+          provider(
+            fix,
+            'dev.repo.remove'
+          )(
+            repoCommand(
+              'dev.repo.remove',
+              { repoId, expectedVersion: adopted.version },
+              adopted.version,
+              foreignScope
+            )
+          ),
+        'unauthorized'
+      )
+      const removed = (await provider(
+        fix,
+        'dev.repo.remove'
+      )(
+        repoCommand(
+          'dev.repo.remove',
+          { repoId, expectedVersion: adopted.version },
+          adopted.version
+        )
+      )) as Repo
+      // The reply is the record as it was when dropped.
+      expect(removed.id).toBe(repoId)
+      expect(removed.version).toBe(adopted.version)
+      // The listing no longer serves it, and a second remove refuses.
+      const listed = (await provider(fix, 'dev.repo.list')(repoCommand('dev.repo.list', {}))) as {
+        items: Repo[]
+      }
+      expect(listed.items).toEqual([])
+      await expectCode(
+        () =>
+          provider(
+            fix,
+            'dev.repo.remove'
+          )(
+            repoCommand(
+              'dev.repo.remove',
+              { repoId, expectedVersion: adopted.version },
+              adopted.version
+            )
+          ),
+        'not_found'
+      )
+      // The project binding and the checkout on disk are untouched, and the
+      // honest binding-only state is re-provable: the auto-adopt seam (the
+      // binding's own proof) succeeds again at version 1 — adoption runs on
+      // binding/creation or an explicit command, never as a reconciler.
+      expect(existsSync(join(fix.checkout, 'README.md'))).toBe(true)
+      const readopted = await fix.runtime.adoptUnadopted(repoId)
+      expect(readopted?.version).toBe(1)
+      expect(readopted?.lifecycle).toBe('ready')
     } finally {
       fix.cleanup()
     }

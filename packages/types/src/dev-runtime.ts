@@ -4168,10 +4168,12 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.harness.accountProfiles.delete': (value) => decodeHarnessAccountProfile(value),
   // Repository registry (#398 follow-up): adopt/authorize/refresh reply with
   // the re-read Repo record, inspect with fresh read-only facts, and list
-  // with a bounded Repo page.
+  // with a bounded Repo page. remove replies with the record as it was when
+  // dropped (the project binding and every worktree record stay).
   'dev.repo.adopt': (value) => decodeRepo(value),
   'dev.repo.authorize': (value) => decodeRepo(value),
   'dev.repo.refresh': (value) => decodeRepo(value),
+  'dev.repo.remove': (value) => decodeRepo(value),
   'dev.repo.inspect': (value) => decodeRepoInspection(value),
   'dev.repo.list': (value) => decodeDevRuntimePage(decodeRepo, value),
   // Worktree records (ADR 0011): the list, archive flips, and the title

@@ -62,6 +62,8 @@ export type RepoRegistryState = Readonly<{
   projects: readonly Project[]
   /** The project awaiting archive confirmation, if any. */
   pendingArchiveProjectId?: string
+  /** The repo row awaiting remove confirmation, if any. */
+  pendingRemoveRepoId?: string
   reason?: string
 }>
 
@@ -282,4 +284,52 @@ export function confirmPendingArchive(state: RepoRegistryState): {
   if (state.pendingArchiveProjectId === undefined) return { state }
   const projectId = state.pendingArchiveProjectId
   return { state: { ...state, pendingArchiveProjectId: undefined }, projectId }
+}
+
+/**
+ * Owner removal (owner request): an adopted record the user does not want —
+ * including one the auto-adopt flow chose — can be forgotten from the panel.
+ * Only the registry record is dropped: the project, its bindings, every
+ * worktree record, and every file on disk stay, and the project falls back
+ * to the honest binding-only state. A managed clone is never removable here
+ * (its record is owned by `dev.project.unbind`), and a binding-only row has
+ * nothing to remove.
+ */
+export function removable(row: Pick<RepoRegistryRow, 'record'>): boolean {
+  return row.record !== undefined && row.record.layout !== 'bare_managed'
+}
+
+/** The confirm-gate copy: exactly what removal does and does not touch. */
+export function removeConfirmLine(canonicalRoot: string): string {
+  return `Remove ${repoBaseName(canonicalRoot)} from the repository registry? Its project stays bound and returns to the unregistered state; nothing on disk is deleted.`
+}
+
+export function requestRemove(state: RepoRegistryState, repoId: string): RepoRegistryState {
+  return { ...state, pendingRemoveRepoId: repoId }
+}
+
+export function cancelPendingRemove(state: RepoRegistryState): RepoRegistryState {
+  return state.pendingRemoveRepoId === undefined
+    ? state
+    : { ...state, pendingRemoveRepoId: undefined }
+}
+
+export function confirmPendingRemove(state: RepoRegistryState): {
+  state: RepoRegistryState
+  repoId?: string
+} {
+  if (state.pendingRemoveRepoId === undefined) return { state }
+  const repoId = state.pendingRemoveRepoId
+  return { state: { ...state, pendingRemoveRepoId: undefined }, repoId }
+}
+
+/** Non-blocking notice copy for a refused removal. */
+export function removeNoticeForError(error: DevError): string {
+  if (error.code === 'stale_version')
+    return 'Remove was refused: the repository moved on. The view reloaded — try again.'
+  if (error.code === 'invalid_state')
+    return 'Remove was refused: a managed clone is removed by unbinding its project.'
+  if (error.code === 'capability_unavailable')
+    return 'Repository removal is not available on this runtime (capability_unavailable).'
+  return `Remove was refused: ${error.message}`
 }

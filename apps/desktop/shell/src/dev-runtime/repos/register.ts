@@ -8,7 +8,9 @@
 // to the remote host; `inspect` computes read-only facts from the canonical
 // root with local git reads only; `refresh` re-proves the canonical identity
 // and probes the remote offline-safe (`git ls-remote` over the
-// insteadOf-rewritten remote, as the #397/#423 runners do). Nothing here runs
+// insteadOf-rewritten remote, as the #397/#423 runners do); `remove` drops
+// one adopted record (never a project binding, worktree record, or file) so
+// the owner can undo an unwanted auto- or manual adoption. Nothing here runs
 // a shell, accepts a client path, or trusts a string-prefix containment: the
 // canonical root always comes from the project binding or the durable record,
 // and containment is re-proven through the roots authority immediately before
@@ -640,6 +642,43 @@ export function registerRepoRuntime(input: {
         )
       requireRepoResource(command, repoId, stored.version)
       return refreshRecord(stored).then(reconciled)
+    },
+
+    // Owner removal (owner request): forget one adopted record. Only the
+    // registry record is dropped — the project, its bindings, every worktree
+    // record, and every file on disk stay exactly as they are — so the
+    // project falls back to the honest binding-only state. The reply is the
+    // record as it was when dropped; a later re-adopt starts again at
+    // version 1. Auto-adoption never re-runs for it: adoption happens on
+    // import/creation, never as a reconciler.
+    'dev.repo.remove': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.repo.remove'].request(command.body)
+      const repoId = body.repoId as string
+      const expectedVersion = body.expectedVersion as number
+      const stored = findRecord(repoId)
+      if (!stored)
+        throw new DevAuthorityError(
+          'not_found',
+          'repository is not registered on this runtime node'
+        )
+      // A managed bare clone's record is owned by its project binding:
+      // `dev.project.unbind` quarantines the clone and drops the record
+      // itself, so a bare record must never be forgotten piecemeal.
+      if (stored.layout === 'bare_managed')
+        throw new DevAuthorityError(
+          'invalid_state',
+          'a managed clone is removed by unbinding its project, not by removing its record'
+        )
+      if (stored.version !== expectedVersion)
+        throw new DevAuthorityError(
+          'stale_version',
+          `repository ${stored.id} moved on: version ${stored.version}`,
+          stored.version
+        )
+      requireRepoResource(command, repoId, stored.version)
+      registry.remove(repoId)
+      return toRepoDto(stored)
     },
   }
 
