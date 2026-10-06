@@ -557,7 +557,10 @@
 }
 
 .dev-scm-person {
-  display: flex;
+  /* Inline-level: the person rides inside caption and event runs ("juno · 3
+     hours ago"), so a block-level flex box here dropped the avatar onto its
+     own line and wrapped the time or verb below it. */
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   min-height: 1.75rem;

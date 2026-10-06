@@ -281,6 +281,23 @@ test.describe('source control app', () => {
     ).toBeVisible()
     const thread = page.getByRole('article', { name: 'Review thread on src/stores/selectors.ts' })
     await expect(thread).toContainText('Does rooms() ever return undefined')
+    // Comment captions run inline: the person shares the line with the time
+    // instead of a block-level flex box dropping the avatar onto its own line
+    // and wrapping the verb or time below it.
+    const caption = thread.locator('.dev-scm-thread__comment .dev-scm-caption').first()
+    await expect
+      .poll(() =>
+        caption.evaluate((node) => {
+          const person = node.querySelector('.dev-scm-person')
+          if (!person) return null
+          return {
+            display: getComputedStyle(person).display,
+            singleLine:
+              node.getBoundingClientRect().height <= person.getBoundingClientRect().height + 4,
+          }
+        })
+      )
+      .toEqual({ display: 'inline-flex', singleLine: true })
     const dock = page.getByRole('region', { name: 'Merge status' })
     await expect(dock).toContainText('5 commits behind main')
     await expect(dock.getByRole('button', { name: 'Squash and merge when ready' })).toBeVisible()
