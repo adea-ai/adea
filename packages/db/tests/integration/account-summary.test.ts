@@ -13,6 +13,7 @@ import {
   setChannelParticipants,
 } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
+import { setProjectMember, setProjectVisibility } from '../../src/project-sharing'
 import { createProject } from '../../src/projects'
 import { markChannelReadState } from '../../src/read-state'
 import * as schema from '../../src/schema'
@@ -97,6 +98,10 @@ describe.skipIf(!connectionUrl)('account workspace summaries', () => {
   }
 
   async function projectChannel(workspaceId: string, owner: UserPrincipalRef, name: string) {
+    return (await projectWithChannel(workspaceId, owner, name)).channelId
+  }
+
+  async function projectWithChannel(workspaceId: string, owner: UserPrincipalRef, name: string) {
     const project = await createProject(connection.db, workspaceId, owner, {
       iconKey: 'research',
       name,
@@ -105,7 +110,7 @@ describe.skipIf(!connectionUrl)('account workspace summaries', () => {
       .select({ id: channels.id })
       .from(channels)
       .where(and(eq(channels.projectId, project.id), eq(channels.isPrimaryProjectChannel, true)))
-    return channel!.id
+    return { channelId: channel!.id, projectId: project.id }
   }
 
   function post(
@@ -281,5 +286,42 @@ describe.skipIf(!connectionUrl)('account workspace summaries', () => {
     expect(
       (await accountWorkspaceSummaries(connection.db, alice)).map(({ workspaceId }) => workspaceId)
     ).toEqual([one, two])
+  })
+
+  test('excludes members-only projects the user cannot see', async () => {
+    const owner = await user('hidden-owner')
+    const outsider = await user('hidden-outsider')
+    const listed = await user('hidden-listed')
+    const admin = await user('hidden-admin')
+    const workspaceId = await workspace(owner, 'Hidden HQ')
+    await addWorkspaceMembership(connection.db, workspaceId, outsider, 'member')
+    await addWorkspaceMembership(connection.db, workspaceId, listed, 'member')
+    await addWorkspaceMembership(connection.db, workspaceId, admin, 'admin')
+
+    // An unread workspace-visible project channel everyone counts, and a
+    // secret project whose unread mentions predate the visibility change.
+    const open = await projectChannel(workspaceId, owner, 'Open')
+    await post(workspaceId, open, owner)
+    const secret = await projectWithChannel(workspaceId, owner, 'Secret')
+    await post(workspaceId, secret.channelId, owner, { mentions: [outsider, listed, admin] })
+    await setProjectVisibility(connection.db, workspaceId, secret.projectId, owner, 'members')
+    await setProjectMember(connection.db, workspaceId, secret.projectId, owner, {
+      role: 'viewer',
+      userId: listed.userId,
+    })
+
+    const summary = async (principal: UserPrincipalRef) =>
+      (await accountWorkspaceSummaries(connection.db, principal)).find(
+        (row) => row.workspaceId === workspaceId
+      )
+    // Not listed on the project: neither its channel nor its mention leaks.
+    expect(await summary(outsider)).toEqual({ mentions: 0, unreadChannels: 1, workspaceId })
+    // Listed project members and workspace admins see it.
+    expect(await summary(listed)).toEqual({ mentions: 1, unreadChannels: 2, workspaceId })
+    expect(await summary(admin)).toEqual({ mentions: 1, unreadChannels: 2, workspaceId })
+
+    // Switching the project back to workspace visibility restores it.
+    await setProjectVisibility(connection.db, workspaceId, secret.projectId, owner, 'workspace')
+    expect(await summary(outsider)).toEqual({ mentions: 1, unreadChannels: 2, workspaceId })
   })
 })

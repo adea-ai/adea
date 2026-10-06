@@ -1458,6 +1458,25 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
       }))
     )
     .toEqual({ documentScroll: 0, workspaceScroll: 0 })
+  // Opening the panel narrows the transcript and reflows it taller; follow
+  // mode re-pins it to the latest message on a later frame. Capture the
+  // settled state (follow armed, offsets unchanged between two polls), not a
+  // frame where "Jump to latest" shows mid-reflow.
+  let previousOffsets = ''
+  await expect
+    .poll(
+      async () => {
+        const offsets = await page
+          .locator('.conventional-transcript > div:first-child')
+          .evaluateAll((nodes) => nodes.map((node) => node.scrollTop).join(','))
+        const settled = offsets === previousOffsets
+        previousOffsets = offsets
+        return settled
+      },
+      { intervals: [100] }
+    )
+    .toBe(true)
+  await expect(page.getByRole('button', { name: 'Jump to latest' })).toHaveCount(0)
   await expect(page).toHaveScreenshot('workspace-thread.png', { animations: 'disabled' })
   await page.getByRole('button', { name: 'Close thread' }).click()
 })

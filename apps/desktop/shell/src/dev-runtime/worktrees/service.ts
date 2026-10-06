@@ -298,6 +298,46 @@ function sha256Text(text: string): string {
   return createHash('sha256').update(text).digest('hex')
 }
 
+/** Index/worktree status pairs that `git status --porcelain` reports for an
+ *  unmerged path (see git-status(1), "Short Format"). */
+const UNMERGED_STATUS_PAIRS: ReadonlySet<string> = new Set([
+  'DD',
+  'AU',
+  'UD',
+  'UA',
+  'DU',
+  'AA',
+  'UU',
+])
+
+/** Classify `git status --porcelain` (v1) output. Only the unmerged pairs are
+ *  conflicts; any other tracked change (including a staged add or delete) is
+ *  dirty, and `??` entries are untracked. */
+export function parsePorcelainStatus(stdout: string): {
+  dirty: boolean
+  untracked: boolean
+  conflicted: boolean
+} {
+  let dirty = false
+  let untracked = false
+  let conflicted = false
+  for (const line of stdout.split('\n')) {
+    if (line.length < 2) continue
+    const pair = line.slice(0, 2)
+    if (pair === '??') untracked = true
+    else if (pair === '!!') continue
+    else if (UNMERGED_STATUS_PAIRS.has(pair)) conflicted = true
+    else dirty = true
+  }
+  return { dirty, untracked, conflicted }
+}
+
+/** The repository's git common dir: a bare repository is its own common dir;
+ *  a checkout's is its `.git` directory. */
+export function repoCommonDirFor(repo: Pick<RepoRecord, 'canonicalRoot' | 'layout'>): string {
+  return repo.layout === 'bare_managed' ? repo.canonicalRoot : join(repo.canonicalRoot, '.git')
+}
+
 async function observeGitFacts(input: {
   record: WorktreeRecord
   repo: RepoRecord
@@ -305,32 +345,16 @@ async function observeGitFacts(input: {
 }): Promise<Partial<CleanupFacts>> {
   const cwd = input.record.canonicalRoot
   const statusOut = await runGit(['status', '--porcelain'], { cwd })
-  let dirty = false
-  let untracked = false
-  let conflicted = false
-  for (const line of statusOut.stdout.split('\n')) {
-    if (line.length === 0) continue
-    if (line.startsWith('??')) {
-      untracked = true
-      continue
-    }
-    const x = line[0]
-    const y = line[1]
-    if (x === 'U' || y === 'U' || x === 'A' || x === 'D') {
-      if (x === 'U' || y === 'U' || x === 'A' || x === 'D')
-        conflicted = x === 'U' || y === 'U' || x === 'A' || x === 'D'
-      else dirty = true
-    } else {
-      dirty = true
-    }
-  }
+  const { dirty, untracked, conflicted } = parsePorcelainStatus(statusOut.stdout)
   const branch = input.record.branchRef
   // @{upstream} resolves against short branch names, not full refnames.
   const branchName = branch?.replace('refs/heads/', '')
   let upstreamKnown = false
   let ahead: number | null = null
   let behind: number | null = null
-  let unpushedCommits = 0
+  // Only measured without an upstream (`ahead` covers the upstream case);
+  // null when it cannot be measured, so cleanup fails closed.
+  let unpushedCommits: number | null = branchName ? 0 : null
   if (branchName) {
     const upstream = await runGit(
       ['rev-parse', '--verify', '--quiet', `${branchName}@{upstream}`],
@@ -348,10 +372,11 @@ async function observeGitFacts(input: {
         behind = Number(right)
       }
     } else {
-      const unpushed = await runGit(['rev-list', '--count', `${branchName} --not --remotes`], {
+      const unpushed = await runGit(['rev-list', '--count', branchName, '--not', '--remotes'], {
         cwd: input.repo.canonicalRoot,
       })
-      unpushedCommits = unpushed.exitCode === 0 ? Number(unpushed.stdout.trim()) : 0
+      const count = unpushed.stdout.trim()
+      unpushedCommits = unpushed.exitCode === 0 && /^\d+$/.test(count) ? Number(count) : null
     }
   }
   const entries = await discoverWorktrees(input.repo.canonicalRoot)
@@ -1144,9 +1169,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     const proof = await proveExternalWorktree({
       worktreePath: input.worktreePath,
       repoRoot: repo.canonicalRoot,
-      // A bare repository is its own common dir; a checkout's is `.git`.
-      repoCommonDir:
-        repo.layout === 'bare_managed' ? repo.canonicalRoot : join(repo.canonicalRoot, '.git'),
+      repoCommonDir: repoCommonDirFor(repo),
     })
     // Each checkout is represented exactly once: a path that already has a
     // live record (managed, external, or the primary) is not re-adopted.
@@ -1500,7 +1523,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       upstreamKnown: false,
       ahead: null,
       behind: null,
-      unpushedCommits: 0,
+      unpushedCommits: null,
       isDefaultBranch: false,
       isProtectedBranch: false,
       hasLiveLeases: leases.hasLiveLeases(record.id),
@@ -1790,7 +1813,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
                   `git worktree prune failed: ${prune.stderr.trim().slice(0, 256)}`
                 )
               }
-              if (adminEntry && adminEntryExists(repo.canonicalRoot, adminEntry)) {
+              if (adminEntry && adminEntryExists(repoCommonDirFor(repo), adminEntry)) {
                 if (trash) {
                   restoreWorktreeFromTrash(
                     join(trash.trashRoot, trash.entryName),
@@ -1817,7 +1840,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
             )
           }
           const facts = input.plan.facts
-          if (!facts.upstreamKnown || (facts.ahead ?? 0) > 0 || facts.unpushedCommits > 0) {
+          if (!facts.upstreamKnown || (facts.ahead ?? 0) > 0 || facts.unpushedCommits !== 0) {
             throw new WorktreeError(
               'unpushed',
               'branch deletion requires proven integration (pushed/merged)'
