@@ -56,7 +56,7 @@
 export const TOOLTIP_FOCUS_INTENT_WINDOW_MS = 250
 
 /** Elements a tooltip-bearing control is rendered as. Everything else keeps
- *  its native focus behaviour. */
+ *  its native focus behaviour, and so do resize grips (see below). */
 const BUTTON_LIKE_SELECTOR = 'button, a[href], [role="button"], [role="link"]'
 
 /**
@@ -66,7 +66,13 @@ const BUTTON_LIKE_SELECTOR = 'button, a[href], [role="button"], [role="link"]'
  */
 export function isButtonLikeFocusTarget(target: unknown): boolean {
   const element = target as Element | null | undefined
-  return typeof element?.closest === 'function' && element.closest(BUTTON_LIKE_SELECTOR) !== null
+  if (typeof element?.closest !== 'function') return false
+  const control = element.closest(BUTTON_LIKE_SELECTOR)
+  if (control === null) return false
+  // Resize grips render as `<button role="separator">` and focus themselves
+  // when a pointer drag starts. They carry no tooltip, and the blur that
+  // releases a suppressed focus would end the drag on its first move.
+  return control.getAttribute?.('role') !== 'separator'
 }
 
 /**

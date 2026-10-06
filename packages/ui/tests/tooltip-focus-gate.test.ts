@@ -26,6 +26,32 @@ test('button-like focus targets duck-type through closest', () => {
   expect(isButtonLikeFocusTarget({})).toBe(false)
 })
 
+test('resize grips rendered as separator buttons keep their native focus', () => {
+  const separator = { closest: () => ({ getAttribute: () => 'separator' }) }
+  const roleButton = { closest: () => ({ getAttribute: () => 'button' }) }
+  expect(isButtonLikeFocusTarget(separator)).toBe(false)
+  expect(isButtonLikeFocusTarget(roleButton)).toBe(true)
+})
+
+test('a drag-started focus on a resize grip is never released by the next pointer move', () => {
+  const doc = stubDocument()
+  const dispose = installTooltipFocusGate(doc as unknown as Document)
+  let blurred = false
+  const grip = {
+    closest: () => ({ getAttribute: () => 'separator' }),
+    blur: () => {
+      blurred = true
+    },
+  }
+  const focus = focusEvent(grip)
+  doc.activeElement = grip
+  doc.dispatch('focus', focus)
+  doc.dispatch('pointermove', {})
+  expect(focus.stopPropagationCalls).toBe(0)
+  expect(blurred).toBe(false)
+  dispose()
+})
+
 type RecordedListener = (event: unknown) => void
 
 /** Minimal capture-phase document stand-in: records listeners, returns a
