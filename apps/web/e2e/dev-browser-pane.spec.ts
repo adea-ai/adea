@@ -434,32 +434,46 @@ test('DevicesPane reports inventory errors without showing a false empty state',
 test('DevicesPane keeps a simulator action on its row content line at utility-dock widths', async ({
   page,
 }) => {
-  // Every default utility dock size below 448px trips the shared list-row
-  // stacking breakpoint; the device row must keep its Start control inline
-  // (matching the wide layout) instead of dropping it under the text block.
+  // Every default utility dock size (240..512, the top of the step list being
+  // the shared default) — plus the widths between the steps and just above the
+  // 448px shared list-row stacking breakpoint — must keep the device row's
+  // Start control inline (matching the wide layout) instead of dropping it
+  // under the stacked text block. The dock width is pinned on the harness
+  // root so each step is exercised exactly, not whatever the viewport hands
+  // the pane.
   const pane = await mountDevicesPane(page, '&capabilities=available&inventory=devices')
-  await page.setViewportSize({ width: 400, height: 900 })
-  const row = pane.locator('.dev-devices__row', { hasText: 'iPhone 16 Pro (iOS 18.2)' })
-  await expect(row).toBeVisible()
-  const geometry = await row.evaluate((element) => {
-    const label = element.querySelector<HTMLElement>("[data-slot='list-row-label']")
-    const description = element.querySelector<HTMLElement>("[data-slot='list-row-description']")
-    const button = element.querySelector<HTMLButtonElement>('button')
-    if (!label || !description || !button) throw new Error('row structure is missing slots')
-    return {
-      buttonTop: button.getBoundingClientRect().top,
-      buttonBottom: button.getBoundingClientRect().bottom,
-      labelBottom: label.getBoundingClientRect().bottom,
-      descriptionTop: description.getBoundingClientRect().top,
-      rowTop: element.getBoundingClientRect().top,
-      whiteSpace: getComputedStyle(button).whiteSpace,
-    }
-  })
-  // The action shares the content line: it starts with the row (not below the
-  // stacked text) and spans across the description line instead of under it.
-  expect(geometry.buttonTop).toBeLessThan(geometry.descriptionTop)
-  expect(geometry.buttonBottom).toBeLessThan(geometry.labelBottom)
-  expect(geometry.whiteSpace).toBe('nowrap')
+  for (const dockWidth of [240, 288, 336, 384, 420, 448, 480, 512, 600]) {
+    await page.setViewportSize({ width: dockWidth + 40, height: 900 })
+    await page.evaluate((width) => {
+      const root = document.getElementById('harness-root')
+      if (root) {
+        root.style.width = `${width}px`
+        root.style.maxWidth = `${width}px`
+      }
+    }, dockWidth)
+    const row = pane.locator('.dev-devices__row', { hasText: 'iPhone 16 Pro (iOS 18.2)' })
+    await expect(row).toBeVisible()
+    const geometry = await row.evaluate((element) => {
+      const label = element.querySelector<HTMLElement>("[data-slot='list-row-label']")
+      const description = element.querySelector<HTMLElement>("[data-slot='list-row-description']")
+      const button = element.querySelector<HTMLButtonElement>('button')
+      if (!label || !description || !button) throw new Error('row structure is missing slots')
+      return {
+        buttonTop: button.getBoundingClientRect().top,
+        buttonBottom: button.getBoundingClientRect().bottom,
+        labelBottom: label.getBoundingClientRect().bottom,
+        descriptionTop: description.getBoundingClientRect().top,
+        rowTop: element.getBoundingClientRect().top,
+        whiteSpace: getComputedStyle(button).whiteSpace,
+      }
+    })
+    // The action shares the content line: it starts with the row (not below
+    // the stacked text) and spans across the description line instead of
+    // under it.
+    expect(geometry.buttonTop, `dock width ${dockWidth}`).toBeLessThan(geometry.descriptionTop)
+    expect(geometry.buttonBottom, `dock width ${dockWidth}`).toBeLessThan(geometry.labelBottom)
+    expect(geometry.whiteSpace, `dock width ${dockWidth}`).toBe('nowrap')
+  }
 })
 
 test('BrowserPane inspects a CSS selector on the active page with a generation-bound command', async ({
