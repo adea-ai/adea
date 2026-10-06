@@ -212,22 +212,29 @@ export function DevSidebarNavigation(props: DevSidebarNavigationProps) {
                                 if (context.mobile) props.onOpenChange(false)
                               }}
                             >
+                              {/* The name is computed from contents: explicit
+                                  whitespace text nodes keep the status chip,
+                                  the title, and the badges as separated
+                                  tokens instead of one mushed string. */}
                               <StatusChip
                                 tone={sessionStateTone[session.state]}
                                 label={session.state}
                                 compact
-                              />
-                              <span class="dev-tree-row__title">{session.title}</span>
+                              />{' '}
+                              <span class="dev-tree-row__title">{session.title}</span>{' '}
                               <span class="flex shrink-0 items-center gap-1 ms-auto">
                                 <For each={sessionBadges(session.badges)}>
                                   {(badge) => (
-                                    <Badge
-                                      size="sm"
-                                      variant={badgeVariant[badge.tone]}
-                                      title={badge.label}
-                                    >
-                                      {badge.short}
-                                    </Badge>
+                                    <>
+                                      {' '}
+                                      <Badge
+                                        size="sm"
+                                        variant={badgeVariant[badge.tone]}
+                                        title={badge.label}
+                                      >
+                                        {badge.short}
+                                      </Badge>
+                                    </>
                                   )}
                                 </For>
                               </span>

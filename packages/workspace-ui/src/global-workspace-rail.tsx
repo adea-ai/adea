@@ -110,12 +110,12 @@ export function GlobalWorkspaceRail(props: {
   activeWorkspace?: WorkspaceSummary
   /** The visible view entries, already ordered and filtered by rail preferences. */
   views: readonly WorkspaceAppId[]
-  onOpenAbout: () => void
+  onOpenAbout: (opener: HTMLButtonElement | undefined) => void
   onOpenPlugins: () => void
   onOpenAppLibrary: () => void
   libraryActive?: boolean
   onOpenSearch: () => void
-  onOpenSettings: () => void
+  onOpenSettings: (opener: HTMLButtonElement | undefined) => void
   onWorkspaceChange: (workspace: WorkspaceSummary) => void
   onViewChange: (view: WorkspaceAppId) => void
   /** Fires when the user hovers or focuses a view button — prefetch the target. */
@@ -173,7 +173,9 @@ export function GlobalWorkspaceRail(props: {
         (target instanceof HTMLElement && target.isContentEditable)
       if (isEditable) return
       event.preventDefault()
-      props.onOpenSettings()
+      // The chord has no menu trigger to restore to; the dialog falls back to
+      // capturing the then-focused element.
+      props.onOpenSettings(undefined)
     }
 
     window.addEventListener('keydown', openSearchWithShortcut, { capture: true })

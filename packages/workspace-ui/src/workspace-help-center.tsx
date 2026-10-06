@@ -19,6 +19,13 @@ export type WorkspaceHelpCenterProps = {
   openExternal?: (url: string) => Promise<void>
   onClose: () => void
   open: boolean
+  /**
+   * The opener to refocus when the panel closes. The Help Center mounts
+   * through a conditional Show rather than a DialogTrigger, so the shared
+   * dialog's built-in restoration has no trigger to return to — without this,
+   * closing the panel drops keyboard focus on the page (WCAG 2.4.3).
+   */
+  restoreFocusRef?: () => HTMLElement | undefined
 }
 
 /** The keyboard shortcuts the workspace shell actually binds. */
@@ -61,11 +68,17 @@ const PROJECT_LINKS: readonly HelpLink[] = [
 export function WorkspaceHelpCenter(props: WorkspaceHelpCenterProps) {
   const appName = () => props.appName ?? 'Adea'
   const shortcuts = createMemo(workspaceShortcuts)
+  const closeAndRestore = () => {
+    props.onClose()
+    // The conditional Show has unmounted the dialog by the time onClose
+    // returns, so refocusing the opener cannot be pulled back into it.
+    props.restoreFocusRef?.()?.focus()
+  }
   return (
     <Dialog
       open={props.open}
       onOpenChange={(next) => {
-        if (!next) props.onClose()
+        if (!next) closeAndRestore()
       }}
     >
       <DialogContent
@@ -75,7 +88,7 @@ export function WorkspaceHelpCenter(props: WorkspaceHelpCenterProps) {
           // Link help tooltips cannot trap Escape in this popup.
           if (event.key === 'Escape' && !event.defaultPrevented) {
             event.preventDefault()
-            props.onClose()
+            closeAndRestore()
           }
         }}
       >

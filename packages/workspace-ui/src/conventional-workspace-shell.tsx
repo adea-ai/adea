@@ -359,9 +359,6 @@ export function ConventionalWorkspaceShell(props: {
               'conventional-workspace--board': props.taskBoardOnly,
             })}
           >
-            <a class="conventional-skip-link" href="#workspace-main">
-              Skip to workspace content
-            </a>
             <Show when={!props.taskBoardOnly}>
               <WorkspaceSidebar
                 archiveAction={props.archiveAction}
