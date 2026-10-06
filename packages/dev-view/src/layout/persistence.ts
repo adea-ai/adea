@@ -48,7 +48,39 @@ const canonicalUtilitySides: Readonly<Record<DevUtilityPane, 'left' | 'right'>> 
 /** Left panes (files/source control) retain their existing default step. */
 const defaultLeftUtilitySize = 336
 /** Right panes (browser/devices/agents/history) get the wider step. */
-const defaultRightUtilitySize = 512
+const defaultRightUtilitySize = 600
+/**
+ * The v0.83.0 build persisted its 512 right-pane default on first run, so a
+ * stored right-side 512 is indistinguishable from "never resized". Decode
+ * resolves that one stored legacy default to the current default; every other
+ * stored width (including the pre-v0.83.0 448 default that #1032 left alone)
+ * stays verbatim. Tolerant by design: a user who deliberately snapped to 512
+ * also resolves to 600, because the two states cannot be told apart on disk.
+ */
+const legacyDefaultRightUtilitySize = 512
+
+/**
+ * Applies the stored-legacy-default resolution to the six normalized utility
+ * panes. Right-side widths of exactly 512 become the current default; the
+ * left side is untouched. Idempotent: 600 never re-matches. The map preserves
+ * the fixed document cardinality, so the tuple cast stays exact.
+ */
+function resolveLegacyRightDefault(
+  utility: DevLayoutPreferencesV2['utility']
+): DevLayoutPreferencesV2['utility'] {
+  return utility.map((entry) =>
+    entry.side === 'right'
+      ? {
+          ...entry,
+          size: entry.size === legacyDefaultRightUtilitySize ? defaultRightUtilitySize : entry.size,
+          lastNonzeroSize:
+            entry.lastNonzeroSize === legacyDefaultRightUtilitySize
+              ? defaultRightUtilitySize
+              : entry.lastNonzeroSize,
+        }
+      : entry
+  ) as unknown as DevLayoutPreferencesV2['utility']
+}
 
 /**
  * Utility panes sharing an edge are one resizable surface: restoring a stored
@@ -385,11 +417,21 @@ export function decodeLayoutDocument(raw: string): LayoutDocumentResult {
   if (!isRecord(value)) return { state: 'corrupt', raw }
   if (value.schemaVersion === 2) {
     const decoded = decodePreferencesV2(value)
-    return decoded ? { state: 'ready', value: decoded, migrated: false } : { state: 'corrupt', raw }
+    if (!decoded) return { state: 'corrupt', raw }
+    return {
+      state: 'ready',
+      value: { ...decoded, utility: resolveLegacyRightDefault(decoded.utility) },
+      migrated: false,
+    }
   }
   if (value.schemaVersion === 1) {
     if (!decodePreferences(value)) return { state: 'corrupt', raw }
-    return { state: 'ready', value: migrateLayoutPreferencesV1(value), migrated: true }
+    const migrated = migrateLayoutPreferencesV1(value)
+    return {
+      state: 'ready',
+      value: { ...migrated, utility: resolveLegacyRightDefault(migrated.utility) },
+      migrated: true,
+    }
   }
   return { state: 'unsupported', raw }
 }

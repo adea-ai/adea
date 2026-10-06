@@ -3746,12 +3746,16 @@ repeating those two destinations in a vertical rail. Browser, Devices, Agents,
 and History use the published collapsed SideRail, including its selected
 accent and hover/focus labels. Utility separators use the shared resizable
 handle with a full-height pointer target and centered grip; their ruler maps
-the persisted 240–384 CSS-pixel left-pane range and 240–512 CSS-pixel right-pane
+the persisted 240–384 CSS-pixel left-pane range and 240–600 CSS-pixel right-pane
 range and remains keyboard operable. An empty layout defaults left utility
-panes to 336 CSS pixels and right utility panes, including Browser, to 512 CSS
+panes to 336 CSS pixels and right utility panes, including Browser, to 600 CSS
 pixels to fit their lane and viewport controls. This default fills missing
 preferences only; saved widths continue through the existing migration and
-snap rules.
+snap rules, with one tolerant exception: the v0.83.0 build wrote its 512
+default into stored documents on first run, so a stored right-side width of
+exactly 512 resolves to 600 on decode (the two states are indistinguishable on
+disk, so a deliberate 512 also resolves to 600; every other stored width,
+including the pre-v0.83.0 448 default, stays verbatim).
 
 Every operation carries scope, live worktree ID/generation, authorized root,
 canonical relative path, and expected file identity where relevant.

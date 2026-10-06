@@ -48,6 +48,12 @@ const preferences = (): DevLayoutPreferencesV2 => ({
   focusTargetId: 'terminal-a',
 })
 
+// A V2 document whose right-side panes all carry one stored width.
+const atSize = (size: number, lastNonzeroSize = size) =>
+  preferences().utility.map((entry) =>
+    entry.side === 'right' ? { ...entry, size, lastNonzeroSize } : entry
+  )
+
 describe('Dev V2 layout document', () => {
   test('round trips a session-scoped version-two document', () => {
     const value = preferences()
@@ -216,12 +222,12 @@ describe('V1 to V2 layout migration', () => {
     // Absent widths seed the side's default: right-side panes inherit the
     // Browser anchor's wider default.
     expect(migrated.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
-      size: 512,
-      lastNonzeroSize: 512,
+      size: 600,
+      lastNonzeroSize: 600,
     })
     expect(migrated.utility.find((entry) => entry.pane === 'devices')).toMatchObject({
-      size: 512,
-      lastNonzeroSize: 512,
+      size: 600,
+      lastNonzeroSize: 600,
     })
 
     const collapsed = migrateLayoutPreferencesV1(v1)
@@ -352,5 +358,109 @@ describe('V1 to V2 layout migration', () => {
     if (result.state === 'ready') expect(result.value.schemaVersion).toBe(2)
     const broken = JSON.stringify({ ...v1, center: { kind: 'leaf', id: '', pane: 'terminal' } })
     expect(decodeLayoutDocument(broken)).toEqual({ state: 'corrupt', raw: broken })
+  })
+})
+
+describe('stored legacy right default', () => {
+  // The v0.83.0 build wrote its 512 right-pane default into stored documents
+  // on first run, so decode resolves a stored right-side 512 to the current
+  // 600 default; every other stored width stays verbatim.
+  const v1 = {
+    schemaVersion: 1 as const,
+    scope,
+    projectId: 'project-a',
+    runtimeSessionId: 'session-a',
+    center: { kind: 'leaf' as const, id: 'terminal-a', pane: 'terminal' as const },
+    utility: [
+      {
+        pane: 'files' as const,
+        side: 'left' as const,
+        visible: true,
+        size: 280,
+        lastNonzeroSize: 280,
+      },
+      {
+        pane: 'browser' as const,
+        side: 'right' as const,
+        visible: true,
+        size: 512,
+        lastNonzeroSize: 512,
+      },
+    ],
+    focusMode: true,
+    focusTargetId: 'terminal-a',
+  }
+
+  test('resolves a stored right-side 512 to the current default on decode', () => {
+    const decoded = decodeLayoutDocument(JSON.stringify({ ...preferences(), utility: atSize(512) }))
+    expect(decoded).toMatchObject({ state: 'ready', migrated: false })
+    if (decoded.state !== 'ready') throw new Error('expected a ready decode')
+    for (const paneName of ['browser', 'devices', 'agents', 'history'] as const)
+      expect(decoded.value.utility.find((entry) => entry.pane === paneName)).toMatchObject({
+        size: 600,
+        lastNonzeroSize: 600,
+      })
+  })
+
+  test('keeps every other stored width, including the pre-v0.83.0 448 default', () => {
+    for (const size of [240, 288, 336, 384, 448, 536]) {
+      const decoded = decodeLayoutDocument(
+        JSON.stringify({ ...preferences(), utility: atSize(size) })
+      )
+      expect(decoded).toMatchObject({ state: 'ready' })
+      if (decoded.state !== 'ready') throw new Error('expected a ready decode')
+      expect(decoded.value.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
+        size,
+        lastNonzeroSize: size,
+      })
+    }
+  })
+
+  test('maps size and lastNonzeroSize independently and never touches the left side', () => {
+    const mixed = preferences().utility.map((entry) =>
+      entry.pane === 'browser'
+        ? { ...entry, size: 448, lastNonzeroSize: 512 }
+        : entry.pane === 'files'
+          ? { ...entry, size: 512, lastNonzeroSize: 512 }
+          : entry
+    )
+    const decoded = decodeLayoutDocument(JSON.stringify({ ...preferences(), utility: mixed }))
+    expect(decoded).toMatchObject({ state: 'ready' })
+    if (decoded.state !== 'ready') throw new Error('expected a ready decode')
+    expect(decoded.value.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
+      size: 448,
+      lastNonzeroSize: 600,
+    })
+    expect(decoded.value.utility.find((entry) => entry.pane === 'files')).toMatchObject({
+      size: 512,
+      lastNonzeroSize: 512,
+    })
+  })
+
+  test('a V1 document with a stored right-side 512 also resolves to 600', () => {
+    const result = decodeLayoutDocument(
+      JSON.stringify({
+        ...v1,
+        utility: [{ ...v1.utility[1]!, size: 512, lastNonzeroSize: 512 }],
+      })
+    )
+    expect(result).toMatchObject({ state: 'ready', migrated: true })
+    if (result.state !== 'ready') throw new Error('expected a ready decode')
+    for (const paneName of ['browser', 'devices', 'agents', 'history'] as const)
+      expect(result.value.utility.find((entry) => entry.pane === paneName)).toMatchObject({
+        size: 600,
+        lastNonzeroSize: 600,
+      })
+  })
+
+  test('serialization stays faithful: a stored 512 is rewritten only on the next decode', () => {
+    const stored = { ...preferences(), utility: atSize(512) }
+    const raw = serializeLayoutPreferencesV2(stored)
+    expect(raw).toContain('"size":512')
+    const decoded = decodeLayoutDocument(raw)
+    if (decoded.state !== 'ready') throw new Error('expected a ready decode')
+    expect(decoded.value.utility.find((entry) => entry.pane === 'browser')).toMatchObject({
+      size: 600,
+    })
   })
 })

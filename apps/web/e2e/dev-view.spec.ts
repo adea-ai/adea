@@ -1052,8 +1052,8 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   await expect(
     page.locator('[data-slot="side-rail-tip"]').filter({ hasText: 'Browser' })
   ).toBeVisible()
-  // Right utility panes seed the 512px step; existing saved widths still win.
-  await expect.poll(async () => (await rightUtilities.boundingBox())?.width ?? 0).toBe(512)
+  // Right utility panes seed the 600px step; existing saved widths still win.
+  await expect.poll(async () => (await rightUtilities.boundingBox())?.width ?? 0).toBe(600)
   const rightBorderHandle = page.getByRole('separator', { name: 'Resize right utility pane' })
   // The full-height resize hit target must sit on the border, not inside the content.
   await expect
@@ -1078,7 +1078,7 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   })
   expect(
     savedLayout.value.utility.find((item: { pane: string }) => item.pane === 'browser').size
-  ).toBe(512)
+  ).toBe(600)
   await page.evaluate((key) => {
     const value = JSON.parse(localStorage.getItem(key) ?? '{}')
     value.utility = value.utility.map((item: { pane: string }) =>
@@ -1114,7 +1114,7 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   await expect(leftSeparator).toBeVisible()
   await expect(rightSeparator).toBeVisible()
   await expect(leftSeparator).toHaveAttribute('aria-valuemax', '384')
-  await expect(rightSeparator).toHaveAttribute('aria-valuemax', '512')
+  await expect(rightSeparator).toHaveAttribute('aria-valuemax', '600')
   // The left pane opens at the shared 336 default, one 64px drag from the 384
   // cap: shrink first so both drags land on a movable step.
   await dragAt(leftSeparator, 'top', -64)

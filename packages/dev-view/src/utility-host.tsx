@@ -203,6 +203,7 @@ export function SharedDevUtilityHost(props: {
         'dev-utility--size-384': visiblePane()?.size === 384,
         'dev-utility--size-448': visiblePane()?.size === 448,
         'dev-utility--size-512': visiblePane()?.size === 512,
+        'dev-utility--size-600': visiblePane()?.size === 600,
         'dev-utility--cross-view-full': visiblePane()?.fullWidth,
       })}
       id="dev-utility-right"
