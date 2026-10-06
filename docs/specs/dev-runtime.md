@@ -4923,10 +4923,14 @@ auth is the user's `gh` CLI context, and Adea stores no GitHub token.
   hand-rolling drag-and-drop.
 
 - **Read models.** `pullRequestSummaries` (one repository, newest update
-  first, at most 50 a page) and `pullRequestSummary` (one PR, plus `body` and
-  the compare-derived `behindBy`) return `GitHubPullRequestSummary`: author
-  (`user`, `bot`, or `team`), requested reviewers, the latest review per
-  reviewer, GitHub's review decision, `mergeable`, `mergeState`, a check
+  first, at most 50 a page) and `pullRequestSummary` (one PR, plus `body`,
+  the compare-derived `behindBy`, and `requiredApprovals`, the larger of the
+  base branch's ruleset pull request rule and its classic branch protection,
+  each read best effort so a refused read — classic protection needs admin —
+  leaves it absent) return `GitHubPullRequestSummary`: author
+  (`user`, `bot`, or `team`), the base ref's oid (`baseSha`, omitted when
+  absent), requested reviewers, the latest review per reviewer, GitHub's
+  review decision, `mergeable`, `mergeState`, a check
   rollup with per-bucket counts, auto-merge, the repository's allowed merge
   methods, and closing issues. `timeline` returns comments, reviews, commits
   with their rollup state, review threads (first page only, with the first
@@ -4997,7 +5001,8 @@ provider's rules, with these differences:
   `Draft:` title prefix becomes the `draft` flag and is stripped from the
   title; approvals become `approved` reviews and a reviewer who requested
   changes a `changes_requested` review; `reviewDecision` follows the
-  project's approval rule. The head pipeline's jobs are the checks
+  project's approval rule, whose `approvalsRequired` is `requiredApprovals`,
+  and the diff's start sha is `baseSha`. The head pipeline's jobs are the checks
   (`stage / name`); an `allow_failure` job that failed is `neutral`, manual
   and skipped jobs are `skipped`. Discussions anchored to a diff position
   are threads (their id is the discussion id); other notes are comments;

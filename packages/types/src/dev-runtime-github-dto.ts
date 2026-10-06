@@ -127,7 +127,17 @@ function pullRequestSummary(value: unknown, path: string): void {
       'updatedAt',
       'observedAt',
     ],
-    ['author', 'reviewDecision', 'autoMerge', 'behindBy', 'body', 'mergedAt', 'closedAt'],
+    [
+      'author',
+      'reviewDecision',
+      'autoMerge',
+      'behindBy',
+      'requiredApprovals',
+      'baseSha',
+      'body',
+      'mergedAt',
+      'closedAt',
+    ],
     path
   )
   if (!pullRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
@@ -142,6 +152,7 @@ function pullRequestSummary(value: unknown, path: string): void {
   stringValue(item.headRef, `${path}.headRef`, 1, 512)
   sha(item.headSha, `${path}.headSha`)
   stringValue(item.baseRef, `${path}.baseRef`, 1, 512)
+  if (item.baseSha !== undefined) sha(item.baseSha, `${path}.baseSha`)
   bool(item.crossRepository, `${path}.crossRepository`)
   for (const key of ['additions', 'deletions', 'changedFiles', 'commitCount'] as const)
     integerValue(item[key], `${path}.${key}`, 0)
@@ -184,6 +195,8 @@ function pullRequestSummary(value: unknown, path: string): void {
       stringValue(auto.enabledBy, `${path}.autoMerge.enabledBy`, 1, 100)
   }
   if (item.behindBy !== undefined) integerValue(item.behindBy, `${path}.behindBy`, 0)
+  if (item.requiredApprovals !== undefined)
+    integerValue(item.requiredApprovals, `${path}.requiredApprovals`, 0, 100)
   list(item.mergeMethods, `${path}.mergeMethods`, 3).forEach((method, index) =>
     literal(method, mergeMethods, `${path}.mergeMethods[${index}]`)
   )

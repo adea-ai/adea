@@ -269,24 +269,66 @@ export function createCollaborationHandlers(
       withBody: true,
     })
     if (!options.withBehind || mapped.summary.state !== 'open') return mapped
-    try {
-      const compare = obj(
-        await ctx.ghJson(
+    const repoPath = `repos/${parts.owner}/${parts.repo}`
+    const base = encodeURIComponent(mapped.summary.baseRef)
+    const [behindBy, requiredApprovals] = await Promise.all([
+      ctx
+        .ghJson(ctx.apiArgs(ctx.host, `${repoPath}/compare/${base}...${mapped.summary.headSha}`))
+        .then((compare) => num(obj(compare, 'compare').behind_by, 'compare.behind_by'))
+        // Ahead/behind is decoration: a failed compare leaves it absent.
+        .catch(() => undefined),
+      readRequiredApprovals(repoPath, base),
+    ])
+    return {
+      nodeId: mapped.nodeId,
+      summary: {
+        ...mapped.summary,
+        ...(behindBy !== undefined ? { behindBy } : {}),
+        ...(requiredApprovals !== undefined ? { requiredApprovals } : {}),
+      },
+    }
+  }
+
+  /** The approving reviews the base branch requires: the larger of its
+   *  rulesets' pull request rule (readable with read access) and its classic
+   *  branch protection (readable only by admins, so usually refused). Both
+   *  are decoration: a refused or malformed read leaves the count absent. */
+  async function readRequiredApprovals(
+    repoPath: string,
+    base: string
+  ): Promise<number | undefined> {
+    const counts = await Promise.all([
+      ctx
+        .ghJson(ctx.apiArgs(ctx.host, `${repoPath}/rules/branches/${base}`))
+        .then((rules) =>
+          arr(rules, 'rules')
+            .map((rule) => obj(rule, 'rule'))
+            .filter((rule) => rule.type === 'pull_request')
+            .map((rule) =>
+              num(
+                obj(rule.parameters, 'rule.parameters').required_approving_review_count,
+                'rule.parameters.required_approving_review_count'
+              )
+            )
+        )
+        .catch(() => [] as number[]),
+      ctx
+        .ghJson(
           ctx.apiArgs(
             ctx.host,
-            `repos/${parts.owner}/${parts.repo}/compare/${encodeURIComponent(mapped.summary.baseRef)}...${mapped.summary.headSha}`
+            `${repoPath}/branches/${base}/protection/required_pull_request_reviews`
           )
-        ),
-        'compare'
-      )
-      return {
-        nodeId: mapped.nodeId,
-        summary: { ...mapped.summary, behindBy: num(compare.behind_by, 'compare.behind_by') },
-      }
-    } catch {
-      // Ahead/behind is decoration: a failed compare leaves it absent.
-      return mapped
-    }
+        )
+        .then((reviews) => [
+          num(
+            obj(reviews, 'protection').required_approving_review_count,
+            'protection.required_approving_review_count'
+          ),
+        ])
+        .catch(() => [] as number[]),
+    ])
+    const all = counts.flat()
+    return all.length > 0 ? Math.min(Math.max(...all), 100) : undefined
   }
 
   async function readThread(threadId: string, parts: Parts) {
