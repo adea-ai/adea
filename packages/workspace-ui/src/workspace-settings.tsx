@@ -13,6 +13,7 @@ import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
 import {
   Bell,
   Bot,
+  Brain,
   Database,
   EyeOff,
   Link2,
@@ -47,6 +48,7 @@ const sectionIcons = {
   account: UserRound,
   appearance: MonitorCog,
   workspace: MonitorCog,
+  memory: Brain,
   agents: Bot,
   'input-notifications': Mic,
   'privacy-data': EyeOff,
@@ -59,6 +61,8 @@ const sectionIcons = {
 const PermissionsPane = lazy(() =>
   import('@adea-ai/dev-view/permissions').then((module) => ({ default: module.PermissionsPane }))
 )
+// Lazy for the same reason: the Memory pane loads when its section opens.
+const MemoryPane = lazy(() => import('./memory-pane'))
 
 // The shared settings row: same label/description/control contract the
 // published settings composite defines, so this dialog composes the library
@@ -404,6 +408,21 @@ export function WorkspaceSettingsDialog(props: {
             workspace={props.workspace}
             {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
           />
+        </TabsContent>
+        <TabsContent value="memory" id="settings-panel-memory" class="conventional-settings-panel">
+          <header>
+            <Brain aria-hidden="true" />
+            <div>
+              <h3>{settingsSectionLabels.memory}</h3>
+              <p>
+                Notes for agents working in {props.workspace.name}. Agents can propose notes; they
+                become memory only when you accept them.
+              </p>
+            </div>
+          </header>
+          <Show when={section() === 'memory'}>
+            <MemoryPane service={props.services?.memory} workspaceId={props.workspace.id} />
+          </Show>
         </TabsContent>
         <TabsContent value="agents" id="settings-panel-agents" class="conventional-settings-panel">
           <header>

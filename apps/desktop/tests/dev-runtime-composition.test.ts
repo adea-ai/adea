@@ -388,6 +388,9 @@ describe('dev runtime composition', () => {
         'dev.session.resumeHarness',
         'dev.session.cancelHarness',
         'dev.session.events',
+        // ADR 0012: agent memory proposals land pending through the harness
+        // register, bound to the session's own workspace.
+        'dev.memory.propose',
         'dev.worktree.list',
         'dev.worktree.create',
         'dev.worktree.archive',

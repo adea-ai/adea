@@ -101,11 +101,11 @@ describe('Dev Runtime operation registry', () => {
     // 165 before dev.device.capabilities, 166 before the source control
     // app's 20 pull request collaboration operations, 186 before its 29
     // GitLab mirrors, 215 before dev.project.authorizeRoot, 216 before
-    // dev.worktree.rename and dev.worktree.diffSummary, 218 before
-    // dev.summary.workspaces: the registry ratchet moves only when an
+    // dev.worktree.rename, dev.worktree.diffSummary, dev.summary.workspaces
+    // and dev.memory.propose: the registry ratchet moves only when an
     // operation is deliberately added, and the decoder-key check below is
     // what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(219)
+    expect(devOperations).toHaveLength(220)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({

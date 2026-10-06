@@ -10,11 +10,18 @@
 // own window. Privileged `dev.*` operations do NOT register here — they belong
 // to the authenticated Dev Runtime channel under src/dev-runtime/.
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { version as packagedVersion } from '../../package.json'
 import { resolveCloudOrigin } from './cloud-proxy'
+import { loadDeviceKey } from './device-key'
 import { createMacPermissionService, type MacPermissionService } from './desktop-permissions'
+import {
+  MemoryStoreError,
+  assertMemoryWorkspaceId,
+  createMemoryStore,
+  type MemoryStore,
+} from './memory/store'
 import { createUpdateManager, isUpdateChannel, type UpdateChannel } from './updates'
 
 // Update flow: compare this build against the signed `latest.json` feed the
@@ -101,11 +108,33 @@ export type BridgeResult =
   | { ok: true; value: unknown; rehandshake?: string }
   | { ok: false; error: string }
 
+/** Runs a memory command; any failure that is not a typed store refusal or
+ *  the workspace gate reads as `memory_unavailable`, so no filesystem or
+ *  crypto detail ever reaches the renderer. */
+function memoryCommand<T>(run: () => T): T {
+  try {
+    return run()
+  } catch (error) {
+    if (error instanceof MemoryStoreError) throw error
+    if (error instanceof Error && error.message === 'memory_workspace_unauthorized') throw error
+    throw new Error('memory_unavailable', { cause: error })
+  }
+}
+
 export function createCommandSurface(
   dataDir: string,
   options?: {
     macPermissions?: MacPermissionService
     onChatPresentation?: (focusedSessionId: string | undefined) => void
+    /** The workspace memory store; production shares one instance with the
+     *  Dev Runtime launch path. Defaults to a store over this data dir. */
+    memory?: MemoryStore
+    /**
+     * The shell-owned authorized workspace (the active Dev scope's
+     * workspace). Memory commands refuse any other workspace id; absent, every
+     * memory command fails closed.
+     */
+    authorizedWorkspaceId?: () => string | undefined
   }
 ) {
   const stateDir = join(dataDir, 'desktop-state')
@@ -134,11 +163,7 @@ export function createCommandSurface(
 
   const keyFile = join(stateDir, 'device.key')
   function deviceKey(): Buffer {
-    if (!existsSync(keyFile)) {
-      writeFileSync(keyFile, randomBytes(32), { mode: 0o600 })
-      chmodSync(keyFile, 0o600)
-    }
-    return readFileSync(keyFile)
+    return loadDeviceKey(keyFile)
   }
 
   function seal(plaintext: string): string {
@@ -199,6 +224,20 @@ export function createCommandSurface(
     writeFileSync(contentIndexFile, JSON.stringify(index), { mode: 0o600 })
   }
 
+  // Workspace memory (docs/specs/local-content.md "Workspace memory"): the
+  // renderer names the workspace, and the shell admits only the workspace its
+  // own scope authority currently holds. Refusals carry a stable code only.
+  const memory =
+    options?.memory ??
+    createMemoryStore({ contentDir, key: () => loadDeviceKey(join(stateDir, 'device.key')) })
+  function memoryWorkspace(args?: Record<string, unknown>): string {
+    const authorized = options?.authorizedWorkspaceId?.()
+    const requested = assertMemoryWorkspaceId(args?.workspaceId)
+    if (!authorized || authorized !== requested) {
+      throw new Error('memory_workspace_unauthorized')
+    }
+    return requested
+  }
   const handlers: Record<string, (args?: Record<string, unknown>) => unknown> = {
     desktop_user_session_load: () => readSecret('session.sealed'),
     desktop_user_session_save: (args) => {
@@ -341,6 +380,44 @@ export function createCommandSurface(
       clear('device.key')
       return null
     },
+    memory_list: (args) => memoryCommand(() => memory.list(memoryWorkspace(args))),
+    memory_create: (args) =>
+      memoryCommand(() => memory.create(memoryWorkspace(args), { text: args?.text })),
+    memory_update: (args) =>
+      memoryCommand(() =>
+        memory.update(memoryWorkspace(args), {
+          entryId: args?.entryId,
+          expectedRevision: args?.expectedRevision,
+          text: args?.text,
+        })
+      ),
+    memory_delete: (args) =>
+      memoryCommand(() => {
+        memory.remove(memoryWorkspace(args), {
+          entryId: args?.entryId,
+          expectedRevision: args?.expectedRevision,
+        })
+        return null
+      }),
+    memory_accept_proposal: (args) =>
+      memoryCommand(() =>
+        memory.accept(memoryWorkspace(args), {
+          entryId: args?.entryId,
+          expectedRevision: args?.expectedRevision,
+        })
+      ),
+    memory_reject_proposal: (args) =>
+      memoryCommand(() => {
+        memory.reject(memoryWorkspace(args), {
+          entryId: args?.entryId,
+          expectedRevision: args?.expectedRevision,
+        })
+        return null
+      }),
+    memory_injection_save: (args) =>
+      memoryCommand(() => ({
+        injectionEnabled: memory.setInjectionEnabled(memoryWorkspace(args), args?.enabled),
+      })),
     desktop_update_check: () => updates.check(),
     desktop_update_status: () => updates.status(),
     desktop_update_install: (args) => updates.install(args),

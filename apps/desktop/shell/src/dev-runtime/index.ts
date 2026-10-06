@@ -44,6 +44,7 @@ import {
 } from './project-session/register'
 import { registerHarnessRuntime, type HarnessRuntimeRegistration } from './harness/register'
 import type { AcpLaneDriver } from './harness/acp-lane'
+import type { MemoryStore } from '../memory/store'
 import type { ManagedPiDriver } from './harness/managed-pi-driver'
 import { registerTerminalRuntime, type TerminalRuntimeRegistration } from './terminal/register'
 import type { SidecarClient } from './terminal/sidecar/client'
@@ -176,6 +177,13 @@ export type CreateDevRuntimeHostInput = {
   managedPiAutoInstall?: boolean
   /** Overrides the ACP lane driver (#32; tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
+  /**
+   * ADR 0012 workspace memory: the shell's one memory store (shared with the
+   * legacy `memory_*` commands). Launches inject the session workspace's
+   * preamble and `dev.memory.propose` stores pending proposals through it;
+   * absent, launches inject nothing and proposals refuse typed.
+   */
+  memory?: MemoryStore
   /** Overrides the #471 permission service for the computer-use lanes (#472). */
   macPermissions?: MacPermissionService
   /** Overrides the computer-use input engine (#472; tests inject scripted ones). */
@@ -422,6 +430,13 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           ? { managedPiArchiveResolver: input.managedPiArchiveResolver }
           : {}),
         ...(input.acpDriver ? { acpDriver: input.acpDriver } : {}),
+        ...(input.memory
+          ? {
+              memoryPreamble: input.memory.preamble,
+              proposeMemory: (workspaceId: string, text: string) =>
+                input.memory!.propose(workspaceId, { text }),
+            }
+          : {}),
         ...(terminal ? { deliverPrompt: terminal.deliverPrompt } : {}),
         ...(terminal
           ? {

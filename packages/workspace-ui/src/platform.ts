@@ -1,4 +1,5 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { WorkspaceMemoryEntry, WorkspaceMemorySnapshot } from '@adea-ai/types'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
 
 export type PrivateContentResolver = Readonly<{
@@ -221,6 +222,34 @@ export type WorkspacePluginsProviderState =
   | 'verification-failure'
   | 'unavailable'
 
+/**
+ * Workspace memory (ADR 0012): the desktop store's trusted command family for
+ * the authorized workspace. Omitted on surfaces without a desktop shell, where
+ * the Memory settings section renders its typed unavailable state.
+ */
+export type WorkspaceMemoryService = Readonly<{
+  list(workspaceId: string): Promise<WorkspaceMemorySnapshot>
+  create(input: Readonly<{ workspaceId: string; text: string }>): Promise<WorkspaceMemoryEntry>
+  update(
+    input: Readonly<{
+      workspaceId: string
+      entryId: string
+      expectedRevision: number
+      text: string
+    }>
+  ): Promise<WorkspaceMemoryEntry>
+  remove(
+    input: Readonly<{ workspaceId: string; entryId: string; expectedRevision: number }>
+  ): Promise<void>
+  acceptProposal(
+    input: Readonly<{ workspaceId: string; entryId: string; expectedRevision: number }>
+  ): Promise<WorkspaceMemoryEntry>
+  rejectProposal(
+    input: Readonly<{ workspaceId: string; entryId: string; expectedRevision: number }>
+  ): Promise<void>
+  setInjectionEnabled(input: Readonly<{ workspaceId: string; enabled: boolean }>): Promise<boolean>
+}>
+
 export type WorkspacePlatformServices = Readonly<{
   account?: Readonly<{
     authenticated?: boolean
@@ -237,6 +266,8 @@ export type WorkspacePlatformServices = Readonly<{
   client?: AgentHqApiClient
   capabilities?: CapabilityProvider
   devRuntime?: DevRuntimeService
+  /** Desktop-only workspace memory; omitted on the web. */
+  memory?: WorkspaceMemoryService
   privateContent?: PrivateContentResolver
   plugins?: WorkspacePluginsProvider
   settings?: WorkspaceSettingsProvider

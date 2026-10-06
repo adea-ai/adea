@@ -998,6 +998,12 @@
       "body": "{ runtimeSessionId?: string; installationId?: string; state?: 'resolving'|'starting'|'working'|'awaiting_input'|'awaiting_approval'|'completed'|'failed'|'cancelled'|'disconnected'|'unknown'; cursor?: string; limit?: integer(1..500) }",
       "reply": "Page<HarnessRun>"
     },
+    "dev.memory.propose": {
+      "capabilities": ["dev.memory.propose"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; text: string(1..2000) }",
+      "reply": "MemoryProposalReceipt"
+    },
     "dev.project.archive": {
       "capabilities": ["dev.project.manage"],
       "resource": "project:required",

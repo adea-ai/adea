@@ -11,6 +11,17 @@ describe('settings deep links and keyboard navigation', () => {
   test('accepts stable section hashes and rejects unknown sections', () => {
     expect(settingsSectionFromHash('#settings/privacy-data')).toBe('privacy-data')
     expect(settingsSectionFromHash('#settings/not-a-section')).toBe('account')
+    expect(settingsSectionFromHash('#settings/memory')).toBe('memory')
+  })
+
+  test('places Memory in the Workspace group, after the workspace section', () => {
+    expect(settingsSectionGroups.find(({ label }) => label === 'Workspace')?.items).toEqual([
+      'appearance',
+      'workspace',
+      'memory',
+    ])
+    expect(nextSettingsSection('workspace', 'ArrowDown')).toBe('memory')
+    expect(nextSettingsSection('memory', 'ArrowDown')).toBe('agents')
   })
 
   test('wraps arrow navigation and honors Home and End', () => {

@@ -1059,6 +1059,28 @@ export type HarnessRun = Readonly<{
   startedAt?: string
   finishedAt?: string
   version: number
+  /**
+   * Typed launch diagnostics recorded with the run (ADR 0012): a
+   * `memory_truncated` entry names how many workspace memory entries the
+   * bounded launch preamble carried and how many it left out. Counts only —
+   * never entry text.
+   */
+  diagnostics?: readonly HarnessRunDiagnostic[]
+}>
+
+export type HarnessRunDiagnostic = Readonly<{
+  code: 'memory_truncated'
+  includedEntries: number
+  omittedEntries: number
+  limitBytes: number
+}>
+
+/** The reply to `dev.memory.propose`: the pending proposal's identity only —
+ *  the proposed text is restricted local content and is never echoed. */
+export type MemoryProposalReceipt = Readonly<{
+  memoryEntryId: string
+  status: 'pending'
+  createdAt: string
 }>
 
 export type ManagedPiInstallState = 'absent' | 'resolving' | 'installing' | 'ready' | 'failed'
@@ -3153,9 +3175,16 @@ function namedType(name: string, value: unknown, path: string): unknown {
         'generation',
         'version',
       ],
-      ['modelId', 'startedAt', 'finishedAt', 'terminalId', 'terminalGeneration'],
+      ['modelId', 'startedAt', 'finishedAt', 'terminalId', 'terminalGeneration', 'diagnostics'],
       path
     )
+    if (item.diagnostics !== undefined) {
+      if (!Array.isArray(item.diagnostics) || item.diagnostics.length > 8)
+        fail(`${path}.diagnostics`, 'expected at most 8 diagnostics')
+      item.diagnostics.forEach((entry: unknown, index: number) =>
+        namedType('HarnessRunDiagnostic', entry, `${path}.diagnostics[${index}]`)
+      )
+    }
     if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
       fail(`${path}.id`, 'expected lowercase UUID')
     decodeScope(item.scope, `${path}.scope`)
@@ -3186,6 +3215,24 @@ function namedType(name: string, value: unknown, path: string): unknown {
     if (item.startedAt !== undefined) timestamp(item.startedAt, `${path}.startedAt`)
     if (item.finishedAt !== undefined) timestamp(item.finishedAt, `${path}.finishedAt`)
     integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'HarnessRunDiagnostic') {
+    const item = record(value, path)
+    exactKeys(item, ['code', 'includedEntries', 'omittedEntries', 'limitBytes'], [], path)
+    literal(item.code, ['memory_truncated'], `${path}.code`)
+    integerValue(item.includedEntries, `${path}.includedEntries`, 0)
+    integerValue(item.omittedEntries, `${path}.omittedEntries`, 1)
+    integerValue(item.limitBytes, `${path}.limitBytes`, 1)
+    return value
+  }
+  if (name === 'MemoryProposalReceipt') {
+    const item = record(value, path)
+    exactKeys(item, ['memoryEntryId', 'status', 'createdAt'], [], path)
+    if (!uuidPattern.test(stringValue(item.memoryEntryId, `${path}.memoryEntryId`)))
+      fail(`${path}.memoryEntryId`, 'expected lowercase UUID')
+    literal(item.status, ['pending'], `${path}.status`)
+    timestamp(item.createdAt, `${path}.createdAt`)
     return value
   }
   if (name === 'ManagedPiStatus') {
@@ -4132,6 +4179,9 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.harness.runStatus': (value) => decodeHarnessRun(value),
   'dev.session.launchDefault': (value) => decodeHarnessRun(value),
   'dev.session.events': (value) => decodeDevStreamGrant(value),
+  // ADR 0012 workspace memory: an agent proposal lands pending; the reply is
+  // the receipt, never the proposed text.
+  'dev.memory.propose': (value) => namedType('MemoryProposalReceipt', value, 'reply.value'),
 }
 
 function decodeError(value: unknown, path = 'error'): DevError {

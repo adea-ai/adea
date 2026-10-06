@@ -407,6 +407,9 @@ export const devOperationMetadata = {
     operationMetadata.devOperationMetadataFor_dev_harness_runStatus
   ),
   'dev.harness.runs': commandMetadata(operationMetadata.devOperationMetadataFor_dev_harness_runs),
+  'dev.memory.propose': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_memory_propose
+  ),
   'dev.project.archive': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_project_archive
   ),

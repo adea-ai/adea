@@ -52,8 +52,9 @@ keys. Three tables:
 - `local_content_rotation`: the resumable rotation row (old/new version, last
   migrated content ID, start time).
 
-Content types are `message_body`, `task_objective`, `task_input`, and
-`private_field`. Identifiers are canonical UUIDs, never row IDs or paths.
+Content types are `message_body`, `task_objective`, `task_input`,
+`private_field`, and `memory_entry` (workspace memory, below). Identifiers are
+canonical UUIDs, never row IDs or paths.
 
 ## Encryption
 
@@ -77,6 +78,86 @@ Rotation is resumable and bounded to 500 records per batch. A durable row record
 the old and new versions; each batch commits ciphertext and progress atomically;
 the old key is deleted only after every live row authenticates and its digest
 verifies under the new key. `local_content_rotate_key` resumes from the row.
+
+## Workspace memory
+
+[ADR 0012](../decisions/0012-workspace-memory-connections-sharing.md) adds the
+`memory_entry` content type: short plain-text notes owned by exactly one
+workspace and injected into harness sessions that launch there
+([dev-runtime.md](./dev-runtime.md), "Initial prompt delivery"). This section
+describes the shipped implementation, not the SQLite target.
+
+**Record.** One owner-only (`0600`) JSON file per entry under
+`local-content/memory/<id>.json`, written atomically (temp file plus rename).
+The entry shape is `{ id, workspaceId, text, source, status, createdAt,
+updatedAt, revision }` (`WorkspaceMemoryEntry` in `@adea-ai/types`): `id` is a
+random canonical UUID, `source` is `user` or `agent`, `status` is `active` or
+`pending`, and `revision` starts at 1. Only the text is sealed: AES-256-GCM
+under the device key with a fresh 96-bit nonce per write, and associated data
+`schemaVersion || keyVersion || workspaceId || contentId || contentType`
+(`\u001f`-joined, content type `memory_entry`). Id, workspace, source, status,
+timestamps and revision are workspace metadata stored beside the ciphertext.
+
+**Workspace binding.** Every read authenticates under the workspace the caller
+is authorized for, never the workspace the file claims. A record copied or
+re-labelled into another workspace therefore fails authentication; it is
+counted as `unreadable` in the list result and is never shown, injected or
+promoted. Lookups by id that name another workspace's entry read as
+`memory_not_found`, so existence never leaks across workspaces.
+
+**Bounds.** Entry text is trimmed, 1–2,000 UTF-16 code units, and contains no
+NUL; `\r\n` normalizes to `\n`. A workspace holds at most 200 entries
+(active plus pending) and at most 20 pending proposals; the next write refuses
+`memory_limit_exceeded`. The compiled launch preamble is at most 16 KiB
+(`workspaceMemoryLimits` in `@adea-ai/types`).
+
+**Commands.** The trusted shell command family, registered in
+`apps/desktop/shell/src/commands.ts` behind the signed legacy invoke gate:
+
+| Command                  | Arguments                                            | Result                                      |
+| ------------------------ | ---------------------------------------------------- | ------------------------------------------- |
+| `memory_list`            | `workspaceId`                                        | `{ entries, injectionEnabled, unreadable }` |
+| `memory_create`          | `workspaceId`, `text`                                | the new `active`, `user` entry              |
+| `memory_update`          | `workspaceId`, `entryId`, `expectedRevision`, `text` | the entry at `revision + 1`                 |
+| `memory_delete`          | `workspaceId`, `entryId`, `expectedRevision`         | `null`                                      |
+| `memory_accept_proposal` | `workspaceId`, `entryId`, `expectedRevision`         | the entry, now `active`                     |
+| `memory_reject_proposal` | `workspaceId`, `entryId`, `expectedRevision`         | `null` (the proposal is deleted)            |
+| `memory_injection_save`  | `workspaceId`, `enabled`                             | `{ injectionEnabled }`                      |
+
+Entries list newest first (creation time, then id). Accept and reject apply
+only to `pending` entries (`memory_invalid_state` otherwise), and every
+mutation is revision checked (`memory_stale_revision`).
+
+**Authorized workspace.** Unlike `local_content_authorize_workspace` (a no-op
+in this registry), memory commands are gated by the shell itself: the named
+`workspaceId` must equal the workspace of the shell's active Dev scope
+(`DesktopIdentityAuthority.currentScope()`), or the command refuses
+`memory_workspace_unauthorized`. A command surface built without that
+authority fails every memory command closed. The harness launch path reads the
+same store with the session's own `scope.workspaceId`, so the settings UI and
+injection always address the same workspace.
+
+**Injection switch.** `local-content/memory-settings.json` keeps a
+per-workspace `memoryInjection` flag; absent means on. Turning it off stops
+launch injection and deletes nothing.
+
+**Proposals.** Agent-written entries arrive through the Dev operation
+`dev.memory.propose` ([dev-runtime.md](./dev-runtime.md), "Command catalog")
+and are stored `pending` with source `agent`; pending entries are never
+injected. A rejected proposal is deleted, not tombstoned.
+
+**Errors.** Refusals carry only a stable code — `memory_invalid_input`,
+`memory_not_found`, `memory_stale_revision`, `memory_limit_exceeded`,
+`memory_invalid_state`, `memory_workspace_unauthorized`, or
+`memory_unavailable` for any filesystem or cryptographic failure — and never
+entry text, paths or key detail.
+
+**Not yet shipped.** Memory entries are `local_only` in this implementation:
+publishing them as `agent_hq_e2ee_sync` ciphertext replicas (ADR 0012) needs
+the cloud content-ref schema to admit `memory_entry` and lands separately.
+`local_content_rotate_key` deletes the shared device key, after which existing
+memory records fail authentication and report as `unreadable`, the same
+documented gap as the rest of the transitional store.
 
 ## Cloud replica boundary
 
@@ -138,5 +219,12 @@ they do not establish the missing SQLite, workspace, health, or rotation behavio
   (The Electrobun lane's equivalent lives in
   `apps/desktop/tests/shell-channel.test.ts`: origin/rebinding refusals,
   bootstrap single use, and content-id traversal rejection.)
-- `scripts/desktop-ipc-boundary.test.ts`: the `local_content_*` command surface,
-  its grant, and the client's calls.
+- `scripts/desktop-ipc-boundary.test.ts`: the `local_content_*` and `memory_*`
+  command surface, its grant, and the client's calls.
+- `apps/desktop/tests/workspace-memory-store.test.ts`: encrypted round trip,
+  cross-workspace refusal (including a re-labelled record failing
+  authentication), revision checks, bounds, the proposal lifecycle, the
+  injection switch, and the authorized-workspace gate on every `memory_*`
+  command.
+- `apps/desktop/tests/workspace-memory-launch.test.ts`: launch injection and
+  `dev.memory.propose` over the real channel gate (see dev-runtime.md).

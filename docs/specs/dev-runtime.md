@@ -555,6 +555,13 @@ type HarnessRun = {
   startedAt?: string
   finishedAt?: string
   version: number
+  /** Typed launch diagnostics, counts only (ADR 0012 memory preamble). */
+  diagnostics?: Array<{
+    code: 'memory_truncated'
+    includedEntries: number
+    omittedEntries: number
+    limitBytes: number
+  }>
 }
 
 type ProcessRecord = {
@@ -2379,6 +2386,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.session`                | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                                                                         |
 | `dev.summary`                | `workspaces`                                                                                                                                                                                                                                                                                                           |
 | `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`                                                                                                                                                           |
+| `dev.memory`                 | `propose`                                                                                                                                                                                                                                                                                                              |
 | `dev.files`                  | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`, `renameOverwritePlan`, `renameOverwriteCommit`, `deleteTreePlan`, `deleteTreeCommit`, `copyTreePlan`, `copyTreeCommit`                                                                   |
 | `dev.git`                    | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                                                                                       |
 | `dev.browser`                | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `cookieSources`, `profileReset`, `profilePolicies`                                                      |
@@ -2409,6 +2417,7 @@ Capability/resource binding is deny-by-default:
 | session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                                   |
 | summary       | `dev.summary.read` (counts only; same account + runtime node)               | none                                                                                                        | no resource                                                         |
 | harness       | `dev.harness.read`                                                          | installation/connection/run control requires `dev.harness.manage`                                           | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
+| memory        | none (entries are read through the trusted `memory_*` shell commands)       | `propose` requires `dev.memory.propose` and an active harness run; it writes `pending` entries only         | `runtime_session`                                                   |
 | files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity                         |
 | git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request                      |
 | browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                    | `browser_lane`                                                      |
@@ -3651,8 +3660,9 @@ Launch transaction:
 4. wait for authenticated shell readiness;
 5. launch argv/cwd/sanitized environment;
 6. attach native/ACP, else authenticated hook, else mark terminal fallback;
-7. deliver initial prompt through native/ACP, harness API, or guarded PTY in that
-   order, recording acknowledgement/provenance;
+7. compile the session workspace's memory preamble (ADR 0012) and deliver it
+   with the initial prompt through native/ACP, harness API, or guarded PTY in
+   that order, recording acknowledgement/provenance;
 8. publish status/history.
 
 A timeout/ambiguous acknowledgement does not retry prompt delivery blindly.
@@ -3755,6 +3765,53 @@ session, refused or interrupted fenced write) appends a host
 `capability.degraded` event naming the reason. A delivery failure never fails
 the launch (partial failure retains the terminal/worktree) and never silently
 masquerades as delivered.
+
+### Workspace memory preamble
+
+ADR 0012 memory rides launch step 7. Before the run record exists, the
+launch transaction asks the shell's memory store
+([local-content.md](./local-content.md), "Workspace memory") for the preamble
+of the session's own workspace — `session.scope.workspaceId`, which the
+register has already proved equals the authenticated scope; the request body
+names no workspace and another workspace's entries are never read:
+
+- **Compile.** The workspace's `active` entries (never `pending` proposals),
+  newest first by creation time then id, become one block: a fixed header line
+  followed by one `- ` bullet per entry, continuation lines indented. The bound
+  is `workspaceMemoryLimits.preambleMaxBytes` — 16 KiB of UTF-8 — enforced over
+  whole entries: the block carries the longest newest-first prefix that fits
+  and never cuts an entry.
+- **Overflow.** When entries are left out the run is created with a typed
+  diagnostic, `HarnessRun.diagnostics: [{ code: 'memory_truncated',
+includedEntries, omittedEntries, limitBytes }]`, which the launch reply and
+  run history (`dev.harness.runs`) carry, and the run's stream gains one host
+  `capability.degraded` fact with the same counts (dedupe key
+  `host:memory:<runId>`). Overflow is never silent.
+- **Delivery.** The preamble leads the initial prompt, separated by one blank
+  line, in the SAME single delivery described below — the ordered
+  native/ACP → harness API → guarded PTY channel, at most once per run, no
+  blind retry. With no initial prompt the preamble is delivered alone. With
+  injection switched off for the workspace, or no active entries, nothing
+  extra is sent and a launch without an initial prompt delivers nothing.
+- **Provenance.** The delivery's `turn.user_input` (or `capability.degraded`)
+  payload adds `memoryEntries` and `memoryBytes` — counts only. Neither entry
+  text nor prompt text enters an event, a log, or the run record.
+- **Failure.** A store that cannot be read injects nothing; the run's stream
+  records a host `capability.degraded` fact with code `memory_unavailable`
+  and the launch proceeds.
+
+Agent-written memory is a proposal: `dev.memory.propose` (body
+`{ runtimeSessionId, expectedGeneration, text }`, text 1–2,000 characters,
+`runtime_session` resource required, capability `dev.memory.propose`) is
+admitted only while a harness run is active for the session, re-checks scope,
+resource binding and generation like every session-bound operation, and
+stores the text as a `pending`, `agent`-sourced entry of the session's
+workspace. Its reply, `MemoryProposalReceipt { memoryEntryId, status:
+'pending', createdAt }`, never echoes the text; the pending bound refuses
+`limit_exceeded`, a host without a memory store refuses
+`capability_unavailable`, and the audit trail records the entry id and
+outcome only. A proposal becomes memory only when the user accepts it in
+Workspace settings › Memory.
 
 ### The managed Pi installation lifecycle
 
@@ -4934,6 +4991,7 @@ type DataClassification =
 | local paths, repo names/remotes, command labels     | workspace private               | redact/home-alias remotely unless granted      |
 | branch names, worktree titles, diff counts          | workspace private               | desktop only; never leaves the device          |
 | terminal bytes, prompts/results, file content/diffs | restricted local by default     | bounded explicit projection only               |
+| workspace memory entry text                         | restricted local                | owning workspace's settings and launch only    |
 | screenshots/annotations/check logs                  | workspace private or restricted | provenance + retention + redaction             |
 | cookies, tokens, keys, auth headers, secret env     | credential                      | never renderer event/log; vault operation only |
 | usage account identifiers                           | workspace private               | safe display label, no token/account secret    |
@@ -5115,6 +5173,7 @@ never truncates silently or allocates an unbounded fallback.
 | search                | 10,000 matches; 1,000 matched files; 50 MiB scan-result budget; 1 MiB emitted; 30 seconds                                                                                                                                                                                      |
 | git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies                                                                                                                                                                                                  |
 | harness discovery     | 1 MiB input; 1,000 models/commands; 64 KiB/record; 10 seconds                                                                                                                                                                                                                  |
+| workspace memory      | entry 2,000 characters; 200 entries and 20 pending proposals per workspace; launch preamble 16 KiB of whole entries, overflow reported as `memory_truncated`                                                                                                                   |
 | cookie import         | 10,000 cookies; 16 MiB serialized; atomic transaction                                                                                                                                                                                                                          |
 | screencast            | 15 FPS default/30 max; 4096×4096; 8 MiB/frame; one in-flight plus newest; 240 inputs/s                                                                                                                                                                                         |
 | computer-use frames   | same bounded publication and input caps as screencast; consent record ≤60 seconds and single-use                                                                                                                                                                               |
@@ -5303,6 +5362,17 @@ explicit spawn timeout for the same reason.
 
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
+
+- **2026-10-05 — ADR 0012: workspace memory.** Launch step 7 now compiles
+  the session workspace's active memory entries into a bounded (16 KiB) preamble
+  delivered ahead of the initial prompt over the same ordered channel, with a
+  typed `memory_truncated` run diagnostic (`HarnessRun.diagnostics`) and host
+  fact on overflow. Added `dev.memory.propose` (total operations 217) and its
+  `dev.memory.propose` capability for pending agent proposals, the
+  `MemoryProposalReceipt` reply, and the "Workspace memory preamble" section.
+  Pinned by `apps/desktop/tests/workspace-memory-launch.test.ts`,
+  `apps/desktop/tests/workspace-memory-store.test.ts`, and
+  `packages/types/tests/dev-runtime-harness.test.ts`.
 
 - **2026-10-03 — source control app: GitLab.** Added the 29-operation
   `dev.gitlab.*` mirror of the source control contract (total operations 215) with `dev.gitlab.read`/`dev.gitlab.write`, the `glab`-backed host
