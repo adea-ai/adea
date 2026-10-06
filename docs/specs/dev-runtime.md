@@ -3630,6 +3630,37 @@ MUST consume the token before subscribing. After validation, the gateway passes
 that validated event value directly to the subscriber. A token minted for one
 event therefore cannot be substituted into another event stream.
 
+### Off-thread diff rendering (M12 #677 residue)
+
+The Dev View bundle owns one module worker for the source-control diff pane:
+the fetched `DiffHunk` page's grouping into per-file hunk lists and every
+hunk's bounded line payload are computed in the worker
+(`packages/dev-view/src/source-control/diff-render.worker.ts`) and the pane
+renders from the worker's reply. The boundary's contract: the worker is
+constructed lazily through an injectable factory; every message is pure data
+that survives structured clone; and every failure path — a worker that cannot
+be constructed, errors mid-flight, misses its 4-second deadline, refuses the
+page, or answers with a malformed frame — degrades EXACTLY ONCE to the typed
+main-thread path, which runs the SAME pure compute (`computeDiffRender`), so
+the fallback result is identical to the worker's. `render` always resolves
+with an outcome that names how it was produced (`worker` | `main-thread`);
+there is no silent hang and no unhandled rejection, the surface states the
+degraded mode, and dispose answers in-flight renders instead of stranding
+them. Keyboard diff flows are anchored on the hunk bar buttons themselves:
+j/k move hunk to hunk across file boundaries, n/p move file to file, both
+clamp at the diff's edges, modifier chords stay reserved for the workspace
+shortcuts, and Enter activates the focused hunk's own stage/unstage button —
+no focus-managed layout element. The editor's save-conflict lane is the
+UI-lane twin of the provider's compare-and-swap: the surface classifies the
+`file_changed` refusal (a live terminal or other external writer changed the
+file between read and save), keeps local edits, and offers exactly the two
+resolution records — Reload (discard local edits, re-pin to the disk
+identity) and Overwrite (re-pin to a freshly observed identity, then retry as
+a new CAS) — with the pinned-identity chain continuous across saves.
+Pinned by `packages/dev-view/tests/diff-render-model.test.ts` (the boundary
+contract, injected duck-typed workers), `diff-navigation.test.ts`, and
+`save-conflict.test.ts` (the concurrent-edit flow).
+
 ### Canonical byte encoding in proofs
 
 The command-proof canonical JSON encodes a `Uint8Array` body field (the
