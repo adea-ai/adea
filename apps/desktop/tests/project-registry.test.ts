@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -75,6 +75,22 @@ function expectCode(run: () => unknown, code: string) {
   throw new Error(`expected DevAuthorityError ${code}`)
 }
 
+async function expectReject(run: Promise<unknown> | (() => Promise<unknown>), code: string) {
+  try {
+    await (typeof run === 'function' ? run() : run)
+  } catch (error) {
+    if (
+      error instanceof DevAuthorityError ||
+      (typeof error === 'object' && error !== null && 'code' in error && 'retryable' in error)
+    ) {
+      expect((error as { code: string }).code).toBe(code)
+      return
+    }
+    throw error
+  }
+  throw new Error(`expected DevAuthorityError ${code}`)
+}
+
 /** Wrap a provider value in a success envelope and run the strict decoder. */
 function decodeReply(operation: DevOperation, value: unknown) {
   return devOperationDecoders[operation].reply({
@@ -89,7 +105,11 @@ function decodeReply(operation: DevOperation, value: unknown) {
 
 function bootRegistry(
   dataDir: string,
-  options?: { resolveImportRoot?: (id: string) => { canonicalRoot: string } }
+  options?: {
+    resolveImportRoot?: (id: string) => { canonicalRoot: string }
+    authorizeRoot?: (absolutePath: string, label: string) => { id: string }
+    runClone?: (args: { argv: readonly string[]; cwd: string }) => Promise<{ exitCode: number }>
+  }
 ) {
   return registerProjectSessionRuntime({
     authority: { registerCommandProvider() {} },
@@ -102,6 +122,8 @@ function bootRegistry(
           throw new DevAuthorityError('unauthorized_root', 'root bookmark has been revoked')
         return { canonicalRoot: '/srv/authorized-root' }
       }),
+    ...(options?.authorizeRoot ? { authorizeRoot: options.authorizeRoot } : {}),
+    ...(options?.runClone ? { runClone: options.runClone } : {}),
   })
 }
 
@@ -533,5 +555,219 @@ describe('dev.project.scan provider (#398)', () => {
       })
     ).toThrow()
     expect(() => decodeReply('dev.project.scan', { ...page, extra: true })).toThrow()
+  })
+})
+describe('dev.project.clone — the clone-URL import kind (#666)', () => {
+  /** A real file:// git remote at `<base>/owner/repo`, matching the
+   *  reconstructed URL shape `file://<base>/owner/repo`. */
+  function fixtureRemote(): string {
+    const base = mkdtempSync(join(tmpdir(), 'adea-clone-origin-'))
+    const repoDir = join(base, 'owner', 'repo')
+    mkdirSync(repoDir, { recursive: true })
+    const run = (args: string[]) =>
+      Bun.spawnSync(['git', ...args], {
+        cwd: repoDir,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      })
+    run(['init', '-q', '--initial-branch=main'])
+    writeFileSync(join(repoDir, 'README.md'), '# clone fixture\n')
+    run(['add', '.'])
+    run(['-c', 'user.email=t@adea.test', '-c', 'user.name=T', 'commit', '-q', '-m', 'seed'])
+    return base
+  }
+
+  test('a clone lands inside the authorized destination, mints its bookmark, and imports atomically', async () => {
+    const origin = fixtureRemote()
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-clone-'))
+    const destinationRoot = mkdtempSync(join(tmpdir(), 'adea-clone-dest-'))
+    try {
+      const mintedBookmarks: string[] = []
+      const runtime = bootRegistry(dataDir, {
+        resolveImportRoot: (id) => {
+          if (id !== BOOKMARK_ID) throw new DevAuthorityError('unauthorized_root', 'revoked')
+          return { canonicalRoot: destinationRoot }
+        },
+        authorizeRoot: (absolutePath, label) => {
+          expect(absolutePath.startsWith(destinationRoot)).toBe(true)
+          expect(label).toBe('Cloned Fixture')
+          const id = randomUUID()
+          mintedBookmarks.push(id)
+          return { id }
+        },
+      })
+      const group = provider(
+        runtime,
+        'dev.group.create'
+      )(command('dev.group.create', { name: 'Product' })) as Group
+      const clone = provider(runtime, 'dev.project.clone')
+      const project = (await clone(
+        command('dev.project.clone', {
+          name: 'Cloned Fixture',
+          remote: {
+            provider: 'other',
+            host: `file://${origin}`,
+            ownerPath: 'owner',
+            repository: 'repo',
+          },
+          destinationBookmarkId: BOOKMARK_ID,
+          groupIds: [group.id],
+        })
+      )) as Project
+      expect(project.lifecycle).toBe('ready')
+      expect(project.repos?.[0]?.rootBookmarkId).toBe(mintedBookmarks[0])
+      expect(project.repos?.[0]?.canonicalRoot).toBe(join(destinationRoot, 'clones', 'repo'))
+      // The clone is a real working copy: git heads the file:// fixture commit.
+      const head = Bun.spawnSync(
+        [
+          'git',
+          '-C',
+          join(destinationRoot, 'clones', 'repo'),
+          'rev-parse',
+          '--is-inside-work-tree',
+        ],
+        { stdout: 'pipe' }
+      )
+      expect(head.stdout.toString().trim()).toBe('true')
+      expect(mintedBookmarks).toHaveLength(1)
+
+      // The group membership moved with the same atomic snapshot.
+      const groups = provider(runtime, 'dev.group.list')(command('dev.group.list', {})) as {
+        items: Group[]
+      }
+      expect(groups.items[0]!.projectIds).toEqual([project.id])
+
+      // A second clone into the same destination is a destination collision,
+      // not a silent overwrite.
+      await expectReject(
+        clone(
+          command('dev.project.clone', {
+            name: 'Again',
+            remote: {
+              provider: 'other',
+              host: `file://${origin}`,
+              ownerPath: 'owner',
+              repository: 'repo',
+            },
+            destinationBookmarkId: BOOKMARK_ID,
+            groupIds: [group.id],
+          })
+        ),
+        'invalid_state'
+      )
+    } finally {
+      rmSync(origin, { recursive: true, force: true })
+      rmSync(dataDir, { recursive: true, force: true })
+      rmSync(destinationRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('an unknown destination bookmark refuses before any clone runs', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-clone2-'))
+    try {
+      let clones = 0
+      const runtime = bootRegistry(dataDir, {
+        resolveImportRoot: () => {
+          throw new DevAuthorityError('unauthorized_root', 'destination bookmark revoked')
+        },
+        runClone: async () => {
+          clones += 1
+          return { exitCode: 0 }
+        },
+      })
+      await expectReject(
+        provider(
+          runtime,
+          'dev.project.clone'
+        )(
+          command('dev.project.clone', {
+            name: 'Nope',
+            remote: {
+              provider: 'github',
+              host: 'github.com',
+              ownerPath: 'adea-ai',
+              repository: 'adea',
+            },
+            destinationBookmarkId: BOOKMARK_ID,
+            groupIds: [],
+          })
+        ),
+        'unauthorized_root'
+      )
+      expect(clones).toBe(0)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a failed clone child refuses typed and leaves no destination directory claim', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-clone3-'))
+    const destinationRoot = mkdtempSync(join(tmpdir(), 'adea-clone-dest3-'))
+    try {
+      const runtime = bootRegistry(dataDir, {
+        resolveImportRoot: (id) =>
+          id === BOOKMARK_ID
+            ? { canonicalRoot: destinationRoot }
+            : (() => {
+                throw new DevAuthorityError('unauthorized_root', 'revoked')
+              })(),
+        runClone: async () => ({ exitCode: 128 }),
+      })
+      await expectReject(
+        provider(
+          runtime,
+          'dev.project.clone'
+        )(
+          command('dev.project.clone', {
+            name: 'Broken',
+            remote: {
+              provider: 'github',
+              host: 'github.com',
+              ownerPath: 'adea-ai',
+              repository: 'missing',
+            },
+            destinationBookmarkId: BOOKMARK_ID,
+            groupIds: [],
+          })
+        ),
+        'spawn_failed'
+      )
+      // No project, no bookmark mint, no clone directory.
+      const projects = provider(runtime, 'dev.project.list')(command('dev.project.list', {})) as {
+        items: Project[]
+      }
+      expect(projects.items).toEqual([])
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+      rmSync(destinationRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('credential-backed remotes refuse typed until the vault wiring ships', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-clone4-'))
+    try {
+      const runtime = bootRegistry(dataDir)
+      await expectReject(
+        provider(
+          runtime,
+          'dev.project.clone'
+        )(
+          command('dev.project.clone', {
+            name: 'Private',
+            remote: {
+              provider: 'github',
+              host: 'github.com',
+              ownerPath: 'adea-ai',
+              repository: 'private',
+            },
+            credentialRefId: randomUUID(),
+            destinationBookmarkId: BOOKMARK_ID,
+            groupIds: [],
+          })
+        ),
+        'unavailable'
+      )
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
   })
 })

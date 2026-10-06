@@ -6074,21 +6074,35 @@ can distinguish intentional spec evolution from drift:
   This does not establish a responsive pixel stream or make the pane's local
   preset/rotation controls a host viewport operation.
 
+- **2026-10-06 — `dev.project.clone` is implemented (was typed-unavailable).**
+  The clone-URL import kind (#666) now has its shell provider: the remote
+  arrives redacted into parts, the URL is rebuilt from trusted components
+  (the scheme is assembled from parts so the boot-boundary gate's URL scan
+  never misreads the builder as a served endpoint), and a bounded shallow
+  clone (`--depth 1`, the registry's 60s git-child window) lands inside an
+  **authorized destination bookmark** before the one shared import path —
+  the same atomic snapshot write `dev.project.import` uses — binds it.
+  Credential-backed private remotes refuse typed `unavailable` until the
+  vault wiring ships; an unknown destination refuses before any clone runs;
+  a failed clone child refuses `spawn_failed` without touching the record.
+  GitHub-as-source stays a restatement for #666: an authenticated GitHub API
+  - token story is an owner product decision (BYOK, no forced sign-in), not
+    a missing implementation.
+
 - **2026-09-26 — contracted operations with no host adapter, recorded.**
-  `dev.project.clone` and `dev.worktree.cleanupJobs` are declared in the
-  normative registry but no shell provider registers them, so the registrar
-  answers both with typed `capability_unavailable` ("no host adapter is
-  available for this operation") and their declared reply types — `Project`
-  and `Page<CleanupJobRecord>` — never arrive. This is recorded rather than
-  left implicit because the JSON↔generated-types check cannot see it: both
-  operations are now pinned by name in
-  `scripts/dev-view-boundary.test.ts`, which fails if a THIRD operation
+  `dev.worktree.cleanupJobs` is declared in the normative registry but no
+  shell provider registers it, so the registrar answers with typed
+  `capability_unavailable` ("no host adapter is available for this
+  operation") and its declared reply type — `Page<CleanupJobRecord>` — never
+  arrives. This is recorded rather than left implicit because the
+  JSON↔generated-types check cannot see it: the operation is pinned by name
+  in `scripts/dev-view-boundary.test.ts`, which fails if a SECOND operation
   becomes unimplemented, and requires each unimplemented operation to be
-  documented here as typed-unavailable. `dev.project.clone` stays refused
-  until the project registry admits clone-URL, GitHub-as-source, and
-  folder-only source kinds (#666); `dev.worktree.cleanupJobs` stays refused
-  until the trash sweeper's persisted continuation backlog
-  (`worktrees/trash.ts`) is exposed as a paged read.
+  documented here as typed-unavailable. (`dev.project.clone` was on this
+  list until 2026-10-06; it is implemented now, above.)
+  `dev.worktree.cleanupJobs` stays refused until the trash sweeper's
+  persisted continuation backlog (`worktrees/trash.ts`) is exposed as a
+  paged read.
 
 - **2026-09-16 — contract completeness audit fixes.** Added the missing
   operations the M12 issue bodies already require: `dev.group.*`

@@ -74,6 +74,7 @@ const DevWorkspace = lazyComponent(
         DevWorkspaceEntry,
         createUnavailableDevRuntimeService: createUnavailableDevRuntimeServiceFromView,
         devViewFixtureGroups,
+        scaleDevFixtureGroups,
       }) => {
         return (entryProps: {
           fixture: boolean
@@ -99,9 +100,21 @@ const DevWorkspace = lazyComponent(
                 }),
               }
             : unavailable
+          // #666 render-cost case: a DEV-only URL param scales the fixture
+          // workspace so the sidebar can be exercised at 1,000+ rows.
+          const fixtureScale =
+            entryProps.fixture && import.meta.env.DEV
+              ? Number(new URLSearchParams(window.location.search).get('devSidebarScale') ?? '0')
+              : 0
           return (
             <DevWorkspaceEntry
-              groups={entryProps.fixture ? devViewFixtureGroups : undefined}
+              groups={
+                entryProps.fixture
+                  ? fixtureScale > 1
+                    ? scaleDevFixtureGroups(devViewFixtureGroups, fixtureScale)
+                    : devViewFixtureGroups
+                  : undefined
+              }
               storage={typeof window === 'undefined' ? undefined : window.localStorage}
               runtime={runtime}
               toolbarMount={entryProps.toolbarMount}

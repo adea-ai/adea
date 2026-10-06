@@ -204,56 +204,7 @@ function toDevGroups(projection: DevWorkspaceProjection): readonly DevGroupFixtu
   }))
 }
 
-export const devViewFixtureGroups: readonly DevGroupFixture[] = [
-  {
-    id: 'fixture-product',
-    name: 'Product',
-    projects: [
-      {
-        id: 'fixture-adea',
-        name: 'Example project',
-        repository: 'example/repository',
-        branch: 'feature/example',
-        sessions: [
-          {
-            id: 'fixture-shell',
-            title: 'Dev View foundation',
-            state: 'active',
-            generation: 1,
-            badges: {
-              harness: 'working',
-              dirty: true,
-              checks: 'running',
-              ports: [3000],
-            },
-          },
-          { id: 'fixture-runtime', title: 'Runtime contracts', state: 'ready', generation: 1 },
-        ],
-      },
-      {
-        id: 'fixture-tools',
-        name: 'Runtime tools',
-        repository: 'example/tools',
-        branch: 'feature/runtime',
-        sessions: [
-          {
-            id: 'fixture-tools-session',
-            title: 'Other project session',
-            state: 'ready',
-            generation: 1,
-            badges: { checks: 'failed', harness: 'awaiting_input' },
-          },
-          {
-            id: 'fixture-archived',
-            title: 'Archived discovery',
-            state: 'archived',
-            generation: 1,
-          },
-        ],
-      },
-    ],
-  },
-]
+export { devViewFixtureGroups } from './sidebar/fixture-scale'
 
 /** The read capability each utility pane depends on for its provider state. */
 const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {

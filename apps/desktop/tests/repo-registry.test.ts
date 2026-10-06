@@ -15,6 +15,7 @@ import {
   type OwnerApprovalVerifier,
 } from '../shell/src/dev-runtime/authority'
 import { registerProjectSessionRuntime } from '../shell/src/dev-runtime/project-session/register'
+import { runGit, GIT_CHILD_TIMEOUT_MS } from '../shell/src/dev-runtime/worktrees/git-run'
 import { redactRemoteUrl, registerRepoRuntime } from '../shell/src/dev-runtime/repos/register'
 import { createRootBookmarkAuthority } from '../shell/src/dev-runtime/roots'
 import { createCredentialVault, createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
@@ -641,6 +642,75 @@ describe('one registry, one primary checkout record (ADR 0011)', () => {
       // dev.repo.list is served from the same registry.
       const listed = (await call('dev.repo.list', {}, 0)) as { items: Repo[] }
       expect(listed.items.map((repo) => repo.id)).toEqual([repoId])
+    } finally {
+      fix.cleanup()
+    }
+  })
+})
+describe('project/repo registry freshness discipline (#666)', () => {
+  test('steady state does no subprocess work; freshness is a bounded explicit pull', async () => {
+    const fix = fixture()
+    try {
+      // A second registrar over the same registry store, wired exactly as the
+      // composition wires it, with a counting bounded git runner.
+      const gitCalls: string[][] = []
+      const runtime = registerRepoRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir: fix.dataDir,
+        scope,
+        validateRootBookmark: (bookmarkId) => ({
+          canonicalRoot: fix.roots.validate({ scope, bookmarkId }).canonicalRoot,
+        }),
+        resolveCredentialRef: (credentialRefId) => {
+          const record = fix.vault.get({ scope, credentialRefId })
+          return { id: record.id, host: record.host, state: record.state }
+        },
+        findRepoBindings: (candidate) =>
+          candidate === repoId
+            ? [{ repoId, rootBookmarkId: fix.bookmarkId, canonicalRoot: fix.checkout, projectId }]
+            : [],
+        runGit: async (args, options) => {
+          gitCalls.push([...args])
+          return runGit(args, options)
+        },
+      })
+      const call = (operation: DevOperation, body: Record<string, unknown>, version = 1) =>
+        (runtime.providers[operation] as (command: DevCommand) => Promise<unknown>)(
+          repoCommand(operation, body, version)
+        )
+
+      // Adoption does its own proof work; from here the registry is at
+      // steady state.
+      await call('dev.repo.adopt', { repoId, rootBookmarkId: fix.bookmarkId, expectedVersion: 1 })
+      gitCalls.length = 0
+
+      // Steady state: pull reads are record reads. No filesystem watcher, no
+      // periodic probe, no subprocess between or during them.
+      await call('dev.repo.list', {})
+      await call('dev.repo.list', { projectId })
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      await call('dev.repo.list', {})
+      expect(gitCalls).toEqual([])
+
+      // Freshness is an explicit pull: the refresh runs its own bounded
+      // probe set (head, upstream, dirty-state reads — its implementation
+      // detail) and nothing else spawns between explicit calls.
+      const listed = (await call('dev.repo.list', {})) as {
+        items: { id: string; version: number }[]
+      }
+      const repo = listed.items[0]!
+      await call(
+        'dev.repo.refresh',
+        { repoId: repo.id, expectedVersion: repo.version },
+        repo.version
+      )
+      expect(gitCalls.length).toBeGreaterThan(0)
+      gitCalls.length = 0
+      await call('dev.repo.list', {})
+      expect(gitCalls).toEqual([])
+
+      // The bound the pull runs under is the registry's git-child window.
+      expect(GIT_CHILD_TIMEOUT_MS).toBe(60_000)
     } finally {
       fix.cleanup()
     }
