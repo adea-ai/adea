@@ -173,7 +173,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the whole runtime) costs this route 852,808 raw on the same build —
     // +840 bytes over the 832 KiB cap. Ratchet raw one whole KiB; gzip stays
     // at its measured step.
-    devTerminal: { rawBytes: 833 * 1024, gzipBytes: 221 * 1024 },
+    // That left 184 bytes of headroom. The operations stacked behind #1043
+    // (cross-workspace summary, memory, connections, project bindings) each
+    // add contract entries this route carries, so raw ratchets to 840 KiB
+    // (~0.9% over the 852,808 measurement, the ratio the #1003 re-baseline
+    // kept) instead of re-baselining once per operation; gzip is unchanged.
+    devTerminal: { rawBytes: 840 * 1024, gzipBytes: 221 * 1024 },
     devEditor: { rawBytes: 512 * 1024, gzipBytes: 160 * 1024 },
   },
 }
