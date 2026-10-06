@@ -737,7 +737,9 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                 quickActions={
                   props.host?.globalNav?.quickActions || props.status || actionError() ? (
                     <>
-                      {props.host?.globalNav?.quickActions?.(globalContext)}
+                      <Suspense fallback={null}>
+                        {props.host?.globalNav?.quickActions?.(globalContext)}
+                      </Suspense>
                       {props.status}
                       <Show when={actionError()}>
                         {(text) => (
@@ -749,7 +751,13 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                     </>
                   ) : undefined
                 }
-                conversations={props.host?.globalNav?.conversations?.(globalContext)}
+                conversations={
+                  props.host?.globalNav?.conversations ? (
+                    <Suspense fallback={null}>
+                      {props.host.globalNav.conversations(globalContext)}
+                    </Suspense>
+                  ) : undefined
+                }
               />
             )
           }}
