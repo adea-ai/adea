@@ -1,3 +1,4 @@
+import { isSidebarGroupMode } from '@adea-ai/types'
 import { createEffect, createRoot, createSignal, onCleanup, onMount, type Accessor } from 'solid-js'
 import { browserStorage, readPersisted, workspaceStore, type WorkspaceState } from '@adea-ai/state'
 
@@ -18,7 +19,6 @@ type PersistedState = Pick<
   | 'threadRootMessageId'
 >
 
-const SIDEBAR_GROUP_MODES = new Set(['project', 'status', 'recent'])
 const ACTIVE_SURFACES = new Set(['agents', 'conversation', 'tasks'])
 const NULLABLE_ID_FIELDS = [
   'selectedAgentId',
@@ -71,9 +71,7 @@ export function validatePersistedState(parsed: unknown): Partial<PersistedState>
       groupBy === null ||
       typeof groupBy !== 'object' ||
       Array.isArray(groupBy) ||
-      !Object.values(groupBy as Record<string, unknown>).every(
-        (entry) => typeof entry === 'string' && SIDEBAR_GROUP_MODES.has(entry)
-      )
+      !Object.values(groupBy as Record<string, unknown>).every(isSidebarGroupMode)
     )
       return undefined
     restored.sidebarGroupBy = groupBy as PersistedState['sidebarGroupBy']

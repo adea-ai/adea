@@ -11,6 +11,7 @@ import type {
 import { and, asc, eq, isNotNull, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { mintControlPlaneIdentifier } from './control-plane-identifiers'
 import { appendWorkspaceEvent } from './transactions'
 import {
   authorizationAuditRecords,
@@ -101,6 +102,7 @@ async function createWorkspaceWithOwnerInTransaction(
   const [createdWorkspace] = await transaction
     .insert(workspaces)
     .values({
+      controlPlaneWorkspaceId: mintControlPlaneIdentifier('wsp'),
       idempotencyKey: input.idempotencyKey,
       name: input.name.trim(),
       ownerUserId: input.owner.userId,

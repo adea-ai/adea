@@ -6,6 +6,8 @@ The shared Workspace › Project › Leaf sidebar of
 on `@adea-ai/ui`, `@adea-ai/app-ui`, `@adea-ai/types`, `solid-js` and
 `lucide-solid`.
 
+The package has no root entry point; import from these subpaths:
+
 - `./model` is pure data with no Solid: the `NavTree` types, `mergeLeaves`
   (a worktree linked to a task is one leaf; status precedence needs you >
   running > in review > idle; checkout first), `projectSummary`,
@@ -18,7 +20,7 @@ on `@adea-ai/ui`, `@adea-ai/app-ui`, `@adea-ai/types`, `solid-js` and
   bar's Workspace › Project › Leaf path as data, with each earlier crumb's
   default-leaf target (absent when it would reopen what is shown).
   `@adea-ai/workspace-ui/workspace-breadcrumbs` renders it in the title slot.
-- `WorkspaceNav` is presentational: all data and callbacks arrive through
+- `./workspace-nav` holds `WorkspaceNav`, which is presentational: all data and callbacks arrive through
   props. It composes the published `Tree`, sidebar-nav, dropdown-menu,
   `ActionButton`, `Input` and `Badge` primitives with the app's
   `WorkspaceIdentityMark`. Row hooks live in

@@ -1,0 +1,119 @@
+# Control Plane Workspace and Project Mapping
+
+- Status: Accepted (2026-10-06).
+- Date: 2026-10-06
+- Extends: [ADR 0011](0011-unified-workspace-projects.md) (workspaces and
+  projects as the isolation boundary) and
+  [ADR 0012](0012-workspace-memory-connections-sharing.md) (memory,
+  connections, sharing), which this decision amends for cloud connections.
+- Scope: how an Adea workspace and project become Control Plane scopes, how
+  Adea authenticates to the Control Plane per request, and which Control Plane
+  capabilities are scoped by them: marketplace installations, skills and
+  agent profiles, project state for executions, and cloud connection
+  credentials.
+
+## Context
+
+The Control Plane is the backend authority for profiles, skills, project
+state, executions, the marketplace and connector credentials. Its scopes are
+opaque Workspace (`wsp_`) and Project (`prj_`) identifiers that the caller
+asserts and that a signed service credential authorizes; it keeps no
+workspace or project registry of its own.
+
+Adea currently reaches it through one static, year-long service token scoped to
+a single configured Control Plane workspace, and its marketplace proxy replaces
+every Adea workspace with that one scope. Every Adea workspace therefore shares
+one set of marketplace installations and one idempotency namespace, which
+defeats the isolation ADR 0011 makes the point of a workspace. Skills, project
+state and cloud credentials have no Adea mapping at all.
+
+## Decision
+
+### Adea mints and owns the mapping
+
+Each Adea workspace receives one Control Plane workspace identifier and each
+Adea project one Control Plane project identifier, minted by Adea as a prefixed
+ULID that satisfies the Control Plane identifier grammar, stored on the Adea
+record, never reused and never derived from the Adea UUID. Identifiers are
+minted on creation and backfilled once for existing rows. Task and agent
+identifiers (`tsk_`, `agt_`) are minted the same way when executions are wired.
+The mapping is Adea product state; the Control Plane remains free of an Adea
+registry.
+
+### Per-request signed credentials
+
+Adea signs a short-lived Ed25519 JWT for every Control Plane request:
+
+- `workspaceIds` holds exactly the request's mapped workspace, and
+  `projectIds` the mapped project when the route is project-scoped;
+- `scopes` are the minimum the route needs;
+- lifetime is at most five minutes, with a key id that rotates by publishing
+  overlapping public keys to the Control Plane's trusted keys.
+
+The private key is a Worker secret that is never exposed to the client bundle.
+Until it is provisioned, the existing static token and its configured
+workspace remain the fallback, and the deployment reports that it is running
+unscoped. Removing the fallback is a separate change after provisioning is
+verified.
+
+### What becomes workspace-scoped
+
+- **Marketplace.** Catalog, install plans and installations use the active
+  workspace's scope and its own idempotency namespace. The Control Plane gains
+  get and uninstall for installations.
+- **Skills and agent profiles.** Workspace-owned skills and profiles are
+  published to and listed from the Control Plane under the workspace's scope,
+  through a new authenticated catalog API, and managed from Workspace settings.
+- **Project state.** Creating an Adea project initializes revision 0 of its
+  Control Plane project state through a new authenticated API, so a cloud
+  execution for that project can validate.
+- **Cloud connections.** Connections that cloud executions and Control Plane
+  tool calls need are stored in the Control Plane credential vault under the
+  workspace's scope, through a new authenticated API with durable metadata and
+  leases wired to the tool gateway. Device-local bindings (ADR 0012) remain
+  the only source for local runs. A secret entered for a cloud connection
+  travels to the vault once and is never returned to Adea.
+
+### Memory stays local
+
+Workspace memory remains restricted local content (ADR 0012). Cloud
+executions run without it; no Control Plane memory route is added. A later
+decision may introduce an opt-in export to a registered context provider.
+
+## Amendment to ADR 0012
+
+ADR 0012 said connection secrets never leave the device. That remains true for
+device-local bindings. A workspace may additionally hold **cloud connections**
+whose secret is written once to the Control Plane credential vault for cloud
+executions; Adea stores only the credential identifier and status.
+
+## Privacy classification
+
+| Field                                    | Classification     | Leaves the device or Adea cloud |
+| ---------------------------------------- | ------------------ | ------------------------------- |
+| Control Plane workspace/project/task ids | workspace metadata | yes, to the Control Plane       |
+| Signed request credential                | credential         | per request, five-minute expiry |
+| Signing private key                      | credential         | never; Worker secret            |
+| Cloud connection secret                  | credential         | once, into the vault            |
+| Cloud connection id, provider, status    | workspace metadata | yes                             |
+| Workspace memory                         | restricted local   | no                              |
+
+## Consequences
+
+- Marketplace isolation is fixed in Adea alone; the other capabilities need
+  paired Control Plane changes, each with contracts, SDK operations, OpenAPI,
+  Postgres and SQLite adapters and profile-portability coverage as that
+  repository requires.
+- Deploying signed credentials needs the owner to provision the key pair; the
+  runbook lands with the signer.
+- Control Plane routes that require project state (validate, accept) become
+  usable for Adea projects once initialization ships.
+
+## Delivery
+
+Adea: the mapping and signer with workspace-scoped marketplace; then the
+Workspace settings surfaces for skills and cloud connections, and project-state
+initialization on project create, each after its Control Plane API lands.
+Control Plane: project-state initialization and revision API; workspace
+skill/profile catalog API; marketplace installation get and uninstall; the
+credential-vault HTTP API with durable metadata, leases and tool-gateway wiring.

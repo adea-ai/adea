@@ -17,7 +17,6 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
   expect(Object.keys(workspaceStore.getState()).toSorted()).toEqual([
     'activeSurface',
     'cameraViewMode',
-    'collapsedDevProjectIds',
     'collapsedProjectIds',
     'devFocusMode',
     'drafts',
@@ -53,7 +52,6 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
     'sidebarGroupBy',
     'switchWorkspace',
     'threadRootMessageId',
-    'toggleDevProjectCollapsed',
     'toggleProjectCollapsed',
   ])
 })
@@ -64,7 +62,7 @@ test('Dev selections reset at their authority boundaries without storing durable
     selectedDevProjectId: 'project-a',
     selectedRuntimeSessionId: 'session-a',
     selectedDevPaneId: 'pane-a',
-    collapsedDevProjectIds: ['project-a'],
+    collapsedProjectIds: ['project-a'],
     devFocusMode: true,
   })
 
@@ -74,7 +72,9 @@ test('Dev selections reset at their authority boundaries without storing durable
     selectedDevProjectId: null,
     selectedRuntimeSessionId: null,
     selectedDevPaneId: null,
-    collapsedDevProjectIds: [],
+    // Collapse is keyed by cloud project id, which a runtime node does not
+    // change: the shared set survives the node switch.
+    collapsedProjectIds: ['project-a'],
     devFocusMode: false,
   })
 
@@ -106,7 +106,6 @@ test('switchWorkspace starts a fresh workspace context', () => {
     selectedDevProjectId: 'project-work',
     selectedRuntimeSessionId: 'session-work',
     selectedDevPaneId: 'pane-work',
-    collapsedDevProjectIds: ['project-work'],
     devFocusMode: true,
     threadRootMessageId: 'thread-work',
   })
@@ -131,7 +130,6 @@ test('switchWorkspace starts a fresh workspace context', () => {
     selectedDevProjectId: null,
     selectedRuntimeSessionId: null,
     selectedDevPaneId: null,
-    collapsedDevProjectIds: [],
     devFocusMode: false,
     threadRootMessageId: null,
   })
@@ -174,4 +172,15 @@ test('the sidebar grouping is kept per workspace across switches', () => {
     'workspace-work': 'status',
     'workspace-home': 'recent',
   })
+})
+
+test('Dev, Chat and Virtual share one collapsed-project set', () => {
+  // The Dev sidebar and the Chat/Virtual sidebars both toggle through
+  // toggleProjectCollapsed: collapsing a project in one view collapses the
+  // same cloud project in the others.
+  workspaceStore.getState().toggleProjectCollapsed('project-a')
+  workspaceStore.getState().toggleProjectCollapsed('project-b')
+  expect(workspaceStore.getState().collapsedProjectIds).toEqual(['project-a', 'project-b'])
+  workspaceStore.getState().toggleProjectCollapsed('project-a')
+  expect(workspaceStore.getState().collapsedProjectIds).toEqual(['project-b'])
 })

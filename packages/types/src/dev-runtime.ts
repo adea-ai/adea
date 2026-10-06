@@ -5,11 +5,30 @@ import {
   devStreamProtocolDefinitions,
 } from './dev-runtime-registry'
 import {
+  decodeCredentialRef,
+  decodeHarnessAccountProfile,
+  decodeProject,
   decodeRegistryDto,
+  decodeRepo,
+  decodeRepoInspection,
+  decodeRootBookmark,
+  decodeWorkspaceConnections,
   harnessAccountFamilies,
   worktreeLifecycles,
 } from './dev-runtime-registry-dto'
 export { worktreeLifecycles } from './dev-runtime-registry-dto'
+// The registry record decoders live in `dev-runtime-registry-dto`; this module
+// re-exports them so `@adea-ai/types/dev-runtime` keeps its public surface.
+export {
+  decodeCredentialRef,
+  decodeHarnessAccountProfile,
+  decodeProject,
+  decodeRepo,
+  decodeRepoInspection,
+  decodeRootBookmark,
+  decodeWorkspaceConnections,
+  decodeWorktree,
+} from './dev-runtime-registry-dto'
 import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
 import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
 import {
@@ -3966,30 +3985,6 @@ function validateType(type: string, value: unknown, path: string): unknown {
   return namedType(trimmed, value, path)
 }
 
-/** Strict decoder for the M10-minted authorized-root grant DTO. */
-export function decodeRootBookmark(value: unknown): RootBookmark {
-  namedType('RootBookmark', value, 'rootBookmark')
-  return value as RootBookmark
-}
-
-/** Strict decoder for the vault-held credential reference DTO (never a secret). */
-export function decodeCredentialRef(value: unknown): CredentialRef {
-  namedType('CredentialRef', value, 'credentialRef')
-  return value as CredentialRef
-}
-
-/** Strict decoder for a workspace's connection bindings (ADR 0012). */
-export function decodeWorkspaceConnections(value: unknown): WorkspaceConnections {
-  namedType('WorkspaceConnections', value, 'workspaceConnections')
-  return value as WorkspaceConnections
-}
-
-/** Strict decoder for a reusable harness account profile (never a secret). */
-export function decodeHarnessAccountProfile(value: unknown): HarnessAccountProfile {
-  namedType('HarnessAccountProfile', value, 'harnessAccountProfile')
-  return value as HarnessAccountProfile
-}
-
 /** Strict decoder for the terminal lifecycle record. */
 export function decodeTerminalRecord(value: unknown): TerminalRecord {
   namedType('TerminalRecord', value, 'terminalRecord')
@@ -4079,28 +4074,10 @@ export function decodeAcpConnection(value: unknown): AcpConnection {
   return value as AcpConnection
 }
 
-/** Strict decoder for the registry Project record (#398). */
-export function decodeProject(value: unknown): Project {
-  namedType('Project', value, 'project')
-  return value as Project
-}
-
 /** Strict decoder for the redacted remote identity DTO (#398). */
 export function decodeRedactedRemote(value: unknown): RedactedRemote {
   namedType('RedactedRemote', value, 'redactedRemote')
   return value as RedactedRemote
-}
-
-/** Strict decoder for the repository registry record (#398). */
-export function decodeRepo(value: unknown): Repo {
-  namedType('Repo', value, 'repo')
-  return value as Repo
-}
-
-/** Strict decoder for one worktree record DTO (ADR 0011). */
-export function decodeWorktree(value: unknown): Worktree {
-  namedType('Worktree', value, 'worktree')
-  return value as Worktree
 }
 
 /** Strict decoder for one `dev.worktree.diffSummary` item. */
@@ -4135,12 +4112,6 @@ export function decodeWorkspaceRunSummary(
   })
   timestamp(item.observedAt, `${path}.observedAt`)
   return value as WorkspaceRunSummary
-}
-
-/** Strict decoder for the `dev.repo.inspect` reply (#398). */
-export function decodeRepoInspection(value: unknown): RepoInspection {
-  namedType('RepoInspection', value, 'repoInspection')
-  return value as RepoInspection
 }
 
 /** Strict decoder for one scanner recommendation (#398). */

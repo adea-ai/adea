@@ -11,7 +11,12 @@ import {
 } from 'drizzle-orm/pg-core'
 
 import { appSchema } from './schema'
-import { entityId, softDeleteColumns, timestampColumns } from './conventions'
+import {
+  controlPlaneIdentifierColumn,
+  entityId,
+  softDeleteColumns,
+  timestampColumns,
+} from './conventions'
 import { users } from './identity'
 
 export const workspaceRole = appSchema.enum('workspace_role', ['owner', 'admin', 'member'])
@@ -32,10 +37,17 @@ export const workspaces = appSchema.table(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     idempotencyKey: text('idempotency_key').notNull(),
+    /** The Control Plane workspace scope (`wsp_…`, ADR 0013); never reused. */
+    controlPlaneWorkspaceId: controlPlaneIdentifierColumn('control_plane_workspace_id', 'wsp'),
     ...timestampColumns(),
     ...softDeleteColumns(),
   },
   (table) => [
+    unique('workspaces_control_plane_workspace_id_unique').on(table.controlPlaneWorkspaceId),
+    check(
+      'workspaces_control_plane_workspace_id_valid',
+      sql`${table.controlPlaneWorkspaceId} ~ '^wsp_[0-9A-HJKMNP-TV-Z]{26}$'`
+    ),
     unique('workspaces_owner_idempotency_unique').on(table.ownerUserId, table.idempotencyKey),
     check('workspaces_name_nonempty', sql`length(btrim(${table.name})) > 0`),
     check('workspaces_idempotency_nonempty', sql`length(btrim(${table.idempotencyKey})) > 0`),

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Scope, WorkspaceRunSummary } from '@adea-ai/types/dev-runtime'
 import { createRoot } from 'solid-js'
 
-import { createDevSummaryPoll } from '../src/lib/dev-summary-poll'
+import { createDevSummaryPoll, sameSummaryItems } from '../src/lib/dev-summary-poll'
 
 const scope: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -11,6 +11,12 @@ const scope: Scope = {
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+/** Waits (bounded) until `done` holds. */
+async function until(done: () => boolean) {
+  for (let attempt = 0; attempt < 200 && !done(); attempt += 1)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+}
 
 function runtime(status: 'ready' | 'unavailable' = 'ready') {
   return {
@@ -83,5 +89,43 @@ describe('desktop cross-workspace run summary poll', () => {
       expect(items()).toBeUndefined()
       dispose()
     })
+  })
+
+  test('a poll that observed the same counts keeps the previous array', async () => {
+    let calls = 0
+    const read = async (): Promise<WorkspaceRunSummary> => {
+      calls += 1
+      return {
+        // A fresh array and fresh items every read, as the wire decode returns.
+        items: [{ workspaceId: 'w', running: calls < 3 ? 1 : 2, needsInput: 0 }],
+        observedAt: `read-${calls}`,
+      }
+    }
+    await createRoot(async (dispose) => {
+      const items = createDevSummaryPoll(runtime(), { intervalMs: 10, read })
+      await tick()
+      await tick()
+      const first = items()
+      expect(first).toEqual([{ workspaceId: 'w', running: 1, needsInput: 0 }])
+      await until(() => calls >= 2)
+      await tick()
+      expect(items()).toBe(first)
+      await until(() => calls >= 3)
+      await tick()
+      expect(items()).not.toBe(first)
+      expect(items()?.[0]?.running).toBe(2)
+      dispose()
+    })
+  })
+
+  test('sameSummaryItems compares workspace, order and counts', () => {
+    const item = { workspaceId: 'a', running: 1, needsInput: 0 }
+    expect(sameSummaryItems(undefined, [item])).toBe(false)
+    expect(sameSummaryItems([item], [{ ...item }])).toBe(true)
+    expect(sameSummaryItems([item], [{ ...item, needsInput: 1 }])).toBe(false)
+    expect(sameSummaryItems([item], [])).toBe(false)
+    expect(
+      sameSummaryItems([item, { ...item, workspaceId: 'b' }], [{ ...item, workspaceId: 'b' }, item])
+    ).toBe(false)
   })
 })
