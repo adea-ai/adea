@@ -56,7 +56,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // and the shared archive shelf add real bytes, and the dialog/form chunks
   // that left startup are no longer deduped into it. Gzip moves 780 → 790 KiB
   // (~1.4% headroom); raw keeps its cap (~1.4% headroom at 2,631,666).
-  total: { rawBytes: 2_670_000, gzipBytes: 790 * 1024, fileCount: 132 },
+  // The #671 execution-location copy module (the task panel's persisted
+  // history projection) costs 2,670,625 raw on the same build — 625 bytes
+  // over the 2,670,000 cap. Raw ratchets to the next whole KiB.
+  total: { rawBytes: 2_671_000, gzipBytes: 790 * 1024, fileCount: 132 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
