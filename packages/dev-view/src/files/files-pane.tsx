@@ -22,7 +22,6 @@ import {
 } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
-import { SelectProjectEmptyState } from '../select-project-empty'
 import {
   fuzzyQuickOpen,
   markerBadge,
@@ -81,8 +80,6 @@ export type FilesPaneProps = Readonly<{
     identity: FileEntry['identity']
     rootIdentity: WorktreeContext['rootIdentity']
   }) => void
-  /** Expands the sidebar's authorize panel from the no-project empty state. */
-  onAddProject?: () => void
 }>
 
 const LIST_PAGE = 500
@@ -1058,11 +1055,11 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         <Show
           when={worktree()}
           fallback={
-            <SelectProjectEmptyState
-              message="Select a project to browse files."
-              hint="Files come from the selected session's worktree."
-              onAddProject={props.onAddProject}
-            />
+            // The owner asked for exactly this sentence in this state — no
+            // hint, no action — at the shared small text size.
+            <p class="dev-empty-state dev-files__empty" role="status">
+              Select a project to browse files.
+            </p>
           }
         >
           <div class="dev-files__actions">

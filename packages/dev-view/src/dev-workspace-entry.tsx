@@ -1017,7 +1017,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             onToggleFullWidth={setPaneFullWidth}
             onResize={setPaneSize}
             onOpenFile={openFileInEditorLeaf}
-            onAddProject={addProjectFromEmptyState}
           />
         </Show>
         <section
@@ -1216,8 +1215,6 @@ function FileSourceControlSlot(props: {
   onCollapse(): void
   onToggleFullWidth(pane: DevUtilityPane, fullWidth: boolean): void
   onResize(pane: DevUtilityPane, size: number): void
-  /** Expands the sidebar's authorize panel from the Files empty state. */
-  onAddProject?: () => void
 }) {
   const visibleItem = () =>
     props.visiblePane ? utilityPaneById.get(props.visiblePane.pane) : undefined
@@ -1237,7 +1234,6 @@ function FileSourceControlSlot(props: {
           runtime={props.runtime}
           worktreeId={props.sessionWorktreeId}
           onOpenFile={props.onOpenFile}
-          onAddProject={props.onAddProject}
         />
       ) : (
         <PaneProviderState
