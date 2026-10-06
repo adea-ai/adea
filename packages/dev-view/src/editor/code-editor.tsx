@@ -8,10 +8,20 @@
 import type { FileEntry, FileIdentity } from '@adea-ai/types/dev-runtime'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { RefreshCw, Save } from 'lucide-solid'
-import { Show, onCleanup, onMount, createSignal, type JSX } from 'solid-js'
+import { For, Show, onCleanup, onMount, createSignal, type JSX } from 'solid-js'
 
 import { executeOperation, type WorktreeContext } from '../files/worktree-context'
 import type { DevRuntimeService } from '../platform'
+import {
+  classifySaveReply,
+  conflictBannerCopy,
+  CONFLICT_RESOLUTIONS,
+  editorCasAfterOverwritePin,
+  editorCasAfterReload,
+  editorCasAfterSave,
+  initialEditorCas,
+  type EditorCasState,
+} from './save-conflict'
 import {
   documentFromRead,
   documentToBytes,
@@ -63,10 +73,12 @@ function streamTransportOf(runtime: DevRuntimeService) {
 export function CodeEditor(props: CodeEditorProps): JSX.Element {
   const [mirror, setMirror] = createSignal<MirrorHandle | undefined>()
   const [document, setDocument] = createSignal<EditorDocument | undefined>()
-  const [pinnedIdentity, setPinnedIdentity] = createSignal<FileIdentity>(props.identity)
+  // The compare-and-swap chain (#677): the identity the next save pins and
+  // whether a conflict against an external writer is being surfaced — one
+  // model state, transitioned only through the save-conflict records.
+  const [cas, setCas] = createSignal<EditorCasState>(initialEditorCas(props.identity))
   const [dirty, setDirty] = createSignal(false)
   const [readOnlyReason, setReadOnlyReason] = createSignal<string | undefined>()
-  const [conflict, setConflict] = createSignal(false)
   const [notice, setNotice] = createSignal<string | undefined>()
   const [status, setStatus] = createSignal<'loading' | 'ready' | 'failed'>('loading')
   const [previewText, setPreviewText] = createSignal<string | undefined>()
@@ -114,7 +126,9 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
         streamSized && Number(props.identity.size) <= FILE_STREAM_MAX
           ? await streamOpen()
           : await readWindow()
-      setPinnedIdentity(read.entry.identity)
+      // (Re)loading pins the disk identity and clears any conflict — the
+      // Reload resolution's model transition; local edits are dropped here.
+      setCas(editorCasAfterReload(read.entry.identity))
       const readiness = editingReadiness(read)
       if (!readiness.editable) {
         setReadOnlyReason(readiness.reason)
@@ -165,7 +179,7 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
           rootIdentity: props.worktree.rootIdentity,
           relativePath: props.relativePath,
         },
-        expectedIdentity: pinnedIdentity(),
+        expectedIdentity: cas().pinnedIdentity,
         direction: 'read',
       },
       {
@@ -197,25 +211,25 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
     if (!currentDocument || !handle || !scope) return
     const content = documentToBytes(currentDocument, handle.getText(), 'preserve')
     try {
+      let savedIdentity: FileIdentity | undefined
       if (content.byteLength > CONTROL_INLINE_MAX && streamTransportOf(props.runtime)) {
-        await streamSave(content)
+        savedIdentity = await streamSave(content)
       } else {
-        await controlSave(content)
+        savedIdentity = await controlSave(content)
       }
+      setCas((current) => editorCasAfterSave(current, { kind: 'saved' }, savedIdentity))
       setDirty(false)
-      setConflict(false)
       setNotice(undefined)
     } catch (reply) {
-      const code = (reply as { error?: { code?: string } })?.error?.code
-      if (code === 'file_changed') {
-        setConflict(true)
-      } else {
-        setNotice(describeError(reply))
+      const decision = classifySaveReply(reply)
+      setCas((current) => editorCasAfterSave(current, decision))
+      if (decision.kind === 'error') {
+        setNotice(`${decision.code}: ${decision.message}`)
       }
     }
   }
 
-  async function controlSave(content: Uint8Array): Promise<void> {
+  async function controlSave(content: Uint8Array): Promise<FileIdentity> {
     const scope = props.runtime.preferenceScope?.()
     if (!scope) throw { error: { code: 'unauthenticated', message: 'runtime scope missing' } }
     const written = await executeOperation<{ entry: { identity: FileIdentity } }>(
@@ -229,7 +243,7 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
           rootIdentity: props.worktree.rootIdentity,
           relativePath: props.relativePath,
         },
-        expectedIdentity: pinnedIdentity(),
+        expectedIdentity: cas().pinnedIdentity,
         content,
         eolPolicy: 'preserve',
       },
@@ -239,13 +253,13 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
         generation: props.worktree.generation,
       }
     )
-    setPinnedIdentity(written.entry.identity)
+    return written.entry.identity
   }
 
   /** Bulk save: the grant pins the identity and declares length + digest;
    *  the provider's atomic rename replaces the file only after a byte-exact,
-   *  digest-exact transfer. The live identity is re-read for the next CAS. */
-  async function streamSave(content: Uint8Array): Promise<void> {
+   *  digest-exact transfer. Returns the live identity for the next CAS. */
+  async function streamSave(content: Uint8Array): Promise<FileIdentity> {
     const scope = props.runtime.preferenceScope?.()
     if (!scope) throw { error: { code: 'unauthenticated', message: 'runtime scope missing' } }
     const transport = streamTransportOf(props.runtime)
@@ -264,7 +278,7 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
           rootIdentity: props.worktree.rootIdentity,
           relativePath: props.relativePath,
         },
-        expectedIdentity: pinnedIdentity(),
+        expectedIdentity: cas().pinnedIdentity,
         byteLength: String(content.byteLength),
         contentSha256: await sha256Hex(content),
         eolPolicy: 'preserve',
@@ -296,10 +310,11 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
         generation: props.worktree.generation,
       }
     )
-    setPinnedIdentity(live.identity)
+    return live.identity
   }
 
-  /** The explicit overwrite: re-stat for the live identity, then write. */
+  /** The explicit overwrite resolution: observe the live identity, pin it,
+   *  then retry the save as a fresh compare-and-swap. */
   async function overwrite(): Promise<void> {
     const scope = props.runtime.preferenceScope?.()
     if (!scope) return
@@ -322,8 +337,7 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
           generation: props.worktree.generation,
         }
       )
-      setPinnedIdentity(stat.identity)
-      setConflict(false)
+      setCas(editorCasAfterOverwritePin(stat.identity))
       await save()
     } catch (reply) {
       setNotice(describeError(reply))
@@ -334,7 +348,6 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
     mirror()?.destroy()
     setMirror(undefined)
     setDirty(false)
-    setConflict(false)
     setNotice(undefined)
     await load()
   }
@@ -383,18 +396,25 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
           ✕
         </ActionButton>
       </div>
-      <Show when={conflict()}>
-        {(shown) => (
-          <div class="dev-editor__banner dev-editor__banner--conflict" role="alert">
-            <span>{shown()} — the file changed on disk since it was loaded.</span>
-            <Button type="button" variant="outline" size="sm" onClick={() => void reload()}>
-              Reload (discard local edits)
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => void overwrite()}>
-              Overwrite disk copy
-            </Button>
-          </div>
-        )}
+      <Show when={cas().conflict}>
+        <div class="dev-editor__banner dev-editor__banner--conflict" role="alert">
+          <span>{conflictBannerCopy()}</span>
+          <For each={CONFLICT_RESOLUTIONS}>
+            {(resolution) => (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (resolution.action === 'reload') void reload()
+                  else void overwrite()
+                }}
+              >
+                {resolution.label}
+              </Button>
+            )}
+          </For>
+        </div>
       </Show>
       <Show when={notice()}>
         {(shown) => (

@@ -19,13 +19,7 @@ import { Download, GitCommitHorizontal, RefreshCw } from 'lucide-solid'
 import { For, Show, createResource, createSignal, onCleanup, type JSX } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
-import {
-  branchLabel,
-  groupStatus,
-  renderUnifiedDiff,
-  splitFileHunks,
-  statusLabel,
-} from './source-control-model'
+import { branchLabel, groupStatus, statusLabel } from './source-control-model'
 import {
   aheadBehindLabel,
   checksLabel,
@@ -35,6 +29,18 @@ import {
   truncateUntrusted,
   type CheckSummary,
 } from './remote-model'
+import {
+  createDiffRenderModel,
+  type DiffRenderModel,
+  type DiffRenderOutcome,
+} from './diff-render-model'
+import {
+  diffKeyAction,
+  firstDiffPosition,
+  moveDiffFocus,
+  type DiffMove,
+  type DiffPosition,
+} from './diff-navigation'
 import {
   cacheStatus,
   emptyStatusCache,
@@ -70,6 +76,11 @@ type StatusEntry = GitStatus['entries'][number]
 
 type GitStatusReply = GitStatus
 
+/** Map key for a hunk's anchored bar button: group and hunk indexes. */
+function hunkButtonKey(position: DiffPosition): string {
+  return `${position.group}:${position.hunk}`
+}
+
 export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
   const scope = () => props.runtime.preferenceScope?.()
   const [worktree, setWorktree] = createSignal<WorktreeContext | undefined>()
@@ -88,11 +99,32 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
   const [notice, setNotice] = createSignal<string | undefined>()
   const [confirmDiscard, setConfirmDiscard] = createSignal<string | undefined>()
   // The fetched diff page stays structural so each hunk can carry its own
-  // stage/unstage affordance (#399 residue); rendering is derived per hunk.
+  // stage/unstage affordance (#399 residue); the page's grouping and line
+  // rendering run OFF the main thread through the diff render worker (#677),
+  // with the typed main-thread fallback answering when the worker cannot.
   const [diffHunks, setDiffHunks] = createSignal<readonly DiffHunk[]>([])
+  const [diffRendered, setDiffRendered] = createSignal<DiffRenderOutcome | undefined>()
+  // Keyboard diff navigation (#677): focus is anchored on the hunk bar
+  // buttons themselves (no focus-managed layout element); j/k/n/p move real
+  // DOM focus between the buttons and the visual highlight follows.
+  const [diffFocus, setDiffFocus] = createSignal<DiffPosition | undefined>()
+  const hunkButtons = new Map<string, HTMLButtonElement>()
+  onCleanup(() => hunkButtons.clear())
+  function moveKeyboardFocus(move: DiffMove): void {
+    const files = diffRendered()?.files
+    const current = diffFocus()
+    if (!files || !current || files.length === 0) return
+    const next = moveDiffFocus(files, current, move)
+    if (next === current) return
+    setDiffFocus(next)
+    hunkButtons.get(hunkButtonKey(next))?.focus()
+  }
   const [diffTarget, setDiffTarget] = createSignal<string | undefined>()
   const [diffMode, setDiffMode] = createSignal<'worktree' | 'staged'>('worktree')
   const [contextVersion, bumpContextVersion] = createSignal(0)
+  let diffRenderToken = 0
+  const diffRenderer: DiffRenderModel = createDiffRenderModel()
+  onCleanup(() => diffRenderer.dispose())
 
   // ── Push invalidation (M12) ─────────────────────────────────────────────────
   //
@@ -336,8 +368,19 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         { kind: 'worktree', id: context.worktreeId, generation: context.generation }
       )
       setDiffHunks(page.items)
+      setDiffRendered(undefined)
+      const token = ++diffRenderToken
+      // The heavy grouping/rendering of the page is the worker's job; the
+      // pane only states the typed outcome (worker vs main-thread fallback).
+      void diffRenderer.render(page.items).then((outcome) => {
+        if (token !== diffRenderToken) return
+        setDiffRendered(outcome)
+        setDiffFocus(firstDiffPosition(outcome.files))
+      })
     } catch (reply) {
       setDiffHunks([])
+      setDiffRendered(undefined)
+      setDiffFocus(undefined)
       setNotice(describeError(reply))
     }
   }
@@ -508,61 +551,125 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           <p class="dev-sc__section-title">
             Diff — {diffTarget()} ({diffMode() === 'staged' ? 'staged' : 'worktree'})
           </p>
-          <div class="dev-sc__diff" aria-label={`Diff for ${diffTarget()}`}>
-            <For each={splitFileHunks(diffHunks())}>
-              {(group) => (
-                <For each={group.hunks}>
-                  {(hunk, hunkIndex) => (
-                    <div class="dev-sc__diff-hunk">
-                      <div class="dev-sc__diff-hunk-bar">
-                        <span class="dev-sc__diff-line--meta">
-                          {`hunk ${hunkIndex() + 1}: @@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`}
-                        </span>
-                        <Show
-                          when={diffMode() === 'staged'}
-                          fallback={
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              aria-label={`Stage hunk ${hunkIndex() + 1} of ${group.path}`}
-                              onClick={() => void stageHunk(hunk, 'stage')}
-                            >
-                              Stage hunk
-                            </Button>
-                          }
-                        >
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            aria-label={`Unstage hunk ${hunkIndex() + 1} of ${group.path}`}
-                            onClick={() => void stageHunk(hunk, 'unstage')}
-                          >
-                            Unstage hunk
-                          </Button>
-                        </Show>
-                      </div>
-                      <For each={renderUnifiedDiff([hunk]).slice(1)}>
-                        {(line) => (
+          <Show
+            when={diffRendered()}
+            fallback={<div class="dev-sc__diff-line--meta">Rendering diff…</div>}
+          >
+            {(rendered) => (
+              <>
+                <Show when={rendered().mode === 'main-thread'}>
+                  <p class="dev-terminal-muted dev-sc__section-title" role="status">
+                    Rendered on the main thread — the off-thread diff renderer is unavailable.
+                  </p>
+                </Show>
+                <div
+                  class="dev-sc__diff"
+                  aria-label={`Diff for ${diffTarget()}`}
+                  onKeyDown={(event) => {
+                    const action = diffKeyAction(event)
+                    if (!action || action === 'primary') return
+                    // Enter already activates the focused hunk's own button.
+                    event.preventDefault()
+                    moveKeyboardFocus(action)
+                  }}
+                >
+                  <For each={rendered().files}>
+                    {(group, groupIndex) => (
+                      <For each={group.hunks}>
+                        {(entry, hunkIndex) => (
                           <div
-                            class={cn(
-                              `dev-sc__diff-line--${line.kind === 'meta' ? 'meta' : line.kind}`
-                            )}
+                            class={cn('dev-sc__diff-hunk', {
+                              'dev-sc__diff-hunk--focused':
+                                diffFocus()?.group === groupIndex() &&
+                                diffFocus()?.hunk === hunkIndex(),
+                            })}
                           >
-                            {line.text}
+                            <div class="dev-sc__diff-hunk-bar">
+                              <span class="dev-sc__diff-line--meta">
+                                {`hunk ${hunkIndex() + 1}: @@ -${diffHunks()[entry.index]?.oldStart ?? '?'},${diffHunks()[entry.index]?.oldLines ?? '?'} +${diffHunks()[entry.index]?.newStart ?? '?'},${diffHunks()[entry.index]?.newLines ?? '?'} @@`}
+                              </span>
+                              <Show
+                                when={diffMode() === 'staged'}
+                                fallback={
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    ref={(element) => {
+                                      hunkButtons.set(
+                                        hunkButtonKey({ group: groupIndex(), hunk: hunkIndex() }),
+                                        element
+                                      )
+                                    }}
+                                    onFocusIn={() => {
+                                      if (
+                                        diffFocus()?.group !== groupIndex() ||
+                                        diffFocus()?.hunk !== hunkIndex()
+                                      ) {
+                                        setDiffFocus({ group: groupIndex(), hunk: hunkIndex() })
+                                      }
+                                    }}
+                                    aria-label={`Stage hunk ${hunkIndex() + 1} of ${group.path}`}
+                                    onClick={() => {
+                                      const hunk = diffHunks()[entry.index]
+                                      if (hunk) void stageHunk(hunk, 'stage')
+                                    }}
+                                  >
+                                    Stage hunk
+                                  </Button>
+                                }
+                              >
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  ref={(element) => {
+                                    hunkButtons.set(
+                                      hunkButtonKey({ group: groupIndex(), hunk: hunkIndex() }),
+                                      element
+                                    )
+                                  }}
+                                  onFocusIn={() => {
+                                    if (
+                                      diffFocus()?.group !== groupIndex() ||
+                                      diffFocus()?.hunk !== hunkIndex()
+                                    ) {
+                                      setDiffFocus({ group: groupIndex(), hunk: hunkIndex() })
+                                    }
+                                  }}
+                                  aria-label={`Unstage hunk ${hunkIndex() + 1} of ${group.path}`}
+                                  onClick={() => {
+                                    const hunk = diffHunks()[entry.index]
+                                    if (hunk) void stageHunk(hunk, 'unstage')
+                                  }}
+                                >
+                                  Unstage hunk
+                                </Button>
+                              </Show>
+                            </div>
+                            <For each={entry.lines}>
+                              {(line) => (
+                                <div
+                                  class={cn(
+                                    `dev-sc__diff-line--${line.kind === 'meta' ? 'meta' : line.kind}`
+                                  )}
+                                >
+                                  {line.text}
+                                </div>
+                              )}
+                            </For>
                           </div>
                         )}
                       </For>
-                    </div>
-                  )}
-                </For>
-              )}
-            </For>
-            <Show when={diffHunks().length === 0}>
-              <div class="dev-sc__diff-line--meta">no textual changes</div>
-            </Show>
-          </div>
+                    )}
+                  </For>
+                  <Show when={diffHunks().length === 0}>
+                    <div class="dev-sc__diff-line--meta">no textual changes</div>
+                  </Show>
+                </div>
+              </>
+            )}
+          </Show>
         </Show>
       </Show>
     </section>

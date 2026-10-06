@@ -247,6 +247,14 @@
   border-block-end: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
 }
 
+/* Keyboard diff navigation (#677): the visually focused hunk of the
+ * j/k/n/p flow, drawn from the primary token (the scroll surface itself
+ * keeps the container's real focus ring). */
+.dev-sc__diff-hunk--focused {
+  outline: 1px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  outline-offset: -1px;
+}
+
 .dev-sc__diff-hunk-bar {
   display: flex;
   align-items: center;
