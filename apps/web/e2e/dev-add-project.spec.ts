@@ -36,39 +36,34 @@ test('collapsed Add Project leaves its form and runtime requests unloaded', asyn
   expect(formRequests.get(page)).toEqual([])
 })
 
-test('first open loads once and collapse preserves scan, confirmation, and group draft', async ({
-  page,
-}) => {
+test('first open loads once and collapse preserves scan and confirmation', async ({ page }) => {
   await page.locator('summary').click()
   const root = page.getByRole('combobox', { name: 'Authorized root to scan', includeHidden: true })
   await expect(root).toBeVisible()
   expect(formRequests.get(page)).toHaveLength(1)
-  await expect(page.getByTestId('operations')).toHaveText(
-    '["dev.project.bookmarks","dev.group.list"]'
-  )
+  await expect(page.getByTestId('operations')).toHaveText('["dev.project.bookmarks"]')
   await root.selectOption('root')
   const confirmation = page.getByRole('checkbox', { name: 'Fixture projectbun' })
   await confirmation.focus()
   await confirmation.press('Space')
   await expect(confirmation).toBeChecked()
-  const groupName = page.getByRole('textbox', { name: 'New group name' })
-  await groupName.fill('Saved draft')
+  // Projects are bound by cloud project id; the form offers no group choice.
+  await expect(page.getByRole('textbox', { name: 'New group name' })).toHaveCount(0)
   await page.locator('summary').click()
   await expect(root).not.toBeVisible()
   await expect(root).toHaveCount(1)
   await page.locator('summary').click()
   await expect(root).toHaveValue('root')
   await expect(confirmation).toBeChecked()
-  await expect(groupName).toHaveValue('Saved draft')
   expect(formRequests.get(page)).toHaveLength(1)
   await expect(page.getByTestId('operations')).toHaveText(
-    '["dev.project.bookmarks","dev.group.list","dev.project.scan"]'
+    '["dev.project.bookmarks","dev.project.scan"]'
   )
   await page.getByRole('button', { name: 'Import confirmed packages' }).click()
   await expect(page.getByTestId('announcement')).toHaveText('Imported 1 project.')
   await expect(page.getByTestId('imports')).toHaveText('1')
   await expect(page.getByTestId('operations')).toHaveText(
-    '["dev.project.bookmarks","dev.group.list","dev.project.scan","dev.group.create","dev.project.import"]'
+    '["dev.project.bookmarks","dev.project.scan","dev.project.import"]'
   )
 })
 
@@ -84,7 +79,7 @@ test('authorizing a folder mints a root, lists it, and scans it', async ({ page 
   // The authorize command ran, the bookmark list refreshed, and the new root
   // was selected and scanned without a second manual step.
   await expect(page.getByTestId('operations')).toHaveText(
-    '["dev.project.bookmarks","dev.group.list","dev.project.authorizeRoot","dev.project.bookmarks","dev.project.scan"]'
+    '["dev.project.bookmarks","dev.project.authorizeRoot","dev.project.bookmarks","dev.project.scan"]'
   )
   const root = page.getByRole('combobox', { name: 'Authorized root to scan', includeHidden: true })
   await expect(root).toBeVisible()
@@ -100,6 +95,6 @@ test('a refused authorization explains itself and keeps the draft path', async (
   await expect(page.getByRole('alert')).toHaveText('/etc/disallowed is not authorized for import')
   await expect(path).toHaveValue('/etc/disallowed')
   await expect(page.getByTestId('operations')).toHaveText(
-    '["dev.project.bookmarks","dev.group.list","dev.project.authorizeRoot"]'
+    '["dev.project.bookmarks","dev.project.authorizeRoot"]'
   )
 })

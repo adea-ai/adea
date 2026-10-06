@@ -333,8 +333,6 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
     host!.projectSession?.upsertProject({
       id: PROJECT_ID,
       scope: SCOPE_A,
-      name: 'Channel Project',
-      groupIds: [],
       repoIds: [REPO_ID],
       lifecycle: 'ready',
       version: 1,

@@ -3,10 +3,15 @@ import {
   createFirstRunRuntimePort,
   FirstRunOnboarding,
   DevSidebarNavigation,
+  devProjectsFromProjection,
   resolveDevSelection,
 } from '@adea-ai/dev-view/chat'
 import type { ChatConversation, ChatConversationModel, FirstRunFacts } from '@adea-ai/dev-view/chat'
-import type { DevRuntimeService, DevWorkspaceProjection } from '@adea-ai/dev-view/platform'
+import type {
+  DevProjectNames,
+  DevRuntimeService,
+  DevWorkspaceProjection,
+} from '@adea-ai/dev-view/platform'
 import type {
   CanonicalRuntimeBinding,
   SharedDevUtilityOwner,
@@ -45,6 +50,8 @@ export type DesktopFirstRunChatProps = Readonly<{
   onCanonicalConversation?(binding: CanonicalRuntimeBinding | undefined): void
   temporary: boolean
   workspaceId: string
+  /** Cloud project names keyed by project id; absent names show the short id. */
+  projectNames?: DevProjectNames
 }>
 
 type ReadyState = Readonly<{
@@ -72,7 +79,6 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   const lifecycle = createDesktopChatLifecycleFence()
   const selectedProject = useWorkspaceState((state) => state.selectedDevProjectId)
   const selectedSession = useWorkspaceState((state) => state.selectedRuntimeSessionId)
-  const collapsedGroups = useWorkspaceState((state) => state.collapsedDevGroupIds)
   const collapsedProjects = useWorkspaceState((state) => state.collapsedDevProjectIds)
   const sidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
   const [attachmentError, setAttachmentError] = createSignal('')
@@ -83,16 +89,14 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     if (!state || state.kind !== 'returning') return undefined
     return resolveDevSelection({
       scope: state.scope,
-      projects: state.projection.groups.flatMap((group) =>
-        group.projects.map((project) => ({
-          id: project.id,
-          sessions: project.sessions.map((session) => ({
-            id: session.id,
-            generation: session.generation,
-            archived: session.state === 'archived',
-          })),
-        }))
-      ),
+      projects: state.projection.projects.map((project) => ({
+        id: project.id,
+        sessions: project.sessions.map((session) => ({
+          id: session.id,
+          generation: session.generation,
+          archived: session.state === 'archived',
+        })),
+      })),
       requestedProjectId: selectedProject(),
       requestedSessionId: selectedSession(),
     })
@@ -112,8 +116,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     if (!state || state.kind !== 'returning' || !selected) return
     if (selected.status !== 'empty' && selected.runtimeSessionId) {
       const active = conversation()
-      const canonical = state.projection.groups
-        .flatMap((group) => group.projects)
+      const canonical = state.projection.projects
         .find((project) => project.id === selected.projectId)
         ?.sessions.find((session) => session.id === selected.runtimeSessionId)
       if (
@@ -145,8 +148,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
       .attach(selected.runtimeSessionId)
       .then((next) => {
         if (token !== attachment || !lifecycle.isCurrent(request) || ready() !== state) return
-        const canonical = state.projection.groups
-          .flatMap((group) => group.projects)
+        const canonical = state.projection.projects
           .find((project) => project.id === selected.projectId)
           ?.sessions.find((session) => session.id === selected.runtimeSessionId)
         if (
@@ -266,10 +268,8 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
       const projection = await runtime.projection?.(scope)
       if (!projection || !lifecycle.isCurrent(request)) return undefined
       if (
-        projection.groups.some((group) =>
-          group.projects.some((project) =>
-            project.sessions.some((session) => session.state !== 'archived')
-          )
+        projection.projects.some((project) =>
+          project.sessions.some((session) => session.state !== 'archived')
         )
       )
         return { kind: 'returning', model, scope, projection }
@@ -311,10 +311,9 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
           <div class="dev-workspace dev-workspace--chat">
             <div class="dev-workspace__body">
               <DevSidebarNavigation
-                groups={state().projection.groups}
+                projects={devProjectsFromProjection(state().projection, props.projectNames)}
                 selectedProject={selectedProject() ?? ''}
                 selectedSession={selectedSession() ?? ''}
-                collapsedGroups={new Set(collapsedGroups())}
                 collapsedProjects={new Set(collapsedProjects())}
                 compactOpen={sidebarOpen()}
                 onOpenChange={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
@@ -328,7 +327,6 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                     store.setSelectedDevProjectId(projectId)
                   store.setSelectedRuntimeSessionId(sessionId)
                 }}
-                onToggleGroup={(id) => workspaceStore.getState().toggleDevGroupCollapsed(id)}
                 onToggleProject={(id) => workspaceStore.getState().toggleDevProjectCollapsed(id)}
               >
                 {props.archiveAction}

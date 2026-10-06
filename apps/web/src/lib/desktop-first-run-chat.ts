@@ -35,15 +35,15 @@ type ResolutionInput = Readonly<{
  * never gates the conversation, and identity never gates it either.
  */
 export function resolveDesktopFirstRun(input: ResolutionInput): DesktopFirstRunResolution {
-  const projects = input.projection.groups.flatMap((group) => group.projects)
-  const project = projects.find((candidate) => candidate.repository.length > 0)
+  const project = input.projection.projects.find((candidate) => candidate.repoIds.length > 0)
+  const repoId = project?.repoIds[0]
   const worktree = project
     ? input.worktrees.find(
         (candidate) =>
           !candidate.archived &&
           candidate.lifecycle === 'ready' &&
           candidate.projectId === project.id &&
-          candidate.repoId === project.repository
+          candidate.repoId === repoId
       )
     : undefined
   const projectReady = project !== undefined && worktree !== undefined
@@ -59,7 +59,7 @@ export function resolveDesktopFirstRun(input: ResolutionInput): DesktopFirstRunR
     projectReady && agent
       ? {
           projectId: project.id,
-          repoId: project.repository,
+          repoId: repoId!,
           worktreeId: worktree.id,
           agentProfileId: agent.profile.id,
           agentProfileVersion: Number(agent.profile.version),

@@ -7,10 +7,9 @@
  * Composition follows the add flows substantially translated from KiroCrew's
  * ChatSidebar and Orca's AddRepoDialog (donor audit #398), rebuilt for Solid,
  * Adea tokens, and the authority boundary: this component issues only
- * `dev.project.bookmarks`, `dev.project.scan`, `dev.group.list`,
- * `dev.group.create`, and `dev.project.import` commands. Scan results are
- * previews requiring confirmation; nothing here ever executes
- * install/bootstrap commands.
+ * `dev.project.bookmarks`, `dev.project.authorizeRoot`, `dev.project.scan`,
+ * and `dev.project.import` commands. Scan results are previews requiring
+ * confirmation; nothing here ever executes install/bootstrap commands.
  */
 import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
 import { FolderPlus } from 'lucide-solid'
@@ -25,6 +24,12 @@ export type AddProjectPanelProps = Readonly<{
   announce(message: string): void
   /** Registers an opener so center-pane empty states can expand this panel. */
   registerOpen?: (open: () => void) => void
+  /**
+   * Supplies the cloud project id each import binds. The register keys every
+   * binding by a cloud project id and never mints one itself. Until the host
+   * creates the cloud project first, the default mints a client UUID.
+   */
+  mintProjectId?: () => string
 }>
 
 const AddProjectForm = lazy(() =>

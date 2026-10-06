@@ -293,12 +293,11 @@ export function createDesktopDevRuntimeService(
       if (!sameScope(scope, requestedScope)) {
         throw new Error('requested scope does not match the shell binding')
       }
-      const [groups, projects, sessions] = await Promise.all([
-        executeOperation(execute, 'dev.group.list', scope, {}),
+      const [projects, sessions] = await Promise.all([
         executeOperation(execute, 'dev.project.list', scope, {}),
         executeOperation(execute, 'dev.session.list', scope, {}),
       ])
-      return toProjection(groups, projects, sessions)
+      return toProjection(projects, sessions)
     },
     capabilitySnapshot: async (requestedScope) => {
       const scope = await projectedScope
@@ -353,12 +352,11 @@ function createBoundService(options: {
     ...(options.streams ? { streams: () => options.streams } : {}),
     ...(options.events ? { events: () => options.events } : {}),
     projection: async (requestedScope) => {
-      const [groups, projects, sessions] = await Promise.all([
-        executeOperation(execute, 'dev.group.list', requestedScope, {}),
+      const [projects, sessions] = await Promise.all([
         executeOperation(execute, 'dev.project.list', requestedScope, {}),
         executeOperation(execute, 'dev.session.list', requestedScope, {}),
       ])
-      return toProjection(groups, projects, sessions)
+      return toProjection(projects, sessions)
     },
     capabilitySnapshot: async (requestedScope) => {
       const command = buildDevCommand({
@@ -403,7 +401,7 @@ function sameScope(left: Scope, right: Scope): boolean {
 
 async function executeOperation(
   execute: (command: DevCommand) => Promise<DevReply>,
-  operation: 'dev.group.list' | 'dev.project.list' | 'dev.session.list',
+  operation: 'dev.project.list' | 'dev.session.list',
   scope: Scope,
   body: Record<string, unknown>
 ) {
@@ -413,12 +411,16 @@ async function executeOperation(
   return reply.value as { items: readonly Record<string, unknown>[] }
 }
 
+/**
+ * The flat Dev projection: every project binding the register returns, in
+ * register order, with its sessions. Nothing is dropped for lacking a parent:
+ * the register has no groups, and names come from the host's cloud list.
+ */
 export function toProjection(
-  groupsReply: { items: readonly Record<string, unknown>[] },
   projectsReply: { items: readonly Record<string, unknown>[] },
   sessionsReply: { items: readonly Record<string, unknown>[] }
 ): DevWorkspaceProjection {
-  type ProjectSessions = DevWorkspaceProjection['groups'][number]['projects'][number]['sessions']
+  type ProjectSessions = DevWorkspaceProjection['projects'][number]['sessions']
   // Mutable element type: the buckets are filled in place below.
   const sessionsByProject = new Map<string, ProjectSessions[number][]>()
   for (const raw of sessionsReply.items) {
@@ -456,36 +458,17 @@ export function toProjection(
     })
     sessionsByProject.set(projectId, sessions)
   }
-  const projectsById = new Map<
-    string,
-    DevWorkspaceProjection['groups'][number]['projects'][number]
-  >()
-  for (const raw of projectsReply.items) {
-    const id = String(raw.id)
-    projectsById.set(id, {
-      id,
-      name: String(raw.name ?? id),
-      repository: Array.isArray(raw.repoIds) ? String(raw.repoIds[0] ?? '') : '',
-      branch: typeof raw.defaultBaseRef === 'string' ? raw.defaultBaseRef : '',
-      sessions: sessionsByProject.get(id) ?? [],
-    })
-  }
   return {
-    groups: groupsReply.items.map((raw) => ({
-      id: String(raw.id),
-      name: String(raw.name ?? raw.id),
-      // The register carries a group `version` and increments it on every
-      // reorder; `dev-workspace-entry` needs it as the expected version for
-      // `dev.group.reorder`. Dropping it here made `reorderVersionOf` always
-      // undefined, so a reorder returned "nothing was changed on the runtime"
-      // AFTER the sidebar had already been reordered locally — leaving the
-      // surface permanently out of step with the runtime, with no reload to
-      // correct it.
-      ...(typeof raw.version === 'number' ? { version: raw.version } : {}),
-      projects: (Array.isArray(raw.projectIds) ? raw.projectIds : [])
-        .map((id) => projectsById.get(String(id)))
-        .filter((project): project is NonNullable<typeof project> => project !== undefined),
-    })),
+    projects: projectsReply.items.map((raw) => {
+      const id = String(raw.id)
+      return {
+        id,
+        repoIds: Array.isArray(raw.repoIds) ? raw.repoIds.map(String) : [],
+        branch: typeof raw.defaultBaseRef === 'string' ? raw.defaultBaseRef : '',
+        ...(typeof raw.version === 'number' ? { version: raw.version } : {}),
+        sessions: sessionsByProject.get(id) ?? [],
+      }
+    }),
   }
 }
 

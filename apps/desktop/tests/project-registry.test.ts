@@ -14,7 +14,6 @@ import { devOperationDecoders } from '../../../packages/types/src/dev-runtime'
 import type {
   DevCommand,
   DevOperation,
-  Group,
   Project,
   ProjectScanEntry,
   ProjectScanPage,
@@ -130,160 +129,16 @@ function bootRegistry(
 const BOOKMARK_ID = '00000000-0000-4000-8000-0000000000b0'
 
 describe('project registry providers (#398)', () => {
-  test('dev.group.create places groups with sort keys, shifting later groups with version bumps', () => {
+  test('dev.project.import binds the authorized root to the cloud project id and refuses duplicates', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-'))
     try {
       const runtime = bootRegistry(dataDir)
-      const create = provider(runtime, 'dev.group.create')
-      const first = create(command('dev.group.create', { name: 'Product' })) as Group
-      const second = create(command('dev.group.create', { name: 'Ops' })) as Group
-      expect(first.sortKey < second.sortKey).toBe(true)
-      // Placing a new group after `first` moves `second`: its version bumps.
-      const third = create(
-        command('dev.group.create', { name: 'Infra', afterGroupId: first.id })
-      ) as Group
-      expect(third.version).toBe(1)
-      const groups = provider(runtime, 'dev.group.list')(command('dev.group.list', {})) as {
-        items: Group[]
-      }
-      expect(groups.items.map((group) => group.id)).toEqual([first.id, third.id, second.id])
-      const shifted = groups.items.find((group) => group.id === second.id)!
-      expect(shifted.version).toBe(2)
-
-      expectCode(
-        () => create(command('dev.group.create', { name: 'X', afterGroupId: randomUUID() })),
-        'not_found'
-      )
-      // The reply decodes through the strict provider-owned decoder.
-      expect(() => decodeReply('dev.group.create', first)).not.toThrow()
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  test('dev.group.update and delete fence on version, resource binding, and empty-group state', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-'))
-    try {
-      const runtime = bootRegistry(dataDir)
-      const create = provider(runtime, 'dev.group.create')
-      const group = create(command('dev.group.create', { name: 'Product' })) as Group
-      const update = provider(runtime, 'dev.group.update')
-      const remove = provider(runtime, 'dev.group.delete')
-
-      expectCode(
-        () =>
-          update(
-            command(
-              'dev.group.update',
-              { groupId: group.id, expectedVersion: 99, patch: { name: 'Renamed' } },
-              scope,
-              { kind: 'group', id: group.id, generation: 0 }
-            )
-          ),
-        'stale_version'
-      )
-      expectCode(
-        () =>
-          update(
-            command(
-              'dev.group.update',
-              { groupId: group.id, expectedVersion: group.version, patch: { name: 'Renamed' } },
-              scope,
-              { kind: 'project', id: group.id, generation: 0 }
-            )
-          ),
-        'identity_mismatch'
-      )
-      const updated = update(
-        command(
-          'dev.group.update',
-          { groupId: group.id, expectedVersion: group.version, patch: { name: 'Renamed' } },
-          scope,
-          { kind: 'group', id: group.id, generation: 0 }
-        )
-      ) as Group
-      expect(updated.name).toBe('Renamed')
-      expect(updated.version).toBe(group.version + 1)
-      expect(() => decodeReply('dev.group.update', updated)).not.toThrow()
-
-      // A non-empty group cannot be deleted (membership append moved the
-      // group's version, so re-read it first).
-      const project = provider(
-        runtime,
-        'dev.project.create'
-      )(
-        command('dev.project.create', {
-          name: 'Adea',
-          groupIds: [group.id],
-          repoIds: [randomUUID()],
-        })
-      ) as Project
-      const populatedVersion = (
-        provider(runtime, 'dev.group.list')(command('dev.group.list', {})) as { items: Group[] }
-      ).items.find((entry) => entry.id === group.id)!.version
-      expectCode(
-        () =>
-          remove(
-            command(
-              'dev.group.delete',
-              { groupId: group.id, expectedVersion: populatedVersion, confirmationId: 'confirm' },
-              scope,
-              { kind: 'group', id: group.id, generation: 0 }
-            )
-          ),
-        'invalid_state'
-      )
-      // Detach the project first (fresh register), then delete succeeds.
-      const empty = create(command('dev.group.create', { name: 'Empty' })) as Group
-      const removed = remove(
-        command(
-          'dev.group.delete',
-          { groupId: empty.id, expectedVersion: empty.version, confirmationId: 'confirm' },
-          scope,
-          { kind: 'group', id: empty.id, generation: 0 }
-        )
-      ) as Group
-      expect(removed.id).toBe(empty.id)
-      expect(
-        (
-          provider(runtime, 'dev.group.list')(command('dev.group.list', {})) as { items: Group[] }
-        ).items.map((entry) => entry.id)
-      ).not.toContain(empty.id)
-      expect(project.id).toBeTypeOf('string')
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  test('dev.project.import binds the authorized root, updates group membership atomically, and refuses duplicates', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-'))
-    try {
-      const runtime = bootRegistry(dataDir)
-      const group = provider(
-        runtime,
-        'dev.group.create'
-      )(command('dev.group.create', { name: 'Product' })) as Group
       const importProject = provider(runtime, 'dev.project.import')
-
-      // Unknown groups refuse before any record exists.
-      expectCode(
-        () =>
-          importProject(
-            command('dev.project.import', {
-              name: 'Nope',
-              rootBookmarkId: BOOKMARK_ID,
-              groupIds: [randomUUID()],
-            })
-          ),
-        'not_found'
-      )
+      const projectId = randomUUID()
       const imported = importProject(
-        command('dev.project.import', {
-          name: 'Monorepo',
-          rootBookmarkId: BOOKMARK_ID,
-          groupIds: [group.id],
-        })
+        command('dev.project.import', { projectId, rootBookmarkId: BOOKMARK_ID })
       ) as Project
+      expect(imported.id).toBe(projectId)
       expect(imported.lifecycle).toBe('ready')
       expect(imported.repos).toEqual([
         {
@@ -292,25 +147,12 @@ describe('project registry providers (#398)', () => {
           canonicalRoot: '/srv/authorized-root',
         },
       ])
-      expect(imported.groupIds).toEqual([group.id])
-
-      // Group membership moved in the same snapshot: the group lists the
-      // project and its version advanced.
-      const groups = provider(runtime, 'dev.group.list')(command('dev.group.list', {})) as {
-        items: Group[]
-      }
-      expect(groups.items[0]!.projectIds).toEqual([imported.id])
-      expect(groups.items[0]!.version).toBe(group.version + 1)
 
       // A second import for the same authorized root is an identity collision.
       expectCode(
         () =>
           importProject(
-            command('dev.project.import', {
-              name: 'Again',
-              rootBookmarkId: BOOKMARK_ID,
-              groupIds: [group.id],
-            })
+            command('dev.project.import', { projectId: randomUUID(), rootBookmarkId: BOOKMARK_ID })
           ),
         'identity_mismatch'
       )
@@ -319,9 +161,8 @@ describe('project registry providers (#398)', () => {
         () =>
           importProject(
             command('dev.project.import', {
-              name: 'Revoked',
+              projectId: randomUUID(),
               rootBookmarkId: randomUUID(),
-              groupIds: [group.id],
             })
           ),
         'unauthorized_root'
@@ -332,7 +173,7 @@ describe('project registry providers (#398)', () => {
           importProject(
             command(
               'dev.project.import',
-              { name: 'Foreign', rootBookmarkId: BOOKMARK_ID, groupIds: [group.id] },
+              { projectId: randomUUID(), rootBookmarkId: BOOKMARK_ID },
               otherScope
             )
           ),
@@ -345,42 +186,29 @@ describe('project registry providers (#398)', () => {
       const persisted = provider(
         restarted,
         'dev.project.get'
-      )(command('dev.project.get', { projectId: imported.id })) as Project
+      )(command('dev.project.get', { projectId })) as Project
       expect(persisted.repos?.[0]!.canonicalRoot).toBe('/srv/authorized-root')
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }
   })
 
-  test('dev.project.create validates groups and persists across restart', () => {
+  test('dev.project.create binds a cloud project id and persists across restart', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-registry-'))
     try {
       const runtime = bootRegistry(dataDir)
-      const group = provider(
-        runtime,
-        'dev.group.create'
-      )(command('dev.group.create', { name: 'Tools' })) as Group
       const createProject = provider(runtime, 'dev.project.create')
-      expectCode(
-        () =>
-          createProject(
-            command('dev.project.create', {
-              name: 'X',
-              groupIds: [randomUUID()],
-              repoIds: [randomUUID()],
-            })
-          ),
-        'not_found'
-      )
+      const projectId = randomUUID()
       const created = createProject(
-        command('dev.project.create', {
-          name: 'Tools app',
-          groupIds: [group.id],
-          repoIds: [randomUUID()],
-        })
+        command('dev.project.create', { projectId, repoIds: [randomUUID()] })
       ) as Project
+      expect(created.id).toBe(projectId)
       expect(created.lifecycle).toBe('ready')
       expect(() => decodeReply('dev.project.create', created)).not.toThrow()
+      expectCode(
+        () => createProject(command('dev.project.create', { projectId, repoIds: [] })),
+        'identity_mismatch'
+      )
 
       const restarted = registerProjectSessionRuntime({
         authority: { registerCommandProvider() {} },
@@ -390,8 +218,8 @@ describe('project registry providers (#398)', () => {
       const persisted = provider(
         restarted,
         'dev.project.get'
-      )(command('dev.project.get', { projectId: created.id })) as Project
-      expect(persisted.name).toBe('Tools app')
+      )(command('dev.project.get', { projectId })) as Project
+      expect(persisted).toEqual(created)
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }
@@ -589,20 +417,19 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
         },
         authorizeRoot: (absolutePath, label) => {
           expect(absolutePath.startsWith(destinationRoot)).toBe(true)
-          expect(label).toBe('Cloned Fixture')
+          // The register stores no names: the bookmark is labelled with the
+          // repository name.
+          expect(label).toBe('repo')
           const id = randomUUID()
           mintedBookmarks.push(id)
           return { id }
         },
       })
-      const group = provider(
-        runtime,
-        'dev.group.create'
-      )(command('dev.group.create', { name: 'Product' })) as Group
       const clone = provider(runtime, 'dev.project.clone')
+      const projectId = randomUUID()
       const project = (await clone(
         command('dev.project.clone', {
-          name: 'Cloned Fixture',
+          projectId,
           remote: {
             provider: 'other',
             host: `file://${origin}`,
@@ -610,9 +437,10 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
             repository: 'repo',
           },
           destinationBookmarkId: BOOKMARK_ID,
-          groupIds: [group.id],
         })
       )) as Project
+      // The clone binds the client-supplied cloud project id.
+      expect(project.id).toBe(projectId)
       expect(project.lifecycle).toBe('ready')
       expect(project.repos?.[0]?.rootBookmarkId).toBe(mintedBookmarks[0])
       expect(project.repos?.[0]?.canonicalRoot).toBe(join(destinationRoot, 'clones', 'repo'))
@@ -630,18 +458,35 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
       expect(head.stdout.toString().trim()).toBe('true')
       expect(mintedBookmarks).toHaveLength(1)
 
-      // The group membership moved with the same atomic snapshot.
-      const groups = provider(runtime, 'dev.group.list')(command('dev.group.list', {})) as {
-        items: Group[]
+      // The binding landed in the same atomic snapshot write.
+      const listed = provider(runtime, 'dev.project.list')(command('dev.project.list', {})) as {
+        items: Project[]
       }
-      expect(groups.items[0]!.projectIds).toEqual([project.id])
+      expect(listed.items.map((entry) => entry.id)).toEqual([projectId])
+
+      // Binding the same cloud project again refuses before any clone runs.
+      await expectReject(
+        clone(
+          command('dev.project.clone', {
+            projectId,
+            remote: {
+              provider: 'other',
+              host: `file://${origin}`,
+              ownerPath: 'owner',
+              repository: 'other-repo',
+            },
+            destinationBookmarkId: BOOKMARK_ID,
+          })
+        ),
+        'identity_mismatch'
+      )
 
       // A second clone into the same destination is a destination collision,
       // not a silent overwrite.
       await expectReject(
         clone(
           command('dev.project.clone', {
-            name: 'Again',
+            projectId: randomUUID(),
             remote: {
               provider: 'other',
               host: `file://${origin}`,
@@ -649,7 +494,6 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
               repository: 'repo',
             },
             destinationBookmarkId: BOOKMARK_ID,
-            groupIds: [group.id],
           })
         ),
         'invalid_state'
@@ -680,7 +524,7 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
           'dev.project.clone'
         )(
           command('dev.project.clone', {
-            name: 'Nope',
+            projectId: randomUUID(),
             remote: {
               provider: 'github',
               host: 'github.com',
@@ -688,7 +532,6 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
               repository: 'adea',
             },
             destinationBookmarkId: BOOKMARK_ID,
-            groupIds: [],
           })
         ),
         'unauthorized_root'
@@ -718,7 +561,7 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
           'dev.project.clone'
         )(
           command('dev.project.clone', {
-            name: 'Broken',
+            projectId: randomUUID(),
             remote: {
               provider: 'github',
               host: 'github.com',
@@ -726,7 +569,6 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
               repository: 'missing',
             },
             destinationBookmarkId: BOOKMARK_ID,
-            groupIds: [],
           })
         ),
         'spawn_failed'
@@ -752,7 +594,7 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
           'dev.project.clone'
         )(
           command('dev.project.clone', {
-            name: 'Private',
+            projectId: randomUUID(),
             remote: {
               provider: 'github',
               host: 'github.com',
@@ -761,7 +603,6 @@ describe('dev.project.clone — the clone-URL import kind (#666)', () => {
             },
             credentialRefId: randomUUID(),
             destinationBookmarkId: BOOKMARK_ID,
-            groupIds: [],
           })
         ),
         'unavailable'

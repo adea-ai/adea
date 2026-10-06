@@ -9,19 +9,12 @@ import {
 import type { AgentSummary } from '@adea-ai/types'
 
 const projection = {
-  groups: [
+  projects: [
     {
-      id: 'group-1',
-      name: 'Workspace',
-      projects: [
-        {
-          id: 'project-1',
-          name: 'Project',
-          repository: 'repo-1',
-          branch: 'main',
-          sessions: [],
-        },
-      ],
+      id: 'project-1',
+      repoIds: ['repo-1'],
+      branch: 'main',
+      sessions: [],
     },
   ],
 } as const

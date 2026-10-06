@@ -17,7 +17,6 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
   expect(Object.keys(workspaceStore.getState()).toSorted()).toEqual([
     'activeSurface',
     'cameraViewMode',
-    'collapsedDevGroupIds',
     'collapsedDevProjectIds',
     'collapsedProjectIds',
     'devFocusMode',
@@ -52,7 +51,6 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
     'setThreadRootMessageId',
     'switchWorkspace',
     'threadRootMessageId',
-    'toggleDevGroupCollapsed',
     'toggleDevProjectCollapsed',
     'toggleProjectCollapsed',
   ])
@@ -64,7 +62,6 @@ test('Dev selections reset at their authority boundaries without storing durable
     selectedDevProjectId: 'project-a',
     selectedRuntimeSessionId: 'session-a',
     selectedDevPaneId: 'pane-a',
-    collapsedDevGroupIds: ['group-a'],
     collapsedDevProjectIds: ['project-a'],
     devFocusMode: true,
   })
@@ -75,7 +72,6 @@ test('Dev selections reset at their authority boundaries without storing durable
     selectedDevProjectId: null,
     selectedRuntimeSessionId: null,
     selectedDevPaneId: null,
-    collapsedDevGroupIds: [],
     collapsedDevProjectIds: [],
     devFocusMode: false,
   })
@@ -108,7 +104,6 @@ test('switchWorkspace starts a fresh workspace context', () => {
     selectedDevProjectId: 'project-work',
     selectedRuntimeSessionId: 'session-work',
     selectedDevPaneId: 'pane-work',
-    collapsedDevGroupIds: ['group-work'],
     collapsedDevProjectIds: ['project-work'],
     devFocusMode: true,
     threadRootMessageId: 'thread-work',
@@ -134,7 +129,6 @@ test('switchWorkspace starts a fresh workspace context', () => {
     selectedDevProjectId: null,
     selectedRuntimeSessionId: null,
     selectedDevPaneId: null,
-    collapsedDevGroupIds: [],
     collapsedDevProjectIds: [],
     devFocusMode: false,
     threadRootMessageId: null,

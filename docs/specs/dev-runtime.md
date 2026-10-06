@@ -15,12 +15,12 @@ Read this page before touching any routed Dev Runtime path in `AGENTS.md`.
 - Browser caller and frame-transport boundary: [browser caller gaps](../research/dev-browser-caller-gaps.md)
 - Threat model: [Dev View threat model](../security/dev-view-threat-model.md)
 - Delivery order: [M12 implementation plan](../plans/m12-dev-view.md)
-- Pending redesign: [ADR 0011](../decisions/0011-unified-workspace-projects.md)
-  removes project groups and makes the primary checkout a worktree record. The
-  sections below stay normative until each change lands with its amendment.
-  The device workspace scope (the Dev scope bound to the selected cloud
-  workspace) has landed; see "Durable project/session authority" and scope
-  admission below.
+- Redesign in progress: [ADR 0011](../decisions/0011-unified-workspace-projects.md).
+  The sections below stay normative until each change lands with its
+  amendment. The device workspace scope (the Dev scope bound to the selected
+  cloud workspace), the primary checkout worktree record, and the removal of
+  project groups (v2 project bindings keyed by the cloud project id) have
+  landed; see "Durable project/session authority" and scope admission below.
 
 **Changelog discipline:** behavior described here and its tests change in the
 same commit. M12 code cannot weaken an M10/M11 authority; if this page and an
@@ -144,11 +144,10 @@ branch names, URLs, or array indexes.
 
 | ID                      | Identity                                                     |
 | ----------------------- | ------------------------------------------------------------ |
-| `projectId`             | user-defined project intent                                  |
+| `projectId`             | cloud project id a local binding is keyed by                 |
 | `repoId`                | canonical repository/common-dir identity on one runtime node |
 | `worktreeId`            | never-reused checkout identity                               |
 | `runtimeSessionId`      | canonical Dev/Chat session                                   |
-| `groupId`               | user-defined project group                                   |
 | `bookmarkId`            | M10-minted authorized root grant                             |
 | `credentialRefId`       | vault-held credential reference, never the secret            |
 | `shellProfileId`        | named host-admitted shell configuration                      |
@@ -276,12 +275,14 @@ type Scope = {
   runtimeNodeId: string
 }
 
+// A local repository binding for one cloud project. `id` is the cloud
+// project id the client supplies; names, order, and grouping belong to the
+// cloud project record, never to the register.
 type Project = {
   id: string
   scope: Scope
-  name: string
-  groupIds: string[]
   repoIds: string[]
+  repos?: ProjectRepoBinding[]
   preferredRuntimeNodeId?: string
   defaultBaseRef?: string
   bootstrapWorkflowId?: string
@@ -419,22 +420,6 @@ type FileIdentity = {
   mtimeNs: string
   size: string
   contentSha256?: string
-}
-
-type Group = {
-  id: string
-  scope: Scope
-  name: string
-  colorToken?: string
-  projectIds: string[]
-  sortKey: string
-  version: number
-}
-
-type GroupMutableFields = {
-  name?: string
-  colorToken?: string
-  sortKey?: string
 }
 
 // A RootBookmark is a durable grant that a directory or repository root has
@@ -841,12 +826,7 @@ type RedactedRemoteInput = {
 type ProjectMutableFields = Partial<
   Pick<
     Project,
-    | 'name'
-    | 'groupIds'
-    | 'preferredRuntimeNodeId'
-    | 'defaultBaseRef'
-    | 'bootstrapWorkflowId'
-    | 'defaultHarnessId'
+    'preferredRuntimeNodeId' | 'defaultBaseRef' | 'bootstrapWorkflowId' | 'defaultHarnessId'
   >
 >
 type CapabilitySnapshot = {
@@ -1480,10 +1460,16 @@ browser, device, or process, and never deletes worktree data. Worktree archive
 
 The Dev UI consumes an authorized typed projection, not a fixture-shaped copy of
 runtime data. A provider projection MUST include the active `Scope`, its source
-and freshness/generation metadata, and the groups, projects, repositories,
+and freshness/generation metadata, and the project bindings, repositories,
 worktrees, and `RuntimeSession` records returned by the corresponding registry
 operations. The provider may expose loading, stale, offline, unavailable, and
 partial states, but it MUST NOT turn any of them into fabricated success data.
+The project projection is flat: one entry per register binding, in register
+order, keyed by the cloud project id with its repository ids, default base ref,
+version, and sessions. No binding is dropped for lacking a parent. The register
+carries no project names; hosts inject display names keyed by cloud project id
+(`projectNames`), and a binding without a supplied name renders the short form
+of its project id (the first UUID group).
 
 The following invariants are mandatory:
 
@@ -1504,7 +1490,7 @@ The following invariants are mandatory:
    removing the old scope's cache. No projection, selection, path label, or
    preference from the old node may be used for the new node.
 
-The M13 Chat model projects the canonical session, project, and group registry
+The M13 Chat model projects the canonical session and project registry
 pages. It resolves those registries before creating or attaching a visible
 conversation, and a complete unfiltered session refresh removes records absent
 from the canonical list. A missing project must remain unresolved; Chat must
@@ -1737,74 +1723,79 @@ operation is introduced by this consumer.
 ### Durable project/session authority (desktop host)
 
 The desktop shell's project/session register is the host-side canonical
-authority for projects, runtime sessions, groups, and the archive journal —
-not a projection of other state. One versioned snapshot payload commits groups,
-projects, sessions, and `ArchiveRecord`s together in the WAL-backed per-scope
-`dev-runtime/project-session/authority-<sha256(scope)>.sqlite3` store, so
-`dev.session.archive`/`dev.session.unarchive` persist the session flip and its
-durable record in one SQLite transaction. The store enables `journal_mode=WAL`,
-`synchronous=FULL`, and foreign keys on every open, uses a format-version guard,
-and binds its single row to the `(accountId, workspaceId, runtimeNodeId)` scope
-key before returning records. For a device workspace scope the `workspaceId`
-is the selected cloud workspace (the account and runtime node stay the local
-ones), so each cloud workspace owns its own partition; the earlier device-local
-guest partition is left on disk, never read, migrated, or deleted by a
-selection. Each scope has an independent database and
-ledger, so switching workspaces never makes one scope open or overwrite another
-scope's file. The one sanctioned cross-scope read is the counts-only
-`dev.summary.workspaces` operation (see "Cross-workspace run summary"): it
-folds the shared harness run registry (`dev-runtime/harness/runs.json`, which
-already holds every scope's runs) and opens no other authority partition,
-ledger, or per-scope file; it counts only scopes with the active scope's
-`accountId` and `runtimeNodeId`; and it returns nothing beyond each counted
-`workspaceId` and two integers. The pre-slice `authority.sqlite3` is reused only when its stored
-row belongs to the requested scope; a different scope gets a new partition.
-A scope mismatch, malformed payload, or
-unsupported format/schema version fails closed and retains an unread database
-copy for recovery; the original database is never replaced by a recovery copy.
-An interrupted migration transaction rolls back and leaves its JSON source for
-the next open to retry while the SQLite database identity is unchanged. Each
-partition has an owner-only sidecar migration ledger
-(`authority-<sha256(scope)>.sqlite3.migration.json`), which
-records the legacy source digest and database identity, and survives SQLite
-loss: a recreated database refuses to re-import stale JSON and reports
-`corrupt_state` for recovery. A first open without a legacy source creates a
-native-state ledger before accepting a save; if the SQLite metadata survives
-alone, a missing ledger is regenerated before records are returned. The
-SQLite database and ledger are separate durable files, but deleting both is a
-complete local state loss with no surviving identity; a later open cannot
-distinguish that event from a first install and this slice does not claim to
-prevent stale legacy re-import in that case. External backup or recovery
-protection must cover that trust boundary. The retained `authority.json` source
-is filtered by scope for each partition, so an A-to-B-to-A restart preserves
-both migrated records without cross-scope import; legacy authority and
-projection files must be regular owner-only files, and duplicate same-scope
-legacy rows fail closed as `corrupt_state` instead of selecting the first row.
-The register serves `dev.group.*` (now
-including `create`/`update`/`delete`: a created group is placed after
-`afterGroupId` or at the end and every displaced group's `version` bumps;
-`delete` requires an empty group plus a `confirmationId` and the `group`
-resource binding), `dev.project.import`/`create`/`get`/`list`/`reorder`, and
-`dev.session.create/get/list/archive/unarchive`. `dev.session.create` binds the
-session to an in-scope project and rejects a `repoId` outside the project's
-bound repositories with `identity_mismatch`. `dev.project.import` registers a
-project from an **authorized root bookmark**: the canonical root is resolved
-fail-closed through the roots authority inside the host — a client-supplied
-path never reaches the register — and a second registration for the same
-bookmark is refused with `identity_mismatch` instead of silently duplicating.
-Import and create commit the new project and every affected group's membership
-ordering in one snapshot write. Every mutation enforces the scope triple
-(`unauthorized`), the ownership epoch (`stale_generation`), and optimistic
-concurrency (`stale_version`); a stored record that fails structural decode
-fails closed with `corrupt_state` and is retained unread. The previous
-`authority.json` envelope is migrated exactly once inside a SQLite transaction;
-if migration is interrupted, the transaction rolls back and the next open
-retries from the untouched JSON source only when it is the same database
-identity. The earlier local `projection.json` is
-seeded into the authority store exactly once and neither legacy JSON source is
-deleted or rewritten. Other Dev Runtime authorities remain on the existing
-JSON store until an independently reviewed migration slice covers their schema
-and rollback contract.
+authority for local project bindings, runtime sessions, and the archive
+journal — not a projection of other state. Its v2 authority record is
+`{ scope, projects: ProjectBinding[], sessions, archiveRecords, sessionCreates? }`
+with `ProjectBinding { projectId, repoIds, repos?, preferredRuntimeNodeId?,
+defaultBaseRef?, bootstrapWorkflowId?, defaultHarnessId?, lifecycle, version }`.
+A binding is keyed by the **cloud project id** (an opaque lowercase UUID the
+client supplies) and holds only local facts; the cloud project record owns the
+name, order, and grouping, so the register stores none of them and has no
+groups. The wire `Project` is the binding projected with `id = projectId` and
+the scope. One versioned snapshot payload commits bindings, sessions, and
+`ArchiveRecord`s together in the WAL-backed per-scope
+`dev-runtime/project-session/authority-v2-<sha256(scope)>.sqlite3` store
+(schema version 2), so `dev.session.archive`/`dev.session.unarchive` persist
+the session flip and its durable record in one SQLite transaction. The store
+enables `journal_mode=WAL`, `synchronous=FULL`, and foreign keys on every
+open, uses a format-version guard, and binds its single row to the
+`(accountId, workspaceId, runtimeNodeId)` scope key before returning records.
+For a device workspace scope the `workspaceId` is the selected cloud workspace
+(the account and runtime node stay the local ones), so each cloud workspace
+owns its own partition; the earlier device-local guest partition is left on
+disk, never read, migrated, or deleted by a selection. Each scope has an
+independent database and ledger, so switching workspaces never makes one scope
+open or overwrite another scope's file. The one sanctioned cross-scope read is the
+counts-only `dev.summary.workspaces` operation (see "Cross-workspace run
+summary"): it folds the shared harness run registry
+(`dev-runtime/harness/runs.json`, which already holds every scope's runs) and
+opens no other authority partition, ledger, or per-scope file; it counts only
+scopes with the active scope's `accountId` and `runtimeNodeId`; and it returns
+nothing beyond each counted `workspaceId` and two integers.
+
+**v1 records are left unread (owner decision, no migration).** The v2 file
+name differs from every v1 name (`authority.sqlite3`,
+`authority-<sha256(scope)>.sqlite3`, their migration ledgers, and the legacy
+`authority.json`/`projection.json` sources), so opening the v2 register never
+opens, reads, rewrites, migrates, or deletes a v1 database or JSON source; those
+files stay byte-identical on disk and the v2 partition starts empty. A stored
+v2 record that carries `groups`, a project `name`, or `groupIds`, a scope
+mismatch, a malformed payload, or an unsupported format/schema version fails
+closed with `corrupt_state` and retains an unread database copy for recovery;
+the original database is never replaced by a recovery copy. Each partition has
+an owner-only sidecar ledger (`authority-v2-<sha256(scope)>.sqlite3.migration.json`)
+that records the database identity and survives SQLite loss: a first open
+creates a native-state ledger before accepting a save, and if the SQLite
+metadata survives alone a missing ledger is regenerated before records are
+returned. Deleting both files is a complete local state loss with no surviving
+identity; external backup or recovery protection must cover that trust
+boundary.
+
+The register serves `dev.project.import`/`clone`/`create`/`get`/`list`/
+`update`/`archive`/`unbind` and `dev.session.create/get/list/archive/unarchive`. There
+are no `dev.group.*` operations and no `dev.project.reorder`: order comes from
+the cloud project list. `dev.project.create`, `dev.project.import`, and
+`dev.project.clone` take the client-supplied `projectId`; a second binding for an already-bound project id,
+or a non-UUID id, is refused with `identity_mismatch`. `dev.project.import`
+binds a project to an **authorized root bookmark**: the canonical root is
+resolved fail-closed through the roots authority inside the host — a
+client-supplied path never reaches the register — and a second binding for the
+same bookmark is refused with `identity_mismatch` instead of silently
+duplicating. `dev.project.update` patches only binding fields (preferred
+runtime node, default base ref, bootstrap workflow, default harness); a `name`
+or `groupIds` key is an unknown key the body decoder refuses.
+`dev.project.unbind { projectId, expectedVersion }` (`dev.project.manage`,
+`project` resource binding) removes the binding record and publishes
+`project.unbound`; it never stops a process and never touches repository or
+worktree files, and like project archive it refuses with `invalid_state` while
+any non-archived session on the project is still live. `dev.session.create`
+binds the session to an in-scope binding and rejects a `repoId` outside its
+bound repositories with `identity_mismatch`. Every mutation enforces the scope
+triple (`unauthorized`), the ownership epoch (`stale_generation`), and
+optimistic concurrency (`stale_version`); a stored record that fails structural
+decode fails closed with `corrupt_state` and is retained unread. Other Dev
+Runtime authorities remain on the existing JSON store until an independently
+reviewed migration slice covers their schema and rollback contract.
 
 On the client, project/session selection resolves only inside the active
 scope's projection and enforces archive state, explicit revocation, generation
@@ -1813,27 +1804,26 @@ staleness state instead of silently trusting the stored selection. Deep-link
 selection (`devProject`/`devSession` query params) is deterministic: an
 unknown query key survives, and a stale, archived, revoked, generation-stale,
 or cross-scope link recovers to the closest live selection with a visible,
-announced banner while the URL converges on the corrected selection. Sidebar
-group/project reordering is accessible through pointer drag and keyboard
-(`Alt`+`Arrow`) paths that produce the same
-`dev.group.reorder`/`dev.project.reorder` commands; a refused reorder reverts
-to the authoritative projection.
+announced banner while the URL converges on the corrected selection. The Dev
+sidebar renders bindings as one flat list in projection order and offers no
+reorder affordance; project order and grouping belong to the cloud project
+list.
 
 The sidebar's project filter is a local presentation projection. It trims the
-query and performs a case-insensitive substring match against group names,
-project names, and session titles. A group or project name match reveals that
-entire subtree; a session-title match retains only the matching sessions and
-their group/project ancestors. While a query is active, those ancestors render
-expanded even when their stored collapse IDs are set, so collapsed navigation
-cannot hide a match. Clearing the query restores the full projection and the
-unchanged collapse state. Typing or clearing the filter MUST NOT issue runtime
-commands, change selected canonical IDs, or mutate stored collapse state.
+query and performs a case-insensitive substring match against project display
+names and session titles. A project name match reveals that project's sessions;
+a session-title match retains only the matching sessions and their project.
+While a query is active, those projects render expanded even when their stored
+collapse IDs are set, so collapsed navigation cannot hide a match. Clearing the
+query restores the full projection and the unchanged collapse state. Typing or
+clearing the filter MUST NOT issue runtime commands, change selected canonical
+IDs, or mutate stored collapse state.
 
 The Dev sidebar consumes the published `@adea-ai/ui` `SidebarNav` shell,
 sections, and rows used by the workspace navigation. Shared UI owns the
 header, scrolling region, footer, row styling, disclosure interaction, status
-chips, and focus treatment. Adea supplies runtime groups/projects/sessions,
-selection, persisted collapse IDs, and reorder callbacks. The selected project
+chips, and focus treatment. Adea supplies runtime project bindings and their
+sessions, display names, selection, and persisted project collapse IDs. The selected project
 uses the shared section active state even while collapsed; session selection
 uses the shared active row state. Shared navigation controls preserve 44px
 coarse-pointer targets without changing desktop density. Changing the shell
@@ -1938,8 +1928,7 @@ All privileged commands use a versioned authenticated channel:
 ```ts
 type DevOperation =
   | `dev.capability.${'snapshot'}`
-  | `dev.group.${'list' | 'create' | 'update' | 'delete' | 'reorder'}`
-  | `dev.project.${'list' | 'get' | 'import' | 'clone' | 'scan' | 'create' | 'update' | 'reorder' | 'archive' | 'bookmarks'}`
+  | `dev.project.${'list' | 'get' | 'import' | 'clone' | 'scan' | 'create' | 'update' | 'archive' | 'unbind' | 'bookmarks'}`
   | `dev.repo.${'list' | 'inspect' | 'refresh' | 'authorize' | 'adopt' | 'credentialRefs'}`
   | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
@@ -2378,8 +2367,7 @@ audit classification, and deny-by-default tests in the same change.
 | Family                       | Required operations                                                                                                                                                                                                                                                                                                    |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dev.capability`             | `snapshot`                                                                                                                                                                                                                                                                                                             |
-| `dev.group`                  | `list`, `create`, `update`, `delete`, `reorder`                                                                                                                                                                                                                                                                        |
-| `dev.project`                | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `reorder`, `archive`, `bookmarks`                                                                                                                                                                                                                        |
+| `dev.project`                | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `archive`, `unbind`, `bookmarks`                                                                                                                                                                                                                         |
 | `dev.repo`                   | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                                                                                                   |
 | `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `rename`, `diffSummary`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                               |
 | `dev.terminal`               | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                                                                               |
@@ -2409,7 +2397,6 @@ Capability/resource binding is deny-by-default:
 | Family        | Read operations                                                             | Mutation operations                                                                                         | Resource kind                                                       |
 | ------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | capability    | authenticated channel; no feature capability (this snapshot reports grants) | none                                                                                                        | no resource                                                         |
-| group         | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `group` except top-level list/create/reorder                        |
 | project       | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `project` except top-level list/create/import/clone                 |
 | repo          | `dev.repo.read`                                                             | `dev.repo.manage`                                                                                           | `repository`                                                        |
 | worktree      | `dev.worktree.read`; `diffSummary` additionally `dev.git.read`              | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`; `diffSummary` none (ids in the body)                    |
@@ -2933,19 +2920,13 @@ structure, fixtures, or UI strings.
 
 ## Project registry and scanner
 
-A group organizes projects; a project expresses user intent/defaults; a repo is
-an authorized source; a worktree is one checkout; a session binds execution.
-None is an alias for another.
-
-A group is user organization: `name`, an optional `colorToken` from the theme
-token vocabulary, and `sortKey` order. `dev.group.*` manages it. `create` places
-the group after `afterGroupId` or at the end; `update` patches name/color/order
-under expected version; `reorder` applies the submitted `orderedGroupIds`
-atomically as one ordering decision and bumps each affected group's `version`
-(a stale submission loses wholesale rather than interleaving); `delete`
-requires an empty group — move or remove its projects first — plus a
-`confirmationId`. Group collapse is ephemeral `packages/state` UI state, not a
-host command.
+A project binding expresses local intent/defaults for one cloud project; a repo
+is an authorized source; a worktree is one checkout; a session binds execution.
+None is an alias for another. The register has no project groups and no
+project order: the cloud project record owns name, order, and grouping, and
+the desktop binds local repositories to it by cloud project id. Project
+collapse is ephemeral `packages/state` UI state (`collapsedDevProjectIds`), not
+a host command.
 
 The add surface supports recent/indexed folders, picker/import, clone URL,
 authenticated GitHub selection, monorepo package, and known external worktree.
@@ -2953,10 +2934,13 @@ It displays host, canonical identity, duplicate state, and authorization before
 mutation.
 
 The contextual sidebar's Add Project disclosure loads its form and requests
-authorized roots/groups only when first opened. After that first open, collapsing
-the disclosure preserves the mounted form's scan results, confirmations, and
-group draft; reopening does not repeat those initial requests. Closing the
-disclosure never initiates project imports or bootstrap commands.
+authorized roots only when first opened. After that first open, collapsing the
+disclosure preserves the mounted form's scan results and confirmations;
+reopening does not repeat those initial requests. Closing the disclosure never
+initiates project imports or bootstrap commands. Each confirmed import sends
+`{ projectId, rootBookmarkId }`, where the host's `mintProjectId` seam supplies
+the cloud project id; until the host creates the cloud project first, the
+default mints a client UUID (the register never mints one).
 
 Scanner defaults:
 
@@ -2993,7 +2977,7 @@ scanner parses declared workspaces (`workspaces` in `package.json`,
 never follows symlinks, treats a `[workspace]`-only root as a non-package, and
 reports malformed manifests as per-entry diagnostics with fallback names.
 Import/create/scan replies decode through strict provider-owned decoders
-(`Project`, `Group`, `ProjectScanPage`); a success DTO without its decoder
+(`Project`, `ProjectScanPage`); a success DTO without its decoder
 still fails closed. The sidebar's add surface renders scan results as previews
 requiring confirmation — duplicates are flagged against live projects and the
 register's bookmark-binding check remains authoritative — and the sidebar's
@@ -3019,22 +3003,24 @@ capability is `dev.project.manage`.
 
 ## Project archive/update and the repository registry
 
-`dev.project.update` and `dev.project.archive` are served by the durable
-project/session register. Both carry the `project` envelope resource whose
-generation must equal the record's optimistic `version` (projects carry no
-`generation` field). `update` patches only `ProjectMutableFields` (name,
-group membership, preferred runtime node, default base ref, bootstrap
-workflow, default harness) under the expected version; an unknown group in
-`patch.groupIds` refuses the whole update before any write, the membership
-delta (adds and removals together) commits in one atomic snapshot write that
-bumps each affected group's version, and an archived project is frozen —
-`update` refuses with `invalid_state` until the project is unarchived.
+`dev.project.update`, `dev.project.archive`, and `dev.project.unbind` are
+served by the durable project/session register. All carry the `project`
+envelope resource whose generation must equal the record's optimistic
+`version` (projects carry no `generation` field). `update` patches only
+`ProjectMutableFields` (preferred runtime node, default base ref, bootstrap
+workflow, default harness) under the expected version — names and grouping
+are not binding fields — and an archived project is frozen: `update` refuses
+with `invalid_state` until the project is unarchived. `unbind` removes the
+binding under the expected version and refuses with `invalid_state` while any
+non-archived session on the project is live, exactly like archive; it never
+touches files.
 `archive` is a navigation-lifecycle flip only: `archived: true` refuses with
 `invalid_state` while any non-archived session on the project is still live
 (`preparing`, `ready`, `active`, `disconnected` — archive never stops or
 deletes anything), refuses a flip to the current state, bumps the version,
-and `archived: false` restores `ready`. Both publish a `dev.project.updated`
-shell event; both replies decode through the strict `Project` decoder.
+and `archived: false` restores `ready`. All three publish a
+`dev.project.updated` shell event (`unbind` with kind `project.unbound`); their
+replies decode through the strict `Project` decoder.
 
 `dev.repo.adopt`, `dev.repo.authorize`, `dev.repo.inspect`,
 `dev.repo.refresh`, and `dev.repo.list` form the repository registry (a
@@ -5394,6 +5380,22 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-10-06 — project groups removed; v2 project bindings (ADR 0011).**
+  Removed `dev.group.list`/`reorder`/`create`/`update`/`delete` and
+  `dev.project.reorder`, the `Group`/`GroupMutableFields` DTOs, and the
+  `group` resource kind; added `dev.project.unbind` (total operations 215, from 220).
+  `dev.project.create`/`import`/`clone` take the client-supplied cloud
+  `projectId` instead of `name`/`groupIds`, `ProjectMutableFields` drops
+  `name`/`groupIds`, and `Project` carries no name or groups. The register's
+  authority record is schema v2 (`ProjectBinding` keyed by the cloud project
+  id) in `authority-v2-<sha256(scope)>.sqlite3`; v1 files are left unread on
+  disk with no migration (owner decision). The client projection is flat and
+  names come from the host (`projectNames`). The clone-URL import kind binds
+  its clone to the body's `projectId` through the same import path, labels
+  the minted bookmark with the repository name, and re-checks the id after
+  the clone completes. See "Durable project/session authority (desktop
+  host)".
+
 - **2026-10-05 — ADR 0012: workspace memory.** Launch step 7 now compiles
   the session workspace's active memory entries into a bounded (16 KiB) preamble
   delivered ahead of the initial prompt over the same ordered channel, with a
@@ -6254,10 +6256,8 @@ files in the same commit:
 - `packages/dev-view` unit/component tests — layout/status/accessibility;
   `packages/dev-view/tests/selection.test.ts` pins selection enforcement
   (scope, generation, revocation, freshness, archive recovery);
-  `packages/dev-view/tests/sidebar-reorder.test.ts` pins the pointer and
-  keyboard reorder model;
   `packages/dev-view/tests/sidebar-navigation-filter.test.ts` pins the
-  non-mutating group/project/session filter projection;
+  non-mutating project/session filter projection;
   `apps/web/e2e/dev-sidebar-search.spec.ts` pins filtering and collapse-state
   restoration through the returning Chat runtime harness;
   `packages/dev-view/tests/archive-shelf-model.test.ts`
@@ -6265,9 +6265,13 @@ files in the same commit:
   explicit `dev.session.delete` handoff;
   `apps/desktop/tests/project-session-register.test.ts` pins the durable
   project/session authority: restart survival without fixtures, transactional
-  archive records, scope/generation/version rejection, fail-closed corruption,
-  scope-partitioned A-to-B-to-A restart, legacy-source mode/symlink checks,
-  duplicate-row refusal, and the legacy-seed migration.
+  archive records, scope/generation/version rejection, fail-closed corruption
+  (including a v2 record carrying groups or project names), create/import
+  binding of client-supplied cloud project ids with duplicate refusal,
+  `dev.project.unbind` success and live-session refusal without touching
+  files, and v1 authority files left byte-identical and unread.
+  `apps/web/test/session-state-projection.test.ts` pins the flat projection
+  (every binding kept in register order, no invented names);
   `apps/desktop/tests/host-store.test.ts` pins
   the shared SQLite boundary's WAL/full-sync setup, scope isolation, format
   guard, corruption retention, restart recovery, and interrupted migration
@@ -6285,8 +6289,8 @@ files in the same commit:
   envelope round-trips; `packages/workspace-ui/tests/unit/app-library.test.ts`
   pins the compiled trusted entry registry and every activation rejection;
   `apps/web/e2e/dev-view.spec.ts` and `apps/web/e2e/appearance.spec.ts` pin the
-  deep-link recovery, reorder, shelf, zoom/reduced-motion, and CSP-safe
-  journeys;
+  deep-link recovery, flat project list (no reorder affordance), shelf,
+  zoom/reduced-motion, and CSP-safe journeys;
 - macOS permissions (#471): `apps/desktop/tests/shell-permissions.test.ts`
   pins the probe outcome matrix (including the #624 screen-recording
   preflight: `true`→granted, `false`→fail-closed denied, unanswerable→
@@ -6398,9 +6402,11 @@ files in the same commit:
   ignore handling (including the negation diagnostic), malformed-manifest
   diagnostics, package/entry/time budgets, cancellation, and fingerprints;
 - `apps/desktop/tests/project-registry.test.ts` pins the project registry
-  providers: group placement/update/delete fencing, import root resolution,
-  duplicate refusal, atomic group membership, restart persistence, scan
-  cache/cursor/partial semantics, and the strict reply decoders;
+  providers: import root resolution and cloud project id binding, duplicate
+  refusal, restart persistence, scan cache/cursor/partial semantics, and the
+  strict reply decoders; `apps/desktop/tests/dev-runtime-composition.test.ts`
+  pins `dev.project.unbind` capability and resource-binding refusal through
+  the authenticated channel;
 - `packages/dev-view/tests/scan-preview-model.test.ts` pins the sidebar's
   scan preview/duplicate/notice/import-plan presentation model;
 - web/desktop Playwright owner journey;

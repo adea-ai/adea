@@ -35,9 +35,8 @@ import {
 const scope: Scope = { accountId: 'a1', workspaceId: 'w1', runtimeNodeId: 'n1' }
 const identity = { mtimeNs: '1', size: '2' }
 
-const project = (over: Partial<Project> & Pick<Project, 'id' | 'name'>): Project => ({
+const project = (over: Partial<Project> & Pick<Project, 'id'>): Project => ({
   scope,
-  groupIds: [],
   repoIds: [],
   lifecycle: 'ready',
   version: 1,
@@ -61,31 +60,34 @@ const uuid = (seed: string) => `${seed}-1111-4111-8111-111111111111`
 
 describe('project bindings', () => {
   test('flattens the import-time binding triples across projects', () => {
-    const bindings = projectBindings([
-      project({
-        id: 'p1',
-        name: 'Alpha',
-        repoIds: ['r1'],
-        repos: [{ repoId: 'r1', rootBookmarkId: 'b1', canonicalRoot: '/repo/alpha' }],
-      }),
-      project({
-        id: 'p2',
-        name: 'Beta',
-        repoIds: ['r1', 'r2'],
-        repos: [
-          { repoId: 'r1', rootBookmarkId: 'b1', canonicalRoot: '/repo/alpha' },
-          { repoId: 'r2', rootBookmarkId: 'b2', canonicalRoot: '/repo/beta' },
-        ],
-      }),
-    ])
+    const bindings = projectBindings(
+      [
+        project({
+          id: 'p1',
+          repoIds: ['r1'],
+          repos: [{ repoId: 'r1', rootBookmarkId: 'b1', canonicalRoot: '/repo/alpha' }],
+        }),
+        project({
+          id: 'p2',
+          repoIds: ['r1', 'r2'],
+          repos: [
+            { repoId: 'r1', rootBookmarkId: 'b1', canonicalRoot: '/repo/alpha' },
+            { repoId: 'r2', rootBookmarkId: 'b2', canonicalRoot: '/repo/beta' },
+          ],
+        }),
+      ],
+      new Map([['p1', 'Alpha']])
+    )
     expect(bindings.map((binding) => binding.repoId).toSorted()).toEqual(['r1', 'r2'])
     const shared = bindings.find((binding) => binding.repoId === 'r1')
     expect(shared?.rootBookmarkId).toBe('b1')
     expect(shared?.projects.map((entry) => entry.id)).toEqual(['p1', 'p2'])
+    // Cloud names when the host supplies them; the short project id otherwise.
+    expect(shared?.projects.map((entry) => entry.name)).toEqual(['Alpha', 'p2'])
   })
 
   test('projects without import bindings contribute nothing', () => {
-    expect(projectBindings([project({ id: 'p1', name: 'Solo' })])).toEqual([])
+    expect(projectBindings([project({ id: 'p1' })])).toEqual([])
   })
 })
 
@@ -344,7 +346,7 @@ describe('registry state machine', () => {
   })
 
   test('archive passes an explicit confirmation gate', () => {
-    let state: RepoRegistryState = registryReady([], [project({ id: 'p1', name: 'Alpha' })])
+    let state: RepoRegistryState = registryReady([], [project({ id: 'p1' })])
     state = requestArchive(state, 'p1')
     expect(state.pendingArchiveProjectId).toBe('p1')
     state = cancelPendingArchive(state)

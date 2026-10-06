@@ -39,7 +39,7 @@ import {
 } from 'solid-js'
 import { Portal } from 'solid-js/web'
 
-import type { DevRuntimeService } from '../platform'
+import type { DevProjectNames, DevRuntimeService } from '../platform'
 import { createScmClient, errorText } from './client'
 import type { AppActions } from './components/actions'
 import { StateMessage } from './components/bits'
@@ -69,6 +69,8 @@ export type SourceControlAppProps = Readonly<{
   /** Switch the workspace to the Dev view (after selecting a session). */
   onOpenDev?: () => void
   now?: () => number
+  /** Cloud project names keyed by project id; the register stores none. */
+  projectNames?: DevProjectNames
 }>
 
 function defaultStorage(): KeyValueStorage | undefined {
@@ -207,7 +209,12 @@ function ConnectedApp(
   const now = props.now ?? Date.now
   const client = createScmClient(props.runtime, props.scope)
   const storage = createAppStorage(props.storage ?? defaultStorage(), props.scope)
-  const state = createSourceControlState({ client, storage, now })
+  const state = createSourceControlState({
+    client,
+    storage,
+    now,
+    projectNames: () => props.projectNames,
+  })
   const sidebarOpen = useWorkspaceState((store) => store.mobileSidebarOpen)
   const [revision, setRevision] = createSignal(0)
   const [providersOpen, setProvidersOpen] = createSignal(false)

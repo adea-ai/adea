@@ -84,21 +84,19 @@ export function scanNotice(diagnostics: readonly string[]): string | undefined {
   return notices.length > 0 ? notices.join(' ') : undefined
 }
 
-/** The `dev.project.import` body for one confirmed preview row. */
+/**
+ * The `dev.project.import` body for one confirmed preview row. The register
+ * stores only the binding, keyed by the cloud project id; the row's name
+ * belongs to the cloud project record, never to the import body.
+ */
 export function importBodyFor(
-  row: ScanPreviewRow,
   rootBookmarkId: string,
-  groupIds: readonly string[]
+  projectId: string
 ): {
-  name: string
+  projectId: string
   rootBookmarkId: string
-  groupIds: string[]
 } {
-  return {
-    name: row.entry.name,
-    rootBookmarkId,
-    groupIds: [...groupIds],
-  }
+  return { projectId, rootBookmarkId }
 }
 
 /** A row is importable when it was confirmed and is not a known duplicate. */

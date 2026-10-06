@@ -73,8 +73,8 @@ const DevWorkspace = lazyComponent(
       ({
         DevWorkspaceEntry,
         createUnavailableDevRuntimeService: createUnavailableDevRuntimeServiceFromView,
-        devViewFixtureGroups,
-        scaleDevFixtureGroups,
+        devViewFixtureProjects,
+        scaleDevFixtureProjects,
       }) => {
         return (entryProps: {
           fixture: boolean
@@ -108,11 +108,11 @@ const DevWorkspace = lazyComponent(
               : 0
           return (
             <DevWorkspaceEntry
-              groups={
+              projects={
                 entryProps.fixture
                   ? fixtureScale > 1
-                    ? scaleDevFixtureGroups(devViewFixtureGroups, fixtureScale)
-                    : devViewFixtureGroups
+                    ? scaleDevFixtureProjects(devViewFixtureProjects, fixtureScale)
+                    : devViewFixtureProjects
                   : undefined
               }
               storage={typeof window === 'undefined' ? undefined : window.localStorage}

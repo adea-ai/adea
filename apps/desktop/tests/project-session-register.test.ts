@@ -1,19 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
 import { DevAuthorityError } from '../shell/src/dev-runtime/authority'
+import { createDurableSqliteStore } from '../shell/src/dev-runtime/host-store'
 import {
   registerProjectSessionRuntime,
   type ProjectSessionRuntime,
@@ -21,7 +14,6 @@ import {
 import type {
   ArchiveRecord,
   DevCommand,
-  Group,
   Project,
   RuntimeSession,
   Scope,
@@ -34,19 +26,9 @@ const scope: Scope = {
 }
 const otherScope: Scope = { ...scope, workspaceId: '00000000-0000-4000-8000-000000000099' }
 
-const group: Group = {
-  id: '00000000-0000-4000-8000-000000000010',
-  scope,
-  name: 'Product',
-  projectIds: ['00000000-0000-4000-8000-000000000020'],
-  sortKey: 'product',
-  version: 1,
-}
 const project: Project = {
   id: '00000000-0000-4000-8000-000000000020',
   scope,
-  name: 'Adea',
-  groupIds: [group.id],
   repoIds: ['00000000-0000-4000-8000-000000000030'],
   lifecycle: 'ready',
   version: 1,
@@ -71,7 +53,6 @@ function seedRuntime(dataDir: string): ProjectSessionRuntime {
     dataDir,
     scope,
   })
-  runtime.upsertGroup(group)
   runtime.upsertProject(project)
   runtime.upsertSession(session)
   return runtime
@@ -80,9 +61,9 @@ function seedRuntime(dataDir: string): ProjectSessionRuntime {
 function authorityFile(dataDir: string): string {
   const directory = join(dataDir, 'dev-runtime', 'project-session')
   const name = readdirSync(directory).find(
-    (entry) => entry.startsWith('authority-') && entry.endsWith('.sqlite3')
+    (entry) => entry.startsWith('authority-v2-') && entry.endsWith('.sqlite3')
   )
-  if (!name) throw new Error('scoped authority SQLite file was not created')
+  if (!name) throw new Error('scoped v2 authority SQLite file was not created')
   return join(directory, name)
 }
 
@@ -127,7 +108,7 @@ function expectCode(run: () => unknown, code: DevAuthorityError['code']) {
 }
 
 describe('project/session authority store', () => {
-  test('projects, sessions, groups, and archive records survive a process restart without fixtures', () => {
+  test('project bindings, sessions, and archive records survive a process restart without fixtures', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
     try {
       const first = seedRuntime(dataDir)
@@ -171,8 +152,6 @@ describe('project/session authority store', () => {
         })
       ) as { items: RuntimeSession[] }
       expect(archivedList.items.map((entry) => entry.id)).toEqual([session.id])
-      const groups = provider(restarted, 'dev.group.list')(command({})) as { items: Group[] }
-      expect(groups.items.map((entry) => entry.id)).toEqual([group.id])
       expect(restarted.archiveRecords().map((record) => record.id)).toEqual([archiveReply.id])
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
@@ -463,62 +442,6 @@ describe('project/session authority store', () => {
     }
   })
 
-  test('group and project reorder are durable and reject foreign or stale input', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
-    try {
-      const first = seedRuntime(dataDir)
-      const projectReorder = provider(first, 'dev.project.reorder')
-      expectCode(
-        () =>
-          projectReorder(
-            command({
-              groupId: group.id,
-              orderedProjectIds: ['00000000-0000-4000-8000-0000000000ff'],
-              expectedGroupVersion: group.version,
-            })
-          ),
-        'not_found'
-      )
-      expectCode(
-        () =>
-          projectReorder(
-            command({
-              groupId: group.id,
-              orderedProjectIds: [project.id],
-              expectedGroupVersion: group.version + 7,
-            })
-          ),
-        'stale_version'
-      )
-      const reordered = projectReorder(
-        command({
-          groupId: group.id,
-          orderedProjectIds: [project.id],
-          expectedGroupVersion: group.version,
-        })
-      ) as Group
-      expect(reordered.version).toBe(group.version + 1)
-
-      const groupReorder = provider(first, 'dev.group.reorder')
-      expectCode(
-        () => groupReorder(command({ orderedGroupIds: ['00000000-0000-4000-8000-0000000000ff'] })),
-        'not_found'
-      )
-      const page = groupReorder(command({ orderedGroupIds: [group.id] })) as { items: Group[] }
-      expect(page.items.map((entry) => entry.id)).toEqual([group.id])
-
-      const restarted = registerProjectSessionRuntime({
-        authority: { registerCommandProvider() {} },
-        dataDir,
-        scope,
-      })
-      const groups = provider(restarted, 'dev.group.list')(command({})) as { items: Group[] }
-      expect(groups.items[0]!.version).toBe(group.version + 1)
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
   test('a corrupted authority store fails closed and retains the unread file', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
     try {
@@ -543,34 +466,6 @@ describe('project/session authority store', () => {
       )
       expect(retained.length).toBeGreaterThan(0)
       expect(readFileSync(join(storeFile, '..', retained[0]!), 'utf8')).toBe('{not sqlite')
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  test('does not bypass an unreadable shared authority database for its scope', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
-    try {
-      const directory = join(dataDir, 'dev-runtime', 'project-session')
-      mkdirSync(directory, { recursive: true, mode: 0o700 })
-      const target = join(directory, 'unreadable.sqlite3')
-      const shared = join(directory, 'authority.sqlite3')
-      writeFileSync(target, '{not sqlite', { mode: 0o600 })
-      symlinkSync(target, shared)
-      expectCode(
-        () =>
-          registerProjectSessionRuntime({
-            authority: { registerCommandProvider() {} },
-            dataDir,
-            scope,
-          }),
-        'corrupt_state'
-      )
-      expect(
-        readdirSync(directory).some(
-          (name) => name.startsWith('authority-') && name.endsWith('.sqlite3')
-        )
-      ).toBeFalse()
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }
@@ -611,258 +506,8 @@ describe('project/session authority store', () => {
     }
   })
 
-  test('a legacy projection store is seeded once into the authority store and the original is retained', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
-    try {
-      const legacyDir = join(dataDir, 'dev-runtime', 'project-session')
-      mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
-      writeFileSync(
-        join(legacyDir, 'projection.json'),
-        JSON.stringify({
-          schemaVersion: 1,
-          savedAt: new Date().toISOString(),
-          records: [{ scope, groups: [group], projects: [project], sessions: [session] }],
-        }),
-        { mode: 0o600 }
-      )
-      const runtime = registerProjectSessionRuntime({
-        authority: { registerCommandProvider() {} },
-        dataDir,
-        scope,
-      })
-      const projects = provider(runtime, 'dev.project.list')(command({})) as { items: Project[] }
-      expect(projects.items.map((entry) => entry.id)).toEqual([project.id])
-      expect(authorityFile(dataDir)).toContain('authority-')
-      // The unread original is never deleted by the migration.
-      expect(existsSync(join(legacyDir, 'projection.json'))).toBeTrue()
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  test('rejects a symlinked legacy projection before reading it', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
-    try {
-      const legacyDir = join(dataDir, 'dev-runtime', 'project-session')
-      mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
-      const targetFile = join(legacyDir, 'projection-target.json')
-      const projectionFile = join(legacyDir, 'projection.json')
-      writeFileSync(
-        targetFile,
-        JSON.stringify({
-          schemaVersion: 1,
-          savedAt: new Date().toISOString(),
-          records: [{ scope, groups: [group], projects: [project], sessions: [] }],
-        }),
-        { mode: 0o644 }
-      )
-      symlinkSync(targetFile, projectionFile)
-      expectCode(
-        () =>
-          registerProjectSessionRuntime({
-            authority: { registerCommandProvider() {} },
-            dataDir,
-            scope,
-          }),
-        'corrupt_state'
-      )
-      expect(readFileSync(targetFile, 'utf8')).toContain(project.id)
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  test('migrates the legacy authority envelope losslessly and retains its source', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
-    try {
-      const legacyDir = join(dataDir, 'dev-runtime', 'project-session')
-      mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
-      writeFileSync(
-        join(legacyDir, 'authority.json'),
-        JSON.stringify({
-          schemaVersion: 1,
-          savedAt: 'legacy-authority',
-          records: [
-            {
-              scope,
-              groups: [group],
-              projects: [project],
-              sessions: [session],
-              archiveRecords: [],
-            },
-          ],
-        }),
-        { mode: 0o600 }
-      )
-
-      const runtime = registerProjectSessionRuntime({
-        authority: { registerCommandProvider() {} },
-        dataDir,
-        scope,
-      })
-      expect(
-        (provider(runtime, 'dev.project.get')(command({ projectId: project.id })) as Project).id
-      ).toBe(project.id)
-      expect(authorityFile(dataDir)).toContain('authority-')
-      expect(existsSync(join(legacyDir, 'authority.json'))).toBeTrue()
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  test('rejects duplicate same-scope legacy authority records', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
-    try {
-      const legacyDir = join(dataDir, 'dev-runtime', 'project-session')
-      mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
-      const record = {
-        scope,
-        groups: [group],
-        projects: [project],
-        sessions: [],
-        archiveRecords: [],
-      }
-      writeFileSync(
-        join(legacyDir, 'authority.json'),
-        JSON.stringify({ schemaVersion: 1, savedAt: 'duplicate', records: [record, record] }),
-        { mode: 0o600 }
-      )
-      expectCode(
-        () =>
-          registerProjectSessionRuntime({
-            authority: { registerCommandProvider() {} },
-            dataDir,
-            scope,
-          }),
-        'corrupt_state'
-      )
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  test('keeps workspace authority files isolated across A to B to A legacy migration', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
-    try {
-      const legacyDir = join(dataDir, 'dev-runtime', 'project-session')
-      mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
-      const otherGroup: Group = {
-        ...group,
-        id: '00000000-0000-4000-8000-000000000091',
-        scope: otherScope,
-      }
-      const otherProject: Project = {
-        ...project,
-        id: '00000000-0000-4000-8000-000000000092',
-        scope: otherScope,
-        groupIds: [otherGroup.id],
-        repoIds: ['00000000-0000-4000-8000-000000000093'],
-      }
-      writeFileSync(
-        join(legacyDir, 'authority.json'),
-        JSON.stringify({
-          schemaVersion: 1,
-          savedAt: 'legacy-authority',
-          records: [
-            { scope, groups: [group], projects: [project], sessions: [], archiveRecords: [] },
-            {
-              scope: otherScope,
-              groups: [otherGroup],
-              projects: [otherProject],
-              sessions: [],
-              archiveRecords: [],
-            },
-          ],
-        }),
-        { mode: 0o600 }
-      )
-
-      const firstA = registerProjectSessionRuntime({
-        authority: { registerCommandProvider() {} },
-        dataDir,
-        scope,
-      })
-      expect(
-        (provider(firstA, 'dev.project.list')(command({})) as { items: Project[] }).items
-      ).toHaveLength(1)
-
-      const firstB = registerProjectSessionRuntime({
-        authority: { registerCommandProvider() {} },
-        dataDir,
-        scope: otherScope,
-      })
-      expect(
-        (provider(firstB, 'dev.project.list')(command({}, otherScope)) as { items: Project[] })
-          .items
-      ).toEqual([otherProject])
-
-      const secondA = registerProjectSessionRuntime({
-        authority: { registerCommandProvider() {} },
-        dataDir,
-        scope,
-      })
-      expect(
-        (provider(secondA, 'dev.project.list')(command({})) as { items: Project[] }).items
-      ).toEqual([project])
-      expect(
-        readdirSync(legacyDir).filter(
-          (name) => name.startsWith('authority-') && name.endsWith('.sqlite3')
-        )
-      ).toHaveLength(2)
-      expect(existsSync(join(legacyDir, 'authority.json'))).toBeTrue()
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  test('does not import scope A legacy data into a new scope B store', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
-    try {
-      const legacyDir = join(dataDir, 'dev-runtime', 'project-session')
-      mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
-      writeFileSync(
-        join(legacyDir, 'authority.json'),
-        JSON.stringify({
-          schemaVersion: 1,
-          savedAt: 'legacy-authority',
-          records: [
-            { scope, groups: [group], projects: [project], sessions: [], archiveRecords: [] },
-          ],
-        }),
-        { mode: 0o600 }
-      )
-      const runtimeB = registerProjectSessionRuntime({
-        authority: { registerCommandProvider() {} },
-        dataDir,
-        scope: otherScope,
-      })
-      expect(
-        (provider(runtimeB, 'dev.project.list')(command({}, otherScope)) as { items: Project[] })
-          .items
-      ).toEqual([])
-
-      const otherProject: Project = {
-        ...project,
-        id: '00000000-0000-4000-8000-000000000094',
-        scope: otherScope,
-      }
-      runtimeB.upsertProject(otherProject)
-      const restartedB = registerProjectSessionRuntime({
-        authority: { registerCommandProvider() {} },
-        dataDir,
-        scope: otherScope,
-      })
-      expect(
-        (provider(restartedB, 'dev.project.list')(command({}, otherScope)) as { items: Project[] })
-          .items
-      ).toEqual([otherProject])
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  // #398 follow-up: project update/archive. These carry a project resource
-  // binding whose generation equals the record's optimistic version.
+  // Project update/archive/unbind carry a project resource binding whose
+  // generation equals the record's optimistic version.
   function projectCommand(body: Record<string, unknown>, version: number): DevCommand {
     return {
       ...command(body),
@@ -875,43 +520,29 @@ describe('project/session authority store', () => {
     } as DevCommand
   }
 
-  test('dev.project.update patches mutable fields, keeps group membership consistent, and fences versions', () => {
+  test('dev.project.update patches binding fields, refuses names and groups, and fences versions', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
     try {
       const runtime = seedRuntime(dataDir)
       const update = provider(runtime, 'dev.project.update')
-      const groupB = '00000000-0000-4000-8000-000000000011'
-      runtime.upsertGroup({
-        id: groupB,
-        scope,
-        name: 'Platform',
-        projectIds: [],
-        sortKey: 'platform',
-        version: 1,
-      })
 
-      // Unknown group in the patch refuses the whole update.
-      expectCode(
-        () =>
+      // The cloud owns names and grouping: the strict body decoder refuses them.
+      for (const patch of [{ name: 'Renamed' }, { groupIds: [] }])
+        expect(() =>
           update(
             projectCommand(
-              {
-                projectId: project.id,
-                expectedVersion: project.version,
-                patch: { groupIds: [groupB, '00000000-0000-4000-8000-0000000000ff'] },
-              },
+              { projectId: project.id, expectedVersion: project.version, patch },
               project.version
             )
-          ),
-        'not_found'
-      )
+          )
+        ).toThrow('unknown key')
 
       // Stale version and a wrong/missing resource binding refuse.
       expectCode(
         () =>
           update(
             projectCommand(
-              { projectId: project.id, expectedVersion: 99, patch: { name: 'Late' } },
+              { projectId: project.id, expectedVersion: 99, patch: { defaultBaseRef: 'late' } },
               99
             )
           ),
@@ -924,7 +555,7 @@ describe('project/session authority store', () => {
               { projectId: project.id, expectedVersion: project.version, patch: {} },
               project.version
             ),
-            resource: { kind: 'group', id: project.id, generation: project.version },
+            resource: { kind: 'repository', id: project.id, generation: project.version },
           } as DevCommand),
         'identity_mismatch'
       )
@@ -934,30 +565,15 @@ describe('project/session authority store', () => {
           {
             projectId: project.id,
             expectedVersion: project.version,
-            patch: {
-              name: 'Adea Platform',
-              groupIds: [groupB],
-              defaultBaseRef: 'refs/heads/main',
-            },
+            patch: { defaultBaseRef: 'refs/heads/main' },
           },
           project.version
         )
       ) as Project
-      expect(updated.name).toBe('Adea Platform')
-      expect(updated.groupIds).toEqual([groupB])
       expect(updated.defaultBaseRef).toBe('refs/heads/main')
       expect(updated.version).toBe(project.version + 1)
-
-      // Membership moved atomically: the old group lost the project (version
-      // bump), the new one gained it.
-      const groups = provider(runtime, 'dev.group.list')(command({})) as {
-        items: Array<{ id: string; projectIds: string[]; version: number }>
-      }
-      const product = groups.items.find((entry) => entry.id === group.id)!
-      const platform = groups.items.find((entry) => entry.id === groupB)!
-      expect(product.projectIds).toEqual([])
-      expect(product.version).toBe(group.version + 1)
-      expect(platform.projectIds).toEqual([project.id])
+      expect(updated).not.toHaveProperty('name')
+      expect(updated).not.toHaveProperty('groupIds')
 
       // The update persists across a restart.
       const restarted = registerProjectSessionRuntime({
@@ -969,8 +585,8 @@ describe('project/session authority store', () => {
         restarted,
         'dev.project.get'
       )(command({ projectId: project.id })) as Project
-      expect(persisted.name).toBe('Adea Platform')
-      expect(persisted.groupIds).toEqual([groupB])
+      expect(persisted.defaultBaseRef).toBe('refs/heads/main')
+      expect(persisted.version).toBe(updated.version)
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }
@@ -1061,7 +677,11 @@ describe('project/session authority store', () => {
         () =>
           update(
             projectCommand(
-              { projectId: project.id, expectedVersion: reArchived.version, patch: { name: 'X' } },
+              {
+                projectId: project.id,
+                expectedVersion: reArchived.version,
+                patch: { defaultBaseRef: 'refs/heads/next' },
+              },
               reArchived.version
             )
           ),
@@ -1069,6 +689,311 @@ describe('project/session authority store', () => {
       )
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  function manageCommand(body: Record<string, unknown>): DevCommand {
+    return { ...command(body), capabilities: ['dev.project.manage'] } as DevCommand
+  }
+
+  test('create and import bind the client-supplied cloud project id and refuse duplicates', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const runtime = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+        resolveImportRoot: (rootBookmarkId) => ({ canonicalRoot: `/roots/${rootBookmarkId}` }),
+      })
+      const create = provider(runtime, 'dev.project.create')
+      const importProject = provider(runtime, 'dev.project.import')
+      const createdId = '00000000-0000-4000-8000-0000000000c1'
+      const importedId = '00000000-0000-4000-8000-0000000000c2'
+
+      const created = create(
+        manageCommand({ projectId: createdId, repoIds: [], defaultBaseRef: 'main' })
+      ) as Project
+      expect(created).toEqual({
+        id: createdId,
+        scope,
+        repoIds: [],
+        defaultBaseRef: 'main',
+        lifecycle: 'ready',
+        version: 1,
+      })
+      const imported = importProject(
+        manageCommand({ projectId: importedId, rootBookmarkId: 'bookmark-1' })
+      ) as Project
+      expect(imported.id).toBe(importedId)
+      expect(imported.repos).toEqual([
+        {
+          repoId: imported.repoIds[0]!,
+          rootBookmarkId: 'bookmark-1',
+          canonicalRoot: '/roots/bookmark-1',
+        },
+      ])
+
+      // A second binding for the same cloud project id is an identity
+      // collision, whichever operation tries it.
+      expectCode(
+        () => create(manageCommand({ projectId: importedId, repoIds: [] })),
+        'identity_mismatch'
+      )
+      expectCode(
+        () => importProject(manageCommand({ projectId: createdId, rootBookmarkId: 'bookmark-2' })),
+        'identity_mismatch'
+      )
+      // One authorized root binds once.
+      expectCode(
+        () =>
+          importProject(
+            manageCommand({
+              projectId: '00000000-0000-4000-8000-0000000000c3',
+              rootBookmarkId: 'bookmark-1',
+            })
+          ),
+        'identity_mismatch'
+      )
+      // The id is an opaque lowercase UUID; anything else refuses.
+      expectCode(
+        () => create(manageCommand({ projectId: 'Not-A-UUID', repoIds: [] })),
+        'identity_mismatch'
+      )
+      // Names and groups are not binding fields.
+      expect(() =>
+        create(manageCommand({ projectId: createdId, name: 'Adea', repoIds: [] }))
+      ).toThrow('unknown key')
+      expect(() =>
+        importProject(
+          manageCommand({ projectId: importedId, rootBookmarkId: 'bookmark-9', groupIds: [] })
+        )
+      ).toThrow('unknown key')
+      expectCode(
+        () =>
+          create({
+            ...manageCommand({ projectId: '00000000-0000-4000-8000-0000000000c4', repoIds: [] }),
+            scope: otherScope,
+          } as DevCommand),
+        'unauthorized'
+      )
+
+      const restarted = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      const listed = provider(restarted, 'dev.project.list')(command({})) as { items: Project[] }
+      expect(listed.items.map((entry) => entry.id)).toEqual([createdId, importedId])
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('dev.project.unbind removes only the binding and refuses while sessions are live', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const repoRoot = join(dataDir, 'repo')
+      mkdirSync(repoRoot)
+      writeFileSync(join(repoRoot, 'README.md'), 'kept\n')
+      const events: Array<{ event: string; payload: unknown }> = []
+      const runtime = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+        publish: (event, payload) => events.push({ event, payload }),
+      })
+      runtime.upsertProject({
+        ...project,
+        repos: [
+          { repoId: project.repoIds[0]!, rootBookmarkId: 'bookmark-1', canonicalRoot: repoRoot },
+        ],
+      })
+      runtime.upsertSession(session)
+      const unbind = provider(runtime, 'dev.project.unbind')
+
+      // A live session blocks unbinding, mirroring project archive.
+      expectCode(
+        () =>
+          unbind(
+            projectCommand(
+              { projectId: project.id, expectedVersion: project.version },
+              project.version
+            )
+          ),
+        'invalid_state'
+      )
+      expectCode(
+        () => unbind(projectCommand({ projectId: project.id, expectedVersion: 9 }, 9)),
+        'stale_version'
+      )
+      expectCode(
+        () =>
+          unbind({
+            ...projectCommand(
+              { projectId: project.id, expectedVersion: project.version },
+              project.version
+            ),
+            resource: undefined,
+          } as DevCommand),
+        'identity_mismatch'
+      )
+      expectCode(
+        () =>
+          unbind({
+            ...projectCommand(
+              { projectId: project.id, expectedVersion: project.version },
+              project.version
+            ),
+            scope: otherScope,
+          } as DevCommand),
+        'unauthorized'
+      )
+      expectCode(
+        () =>
+          unbind(
+            projectCommand(
+              { projectId: '00000000-0000-4000-8000-0000000000ff', expectedVersion: 1 },
+              1
+            )
+          ),
+        'not_found'
+      )
+
+      provider(
+        runtime,
+        'dev.session.archive'
+      )(command({ runtimeSessionId: session.id, expectedGeneration: session.generation }))
+      const removed = unbind(
+        projectCommand({ projectId: project.id, expectedVersion: project.version }, project.version)
+      ) as Project
+      expect(removed.id).toBe(project.id)
+      expect(events.at(-1)).toMatchObject({
+        event: 'dev.project.updated',
+        payload: { kind: 'project.unbound', projectId: project.id },
+      })
+      // The repository files are never touched.
+      expect(readFileSync(join(repoRoot, 'README.md'), 'utf8')).toBe('kept\n')
+      expect(runtime.findRepoBindings(project.repoIds[0]!)).toEqual([])
+
+      const restarted = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      expect(
+        (provider(restarted, 'dev.project.list')(command({})) as { items: Project[] }).items
+      ).toEqual([])
+      expectCode(
+        () => provider(restarted, 'dev.project.get')(command({ projectId: project.id })),
+        'not_found'
+      )
+      // The same cloud project can be bound again after an unbind.
+      runtime.upsertProject(project)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('leaves v1 authority files byte-identical and unread', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const directory = join(dataDir, 'dev-runtime', 'project-session')
+      mkdirSync(directory, { recursive: true, mode: 0o700 })
+      const v1Record = {
+        scope,
+        groups: [{ id: '00000000-0000-4000-8000-000000000010', name: 'Product' }],
+        projects: [{ ...project, name: 'Adea', groupIds: [] }],
+        sessions: [session],
+        archiveRecords: [],
+      }
+      const v1ScopeDigest = createHash('sha256')
+        .update(JSON.stringify([scope.accountId, scope.workspaceId, scope.runtimeNodeId]))
+        .digest('hex')
+      for (const name of [`authority-${v1ScopeDigest}.sqlite3`, 'authority.sqlite3']) {
+        const v1 = createDurableSqliteStore<typeof v1Record>({
+          file: join(directory, name),
+          schemaVersion: 1,
+          label: 'v1 fixture',
+          scope,
+        })
+        v1.load()
+        v1.save([v1Record])
+      }
+      const legacyEnvelope = JSON.stringify({ schemaVersion: 1, records: [v1Record] })
+      writeFileSync(join(directory, 'authority.json'), legacyEnvelope, { mode: 0o600 })
+      writeFileSync(join(directory, 'projection.json'), legacyEnvelope, { mode: 0o600 })
+      const snapshot = () =>
+        new Map(
+          readdirSync(directory)
+            .filter((name) => !name.startsWith('authority-v2-'))
+            .map((name) => [name, readFileSync(join(directory, name)).toString('base64')])
+        )
+      const before = snapshot()
+
+      const runtime = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      // Nothing from v1 is read: the v2 partition starts empty.
+      expect(
+        (provider(runtime, 'dev.project.list')(command({})) as { items: Project[] }).items
+      ).toEqual([])
+      expect(
+        (provider(runtime, 'dev.session.list')(command({})) as { items: RuntimeSession[] }).items
+      ).toEqual([])
+      runtime.upsertProject(project)
+      registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+
+      expect(snapshot()).toEqual(before)
+      expect(basename(authorityFile(dataDir))).toMatch(/^authority-v2-[0-9a-f]{64}\.sqlite3$/)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a v2 record that carries groups or local project names fails closed', () => {
+    for (const mutate of [
+      (record: Record<string, unknown>) => ({ ...record, groups: [] }),
+      (record: Record<string, unknown>) => ({
+        ...record,
+        projects: (record.projects as Array<Record<string, unknown>>).map((entry) => ({
+          ...entry,
+          name: 'Adea',
+        })),
+      }),
+    ]) {
+      const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+      try {
+        seedRuntime(dataDir)
+        const database = new Database(authorityFile(dataDir))
+        const payload = JSON.parse(
+          (
+            database.query('SELECT payload FROM durable_store_records WHERE id = 1').get() as {
+              payload: string
+            }
+          ).payload
+        ) as Array<Record<string, unknown>>
+        database
+          .query('UPDATE durable_store_records SET payload = ? WHERE id = 1')
+          .run(JSON.stringify([mutate(payload[0]!)]))
+        database.close()
+        expectCode(
+          () =>
+            registerProjectSessionRuntime({
+              authority: { registerCommandProvider() {} },
+              dataDir,
+              scope,
+            }),
+          'corrupt_state'
+        )
+      } finally {
+        rmSync(dataDir, { recursive: true, force: true })
+      }
     }
   })
 })

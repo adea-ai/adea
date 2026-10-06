@@ -41,7 +41,6 @@ describe('session state projection', () => {
 
 function project(session: Record<string, unknown>) {
   return toProjection(
-    { items: [{ id: 'group', projectIds: ['project'] }] },
     { items: [{ id: 'project' }] },
     {
       items: [
@@ -54,7 +53,7 @@ function project(session: Record<string, unknown>) {
         },
       ],
     }
-  ).groups[0]!.projects[0]!.sessions[0]!
+  ).projects[0]!.sessions[0]!
 }
 
 describe('selected session terminal identity', () => {
@@ -77,5 +76,31 @@ describe('selected session terminal identity', () => {
       expect(project({ terminalId })).not.toHaveProperty('terminalId')
     for (const generation of [-1, 1.5, NaN, Infinity, '7', null])
       expect(project({ generation })).not.toHaveProperty('generation')
+  })
+})
+
+describe('flat project binding projection', () => {
+  test('keeps every binding in register order with its local facts and sessions', () => {
+    const projection = toProjection(
+      {
+        items: [
+          { id: 'project-b', repoIds: ['repo-b'], defaultBaseRef: 'main', version: 3 },
+          { id: 'project-a', repoIds: [] },
+        ],
+      },
+      { items: [{ id: 'session', projectId: 'project-a', worktreeId: 'w', lifecycle: 'ready' }] }
+    )
+    expect(projection).not.toHaveProperty('groups')
+    expect(projection.projects.map((entry) => entry.id)).toEqual(['project-b', 'project-a'])
+    expect(projection.projects[0]).toEqual({
+      id: 'project-b',
+      repoIds: ['repo-b'],
+      branch: 'main',
+      version: 3,
+      sessions: [],
+    })
+    expect(projection.projects[1]!.sessions.map((session) => session.id)).toEqual(['session'])
+    // The register carries no names; the projection never invents one.
+    expect(projection.projects[1]).not.toHaveProperty('name')
   })
 })

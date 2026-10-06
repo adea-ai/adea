@@ -16,7 +16,6 @@ export type WorkspaceState = {
   threadRootMessageId: string | null
   activeSurface: 'agents' | 'conversation' | 'tasks'
   collapsedProjectIds: readonly string[]
-  collapsedDevGroupIds: readonly string[]
   collapsedDevProjectIds: readonly string[]
   devFocusMode: boolean
   drafts: Readonly<Record<string, string>>
@@ -39,7 +38,6 @@ export type WorkspaceState = {
   setMobileSidebarOpen: (open: boolean) => void
   setGlobalPanel: (panel: WorkspaceState['globalPanel']) => void
   toggleProjectCollapsed: (projectId: string) => void
-  toggleDevGroupCollapsed: (groupId: string) => void
   toggleDevProjectCollapsed: (projectId: string) => void
   setDevFocusMode: (focusMode: boolean) => void
   restoreConventionalState: (
@@ -89,7 +87,6 @@ function initialState(): WorkspaceState {
     threadRootMessageId: null,
     activeSurface: 'conversation',
     collapsedProjectIds: [],
-    collapsedDevGroupIds: [],
     collapsedDevProjectIds: [],
     devFocusMode: false,
     drafts: {},
@@ -102,7 +99,6 @@ function initialState(): WorkspaceState {
         activeSurface: 'conversation',
         cameraViewMode: 'orthographic',
         collapsedProjectIds: [],
-        collapsedDevGroupIds: [],
         collapsedDevProjectIds: [],
         devFocusMode: false,
         drafts: {},
@@ -136,7 +132,6 @@ function initialState(): WorkspaceState {
         selectedDevProjectId: null,
         selectedRuntimeSessionId: null,
         selectedDevPaneId: null,
-        collapsedDevGroupIds: [],
         collapsedDevProjectIds: [],
         devFocusMode: false,
       }),
@@ -156,10 +151,6 @@ function initialState(): WorkspaceState {
         collapsedProjectIds.includes(projectId)
           ? collapsedProjectIds.filter((id) => id !== projectId)
           : [...collapsedProjectIds, projectId]
-      ),
-    toggleDevGroupCollapsed: (groupId) =>
-      setStore('collapsedDevGroupIds', (ids) =>
-        ids.includes(groupId) ? ids.filter((id) => id !== groupId) : [...ids, groupId]
       ),
     toggleDevProjectCollapsed: (projectId) =>
       setStore('collapsedDevProjectIds', (ids) =>

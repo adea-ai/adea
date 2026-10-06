@@ -211,8 +211,6 @@ function registerProject(host: DevRuntimeHost): void {
   host.projectSession?.upsertProject({
     id: PROJECT_ID,
     scope: SCOPE_A,
-    name: 'Summary Project',
-    groupIds: [],
     repoIds: [REPO_ID],
     lifecycle: 'ready',
     version: 1,
@@ -260,7 +258,7 @@ function seedRuns(dataDir: string, records: readonly unknown[]): void {
 
 function partitionName(scope: Scope): string {
   const key = JSON.stringify([scope.accountId, scope.workspaceId, scope.runtimeNodeId])
-  return `authority-${createHash('sha256').update(key).digest('hex')}.sqlite3`
+  return `authority-v2-${createHash('sha256').update(key).digest('hex')}.sqlite3`
 }
 
 async function seededBoot() {

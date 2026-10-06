@@ -1,10 +1,4 @@
-import type {
-  Group,
-  Project,
-  RuntimeEvent,
-  RuntimeSession,
-  Scope,
-} from '@adea-ai/types/dev-runtime'
+import type { Project, RuntimeEvent, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
 import type { PasteBlock } from '@adea-ai/ui/components/conversation/paste-tokens'
 
 export type ChatDraftValue = Readonly<{
@@ -29,7 +23,6 @@ export type ChatConversation = Readonly<{
   projectId: string
   repoId: string
   worktreeId: string
-  groupIds: readonly string[]
   title: string
   status: ChatConversationStatus
   archived: boolean
@@ -44,29 +37,24 @@ export type ChatConversation = Readonly<{
 }>
 
 export type ChatProjectProjection = Readonly<{
+  /** The cloud project id the local binding is keyed by. */
   id: string
+  /** Display label: the host-supplied cloud name, or the short project id. */
   name: string
-  groupIds: readonly string[]
   conversationIds: readonly string[]
-}>
-
-export type ChatGroupProjection = Readonly<{
-  id: string
-  name: string
-  projectIds: readonly string[]
 }>
 
 export type ChatConversationProjection = Readonly<{
   scope: Scope
-  groups: readonly ChatGroupProjection[]
   projects: readonly ChatProjectProjection[]
   conversations: readonly ChatConversation[]
 }>
 
 export type ConversationRegistryInput = Readonly<{
   scope: Scope
-  groups: readonly Group[]
   projects: readonly Project[]
+  /** Cloud project names keyed by project id; the register stores none. */
+  projectNames?: ReadonlyMap<string, string>
   sessions: readonly RuntimeSession[]
   events?: ReadonlyMap<string, readonly RuntimeEvent[]>
   drafts?: ReadonlyMap<string, string | ChatDraftValue>
@@ -100,4 +88,6 @@ export type ConversationModelOptions = Readonly<{
   sendInput?: ChatInputTransport
   now?: () => Date
   randomId?: () => string
+  /** Cloud project names keyed by project id, read at each projection. */
+  projectNames?: () => ReadonlyMap<string, string> | undefined
 }>

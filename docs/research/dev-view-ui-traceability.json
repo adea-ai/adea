@@ -7493,17 +7493,11 @@
         "pullRequest": "https://github.com/adea-ai/adea/pull/760",
         "productionSourceChain": {
           "entry": "packages/dev-view/src/dev-workspace-entry.tsx",
-          "mount": "DevSidebarShell.addProject -> AddProjectPanel when the runtime preference scope is present and fixture groups are absent; command authorization remains host-owned",
+          "mount": "DevSidebarShell.addProject -> AddProjectPanel when the runtime preference scope is present and fixture projects are absent; command authorization remains host-owned",
           "entryAction": "native Add project disclosure first opens",
           "handler": "AddProjectPanel.onToggle latches visited; lazy AddProjectForm mounts once",
-          "serviceOperation": [
-            "dev.project.bookmarks",
-            "dev.group.list",
-            "dev.project.scan",
-            "dev.group.create",
-            "dev.project.import"
-          ],
-          "visibleResult": "authorized roots, scan preview/confirmation, group draft, explicit import announcement",
+          "serviceOperation": ["dev.project.bookmarks", "dev.project.scan", "dev.project.import"],
+          "visibleResult": "authorized roots, scan preview/confirmation, explicit import announcement (each import binds a client-supplied cloud projectId; project groups were removed by ADR 0011)",
           "recovery": "existing typed scan/import refusals preserved; collapse retains form owner and state"
         },
         "behaviorEvidence": {

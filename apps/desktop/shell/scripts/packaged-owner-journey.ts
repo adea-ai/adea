@@ -249,19 +249,16 @@ async function main(): Promise<number> {
           canonicalRoot: roots.validate({ scope: SCOPE, bookmarkId: rootBookmarkId }).canonicalRoot,
         }),
       })
-      const group = projectSessions.providers['dev.group.create']!(
-        command('dev.group.create', { name: 'Packaged journey' })
-      ) as { id: string }
+      // The cloud owns the project record; the register binds its id locally.
       const imported = projectSessions.providers['dev.project.import']!(
         command('dev.project.import', {
-          name: 'Packaged fixture',
+          projectId: randomUUID(),
           rootBookmarkId: bookmark.id,
-          groupIds: [group.id],
         })
       ) as { id: string; repoIds: readonly string[] }
       step('project-import', {
         status: 'passed',
-        detail: `imported ${imported.id} with one authorized root and group ${group.id}`,
+        detail: `bound cloud project ${imported.id} to one authorized root`,
       })
 
       const worktreeBaseDir = join(workspace, 'adea-worktrees', 'primary')
@@ -283,8 +280,6 @@ async function main(): Promise<number> {
       const project = {
         id: projectId,
         scope: SCOPE,
-        name: 'Packaged fixture runtime',
-        groupIds: [group.id],
         repoIds: [repo.id],
         lifecycle: 'ready' as const,
         version: 1,

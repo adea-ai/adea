@@ -7,6 +7,7 @@ import type {
   RepoInspection,
   RootBookmark,
 } from '@adea-ai/types/dev-runtime'
+import { devProjectDisplayName, type DevProjectNames } from '../platform'
 
 /**
  * Pure model for the sidebar repository registry surface (#398 follow-up).
@@ -84,21 +85,24 @@ export function registryError(reason: string, previous: RepoRegistryState): Repo
   return { ...previous, status: 'error', reason }
 }
 
-const projectRefOf = (project: Project): RepoProjectRef => ({
+const projectRefOf = (project: Project, names?: DevProjectNames): RepoProjectRef => ({
   id: project.id,
-  name: project.name,
+  name: devProjectDisplayName(project.id, names),
   archived: project.lifecycle === 'archived',
   version: project.version,
 })
 
 /** Flatten the `Project.repos` binding triples (#398) into repo views. */
-export function projectBindings(projects: readonly Project[]): readonly RepoBindingView[] {
+export function projectBindings(
+  projects: readonly Project[],
+  names?: DevProjectNames
+): readonly RepoBindingView[] {
   const byRepo = new Map<string, { binding: ProjectRepoBinding; projects: RepoProjectRef[] }>()
   for (const project of projects) {
     for (const binding of project.repos ?? []) {
       const existing = byRepo.get(binding.repoId)
-      if (existing) existing.projects.push(projectRefOf(project))
-      else byRepo.set(binding.repoId, { binding, projects: [projectRefOf(project)] })
+      if (existing) existing.projects.push(projectRefOf(project, names))
+      else byRepo.set(binding.repoId, { binding, projects: [projectRefOf(project, names)] })
     }
   }
   return [...byRepo.values()].map(({ binding, projects: named }) => ({

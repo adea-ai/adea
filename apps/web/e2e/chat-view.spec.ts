@@ -664,16 +664,15 @@ test('repeated Dev↔Chat switches preserve the session state in the real window
   )
 
   // Make session-scoped state: select the second project's session (which
-  // mirrors into devProject/devSession URL params), then collapse the Product
-  // group.
+  // mirrors into devProject/devSession URL params), then collapse its project.
   const otherSession = page.getByRole('button', { name: 'Other project session' })
   await otherSession.click()
   await expect(otherSession).toHaveAttribute('aria-current', 'page')
   await expect(page).toHaveURL(/devProject=fixture-tools/)
   await expect(page).toHaveURL(/devSession=fixture-tools-session/)
-  const group = page.getByRole('button', { name: 'PRODUCT' })
-  await group.click()
-  await expect(group).toHaveAttribute('aria-expanded', 'false')
+  const project = page.getByRole('button', { name: /^Runtime tools/ })
+  await project.click()
+  await expect(project).toHaveAttribute('aria-expanded', 'false')
 
   // Three switch cycles: the chat surface mounts and unmounts between Dev
   // visits, and every Dev-side session fact survives — the selection (store
@@ -696,18 +695,18 @@ test('repeated Dev↔Chat switches preserve the session state in the real window
     })
     await expect(page).toHaveURL(/devProject=fixture-tools/)
     await expect(page).toHaveURL(/devSession=fixture-tools-session/)
-    const collapsedGroup = page.getByRole('button', { name: 'PRODUCT' })
-    await expect(collapsedGroup).toHaveAttribute('aria-expanded', 'false')
+    const collapsedProject = page.getByRole('button', { name: /^Runtime tools/ })
+    await expect(collapsedProject).toHaveAttribute('aria-expanded', 'false')
     // Expanding the surviving collapse state reveals the surviving selection.
-    await collapsedGroup.click()
+    await collapsedProject.click()
     await expect(page.getByRole('button', { name: 'Other project session' })).toHaveAttribute(
       'aria-current',
       'page'
     )
     // Re-collapse for the next cycle so every cycle starts from the same
     // state and proves the fact was re-preserved, not left mounted.
-    await page.getByRole('button', { name: 'PRODUCT' }).click()
-    await expect(page.getByRole('button', { name: 'PRODUCT' })).toHaveAttribute(
+    await page.getByRole('button', { name: /^Runtime tools/ }).click()
+    await expect(page.getByRole('button', { name: /^Runtime tools/ })).toHaveAttribute(
       'aria-expanded',
       'false'
     )

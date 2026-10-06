@@ -256,8 +256,6 @@ async function sessionReady(shell: Shell, channel: Channel) {
   shell.host().projectSession?.upsertProject({
     id: PROJECT_ID,
     scope: SCOPE_A,
-    name: 'Memory Project',
-    groupIds: [],
     repoIds: [REPO_ID],
     lifecycle: 'ready',
     version: 1,

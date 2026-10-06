@@ -113,7 +113,7 @@ export function decodeRegistryDto(name: string, value: unknown, path: string): u
     const item = record(value, path)
     exactKeys(
       item,
-      ['id', 'scope', 'name', 'groupIds', 'repoIds', 'lifecycle', 'version'],
+      ['id', 'scope', 'repoIds', 'lifecycle', 'version'],
       [
         'repos',
         'preferredRuntimeNodeId',
@@ -126,8 +126,6 @@ export function decodeRegistryDto(name: string, value: unknown, path: string): u
     if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
       fail(`${path}.id`, 'expected lowercase UUID')
     decodeScope(item.scope, `${path}.scope`)
-    stringValue(item.name, `${path}.name`, 1, 128)
-    stringArray(item.groupIds, `${path}.groupIds`, 32)
     stringArray(item.repoIds, `${path}.repoIds`, 128)
     if (item.repos !== undefined) {
       if (!Array.isArray(item.repos)) fail(`${path}.repos`, 'expected array')

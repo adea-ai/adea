@@ -102,10 +102,11 @@ describe('Dev Runtime operation registry', () => {
     // app's 20 pull request collaboration operations, 186 before its 29
     // GitLab mirrors, 215 before dev.project.authorizeRoot, 216 before
     // dev.worktree.rename, dev.worktree.diffSummary, dev.summary.workspaces
-    // and dev.memory.propose: the registry ratchet moves only when an
+    // and dev.memory.propose, 220 before the project-group removal (six
+    // operations out, dev.project.unbind in): the registry ratchet moves only when an
     // operation is deliberately added, and the decoder-key check below is
     // what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(220)
+    expect(devOperations).toHaveLength(215)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
@@ -244,21 +245,54 @@ describe('Dev Runtime operation registry', () => {
     ).toThrow('width')
   })
 
-  test('decodes new group, stream-grant, and list operation bodies', () => {
+  test('project groups and reorder are not part of the contract', () => {
+    const operations: readonly string[] = devOperations
+    for (const removed of [
+      'dev.group.list',
+      'dev.group.reorder',
+      'dev.group.create',
+      'dev.group.update',
+      'dev.group.delete',
+      'dev.project.reorder',
+    ])
+      expect(operations).not.toContain(removed)
+    expect(operations).toContain('dev.project.unbind')
+  })
+
+  test('project bindings take the cloud project id and refuse names or groups', () => {
+    const projectId = '00000000-0000-4000-8000-000000000020'
     expect(
-      devOperationDecoders['dev.group.update'].request({
-        groupId: 'group-1',
-        expectedVersion: 3,
-        patch: { name: 'Platform', colorToken: 'accent' },
+      devOperationDecoders['dev.project.import'].request({
+        projectId,
+        rootBookmarkId: 'bookmark-1',
       })
-    ).toMatchObject({ groupId: 'group-1' })
+    ).toMatchObject({ projectId })
     expect(() =>
-      devOperationDecoders['dev.group.update'].request({
-        groupId: 'group-1',
-        expectedVersion: 3,
-        patch: { name: 'Platform', unknown: true },
+      devOperationDecoders['dev.project.import'].request({
+        projectId,
+        rootBookmarkId: 'bookmark-1',
+        groupIds: [],
       })
     ).toThrow('unknown key')
+    expect(() =>
+      devOperationDecoders['dev.project.create'].request({ name: 'Adea', repoIds: [] })
+    ).toThrow()
+    expect(() =>
+      devOperationDecoders['dev.project.update'].request({
+        projectId,
+        expectedVersion: 1,
+        patch: { name: 'Renamed' },
+      })
+    ).toThrow('unknown key')
+    expect(
+      devOperationDecoders['dev.project.unbind'].request({ projectId, expectedVersion: 3 })
+    ).toMatchObject({ expectedVersion: 3 })
+    expect(() =>
+      devOperationDecoders['dev.project.unbind'].request({ projectId, expectedVersion: 'x' })
+    ).toThrow()
+  })
+
+  test('decodes new stream-grant and list operation bodies', () => {
     expect(
       devOperationDecoders['dev.files.writeStream'].request({
         worktreeId: 'wt-1',
@@ -1490,15 +1524,19 @@ describe('repository registry DTOs (#398 follow-up)', () => {
     const project = {
       id: '00000000-0000-4000-8000-000000000020',
       scope,
-      name: 'Adea',
-      groupIds: [] as string[],
       repoIds: [repo.id],
       lifecycle: 'archived',
       version: 2,
     }
     expect(decodeRegistryProject(project)).toEqual(project)
     expect(() => decodeRegistryProject({ ...project, extra: true })).toThrow('unknown key')
-    for (const operation of ['dev.project.update', 'dev.project.archive'] as const) {
+    expect(() => decodeRegistryProject({ ...project, name: 'Adea' })).toThrow('unknown key')
+    expect(() => decodeRegistryProject({ ...project, groupIds: [] })).toThrow('unknown key')
+    for (const operation of [
+      'dev.project.update',
+      'dev.project.archive',
+      'dev.project.unbind',
+    ] as const) {
       const reply = {
         schemaVersion: 1,
         operation,

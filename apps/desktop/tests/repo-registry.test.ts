@@ -122,8 +122,6 @@ function fixture() {
   projectSession.upsertProject({
     id: projectId,
     scope,
-    name: 'Adea',
-    groupIds: [],
     repoIds: [repoId],
     repos: [{ repoId, rootBookmarkId: bookmark.id, canonicalRoot: checkout }],
     lifecycle: 'ready',
@@ -154,8 +152,6 @@ function fixture() {
     projectSession.upsertProject({
       id: bindingProjectId,
       scope,
-      name: 'Extra',
-      groupIds: [],
       repoIds: [bindingRepoId],
       repos: [{ repoId: bindingRepoId, rootBookmarkId: bookmark.id, canonicalRoot }],
       lifecycle: 'ready',

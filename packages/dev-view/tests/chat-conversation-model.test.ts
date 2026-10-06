@@ -82,8 +82,6 @@ function hierarchyReply(operation: DevReply['operation']): DevReply | undefined 
         {
           id: 'project-1',
           scope: SCOPE,
-          name: 'Canonical project',
-          groupIds: [],
           repoIds: ['repo-1'],
           lifecycle: 'ready',
           version: 1,
@@ -91,13 +89,11 @@ function hierarchyReply(operation: DevReply['operation']): DevReply | undefined 
       ],
       observedAt: '2026-09-22T10:00:00Z',
     })
-  if (operation === 'dev.group.list')
-    return ok(operation, { items: [], observedAt: '2026-09-22T10:00:00Z' })
   return undefined
 }
 
 describe('projectChatConversations', () => {
-  test('projects groups and sessions with no chat-owned identity and canonical title', () => {
+  test('projects bindings and sessions with no chat-owned identity and canonical title', () => {
     const first = session({ displayName: 'Runtime label' })
     const second = session({
       id: '00000000-0000-4000-8000-000000000011',
@@ -106,22 +102,11 @@ describe('projectChatConversations', () => {
     })
     const projected = projectChatConversations({
       scope: SCOPE,
-      groups: [
-        {
-          id: 'group-1',
-          scope: SCOPE,
-          name: 'Work',
-          projectIds: ['project-1'],
-          sortKey: 'a',
-          version: 1,
-        },
-      ],
+      projectNames: new Map([['project-1', 'Adea']]),
       projects: [
         {
           id: 'project-1',
           scope: SCOPE,
-          name: 'Adea',
-          groupIds: ['group-1'],
           repoIds: ['repo-1'],
           lifecycle: 'ready',
           version: 1,
@@ -129,8 +114,6 @@ describe('projectChatConversations', () => {
         {
           id: 'project-2',
           scope: SCOPE,
-          name: 'Other',
-          groupIds: [],
           repoIds: ['repo-1'],
           lifecycle: 'ready',
           version: 1,
@@ -156,7 +139,6 @@ describe('projectChatConversations', () => {
       runtimeSessionId: first.id,
       title: 'Fix the login flow',
       status: 'active',
-      groupIds: ['group-1'],
       retention: { complete: false },
     })
     expect(projected.conversations[1]).toMatchObject({
@@ -165,10 +147,12 @@ describe('projectChatConversations', () => {
       status: 'completed',
     })
     expect('conversationId' in projected.conversations[0]!).toBe(false)
+    expect('groupIds' in projected.conversations[0]!).toBe(false)
+    // Names come from the host's cloud project list; unknown ids show the short id.
+    expect(projected.projects.map((project) => project.name)).toEqual(['Adea', 'project'])
     expect(
       projectChatConversations({
         scope: SCOPE,
-        groups: [],
         projects: [],
         sessions: [first],
       }).conversations
@@ -330,8 +314,6 @@ describe('ChatConversationModel', () => {
             {
               id: 'project-1',
               scope: SCOPE,
-              name: 'Canonical project',
-              groupIds: ['group-1'],
               repoIds: ['repo-1'],
               lifecycle: 'ready',
               version: 1,
@@ -339,29 +321,14 @@ describe('ChatConversationModel', () => {
           ],
           observedAt: '2026-09-22T10:00:00Z',
         })
-      if (command.operation === 'dev.group.list')
-        return ok(command.operation, {
-          items: [
-            {
-              id: 'group-1',
-              scope: SCOPE,
-              name: 'Canonical group',
-              projectIds: ['project-1'],
-              sortKey: 'a',
-              version: 1,
-            },
-          ],
-          observedAt: '2026-09-22T10:00:00Z',
-        })
       throw new Error(`unexpected ${command.operation}`)
     })
-    const model = createChatConversationModel(service, SCOPE)
-    expect(await model.list()).toHaveLength(1)
-    expect(model.project().projects[0]).toMatchObject({
-      name: 'Canonical project',
-      groupIds: ['group-1'],
+    const model = createChatConversationModel(service, SCOPE, {
+      projectNames: () => new Map([['project-1', 'Canonical project']]),
     })
-    expect(model.project().groups[0]).toMatchObject({ name: 'Canonical group' })
+    expect(await model.list()).toHaveLength(1)
+    expect(model.project().projects[0]).toMatchObject({ name: 'Canonical project' })
+    expect('groups' in model.project()).toBe(false)
 
     listedSessions = []
     expect(await model.list()).toHaveLength(0)

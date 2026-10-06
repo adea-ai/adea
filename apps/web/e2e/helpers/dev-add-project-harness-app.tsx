@@ -64,9 +64,6 @@ function Harness() {
           state: 'active',
         }
         break
-      case 'dev.group.list':
-        value = { items: [{ id: 'group', name: 'Engineering' }] }
-        break
       case 'dev.project.scan':
         value = {
           rootBookmarkId: command.body.rootBookmarkId === 'authorized' ? 'authorized' : 'root',
@@ -84,12 +81,19 @@ function Harness() {
           diagnostics: [],
         }
         break
-      case 'dev.group.create':
-        value = { id: 'new-group' }
+      case 'dev.project.import': {
+        // The import binds a client-minted cloud project id; the register
+        // takes no name and no groups.
+        const body = command.body as Record<string, unknown>
+        if (
+          typeof body.projectId !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(body.projectId) ||
+          Object.keys(body).toSorted().join(',') !== 'projectId,rootBookmarkId'
+        )
+          throw new Error('Unexpected import body: ' + JSON.stringify(body))
+        value = { id: body.projectId }
         break
-      case 'dev.project.import':
-        value = { id: 'project' }
-        break
+      }
       default:
         throw new Error('Unexpected fixture operation: ' + command.operation)
     }

@@ -11,6 +11,7 @@ import type {
   GitHubRepository,
 } from '@adea-ai/types/dev-runtime'
 import { batch, createMemo, createSignal, onCleanup } from 'solid-js'
+import { devProjectDisplayName, type DevProjectNames } from '../platform'
 
 import { errorText, type ScmClient } from './client'
 import { classifyPullRequest, needsViewer } from './model/inbox'
@@ -47,6 +48,8 @@ export function createSourceControlState(options: {
   client: ScmClient
   storage: AppStorage
   now: () => number
+  /** Cloud project names keyed by project id; absent names show the short id. */
+  projectNames?: () => DevProjectNames | undefined
 }) {
   const { client, storage } = options
   const [accounts, setAccounts] = createSignal<ReadonlyMap<ScmProvider, AccountState>>(new Map())
@@ -130,7 +133,7 @@ export function createSourceControlState(options: {
     return buildTree(
       projects().map((project) => ({
         id: project.id,
-        name: project.name,
+        name: devProjectDisplayName(project.id, options.projectNames?.()),
         repoIds: project.repoIds,
         archived: project.lifecycle === 'archived',
       })),

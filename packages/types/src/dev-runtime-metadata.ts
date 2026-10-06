@@ -374,11 +374,6 @@ export const devOperationMetadata = {
   'dev.gitlab.updatePlan': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_gitlab_updatePlan
   ),
-  'dev.group.create': commandMetadata(operationMetadata.devOperationMetadataFor_dev_group_create),
-  'dev.group.delete': commandMetadata(operationMetadata.devOperationMetadataFor_dev_group_delete),
-  'dev.group.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_group_list),
-  'dev.group.reorder': commandMetadata(operationMetadata.devOperationMetadataFor_dev_group_reorder),
-  'dev.group.update': commandMetadata(operationMetadata.devOperationMetadataFor_dev_group_update),
   'dev.harness.acpClose': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_harness_acpClose
   ),
@@ -428,10 +423,10 @@ export const devOperationMetadata = {
     operationMetadata.devOperationMetadataFor_dev_project_import
   ),
   'dev.project.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_project_list),
-  'dev.project.reorder': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_project_reorder
-  ),
   'dev.project.scan': commandMetadata(operationMetadata.devOperationMetadataFor_dev_project_scan),
+  'dev.project.unbind': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_project_unbind
+  ),
   'dev.project.update': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_project_update
   ),

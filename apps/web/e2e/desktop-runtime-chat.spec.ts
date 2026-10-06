@@ -59,9 +59,7 @@ test('returning desktop Chat mounts canonical sessions and retains draft through
   expect(report.closes).toBeGreaterThan(0)
   expect(
     report.calls.every((operation) =>
-      ['dev.project.list', 'dev.group.list', 'dev.session.list', 'dev.session.events'].includes(
-        operation
-      )
+      ['dev.project.list', 'dev.session.list', 'dev.session.events'].includes(operation)
     )
   ).toBe(true)
   expect(errors).toEqual([])

@@ -24,7 +24,7 @@ import {
   devOperationDefinitions,
   type DevCommand,
   type DevOperation,
-  type Group,
+  type Project,
   type Scope,
 } from '../../../packages/types/src/dev-runtime'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
@@ -486,16 +486,15 @@ describe('device workspace scope through the shell entry', () => {
 
       // Signed-out boot: the device-local guest scope owns a partition.
       const guestScope = (await bridge.invoke('desktop_identity_scope')) as Scope
-      const guestGroup: Group = {
+      const guestProject: Project = {
         id: randomUUID(),
         scope: guestScope,
-        name: 'guest-work',
-        projectIds: [],
-        sortKey: 'guest-work',
+        repoIds: [],
+        lifecycle: 'ready',
         version: 1,
       }
-      host.projectSession!.upsertGroup(guestGroup)
-      expect(await bridge.devExecute(commandFor('dev.group.list', guestScope))).toMatchObject({
+      host.projectSession!.upsertProject(guestProject)
+      expect(await bridge.devExecute(commandFor('dev.project.list', guestScope))).toMatchObject({
         ok: true,
       })
       const guestPartition = partitionFiles(dataDir)
@@ -523,16 +522,18 @@ describe('device workspace scope through the shell entry', () => {
 
       // The bridge re-handshook under the new scope: the old scope is refused
       // at the gate, the new one is served from an empty partition.
-      expect(await bridge.devExecute(commandFor('dev.group.list', guestScope))).toMatchObject({
+      expect(await bridge.devExecute(commandFor('dev.project.list', guestScope))).toMatchObject({
         ok: false,
         error: { code: 'channel_unauthorized' },
       })
-      expect(await bridge.devExecute(commandFor('dev.group.list', selected.scope))).toMatchObject({
-        ok: true,
-        value: { items: [] },
-      })
-      const deviceGroup: Group = { ...guestGroup, id: randomUUID(), scope: selected.scope }
-      host.projectSession!.upsertGroup(deviceGroup)
+      expect(await bridge.devExecute(commandFor('dev.project.list', selected.scope))).toMatchObject(
+        {
+          ok: true,
+          value: { items: [] },
+        }
+      )
+      const deviceProject: Project = { ...guestProject, id: randomUUID(), scope: selected.scope }
+      host.projectSession!.upsertProject(deviceProject)
 
       // A different partition file exists for the workspace scope, and the
       // guest partition is byte-for-byte untouched (never migrated, never
@@ -550,7 +551,7 @@ describe('device workspace scope through the shell entry', () => {
         credential: guest(),
       })
       const scopeB = { ...guestScope, workspaceId: WORKSPACE_B }
-      expect(await bridge.devExecute(commandFor('dev.group.list', scopeB))).toMatchObject({
+      expect(await bridge.devExecute(commandFor('dev.project.list', scopeB))).toMatchObject({
         ok: true,
         value: { items: [] },
       })
@@ -558,10 +559,12 @@ describe('device workspace scope through the shell entry', () => {
         workspaceId: WORKSPACE_A,
         credential: guest(),
       })
-      expect(await bridge.devExecute(commandFor('dev.group.list', selected.scope))).toMatchObject({
-        ok: true,
-        value: { items: [deviceGroup] },
-      })
+      expect(await bridge.devExecute(commandFor('dev.project.list', selected.scope))).toMatchObject(
+        {
+          ok: true,
+          value: { items: [deviceProject] },
+        }
+      )
       for (const [name, before] of guestPartition) {
         expect(partitionFiles(dataDir).get(name)).toEqual(before)
       }

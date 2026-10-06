@@ -464,9 +464,10 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(runtimeProject).toHaveAttribute('aria-expanded', 'true')
   await expect(runtimeProject).toHaveAttribute('aria-current', 'page')
 
-  const group = page.getByRole('button', { name: 'PRODUCT' })
-  await group.click()
-  await expect(group).toHaveAttribute('aria-expanded', 'false')
+  // Projects are a flat list (no groups); the collapsed project survives the
+  // view switch below.
+  await runtimeProject.click()
+  await expect(runtimeProject).toHaveAttribute('aria-expanded', 'false')
 
   await expect(page.locator('[data-pane-id]')).toHaveCount(1)
   await expect(page.getByRole('region', { name: 'editor pane' })).toHaveCount(0)
@@ -593,7 +594,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(historyUtility).toHaveAttribute('aria-current', 'page')
   await expect(rightUtilities.getByRole('button', { name: 'Restore utility pane' })).toBeVisible()
   await rightUtilities.getByRole('button', { name: 'Restore utility pane' }).click()
-  await expect(group).toHaveAttribute('aria-expanded', 'false')
+  await expect(runtimeProject).toHaveAttribute('aria-expanded', 'false')
   await expect(
     page
       .getByRole('separator', { name: 'Resize workspace panes' })
@@ -786,7 +787,9 @@ test('an archived deep link recovers to a live session without hiding the shelf'
   await expect(page).toHaveURL(/devSession=fixture-tools-session/)
 })
 
-test('projects reorder by keyboard with a live announcement and stable focus', async ({ page }) => {
+test('projects render as one flat list in projection order without reorder affordances', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
@@ -794,31 +797,14 @@ test('projects reorder by keyboard with a live announcement and stable focus', a
   const projectRows = projectsSidebar
     .getByRole('button')
     .filter({ hasText: /Runtime tools|Example project/ })
-  const target = projectRows.filter({ hasText: 'Runtime tools' })
-  await target.focus()
-  await page.keyboard.press('Alt+ArrowUp')
-
-  await expect(projectRows.first()).toHaveText(/Runtime tools/)
-  // The moved row keeps keyboard focus after the tree re-renders.
-  await expect(target).toBeFocused()
-  await expect(page.locator('main > [aria-live="polite"]')).toContainText(
-    'Runtime tools moved to position 1 of 2'
-  )
-})
-
-test('projects reorder by pointer drag inside their group', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await openDevView(page, '/?view=dev&devE2e=preserved')
-
-  const projectsSidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
-  const projectRows = projectsSidebar
-    .getByRole('button')
-    .filter({ hasText: /Runtime tools|Example project/ })
-  await expect(projectRows.filter({ hasText: 'Example project' })).toBeVisible()
-  await projectRows
-    .filter({ hasText: 'Runtime tools' })
-    .dragTo(projectRows.filter({ hasText: 'Example project' }))
-  await expect(projectRows.first()).toHaveText(/Runtime tools/)
+  await expect(projectRows).toHaveCount(2)
+  await expect(projectRows.first()).toHaveText(/Example project/)
+  // Order and grouping belong to the cloud: no group headings, no drag.
+  await expect(projectsSidebar.getByRole('button', { name: 'PRODUCT' })).toHaveCount(0)
+  for (const row of await projectRows.all()) {
+    await expect(row).not.toHaveAttribute('draggable', 'true')
+    await expect(row).not.toHaveAttribute('aria-description', /Alt/)
+  }
 })
 
 test('the archive shelf restores losslessly and deletes only behind an explicit handoff', async ({

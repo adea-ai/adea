@@ -229,9 +229,9 @@ describe('dispatchLocal terminal steps (marker satisfied)', () => {
     const runtime = authority()
     // A valid envelope for an operation nobody registered: the decoder accepts
     // it (registry-consistent capabilities, empty body), the gate does not.
-    const definition = devOperationDefinitions['dev.group.list']
+    const definition = devOperationDefinitions['dev.terminal.list']
     const unregistered = snapshotCommand({
-      operation: 'dev.group.list' as DevOperation,
+      operation: 'dev.terminal.list' as DevOperation,
       capabilities: [...definition.capabilities],
     })
     const refused = expectRefused(
@@ -239,7 +239,7 @@ describe('dispatchLocal terminal steps (marker satisfied)', () => {
     )
     expect(refused.error.code).toBe('capability_unavailable')
     expect(refused.error.retryable).toBe(true)
-    expect(runtime.registeredOperations()).not.toContain('dev.group.list')
+    expect(runtime.registeredOperations()).not.toContain('dev.terminal.list')
   })
 
   test('a provider-thrown typed DevError surfaces verbatim as the refusal', async () => {
