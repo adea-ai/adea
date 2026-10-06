@@ -23,6 +23,14 @@ const DEV_PROJECT_ICON_KEY = 'engineering'
 export type DevWorkspaceNavHostOptions = Readonly<{
   client: AgentHqApiClient
   activeWorkspace: Accessor<WorkspaceSummary | undefined>
+  /**
+   * Whether a Dev sidebar is rendered. The host lives at the navigation level
+   * for every view, so its cloud queries subscribe only while a sidebar reads
+   * them: a second Task list observer under Chat's Kanban holds the board's
+   * post-create refetch and leaves the closed Task panel's modal
+   * `aria-hidden` on the workspace frame.
+   */
+  active?: Accessor<boolean>
   workspaces: Accessor<readonly WorkspaceSummary[]>
   switchToWorkspace: (workspace: WorkspaceSummary) => unknown
   openWorkspaceSettings?: () => void
@@ -46,8 +54,9 @@ export function createDevWorkspaceNavHost(
   options: DevWorkspaceNavHostOptions
 ): DevWorkspaceNavHost {
   const workspaceId = () => options.activeWorkspace()?.id
-  const projectsQuery = useProjectListQuery(options.client, workspaceId)
-  const tasksQuery = useTaskListQuery(options.client, workspaceId)
+  const queriedWorkspaceId = () => (options.active?.() === false ? undefined : workspaceId())
+  const projectsQuery = useProjectListQuery(options.client, queriedWorkspaceId)
+  const tasksQuery = useTaskListQuery(options.client, queriedWorkspaceId)
   const accountSummary = useAccountSummaryQuery(options.client)
   const createWorkspace = useCreateWorkspaceMutation(options.client)
   const createProject = useCreateProjectMutation(options.client, () => workspaceId() ?? '')
