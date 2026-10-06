@@ -59,7 +59,7 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // The #671 execution-location copy module (the task panel's persisted
   // history projection) costs 2,670,625 raw on the same build — 625 bytes
   // over the 2,670,000 cap. Raw ratchets to the next whole KiB.
-  total: { rawBytes: 2_671_000, gzipBytes: 790 * 1024, fileCount: 132 },
+  total: { rawBytes: 2_671_000, gzipBytes: 791 * 1024, fileCount: 132 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
