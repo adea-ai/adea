@@ -2,6 +2,7 @@
  * loading/empty/error states every region needs. Provider text renders as
  * Solid text nodes only. */
 import type { GitHubActor, GitHubCheckRollupState } from '@adea-ai/types/dev-runtime'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Avatar, AvatarFallback } from '@adea-ai/ui/components/ui/avatar'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@adea-ai/ui/components/ui/empty'
@@ -104,7 +105,7 @@ const rollupTone: Record<GitHubCheckRollupState, Tone> = {
   none: 'unknown',
 }
 
-const rollupLabel: Record<GitHubCheckRollupState, string> = {
+export const rollupLabel: Record<GitHubCheckRollupState, string> = {
   success: 'Passing',
   failure: 'Failing',
   pending: 'Running',
@@ -132,12 +133,13 @@ export function RollupChip(props: {
 export function ChangeCounts(props: {
   additions: number
   deletions: number
-  class?: string
+  /** Drop the add/delete colours, for a file the reviewer has viewed. */
+  muted?: boolean
 }): JSX.Element {
   const counts = () => changeCounts(props.additions, props.deletions)
   return (
     <span
-      class="dev-scm-numbers"
+      class={cn('dev-scm-numbers', { 'dev-scm-numbers--muted': props.muted })}
       aria-label={`${props.additions} additions, ${props.deletions} deletions`}
     >
       <span class="dev-scm-add">{counts().add}</span>{' '}

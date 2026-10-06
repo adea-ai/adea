@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { GitHubPullRequestSummary } from '@adea-ai/types/dev-runtime'
+import type { GitHubCheck, GitHubPullRequestSummary } from '@adea-ai/types/dev-runtime'
 
 import {
   anchorOf,
@@ -15,6 +15,8 @@ import {
   filterPullRequests,
   groupInbox,
 } from '../src/source-control-app/model/inbox'
+import { hasCheckLog, runTiming } from '../src/source-control-app/model/checks'
+import { fileKind } from '../src/source-control-app/model/file-kind'
 import { failureLines, logLines } from '../src/source-control-app/model/log'
 import { parseInline, parseMarkdown, stripComments } from '../src/source-control-app/model/markdown'
 import { mergeDock, preferredMethod } from '../src/source-control-app/model/merge-dock'
@@ -24,7 +26,12 @@ import {
   decodePreferences,
   defaultPreferences,
 } from '../src/source-control-app/model/persistence'
-import { indexSessions, linkPullRequest } from '../src/source-control-app/model/sessions'
+import { reviewCopy } from '../src/source-control-app/model/review'
+import {
+  indexSessions,
+  linkPullRequest,
+  sessionLifecycleLabel,
+} from '../src/source-control-app/model/sessions'
 import {
   buildTree,
   monogram,
@@ -527,7 +534,13 @@ describe('session links', () => {
   test('a worktree on the head branch links its live session and marks an agent', () => {
     const index = indexSessions(
       [
-        { id: 'w-1', repoId: 'repo-1', headRef: 'refs/heads/agent/juno/widgets', archived: false },
+        {
+          id: 'w-1',
+          repoId: 'repo-1',
+          headRef: 'refs/heads/agent/juno/widgets',
+          path: '/work/widgets-juno',
+          archived: false,
+        },
         { id: 'w-2', repoId: 'repo-1', headRef: 'other', archived: true },
       ],
       [
@@ -550,6 +563,7 @@ describe('session links', () => {
     )
     const linked = linkPullRequest(summary({ headRef: 'agent/juno/widgets' }), index)
     expect(linked.session?.runtimeSessionId).toBe('s-1')
+    expect(linked.session?.worktreePath).toBe('/work/widgets-juno')
     expect(linked.authorIsAgent).toBe(true)
     const fork = linkPullRequest(
       summary({ headRef: 'agent/juno/widgets', crossRepository: true }),
@@ -558,6 +572,15 @@ describe('session links', () => {
     expect(fork.session).toBeUndefined()
     const bot = linkPullRequest(summary({ author: { login: 'renovate[bot]', kind: 'bot' } }), index)
     expect(bot.authorIsAgent).toBe(true)
+  })
+})
+
+describe('session lifecycle labels', () => {
+  test('lifecycles read as words, never the raw enum', () => {
+    expect(sessionLifecycleLabel('ready')).toBe('Idle')
+    expect(sessionLifecycleLabel('active')).toBe('Active')
+    expect(sessionLifecycleLabel('disconnected')).toBe('Disconnected')
+    expect(sessionLifecycleLabel('awaiting_input')).toBe('Awaiting input')
   })
 })
 
@@ -610,6 +633,101 @@ describe('diff rows', () => {
       { dir: 'src', files: [{ path: 'src/a.ts' }, { path: 'src/b.ts' }] },
       { dir: '', files: [{ path: 'README.md' }] },
     ])
+  })
+})
+
+describe('review popover copy', () => {
+  const approved = (login: string, commitSha = HEAD) => ({
+    actor: { login, kind: 'user' as const },
+    state: 'approved' as const,
+    commitSha,
+  })
+
+  test('verdict descriptions follow the approvals still needed', () => {
+    const pr = view({
+      reviewDecision: 'review_required',
+      requiredApprovals: 2,
+      reviews: [approved('dana')],
+      requestedReviewers: [{ login: VIEWER, kind: 'user' }],
+    })
+    expect(reviewCopy(pr, VIEWER)).toEqual({
+      status: 'Your review is requested.',
+      comment: 'Send feedback without approving.',
+      approve: 'This completes the 2 required approvals.',
+      requestChanges: 'Blocks merging until dana pushes a fix.',
+    })
+    const first = view({ reviewDecision: 'review_required', requiredApprovals: 2 })
+    expect(reviewCopy(first, VIEWER).approve).toBe('This counts as approval 1 of 2.')
+    expect(reviewCopy(view({ reviewDecision: 'review_required' }), VIEWER).approve).toBe(
+      'Approve these changes.'
+    )
+  })
+
+  test("the status line knows the viewer's own review and the agent author", () => {
+    const mine = view(
+      { reviewDecision: 'approved', reviews: [approved(VIEWER, 'b'.repeat(40))] },
+      { session }
+    )
+    const copy = reviewCopy(mine, VIEWER)
+    expect(copy.status).toBe('You approved an earlier commit; the branch has moved since.')
+    expect(copy.requestChanges).toBe('Blocks merging until the agent session pushes a fix.')
+    const current = reviewCopy(view({ reviews: [approved(VIEWER)] }), VIEWER)
+    expect(current.status).toBe('You approved these changes.')
+    expect(current.comment).toBe('Send feedback; your approval stands.')
+    const own = reviewCopy(view({ author: { login: VIEWER, kind: 'user' } }), VIEWER)
+    expect(own.approve).toBe('You cannot approve your own pull request.')
+  })
+})
+
+describe('file kinds', () => {
+  test('names map to a broad type for the file icon', () => {
+    expect(fileKind('src/app.tsx')).toBe('code')
+    expect(fileKind('package.json')).toBe('data')
+    expect(fileKind('docs/README.md')).toBe('doc')
+    expect(fileKind('assets/logo.png')).toBe('image')
+    expect(fileKind('.github/workflows/ci.yml')).toBe('config')
+    expect(fileKind('Dockerfile')).toBe('config')
+    expect(fileKind('.gitignore')).toBe('config')
+    expect(fileKind('bin/run')).toBe('other')
+  })
+})
+
+describe('check runs', () => {
+  const run = (overrides: Partial<GitHubCheck> = {}): GitHubCheck => ({
+    id: '1',
+    name: 'unit',
+    status: 'completed',
+    conclusion: 'success',
+    startedAt: '2026-10-03T11:20:00.000Z',
+    completedAt: '2026-10-03T11:26:12.000Z',
+    ...overrides,
+  })
+
+  test('only a finished Actions job offers its log on GitHub; GitLab jobs always do', () => {
+    const job = run({ detailsUrl: 'https://github.com/acme/widgets/actions/runs/9/job/1' })
+    expect(hasCheckLog(job, 'github')).toBe(true)
+    expect(hasCheckLog(run({ detailsUrl: 'https://ci.example.com/build/9' }), 'github')).toBe(false)
+    expect(hasCheckLog(run(), 'github')).toBe(false)
+    expect(hasCheckLog({ ...job, status: 'in_progress' }, 'github')).toBe(false)
+    expect(hasCheckLog(run(), 'gitlab')).toBe(true)
+  })
+
+  test('the run subtitle spans the earliest start to the latest finish', () => {
+    const now = Date.parse('2026-10-03T12:00:00.000Z')
+    expect(
+      runTiming(
+        [
+          run(),
+          run({ id: '2', startedAt: '2026-10-03T11:21:00.000Z' }),
+          { id: '3', name: 'lint', status: 'completed', conclusion: 'skipped' },
+        ],
+        now
+      )
+    ).toBe('started 40 minutes ago · 6 min 12 s')
+    expect(runTiming([run(), run({ id: '2', status: 'in_progress' })], now)).toBe(
+      'started 40 minutes ago · still running'
+    )
+    expect(runTiming([{ id: '4', name: 'queued', status: 'queued' }], now)).toBe('')
   })
 })
 

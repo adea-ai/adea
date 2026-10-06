@@ -16,8 +16,19 @@ import { Progress } from '@adea-ai/ui/components/ui/progress'
 import { RadioGroup, RadioGroupItem } from '@adea-ai/ui/components/ui/radio-group'
 import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
-import { MessageSquarePlus, Trash2 } from 'lucide-solid'
+import {
+  CircleCheck,
+  File,
+  FileCode,
+  FileCog,
+  FileImage,
+  FileJson,
+  FileText,
+  MessageSquarePlus,
+  Trash2,
+} from 'lucide-solid'
 import { For, Show, createEffect, createMemo, createSignal, on, type JSX } from 'solid-js'
+import { Dynamic } from 'solid-js/web'
 
 import { errorText, type ScmClient } from '../client'
 import {
@@ -31,6 +42,8 @@ import {
   type DiffRow,
 } from '../model/diff'
 import type { AppStorage, PendingComment, ReviewDraft } from '../model/persistence'
+import { fileKind, type FileKind } from '../model/file-kind'
+import { reviewCopy } from '../model/review'
 import { viewerIsAuthor } from '../model/status'
 import { hostNameOf, type PullRequestView } from '../model/types'
 import type { AppActions } from './actions'
@@ -45,6 +58,26 @@ const newCommentId = () => `c${Date.now().toString(36)}${(commentSequence += 1).
 
 function fileId(path: string): string {
   return `dev-scm-file-${path.replace(/[^A-Za-z0-9_-]/g, '-')}`
+}
+
+const kindIcon: Record<FileKind, typeof File> = {
+  code: FileCode,
+  data: FileJson,
+  doc: FileText,
+  image: FileImage,
+  config: FileCog,
+  other: File,
+}
+
+/** The changed file's type as an icon; decorative, the path names it. */
+function FileKindIcon(props: { path: string }): JSX.Element {
+  return (
+    <Dynamic
+      component={kindIcon[fileKind(props.path)]}
+      class="size-4 shrink-0 text-muted-foreground"
+      aria-hidden="true"
+    />
+  )
 }
 
 function LineNumber(props: {
@@ -435,6 +468,7 @@ export function FilesChanged(props: {
   const viewedCount = () => (props.files ?? []).filter((file) => viewed().has(file.path)).length
   const threadsFor = (path: string) => props.threads.filter((thread) => thread.path === path)
   const own = () => viewerIsAuthor(props.pr, props.viewer)
+  const copy = createMemo(() => reviewCopy(props.pr, props.viewer))
   /** The verdict to send: your own pull request only takes comments, and a
    *  stored request-changes draft falls back to a comment where the
    *  provider has no such verdict. */
@@ -514,6 +548,7 @@ export function FilesChanged(props: {
             <PopoverContent hideArrow aria-label="Finish your review">
               <div class="dev-scm-form">
                 <h2 class="dev-scm-group__label">Finish your review</h2>
+                <p class="dev-scm-caption">{copy().status}</p>
                 <Show when={draftStale()}>
                   <p class="dev-scm-caption" role="alert">
                     The branch moved since these comments were written. Check their lines before
@@ -540,28 +575,18 @@ export function FilesChanged(props: {
                   }
                   aria-label="Review verdict"
                 >
-                  <RadioGroupItem
-                    value="comment"
-                    label="Comment"
-                    description="Send feedback without approving."
-                  />
+                  <RadioGroupItem value="comment" label="Comment" description={copy().comment} />
                   <RadioGroupItem
                     value="approve"
                     label="Approve"
-                    description={
-                      own() ? 'You cannot approve your own pull request.' : 'Approve these changes.'
-                    }
+                    description={copy().approve}
                     disabled={own()}
                   />
                   <Show when={props.canRequestChanges}>
                     <RadioGroupItem
                       value="request_changes"
                       label="Request changes"
-                      description={
-                        own()
-                          ? 'You cannot request changes on your own pull request.'
-                          : 'Block merging until the author pushes a fix.'
-                      }
+                      description={copy().requestChanges}
                       disabled={own()}
                     />
                   </Show>
@@ -632,14 +657,26 @@ export function FilesChanged(props: {
                             ?.scrollIntoView({ block: 'start' })
                         }
                       >
-                        <span
-                          class={cn('dev-scm-truncate', {
-                            'dev-scm-muted': viewed().has(file.path),
-                          })}
-                        >
-                          {splitPath(file.path).name}
+                        <span class="dev-scm-files__name">
+                          <Show
+                            when={viewed().has(file.path)}
+                            fallback={<FileKindIcon path={file.path} />}
+                          >
+                            <CircleCheck class="size-4 shrink-0 text-success" aria-hidden="true" />
+                          </Show>
+                          <span
+                            class={cn('dev-scm-truncate', {
+                              'dev-scm-muted': viewed().has(file.path),
+                            })}
+                          >
+                            {splitPath(file.path).name}
+                          </span>
                         </span>
-                        <ChangeCounts additions={file.additions} deletions={file.deletions} />
+                        <ChangeCounts
+                          additions={file.additions}
+                          deletions={file.deletions}
+                          muted={viewed().has(file.path)}
+                        />
                       </Button>
                     )}
                   </For>
@@ -656,6 +693,7 @@ export function FilesChanged(props: {
                 {(file) => (
                   <article class="dev-scm-card" id={fileId(file.path)} aria-label={file.path}>
                     <div class="dev-scm-card__head dev-scm-file__head">
+                      <FileKindIcon path={file.path} />
                       <span class="dev-scm-mono dev-scm-truncate">
                         {file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}
                       </span>
