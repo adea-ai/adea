@@ -212,16 +212,31 @@ function defaultRuntimeVersion(): string | undefined {
 }
 
 /**
- * The packaged bundled-archive root: the app dir inside a running `.app`
- * bundle (the same arithmetic the packaged manifest load uses — the bundled
- * file goes one `managed-pi/` directory below it). Null outside a bundle, so
- * dev runs and tests deterministically have no bundled source.
+ * The packaged bundled-archive root: the app dir inside the running `.app`
+ * bundle; the bundled file goes one `managed-pi/` directory below it. The
+ * entry anchors at different depths per layout (Electrobun's flat-file branch
+ * loads it from `Contents/Resources/app/bun/index.js`), so the bundle is the
+ * first bounded walk-up ancestor that is a `.app` carrying the bundled Bun
+ * runtime, the same rule as `findRunningAppBundle` (#1059). A fixed
+ * three-level hop landed on `Contents` and never found the bundled archive.
+ * Null outside a bundle, so dev runs and tests have no bundled source.
  */
+export function bundledResourcesDirFor(entryDir: string): string | null {
+  let candidate = resolve(entryDir)
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (candidate.endsWith('.app') && existsSync(join(candidate, 'Contents', 'MacOS', 'bun'))) {
+      return join(candidate, 'Contents', 'Resources', 'app')
+    }
+    const parent = resolve(candidate, '..')
+    if (parent === candidate) return null
+    candidate = parent
+  }
+  return null
+}
+
 function defaultBundledResourcesDir(): string | null {
   try {
-    const bundleRoot = resolve(import.meta.dir, '..', '..', '..')
-    if (!bundleRoot.endsWith('.app')) return null
-    return join(bundleRoot, 'Contents', 'Resources', 'app')
+    return bundledResourcesDirFor(import.meta.dir)
   } catch {
     return null
   }
