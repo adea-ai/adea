@@ -377,6 +377,24 @@ test.describe('source control app', () => {
     await shot(page, '08-providers')
   })
 
+  test('a connected CLI with unregistered projects says why nothing is listed', async ({
+    page,
+  }) => {
+    // gh is connected and the Dev view has projects, but no registry record
+    // was proven: the sidebar must say so and point at adoption, never imply
+    // the account has no repositories.
+    await openHarness(page, '?scenario=unregistered')
+    const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
+    await expect(sidebar.getByText(/6 projects have not been registered yet/)).toBeVisible()
+    await expect(sidebar.getByText(/Repositories panel and adopt their repositories/)).toBeVisible()
+    await page.getByRole('button', { name: 'Connect account' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Git providers' })
+    await expect(
+      dialog.getByText('Checking confirms the CLI sign-in Adea uses for your pull requests.')
+    ).toBeVisible()
+    await expect(dialog.getByText(/adopt it/)).toBeVisible()
+  })
+
   test('a GitLab project runs through the same screens', async ({ page }) => {
     await openHarness(page)
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })

@@ -55,6 +55,18 @@ const SCREEN_RECORDING_ARGV = [
     'ObjC.bindFunction("CGPreflightScreenCaptureAccess", ["bool", []]); ' +
     '$.CGPreflightScreenCaptureAccess()',
 ]
+// The owner-reported request dispatch: opening Screen Recording settings must
+// ASK macOS first (CGRequestScreenCaptureAccess), because the pane's TCC list
+// only contains apps that requested capture themselves — `open` never does.
+const SCREEN_RECORDING_REQUEST_ARGV = [
+  '/usr/bin/osascript',
+  '-l',
+  'JavaScript',
+  '-e',
+  'ObjC.import("CoreGraphics"); ' +
+    'ObjC.bindFunction("CGRequestScreenCaptureAccess", ["bool", []]); ' +
+    '$.CGRequestScreenCaptureAccess()',
+]
 
 function stateFor(service: ReturnType<typeof createMacPermissionService>, id: string) {
   return service.snapshot({ force: true }).then((snapshot) => {
@@ -243,6 +255,41 @@ describe('macOS permission probes', () => {
       (error: unknown) => expect(String(error)).toContain('could not open System Settings')
     )
     expect(runner.argvCalls.length).toBe(1)
+  })
+
+  test('openSettings for screen_recording asks macOS for capture access before opening the pane', async () => {
+    // The request outcome is irrelevant to the pane: dispatch is the point.
+    for (const requestOutcome of [
+      outcome({ stdout: 'false' }), // prompt surfaced, not yet answered
+      outcome({ exitCode: null, timedOut: true }), // user kept the prompt open
+      outcome({ spawnFailed: true, exitCode: null }), // osascript unlaunchable
+    ]) {
+      const runner = scriptedRunner([requestOutcome, outcome({})])
+      const service = createMacPermissionService({ run: runner.run, platform: 'darwin' })
+      const result = await service.openSettings('screen_recording')
+      expect(runner.argvCalls).toEqual([
+        SCREEN_RECORDING_REQUEST_ARGV,
+        ['/usr/bin/open', SETTINGS_PANES.screen_recording],
+      ])
+      expect(result).toEqual({
+        permissionId: 'screen_recording',
+        settingsUrl: SETTINGS_PANES.screen_recording,
+      })
+    }
+  })
+
+  test('only screen_recording dispatches the capture request; other panes open directly', async () => {
+    const runner = scriptedRunner([outcome({}), outcome({})])
+    const service = createMacPermissionService({ run: runner.run, platform: 'darwin' })
+    await service.openSettings('accessibility')
+    expect(runner.argvCalls).toEqual([['/usr/bin/open', SETTINGS_PANES.accessibility]])
+  })
+
+  test('a non-macOS host never dispatches the capture request', async () => {
+    const runner = scriptedRunner([outcome({})])
+    const service = createMacPermissionService({ run: runner.run, platform: 'linux' })
+    await service.openSettings('screen_recording')
+    expect(runner.argvCalls).toEqual([['/usr/bin/open', SETTINGS_PANES.screen_recording]])
   })
 
   test('every registered permission has a fixed deep link and probes declare a deadline', () => {

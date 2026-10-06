@@ -227,6 +227,36 @@
   padding: 0.25rem;
 }
 
+/* Device rows keep their Start/Stop action on the row's content line at
+   every utility-pane width. Below the shared list-row stacking breakpoint
+   (a 28rem container — every default utility dock size under 448px), the
+   published described-row layout drops the trailing action onto its own
+   right-aligned line under the text block, which detached the button from
+   its row and left it reading shorter than the content it belongs to.
+   These rows have short, truncating labels, so the inline layout always
+   fits; the rules mirror the wide composition and win on specificity
+   (three atomic selectors against the published two) inside the same
+   container conditions. Layout only — no appearance changes. */
+@container list-row (width < 28rem) {
+  .dev-devices__row.list-row-description[data-description] [data-slot='list-row-content'] {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .dev-devices__row.list-row-description[data-description] [data-slot='list-row-label'],
+  .dev-devices__row.list-row-description[data-description] [data-slot='list-row-trailing'] {
+    width: auto;
+  }
+
+  .dev-devices__row.list-row-description[data-description] [data-slot='list-row-label'] {
+    flex: 1 1 0%;
+  }
+
+  .dev-devices__row.list-row-description[data-description] [data-slot='list-row-trailing'] button {
+    white-space: nowrap;
+  }
+}
+
 .dev-browser__actions {
   display: flex;
   flex-wrap: wrap;

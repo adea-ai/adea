@@ -517,6 +517,10 @@ async function execute(command: DevCommand): Promise<DevReply> {
         )
       )
     case 'dev.repo.list':
+      // `unregistered`: gh is connected and projects exist, but no registry
+      // record was ever proven (import mints bindings; adoption proves
+      // records) — the sidebar's honest empty state for the owner report.
+      if (scenario === 'unregistered') return ok(command, page([]))
       return ok(
         command,
         page(

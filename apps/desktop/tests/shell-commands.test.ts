@@ -139,7 +139,9 @@ describe('desktop shell command surface', () => {
     // Screen Recording pane, never generic Settings and never a client-supplied
     // URL. This exercises the registry entry with the real desktop-permissions
     // service behind it (only the host runner is scripted), so a dropped
-    // command registration or a drifted anchor fails here.
+    // command registration or a drifted anchor fails here. Opening the pane
+    // first dispatches the prompting capture request — macOS creates the TCC
+    // entry only when the app itself asks — then opens the fixed anchor.
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
     const argvCalls: Array<readonly string[]> = []
     try {
@@ -159,7 +161,11 @@ describe('desktop shell command surface', () => {
         ok: true,
         value: { permissionId: 'screen_recording', settingsUrl: SETTINGS_PANES.screen_recording },
       })
-      expect(argvCalls).toEqual([['/usr/bin/open', SETTINGS_PANES.screen_recording]])
+      expect(argvCalls).toHaveLength(2)
+      expect(argvCalls[0]).toHaveLength(5)
+      expect(argvCalls[0]?.[0]).toBe('/usr/bin/osascript')
+      expect(argvCalls[0]?.[4]).toContain('CGRequestScreenCaptureAccess')
+      expect(argvCalls[1]).toEqual(['/usr/bin/open', SETTINGS_PANES.screen_recording])
       expect(SETTINGS_PANES.screen_recording).toBe(
         'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
       )
@@ -169,7 +175,7 @@ describe('desktop shell command surface', () => {
       await expect(
         invoke('desktop_permissions_open_settings', { permissionId: 'nope' })
       ).resolves.toEqual({ ok: false, error: 'unknown permission id' })
-      expect(argvCalls).toHaveLength(1)
+      expect(argvCalls).toHaveLength(2)
     } finally {
       rmSync(dataDir, { force: true, recursive: true })
     }

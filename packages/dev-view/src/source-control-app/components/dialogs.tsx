@@ -462,7 +462,7 @@ export function ProvidersDialog(props: {
       open={props.open}
       onClose={() => props.onClose()}
       title="Git providers"
-      description="Each connected account's organizations and groups appear in the sidebar, with your projects underneath."
+      description="Checking confirms the CLI sign-in Adea uses for your pull requests. Registered repositories appear in the sidebar grouped by their owner, with your projects underneath."
       class="conventional-dialog"
     >
       <div class="dev-scm-form">
@@ -478,8 +478,8 @@ export function ProvidersDialog(props: {
           )}
         </For>
         <p class="dev-scm-caption">
-          Projects appear here when their repository's origin is on GitHub or GitLab. Add projects
-          in the Dev view.
+          Projects appear here once their repository is registered — in the Dev view's Repositories
+          panel, adopt it — and its origin is on GitHub or GitLab.
         </p>
         <div class="dev-scm-form__footer">
           <span class="flex-1" />

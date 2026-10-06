@@ -362,6 +362,15 @@ const runtime = {
             deferredInventory = { command, resolve }
           })
         }
+        const simulatorInventory = {
+          id: 'ios:probe-simulator',
+          kind: 'ios_simulator',
+          name: 'iPhone 16 Pro (iOS 18.2)',
+          platform: 'ios',
+          state: 'available',
+          generation: 3,
+          observedAt: new Date(0).toISOString(),
+        } satisfies import('@adea-ai/types/dev-runtime').DeviceInventoryItem
         return reply(command, {
           items: [
             {
@@ -373,6 +382,11 @@ const runtime = {
               generation: 1,
               observedAt: new Date(0).toISOString(),
             },
+            // `inventory=devices` adds a simulator row so the device-row
+            // layout assertions have an action control to measure.
+            ...(new URLSearchParams(window.location.search).get('inventory') === 'devices'
+              ? [simulatorInventory]
+              : []),
           ],
         })
       case 'dev.device.sessions':

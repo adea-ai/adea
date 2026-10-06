@@ -318,6 +318,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                             return (
                               <ListRowControl
                                 as="div"
+                                class="dev-devices__row"
                                 description={`${item.platform} · ${item.state}`}
                                 leading={
                                   <Show
