@@ -1785,7 +1785,8 @@ The register serves `dev.project.import`/`clone`/`create`/`get`/`list`/
 `update`/`archive`/`unbind` and `dev.session.create/get/list/archive/unarchive`. There
 are no `dev.group.*` operations and no `dev.project.reorder`: order comes from
 the cloud project list. `dev.project.create`, `dev.project.import`, and
-`dev.project.clone` take the client-supplied `projectId`; a second binding for an already-bound project id,
+`dev.project.clone` (both its `checkout` and `managed` modes; see "Clone sources
+(`dev.project.clone`)") take the client-supplied `projectId`; a second binding for an already-bound project id,
 or a non-UUID id, is refused with `identity_mismatch`. `dev.project.import`
 binds a project to an **authorized root bookmark**: the canonical root is
 resolved fail-closed through the roots authority inside the host — a
@@ -2995,64 +2996,100 @@ session rows render the canonical `RuntimeSession` lifecycle from the register
 (states outside the historical `active`/`ready`/`archived` set render a
 neutral dot with their own accessible name, never a coerced state).
 
-### Remote-only projects (managed bare clone)
+### Clone sources (`dev.project.clone`)
 
-`dev.project.clone { projectId, remoteUrl, mode: 'managed', credentialRefId?,
-defaultBaseRef? }` creates a remote-only project (ADR 0011): the code lives
-only in a hidden, Adea-managed bare clone, worked on through worktrees, with
-no primary checkout. The envelope carries no resource (a binding refuses with
-`identity_mismatch`) and requires `dev.project.manage` and `dev.repo.manage`.
+`dev.project.clone { projectId, mode?: 'checkout' | 'managed', remote:
+RedactedRemoteInput, credentialRefId?, destinationBookmarkId?, defaultBaseRef? }`
+is one operation with two modes. The remote always arrives as redacted parts
+(never a raw URL body) and the host rebuilds the URL from them (`github` and
+`gitlab` are always https; an `other` host may carry its own `ssh://` scheme,
+or `file://` behind the test flag below). The envelope carries no resource (a
+binding refuses with `identity_mismatch`), it requires `dev.project.manage`
+and `dev.repo.manage`, and the cloud `projectId` must be an unbound lowercase
+UUID (`identity_mismatch`, checked again under the binding write). The reply
+is the strict `Project`.
 
-- **Admission.** The cloud `projectId` must be an unbound lowercase UUID
-  (`identity_mismatch` otherwise, checked again under the binding write). The
-  remote must be `https://`, `ssh://`, or scp-like `user@host:path` (ssh).
-  `file://` remotes and local paths are refused in production: a local remote
-  would let a caller copy any repository the user can read into app data.
-  Only a composition that passes the test-only `allowLocalCloneRemotes` flag
-  admits `file://` (fixture origins); the shipped shell (`bun/index.ts`)
-  never sets it, and a test pins that. `http://`, `ext::`/`fd::` and every
-  other transport, bare paths, a leading `-`, whitespace/control characters,
-  an embedded password, and https user-info tokens refuse too — all with
-  `invalid_state` (the contract has no separate input-validation code) before
-  anything touches disk. Credentials come from a vault reference, never the
-  URL. `credentialRefId` resolves fail-closed exactly like
-  `dev.repo.authorize` (unknown `not_found`, not `ready` `invalid_state`,
-  host mismatch `identity_mismatch`) and is recorded on the repository;
-  secret material never enters git arguments, the environment, the registry,
-  a reply, an event, or a log, so transport authentication uses the user's
-  own git credential configuration (and `SSH_AUTH_SOCK`, a socket path, for
-  agent-held keys). `defaultBaseRef` must be a plain ref name and must
-  resolve in the clone (`base_not_found`).
-- **Clone.** The clone runs
-  `git -c protocol.allow=never -c protocol.<scheme>.allow=always clone --bare -- <url> <staging>`
-  through the bounded argv-only runner into a fresh owner-only staging
-  directory inside the managed root, then configures the remote-tracking
-  refspec `+refs/heads/*:refs/remotes/origin/*`, runs one bounded
-  `fetch --prune origin`, and points `refs/remotes/origin/HEAD` at the remote
-  default branch. Budgets (limits registry): 10 minutes per network child,
-  4 GiB on disk (a 500 ms size watchdog aborts the child; `limit_exceeded`),
-  at most two clones in flight per node and one per project id.
-- **Nothing prompts.** Every network git child of a managed clone (the
-  clone, its fetch, later base fetches in `dev.worktree.create`, and the
-  `dev.repo.refresh` probe) runs with `GIT_TERMINAL_PROMPT=0`, askpass
-  disabled (`GIT_ASKPASS`/`SSH_ASKPASS` empty, `SSH_ASKPASS_REQUIRE=never`),
-  `GIT_SSH_VARIANT=ssh`, and
+- **`checkout` (the default; #1061, #666).** A shallow working copy
+  (`--depth 1`, 60 s git-child window) lands at
+  `<destination>/clones/<repository>` inside the **authorized destination
+  bookmark** `destinationBookmarkId` (required; `invalid_state` without it).
+  An existing target refuses `invalid_state`; then the roots authority mints
+  the clone's bookmark (labelled with the repository name) and the shared
+  import path binds it, so the project gets a primary checkout record and the
+  `local_repo` source. `credentialRefId` refuses `unavailable` until vault
+  wiring ships for this mode, and `defaultBaseRef` refuses `invalid_state`
+  (the checkout's own HEAD is the base). A runner that reports stderr gets
+  the shared typed classification below; a bare non-zero exit is
+  `spawn_failed`. A stopped clone that left a partial checkout in the user's
+  root is reported as `cleanup_partial` and never deleted by Adea.
+- **`managed` (remote-only projects).** A hidden bare clone in Adea's
+  owner-only app data with worktrees only and no primary record (the
+  `remote_only` source); see the next section. It takes no
+  `destinationBookmarkId` (`invalid_state`), and a runtime without the
+  managed clone authority answers `unavailable`.
+
+**Shared transport policy.** Both modes admit, build, and run the remote
+through one module (`projects/clone-policy.ts`):
+
+- **Admission.** The rebuilt URL must be `https://`, `ssh://`, or scp-like
+  `user@host:path` (ssh). `file://` remotes and local paths are refused in
+  production: a local remote would let a caller copy any repository the user
+  can read. Only a composition that passes the test-only
+  `allowLocalCloneRemotes` flag admits `file://` (fixture origins); the
+  shipped shell (`bun/index.ts`) never sets it, and a test pins that.
+  `http://`, `ext::`/`fd::` and every other transport, bare paths, a leading
+  `-`, whitespace/control characters, an embedded password, and https
+  user-info tokens refuse too — all with `invalid_state` (the contract has no
+  separate input-validation code) before anything touches disk. Credentials
+  come from a vault reference, never the URL.
+- **Argv.** `git -c protocol.allow=never -c protocol.<scheme>.allow=always
+clone … -- <url> <target>` through the bounded argv-only runner, so git
+  itself refuses any other transport and the URL can never be read as an
+  option.
+- **Nothing prompts.** Every network git child of either mode (and, for a
+  managed clone, its later fetches and the `dev.repo.refresh` probe) runs
+  with `GIT_TERMINAL_PROMPT=0`, askpass disabled (`GIT_ASKPASS`/`SSH_ASKPASS`
+  empty, `SSH_ASKPASS_REQUIRE=never`), `GIT_SSH_VARIANT=ssh`, and
   `GIT_SSH_COMMAND='ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=30'`.
-  A password or passphrase prompt fails at once as `auth_required`; an
-  unknown or changed host key fails at once as `remote_unavailable` (the
-  remote could not be proven), never waiting out the clone budget. Other
-  failures are typed `auth_required`, `not_found`, `remote_unavailable`,
-  `timeout`, or `limit_exceeded`.
-- **Cleanup after exit.** A timeout, cancellation, size, or output kill
+  `SSH_AUTH_SOCK` (a socket path) passes through for agent-held keys; secret
+  material never enters git arguments, the environment, the registry, a
+  reply, an event, or a log. A password or passphrase prompt fails at once
+  as `auth_required`; an unknown or changed host key fails at once as
+  `remote_unavailable`; a missing repository is `not_found`.
+- **Reap before cleanup.** A timeout, cancellation, size, or output kill
   sends `SIGTERM` (so git stops its own helpers), escalates to `SIGKILL`
   after 1 s, and the runner then waits (bounded, 5 s) for the git child to be
-  reaped before it rejects; a run that was killed reports the kill,
-  never the child's exit status. (The reap covers the git process itself;
-  after a `SIGKILL` its transport helpers — `ssh`, `git-remote-https` — lose
-  their pipes and exit on their own.) Only a confirmed exit lets the failed clone
-  remove its staging (or published) directory, through the quarantine/trash
-  path. When the exit is unconfirmed, or the quarantine or deletion fails,
-  the partial clone stays owner-only in the managed root or its trash
+  reaped before it rejects with the kill's typed error (never the child's
+  exit status). (The reap covers the git process itself; after a `SIGKILL`
+  its transport helpers — `ssh`, `git-remote-https` — lose their pipes and
+  exit on their own.) Nothing a killed child was writing is cleaned up before
+  that.
+
+### Remote-only projects (managed bare clone)
+
+`dev.project.clone` with `mode: 'managed'` creates a remote-only project
+(ADR 0011): the code lives only in a hidden, Adea-managed bare clone, worked
+on through worktrees, with no primary checkout.
+
+- **Admission.** The shared policy above, plus: `credentialRefId` resolves
+  fail-closed exactly like `dev.repo.authorize` (unknown `not_found`, not
+  `ready` `invalid_state`, host mismatch `identity_mismatch`) and is recorded
+  on the repository, so transport authentication uses the user's own git
+  credential configuration. `defaultBaseRef` must be a plain ref name and
+  must resolve in the clone (`base_not_found`).
+- **Clone.** The clone runs `clone --bare` under the shared argv into a fresh
+  owner-only staging directory inside the managed root, then configures the
+  remote-tracking refspec `+refs/heads/*:refs/remotes/origin/*`, runs one
+  bounded `fetch --prune origin`, and points `refs/remotes/origin/HEAD` at
+  the remote default branch. Budgets (limits registry): 10 minutes per
+  network child, 4 GiB on disk (a 500 ms size watchdog aborts the child;
+  `limit_exceeded`), at most two clones in flight per node and one per
+  project id. Failures are typed `auth_required`, `not_found`,
+  `remote_unavailable`, `timeout`, or `limit_exceeded`.
+- **Cleanup after exit.** Only a confirmed exit lets the failed clone remove
+  its staging (or published) directory, through the quarantine/trash path.
+  When the exit is unconfirmed, or the quarantine or deletion fails, the
+  partial clone stays owner-only in the managed root or its trash
   (`managed-repos/.adea-worktree-trash`, with its provenance record for the
   sweep), the audit log records `repo.managed_clone_discard` `failed` with
   the cause and reason (`child_exit_unconfirmed` or `discard_failed`), and
@@ -5520,21 +5557,22 @@ Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
 - **2026-10-06 — remote-only projects (ADR 0011, PR 15).** `dev.project.clone`
-  is implemented and no longer typed-unavailable; its body becomes
-  `{ projectId, remoteUrl: string(1..2048), mode: 'managed', credentialRefId?,
-defaultBaseRef?: string(1..256) }` (the unimplemented
-  `remote: RedactedRemoteInput` / `destinationBookmarkId` shape is gone) and
-  its reply decodes through the strict `Project` decoder. `Repo` gains the
-  optional `layout: 'bare_managed'` fact, and `ProjectRepoBinding` becomes a
-  union whose managed arm carries `layout` and no `rootBookmarkId`. Bare
-  repositories stay refused except a proven managed clone; managed roots,
-  the managed proof, the unbind cleanup order, the limits, and the
-  classification are in "Remote-only projects (managed bare clone)". The
-  operation total is unchanged (213). Hardened in the same PR: production
-  refuses `file://` and local remotes (a test-only `allowLocalCloneRemotes`
-  composition flag admits fixtures), every managed-clone network child runs
-  batch-mode SSH with no prompts, and failed-clone cleanup waits for the
-  reaped git child and reports a retained partial clone as `cleanup_partial`.
+  gains a mode: its body becomes `{ projectId, mode?: 'checkout' | 'managed',
+remote: RedactedRemoteInput, credentialRefId?, destinationBookmarkId?,
+defaultBaseRef?: string(1..256) }`. `checkout` (the default) is #1061's
+  authorized-destination working copy, unchanged for existing callers except
+  that `destinationBookmarkId` is now required by the mode rather than the
+  grammar; `managed` places a bare clone under the owner-only app-data
+  managed root with no primary record. `Repo` gains the optional
+  `layout: 'bare_managed'` fact, and `ProjectRepoBinding` becomes a union
+  whose managed arm carries `layout` and no `rootBookmarkId`. Both modes
+  share one hardened transport policy: production refuses `file://` and
+  local remotes (a test-only `allowLocalCloneRemotes` composition flag admits
+  fixtures), every network child runs batch-mode SSH with no prompts, and
+  cleanup waits for the reaped git child. Bare repositories stay refused
+  except a proven managed clone; see "Clone sources (`dev.project.clone`)"
+  and "Remote-only projects (managed bare clone)". The operation total is
+  unchanged (215).
 - **2026-10-06 — project groups removed; v2 project bindings (ADR 0011).**
   Removed `dev.group.list`/`reorder`/`create`/`update`/`delete` and
   `dev.project.reorder`, the `Group`/`GroupMutableFields` DTOs, and the
@@ -6331,6 +6369,12 @@ files in the same commit:
   non-directory paths before any ledger write, and `dev.project.authorizeRoot`
   serves the add-project surface through the scope-bound channel;
 - `scripts/docs-boundary.test.ts` — this spec is routed and links resolve;
+- clone modes: `apps/desktop/tests/project-registry.test.ts` (#1061's
+  checkout clone with the `file://` fixture behind the test flag; the shared
+  hardened argv; stderr-typed `remote_unavailable`/`auth_required`; bare exit
+  `spawn_failed`; mode/field mixing refusals; managed without its authority
+  `unavailable`; a production register refusing `file://`; a stopped clone's
+  partial checkout reported `cleanup_partial` and kept);
 - remote-only projects: `apps/desktop/tests/managed-clone.test.ts` (clone
   from a local `file://` bare origin into the owner-only managed root with
   the `bare_managed` record and binding and no primary record; managed

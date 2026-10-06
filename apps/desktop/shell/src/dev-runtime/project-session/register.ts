@@ -17,7 +17,16 @@ import { devOperationDecoders } from '../../../../../../packages/types/src/dev-r
 import type { ChannelAuthority } from '../channel/authority'
 import { DevAuthorityError } from '../authority'
 import { createDurableSqliteStore } from '../host-store'
-import { runGit } from '../worktrees/git-run'
+import { GitChildKilledError, runGit } from '../worktrees/git-run'
+import { WorktreeError } from '../worktrees/errors'
+import { nonInteractiveTransportEnv } from '../repos/managed'
+import {
+  admitCloneRemote,
+  buildCloneUrl,
+  classifyTransport,
+  transportArgs,
+  type CloneRemoteInput,
+} from '../projects/clone-policy'
 
 export type ProjectRepoBindingView = Readonly<{
   repoId: string
@@ -118,33 +127,6 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  *  minute before the child is abandoned. The runner enforces it. */
 const GIT_CLONE_TIMEOUT_MS = 60_000
 
-/**
- * Rebuild the clone URL from the redacted remote parts. GitHub and GitLab
- * hosts are always https; an `other` host may carry its own scheme
- * (`file://` fixture sources in tests, an ssh alias, a self-hosted origin).
- *
- * The https scheme is assembled from parts rather than written as one
- * literal: the boot-boundary gate scans shell sources for non-loopback URL
- * literals so nothing unreviewed is ever served to the webview, and this
- * builder constructs a git-transport URL from an owner-approved remote —
- * it serves nothing.
- */
-const HTTPS_SCHEME = `https${':'}`
-
-function buildCloneUrl(remote: {
-  provider: 'github' | 'gitlab' | 'other'
-  host: string
-  ownerPath: string
-  repository: string
-}): string {
-  if (remote.provider === 'other') {
-    const host = remote.host
-    return /^[a-z][a-z0-9+.-]*:\/\//.test(host)
-      ? `${host}/${remote.ownerPath}/${remote.repository}`
-      : `${HTTPS_SCHEME}//${host}/${remote.ownerPath}/${remote.repository}`
-  }
-  return `${HTTPS_SCHEME}//${remote.host}/${remote.ownerPath}/${remote.repository}.git`
-}
 const SESSION_CREATE_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
 const HASH_PATTERN = /^[0-9a-f]{64}$/
 
@@ -405,7 +387,26 @@ export function registerProjectSessionRuntime(input: {
    * Test seam: inject the bounded clone runner; production shells out to the
    * real bounded git runner. Returns the child's exit code.
    */
-  runClone?: (args: { argv: readonly string[]; cwd: string }) => Promise<{ exitCode: number }>
+  runClone?: (args: {
+    argv: readonly string[]
+    cwd: string
+  }) => Promise<{ exitCode: number; stderr?: string }>
+  /**
+   * `dev.project.clone` with `mode: 'managed'` (remote-only projects): the
+   * composition's managed clone authority places a bare clone under the
+   * owner-only app-data root. Absent, the managed mode refuses `unavailable`.
+   */
+  managedClone?: (request: {
+    projectId: string
+    remote: CloneRemoteInput
+    credentialRefId?: string
+    defaultBaseRef?: string
+  }) => Promise<Project>
+  /**
+   * Test-only: admit `file://` clone remotes (fixture origins) in both clone
+   * modes. The shipped shell composition never sets it.
+   */
+  allowLocalCloneRemotes?: boolean
   /**
    * Unbind side effects for managed bare clones (remote-only projects). The
    * register calls `prepare` after its own refusals (version, live
@@ -616,6 +617,12 @@ export function registerProjectSessionRuntime(input: {
     },
     'dev.project.clone': async (command) => {
       requireScope(command, input.scope)
+      // Top-level clone names its target in the body; no envelope resource.
+      if (command.resource !== undefined)
+        throw new DevAuthorityError(
+          'identity_mismatch',
+          'dev.project.clone carries no resource binding'
+        )
       const body = devOperationDecoders['dev.project.clone'].request(command.body)
       const projectId = body.projectId as string
       // An already-bound cloud project refuses before any clone runs.
@@ -624,13 +631,40 @@ export function registerProjectSessionRuntime(input: {
       // provider reconstructs the URL from trusted components. The owner's
       // approve action over the scope-bound channel is the authorization for
       // both the destination root and the clone itself.
-      const remote = body.remote as {
-        provider: 'github' | 'gitlab' | 'other'
-        host: string
-        ownerPath: string
-        repository: string
+      const remote = body.remote as CloneRemoteInput
+      const credentialRefId = body.credentialRefId as string | undefined
+      const defaultBaseRef = body.defaultBaseRef as string | undefined
+      const destinationBookmarkId = body.destinationBookmarkId as string | undefined
+      // `managed` (remote-only project): a hidden bare clone in owner-only
+      // app data with no primary checkout. It never uses a user path.
+      if (body.mode === 'managed') {
+        if (destinationBookmarkId !== undefined)
+          throw new DevAuthorityError(
+            'invalid_state',
+            'a managed clone lives in app data and takes no destination bookmark'
+          )
+        if (!input.managedClone)
+          throw new DevAuthorityError('unavailable', 'no managed clone authority is available')
+        return input.managedClone({
+          projectId,
+          remote,
+          ...(credentialRefId !== undefined ? { credentialRefId } : {}),
+          ...(defaultBaseRef !== undefined ? { defaultBaseRef } : {}),
+        })
       }
-      if (body.credentialRefId !== undefined) {
+      // `checkout` (the default, #1061): a working copy inside an authorized
+      // destination bookmark, imported through the shared import path.
+      if (destinationBookmarkId === undefined)
+        throw new DevAuthorityError(
+          'invalid_state',
+          'a checkout clone requires an authorized destination bookmark'
+        )
+      if (defaultBaseRef !== undefined)
+        throw new DevAuthorityError(
+          'invalid_state',
+          'defaultBaseRef applies to managed clones; a checkout clone uses its own HEAD'
+        )
+      if (credentialRefId !== undefined) {
         // Private-remote clones need vault credential wiring that no slice
         // has shipped; refuse typed instead of attempting an unauthenticated
         // clone against a private host.
@@ -645,8 +679,13 @@ export function registerProjectSessionRuntime(input: {
           'no authorized root authority is available for project clone'
         )
       }
-      const destination = input.resolveImportRoot(body.destinationBookmarkId as string)
+      const destination = input.resolveImportRoot(destinationBookmarkId)
       const cloneUrl = buildCloneUrl(remote)
+      // The shared transport policy: https/ssh only (`file://` only behind
+      // the test flag), every other transport refused by git itself.
+      const protocol = admitCloneRemote(cloneUrl, {
+        allowLocalRemotes: input.allowLocalCloneRemotes === true,
+      })
       const targetDir = join(destination.canonicalRoot, 'clones', remote.repository)
       if (existsSync(targetDir)) {
         throw new DevAuthorityError(
@@ -657,15 +696,44 @@ export function registerProjectSessionRuntime(input: {
       const runClone =
         input.runClone ??
         ((args: { argv: readonly string[]; cwd: string }) =>
-          runGit(args.argv.slice(1), { cwd: args.cwd, timeoutMs: GIT_CLONE_TIMEOUT_MS }))
+          runGit(args.argv.slice(1), {
+            cwd: args.cwd,
+            timeoutMs: GIT_CLONE_TIMEOUT_MS,
+            // Nothing may prompt: batch-mode SSH and no askpass/terminal prompt.
+            env: nonInteractiveTransportEnv(),
+          }))
       // `--depth 1`: the import kind provisions a working copy, not history.
-      const argv = ['git', 'clone', '--depth', '1', cloneUrl, targetDir] as const
-      const result = await runClone({ argv, cwd: destination.canonicalRoot })
+      const argv = [
+        'git',
+        ...transportArgs(protocol),
+        'clone',
+        '--depth',
+        '1',
+        '--',
+        cloneUrl,
+        targetDir,
+      ] as const
+      let result: { exitCode: number; stderr?: string }
+      try {
+        result = await runClone({ argv, cwd: destination.canonicalRoot })
+      } catch (error) {
+        // The runner reaps a killed child before rejecting. A partial
+        // checkout left in the user's authorized root is never deleted by
+        // Adea: it is reported, typed, for the owner to inspect.
+        if (error instanceof GitChildKilledError && existsSync(targetDir))
+          throw new WorktreeError(
+            'cleanup_partial',
+            `the clone was stopped (${error.code}) and left a partial checkout at ${targetDir}`
+          )
+        throw error
+      }
       if (result.exitCode !== 0) {
-        throw new DevAuthorityError(
-          'spawn_failed',
-          `git clone exited ${result.exitCode} for the authorized destination`
-        )
+        const message = `git clone exited ${result.exitCode} for the authorized destination`
+        // A runner that reports stderr gets the shared typed classification
+        // (auth/host-key/not-found); a bare exit code stays `spawn_failed`.
+        if (result.stderr !== undefined)
+          throw new WorktreeError(classifyTransport(result.stderr), message)
+        throw new DevAuthorityError('spawn_failed', message)
       }
       if (!input.authorizeRoot) {
         throw new DevAuthorityError(

@@ -1069,7 +1069,12 @@ describe('dev runtime composition', () => {
       const refused = await channel.execute(
         commandFor('dev.project.clone', SCOPE_A, {
           projectId: randomUUID(),
-          remoteUrl: `file://${shell.dataDir}/origin.git`,
+          remote: {
+            provider: 'other',
+            host: `file://${shell.dataDir}`,
+            ownerPath: 'owner',
+            repository: 'origin.git',
+          },
           mode: 'managed',
         })
       )
@@ -1090,7 +1095,8 @@ describe('dev runtime composition', () => {
     })
     const fixtureRoot = realpathSync(mkdtempSync(join(tmpdir(), 'adea-clone-origin-')))
     try {
-      const origin = join(fixtureRoot, 'origin.git')
+      mkdirSync(join(fixtureRoot, 'owner'))
+      const origin = join(fixtureRoot, 'owner', 'origin.git')
       const seed = join(fixtureRoot, 'seed')
       mkdirSync(seed)
       const gitIn = (cwd: string, args: string[]) =>
@@ -1118,7 +1124,16 @@ describe('dev runtime composition', () => {
 
       const channel = await shell.openChannel()
       const projectId = randomUUID()
-      const body = { projectId, remoteUrl: `file://${origin}`, mode: 'managed' }
+      const body = {
+        projectId,
+        remote: {
+          provider: 'other',
+          host: `file://${fixtureRoot}`,
+          ownerPath: 'owner',
+          repository: 'origin.git',
+        },
+        mode: 'managed',
+      }
       // Read-only capabilities never clone; a resource binding is refused.
       const denied = await channel.execute(
         commandFor('dev.project.clone', SCOPE_A, body, {

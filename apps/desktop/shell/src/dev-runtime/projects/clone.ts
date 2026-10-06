@@ -21,16 +21,9 @@ import { chmodSync, lstatSync, mkdirSync, renameSync, rmdirSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
-import type {
-  DevCommand,
-  DevError,
-  Project,
-  Scope,
-} from '../../../../../../packages/types/src/dev-runtime'
-import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
-import { nowIso, sameScope } from '../authority'
+import type { DevError, Project, Scope } from '../../../../../../packages/types/src/dev-runtime'
+import { nowIso } from '../authority'
 import type { AuthorityAudit } from '../audit'
-import type { ChannelAuthority } from '../channel/authority'
 import type { ProjectSessionRuntime } from '../project-session/register'
 import {
   directoryBytes,
@@ -45,8 +38,18 @@ import {
   provenManagedReposRoot,
 } from '../repos/managed'
 import { createRepoRegistryStore, redactRemoteUrl } from '../repos/registry-store'
+import {
+  admitCloneRemote,
+  buildCloneUrl,
+  classifyTransport,
+  transportArgs,
+  type CloneProtocol,
+  type CloneRemoteInput,
+} from './clone-policy'
+
+export { admitCloneRemote } from './clone-policy'
 import { discoverWorktrees } from '../worktrees/discovery'
-import { WorktreeError, type WorktreeErrorCode } from '../worktrees/errors'
+import { WorktreeError } from '../worktrees/errors'
 import { GitChildKilledError, runGit, type GitRunResult } from '../worktrees/git-run'
 import { identityOfPath } from '../worktrees/identity'
 import type { WorktreeService } from '../worktrees/service'
@@ -61,67 +64,14 @@ export const MANAGED_CLONE_MAX_CONCURRENT = 2
 const GIT_LOCAL_TIMEOUT_MS = 10_000
 const GIT_LOCAL_MAX_OUTPUT_BYTES = 1024 * 1024
 
-type CloneProtocol = 'https' | 'ssh' | 'file'
-
 type CloneLimits = Readonly<{ timeoutMs: number; maxBytes: number; pollMs: number }>
 
 function devError(code: DevError['code'], message: string): DevError {
   return { code, retryable: code === 'remote_unavailable' || code === 'timeout', message }
 }
 
-// oxlint-disable-next-line no-control-regex -- remote URLs reject control characters by design
-const CONTROL_OR_SPACE = /[\u0000- \u007f]/
-
-/**
- * Admit a clone remote. Production accepts only `https://`, `ssh://`, and
- * scp-like `user@host:path` (ssh). `file://` is admitted only when the
- * composition passes the test-only `allowLocalRemotes` flag (the shipped
- * shell never does); local paths are never remotes. The URL may not carry a
- * password or an https user-info token (credentials come from a vault
- * reference, never the URL), may not start with `-` (option injection), and
- * may not contain whitespace or control characters. Everything else —
- * `http://`, `ext::`, `fd::`, bare paths — refuses with `invalid_state`.
- */
-export function admitCloneRemote(
-  remoteUrl: string,
-  options: { allowLocalRemotes?: boolean } = {}
-): CloneProtocol {
-  const refuse = (why: string) => devError('invalid_state', `clone remote refused: ${why}`)
-  if (remoteUrl.length < 1 || remoteUrl.length > 2048) throw refuse('length')
-  if (CONTROL_OR_SPACE.test(remoteUrl)) throw refuse('whitespace or control characters')
-  if (remoteUrl.startsWith('-')) throw refuse('leading dash')
-  const scpLike = /^([A-Za-z0-9._-]+)@([A-Za-z0-9.-]+):([^:].*)$/.exec(remoteUrl)
-  if (scpLike && !remoteUrl.includes('://')) {
-    const [, , host = '', path = ''] = scpLike
-    if (host.startsWith('-') || host.startsWith('.') || path.startsWith('-'))
-      throw refuse('malformed ssh remote')
-    return 'ssh'
-  }
-  let parsed: URL
-  try {
-    parsed = new URL(remoteUrl)
-  } catch {
-    throw refuse('not a URL')
-  }
-  if (parsed.password !== '') throw refuse('embedded password; use a credential reference')
-  if (parsed.protocol === 'https:') {
-    if (parsed.username !== '') throw refuse('embedded user info; use a credential reference')
-    if (parsed.hostname === '') throw refuse('missing host')
-    return 'https'
-  }
-  if (parsed.protocol === 'ssh:') {
-    if (parsed.hostname === '' || parsed.hostname.startsWith('-')) throw refuse('missing host')
-    return 'ssh'
-  }
-  if (parsed.protocol === 'file:') {
-    // A local remote would let a caller copy any repository the user can
-    // read into app data; only test compositions opt in.
-    if (options.allowLocalRemotes !== true) throw refuse('local remotes are not allowed')
-    if (parsed.host !== '' || parsed.pathname.length < 2) throw refuse('malformed file remote')
-    return 'file'
-  }
-  throw refuse(`unsupported transport ${parsed.protocol.replace(/:$/, '')}`)
-}
+// oxlint-disable-next-line no-control-regex -- refs reject control characters by design
+const CONTROL_OR_SPACE = /[\u0000-\u0020\u007f]/
 
 /** A base ref the binding may default to: a plain ref spelling only. */
 function admitBaseRef(ref: string): void {
@@ -139,45 +89,24 @@ function admitBaseRef(ref: string): void {
     throw devError('invalid_state', 'default base ref is not a valid ref name')
 }
 
-/** Transport-scoped git config: every other protocol is refused by git. */
-function transportArgs(protocol: CloneProtocol): string[] {
-  return ['-c', 'protocol.allow=never', '-c', `protocol.${protocol}.allow=always`]
-}
-
-function classifyTransport(stderr: string): WorktreeErrorCode {
-  const text = stderr.toLowerCase()
-  // Batch-mode SSH refuses an unknown or changed host key outright: the
-  // remote could not be proven, which is a reachability failure, not auth.
-  if (
-    text.includes('host key verification failed') ||
-    text.includes('no matching host key') ||
-    /no [a-z0-9-]+ host key is known/.test(text) ||
-    text.includes('remote host identification has changed')
-  )
-    return 'remote_unavailable'
-  if (
-    text.includes('authentication failed') ||
-    text.includes('could not read username') ||
-    text.includes('could not read password') ||
-    text.includes('permission denied') ||
-    text.includes('terminal prompts disabled') ||
-    text.includes('403')
-  )
-    return 'auth_required'
-  if (text.includes('repository not found') || text.includes('does not appear to be a git'))
-    return 'not_found'
-  return 'remote_unavailable'
-}
-
 export type ManagedCloneAuthority = Readonly<{
   /** The unbind hook for remote-only projects (see project-session). */
   prepareUnbind(project: Project): Promise<Readonly<{ commit(): void; rollback(): void }>>
-  /** Register `dev.project.clone` against the project register. */
-  registerCloneProvider(input: {
-    authority: ChannelAuthority
-    projectSession: ProjectSessionRuntime
+  /** `dev.project.clone` with `mode: 'managed'`. The project register owns
+   *  the operation (scope, decode, the mode switch) and delegates here; the
+   *  remote has already been decoded but not yet admitted. */
+  cloneManaged(
+    request: ManagedCloneRequest,
+    projectSession: ProjectSessionRuntime,
     resolveCredentialRef: (credentialRefId: string) => { id: string; host: string; state: string }
-  }): void
+  ): Promise<Project>
+}>
+
+export type ManagedCloneRequest = Readonly<{
+  projectId: string
+  remote: CloneRemoteInput
+  credentialRefId?: string
+  defaultBaseRef?: string
 }>
 
 export function createManagedCloneAuthority(input: {
@@ -313,20 +242,13 @@ export function createManagedCloneAuthority(input: {
     return true
   }
 
-  async function clone(
-    command: DevCommand,
+  async function cloneManaged(
+    request: ManagedCloneRequest,
     projectSession: ProjectSessionRuntime,
     resolveCredentialRef: (credentialRefId: string) => { id: string; host: string; state: string }
   ): Promise<Project> {
-    if (!sameScope(command.scope, input.scope))
-      throw devError('unauthorized', 'project clone scope is not authorized')
-    if (command.resource !== undefined)
-      throw devError('identity_mismatch', 'dev.project.clone carries no resource binding')
-    const body = devOperationDecoders['dev.project.clone'].request(command.body)
-    const projectId = body.projectId as string
-    const remoteUrl = body.remoteUrl as string
-    const credentialRefId = body.credentialRefId as string | undefined
-    const defaultBaseRef = body.defaultBaseRef as string | undefined
+    const { projectId, credentialRefId, defaultBaseRef } = request
+    const remoteUrl = buildCloneUrl(request.remote)
     projectSession.assertUnboundProjectId(projectId)
     const protocol = admitCloneRemote(remoteUrl, {
       allowLocalRemotes: input.allowLocalRemotes === true,
@@ -611,12 +533,5 @@ export function createManagedCloneAuthority(input: {
     }
   }
 
-  return Object.freeze({
-    prepareUnbind,
-    registerCloneProvider(registration) {
-      registration.authority.registerCommandProvider('dev.project.clone', async (command) =>
-        clone(command, registration.projectSession, registration.resolveCredentialRef)
-      )
-    },
-  })
+  return Object.freeze({ prepareUnbind, cloneManaged })
 }

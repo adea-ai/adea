@@ -306,22 +306,34 @@ describe('Dev Runtime operation registry', () => {
     const projectId = '00000000-0000-4000-8000-000000000020'
     const repoId = '00000000-0000-4000-8000-000000000030'
     const clone = devOperationDecoders['dev.project.clone'].request
+    const remote = {
+      provider: 'github',
+      host: 'github.com',
+      ownerPath: 'adea-ai',
+      repository: 'adea',
+    }
     expect(
       clone({
         projectId,
-        remoteUrl: 'https://github.com/adea-ai/adea.git',
         mode: 'managed',
+        remote,
         credentialRefId: '00000000-0000-4000-8000-000000000040',
         defaultBaseRef: 'origin/main',
       })
     ).toMatchObject({ mode: 'managed' })
+    // #1061's checkout body stays valid unchanged (mode defaults to checkout).
+    expect(clone({ projectId, remote, destinationBookmarkId: repoId })).toMatchObject({
+      destinationBookmarkId: repoId,
+    })
+    expect(
+      clone({ projectId, remote, mode: 'checkout', destinationBookmarkId: repoId })
+    ).toMatchObject({ mode: 'checkout' })
     for (const bad of [
-      { projectId, remoteUrl: 'https://x/y', mode: 'mirror' },
-      { projectId, remoteUrl: '', mode: 'managed' },
-      { projectId, remoteUrl: 'x'.repeat(2049), mode: 'managed' },
-      { projectId, remoteUrl: 'https://x/y' },
-      { projectId, remoteUrl: 'https://x/y', mode: 'managed', destinationBookmarkId: repoId },
-      { projectId, remoteUrl: 'https://x/y', mode: 'managed', defaultBaseRef: 'r'.repeat(257) },
+      { projectId, remote, mode: 'mirror' },
+      { projectId, mode: 'managed' },
+      { projectId, remote: { ...remote, host: '' }, mode: 'managed' },
+      { projectId, remoteUrl: 'https://x/y', mode: 'managed' },
+      { projectId, remote, mode: 'managed', defaultBaseRef: 'r'.repeat(257) },
     ])
       expect(() => clone(bad)).toThrow()
 

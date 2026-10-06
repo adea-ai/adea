@@ -75,8 +75,8 @@ function git(dir: string, args: string[]): { stdout: string; code: number } {
 /** A local bare "origin" with one commit on `main` (plus a `.worktreeinclude`
  *  so the include-copy skip is observable). */
 function initOrigin(root: string): string {
-  const origin = join(root, 'origin.git')
-  mkdirSync(origin)
+  const origin = join(root, 'owner', 'origin.git')
+  mkdirSync(origin, { recursive: true })
   git(origin, ['init', '--bare', '-b', 'main'])
   const seed = join(root, 'seed')
   mkdirSync(seed)
@@ -148,25 +148,28 @@ function fixture(
     ...(options.production ? {} : { allowLocalRemotes: true }),
     ...(options.runGit ? { runGit: options.runGit } : {}),
   })
-  const projectSession = registerProjectSessionRuntime({
-    authority,
-    dataDir,
-    scope,
-    managedUnbind: clones.prepareUnbind,
-  })
-  clones.registerCloneProvider({
-    authority,
-    projectSession,
-    resolveCredentialRef: (credentialRefId) => {
-      const record = vault.get({ scope, credentialRefId })
-      return { id: record.id, host: record.host, state: record.state }
-    },
-  })
+  const resolveCredentialRef = (credentialRefId: string) => {
+    const record = vault.get({ scope, credentialRefId })
+    return { id: record.id, host: record.host, state: record.state }
+  }
+  // The project register owns `dev.project.clone` and delegates the managed
+  // mode, exactly as the composition wires it.
+  const projectSession: ReturnType<typeof registerProjectSessionRuntime> =
+    registerProjectSessionRuntime({
+      authority,
+      dataDir,
+      scope,
+      managedUnbind: clones.prepareUnbind,
+      managedClone: (request) => clones.cloneManaged(request, projectSession, resolveCredentialRef),
+      ...(options.production ? {} : { allowLocalCloneRemotes: true }),
+    })
   const managedRoot = join(realpathSync(dataDir), MANAGED_REPOS_DIR)
   return {
     root,
     dataDir,
     origin,
+    /** The redacted remote parts of the local fixture origin. */
+    originRemote: localRemote(origin),
     service,
     roots,
     credential,
@@ -183,6 +186,14 @@ function fixture(
       rmSync(root, { recursive: true, force: true })
     },
   }
+}
+
+/** Redacted remote parts for a local path `<base>/<owner>/<repo>`. */
+function localRemote(path: string) {
+  const parts = path.split('/')
+  const repository = parts.pop()!
+  const ownerPath = parts.pop()!
+  return { provider: 'other', host: `file://${parts.join('/')}`, ownerPath, repository }
 }
 
 function command(
@@ -218,7 +229,7 @@ type Fixture = ReturnType<typeof fixture>
 async function cloneProject(f: Fixture, body: Record<string, unknown> = {}): Promise<Project> {
   const reply = await f.run('dev.project.clone', {
     projectId,
-    remoteUrl: `file://${f.origin}`,
+    remote: f.originRemote,
     mode: 'managed',
     ...body,
   })
@@ -432,6 +443,7 @@ describe('dev.project.clone (remote-only projects)', () => {
   test('refuses unsafe remotes, mismatched credentials, and bound project ids before cloning', async () => {
     const f = fixture()
     try {
+      // Raw spellings the admission refuses outright.
       for (const remoteUrl of [
         'http://example.com/repo.git',
         'ext::sh -c touch% /tmp/pwned',
@@ -441,9 +453,28 @@ describe('dev.project.clone (remote-only projects)', () => {
         '/absolute/path/repo.git',
         'git@github.com:owner/repo.git --upload-pack=evil',
       ])
+        expect(await codeOf(() => admitCloneRemote(remoteUrl))).toBe('invalid_state')
+      // The same refusals through the operation, from redacted parts.
+      for (const remote of [
+        { provider: 'other', host: 'http://example.com', ownerPath: 'o', repository: 'r' },
+        { provider: 'other', host: 'ext::sh -c x', ownerPath: 'o', repository: 'r' },
+        { provider: 'github', host: 'token@github.com', ownerPath: 'o', repository: 'r' },
+        { provider: 'other', host: 'https://u:secret@github.com', ownerPath: 'o', repository: 'r' },
+      ])
         expect(
-          await codeOf(() => f.run('dev.project.clone', { projectId, remoteUrl, mode: 'managed' }))
+          await codeOf(() => f.run('dev.project.clone', { projectId, remote, mode: 'managed' }))
         ).toBe('invalid_state')
+      // A managed clone never takes a user destination.
+      expect(
+        await codeOf(() =>
+          f.run('dev.project.clone', {
+            projectId,
+            remote: f.originRemote,
+            mode: 'managed',
+            destinationBookmarkId: projectId,
+          })
+        )
+      ).toBe('invalid_state')
       expect(admitCloneRemote('git@github.com:owner/repo.git')).toBe('ssh')
       // Local remotes are a test-only opt-in.
       expect(await codeOf(() => admitCloneRemote(`file://${f.origin}`))).toBe('invalid_state')
@@ -456,7 +487,12 @@ describe('dev.project.clone (remote-only projects)', () => {
         await codeOf(() =>
           f.run('dev.project.clone', {
             projectId,
-            remoteUrl: 'https://gitlab.com/owner/repo.git',
+            remote: {
+              provider: 'gitlab',
+              host: 'gitlab.com',
+              ownerPath: 'owner',
+              repository: 'repo',
+            },
             mode: 'managed',
             credentialRefId: f.credential.id,
           })
@@ -466,7 +502,12 @@ describe('dev.project.clone (remote-only projects)', () => {
         await codeOf(() =>
           f.run('dev.project.clone', {
             projectId,
-            remoteUrl: 'https://github.com/owner/repo.git',
+            remote: {
+              provider: 'github',
+              host: 'github.com',
+              ownerPath: 'owner',
+              repository: 'repo',
+            },
             mode: 'managed',
             credentialRefId: '00000000-0000-4000-8000-0000000000ff',
           })
@@ -475,14 +516,14 @@ describe('dev.project.clone (remote-only projects)', () => {
       // The decoder refuses any other mode and a resource binding refuses.
       expect(
         await codeOf(() =>
-          f.run('dev.project.clone', { projectId, remoteUrl: `file://${f.origin}`, mode: 'mirror' })
+          f.run('dev.project.clone', { projectId, remote: f.originRemote, mode: 'mirror' })
         )
       ).not.toBe('no refusal')
       expect(
         await codeOf(() =>
           f.run(
             'dev.project.clone',
-            { projectId, remoteUrl: `file://${f.origin}`, mode: 'managed' },
+            { projectId, remote: f.originRemote, mode: 'managed' },
             { kind: 'project', id: projectId, generation: 1 }
           )
         )
@@ -505,7 +546,7 @@ describe('dev.project.clone (remote-only projects)', () => {
         await codeOf(() =>
           f.run('dev.project.clone', {
             projectId,
-            remoteUrl: `file://${join(f.root, 'missing.git')}`,
+            remote: localRemote(join(f.root, 'owner', 'missing.git')),
             mode: 'managed',
           })
         )
@@ -572,8 +613,13 @@ describe('hardened transport and cleanup', () => {
     }) as typeof runGit
     const f = fixture({ production: true, runGit: stub })
     try {
-      const remoteUrl = 'git@github.com:owner/repo.git'
-      const clone = () => f.run('dev.project.clone', { projectId, remoteUrl, mode: 'managed' })
+      const remote = {
+        provider: 'other',
+        host: 'ssh://git@github.com',
+        ownerPath: 'owner',
+        repository: 'repo.git',
+      }
+      const clone = () => f.run('dev.project.clone', { projectId, remote, mode: 'managed' })
       stderr = 'Host key verification failed.\nfatal: Could not read from remote repository.'
       expect(await codeOf(clone)).toBe('remote_unavailable')
       stderr = 'git@github.com: Permission denied (publickey,password).'

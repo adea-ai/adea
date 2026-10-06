@@ -65,7 +65,7 @@ import {
 } from './usage/on-device'
 import { RUN_TERMINAL_STATES } from './harness/status'
 import { createUsageService, type UsageService } from './usage/service'
-import type { RetainedDataRecord } from '../../../../../packages/types/src/dev-runtime'
+import type { Project, RetainedDataRecord } from '../../../../../packages/types/src/dev-runtime'
 import { registerWorktreeRuntime } from './worktrees/register'
 import {
   createWorktreeService,
@@ -371,19 +371,21 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           const minted = roots.authorize({ scope: input.scope!, absolutePath, label })
           return { id: minted.id }
         },
-        ...(managedClones ? { managedUnbind: managedClones.prepareUnbind } : {}),
+        ...(managedClones
+          ? {
+              managedUnbind: managedClones.prepareUnbind,
+              // `dev.project.clone` with `mode: 'managed'`; the register owns
+              // the operation and delegates the bare clone here.
+              managedClone: (request): Promise<Project> =>
+                managedClones.cloneManaged(request, projectSession!, (credentialRefId) => {
+                  const credential = vault.get({ scope: input.scope!, credentialRefId })
+                  return { id: credential.id, host: credential.host, state: credential.state }
+                }),
+            }
+          : {}),
+        ...(input.allowLocalCloneRemotes === true ? { allowLocalCloneRemotes: true } : {}),
       })
     : undefined
-  if (managedClones && projectSession) {
-    managedClones.registerCloneProvider({
-      authority: input.authority,
-      projectSession,
-      resolveCredentialRef: (credentialRefId) => {
-        const credential = vault.get({ scope: input.scope!, credentialRefId })
-        return { id: credential.id, host: credential.host, state: credential.state }
-      },
-    })
-  }
 
   // The monorepo scan provider rides the same authorized-root gate: scan
   // recommendations are previews bound to a bookmark, never free-form paths.
