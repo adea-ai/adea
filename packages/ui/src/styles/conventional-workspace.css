@@ -661,10 +661,6 @@
   outline: none;
   box-shadow: none;
 }
-.conventional-composer:has(textarea:focus) {
-  outline: 3px solid var(--cw-focus);
-  outline-offset: 2px;
-}
 .conventional-composer__attachment-control {
   position: relative;
 }
