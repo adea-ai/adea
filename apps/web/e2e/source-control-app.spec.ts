@@ -143,7 +143,11 @@ test.describe('source control app', () => {
   test('inbox groups pull requests by what they need next', async ({ page }) => {
     await openHarness(page)
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
-    await expect(sidebar.locator('[data-repo-id="repo-adea"]')).toContainText('adea')
+    // The harness catalog uses the deterministic UUID family the strict
+    // Worktree DTO requires (see source-control-harness-app.tsx).
+    await expect(
+      sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
+    ).toContainText('adea')
     await expect(sidebar.getByText('octocat', { exact: true })).toBeVisible()
     await expect(sidebar.getByRole('button', { name: 'Archived projects' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'adea-ai / adea' })).toBeVisible()
@@ -399,7 +403,7 @@ test.describe('source control app', () => {
     await openHarness(page)
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
     await expect(sidebar.getByText('GitLab', { exact: true })).toBeVisible()
-    await sidebar.locator('[data-repo-id="repo-runner"]').click()
+    await sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000105"]').click()
     await expect(page.getByRole('heading', { name: 'platform/infra / runner' })).toBeVisible()
     await expect(page.locator('[data-pr="12"]')).toContainText('!12')
     await page
@@ -443,7 +447,7 @@ test.describe('source control app', () => {
     await expect(page.getByText('GitLab not connected')).toBeVisible()
     await page
       .getByRole('complementary', { name: 'Accounts and projects' })
-      .locator('[data-repo-id="repo-runner"]')
+      .locator('[data-repo-id="00000000-0000-4000-8000-000000000105"]')
       .click()
     await expect(page.getByText('glab is not authenticated for this operation')).toBeVisible()
     await page.getByRole('button', { name: 'Connect account' }).first().click()
