@@ -10,10 +10,16 @@ import type {
   ContentRefSummary,
   MessageSummary,
   PrincipalRef,
+  ProjectMemberRole,
+  ProjectMemberSummary,
   ProjectSourceKind,
   ProjectSummary,
+  ProjectVisibility,
   TaskKind,
   TaskSummary,
+  WorkspaceInvitationRole,
+  WorkspaceInvitationSummary,
+  WorkspaceMemberSummary,
   WorkspaceSummary,
   WorkspaceUpdate,
   WorkspaceSearchPage,
@@ -229,6 +235,32 @@ export type ApiRuntimeNodeChallengeResponse = Readonly<{
 export type ApiRuntimeNodeRegistrationResponse = Readonly<{ node: ApiRuntimeNode }>
 
 export type ApiProjectResponse = Readonly<{ project: ProjectSummary }>
+export type ApiProjectMembersResponse = Readonly<{ members: readonly ProjectMemberSummary[] }>
+export type ApiProjectMemberResponse = Readonly<{ member: ProjectMemberSummary }>
+export type ApiProjectMemberRemoveResponse = Readonly<{ removed: boolean }>
+export type ApiWorkspaceMembersResponse = Readonly<{ members: readonly WorkspaceMemberSummary[] }>
+export type ApiWorkspaceInvitationsResponse = Readonly<{
+  invitations: readonly WorkspaceInvitationSummary[]
+}>
+export type ApiWorkspaceInvitationCreateInput = Readonly<{
+  email: string
+  role: WorkspaceInvitationRole
+}>
+/**
+ * The plaintext token is returned once, here, and never again: the server
+ * stores only its digest. `acceptPath` carries the token in the URL fragment,
+ * so it is not sent to the server, proxies or referrers when the link opens.
+ */
+export type ApiWorkspaceInvitationCreateResponse = Readonly<{
+  acceptPath: string
+  invitation: WorkspaceInvitationSummary
+  token: string
+}>
+export type ApiWorkspaceInvitationResponse = Readonly<{ invitation: WorkspaceInvitationSummary }>
+export type ApiWorkspaceInvitationAcceptResponse = Readonly<{
+  joined: boolean
+  workspaceId: string
+}>
 export type ApiProjectArchiveResponse = Readonly<{ archived: true }>
 export type ApiProjectDeleteResponse = Readonly<{ deleted: true }>
 
@@ -478,6 +510,102 @@ export class AgentHqApiClient {
       headers: { 'X-Adea-Temporary-Session': temporaryCredential },
       method: 'POST',
     })
+  }
+
+  async listWorkspaceMembers(workspaceId: string): Promise<ApiWorkspaceMembersResponse> {
+    return this.request<ApiWorkspaceMembersResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/members`
+    )
+  }
+
+  async listWorkspaceInvitations(workspaceId: string): Promise<ApiWorkspaceInvitationsResponse> {
+    return this.request<ApiWorkspaceInvitationsResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/invitations`
+    )
+  }
+
+  async createWorkspaceInvitation(
+    workspaceId: string,
+    input: ApiWorkspaceInvitationCreateInput
+  ): Promise<ApiWorkspaceInvitationCreateResponse> {
+    return this.request<ApiWorkspaceInvitationCreateResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/invitations`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
+    )
+  }
+
+  async revokeWorkspaceInvitation(
+    workspaceId: string,
+    invitationId: string
+  ): Promise<ApiWorkspaceInvitationResponse> {
+    return this.request<ApiWorkspaceInvitationResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/invitations/${encodeURIComponent(invitationId)}/revoke`,
+      { method: 'POST' }
+    )
+  }
+
+  /** Accept an invitation as the signed-in account; the token travels in the body only. */
+  async acceptWorkspaceInvitation(token: string): Promise<ApiWorkspaceInvitationAcceptResponse> {
+    return this.request<ApiWorkspaceInvitationAcceptResponse>('/workspace-invitations/accept', {
+      body: JSON.stringify({ token }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async setProjectVisibility(
+    workspaceId: string,
+    projectId: string,
+    visibility: ProjectVisibility
+  ): Promise<ApiProjectResponse> {
+    return this.request<ApiProjectResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/visibility`,
+      {
+        body: JSON.stringify({ visibility }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+      }
+    )
+  }
+
+  async listProjectMembers(
+    workspaceId: string,
+    projectId: string
+  ): Promise<ApiProjectMembersResponse> {
+    return this.request<ApiProjectMembersResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/members`
+    )
+  }
+
+  async setProjectMember(
+    workspaceId: string,
+    projectId: string,
+    userId: string,
+    role: ProjectMemberRole
+  ): Promise<ApiProjectMemberResponse> {
+    return this.request<ApiProjectMemberResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+      {
+        body: JSON.stringify({ role }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'PUT',
+      }
+    )
+  }
+
+  async removeProjectMember(
+    workspaceId: string,
+    projectId: string,
+    userId: string
+  ): Promise<ApiProjectMemberRemoveResponse> {
+    return this.request<ApiProjectMemberRemoveResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' }
+    )
   }
 
   async listProjects(workspaceId: string): Promise<readonly ProjectSummary[]> {

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as InviteRouteImport } from './routes/invite'
 import { Route as ApiSceneEditorRouteImport } from './routes/api/scene-editor'
 import { Route as ApiWebEntryRouteImport } from './routes/api/web-entry'
 import { Route as ApiWorkspacesRouteImport } from './routes/api/workspaces'
@@ -19,6 +20,7 @@ import { Route as ApiMarketplaceCatalogRouteImport } from './routes/api/marketpl
 import { Route as ApiMarketplaceInstallRouteImport } from './routes/api/marketplace/install'
 import { Route as ApiMarketplaceInstallPlanRouteImport } from './routes/api/marketplace/install-plan'
 import { Route as ApiTelemetryScenePerformanceRouteImport } from './routes/api/telemetry/scene-performance'
+import { Route as ApiWorkspaceInvitationsAcceptRouteImport } from './routes/api/workspace-invitations/accept'
 import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
 import { Route as ApiWorkspacesBootstrapRouteImport } from './routes/api/workspaces/bootstrap'
 import { Route as ApiWorkspacesClaimRouteImport } from './routes/api/workspaces/claim'
@@ -35,6 +37,8 @@ import { Route as ApiV1WorkspacesWorkspaceIdArtifactsRouteImport } from './route
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs'
 import { Route as ApiV1WorkspacesWorkspaceIdEventsRouteImport } from './routes/api/v1/workspaces/$workspaceId/events'
+import { Route as ApiV1WorkspacesWorkspaceIdInvitationsRouteImport } from './routes/api/v1/workspaces/$workspaceId/invitations'
+import { Route as ApiV1WorkspacesWorkspaceIdMembersRouteImport } from './routes/api/v1/workspaces/$workspaceId/members'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state'
 import { Route as ApiV1WorkspacesWorkspaceIdSearchRouteImport } from './routes/api/v1/workspaces/$workspaceId/search'
@@ -54,7 +58,10 @@ import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRouteImport } fr
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
+import { Route as ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRouteImport } from './routes/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
+import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
@@ -72,10 +79,16 @@ import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRouteImport } from
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InviteRoute = InviteRouteImport.update({
+  id: '/invite',
+  path: '/invite',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSceneEditorRoute = ApiSceneEditorRouteImport.update({
@@ -123,6 +136,12 @@ const ApiTelemetryScenePerformanceRoute =
   ApiTelemetryScenePerformanceRouteImport.update({
     id: '/api/telemetry/scene-performance',
     path: '/api/telemetry/scene-performance',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiWorkspaceInvitationsAcceptRoute =
+  ApiWorkspaceInvitationsAcceptRouteImport.update({
+    id: '/api/workspace-invitations/accept',
+    path: '/api/workspace-invitations/accept',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiWorkspacesWorkspaceIdRoute =
@@ -210,6 +229,18 @@ const ApiV1WorkspacesWorkspaceIdEventsRoute =
   ApiV1WorkspacesWorkspaceIdEventsRouteImport.update({
     id: '/api/v1/workspaces/$workspaceId/events',
     path: '/api/v1/workspaces/$workspaceId/events',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdInvitationsRoute =
+  ApiV1WorkspacesWorkspaceIdInvitationsRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/invitations',
+    path: '/api/v1/workspaces/$workspaceId/invitations',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdMembersRoute =
+  ApiV1WorkspacesWorkspaceIdMembersRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/members',
+    path: '/api/v1/workspaces/$workspaceId/members',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiV1WorkspacesWorkspaceIdProjectsRoute =
@@ -326,10 +357,28 @@ const ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute =
     path: '/replicas',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdContentRefsContentIdRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute =
+  ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRouteImport.update({
+    id: '/$invitationId/revoke',
+    path: '/$invitationId/revoke',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdInvitationsRoute,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute =
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRouteImport.update({
     id: '/delete',
     path: '/delete',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute =
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteImport.update({
+    id: '/members',
+    path: '/members',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute =
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRouteImport.update({
+    id: '/visibility',
+    path: '/visibility',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute,
   } as any)
 const ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute =
@@ -438,9 +487,17 @@ const ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute =
     path: '/start',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute =
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRouteImport.update({
+    id: '/$userId',
+    path: '/$userId',
+    getParentRoute: () =>
+      ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/invite': typeof InviteRoute
   '/api/scene-editor': typeof ApiSceneEditorRoute
   '/api/web-entry': typeof ApiWebEntryRoute
   '/api/workspaces': typeof ApiWorkspacesRouteWithChildren
@@ -450,6 +507,7 @@ export interface FileRoutesByFullPath {
   '/api/marketplace/install': typeof ApiMarketplaceInstallRoute
   '/api/marketplace/install-plan': typeof ApiMarketplaceInstallPlanRoute
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
+  '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
@@ -466,6 +524,8 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
+  '/api/v1/workspaces/$workspaceId/invitations': typeof ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/members': typeof ApiV1WorkspacesWorkspaceIdMembersRoute
   '/api/v1/workspaces/$workspaceId/projects': typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -485,7 +545,10 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
+  '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke': typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/members': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
@@ -503,9 +566,11 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/invite': typeof InviteRoute
   '/api/scene-editor': typeof ApiSceneEditorRoute
   '/api/web-entry': typeof ApiWebEntryRoute
   '/api/workspaces': typeof ApiWorkspacesRouteWithChildren
@@ -515,6 +580,7 @@ export interface FileRoutesByTo {
   '/api/marketplace/install': typeof ApiMarketplaceInstallRoute
   '/api/marketplace/install-plan': typeof ApiMarketplaceInstallPlanRoute
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
+  '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
@@ -531,6 +597,8 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
+  '/api/v1/workspaces/$workspaceId/invitations': typeof ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/members': typeof ApiV1WorkspacesWorkspaceIdMembersRoute
   '/api/v1/workspaces/$workspaceId/projects': typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -550,7 +618,10 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
+  '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke': typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/members': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
@@ -568,10 +639,12 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/invite': typeof InviteRoute
   '/api/scene-editor': typeof ApiSceneEditorRoute
   '/api/web-entry': typeof ApiWebEntryRoute
   '/api/workspaces': typeof ApiWorkspacesRouteWithChildren
@@ -581,6 +654,7 @@ export interface FileRoutesById {
   '/api/marketplace/install': typeof ApiMarketplaceInstallRoute
   '/api/marketplace/install-plan': typeof ApiMarketplaceInstallPlanRoute
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
+  '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
@@ -597,6 +671,8 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
+  '/api/v1/workspaces/$workspaceId/invitations': typeof ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/members': typeof ApiV1WorkspacesWorkspaceIdMembersRoute
   '/api/v1/workspaces/$workspaceId/projects': typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -616,7 +692,10 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
+  '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke': typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/members': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
@@ -634,11 +713,13 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/invite'
     | '/api/scene-editor'
     | '/api/web-entry'
     | '/api/workspaces'
@@ -648,6 +729,7 @@ export interface FileRouteTypes {
     | '/api/marketplace/install'
     | '/api/marketplace/install-plan'
     | '/api/telemetry/scene-performance'
+    | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
@@ -664,6 +746,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
     | '/api/v1/workspaces/$workspaceId/events'
+    | '/api/v1/workspaces/$workspaceId/invitations'
+    | '/api/v1/workspaces/$workspaceId/members'
     | '/api/v1/workspaces/$workspaceId/projects'
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/search'
@@ -683,7 +767,10 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
+    | '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
@@ -701,9 +788,11 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/invite'
     | '/api/scene-editor'
     | '/api/web-entry'
     | '/api/workspaces'
@@ -713,6 +802,7 @@ export interface FileRouteTypes {
     | '/api/marketplace/install'
     | '/api/marketplace/install-plan'
     | '/api/telemetry/scene-performance'
+    | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
@@ -729,6 +819,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
     | '/api/v1/workspaces/$workspaceId/events'
+    | '/api/v1/workspaces/$workspaceId/invitations'
+    | '/api/v1/workspaces/$workspaceId/members'
     | '/api/v1/workspaces/$workspaceId/projects'
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/search'
@@ -748,7 +840,10 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
+    | '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
@@ -766,9 +861,11 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
   id:
     | '__root__'
     | '/'
+    | '/invite'
     | '/api/scene-editor'
     | '/api/web-entry'
     | '/api/workspaces'
@@ -778,6 +875,7 @@ export interface FileRouteTypes {
     | '/api/marketplace/install'
     | '/api/marketplace/install-plan'
     | '/api/telemetry/scene-performance'
+    | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
@@ -794,6 +892,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
     | '/api/v1/workspaces/$workspaceId/events'
+    | '/api/v1/workspaces/$workspaceId/invitations'
+    | '/api/v1/workspaces/$workspaceId/members'
     | '/api/v1/workspaces/$workspaceId/projects'
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/search'
@@ -813,7 +913,10 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
+    | '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
@@ -831,10 +934,12 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  InviteRoute: typeof InviteRoute
   ApiSceneEditorRoute: typeof ApiSceneEditorRoute
   ApiWebEntryRoute: typeof ApiWebEntryRoute
   ApiWorkspacesRoute: typeof ApiWorkspacesRouteWithChildren
@@ -844,6 +949,7 @@ export interface RootRouteChildren {
   ApiMarketplaceInstallRoute: typeof ApiMarketplaceInstallRoute
   ApiMarketplaceInstallPlanRoute: typeof ApiMarketplaceInstallPlanRoute
   ApiTelemetryScenePerformanceRoute: typeof ApiTelemetryScenePerformanceRoute
+  ApiWorkspaceInvitationsAcceptRoute: typeof ApiWorkspaceInvitationsAcceptRoute
   AuthDesktopCompleteRoute: typeof AuthDesktopCompleteRoute
   ApiAuthDesktopAuthorizeRoute: typeof ApiAuthDesktopAuthorizeRoute
   ApiAuthDesktopExchangeRoute: typeof ApiAuthDesktopExchangeRoute
@@ -856,6 +962,8 @@ export interface RootRouteChildren {
   ApiV1WorkspacesWorkspaceIdChannelsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdContentRefsRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdEventsRoute: typeof ApiV1WorkspacesWorkspaceIdEventsRoute
+  ApiV1WorkspacesWorkspaceIdInvitationsRoute: typeof ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdMembersRoute: typeof ApiV1WorkspacesWorkspaceIdMembersRoute
   ApiV1WorkspacesWorkspaceIdProjectsRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdReadStateRoute: typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   ApiV1WorkspacesWorkspaceIdSearchRoute: typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -876,6 +984,13 @@ declare module '@tanstack/solid-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invite': {
+      id: '/invite'
+      path: '/invite'
+      fullPath: '/invite'
+      preLoaderRoute: typeof InviteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/scene-editor': {
@@ -939,6 +1054,13 @@ declare module '@tanstack/solid-router' {
       path: '/api/telemetry/scene-performance'
       fullPath: '/api/telemetry/scene-performance'
       preLoaderRoute: typeof ApiTelemetryScenePerformanceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/workspace-invitations/accept': {
+      id: '/api/workspace-invitations/accept'
+      path: '/api/workspace-invitations/accept'
+      fullPath: '/api/workspace-invitations/accept'
+      preLoaderRoute: typeof ApiWorkspaceInvitationsAcceptRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/workspaces/$workspaceId': {
@@ -1051,6 +1173,20 @@ declare module '@tanstack/solid-router' {
       path: '/api/v1/workspaces/$workspaceId/events'
       fullPath: '/api/v1/workspaces/$workspaceId/events'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/invitations': {
+      id: '/api/v1/workspaces/$workspaceId/invitations'
+      path: '/api/v1/workspaces/$workspaceId/invitations'
+      fullPath: '/api/v1/workspaces/$workspaceId/invitations'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdInvitationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/members': {
+      id: '/api/v1/workspaces/$workspaceId/members'
+      path: '/api/v1/workspaces/$workspaceId/members'
+      fullPath: '/api/v1/workspaces/$workspaceId/members'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdMembersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/workspaces/$workspaceId/projects': {
@@ -1186,11 +1322,32 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRoute
     }
+    '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke': {
+      id: '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
+      path: '/$invitationId/revoke'
+      fullPath: '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdInvitationsRoute
+    }
     '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': {
       id: '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
       path: '/delete'
       fullPath: '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute
+    }
+    '/api/v1/workspaces/$workspaceId/projects/$projectId/members': {
+      id: '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+      path: '/members'
+      fullPath: '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute
+    }
+    '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': {
+      id: '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
+      path: '/visibility'
+      fullPath: '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute
     }
     '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': {
@@ -1311,6 +1468,13 @@ declare module '@tanstack/solid-router' {
       fullPath: '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute
+    }
+    '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': {
+      id: '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
+      path: '/$userId'
+      fullPath: '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute
     }
   }
 }
@@ -1444,14 +1608,50 @@ const ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren =
     ApiV1WorkspacesWorkspaceIdContentRefsRouteChildren,
   )
 
+interface ApiV1WorkspacesWorkspaceIdInvitationsRouteChildren {
+  ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute: typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute
+}
+
+const ApiV1WorkspacesWorkspaceIdInvitationsRouteChildren: ApiV1WorkspacesWorkspaceIdInvitationsRouteChildren =
+  {
+    ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute:
+      ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute,
+  }
+
+const ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren =
+  ApiV1WorkspacesWorkspaceIdInvitationsRoute._addFileChildren(
+    ApiV1WorkspacesWorkspaceIdInvitationsRouteChildren,
+  )
+
+interface ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteChildren {
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
+}
+
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteChildren: ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteChildren =
+  {
+    ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute:
+      ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute,
+  }
+
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren =
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute._addFileChildren(
+    ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteChildren,
+  )
+
 interface ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
 }
 
 const ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren: ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren =
   {
     ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute:
       ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute,
+    ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute:
+      ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren,
+    ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute:
+      ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute,
   }
 
 const ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteWithChildren =
@@ -1557,6 +1757,7 @@ const ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  InviteRoute: InviteRoute,
   ApiSceneEditorRoute: ApiSceneEditorRoute,
   ApiWebEntryRoute: ApiWebEntryRoute,
   ApiWorkspacesRoute: ApiWorkspacesRouteWithChildren,
@@ -1566,6 +1767,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMarketplaceInstallRoute: ApiMarketplaceInstallRoute,
   ApiMarketplaceInstallPlanRoute: ApiMarketplaceInstallPlanRoute,
   ApiTelemetryScenePerformanceRoute: ApiTelemetryScenePerformanceRoute,
+  ApiWorkspaceInvitationsAcceptRoute: ApiWorkspaceInvitationsAcceptRoute,
   AuthDesktopCompleteRoute: AuthDesktopCompleteRoute,
   ApiAuthDesktopAuthorizeRoute: ApiAuthDesktopAuthorizeRoute,
   ApiAuthDesktopExchangeRoute: ApiAuthDesktopExchangeRoute,
@@ -1582,6 +1784,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1WorkspacesWorkspaceIdContentRefsRoute:
     ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdEventsRoute: ApiV1WorkspacesWorkspaceIdEventsRoute,
+  ApiV1WorkspacesWorkspaceIdInvitationsRoute:
+    ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren,
+  ApiV1WorkspacesWorkspaceIdMembersRoute:
+    ApiV1WorkspacesWorkspaceIdMembersRoute,
   ApiV1WorkspacesWorkspaceIdProjectsRoute:
     ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdReadStateRoute:

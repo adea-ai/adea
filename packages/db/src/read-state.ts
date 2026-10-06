@@ -6,6 +6,7 @@ import type {
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { requireProjectAccessScope, visibleProjectCondition } from './project-access'
 import { appendWorkspaceEvent } from './transactions'
 import {
   channelParticipants,
@@ -13,35 +14,23 @@ import {
   channels,
   messages,
   threadReadStates,
-  workspaceMemberships,
 } from './schema'
 
 type Database = AgentHqDatabase | AgentHqTransaction
-
-async function requireMembership(
-  database: Database,
-  workspaceId: string,
-  principal: UserPrincipalRef
-) {
-  const [membership] = await database
-    .select({ id: workspaceMemberships.id })
-    .from(workspaceMemberships)
-    .where(
-      and(
-        eq(workspaceMemberships.workspaceId, workspaceId),
-        eq(workspaceMemberships.userId, principal.userId)
-      )
-    )
-    .limit(1)
-  if (!membership) throw new Error('Read state unavailable')
-}
 
 export async function listAccessibleChannelIds(
   database: Database,
   workspaceId: string,
   principal: UserPrincipalRef
 ) {
-  await requireMembership(database, workspaceId, principal)
+  // Hidden projects' channels are not accessible, so their read state, unread
+  // counts and search scope never reach a principal who cannot see them.
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Read state unavailable'
+  )
   return database
     .select({ id: channels.id })
     .from(channels)
@@ -57,6 +46,7 @@ export async function listAccessibleChannelIds(
       and(
         eq(channels.workspaceId, workspaceId),
         eq(channels.lifecycleState, 'active'),
+        visibleProjectCondition(channels.projectId, scope),
         or(eq(channels.visibility, 'workspace'), eq(channelParticipants.userId, principal.userId))
       )
     )

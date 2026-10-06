@@ -1,6 +1,7 @@
 import type { ContentReplicaSummary, UserPrincipalRef } from '@adea-ai/types'
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 
+import { isContentRefVisible } from './project-access'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { contentRefs, contentReplicas, workspaceMemberships } from './schema'
 
@@ -196,6 +197,8 @@ export async function upsertContentReplica(
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
     if (!UUID.test(contentRefId)) throw new Error('Content replica unavailable')
+    if (!(await isContentRefVisible(transaction, workspaceId, principal.userId, contentRefId)))
+      throw new Error('Content replica unavailable')
     const contentRef = await selectRef(transaction, workspaceId, contentRefId)
     if (!contentRef || contentRef.synchronizationPolicy !== 'agent_hq_e2ee_sync')
       throw new Error('Content replica unavailable')
@@ -263,6 +266,8 @@ export async function listContentReplicasForUser(
 ): Promise<ContentReplicaSummary[]> {
   if (!UUID.test(contentRefId)) throw new Error('Content replica unavailable')
   await requireMembership(database, workspaceId, principal)
+  if (!(await isContentRefVisible(database, workspaceId, principal.userId, contentRefId)))
+    throw new Error('Content replica unavailable')
   const [contentRef] = await database
     .select({ synchronizationPolicy: contentRefs.synchronizationPolicy })
     .from(contentRefs)

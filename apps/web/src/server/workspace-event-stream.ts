@@ -3,7 +3,7 @@
  * that package's default entry throws. The client-boundary guard keeps it out of
  * browser bundles instead.
  */
-import type { WorkspaceEventView } from '@adea-ai/db'
+import type { WorkspaceEventDelivery, WorkspaceEventView } from '@adea-ai/db'
 
 /**
  * Wire format and delivery decisions for the authenticated workspace event
@@ -37,6 +37,30 @@ export function eventFrame(event: WorkspaceEventView, cursor: string): string {
     '',
     '',
   ].join('\n')
+}
+
+/**
+ * An event the subscriber may not see (it belongs to a members-only project
+ * they are not on). Only the sequence travels, so the client advances its
+ * cursor instead of reading the skipped sequence as lost history and
+ * refetching everything. It reveals that something happened, which the
+ * per-workspace sequence already does, and nothing about what.
+ */
+export function withheldFrame(workspaceSequence: number, cursor: string): string {
+  return [
+    `id: ${cursor}`,
+    'event: workspace.withheld',
+    `data: ${JSON.stringify({ workspaceSequence })}`,
+    '',
+    '',
+  ].join('\n')
+}
+
+/** The wire frame for one classified delivery. */
+export function deliveryFrame(delivery: WorkspaceEventDelivery, cursor: string): string {
+  return delivery.kind === 'withheld'
+    ? withheldFrame(delivery.workspaceSequence, cursor)
+    : eventFrame(delivery.event, cursor)
 }
 
 export type ResyncReason =

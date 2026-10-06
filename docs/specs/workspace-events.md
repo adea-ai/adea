@@ -19,6 +19,16 @@ enum only so historical rows stay readable; no current contract emits it, and a
 client that replays an old `room.*` event treats it as an unknown family and
 refreshes the workspace.
 
+**Sharing:** ADR 0012 (workspace memory, connections and sharing) made delivery
+per principal. A `members` project, its channels, messages, tasks and their artifacts are visible
+only to its project members plus workspace owners and admins, so the stream classifies every event
+for its subscriber before framing it ([per-principal filtering](#per-principal-filtering)). New
+types: `project.visibility_changed`, `project.members_changed` (aggregate `project`, payload
+`actorUserId`, `projectId`, and `visibility` or `userId`), and `workspace.member_invited`,
+`workspace.member_joined`, `workspace.invitation_revoked` (aggregate `workspace`, payload
+`actorUserId`, `invitationId`, and the joiner's `userId`). Invitation payloads carry ids only;
+`email` joined the forbidden payload keys, so an address cannot enter the log.
+
 ## The log is authoritative; delivery is not
 
 `workspace_events` is append-only product state. Clients synchronize from it and
@@ -89,6 +99,50 @@ optional correlation id.
   deliberate 30-minute stream lifetime, and a bounded number of concurrent
   streams per workspace. That bound is per server instance: a global limit needs
   shared state.
+
+## Per-principal filtering
+
+The log stays one shared, ordered history per workspace; filtering happens at delivery.
+`classifyWorkspaceEventsForUser` (`packages/db/src/event-visibility.ts`) takes each page the
+stream is about to send — replay and live alike — and the subscriber's **current** project access,
+and gives every event one of three outcomes:
+
+- **deliver**: sent as logged. `project.reordered` is narrowed to the project ids the subscriber can
+  see.
+- **redacted**: the event changes what the subscriber can see but concerns a project hidden from
+  them — `project.visibility_changed`, `project.members_changed`, `task.project_changed`, and agent
+  events naming a hidden project. The frame keeps the type, so the client refreshes, but drops the
+  payload, aggregate id, actor and correlation id.
+- **withheld**: everything else that touches a hidden project. The stream sends
+  `event: workspace.withheld` with `data: {"workspaceSequence": n}` and the usual signed cursor in
+  `id:`. The client advances its sequence without refreshing anything and without reading the skip
+  as a gap. The frame reveals only that the shared sequence advanced, which any later event would
+  reveal too.
+
+How an event maps to a project: the payload's `projectId`; the aggregate id of `project` events;
+the channel's project for `channelId`; the message's channel for a `messageId` without a
+`channelId`; the task's project for `taskId`; an artifact's task; and a content ref's task or
+message channel. Lookups use current state, so a task moved into a hidden project is hidden in
+replay too, and a removed project member stops seeing the project's history on the next page.
+
+**Never via resync.** `resync_required` frames carry only a fresh cursor; the client then refetches
+current state through the query layer, which applies the same project access. Cursors carry no
+access decision.
+
+**Membership.** If the subscriber is no longer a workspace member when a page is classified, the
+stream ends with `membership-revoked` straight away rather than at the next 30-second recheck.
+
+**Cost.** Every page that has events costs one or two indexed reads for the access scope
+(membership plus the workspace's `members` projects with the subscriber's rows). When the
+subscriber can see every project — owners, admins, and any workspace without hidden projects for
+them — that is all. Otherwise each page adds at most four batched lookups (channels, messages,
+tasks, artifacts/content refs) keyed by the ids in the page, never one query per event. Idle polls
+read nothing extra.
+
+**Client refresh.** `project.visibility_changed` and `project.members_changed` refresh the whole
+workspace scope, because access to the project's channels, tasks, read state and search changes
+with them. `workspace.member_*` events fall in the `workspace` family and refresh the member and
+invitation queries under the workspace prefix.
 
 ## Verifying it locally
 
@@ -185,12 +239,16 @@ unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
   replay/cursor behavior, cross-workspace isolation, retention, a lost wake-up,
   redaction and oversize refusal, conversation create/update/delete events,
   artifact availability, and two clients converging on the same history.
+- `packages/db/tests/integration/sharing.test.ts`: per-principal classification
+  (withheld, redacted, narrowed reorder) for outsiders, viewers, editors, admins
+  and owners, replay after removal, and the end of delivery for non-members.
 - `apps/web/test/event-stream.test.ts`: cursor round-trip and every rejection
-  reason, wire frames and their exact field set, the replay decision table, the
+  reason, wire frames and their exact field set, the withheld frame, the
+  replay decision table, the
   revalidation outcome (allowed, session-revoked, membership-revoked), and
   stream-connection accounting.
 - `packages/data/tests/unit/events.test.ts`: frame parsing, family-to-query
-  mapping, backoff, apply-once semantics with cursor persistence, gap and resync
+  mapping, withheld frames advancing without a gap, backoff, apply-once semantics with cursor persistence, gap and resync
   recovery, and the server-retry floor.
 - `packages/db/tests/integration/account-summary.test.ts`: the frontier on
   insert, thread reply, idempotent retry and delete; counts across three

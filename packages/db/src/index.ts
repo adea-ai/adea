@@ -119,6 +119,35 @@ export {
 } from './read-state'
 export { searchWorkspaceForUser } from './search'
 export {
+  canReadProject,
+  canWriteProject,
+  isMembersProjectEditorForConversation,
+  resolveProjectAccessScope,
+  type ProjectAccessScope,
+} from './project-access'
+export {
+  isProjectMemberRole,
+  isProjectVisibility,
+  listProjectMembersForUser,
+  removeProjectMember,
+  setProjectMember,
+  setProjectVisibility,
+} from './project-sharing'
+export {
+  acceptWorkspaceInvitation,
+  createWorkspaceInvitation,
+  digestInvitationToken,
+  INVITATION_LIFETIME_MS,
+  isInvitationToken,
+  isWorkspaceInvitationRole,
+  listWorkspaceInvitationsForUser,
+  listWorkspaceMembersForUser,
+  normalizeInvitationEmail,
+  revokeWorkspaceInvitation,
+  type WorkspaceInvitationAcceptance,
+} from './workspace-invitations'
+export { classifyWorkspaceEventsForUser, type WorkspaceEventDelivery } from './event-visibility'
+export {
   addWorkspaceMembership,
   archiveWorkspace,
   createWorkspaceWithOwner,

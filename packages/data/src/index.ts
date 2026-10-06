@@ -4,6 +4,7 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tansta
 
 export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
 export * from './dev-runtime'
+export * from './sharing'
 
 /** A value that may be supplied as a Solid accessor so queries stay reactive. */
 export type MaybeAccessor<T> = T | (() => T)

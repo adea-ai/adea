@@ -7,6 +7,7 @@ import {
 } from '../src/server/event-cursor'
 import {
   decideReplay,
+  deliveryFrame,
   drainingFrame,
   eventFrame,
   heartbeatFrame,
@@ -14,6 +15,7 @@ import {
   revalidationOutcome,
   StreamConnections,
   STREAM_CONNECTION_LIMIT,
+  withheldFrame,
 } from '../src/server/workspace-event-stream'
 
 const environment = { NEON_AUTH_COOKIE_SECRET: 'a'.repeat(48) }
@@ -130,6 +132,34 @@ describe('workspace event stream protocol', () => {
       'schemaVersion',
       'workspaceSequence',
     ])
+  })
+
+  test('a withheld event carries only its sequence and cursor', () => {
+    const frame = withheldFrame(9, 'opaque-cursor-value')
+    expect(frame).toBe(
+      'id: opaque-cursor-value\nevent: workspace.withheld\ndata: {"workspaceSequence":9}\n\n'
+    )
+    expect(deliveryFrame({ kind: 'withheld', workspaceSequence: 9 }, 'opaque-cursor-value')).toBe(
+      frame
+    )
+    // Nothing of the hidden event — ids, type, actor, payload — reaches the wire.
+    for (const value of [event.eventId, event.aggregateId, event.eventType, 'user-1'])
+      expect(frame).not.toContain(value)
+  })
+
+  test('delivered and redacted events use the normal event frame', () => {
+    expect(deliveryFrame({ event, kind: 'deliver' }, 'c1')).toBe(eventFrame(event, 'c1'))
+    const redacted = {
+      ...event,
+      actor: null,
+      aggregateId: null,
+      correlationId: null,
+      eventType: 'project.visibility_changed',
+      payload: {},
+    }
+    const frame = deliveryFrame({ event: redacted, kind: 'redacted' }, 'c1')
+    const data = JSON.parse(frame.split('data: ')[1]!.split('\n')[0]!) as Record<string, unknown>
+    expect(data).toMatchObject({ actor: null, aggregateId: null, payload: {} })
   })
 
   test('heartbeat, resync, and draining frames are explicit', () => {

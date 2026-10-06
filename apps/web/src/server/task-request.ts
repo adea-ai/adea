@@ -83,6 +83,10 @@ export function taskErrorResponse(
     return workspaceJsonResponse({ code: 'task_conflict', message }, resolution, request, {
       status: 409,
     })
+  if (message === 'Project read-only')
+    return workspaceJsonResponse({ code: 'project_read_only', message }, resolution, request, {
+      status: 403,
+    })
   if (message.endsWith('unavailable')) return workspaceUnavailableResponse(request)
   return workspaceJsonResponse(
     { code: 'invalid_request', message: 'Invalid request' },

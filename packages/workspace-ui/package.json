@@ -125,6 +125,13 @@
       "import": "./dist/workspace-apps.js",
       "default": "./dist/workspace-apps.js"
     },
+    "./project-share-dialog": {
+      "types": "./dist/project-share-dialog.d.ts",
+      "solid": "./src/project-share-dialog.tsx",
+      "development": "./src/project-share-dialog.tsx",
+      "import": "./dist/project-share-dialog.js",
+      "default": "./dist/project-share-dialog.js"
+    },
     "./app-library-page": {
       "types": "./dist/app-library-page.d.ts",
       "solid": "./src/app-library-page.tsx",
