@@ -81,6 +81,10 @@ export function queryKeysForEvent(
   workspaceId: string,
   eventType: string
 ): readonly (readonly unknown[])[] {
+  // Sharing changes who can see a project — and with it its channels, tasks,
+  // messages, read state and search hits — so they refresh the whole scope.
+  if (eventType === 'project.visibility_changed' || eventType === 'project.members_changed')
+    return workspaceScopeKeys(workspaceId)
   const [family = ''] = eventType.split('.')
   switch (family) {
     case 'message':
@@ -306,7 +310,7 @@ export function createWorkspaceEventSubscription(
     })
   }
 
-  function applyEvent(envelope: WorkspaceEventEnvelope): void {
+  function applyEvent(envelope: WorkspaceEventEnvelope, withheld = false): void {
     if (envelope.workspaceSequence <= appliedSequence) {
       // Duplicate delivery, or a replay of something already applied.
       return
@@ -321,7 +325,9 @@ export function createWorkspaceEventSubscription(
     }
     persistCursor(envelope.workspaceSequence)
     diagnostics('applied')
-    refresh(queryKeysForEvent(workspaceId, envelope.eventType))
+    // A withheld event (another project's, which this subscriber cannot see)
+    // only advances the cursor: there is nothing of it to refresh.
+    if (!withheld) refresh(queryKeysForEvent(workspaceId, envelope.eventType))
   }
 
   function handleFrame(frame: {
@@ -345,6 +351,17 @@ export function createWorkspaceEventSubscription(
       // The server is draining or the membership changed: reconnect through the
       // normal path so authorization is re-checked.
       throw new StreamUnavailable(frame.data)
+    }
+    if (frame.event === 'workspace.withheld') {
+      if (frame.id) persistCursorToken(frame.id)
+      try {
+        const { workspaceSequence } = JSON.parse(frame.data) as { workspaceSequence: unknown }
+        if (typeof workspaceSequence === 'number' && Number.isSafeInteger(workspaceSequence))
+          applyEvent({ eventType: 'withheld', workspaceSequence } as WorkspaceEventEnvelope, true)
+      } catch {
+        // Unparseable: the next reconnect replays it.
+      }
+      return
     }
     if (frame.event !== 'workspace.event') return
     // The frame's `id:` is the signed replay cursor. Record it before applying

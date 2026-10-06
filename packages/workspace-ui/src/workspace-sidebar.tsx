@@ -14,6 +14,7 @@ import {
   MessageCircle,
   Pencil,
   Plus,
+  Share2,
   Users,
   X,
 } from 'lucide-solid'
@@ -55,6 +56,7 @@ import { wideViewportAtLoad } from '@adea-ai/state'
 import { keyedRows } from './keyed-rows'
 import type { WorkspaceNavigation } from './workspace-model'
 import { ProjectIcon } from './project-icon'
+import { createProjectShare, ProjectShareHost, type ProjectShareContext } from './project-share'
 import { SidebarToggleButton } from './sidebar-toggle-button'
 
 // The dialogs stay in their own dynamically imported module. A static import
@@ -227,6 +229,8 @@ type Props = Readonly<{
   projectBusy: boolean
   selectedChannelId: string | null
   readState: readonly ChannelReadStateSummary[]
+  /** Where the project Share dialog reads and writes; omitted hosts hide Share. */
+  share?: ProjectShareContext
   status?: JSX.Element
   workspaceReady?: boolean
   workspaceName: string
@@ -243,6 +247,7 @@ export function WorkspaceSidebar(props: Props) {
   const [editingProject, setEditingProject] = createSignal<ProjectSummary | null>(null)
   const [renamingChannel, setRenamingChannel] = createSignal<ChannelSummary | null>(null)
   const [actionError, setActionError] = createSignal<string | null>(null)
+  const projectShare = createProjectShare()
   // The inline panel is unmounted below 48rem, so the host root only becomes
   // observable once the desktop aside mounts (or after a narrow-to-wide
   // reparent). Deriving it keeps resize and restore working across that swap;
@@ -480,6 +485,17 @@ export function WorkspaceSidebar(props: Props) {
                                 <Pencil aria-hidden="true" />
                                 Edit
                               </DropdownMenuItem>
+                              <Show when={props.share}>
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setActionError(null)
+                                    projectShare.open(item().project)
+                                  }}
+                                >
+                                  <Share2 aria-hidden="true" />
+                                  Share
+                                </DropdownMenuItem>
+                              </Show>
                             </DropdownMenuContent>
                           </DropdownMenu>
                           <Show when={item().visibleChannels.length}>
@@ -697,6 +713,9 @@ export function WorkspaceSidebar(props: Props) {
             projectName={project().name}
           />
         )}
+      </Show>
+      <Show when={props.share}>
+        {(context) => <ProjectShareHost context={context()} share={projectShare} />}
       </Show>
       <Show when={renamingChannel()}>
         {(channel) => (

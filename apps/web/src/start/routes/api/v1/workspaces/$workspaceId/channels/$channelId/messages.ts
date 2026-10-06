@@ -13,7 +13,10 @@ import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
 } from '../../../../../../../../server/desktop-workspace'
-import { authorizeWorkspace } from '../../../../../../../../server/workspace-authorization'
+import {
+  authorizeConversationWrite,
+  authorizeWorkspace,
+} from '../../../../../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../../../../../server/workspace-principal'
 import {
   workspaceInvalidRequestResponse,
@@ -64,7 +67,7 @@ async function post(request: Request, { params }: Context) {
   const { channelId, workspaceId } = await params
   const resolution = await resolveWorkspacePrincipal(request)
   if (!resolution) return workspaceUnavailableResponse(request, 401)
-  if (!(await authorizeWorkspace(resolution.principal, 'workspace.update', workspaceId)).allowed)
+  if (!(await authorizeConversationWrite(resolution.principal, workspaceId, { channelId })))
     return workspaceUnavailableResponse(request)
   const idempotencyKey = request.headers.get('idempotency-key')?.trim()
   let body: Record<string, unknown>

@@ -225,6 +225,13 @@
       "when": 1791245674825,
       "tag": "0031_account-summary",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791248060809,
+      "tag": "0032_project-sharing",
+      "breakpoints": true
     }
   ]
 }

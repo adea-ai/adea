@@ -59,7 +59,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // The #671 execution-location copy module (the task panel's persisted
   // history projection) costs 2,670,625 raw on the same build — 625 bytes
   // over the 2,670,000 cap. Raw ratchets to the next whole KiB.
-  total: { rawBytes: 2_671_000, gzipBytes: 791 * 1024, fileCount: 132 },
+  // Project sharing (2026-10-06): the lazy Share dialog, the /invite accept
+  // page, and the sharing api-client/data surface add 2,699,712 raw / 821,064
+  // gzip on the same build (+28.7 KB raw / +11.1 KB gzip). Raw ratchets to
+  // 2,715,000 (~0.6% headroom) and gzip to 806 KiB (~0.5%); file count holds.
+  total: { rawBytes: 2_715_000, gzipBytes: 806 * 1024, fileCount: 132 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 230 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -101,7 +105,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Chat journey total is nearly flat); (3) the shared archive shelf footer
     // and update badges add ~2.3 KiB. Raw ratchets to the next 2 KiB step
     // (~1% headroom); gzip to the next whole KiB with the usual ~3.7%.
-    chat: { rawBytes: 254 * 1024, gzipBytes: 85 * 1024 },
+    // Project sharing (2026-10-06): the sidebar's Share entry, the sharing
+    // query/mutation hooks and the lazy dialog's host land the route at
+    // 261,885 raw — 1,789 bytes over 254 KiB. Raw ratchets to the next 2 KiB
+    // step; the dialog itself stays lazy and gzip keeps its cap.
+    chat: { rawBytes: 256 * 1024, gzipBytes: 85 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the

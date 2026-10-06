@@ -268,12 +268,21 @@ export function ConventionalWorkspaceShell(props: {
     window.history.replaceState(null, '', url)
   }
   createEffect(() => {
-    if (!controller.workspaceId || !controller.channels.length) return
     const query = deepLinkQuery()
+    // A link to another workspace the member belongs to (an accepted
+    // invitation opens `/?workspace=<id>`) switches to it first; an unknown id
+    // is ignored by selectWorkspace.
+    if (query.workspace && controller.workspaceId && query.workspace !== controller.workspaceId) {
+      controller.selectWorkspace(query.workspace)
+      return
+    }
+    if (!controller.workspaceId || !controller.channels.length) return
     if (query.workspace && query.workspace !== controller.workspaceId) return
     const channelId = query.channel
     const taskId = query.task
-    if (channelId && controller.channels.some(({ id }) => id === channelId)) {
+    if (!channelId && !taskId && query.workspace) {
+      // A workspace-only link has nothing further to select.
+    } else if (channelId && controller.channels.some(({ id }) => id === channelId)) {
       const channel = controller.channels.find(({ id }) => id === channelId)!
       selectChannel(channel.id, channel.projectId)
       workspaceStore.getState().setThreadRootMessageId(query.thread ?? null)
@@ -390,6 +399,15 @@ export function ConventionalWorkspaceShell(props: {
                 projectBusy={controller.projectBusy}
                 selectedChannelId={selectedChannelId()}
                 readState={controller.readState}
+                share={
+                  controller.workspaceId
+                    ? {
+                        client: controller.client,
+                        currentUserId: sessionIdentity(),
+                        workspaceId: controller.workspaceId,
+                      }
+                    : undefined
+                }
                 workspaceName={controller.activeWorkspace!.name}
               />
             </Show>

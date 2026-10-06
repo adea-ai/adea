@@ -2,6 +2,8 @@ export { appSchema } from './schema'
 export { entityId, softDeleteColumns, timestampColumns, type JsonObject } from './conventions'
 export {
   authorizationAuditRecords,
+  workspaceInvitationRole,
+  workspaceInvitations,
   workspaceMemberships,
   workspaceRole,
   workspaces,
@@ -29,7 +31,13 @@ export {
 } from './runtime-nodes'
 export { authIdentities, temporaryUserSessions, users } from './identity'
 export { desktopAuthorizationCodes, desktopSessions } from './desktop-auth'
-export { projectLifecycleState, projects } from './projects'
+export {
+  projectLifecycleState,
+  projectMemberRole,
+  projectMembers,
+  projects,
+  projectVisibility,
+} from './projects'
 export { agentLifecycleState, agentProfileState, agents } from './agents'
 export {
   contentAvailability,

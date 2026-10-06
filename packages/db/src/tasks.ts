@@ -11,6 +11,12 @@ import { and, asc, eq, inArray, not } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachTaskContentRef } from './content-refs'
+import {
+  canReadProject,
+  requireProjectAccessScope,
+  requireProjectWrite,
+  visibleProjectCondition,
+} from './project-access'
 import { taskExecutionFromAttempts } from './task-execution'
 import type { WorkspaceEventType } from './event-contract'
 import { appendWorkspaceEvent } from './transactions'
@@ -400,7 +406,19 @@ export async function createTask(
         if (Boolean(input.objective?.trim()) === Boolean(input.objectiveContentRefId))
           throw new Error('Task objective invalid')
         if (input.agentId) await requireActiveAgent(transaction, workspaceId, input.agentId)
-        if (input.projectId) await requireActiveProject(transaction, workspaceId, input.projectId)
+        if (input.projectId) {
+          requireProjectWrite(
+            await requireProjectAccessScope(
+              transaction,
+              workspaceId,
+              principal,
+              'Task unavailable'
+            ),
+            input.projectId,
+            'Project unavailable'
+          )
+          await requireActiveProject(transaction, workspaceId, input.projectId)
+        }
         const artifactRefs = [...new Set(input.artifactRefs?.map((value) => value.trim()) ?? [])]
         if (artifactRefs.some((value) => !value)) throw new Error('Task Artifact reference invalid')
         const [created] = await transaction
@@ -456,7 +474,12 @@ export async function listTasksForUser(
   principal: UserPrincipalRef,
   options: Readonly<{ includeArchived?: boolean; limit?: number }> = {}
 ): Promise<TaskSummary[]> {
-  await requireMembership(database, workspaceId, principal)
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Task unavailable'
+  )
   // Bounded, like `search` and `listMessagesForUser`. This read is reachable
   // from the workspace bootstrap endpoint, so an unbounded scan of every task
   // in a workspace was both a round-trip problem and a resource one.
@@ -467,6 +490,7 @@ export async function listTasksForUser(
     .where(
       and(
         eq(tasks.workspaceId, workspaceId),
+        visibleProjectCondition(tasks.projectId, scope),
         ...(options.includeArchived ? [] : [not(eq(tasks.lifecycleState, 'archived'))])
       )
     )
@@ -489,16 +513,16 @@ export async function getTaskForUser(
   principal: UserPrincipalRef,
   options: Readonly<{ includeArchived?: boolean }> = {}
 ): Promise<TaskSummary | null> {
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Task unavailable'
+  ).catch(() => null)
+  if (!scope) return null
   const [row] = await database
     .select({ task: tasks })
     .from(tasks)
-    .innerJoin(
-      workspaceMemberships,
-      and(
-        eq(workspaceMemberships.workspaceId, tasks.workspaceId),
-        eq(workspaceMemberships.userId, principal.userId)
-      )
-    )
     .where(
       and(
         eq(tasks.id, taskId),
@@ -507,7 +531,8 @@ export async function getTaskForUser(
       )
     )
     .limit(1)
-  return row ? summarize(database, row.task) : null
+  if (!row || !canReadProject(scope, row.task.projectId)) return null
+  return summarize(database, row.task)
 }
 
 async function mutateExisting(
@@ -533,6 +558,13 @@ async function mutateExisting(
       command,
       async () => {
         const row = await requireTask(transaction, workspaceId, taskId)
+        // A hidden project's task is answered like a missing one; a viewer of a
+        // members-only project cannot change its tasks.
+        requireProjectWrite(
+          await requireProjectAccessScope(transaction, workspaceId, principal, 'Task unavailable'),
+          row.projectId,
+          'Task unavailable'
+        )
         requireExpectedVersion(row, command)
         if (row.lifecycleState === 'archived') throw new Error('Task unavailable')
         return summarize(transaction, await mutate(transaction, row))
@@ -658,7 +690,14 @@ export async function moveTaskToProject(
     { projectId },
     command,
     async (transaction, row) => {
-      if (projectId) await requireActiveProject(transaction, workspaceId, projectId)
+      if (projectId) {
+        requireProjectWrite(
+          await requireProjectAccessScope(transaction, workspaceId, principal, 'Task unavailable'),
+          projectId,
+          'Project unavailable'
+        )
+        await requireActiveProject(transaction, workspaceId, projectId)
+      }
       const [updated] = await transaction
         .update(tasks)
         .set({ projectId, updatedAt: new Date(), version: row.version + 1 })

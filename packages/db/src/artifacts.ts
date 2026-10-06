@@ -8,6 +8,11 @@ import type {
 } from '@adea-ai/types'
 import { and, asc, eq } from 'drizzle-orm'
 
+import {
+  requireProjectAccessScope,
+  resolveProjectAccessScope,
+  visibleTaskCondition,
+} from './project-access'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { agents, artifacts, tasks, workspaceMemberships } from './schema'
 import type { JsonObject } from './schema'
@@ -369,12 +374,20 @@ export async function listArtifactsForUser(
   options: Readonly<{ includeDeleted?: boolean }> = {}
 ): Promise<ArtifactSummary[]> {
   await requireMembership(database, workspaceId, principal)
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Artifact unavailable'
+  )
   const rows = await database
     .select()
     .from(artifacts)
     .where(
       and(
         eq(artifacts.workspaceId, workspaceId),
+        // An artifact of a hidden project's task is hidden with it.
+        visibleTaskCondition(database, artifacts.taskId, scope),
         ...(options.includeDeleted ? [] : [eq(artifacts.deletionState, 'active')])
       )
     )
@@ -389,20 +402,16 @@ export async function getArtifactForUser(
   principal: UserPrincipalRef,
   options: Readonly<{ includeDeleted?: boolean }> = {}
 ): Promise<ArtifactSummary | null> {
+  const scope = await resolveProjectAccessScope(database, workspaceId, principal.userId)
+  if (!scope) return null
   const [row] = await database
     .select({ artifact: artifacts })
     .from(artifacts)
-    .innerJoin(
-      workspaceMemberships,
-      and(
-        eq(workspaceMemberships.workspaceId, artifacts.workspaceId),
-        eq(workspaceMemberships.userId, principal.userId)
-      )
-    )
     .where(
       and(
         eq(artifacts.id, artifactId),
         eq(artifacts.workspaceId, workspaceId),
+        visibleTaskCondition(database, artifacts.taskId, scope),
         ...(options.includeDeleted ? [] : [eq(artifacts.deletionState, 'active')])
       )
     )

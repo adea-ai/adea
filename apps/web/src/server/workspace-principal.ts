@@ -25,6 +25,12 @@ const TEMPORARY_SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000
 export type WorkspacePrincipalResolution = Readonly<{
   clearTemporaryCredential: boolean
   createdCredential?: string
+  /**
+   * The signed-in account's provider email, used only to match a workspace
+   * invitation. Absent for temporary guests and for desktop sessions issued
+   * before the email was recorded.
+   */
+  email?: string | null
   expiresAt?: Date
   principal: UserPrincipalRef
   sessionRotated: boolean
@@ -48,7 +54,8 @@ export async function resolveWorkspacePrincipal(
       return principal
         ? Object.freeze({
             clearTemporaryCredential: false,
-            principal,
+            email: principal.email ?? null,
+            principal: Object.freeze({ kind: 'user' as const, userId: principal.userId }),
             sessionRotated: false,
             temporary: false,
           })
@@ -80,6 +87,7 @@ export async function resolveWorkspacePrincipal(
         })
         return Object.freeze({
           clearTemporaryCredential: true,
+          email: authentication.profile.email ?? null,
           principal,
           sessionRotated: false,
           temporary: false,
@@ -96,6 +104,7 @@ export async function resolveWorkspacePrincipal(
     return principal
       ? Object.freeze({
           clearTemporaryCredential: Boolean(credential),
+          email: authentication.profile.email ?? null,
           principal,
           sessionRotated: false,
           temporary: false,

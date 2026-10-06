@@ -131,6 +131,68 @@ Client visibility may reflect an authorization result for presentation, but it i
 boundary. Changing a bundle takes effect through the existing named-permission path and does not
 require a new role-name branch in a route.
 
+## Workspace sharing
+
+ADR 0012 (workspace memory, connections and sharing) adds invitations into a
+workspace and per-project visibility. Both sit on top of the role bundles above.
+
+**Invitations.** A principal holding `membership.manage` (owners and admins) invites an email
+address with the `admin` or `member` role through `POST /api/v1/workspaces/:id/invitations`; the
+list (`GET`) and revoke (`POST …/invitations/:invitationId/revoke`) routes need the same
+permission.
+
+- The token is 32 random bytes (base64url). Only its SHA-256 digest is stored, in
+  `workspace_invitations.token_digest`; the plaintext is returned once in the create response and
+  never again. Invitation lists carry no token.
+- The create response includes `acceptPath`, `/invite#token=…`. The token rides in the URL
+  fragment, which browsers do not send to the server, proxies or `Referer`; the `/invite` page reads
+  it, clears it from the address bar, and posts it in a JSON body.
+- No email is sent. The inviter copies the link from the Share dialog and delivers it themselves.
+  Sending mail is out of scope until a mail provider is chosen.
+- An invitation expires after 7 days. Re-inviting the same email replaces (revokes) the pending
+  invitation, because the plaintext of the old link cannot be shown again. At most one invitation
+  per (workspace, email) is pending, enforced by a partial unique index.
+- `POST /api/workspace-invitations/accept { token }` requires a signed-in account — temporary
+  guests get `401` and the page sends them through sign-in — whose provider email matches the
+  invitation (case-insensitive). The first acceptance creates the membership, appended to the end of
+  the joiner's own workspace order, and settles the invitation; a replay by the same user returns
+  the same workspace and changes nothing. Unknown, expired, revoked, already-used and wrong-email
+  attempts all answer the same `404`, so a token cannot be probed. An existing member who accepts
+  keeps their current role.
+
+**Project visibility.** A project is `workspace` (every member, the default) or `members` (its
+project members plus the workspace's owners and admins). Project members carry `viewer` or
+`editor`.
+
+- Owners and admins (`membership.manage`) change visibility (`PATCH …/projects/:id/visibility`) and
+  the member list (`PUT`/`DELETE …/projects/:id/members/:userId`). Anyone who can see a project may
+  read its member list (`GET …/projects/:id/members`), so the Share dialog renders read-only for
+  them. Only workspace members can be listed on a project, and leaving the workspace drops the
+  rows.
+- Enforcement lives in the `@adea-ai/db` query layer (`project-access.ts`): every list, get and
+  search function for projects, channels, messages, tasks, artifacts, content refs and their
+  encrypted replicas, and read state resolves the caller's access scope and filters hidden projects
+  in SQL. A hidden project answers exactly like a missing one. A task belongs to the project in its
+  `project_id`; an artifact or content ref follows its task or its message's channel.
+- Agents stay workspace-level: an agent assigned to a hidden project is still listed, with that
+  project's id, to every member. The id names nothing they can open.
+- In a `members` project a `viewer` reads but cannot write: message create, edit and delete and
+  task and channel changes fail with `Project read-only` (`403 project_read_only`). Read state is
+  personal, so viewers can still mark it. An `editor` may post, edit and delete messages in the
+  project's channels even without the workspace-wide write role: the message routes accept
+  `workspace.update` **or** editor membership of the channel's members-only project
+  (`authorizeConversationWrite`). Other project writes keep their workspace-level permission.
+- A project's member roles grant nothing while it is `workspace`-visible; the rows are kept so
+  switching back to `members` restores the same list.
+- The event stream filters per principal; see
+  [workspace events](specs/workspace-events.md#per-principal-filtering).
+
+| Field                                       | Classification     | Leaves the device       |
+| ------------------------------------------- | ------------------ | ----------------------- |
+| Invitation email and role                   | workspace metadata | yes                     |
+| Invitation token                            | credential         | digest only, single use |
+| Project visibility and project member roles | workspace metadata | yes                     |
+
 ## Provider migration
 
 Neon Auth stores Better Auth data in `neon_auth`; `@adea-ai/db` must not query or migrate that

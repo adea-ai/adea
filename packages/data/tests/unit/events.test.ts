@@ -276,6 +276,47 @@ describe('workspace event client', () => {
     expect(diagnostics.some((entry) => entry.event === 'gap')).toBe(true)
   })
 
+  test('a withheld event advances the cursor without a refresh or a gap', async () => {
+    const { client, invalidated } = fakeQueryClient()
+    const diagnostics: Array<{ event: string; reason?: string }> = []
+    const storage = memoryStorage()
+    storage.setItem(`adea:workspace-events-cursor:${workspaceId}`, '3')
+
+    const subscription = createWorkspaceEventSubscription({
+      fetchImpl: streamFetch([
+        frame({ workspaceSequence: 4 }, 'cGF5bG9hZA.c2lnbmF0dXJl', 'workspace.withheld'),
+        frame(envelope(5, 'task.created'), 'cGF5bG9hZDU.c2lnbmF0dXJl'),
+      ]),
+      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+      queryClient: client,
+      schedule: immediateScheduler([]),
+      storage,
+      url,
+      workspaceId,
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    subscription.stop()
+
+    // Sequence 4 belonged to a project this subscriber cannot see: it is
+    // accounted for, so 5 applies normally instead of reading as a gap.
+    expect(subscription.appliedSequence()).toBe(5)
+    expect(diagnostics.some((entry) => entry.event === 'gap')).toBe(false)
+    expect(invalidated).toEqual([JSON.stringify(['workspaces', workspaceId, 'tasks'])])
+    expect(storage.getItem(`adea:workspace-events-resume:${workspaceId}`)).toBe(
+      'cGF5bG9hZDU.c2lnbmF0dXJl'
+    )
+  })
+
+  test('sharing changes refresh the whole workspace scope', () => {
+    for (const type of ['project.visibility_changed', 'project.members_changed'])
+      expect(queryKeysForEvent(workspaceId, type)).toEqual(workspaceScopeKeys(workspaceId))
+    expect(queryKeysForEvent(workspaceId, 'workspace.member_joined')).toContainEqual([
+      'workspaces',
+      workspaceId,
+    ])
+  })
+
   // The server mints a FRESH signed cursor on the resync frame. This test used
   // to be titled "resumes from the fresh cursor" while asserting only
   // invalidation, a diagnostic, and a sequence — never the token — and its

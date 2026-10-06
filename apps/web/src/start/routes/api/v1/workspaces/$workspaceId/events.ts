@@ -1,6 +1,8 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import {
+  classifyWorkspaceEventsForUser,
   listWorkspaceEventsAfter,
+  type WorkspaceEventView,
   markEventDispatchesNotified,
   workspaceEventWindow,
   WORKSPACE_EVENT_PAGE_LIMIT,
@@ -24,8 +26,8 @@ import {
 } from '../../../../../../server/workspace-response'
 import {
   decideReplay,
+  deliveryFrame,
   drainingFrame,
-  eventFrame,
   heartbeatFrame,
   resyncFrame,
   revalidationOutcome,
@@ -128,6 +130,30 @@ async function get(request: Request, { params }: { params: { workspaceId: string
         }
       })
 
+      // Every page — replay and live — is classified against the subscriber's
+      // current project access before it is framed, so a members-only project
+      // never reaches someone who cannot see it, and a resumed cursor is
+      // filtered exactly like live delivery. `false` means the subscriber is no
+      // longer a member: the stream ends as a revoked membership.
+      const sendPage = async (page: readonly WorkspaceEventView[]): Promise<boolean> => {
+        const deliveries = await classifyWorkspaceEventsForUser(
+          database,
+          workspaceId,
+          resolution.principal.userId,
+          page
+        )
+        if (!deliveries) return false
+        for (const [index, delivery] of deliveries.entries()) {
+          const event = page[index]!
+          const cursor = await encodeWorkspaceEventCursor({
+            sequence: event.workspaceSequence,
+            workspaceId,
+          })
+          send(deliveryFrame(delivery, cursor ?? ''))
+        }
+        return true
+      }
+
       try {
         send(`retry: ${STREAM_RETRY_MS}\n\n`)
 
@@ -152,14 +178,11 @@ async function get(request: Request, { params }: { params: { workspaceId: string
             WORKSPACE_EVENT_PAGE_LIMIT
           )
           while (page.length > 0) {
-            for (const event of page) {
-              const cursor = await encodeWorkspaceEventCursor({
-                sequence: event.workspaceSequence,
-                workspaceId,
-              })
-              send(eventFrame(event, cursor ?? ''))
-              lastSequence = event.workspaceSequence
+            if (!(await sendPage(page))) {
+              send(drainingFrame('membership-revoked'))
+              return
             }
+            lastSequence = page.at(-1)!.workspaceSequence
             await markEventDispatchesNotified(database, workspaceId, lastSequence)
             page =
               page.length < WORKSPACE_EVENT_PAGE_LIMIT
@@ -188,15 +211,12 @@ async function get(request: Request, { params }: { params: { workspaceId: string
             lastSequence,
             WORKSPACE_EVENT_PAGE_LIMIT
           )
-          for (const event of events) {
-            const cursor = await encodeWorkspaceEventCursor({
-              sequence: event.workspaceSequence,
-              workspaceId,
-            })
-            send(eventFrame(event, cursor ?? ''))
-            lastSequence = event.workspaceSequence
-          }
           if (events.length > 0) {
+            if (!(await sendPage(events))) {
+              send(drainingFrame('membership-revoked'))
+              break
+            }
+            lastSequence = events.at(-1)!.workspaceSequence
             await markEventDispatchesNotified(database, workspaceId, lastSequence)
           }
 

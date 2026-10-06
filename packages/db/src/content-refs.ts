@@ -1,6 +1,7 @@
 import type { ContentRefSummary, UserPrincipalRef } from '@adea-ai/types'
 import { and, eq, isNull, or } from 'drizzle-orm'
 
+import { isContentRefVisible } from './project-access'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { contentRefs, workspaceMemberships } from './schema'
 
@@ -154,7 +155,9 @@ export async function getContentRefForUser(
     )
     .where(and(eq(contentRefs.id, contentId), eq(contentRefs.workspaceId, workspaceId)))
     .limit(1)
-  return row ? summarize(row.contentRef) : null
+  if (!row || !(await isContentRefVisible(database, workspaceId, principal.userId, contentId)))
+    return null
+  return summarize(row.contentRef)
 }
 
 export async function updateContentRef(
@@ -177,6 +180,8 @@ export async function updateContentRef(
     throw new Error('Content metadata invalid')
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
+    if (!(await isContentRefVisible(transaction, workspaceId, principal.userId, contentId)))
+      throw new Error('Content unavailable')
     const nextRevision = input.revision
     const now = new Date()
     const [updated] = await transaction
