@@ -62,8 +62,12 @@ import {
 } from '@adea-ai/workspace-ui/workspace-breadcrumbs'
 import type { WorkspaceRunSummaryItem } from '@adea-ai/types/dev-runtime'
 import { WorkspaceTopBar } from './workspace-top-bar'
-import { createDevWorkspaceNavHost, type DevWorkspaceNavHost } from '../lib/dev-workspace-nav-host'
-import type { DevGlobalNavContext, DevGlobalNavSlots } from '@adea-ai/dev-view/chat'
+import {
+  createDevWorkspaceNavHost,
+  type DevGlobalNavContext,
+  type DevGlobalNavSlots,
+  type DevWorkspaceNavHost,
+} from '../lib/dev-workspace-nav-host'
 import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'

@@ -10,12 +10,16 @@ import {
   useTaskListQuery,
   useUpdateProjectMutation,
 } from '@adea-ai/data'
-import type { DevGlobalNavSlots, DevWorkspaceNavHost } from '@adea-ai/dev-view/chat'
+import type {
+  DevGlobalNavContext,
+  DevGlobalNavSlots,
+  DevWorkspaceNavHost,
+} from '@adea-ai/dev-view/chat'
 import type { TaskLifecycleState, WorkspaceSummary } from '@adea-ai/types'
 import type { WorkspaceRunSummaryItem } from '@adea-ai/types/dev-runtime'
 import { createMemo, type Accessor } from 'solid-js'
 
-export type { DevWorkspaceNavHost }
+export type { DevGlobalNavContext, DevGlobalNavSlots, DevWorkspaceNavHost }
 
 /** The icon a project created from Dev starts with; Chat's project settings change it. */
 const DEV_PROJECT_ICON_KEY = 'engineering'
