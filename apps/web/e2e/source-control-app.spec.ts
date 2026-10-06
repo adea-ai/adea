@@ -385,18 +385,99 @@ test.describe('source control app', () => {
     page,
   }) => {
     // gh is connected and the Dev view has projects, but no registry record
-    // was proven: the sidebar must say so and point at adoption, never imply
-    // the account has no repositories.
+    // was proven: the sidebar must say so honestly — adoption runs
+    // automatically when a project is added, a removal is undoable from the
+    // Repositories panel, and unregistered archived projects are stated
+    // separately because auto-adopt skips them.
     await openHarness(page, '?scenario=unregistered')
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
-    await expect(sidebar.getByText(/6 projects have not been registered yet/)).toBeVisible()
-    await expect(sidebar.getByText(/Repositories panel and adopt their repositories/)).toBeVisible()
+    await expect(
+      sidebar.getByText(/5 projects are not listed because their repositories are not registered/)
+    ).toBeVisible()
+    await expect(
+      sidebar.getByText(/Adoption runs automatically when a project is added/)
+    ).toBeVisible()
+    await expect(sidebar.getByText(/remove repositories from the registry/)).toBeVisible()
+    await expect(sidebar.getByText(/1 archived project is also not registered/)).toBeVisible()
     await page.getByRole('button', { name: 'Connect account' }).click()
     const dialog = page.getByRole('dialog', { name: 'Git providers' })
     await expect(
       dialog.getByText('Checking confirms the CLI sign-in Adea uses for your pull requests.')
     ).toBeVisible()
-    await expect(dialog.getByText(/adopt it/)).toBeVisible()
+    await expect(
+      dialog.getByText(/Adoption runs automatically when a project is added/)
+    ).toBeVisible()
+    await expect(dialog.getByText(/adopt or remove repositories/)).toBeVisible()
+  })
+
+  test('a completed auto-adopt lists the project without any client adopt command', async ({
+    page,
+  }) => {
+    // The host adopts during import as a background side effect. The first
+    // catalog read sees nothing registered and the sidebar says so (active
+    // and archived projects stated separately); once the proof lands, the
+    // next sync lists the project — and the client never issued
+    // dev.repo.adopt, which stays a host-side proof.
+    await openHarness(page, '?scenario=auto-adopt')
+    const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
+    await expect(
+      sidebar.getByText(/5 projects are not listed because their repositories are not registered/)
+    ).toBeVisible()
+    // Adoption completes host-side: advance the clock past the focus
+    // re-sync gate and re-focus; no adopt command exists in the log.
+    await page.evaluate(() => {
+      window.sourceControlHarness.advanceClock(11_000)
+      window.dispatchEvent(new Event('focus'))
+    })
+    await expect(sidebar.locator('[data-repo-id="repo-adea"]')).toBeVisible()
+    await expect(
+      sidebar.getByText(/projects are not listed because their repositories are not registered/)
+    ).toHaveCount(0)
+    expect(await commands(page)).not.toContain('dev.repo.adopt')
+  })
+
+  test('hiding a repository collapses it below the show-more line and persists', async ({
+    page,
+  }) => {
+    await openHarness(page)
+    const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
+    const row = sidebar.locator('[data-repo-id="repo-adea"]')
+    await expect(row).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Hidden repositories' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Hide adea below the show-more line' }).click()
+    // The row left the owner section for the collapsed group; hiding is a
+    // display preference — the row stays in the registry and remains
+    // selectable inside the group.
+    await expect(sidebar.locator('[data-repo-id="repo-adea"]')).toHaveCount(0)
+    const hiddenToggle = sidebar.getByRole('button', { name: 'Hidden repositories' })
+    await expect(hiddenToggle).toBeVisible()
+    await hiddenToggle.click()
+    const restored = sidebar.locator('[data-repo-id="repo-adea"]')
+    await expect(restored).toBeVisible()
+    await page.getByRole('button', { name: 'Show adea in the sidebar' }).click()
+    await expect(row).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Hidden repositories' })).toHaveCount(0)
+  })
+
+  test('the hidden set survives a reload', async ({ page }) => {
+    await openHarness(page)
+    const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
+    await page.getByRole('button', { name: 'Hide ui below the show-more line' }).click()
+    await expect(sidebar.locator('[data-repo-id="repo-ui"]')).toHaveCount(0)
+    // A reload that keeps storage must keep the display preference.
+    await page.goto(`${SOURCE_CONTROL_HARNESS_PATH}?reset=keep`)
+    await page.addScriptTag({ type: 'module', content: sourceControlHarnessModuleSource() })
+    await expect
+      .poll(() => page.evaluate(() => Boolean(window.sourceControlHarness)), { timeout: 90_000 })
+      .toBe(true)
+    const reloaded = page.getByRole('complementary', { name: 'Accounts and projects' })
+    await expect(reloaded.locator('[data-repo-id="repo-ui"]')).toHaveCount(0)
+    const hiddenToggle = reloaded.getByRole('button', { name: 'Hidden repositories' })
+    await expect(hiddenToggle).toBeVisible()
+    await hiddenToggle.click()
+    await expect(reloaded.locator('[data-repo-id="repo-ui"]')).toBeVisible()
+    // Restore for the shared fixture page state.
+    await page.getByRole('button', { name: 'Show ui in the sidebar' }).click()
   })
 
   test('a GitLab project runs through the same screens', async ({ page }) => {

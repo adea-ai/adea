@@ -94,32 +94,6 @@
 
 /* ── Sidebar ────────────────────────────────────────────────────────────── */
 
-/* One repository row with its trailing show-more control. The control stays
-   out of the way until the row is hovered or focused, so the list reads calm;
-   :focus-within keeps it keyboard-reachable and visible to focus readers. */
-.dev-scm-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.dev-scm-row > :first-child {
-  flex: 1;
-  min-width: 0;
-}
-
-.dev-scm-row__hide {
-  flex: none;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.dev-scm-row:hover .dev-scm-row__hide,
-.dev-scm-row:focus-within .dev-scm-row__hide {
-  opacity: 1;
-}
-
 .dev-scm-tree__owner {
   display: flex;
   align-items: center;

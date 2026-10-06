@@ -16,6 +16,7 @@ import {
   SidebarNavFooter,
   SidebarNavHeader,
   SidebarNavItem,
+  SidebarNavRow,
   SidebarNavSection,
   SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
@@ -76,7 +77,25 @@ function ProjectRow(props: {
             icon: <EyeOff aria-hidden="true" />,
           }
   return (
-    <div class="dev-scm-row">
+    <SidebarNavRow
+      actions={
+        props.hidden === undefined ? undefined : (
+          <Show when={hiddenControl()}>
+            {(control) => (
+              <ActionButton
+                variant="ghost"
+                size="icon-2xs"
+                tooltip={control().label}
+                aria-label={control().label}
+                onClick={() => props.state.setRepoHidden(props.row.repoId, props.hidden !== true)}
+              >
+                {control().icon}
+              </ActionButton>
+            )}
+          </Show>
+        )
+      }
+    >
       <SidebarNavItem
         as="button"
         type="button"
@@ -113,21 +132,7 @@ function ProjectRow(props: {
           )}
         </Show>
       </SidebarNavItem>
-      <Show when={hiddenControl()}>
-        {(control) => (
-          <ActionButton
-            size="icon-2xs"
-            variant="ghost"
-            class="dev-scm-row__hide"
-            tooltip={control().label}
-            aria-label={control().label}
-            onClick={() => props.state.setRepoHidden(props.row.repoId, props.hidden !== true)}
-          >
-            {control().icon}
-          </ActionButton>
-        )}
-      </Show>
-    </div>
+    </SidebarNavRow>
   )
 }
 
