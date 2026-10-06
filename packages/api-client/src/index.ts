@@ -261,6 +261,8 @@ export type ApiMarketplaceCatalogResponse = Readonly<{
     pluginId: string
     releaseId: string
     canonicalContentDigest: string
+    /** The handle for installation get and uninstall (Control Plane 3.x). */
+    installationId?: string
     installationInstanceId?: string
     packageDigest?: string
     state:
@@ -315,6 +317,40 @@ export type ApiMarketplaceInstallResponse = Readonly<{
   requiredConnectors: readonly string[]
   requiredCredentials: readonly string[]
   message?: string
+}>
+
+/** One installation as the Control Plane reports it for get and uninstall. */
+export type ApiMarketplaceInstallation = Readonly<{
+  installationId: string
+  pluginId: string
+  releaseId: string
+  canonicalContentDigest: string
+  catalogId: string
+  installationInstanceId?: string
+  packageDigest?: string
+  requestedHarness: string
+  state:
+    | 'pending-authorization'
+    | 'unavailable'
+    | 'rejected-by-policy'
+    | 'installed'
+    | 'superseded'
+    | 'uninstalled'
+  installedBy: string
+  installedAt: string
+  updatedAt: string
+  uninstalledBy?: string
+  uninstalledAt?: string
+}>
+
+export type ApiMarketplaceInstallationResponse = Readonly<{
+  installation: ApiMarketplaceInstallation
+}>
+
+export type ApiMarketplaceUninstallResponse = Readonly<{
+  installation: ApiMarketplaceInstallation
+  /** True when the installation was already uninstalled. */
+  replayed: boolean
 }>
 
 export type ApiDesktopSessionCredential = Readonly<{
@@ -455,6 +491,28 @@ export class AgentHqApiClient {
   ): Promise<ApiMarketplaceInstallResponse> {
     return this.request<ApiMarketplaceInstallResponse>('/marketplace/install', {
       body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async getMarketplaceInstallation(
+    workspaceId: string,
+    installationId: string
+  ): Promise<ApiMarketplaceInstallationResponse> {
+    return this.request<ApiMarketplaceInstallationResponse>('/marketplace/installations/get', {
+      body: JSON.stringify({ installationId, workspaceId }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async uninstallMarketplaceInstallation(
+    workspaceId: string,
+    installationId: string
+  ): Promise<ApiMarketplaceUninstallResponse> {
+    return this.request<ApiMarketplaceUninstallResponse>('/marketplace/installations/uninstall', {
+      body: JSON.stringify({ installationId, workspaceId }),
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
     })

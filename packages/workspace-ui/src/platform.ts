@@ -212,11 +212,18 @@ export type WorkspacePlugin = WorkspacePluginDefinition &
   Readonly<{
     installed: boolean
     installationStatus: WorkspacePluginInstallationStatus
+    /**
+     * The Control Plane installation handle for the current release, when the
+     * Control Plane reported one; required to uninstall.
+     */
+    installationId?: string
   }>
 
 export type WorkspacePluginsProvider = Readonly<{
   list(): Promise<readonly WorkspacePlugin[]>
   requestInstall(pluginId: string): Promise<readonly WorkspacePlugin[]>
+  /** Uninstalls the workspace's installation of a plugin; absent when unsupported. */
+  requestUninstall?(pluginId: string): Promise<readonly WorkspacePlugin[]>
   getState?(): WorkspacePluginsProviderState
 }>
 

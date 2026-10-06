@@ -404,6 +404,7 @@ export function createRegistryPluginsProvider(
           pluginId,
           releaseId: response.releaseId,
           canonicalContentDigest: response.canonicalContentDigest,
+          ...(response.installationId ? { installationId: response.installationId } : {}),
           ...(response.installationInstanceId
             ? { installationInstanceId: response.installationInstanceId }
             : {}),
@@ -420,10 +421,55 @@ export function createRegistryPluginsProvider(
     )
   }
 
+  const requestUninstall = async (pluginId: string): Promise<readonly WorkspacePlugin[]> => {
+    const workspaceId = options.getWorkspaceId()
+    if (!workspaceId || !options.getUserId()) {
+      state = 'unavailable'
+      throw new MarketplaceCatalogError(
+        'unavailable',
+        'A workspace and user identity are required to uninstall a plugin'
+      )
+    }
+    if (!cache) await refresh()
+    if (!cache)
+      throw new MarketplaceCatalogError('unavailable', 'The plugin catalog is unavailable')
+    const installation = cache.installations.find(
+      (candidate) => candidate.pluginId === pluginId && candidate.installationId
+    )
+    if (!installation?.installationId)
+      throw new MarketplaceCatalogError(
+        'unavailable',
+        'This plugin has no Control Plane installation to uninstall'
+      )
+    const response = await apiClient().uninstallMarketplaceInstallation(
+      workspaceId,
+      installation.installationId
+    )
+    if (
+      response.installation.installationId !== installation.installationId ||
+      response.installation.state !== 'uninstalled'
+    ) {
+      throw new MarketplaceCatalogError(
+        'verification-failure',
+        'Control Plane returned a mismatched uninstall result'
+      )
+    }
+    // Uninstalled installations never return in the catalog, so dropping the
+    // entry matches what the next refresh will report.
+    cache = {
+      ...cache,
+      installations: cache.installations.filter(
+        (candidate) => candidate.installationId !== installation.installationId
+      ),
+    }
+    return mapRegistryCatalog(cache.catalog, cache.installations, cache.brandMarks)
+  }
+
   return {
     getState: () => state,
     list,
     requestInstall,
+    requestUninstall,
   }
 }
 

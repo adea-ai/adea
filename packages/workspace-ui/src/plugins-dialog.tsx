@@ -1,3 +1,14 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@adea-ai/ui/components/ui/alert-dialog'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -153,6 +164,53 @@ function describeInstallFailure(error: unknown): string {
   return 'The install could not be started.'
 }
 
+/** The uninstall refusal, in the user's terms, without leaking provider detail. */
+function describeUninstallFailure(error: unknown): string {
+  const state = (error as { state?: string } | null)?.state
+  if (state === 'verification-failure')
+    return 'The Control Plane returned an unexpected result, so this plugin may still be installed.'
+  return 'The uninstall could not be completed.'
+}
+
+function UninstallPlugin(props: { name: string; saving: boolean; onConfirm: () => void }) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger
+        as={Button}
+        type="button"
+        variant="outline"
+        size="sm"
+        aria-label={`Uninstall ${props.name}`}
+        disabled={props.saving}
+      >
+        Uninstall
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Uninstall {props.name}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This removes the plugin from this workspace for everyone in it. Agents stop using it
+            once the Control Plane records the uninstall. You can add it again later.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel as={Button} type="button" variant="outline">
+            Keep plugin
+          </AlertDialogCancel>
+          <AlertDialogAction
+            as={Button}
+            type="button"
+            variant="destructive"
+            onClick={() => props.onConfirm()}
+          >
+            Uninstall
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
 function activationEntryId(activation: WorkspaceAppActivation): string {
   return activation.status === 'activatable' ? activation.entryId : ''
 }
@@ -214,6 +272,7 @@ function AppActivationSection(props: { activation: WorkspaceAppActivation }) {
 
 function PluginDetail(props: {
   onUpdate: () => void
+  onUninstall?: () => void
   plugin: WorkspacePlugin
   saving: boolean
   installError?: string
@@ -273,6 +332,17 @@ function PluginDetail(props: {
             <p role="status">
               <Check aria-hidden="true" /> Installed through Control Plane
             </p>
+          </Show>
+          <Show when={props.plugin.installationId ? props.onUninstall : undefined}>
+            {(onUninstall) => (
+              <div>
+                <UninstallPlugin
+                  name={props.plugin.name}
+                  saving={props.saving}
+                  onConfirm={() => onUninstall()()}
+                />
+              </div>
+            )}
           </Show>
           <Show when={installationNotice()}>{(message) => <p role="status">{message()}</p>}</Show>
         </div>
@@ -592,6 +662,26 @@ export function PluginsDialog(props: {
       setStatus('idle')
     }
   }
+  const uninstall = async (plugin: WorkspacePlugin) => {
+    const provider = props.provider
+    if (!props.open || !provider?.requestUninstall || status() === 'saving') return
+    const revision = installRevision
+    const current = () => revision === installRevision && props.open && provider === props.provider
+    setInstallFailure(undefined)
+    setStatus('saving')
+    try {
+      const items = await provider.requestUninstall(plugin.id)
+      if (!current()) return
+      setPlugins(items)
+      setStatus('idle')
+      setCatalogState(provider.getState?.() ?? 'ready')
+    } catch (error) {
+      if (!current()) return
+      // Like an install refusal, a failed uninstall keeps the catalog on screen.
+      setInstallFailure({ pluginId: plugin.id, message: describeUninstallFailure(error) })
+      setStatus('idle')
+    }
+  }
 
   return (
     <ModalDialog
@@ -659,6 +749,9 @@ export function PluginsDialog(props: {
         renderDetail={(plugin) => (
           <PluginDetail
             onUpdate={() => void update(plugin)}
+            onUninstall={
+              props.provider?.requestUninstall ? () => void uninstall(plugin) : undefined
+            }
             plugin={plugin}
             saving={status() === 'saving'}
             installError={installError()}
