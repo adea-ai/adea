@@ -251,7 +251,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the shell's sidebar modules, partly offset by a smaller command chunk
     // split on this route). Raw ratchets to 888 KiB (~0.8% headroom); gzip
     // to 234 KiB (~0.6%).
-    devTerminal: { rawBytes: 888 * 1024, gzipBytes: 234 * 1024 },
+    // Same-day drift past that ratchet (CI 2026-10-06: 911,627 raw on the
+    // #1076 merge, 911,743 with #1077's chunk reshuffle) — the verify gate
+    // only runs on pull requests, so the drift painted every open PR red
+    // instead of main. Raw ratchets to 897 KiB (~0.7% headroom); gzip to
+    // 240 KiB, because the raw assert was masking the gzip step of the same
+    // drift.
+    devTerminal: { rawBytes: 897 * 1024, gzipBytes: 240 * 1024 },
     // Same delta on the editor route (2026-10-06, ADR 0011 PR 10b): 541,499
     // raw / 171,081 gzip against its base build's 490,226 / 154,545. Raw
     // ratchets to 532 KiB (~0.6% headroom); gzip to 168 KiB (~0.6%).
