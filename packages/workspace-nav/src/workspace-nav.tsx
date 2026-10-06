@@ -44,6 +44,7 @@ import {
 import { createViewAdapter, type NavMenuItemId, type NavView, type ViewAdapter } from './adapters'
 import {
   navGroupModes,
+  needsYouFallbackGroupMode,
   sortWorkspaces,
   workspaceChips,
   type NavGroupMode,
@@ -147,8 +148,10 @@ export function WorkspaceNav(props: WorkspaceNavProps) {
       <Show when={props.tree.needsYou > 0}>
         <SidebarNavButton
           data-slot="workspace-nav-needs-you"
-          aria-pressed={props.groupBy === 'status'}
-          onClick={() => (props.onNeedsYou ?? (() => props.onGroupByChange('status')))()}
+          aria-pressed={props.groupBy === needsYouFallbackGroupMode}
+          onClick={() =>
+            (props.onNeedsYou ?? (() => props.onGroupByChange(needsYouFallbackGroupMode)))()
+          }
         >
           <CircleAlert aria-hidden="true" class="text-warning" />
           <SidebarNavLabel>Needs you</SidebarNavLabel>

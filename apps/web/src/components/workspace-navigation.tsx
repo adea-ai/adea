@@ -749,6 +749,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     client: props.client,
     activeWorkspace: () => props.activeWorkspace,
     workspaces: () => props.workspaces,
+    // Dev renders the sidebar; desktop Chat renders it outside the Kanban board.
+    active: () =>
+      view() === 'dev' ||
+      (props.chatEntry !== undefined && view() !== 'virtual' && activeAppId() !== 'kanban'),
     switchToWorkspace,
     openWorkspaceSettings: () => openSettings('workspace'),
     devSummary: () => props.devSummary?.(),

@@ -7,6 +7,19 @@ export type WorkspaceSceneId = 'home' | 'work'
 
 export type WorkspaceViewMode = 'perspective' | 'orthographic'
 
+/**
+ * The workspace sidebar's groupings of the active workspace (ADR 0011), in
+ * menu order. The one source for the shared nav's `NavGroupMode`, the
+ * workspace store's `SidebarGroupBy` and the persisted-state validator.
+ */
+export const sidebarGroupModes = ['project', 'status', 'recent'] as const
+
+export type SidebarGroupMode = (typeof sidebarGroupModes)[number]
+
+export function isSidebarGroupMode(value: unknown): value is SidebarGroupMode {
+  return typeof value === 'string' && (sidebarGroupModes as readonly string[]).includes(value)
+}
+
 export const workspacePermissions = [
   'workspace.create',
   'workspace.read',

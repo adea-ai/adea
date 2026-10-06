@@ -7,12 +7,12 @@ import {
   fixtureRuns,
   leafIdForSession,
   sessionForLeaf,
-  stabilizeNavTree,
   visibleDiffWorktreeIds,
   type DevNavBinding,
   type DevNavInput,
   type DevNavWorktreeRecord,
 } from '../src/sidebar/dev-nav-model'
+import { stabilizeNavTree } from '@adea-ai/workspace-nav/model'
 
 const WORKSPACE = 'workspace-active'
 

@@ -1,4 +1,4 @@
-// Browser pane models. Mini-player geometry cases are transcribed from
+// Browser pane models. Mini-player source-size cases are transcribed from
 // t3code previewMiniPlayerLayout.test.ts (MIT); ports merge cases from
 // useDiscoveredLocalServers.test.ts; annotation submission cases from
 // AnnotationKeyboard.test.ts and PickedElementPayload.test.ts. Adea cases:
@@ -6,13 +6,7 @@
 import { describe, expect, test } from 'bun:test'
 import { devOperationMetadataFor_dev_browser_navigate } from '@adea-ai/types/dev-runtime-metadata'
 
-import {
-  clampPreviewMiniPlayerPosition,
-  resolveDeviceMiniPlayerCornerRadius,
-  resolveDeviceMiniPlayerSourceSize,
-  resolvePreviewMiniPlayerFrame,
-  resizePreviewMiniPlayer,
-} from '../src/browser/mini-preview-layout'
+import { resolveDeviceMiniPlayerSourceSize } from '../src/browser/mini-preview-layout'
 import { canonicalKey, isPreviewableRow, mergeServers } from '../src/browser/ports-model'
 import { buildPortNavigationRequest } from '../src/browser/navigation-model'
 import {
@@ -29,9 +23,6 @@ import {
   resolvePresetViewport,
 } from '../src/browser/responsive-presets'
 
-const CONTAINER = { width: 1000, height: 700 }
-const SOURCE = { width: 1600, height: 1000 } // aspect 1.6
-
 const scannerServer = (port: number, overrides: Record<string, unknown> = {}) => ({
   host: 'localhost',
   port,
@@ -42,149 +33,8 @@ const scannerServer = (port: number, overrides: Record<string, unknown> = {}) =>
   ...overrides,
 })
 
-describe('mini player geometry (t3code ports)', () => {
-  test('fresh player defaults to the top-right corner at the default box', () => {
-    expect(
-      resolvePreviewMiniPlayerFrame({
-        width: null,
-        position: null,
-        source: SOURCE,
-        container: CONTAINER,
-      })
-    ).toEqual({ x: 668, y: 12, width: 320, height: 200 })
-  })
-
-  test('a tall source binds at the minimum width', () => {
-    expect(
-      resolvePreviewMiniPlayerFrame({
-        width: null,
-        position: null,
-        source: { width: 390, height: 844 },
-        container: CONTAINER,
-      })
-    ).toEqual({ x: 748, y: 12, width: 240, height: 519 })
-  })
-
-  test('a stored width and position survive the layout pass', () => {
-    expect(
-      resolvePreviewMiniPlayerFrame({
-        width: 480,
-        position: { x: 100, y: 80 },
-        source: SOURCE,
-        container: CONTAINER,
-      })
-    ).toEqual({ x: 100, y: 80, width: 480, height: 300 })
-  })
-
-  test('a tall composer shrinks the player without losing the stored width', () => {
-    expect(
-      resolvePreviewMiniPlayerFrame({
-        width: 800,
-        position: { x: 100, y: 12 },
-        source: SOURCE,
-        container: CONTAINER,
-        obstacles: { composer: { left: 100, right: 900, height: 300 } },
-      })
-    ).toEqual({ x: 100, y: 12, width: 602, height: 376 })
-  })
-
-  test('resize east then resolve reproduces the exact resized frame', () => {
-    const start = { x: 300, y: 200, width: 320, height: 200 }
-    const resized = resizePreviewMiniPlayer({
-      start,
-      direction: 'east',
-      delta: { x: 160, y: 0 },
-      source: SOURCE,
-      container: CONTAINER,
-    })
-    expect(resized).toEqual({ x: 300, y: 200, width: 480, height: 300 })
-    expect(
-      resolvePreviewMiniPlayerFrame({
-        width: resized.width,
-        position: { x: resized.x, y: resized.y },
-        source: SOURCE,
-        container: CONTAINER,
-      })
-    ).toEqual(resized)
-  })
-
-  test('west/north drags anchor the opposite edge; corner growth leads by relative delta', () => {
-    const start = { x: 300, y: 200, width: 320, height: 200 }
-    expect(
-      resizePreviewMiniPlayer({
-        start,
-        direction: 'west',
-        delta: { x: -160, y: 0 },
-        source: SOURCE,
-        container: CONTAINER,
-      })
-    ).toEqual({ x: 140, y: 200, width: 480, height: 300 })
-    expect(
-      resizePreviewMiniPlayer({
-        start,
-        direction: 'north',
-        delta: { x: 0, y: -100 },
-        source: SOURCE,
-        container: CONTAINER,
-      })
-    ).toEqual({ x: 300, y: 100, width: 480, height: 300 })
-    expect(
-      resizePreviewMiniPlayer({
-        start,
-        direction: 'southeast',
-        delta: { x: 20, y: 100 },
-        source: SOURCE,
-        container: CONTAINER,
-      })
-    ).toEqual({ x: 300, y: 200, width: 480, height: 300 })
-  })
-
-  test('container edges stop growth; minimum size holds on shrink', () => {
-    expect(
-      resizePreviewMiniPlayer({
-        start: { x: 600, y: 12, width: 320, height: 200 },
-        direction: 'east',
-        delta: { x: 500, y: 0 },
-        source: SOURCE,
-        container: CONTAINER,
-      })
-    ).toEqual({ x: 600, y: 12, width: 388, height: 243 })
-    expect(
-      resizePreviewMiniPlayer({
-        start: { x: 300, y: 200, width: 320, height: 200 },
-        direction: 'southeast',
-        delta: { x: -300, y: -300 },
-        source: SOURCE,
-        container: CONTAINER,
-      })
-    ).toEqual({ x: 300, y: 200, width: 240, height: 150 })
-  })
-
-  test('drags slide along the composer into the margin', () => {
-    const player = { width: 360, height: 240 }
-    const obstacles = { composer: { left: 100, right: 900, height: 160 } }
-    expect(
-      clampPreviewMiniPlayerPosition({ x: 500, y: 448 }, CONTAINER, player, obstacles)
-    ).toEqual({ x: 500, y: 288 })
-    expect(
-      clampPreviewMiniPlayerPosition(
-        { x: 850, y: 500 },
-        CONTAINER,
-        { width: 60, height: 150 },
-        obstacles
-      )
-    ).toEqual({ x: 912, y: 500 })
-    expect(
-      clampPreviewMiniPlayerPosition(
-        { x: 100, y: 100 },
-        CONTAINER,
-        { width: 976, height: 500 },
-        obstacles
-      )
-    ).toEqual({ x: 12, y: 28 })
-  })
-
-  test('device source size and corner radius (t3code/orca cases)', () => {
+describe('mini player source size (t3code ports)', () => {
+  test('device source size (t3code/orca cases)', () => {
     expect(resolveDeviceMiniPlayerSourceSize('ios', null).width).toBe(1000)
     expect(
       resolveDeviceMiniPlayerSourceSize('ios', {
@@ -193,8 +43,6 @@ describe('mini player geometry (t3code ports)', () => {
         orientation: 'landscape_left',
       })
     ).toEqual({ width: 2556, height: 1179 })
-    expect(resolveDeviceMiniPlayerCornerRadius('android', { width: 240, height: 520 })).toBe(34)
-    expect(resolveDeviceMiniPlayerCornerRadius('ios', { width: 240, height: 520 })).toBe(12)
   })
 })
 

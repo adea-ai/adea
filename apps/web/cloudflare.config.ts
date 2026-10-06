@@ -41,7 +41,11 @@ export default defineConfig({
       ),
       CONTROL_PLANE_SCOPE_WORKSPACE_ID: bindings.text('wsp_59RJWZSA7TXWDN0KN3KSV8478W'),
       // Marketplace proxy bearer credential (Ed25519 service JWT,
-      // adea-web-worker-v2, expires 2027-10-01).
+      // adea-web-worker-v2, expires 2027-10-01). This is the unscoped
+      // fallback: provisioning the per-request signer (ADR 0013) adds
+      // CONTROL_PLANE_SIGNING_KEY (Secrets Store) plus the
+      // CONTROL_PLANE_SIGNING_KEY_ID / _ISSUER text bindings here and in
+      // wrangler.jsonc; see docs/control-plane-credentials.md.
       CONTROL_PLANE_SERVICE_TOKEN: bindings.secretsStoreSecret({
         storeId: controlPlaneStore,
         secretName: 'AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN',

@@ -363,6 +363,9 @@
    the hit target to the minimum without moving the bar's layout. */
 .workspace-topbar__context-toggle {
   min-block-size: 1.5rem;
+  /* At 320px the auto start column can squeeze the toggle narrower than its
+     24px target; hold the inline minimum too. */
+  min-inline-size: 1.5rem;
 }
 /* The mark-all-read chord rides the shared KbdChord caps; the button
    keeps its accessible name and aria-keyshortcuts. */
@@ -2024,6 +2027,15 @@
   }
   .workspace-app-library__header {
     flex-direction: column;
+  }
+}
+@media (max-width: 30rem) {
+  /* At phone widths (320px) `auto` start and end columns shrink below their
+     controls' content, so Back/Forward and the context toggle overlap: size
+     both ends to their content and let only the middle give. The Dev bar's
+     own `[data-dev-actions]` columns are more specific and stay in force. */
+  .workspace-topbar {
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
   }
 }
 

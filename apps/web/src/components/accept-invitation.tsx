@@ -1,4 +1,5 @@
 import { ApiClientError, createApiClient } from '@adea-ai/api-client'
+import { useAcceptWorkspaceInvitationMutation } from '@adea-ai/data'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { createSignal, Match, onMount, Switch } from 'solid-js'
 
@@ -29,10 +30,12 @@ function writePending(token: string | null) {
  * Accepts a workspace invitation link (`/invite#token=…`). The token lives in
  * the fragment, so it never reaches the server in a URL; it is read once,
  * removed from the address bar, and sent only in the accept request's body.
- * Signing in uses the normal sign-in page and returns here.
+ * Signing in uses the normal sign-in page and returns here. Render it inside a
+ * query provider: accepting goes through the shared sharing mutation, which
+ * refreshes the workspace list.
  */
 export function AcceptInvitation() {
-  const client = createApiClient()
+  const acceptInvitation = useAcceptWorkspaceInvitationMutation(createApiClient())
   let token: string | null = null
   const [status, setStatus] = createSignal<AcceptStatus>('loading')
 
@@ -40,7 +43,7 @@ export function AcceptInvitation() {
     if (!token) return
     setStatus('accepting')
     try {
-      const result = await client.acceptWorkspaceInvitation(token)
+      const result = await acceptInvitation.mutateAsync(token)
       writePending(null)
       setStatus('joined')
       window.location.assign(`/?workspace=${encodeURIComponent(result.workspaceId)}`)
