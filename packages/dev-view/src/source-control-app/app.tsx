@@ -64,6 +64,13 @@ export type SourceControlAppProps = Readonly<{
   runtime: DevRuntimeService
   /** Top bar mount for the search, sync state, and sync control. */
   toolbarMount?: HTMLElement
+  /**
+   * Top bar title-slot mount. When present, the pull-request search portals
+   * here so it is center aligned where the plain workspace-name title would
+   * be; the sync state and control stay in the leading toolbar mount. Hosts
+   * without one (the test harness) keep the search in the toolbar group.
+   */
+  titleMount?: HTMLElement
   /** Defaults to the browser's local storage when available. */
   storage?: KeyValueStorage
   /** Switch the workspace to the Dev view (after selecting a session). */
@@ -83,7 +90,10 @@ function defaultStorage(): KeyValueStorage | undefined {
 
 const TOAST_REGION = 'source-control'
 
-function TopBarControls(props: { state: SourceControlState; actions: AppActions }): JSX.Element {
+/** The pull-request search: the field plus its results popover. The host
+ *  decides where it lives — centered in the top bar's title slot in the
+ *  workspace shell, or leading the toolbar group in bare integrations. */
+function TopBarSearch(props: { state: SourceControlState; actions: AppActions }): JSX.Element {
   const [query, setQuery] = createSignal('')
   const matches = createMemo(() => {
     const needle = query().trim().toLowerCase().replace(/^#/, '')
@@ -99,6 +109,57 @@ function TopBarControls(props: { state: SourceControlState; actions: AppActions 
       )
       .slice(0, 8)
   })
+  return (
+    <Popover open={matches().length > 0} placement="bottom-start" gutter={4}>
+      <PopoverAnchor>
+        <Input
+          type="search"
+          class="dev-scm-topbar__search"
+          placeholder="Search pull requests and branches"
+          aria-label="Search pull requests and branches"
+          value={query()}
+          onInput={(event) => setQuery(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setQuery('')
+            if (event.key === 'Enter' && matches()[0]) {
+              props.actions.openPullRequest(matches()[0]!.pr)
+              setQuery('')
+            }
+          }}
+        />
+      </PopoverAnchor>
+      <PopoverContent hideArrow aria-label="Search results">
+        <div class="dev-scm-picker">
+          <For each={matches()}>
+            {({ pr, project }) => (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                class="w-full justify-start"
+                onClick={() => {
+                  props.actions.openPullRequest(pr)
+                  setQuery('')
+                }}
+              >
+                <span class="dev-scm-truncate">{pr.title}</span>
+                <span class="dev-scm-caption">
+                  {project.name} {prRef(pr)}
+                </span>
+              </Button>
+            )}
+          </For>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function TopBarControls(props: {
+  state: SourceControlState
+  actions: AppActions
+  searchMount?: HTMLElement
+}): JSX.Element {
   const synced = () => {
     const at = props.state.syncedAt()
     return at === undefined
@@ -107,48 +168,16 @@ function TopBarControls(props: { state: SourceControlState; actions: AppActions 
   }
   return (
     <div class="dev-scm-topbar">
-      <Popover open={matches().length > 0} placement="bottom-start" gutter={4}>
-        <PopoverAnchor>
-          <Input
-            type="search"
-            class="dev-scm-topbar__search"
-            placeholder="Search pull requests and branches"
-            aria-label="Search pull requests and branches"
-            value={query()}
-            onInput={(event) => setQuery(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') setQuery('')
-              if (event.key === 'Enter' && matches()[0]) {
-                props.actions.openPullRequest(matches()[0]!.pr)
-                setQuery('')
-              }
-            }}
-          />
-        </PopoverAnchor>
-        <PopoverContent hideArrow aria-label="Search results">
-          <div class="dev-scm-picker">
-            <For each={matches()}>
-              {({ pr, project }) => (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  class="w-full justify-start"
-                  onClick={() => {
-                    props.actions.openPullRequest(pr)
-                    setQuery('')
-                  }}
-                >
-                  <span class="dev-scm-truncate">{pr.title}</span>
-                  <span class="dev-scm-caption">
-                    {project.name} {prRef(pr)}
-                  </span>
-                </Button>
-              )}
-            </For>
-          </div>
-        </PopoverContent>
-      </Popover>
+      <Show
+        when={props.searchMount}
+        fallback={<TopBarSearch state={props.state} actions={props.actions} />}
+      >
+        {(mount) => (
+          <Portal mount={mount()}>
+            <TopBarSearch state={props.state} actions={props.actions} />
+          </Portal>
+        )}
+      </Show>
       <span class="dev-scm-topbar__synced">
         <StatusChip
           tone={
@@ -367,7 +396,7 @@ function ConnectedApp(
       <Show when={props.toolbarMount}>
         {(mount) => (
           <Portal mount={mount()}>
-            <TopBarControls state={state} actions={actions} />
+            <TopBarControls state={state} actions={actions} searchMount={props.titleMount} />
           </Portal>
         )}
       </Show>

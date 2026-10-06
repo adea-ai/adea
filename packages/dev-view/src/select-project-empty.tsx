@@ -10,15 +10,18 @@
 import { FolderPlus } from 'lucide-solid'
 import { Show } from 'solid-js'
 
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
 export function SelectProjectEmptyState(props: {
   message: string
   hint?: string
   onAddProject?: () => void
+  /** Extra host hook, e.g. the center-pane variant that fills and centers. */
+  class?: string
 }) {
   return (
-    <div class="dev-empty-state" role="status">
+    <div class={cn('dev-empty-state', props.class)} role="status">
       <p>{props.message}</p>
       <Show when={props.hint}>
         <p class="dev-empty-state__hint">{props.hint}</p>

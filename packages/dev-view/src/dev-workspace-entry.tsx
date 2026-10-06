@@ -59,6 +59,7 @@ import {
   resizeSplit,
   splitPane,
   splitPaneBalanced,
+  splitPaneDisabled,
   undoClosePane,
   movePane,
   type DevLayoutState,
@@ -849,7 +850,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         class="workspace-topbar__control"
         tooltip="Split pane"
         aria-label="Split pane"
-        disabled={countLeaves(layout().center) >= 8}
+        disabled={splitPaneDisabled(countLeaves(layout().center), selectedProject())}
         onClick={() => {
           const suffix = ++nextPaneId
           updateLayout((state) => {
@@ -1016,7 +1017,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             onToggleFullWidth={setPaneFullWidth}
             onResize={setPaneSize}
             onOpenFile={openFileInEditorLeaf}
-            onAddProject={addProjectFromEmptyState}
           />
         </Show>
         <section
@@ -1055,6 +1055,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                 if (!runtimeSessionId)
                   return (
                     <SelectProjectEmptyState
+                      class="dev-empty-state--center-pane"
                       message="Select a project from the sidebar to begin."
                       hint="The terminal runs inside a project's session worktree."
                       onAddProject={activeScope() ? addProjectFromEmptyState : undefined}
@@ -1214,8 +1215,6 @@ function FileSourceControlSlot(props: {
   onCollapse(): void
   onToggleFullWidth(pane: DevUtilityPane, fullWidth: boolean): void
   onResize(pane: DevUtilityPane, size: number): void
-  /** Expands the sidebar's authorize panel from the Files empty state. */
-  onAddProject?: () => void
 }) {
   const visibleItem = () =>
     props.visiblePane ? utilityPaneById.get(props.visiblePane.pane) : undefined
@@ -1235,7 +1234,6 @@ function FileSourceControlSlot(props: {
           runtime={props.runtime}
           worktreeId={props.sessionWorktreeId}
           onOpenFile={props.onOpenFile}
-          onAddProject={props.onAddProject}
         />
       ) : (
         <PaneProviderState

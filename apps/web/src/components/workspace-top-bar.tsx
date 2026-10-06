@@ -35,6 +35,16 @@ export function WorkspaceTopBar(props: {
   /** Workspace-wide actions rendered before the appearance control. */
   resources?: JSX.Element
   /**
+   * Mount for the active view's title-slot control: the source-control view
+   * portals its pull-request search here so it sits where the plain title
+   * (the workspace name) would, centered in the bar. Rendered only while
+   * `showTitleControls` is set, which also suppresses the plain title and
+   * breadcrumbs for that view.
+   */
+  titleMount?(element: HTMLDivElement): void
+  /** Whether the active view owns the title slot with its own control. */
+  showTitleControls?: boolean
+  /**
    * Mount for the active view's sidebar toggle: the top bar's trailing icon,
    * separated from the workspace actions by a divider.
    */
@@ -180,8 +190,15 @@ export function WorkspaceTopBar(props: {
         </div>
       </TopBarSection>
       <TopBarTitle class="workspace-topbar__title">
-        <Show when={props.breadcrumbs?.length} fallback={props.title}>
-          <WorkspaceBreadcrumbs crumbs={props.breadcrumbs ?? []} />
+        <Show
+          when={props.showTitleControls}
+          fallback={
+            <Show when={props.breadcrumbs?.length} fallback={props.title}>
+              <WorkspaceBreadcrumbs crumbs={props.breadcrumbs ?? []} />
+            </Show>
+          }
+        >
+          <div class="workspace-topbar__title-mount" ref={props.titleMount} />
         </Show>
       </TopBarTitle>
       <TopBarSection align="end" class="workspace-topbar__actions">
@@ -200,16 +217,17 @@ export function WorkspaceTopBar(props: {
         </ActionButton>
         {/* The trailing slot mirrors the leading one: divider first, then the
             active view's right-sidebar toggle (Dev portals its utility-pane
-            control). Views without a right pane leave the mount empty — and
-            the divider hidden — and own the contextual sidebar through the
-            leading toggle, so exactly one control speaks for each side on
-            every view. */}
-        <div class="workspace-topbar__sidebar">
-          <Show when={props.showSidebarDivider}>
+            control). Views without a right pane render no slot at all — the
+            empty wrapper would still take its share of the section's gap and
+            read as extra right padding after the notifications bell — and own
+            the contextual sidebar through the leading toggle, so exactly one
+            control speaks for each side on every view. */}
+        <Show when={props.showSidebarDivider}>
+          <div class="workspace-topbar__sidebar">
             <Separator orientation="vertical" class="workspace-topbar__sidebar-divider" />
-          </Show>
-          <div class="workspace-topbar__sidebar-mount" ref={props.sidebarMount} />
-        </div>
+            <div class="workspace-topbar__sidebar-mount" ref={props.sidebarMount} />
+          </div>
+        </Show>
       </TopBarSection>
     </TopBar>
   )

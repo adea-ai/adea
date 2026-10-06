@@ -36,6 +36,12 @@
   font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 
+/* The no-project empty state is exactly one sentence at the shared small text
+   size (dev-view is outside the Tailwind scan root, so the size lives here). */
+.dev-files__empty {
+  font-size: calc(0.875rem * var(--font-ui-scale, 1));
+}
+
 .dev-files__toolbar {
   display: flex;
   align-items: center;

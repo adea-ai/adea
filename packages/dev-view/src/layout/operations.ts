@@ -16,6 +16,7 @@
 import type { PaneLeaf } from '@adea-ai/types/dev-runtime'
 import {
   closePane as closeSharedPane,
+  MAX_LAYOUT_LEAVES,
   type BalancedSplitPaneInput as SharedBalancedSplitPaneInput,
   type SplitLayoutState,
 } from '@adea-ai/ui/components/layout/split-layout/model'
@@ -42,6 +43,16 @@ export {
 
 export type DevLayoutState = SplitLayoutState<PaneLeaf>
 export type BalancedSplitPaneInput = SharedBalancedSplitPaneInput<PaneLeaf>
+
+/**
+ * The top-bar split action duplicates the focused center pane. With no project
+ * selected the center holds only the ask-for-a-project empty states, so there
+ * is nothing worth splitting and the action is disabled; the shared leaf cap
+ * still applies once a project feeds the panes.
+ */
+export function splitPaneDisabled(leafCount: number, selectedProjectId: string): boolean {
+  return leafCount >= MAX_LAYOUT_LEAVES || selectedProjectId === ''
+}
 
 /** The final pane remains an app-owned terminal placeholder, never a runtime command. */
 export function closePane(
