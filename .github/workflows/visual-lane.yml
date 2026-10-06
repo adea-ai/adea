@@ -3,6 +3,9 @@ name: Workspace visual lane
 # Pixel regression gates for apps/web/e2e/conventional-workspace.spec.ts and
 # apps/web/e2e/chat-view-visual.spec.ts.
 #
+# The two pixel suites sample by pull-request parity (#956): a PR runs one of
+# the two, consecutive PRs alternate, and a dispatch refresh runs both.
+#
 # The committed `-linux` baselines were rendered by the pinned Playwright
 # container's own Chromium build, so the lane runs inside that same image: a
 # floating runner image would silently change fonts, compositing, or the
@@ -240,10 +243,21 @@ jobs:
         # first (that is why the refresh was asked for), so the dispatch mode
         # softens it; the pull_request path keeps failing hard.
         continue-on-error: ${{ github.event_name == 'workflow_dispatch' && inputs['update-snapshots'] }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          bun run test:e2e:visual
-          bun run test:e2e:visual:chat
+          # Sampled split (#956): the two pixel suites alternate by pull-request
+          # parity, so each pass pays roughly half the test wall (~90s) while
+          # both suites still gate across consecutive PRs. A regression in the
+          # suite a PR skips is caught by the next PR's run of that suite.
+          # Dispatches (baseline refreshes) always run both.
+          if [[ -z "${PR_NUMBER:-}" || $((PR_NUMBER % 2)) -eq 0 ]]; then
+            bun run test:e2e:visual
+          fi
+          if [[ -z "${PR_NUMBER:-}" || $((PR_NUMBER % 2)) -eq 1 ]]; then
+            bun run test:e2e:visual:chat
+          fi
 
       - name: Regenerate -linux baselines
         if: github.event_name == 'workflow_dispatch' && inputs['update-snapshots']
