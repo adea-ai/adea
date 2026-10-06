@@ -47,6 +47,8 @@ import type {
 } from '../../../../../../packages/types/src/dev-runtime'
 import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority } from '../channel/authority'
+import type { ConnectionsRuntime } from '../connections/register'
+import { createGitRemoteEnvResolver, ghTokenEnv, hostnameArg } from '../connections/transport-env'
 import { createDurableJsonStore } from '../host-store'
 import {
   GIT_CHILD_TIMEOUT_MS,
@@ -120,6 +122,8 @@ export type GhRunner = (
     maxOutputBytes?: number
     /** A JSON request body for `gh api --input -`; never credential material. */
     stdin?: string
+    /** Workspace-connection token env for this one child (ADR 0012). */
+    env?: Readonly<Record<string, string>>
   }
 ) => Promise<GhRunResult>
 
@@ -135,7 +139,7 @@ export const defaultRunGh: GhRunner = async (args, options) => {
   let proc: Bun.Subprocess<'ignore' | Uint8Array, 'pipe', 'pipe'>
   try {
     proc = Bun.spawn([resolveCliExecutable('gh') ?? 'gh', ...args], {
-      env: { ...gitChildEnv(), GH_PROMPT_DISABLED: '1' },
+      env: { ...gitChildEnv(), GH_PROMPT_DISABLED: '1', ...options?.env },
       stdin: options?.stdin !== undefined ? new TextEncoder().encode(options.stdin) : 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
@@ -268,6 +272,9 @@ export type GithubRegistrarInput = {
   resolveWorktree(worktreeId: string): GithubWorktreeContext | undefined
   /** Test seam: inject a scripted gh transport (no network in tests). */
   runGh?: GhRunner
+  /** Workspace connections (ADR 0012): the active workspace's git hosting
+   *  resolution. Absent keeps gh/git on the device's own credentials. */
+  resolveGitHosting?: ConnectionsRuntime['resolveGitHosting']
   now?: () => number
   cacheTtlMs?: number
   /** Hosts trusted for GitHub operations; github.com is always implied. */
@@ -419,7 +426,21 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
   registeredCommands: number
 } {
   const now = input.now ?? Date.now
-  const runGh = input.runGh ?? defaultRunGh
+  const baseRunGh = input.runGh ?? defaultRunGh
+  // Every gh child resolves its host's workspace connection: a binding adds
+  // that host's token to this child's env only; no binding is the device's
+  // own `gh auth` (reported `device_default` in the connections audit).
+  const runGh: GhRunner = async (args, options) => {
+    const resolution = input.resolveGitHosting?.({
+      host: hostnameArg(args) ?? DEFAULT_HOST,
+      operation: 'github.api',
+    })
+    const env = resolution ? ghTokenEnv(resolution) : undefined
+    return baseRunGh(args, env ? { ...options, env } : options)
+  }
+  const originEnv = input.resolveGitHosting
+    ? createGitRemoteEnvResolver(input.resolveGitHosting)
+    : undefined
   const cacheTtlMs = input.cacheTtlMs ?? CACHE_TTL_MS
   const trustedHosts = [...new Set([...(input.trustedHosts ?? []), DEFAULT_HOST])]
   const protectedRefs = input.protectedRefs ?? []
@@ -1225,10 +1246,16 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         args.push('-u')
       }
       args.push('origin', `${entry.ref}:${entry.ref}`)
+      const pushEnv = await originEnv?.({
+        canonicalRoot: worktree.canonicalRoot,
+        remote: 'origin',
+        operation: 'dev.github.pushCommit',
+      })
       const pushed = await runGit(args, {
         cwd: worktree.canonicalRoot,
         timeoutMs: GIT_CHILD_TIMEOUT_MS,
         maxOutputBytes: 1024 * 1024,
+        ...(pushEnv ? { env: pushEnv } : {}),
       }).catch((error: unknown) => ({ stdout: '', exitCode: 128, stderr: String(error) }))
       if (pushed.exitCode !== 0) throw pushFailure(pushed.stderr)
       // Re-read server truth before reporting success. A successful local
@@ -1870,10 +1897,16 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
   }
 
   async function lsRemoteSha(canonicalRoot: string, ref: string): Promise<string | undefined> {
+    const lsEnv = await originEnv?.({
+      canonicalRoot,
+      remote: 'origin',
+      operation: 'github.lsRemote',
+    })
     const listing = await runGit(['ls-remote', 'origin', `refs/heads/${ref}`], {
       cwd: canonicalRoot,
       timeoutMs: GIT_CHILD_TIMEOUT_MS,
       maxOutputBytes: 1024 * 1024,
+      ...(lsEnv ? { env: lsEnv } : {}),
     }).catch(() => ({ stdout: '', exitCode: 128, stderr: '' }))
     const entry = listing.stdout.trim().split('\t')[0]?.trim()
     return listing.exitCode === 0 && entry !== undefined && SHA_PATTERN.test(entry)

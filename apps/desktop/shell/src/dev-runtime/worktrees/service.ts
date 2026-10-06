@@ -221,6 +221,14 @@ export type WorktreeServiceOptions = {
   audit?: AuthorityAudit
   clock?: () => Date
   fetchTimeoutMs?: number
+  /** Workspace connections (ADR 0012): env for the base-update fetch child,
+   *  resolved through the active workspace's git hosting binding. Absent or
+   *  resolving undefined keeps the device's own git credentials. */
+  resolveFetchEnv?: (input: {
+    canonicalRoot: string
+    remote: string
+    operation: string
+  }) => Promise<Record<string, string> | undefined>
   /** Destructive-cleanup adapters owned by other slices (#396/#424). When a
    *  selected step has no adapter the step fails closed. */
   stopResource?: (resource: { id: string; kind: string }) => Promise<void>
@@ -874,13 +882,37 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     //    Never mutates or resets the primary checkout: `git fetch` writes only
     //    remote-tracking refs under the common dir.
     if (input.updateBase !== false && repo.fetchRemote) {
+      let fetchEnv: Record<string, string> | undefined
+      try {
+        fetchEnv = await options.resolveFetchEnv?.({
+          canonicalRoot: repo.canonicalRoot,
+          remote: repo.fetchRemote,
+          operation: 'dev.worktree.create',
+        })
+      } catch (error) {
+        // A bound connection that cannot be used fails closed: never a
+        // silent fall back to the device's own credentials.
+        log('worktree.base_fetch', repo.id, 'failed', { code: 'auth_required' })
+        throw new WorktreeError(
+          'auth_required',
+          (error as { message?: string }).message ?? 'the workspace git connection cannot be used'
+        )
+      }
       try {
         await runGitChecked(['fetch', repo.fetchRemote, '--prune'], {
           cwd: repo.canonicalRoot,
           timeoutMs: fetchTimeoutMs,
           signal: input.signal,
-          // A managed clone's network children never prompt (batch SSH).
-          ...(repo.layout === 'bare_managed' ? { env: nonInteractiveTransportEnv() } : {}),
+          // A managed clone's network children never prompt (batch SSH); a
+          // bound workspace connection adds its credential environment.
+          ...(repo.layout === 'bare_managed' || fetchEnv
+            ? {
+                env: {
+                  ...(repo.layout === 'bare_managed' ? nonInteractiveTransportEnv() : {}),
+                  ...fetchEnv,
+                },
+              }
+            : {}),
         })
       } catch (error) {
         const code: WorktreeErrorCode =

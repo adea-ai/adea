@@ -15,6 +15,7 @@ import {
   Bot,
   Brain,
   Database,
+  LockKeyhole,
   EyeOff,
   Link2,
   Mic,
@@ -63,6 +64,7 @@ const sectionIcons = {
   'input-notifications': Mic,
   'privacy-data': EyeOff,
   integrations: Link2,
+  connections: LockKeyhole,
   permissions: ShieldCheck,
 } satisfies Record<SettingsSection, typeof UserRound>
 
@@ -73,6 +75,10 @@ const PermissionsPane = lazy(() =>
 )
 // Lazy for the same reason: the Memory pane loads when its section opens.
 const MemoryPane = lazy(() => import('./memory-pane'))
+// Lazy for the same reason: workspace connections load only when opened.
+const ConnectionsPane = lazy(() =>
+  import('./connections-pane').then((module) => ({ default: module.ConnectionsPane }))
+)
 
 // The shared settings row: same label/description/control contract the
 // published settings composite defines, so this dialog composes the library
@@ -637,6 +643,25 @@ export function WorkspaceSettingsDialog(props: {
             title="Plugin runtime connections"
             detail="Manage enabled plugins from the global Plugins menu. Runtime credentials and execution remain unavailable until an authoritative Control Plane provider is connected."
           />
+        </TabsContent>
+        <TabsContent
+          value="connections"
+          id="settings-panel-connections"
+          class="conventional-settings-panel"
+        >
+          <header>
+            <LockKeyhole aria-hidden="true" />
+            <div>
+              <h3>{settingsSectionLabels.connections}</h3>
+              <p>
+                Which git hosting credentials and harness accounts this workspace uses on this
+                device. Secrets stay in the device vault.
+              </p>
+            </div>
+          </header>
+          <Show when={section() === 'connections'}>
+            <ConnectionsPane service={props.services?.connections} />
+          </Show>
         </TabsContent>
         <TabsContent
           value="permissions"

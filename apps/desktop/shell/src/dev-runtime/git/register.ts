@@ -82,6 +82,10 @@ export type GitRegistrarInput = {
   scope: Scope
   /** Fail-closed resolution of the live worktree record. */
   resolveWorktree(worktreeId: string): GitWorktreeContext | undefined
+  /** Workspace connections (ADR 0012): env for a credentialed fetch child,
+   *  resolved through the active workspace's git hosting binding. A bound
+   *  connection that cannot be used throws (fails closed). */
+  resolveRemoteEnv?: import('../connections/transport-env').GitRemoteEnvResolver
   now?: () => number
   /** Watcher-driven status invalidation (#399 residue): the production
    *  construction builds one bounded watcher per ready worktree (see the
@@ -1239,10 +1243,16 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       const args = ['fetch', ...(body.prune === true ? ['--prune'] : []), remoteName]
       if (Array.isArray(body.refspecs) && body.refspecs.length > 0)
         args.push(...(body.refspecs as string[]).slice(0, 64).map(safeGitRefspec))
+      const fetchEnv = await input.resolveRemoteEnv?.({
+        canonicalRoot,
+        remote: remoteName,
+        operation: 'dev.git.fetch',
+      })
       const fetched = await runGit(args, {
         cwd: canonicalRoot,
         timeoutMs: GIT_CHILD_TIMEOUT_MS,
         maxOutputBytes: 1024 * 1024,
+        ...(fetchEnv ? { env: fetchEnv } : {}),
       })
       if (fetched.exitCode !== 0)
         throw devError('remote_unavailable', redactCredentials(fetched.stderr.trim().slice(0, 512)))

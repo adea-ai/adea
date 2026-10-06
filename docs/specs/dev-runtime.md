@@ -150,6 +150,7 @@ branch names, URLs, or array indexes.
 | `runtimeSessionId`      | canonical Dev/Chat session                                   |
 | `bookmarkId`            | M10-minted authorized root grant                             |
 | `credentialRefId`       | vault-held credential reference, never the secret            |
+| `accountProfileId`      | reusable device-wide harness account profile (ids only)      |
 | `shellProfileId`        | named host-admitted shell configuration                      |
 | `profilePolicyId`       | named browser lane-permission policy                         |
 | `terminalId`            | one PTY lifecycle within a session                           |
@@ -1941,10 +1942,12 @@ type DevOperation =
   | `dev.capability.${'snapshot'}`
   | `dev.project.${'list' | 'get' | 'import' | 'clone' | 'scan' | 'create' | 'update' | 'archive' | 'unbind' | 'bookmarks'}`
   | `dev.repo.${'list' | 'inspect' | 'refresh' | 'authorize' | 'adopt' | 'credentialRefs'}`
+  | `dev.connections.${'get' | 'setGitHosting' | 'setHarnessAccount'}`
   | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
   | `dev.session.${'create' | 'get' | 'list' | 'launchDefault' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
   | `dev.harness.${'managedPiStatus' | 'managedPiInstall' | 'acpConnect' | 'acpConnections' | 'acpClose' | 'preferences' | 'preferenceUpdate' | 'preferenceReset' | 'runStatus' | 'runs'}`
+  | `dev.harness.accountProfiles.${'list' | 'create' | 'delete'}`
   | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream' | 'renameOverwritePlan' | 'renameOverwriteCommit' | 'deleteTreePlan' | 'deleteTreeCommit' | 'copyTreePlan' | 'copyTreeCommit'}`
   | `dev.git.${'status' | 'history' | 'diff' | 'stage' | 'unstage' | 'discardPlan' | 'discardCommit' | 'commit' | 'fetch' | 'checkpoint' | 'restorePlan' | 'restoreCommit'}`
   | `dev.browser.${'laneCreate' | 'laneClose' | 'lanes' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'input' | 'cookieImportPlan' | 'cookieImportCommit' | 'cookieSources' | 'profileReset' | 'profilePolicies'}`
@@ -2012,7 +2015,7 @@ projection; `unavailable` is empty for the local owner. Scoped capability
 subsets arrive with remote callers (M14 runtime nodes), which authenticate as
 a different identity class than this trusted local channel. The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 215 operation names, exact body shapes, exact reply types, complete required
+all 221 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -2380,11 +2383,12 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.capability`             | `snapshot`                                                                                                                                                                                                                                                                                                             |
 | `dev.project`                | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `archive`, `unbind`, `bookmarks`                                                                                                                                                                                                                         |
 | `dev.repo`                   | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                                                                                                   |
+| `dev.connections`            | `get`, `setGitHosting`, `setHarnessAccount`                                                                                                                                                                                                                                                                            |
 | `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `rename`, `diffSummary`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                               |
 | `dev.terminal`               | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                                                                               |
 | `dev.session`                | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                                                                         |
 | `dev.summary`                | `workspaces`                                                                                                                                                                                                                                                                                                           |
-| `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`                                                                                                                                                           |
+| `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`, `accountProfiles.list`, `accountProfiles.create`, `accountProfiles.delete`                                                                               |
 | `dev.memory`                 | `propose`                                                                                                                                                                                                                                                                                                              |
 | `dev.files`                  | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`, `renameOverwritePlan`, `renameOverwriteCommit`, `deleteTreePlan`, `deleteTreeCommit`, `copyTreePlan`, `copyTreeCommit`                                                                   |
 | `dev.git`                    | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                                                                                       |
@@ -2410,11 +2414,12 @@ Capability/resource binding is deny-by-default:
 | capability    | authenticated channel; no feature capability (this snapshot reports grants) | none                                                                                                        | no resource                                                         |
 | project       | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `project` except top-level list/create/import/clone                 |
 | repo          | `dev.repo.read`                                                             | `dev.repo.manage`                                                                                           | `repository`                                                        |
+| connections   | `dev.harness.read` + `dev.repo.read` (`get`)                                | git hosting `dev.repo.manage`; harness account `dev.harness.manage`                                         | no resource; optimistic `expectedVersion` on the binding document   |
 | worktree      | `dev.worktree.read`; `diffSummary` additionally `dev.git.read`              | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`; `diffSummary` none (ids in the body)                    |
 | terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                        | `terminal`                                                          |
 | session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                                   |
 | summary       | `dev.summary.read` (counts only; same account + runtime node)               | none                                                                                                        | no resource                                                         |
-| harness       | `dev.harness.read`                                                          | installation/connection/run control requires `dev.harness.manage`                                           | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
+| harness       | `dev.harness.read`                                                          | installation/connection/run/account-profile control requires `dev.harness.manage`                           | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
 | memory        | none (entries are read through the trusted `memory_*` shell commands)       | `propose` requires `dev.memory.propose` and an active harness run; it writes `pending` entries only         | `runtime_session`                                                   |
 | files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity                         |
 | git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request                      |
@@ -3285,6 +3290,135 @@ view reloads the authoritative state rather than keeping a fabricated outcome.
 A runtime without the registry providers answers `capability_unavailable`, and
 the panel renders that typed-unavailable state instead of dead controls.
 
+## Workspace connections
+
+ADR 0012 ("Connections") binds a workspace to credential material the user
+already holds on this device. Two kinds exist: **git hosting** (a vault
+`CredentialRef` per host — `github.com` or a GitLab host — used for clone,
+fetch, push, and pull-request operations) and **harness accounts** (a reusable
+`HarnessAccountProfile` per harness family selecting the provider API key a
+harness launches with). Bindings and profiles hold ids only; secret material
+stays in the credential vault and is unsealed only at a spawn seam.
+
+```ts
+type WorkspaceConnections = {
+  scope: Scope
+  gitHosting: { host: string; credentialRefId: string }[] // ≤ 64, one per host
+  harnessAccounts: { harnessId: HarnessAccountFamily; profileId: string }[] // one per family
+  version: number // 0 = never written
+  availableHarnesses: { harnessId; displayName; accountHosts: string[] }[] // host projection
+}
+type HarnessAccountProfile = {
+  id: string
+  harnessId: 'claude-code' | 'codex' | 'opencode' | 'pi'
+  label: string // 1..80 printable
+  credentialRefId: string
+  version: number
+}
+```
+
+**Storage.** The binding document lives in the workspace's Dev scope
+partition: `dev-runtime/connections/workspace-<sha256(scope)>.json`, one
+owner-only (0600 in a 0700 directory), schema-versioned file per
+`(accountId, workspaceId, runtimeNodeId)` on the shared atomic store (temp +
+fsync + rename; an unreadable envelope is retained as `.corrupt-<time>`). A
+record that fails strict decode — unknown keys, a duplicate host or family, a
+non-UUID id, or a scope other than the partition's own — fails closed with
+`corrupt_state` and is never repaired. Profiles are reusable, so they live
+device-wide in `dev-runtime/connections/harness-account-profiles.json`, owned
+by the local `(accountId, runtimeNodeId)` pair (at most 256), each carrying the
+vault scope that holds its credential and a **reverse index** of the scope
+digests that bind it. Binding writes the index first, the document second, and
+removes the stale index entry last, so an interruption can only leave the
+index a superset (a delete is then refused, which is safe).
+
+**Operations.** All six carry no resource binding and re-check the scope
+triple (`unauthorized` otherwise):
+
+- `dev.connections.get {}` — the active partition's document (version 0 and
+  no bindings when never written) plus the harness families this node can
+  launch (managed Pi when ready, then discovered inventory families).
+- `dev.connections.setGitHosting { host, credentialRefId | null, expectedVersion }`
+  — `host` must be a bare lowercase hostname (`invalid_state`); the version
+  must equal the document's (`stale_version` with `currentVersion`). A non-null
+  reference must be served by the ACTIVE scope's vault (`not_found` otherwise,
+  so another workspace's reference reads as absent), be `ready`
+  (`invalid_state`), name the same host (`identity_mismatch`), and not be an
+  SSH key (`incompatible`). `null` clears the host. A change bumps the version
+  by one; re-applying the current state is a no-op that keeps it.
+- `dev.connections.setHarnessAccount { harnessId, profileId | null, expectedVersion }`
+  — the profile must belong to this device owner (`not_found`), name the same
+  family (`identity_mismatch`), and its credential must be `ready`.
+- `dev.harness.accountProfiles.list { harnessId?, cursor?, limit? }` — this
+  device owner's profiles, every workspace alike.
+- `dev.harness.accountProfiles.create { harnessId, label, credentialRefId }` —
+  the reference must be `ready` in the active vault scope and name a provider
+  host the family accepts (`claude-code`: `api.anthropic.com`; `codex`:
+  `api.openai.com`; `opencode` and `pi`: either), else `identity_mismatch`; a
+  duplicate label for the family is idempotent for the same reference and
+  `name_collision` otherwise.
+- `dev.harness.accountProfiles.delete { profileId, expectedVersion }` — refused
+  with `invalid_state` while the reverse index names any binding scope on this
+  device. The check reads only the profile store; no other workspace's
+  partition is opened.
+
+**Resolution rules.** One seam (`connections/register.ts`) resolves every
+credentialed operation against the ACTIVE scope's document only:
+
+1. No binding for the host (or family) is the **device default**: the child
+   keeps today's behaviour (keychain, `gh auth`, `glab auth`, SSH agent, the
+   harness's own sign-in) and the resolution is recorded as
+   `connection: 'device_default'`.
+2. A binding resolves its reference through the vault (`audience:
+'runtime_driver'`). A binding that cannot be used — revoked, expired,
+   missing, unreadable, or a profile whose provider host the family no longer
+   accepts — fails closed with `auth_required`; it never falls back to the
+   device default.
+3. A workspace never reads another workspace's partition, so it can never
+   observe, resolve, or borrow another workspace's binding. A profile may be
+   bound in several workspaces of the same local account on this device; its
+   credential resolves from the vault scope the profile recorded at creation.
+4. An SSH remote under a git hosting binding keeps the device SSH agent and is
+   recorded as `device_default` with `transport: 'ssh'` (a token cannot
+   authenticate SSH).
+
+**Delivery.** The secret reaches exactly one child process through that
+child's environment, built at spawn time and never persisted, logged, or
+returned: git children (worktree-create base fetch, `dev.git.fetch`, GitHub
+push and its `ls-remote` verification) receive an inline, secret-free
+credential helper through `GIT_CONFIG_COUNT` whose first entry empties the
+accumulated helper list (so a device helper cannot answer instead) and whose
+second answers `get` for the bound host only, from child-only
+`ADEA_GIT_CONNECTION_*` variables; `gh` children receive `GH_TOKEN`
+(`GH_ENTERPRISE_TOKEN` + `GH_HOST` for an enterprise host) and `glab` children
+`GITLAB_TOKEN` + `GITLAB_HOST`, keyed by each argv's `--hostname`. Harness
+launches deliver the profile's key through the terminal sidecar's
+launch-credential allowlist (see the launch transaction below). The repo
+registry's offline-safe `ls-remote` probe and ACP lane spawns stay on the
+device default in this slice.
+
+**Audit.** Every mutation and every resolution appends a secret-free entry to
+the owner-only `dev-runtime/connections/audit-<sha256(scope)>.jsonl` (or the
+host-composed authority audit): action, host or family, `connection`
+(`workspace` | `device_default`), the resolved reference or profile id, and
+the operation. Identical resolutions coalesce inside 60 seconds so read-model
+polling cannot grow the trail without bound; failures always record.
+
+**Client.** Workspace settings › Connections (`packages/workspace-ui`,
+lazy-loaded like the permissions pane) renders one git hosting row per host
+(`github.com`, every bound host, and every non-provider host in
+`dev.repo.credentialRefs`) with a credential select whose first option is "Use
+device default", and one harness account row per connectable family with a
+profile select and "Add account…" (a label plus a vaulted provider key, which
+creates the profile and binds it). The desktop bridge
+(`apps/web/src/lib/desktop-workspace-connections.ts`, the
+`WorkspacePlatformServices.connections` entry) builds commands against the
+runtime's authoritative scope and passes every reply through the strict
+`WorkspaceConnections`/`HarnessAccountProfile`/`CredentialRef` decoders; a
+failed decode is `corrupt_state`. Every change re-reads the authoritative
+state. A web-only host has no service and the pane renders a typed
+unavailable state instead of controls.
+
 ## Worktree lifecycle
 
 The shipped shell composes exactly one worktree service per verified scope
@@ -3846,10 +3980,21 @@ Launch transaction:
 
 1. verify scope, eligible node, ready worktree, generation, and leases;
 2. resolve default installation, executable identity/version/auth/capability,
-   AgentProfile version, model/options, and resume support;
+   AgentProfile version, model/options, and resume support, and the active
+   workspace's harness account binding for the installation's family
+   (Workspace connections: `device_default` when unbound; a bound account that
+   cannot be used refuses `auth_required`); a bound account delivered into the
+   launch satisfies a `required`/`unknown` native auth state, never an
+   `expired` one;
 3. idempotently create/attach the canonical `RuntimeSession` and acquire leases;
 4. wait for authenticated shell readiness;
-5. launch argv/cwd/sanitized environment;
+5. launch argv/cwd/sanitized environment; a bound harness account adds its
+   one provider key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, the sidecar's
+   launch-credential allowlist — any other key is refused before spawn) read
+   from the vault at this step only, and `run.created` records
+   `accountConnection` plus `accountProfileId`/`accountProfileVersion`,
+   never the secret. A sidecar older than protocol 1.1 refuses the launch
+   (`spawn_failed`) rather than dropping the credential;
 6. attach native/ACP, else authenticated hook, else mark terminal fallback;
 7. compile the session workspace's memory preamble (ADR 0012) and deliver it
    with the initial prompt through native/ACP, harness API, or guarded PTY in
@@ -4534,7 +4679,10 @@ never enter UI state. Reads prefer API/GraphQL and use ETags/cursors; `gh` is an
 authenticated transport option, never output to scrape.
 
 Credentials are host/account scoped. Enterprise hosts require explicit trust;
-github.com credentials are never sent elsewhere. All mutation results are
+github.com credentials are never sent elsewhere. Every `gh` child and every
+push resolves the active workspace's git hosting binding for its host
+(Workspace connections): a binding adds that host's token to the one child's
+env; no binding is the device's own `gh auth`, recorded `device_default`. All mutation results are
 reread before success. PR create uses an idempotency/reconciliation key and
 searches for an existing matching head/base after timeout. Before a PR-create
 POST, the host durably records the authorized scope, repository, head, and base
@@ -4638,7 +4786,10 @@ with identical request bodies, the same reply DTOs, and the capability pair
 provider's rules, with these differences:
 
 - **Credentials.** GitLab auth is the user's `glab` CLI context (its
-  per-host credential store); Adea stores no GitLab token. `gitlab.com` is
+  per-host credential store) unless the active workspace binds a git hosting
+  connection for the host, which adds `GITLAB_TOKEN`/`GITLAB_HOST` to that one
+  `glab` child (Workspace connections); Adea stores no GitLab token outside
+  the vault. `gitlab.com` is
   trusted; a self-managed host must be trusted explicitly. Request bodies
   carrying user text ride `glab api --input -` stdin, never argv. A missing
   binary is `capability_unavailable`; a signed-out CLI is `unauthenticated`.
@@ -5210,6 +5361,8 @@ type DataClassification =
 | workspace memory entry text                         | restricted local                | owning workspace's settings and launch only    |
 | screenshots/annotations/check logs                  | workspace private or restricted | provenance + retention + redaction             |
 | cookies, tokens, keys, auth headers, secret env     | credential                      | never renderer event/log; vault operation only |
+| connection bindings, account profile ids/labels     | workspace private               | device-local ids only; never leaves device     |
+| connection resolution audit (ids, host, connection) | workspace private               | owner-only local audit; no secret material     |
 | usage account identifiers                           | workspace private               | safe display label, no token/account secret    |
 | process argv/env                                    | restricted local                | sanitized labels only                          |
 
@@ -5579,6 +5732,16 @@ explicit spawn timeout for the same reason.
 
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
+
+- **2026-10-06 — workspace connections (ADR 0012).** Added
+  `dev.connections.get`/`setGitHosting`/`setHarnessAccount` and
+  `dev.harness.accountProfiles.list`/`create`/`delete` (total operations
+  221, from 215), the `WorkspaceConnections`/`HarnessAccountProfile` DTOs, the `null`
+  literal in the body grammar, the per-scope binding partition and the
+  device-wide profile store with its reverse index, credential resolution for
+  git/gh/glab children and harness launches, the sidecar launch-credential
+  allowlist (protocol 1.1), and Workspace settings › Connections. New
+  "Workspace connections" section.
 
 - **2026-10-06 — remote-only projects (ADR 0011, PR 15).** `dev.project.clone`
   gains a mode: its body becomes `{ projectId, mode?: 'checkout' | 'managed',
@@ -6453,6 +6616,31 @@ files in the same commit:
   (the strict `WorkspaceRunSummary` reply decoder and empty request body),
   and `apps/web/test/desktop-workspace-summary.test.ts` (the fail-closed
   `workspaceSummaries()` client helper);
+- `apps/desktop/tests/dev-runtime-connections.test.ts` — Workspace
+  connections: git hosting CRUD with version conflicts and vault validation
+  (unknown/foreign refs `not_found`, host mismatch `identity_mismatch`, SSH
+  keys `incompatible`), cross-workspace isolation (a binding in A is never
+  visible or resolved in B, which reports `device_default`), resolution audit,
+  fail-closed resolution of a revoked binding, a tampered partition refused
+  `corrupt_state`, profile reuse across workspaces with delete refused while
+  any workspace binds it, foreign-scope and unknown-key denial for all six
+  operations, the git/gh/glab env builders, and real `git credential fill`
+  proof that the inline helper answers only the bound host and overrides a
+  device helper;
+- `apps/desktop/tests/dev-runtime-connections-launch.test.ts` — through the
+  full composition and the real sidecar: a harness launch injects exactly the
+  bound profile's key into the PTY child env and nowhere else (reply, events,
+  any persisted file), provenance records the profile id, an unbound
+  workspace launches `device_default`, a revoked bound account refuses the
+  launch, `gh` receives `GH_TOKEN` only after a binding, and the channel
+  refuses forged capabilities and foreign scopes for every connection
+  operation;
+- `apps/web/test/desktop-workspace-connections.test.ts` and
+  `packages/workspace-ui/tests/unit/connections-model.test.ts` — the client
+  bridge (registry-exact bodies on the runtime scope, strict decode failing
+  closed, typed refusals verbatim, unavailable without a bound runtime) and
+  the settings view model (device-default first, usable refs only, an
+  unusable bound ref rendered disabled);
 - M10 channel/desktop boundary tests — no loopback or browsed-page privilege;
 - `packages/types` contract/property tests — envelope and state decoders;
   `packages/types/tests/dev-runtime.test.ts` pins the `RootBookmark` and

@@ -8,7 +8,10 @@
 //   channel 0x01: canonical JSON control message
 //   channel 0x02: byte frame — [u32 metaLength][meta JSON][raw bytes]
 // Byte frames are never base64- or JSON-transcoded (Dev Runtime spec).
-export const SIDECAR_PROTOCOL = { name: 'adea-terminal-sidecar', major: 1, minor: 0 } as const
+export const SIDECAR_PROTOCOL = { name: 'adea-terminal-sidecar', major: 1, minor: 1 } as const
+
+/** The first protocol minor whose `terminal.create` honours `launchEnv`. */
+export const SIDECAR_LAUNCH_ENV_MINOR = 1
 
 export const ENDPOINT_SCHEMA_VERSION = 1
 
@@ -38,6 +41,8 @@ export type SidecarRequest =
       cwd: string
       shell: string
       args: readonly string[]
+      /** Minor ≥ 1: allowlisted launch-credential env (harness accounts). */
+      launchEnv?: Readonly<Record<string, string>>
     }
   | { type: 'terminal.write'; requestId: string; terminalId: string; byteLength: number }
   | { type: 'terminal.resize'; requestId: string; terminalId: string; cols: number; rows: number }

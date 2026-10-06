@@ -7,6 +7,7 @@ export const settingsSections = [
   'input-notifications',
   'privacy-data',
   'integrations',
+  'connections',
   'permissions',
 ] as const
 
@@ -16,7 +17,10 @@ export const settingsSectionGroups = [
   { label: 'Account', items: ['account'] },
   { label: 'Workspace', items: ['appearance', 'workspace', 'memory'] },
   { label: 'Workflows', items: ['agents', 'input-notifications'] },
-  { label: 'Data & access', items: ['privacy-data', 'integrations', 'permissions'] },
+  {
+    label: 'Data & access',
+    items: ['privacy-data', 'integrations', 'connections', 'permissions'],
+  },
 ] as const satisfies ReadonlyArray<{
   label: string
   items: readonly SettingsSection[]
@@ -26,6 +30,7 @@ export const settingsSectionLabels: Readonly<Record<SettingsSection, string>> = 
   account: 'Account & app',
   agents: 'Agents',
   appearance: 'Appearance',
+  connections: 'Connections',
   'input-notifications': 'Input & notifications',
   integrations: 'Integrations & capabilities',
   memory: 'Memory',

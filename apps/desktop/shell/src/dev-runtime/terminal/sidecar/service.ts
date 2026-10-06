@@ -18,6 +18,7 @@ import type { PtyAdapter } from '../pty-adapter'
 import {
   buildTerminalEnv,
   createShellIntegrationObserver,
+  isValidLaunchEnv,
   newHookKey,
   parseShellKind,
   resolveWorktreeHistoryFile,
@@ -314,12 +315,22 @@ export function createSidecarService(options: SidecarServiceOptions) {
           request.terminalId,
           shellKind
         )
+        // Launch-credential env (harness accounts) is allowlisted by key and
+        // bounded by value before spawn; it is never logged or persisted.
+        if (request.launchEnv !== undefined && !isValidLaunchEnv(request.launchEnv)) {
+          respondError(state, request.requestId, {
+            code: 'invalid_state',
+            message: 'launch env names a key outside the launch-credential allowlist',
+          })
+          return
+        }
         const env = buildTerminalEnv(process.env as Record<string, string | undefined>, {
           terminalId: request.terminalId,
           generation: request.generation,
           hookKey,
           features,
           histFile: histFile ?? undefined,
+          ...(request.launchEnv !== undefined ? { launchEnv: { ...request.launchEnv } } : {}),
         })
         const observer = createShellIntegrationObserver({
           terminalId: request.terminalId,
