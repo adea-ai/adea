@@ -30,6 +30,11 @@ import {
 } from '../dev-runtime/terminal/sidecar/protocol'
 import { adoptSidecar, type AdoptionDecision } from '../dev-runtime/terminal/sidecar/adoption'
 import { connectUnixByteDuplex } from '../dev-runtime/terminal/sidecar/socket-writer'
+import {
+  createBootAdoptionJournal,
+  type BootAdoptionJournal,
+} from '../supervision/boot-diagnostics'
+import { observeIdentity } from '../supervision/process-adapter'
 import type { LaunchedRecord, SupervisionRecord } from '../supervision/records'
 import type { Supervisor } from '../supervision/supervisor'
 import type { ShellSidecarPlan } from './boot-sidecar-plan'
@@ -37,9 +42,22 @@ import type { ShellSidecarPlan } from './boot-sidecar-plan'
 /** The component the terminal lane runs on (the packaging lane's label). */
 export const SIDECAR_COMPONENT_ID = 'dev-runtime-sidecar'
 
-/** Bounded readiness window for the sidecar's endpoint file; a deadline
- *  poll, never a fixed attempt count sized for an idle machine. */
-const SIDECAR_READY_TIMEOUT_MS = 20_000
+/**
+ * Bounded readiness window for the sidecar's endpoint file; a deadline poll,
+ * never a fixed attempt count sized for an idle machine.
+ *
+ * Sized from measurement (issue #1039 acceptance: "bounded but sufficient for
+ * a cold first boot on a loaded host"): the packaged sidecar's publish is
+ * process start + a unix bind + one owner-only file write. The startup
+ * measurement lane (`apps/desktop/scripts/measure-sidecar-startup.mjs`,
+ * darwin-arm64, Bun 1.4.0) puts a cold bundled-entry publish at a ~23ms
+ * median, so the 20s window carries ~three orders of magnitude of headroom
+ * for a loaded host (page cache misses, first-launch Gatekeeper work) while
+ * still bounding how long an unadoptable boot blocks the lane's availability
+ * verdict. The window is a bound, not the wait mechanism: the spawn happens
+ * after composition, so the wait covers publish latency only.
+ */
+export const SIDECAR_READY_TIMEOUT_MS = 20_000
 const SIDECAR_POLL_STEP_MS = 100
 
 export type BootReconcileComponent = Readonly<{
@@ -167,12 +185,15 @@ export type ShellSidecarAdoption =
       message: string
     }
 
-/** Waits, inside a bounded deadline window, for the sidecar's endpoint file. */
-async function waitForEndpoint(dataDir: string): Promise<boolean> {
-  const deadline = Date.now() + SIDECAR_READY_TIMEOUT_MS
+/** Waits, inside a bounded deadline window, for the sidecar's endpoint file.
+ *  Returns the observed wait in milliseconds, or null when the deadline
+ *  passed unpublished (the adoption journal records the real cost). */
+async function waitForEndpoint(dataDir: string, timeoutMs: number): Promise<number | null> {
+  const startedAt = Date.now()
+  const deadline = startedAt + timeoutMs
   for (;;) {
-    if (readEndpointFile(dataDir) !== null) return true
-    if (Date.now() >= deadline) return false
+    if (readEndpointFile(dataDir) !== null) return Date.now() - startedAt
+    if (Date.now() >= deadline) return null
     await new Promise<void>((resolve) => setTimeout(resolve, SIDECAR_POLL_STEP_MS))
   }
 }
@@ -211,6 +232,36 @@ function failure(
   return { ok: false, code, message }
 }
 
+/** The sidecar child's fate when the endpoint never published — the fact
+ *  that names the failing step (#1039). A dev-fallback child reports its
+ *  exit code (Bun exits 1 immediately on an unloadable entry); an
+ *  engine-spawned child reports its OS observability. */
+function unpublishedChildFate(
+  child: Bun.Subprocess | undefined,
+  supervisor: Supervisor | undefined
+): string {
+  if (child) {
+    if (child.exitCode !== null) {
+      return `the spawn (pid ${child.pid}) exited with code ${child.exitCode} before publishing`
+    }
+    if (child.signalCode !== null) {
+      return `the spawn (pid ${child.pid}) was killed by signal ${child.signalCode} before publishing`
+    }
+    return `the spawn (pid ${child.pid}) is still running without publishing`
+  }
+  if (supervisor) {
+    const snapshot = supervisor
+      .snapshot()
+      .components.find((component) => component.id === SIDECAR_COMPONENT_ID)
+    const pid = snapshot?.launch?.identity.pid
+    if (pid === undefined) return 'the engine holds no launch record for the sidecar'
+    return observeIdentity(pid) === null
+      ? `the engine-spawned sidecar (pid ${pid}) is no longer observable — it exited`
+      : `the engine-spawned sidecar (pid ${pid}) is observable but never published`
+  }
+  return 'no spawn was attempted'
+}
+
 /**
  * Adopts (starting it when needed) the terminal sidecar for the shell's
  * terminal lane through the existing `adoptSidecar` seam. A packaged boot's
@@ -219,6 +270,12 @@ function failure(
  * run keeps the dev fallback spawn of the source-tree entry. Every failure
  * is typed, and a failed adoption never degrades into a fabricated
  * terminal lane.
+ *
+ * #1039: every attempt is recorded in the durable boot-adoption journal
+ * (`<dataDir>/dev-runtime/supervision/boot-adoption.jsonl`) — the spawn's
+ * argv/environment keys/cwd/pid, the child's exit, the publish watch, and
+ * the outcome — and a publish timeout names the failing step in its
+ * message, because a GUI launch surfaces no console output at all.
  */
 export async function adoptShellTerminalSidecar(input: {
   dataDir: string
@@ -227,17 +284,38 @@ export async function adoptShellTerminalSidecar(input: {
   supervisor?: Supervisor
   /** The resolved sidecar plan (packaged identity, or the dev fallback). */
   plan: ShellSidecarPlan | undefined
+  /** Test/ops override of the bounded readiness window; production uses
+   *  the measured `SIDECAR_READY_TIMEOUT_MS`. */
+  readyTimeoutMs?: number
 }): Promise<ShellSidecarAdoption> {
+  const journal: BootAdoptionJournal = createBootAdoptionJournal(input.dataDir)
+  const readyTimeoutMs = input.readyTimeoutMs ?? SIDECAR_READY_TIMEOUT_MS
   if (!input.plan) {
+    journal.append({
+      kind: 'adoption-outcome',
+      at: new Date().toISOString(),
+      ok: false,
+      code: 'unavailable',
+      detail: 'no terminal sidecar plan resolved for this boot',
+    })
     return failure('unavailable', 'no terminal sidecar plan resolved for this boot')
   }
+  journal.append({
+    kind: 'adoption-attempt',
+    at: new Date().toISOString(),
+    mode: input.plan.mode,
+    supervisorPresent: Boolean(input.supervisor),
+    executableIdentity: input.plan.executableIdentity,
+  })
   let startedBySupervision = false
+  let devChild: Bun.Subprocess | undefined
   if (input.supervisor) {
     const snapshot = input.supervisor
       .snapshot()
       .components.find((component) => component.id === SIDECAR_COMPONENT_ID)
     if (!snapshot) {
-      return failure(
+      return journaledFailure(
+        journal,
         'unavailable',
         `${SIDECAR_COMPONENT_ID} is not in the composed component manifest`
       )
@@ -250,7 +328,8 @@ export async function adoptShellTerminalSidecar(input: {
         idempotencyKey: `shell-boot-${Date.now()}-${(startSequence += 1)}`,
       })
       if (!started.ok) {
-        return failure(
+        return journaledFailure(
+          journal,
           started.code === 'crash_loop' ? 'crash_loop' : 'spawn_failed',
           `${SIDECAR_COMPONENT_ID} could not be started: ${started.message}`
         )
@@ -260,12 +339,62 @@ export async function adoptShellTerminalSidecar(input: {
   } else if (input.plan.mode === 'dev') {
     // Dev fallback: the source-tree entry on the repo toolchain. A packaged
     // boot never spawns here — its spawn is the engine's, and a packaged
-    // boot without an engine has no plan to spawn at all.
-    input.plan.start(input.dataDir)
+    // boot without an engine has no plan to spawn at all. The seam journals
+    // the spawn (facts declared by the plan) and the child's exit; the
+    // engine-spawned path is journaled by the process adapter the same way.
+    const facts = input.plan.spawnFacts(input.dataDir)
+    const child = input.plan.start(input.dataDir)
+    if (child) {
+      devChild = child
+      const spawnedAt = Date.now()
+      journal.append({
+        kind: 'spawn',
+        at: new Date(spawnedAt).toISOString(),
+        mode: 'dev-fallback',
+        pid: child.pid,
+        argv: facts.argv,
+        envKeys: facts.envKeys,
+        cwd: facts.cwd,
+      })
+      const exited: Promise<number> | undefined = (child as { exited?: Promise<number> }).exited
+      if (exited) {
+        void exited
+          .then((exitCode) => {
+            journal.append({
+              kind: 'spawn-exit',
+              at: new Date().toISOString(),
+              pid: child.pid,
+              exitCode: typeof exitCode === 'number' ? exitCode : null,
+              afterMs: Date.now() - spawnedAt,
+            })
+          })
+          .catch(() => {})
+      }
+    }
   }
-  if (!(await waitForEndpoint(input.dataDir))) {
-    return failure('timeout', 'the terminal sidecar never published its endpoint file')
+  const waitedMs = await waitForEndpoint(input.dataDir, readyTimeoutMs)
+  if (waitedMs === null) {
+    const fate = unpublishedChildFate(devChild, input.supervisor)
+    journal.append({
+      kind: 'endpoint-watch',
+      at: new Date().toISOString(),
+      found: false,
+      waitedMs: readyTimeoutMs,
+      detail: fate,
+    })
+    return failure(
+      'timeout',
+      `the terminal sidecar never published its endpoint file (watched ${(
+        readyTimeoutMs / 1000
+      ).toFixed(1)}s; ${fate}; adoption journal: ${journal.path()})`
+    )
   }
+  journal.append({
+    kind: 'endpoint-watch',
+    at: new Date().toISOString(),
+    found: true,
+    waitedMs,
+  })
   const adopted = await adoptSidecar({
     dataDir: input.dataDir,
     scope: input.scope,
@@ -274,14 +403,42 @@ export async function adoptShellTerminalSidecar(input: {
     connect: (socketPath) => connectUnixByteDuplex(socketPath),
   })
   if (!adopted.ok) {
-    return failure(
+    return journaledFailure(
+      journal,
       adopted.code === 'sidecar_incompatible' || adopted.code === 'identity_mismatch'
         ? adopted.code
         : 'unavailable',
       adopted.message
     )
   }
+  journal.append({
+    kind: 'adoption-outcome',
+    at: new Date().toISOString(),
+    ok: true,
+    detail: `adopted the ${input.plan.mode} sidecar after a ${waitedMs}ms publish wait`,
+  })
   return { ok: true, client: adopted.client, startedBySupervision }
+}
+
+/** Records a failed outcome in the boot-adoption journal, then returns it. */
+function journaledFailure(
+  journal: BootAdoptionJournal,
+  code:
+    | 'spawn_failed'
+    | 'crash_loop'
+    | 'sidecar_incompatible'
+    | 'identity_mismatch'
+    | 'unavailable',
+  message: string
+): ShellSidecarAdoption {
+  journal.append({
+    kind: 'adoption-outcome',
+    at: new Date().toISOString(),
+    ok: false,
+    code,
+    detail: message,
+  })
+  return failure(code, message)
 }
 
 let startSequence = 0

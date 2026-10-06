@@ -408,16 +408,29 @@ export type RunningManifestLoad =
   | { ok: false; appBundle: string | null; reason: string }
 
 /** Locates the .app bundle the running shell itself was launched from, given
- *  the bundled main process's directory. In the packaged layout the entry
- *  lives at `Contents/Resources/app`, so the bundle root is three levels up;
- *  the candidate counts only when it is a `.app` carrying the bundled Bun
- *  runtime (`Contents/MacOS/bun`). A repo dev run (and any test) resolves
- *  null — never a mistaken bundle. */
+ *  the bundled main process's directory. The packaged entry anchors at
+ *  different depths per layout: Electrobun's flat-file branch loads the shell
+ *  entry from `Contents/Resources/app/bun/index.js` (launcher `main.js`:
+ *  `join(appFolderPath, 'bun', 'index.js')`), so the real bundle root is four
+ *  levels up — issue #1039: the previous fixed three-level hop landed on
+ *  `Contents`, never matched, and every packaged boot (any install path,
+ *  including /Applications) misread itself as a repo dev run. Fixtures and
+ *  asar-adjacent layouts anchor at `Contents/Resources/app`. The bundle root
+ *  is therefore the first bounded walk-up ancestor that is a `.app` AND
+ *  carries the bundled Bun runtime (`Contents/MacOS/bun`) — the same marker
+ *  the manifest resolution requires, so an unrelated `.app` ancestor (and a
+ *  repo dev run, and any test tree) never matches. */
 export function findRunningAppBundle(entryDir: string): string | null {
-  const bundleRoot = resolve(entryDir, '..', '..', '..')
-  if (!bundleRoot.endsWith('.app')) return null
-  if (!existsSync(join(bundleRoot, BUN_INSTALL_LABEL))) return null
-  return bundleRoot
+  let candidate = resolve(entryDir)
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (candidate.endsWith('.app') && existsSync(join(candidate, BUN_INSTALL_LABEL))) {
+      return candidate
+    }
+    const parent = resolve(candidate, '..')
+    if (parent === candidate) return null
+    candidate = parent
+  }
+  return null
 }
 
 /**
