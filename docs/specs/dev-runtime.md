@@ -298,12 +298,22 @@ type RedactedRemote = {
   displayUrl: string
 }
 
+// An import binds a repository to the bookmark that proves it; a remote-only
+// project (`dev.project.clone`) binds a managed bare clone, which no user
+// bookmark covers.
+type ProjectRepoBinding =
+  | { repoId: string; rootBookmarkId: string; canonicalRoot: string }
+  | { repoId: string; canonicalRoot: string; layout: 'bare_managed' }
+
 type Repo = {
   id: string
   scope: Scope
   kind: 'git' | 'folder'
   lifecycle: RepoState
   canonicalRoot: string
+  // Absent for an ordinary checkout; `bare_managed` for a managed bare clone
+  // (no primary working tree; its canonical root is also its git common dir).
+  layout?: 'bare_managed'
   gitCommonDirIdentity?: FileIdentity
   remote?: RedactedRemote
   defaultRef?: string
@@ -2985,6 +2995,100 @@ session rows render the canonical `RuntimeSession` lifecycle from the register
 (states outside the historical `active`/`ready`/`archived` set render a
 neutral dot with their own accessible name, never a coerced state).
 
+### Remote-only projects (managed bare clone)
+
+`dev.project.clone { projectId, remoteUrl, mode: 'managed', credentialRefId?,
+defaultBaseRef? }` creates a remote-only project (ADR 0011): the code lives
+only in a hidden, Adea-managed bare clone, worked on through worktrees, with
+no primary checkout. The envelope carries no resource (a binding refuses with
+`identity_mismatch`) and requires `dev.project.manage` and `dev.repo.manage`.
+
+- **Admission.** The cloud `projectId` must be an unbound lowercase UUID
+  (`identity_mismatch` otherwise, checked again under the binding write). The
+  remote must be `https://`, `ssh://`, scp-like `user@host:path`, or `file://`
+  (local mirrors); `http://`, `ext::`/`fd::` and every other transport, bare
+  paths, a leading `-`, whitespace/control characters, an embedded password,
+  and https user-info tokens refuse with `invalid_state` before anything
+  touches disk — credentials come from a vault reference, never the URL.
+  `credentialRefId` resolves fail-closed exactly like `dev.repo.authorize`
+  (unknown `not_found`, not `ready` `invalid_state`, host mismatch
+  `identity_mismatch`) and is recorded on the repository; secret material
+  never enters git arguments, the environment, the registry, a reply, an
+  event, or a log, so transport authentication uses the user's own git
+  credential configuration and a refusal is typed `auth_required`.
+  `defaultBaseRef` must be a plain ref name and must resolve in the clone
+  (`base_not_found`).
+- **Clone.** The clone runs `git -c protocol.allow=never -c
+protocol.<scheme>.allow=always clone --bare -- <url> <staging>` through the
+  bounded argv-only runner into a fresh owner-only staging directory inside
+  the managed root, then configures the remote-tracking refspec
+  `+refs/heads/*:refs/remotes/origin/*`, runs one bounded `fetch --prune
+origin`, and points `refs/remotes/origin/HEAD` at the remote default
+  branch. Budgets (limits registry): 10 minutes per network child, 4 GiB on
+  disk (a 500 ms size watchdog aborts the child; `limit_exceeded`), at most
+  two clones in flight per node and one per project id. Failures are typed:
+  `auth_required`, `not_found`, `remote_unavailable`, `timeout`,
+  `limit_exceeded`. Any failure removes the staging (or published) directory
+  through the quarantine/trash path, and no registry record or binding
+  survives it.
+- **Managed roots.** The clone is published as
+  `<dataDir>/dev-runtime/managed-repos/<repoId>.git`; its managed worktrees
+  live under `<dataDir>/dev-runtime/managed-worktrees/<repoId>/<name>`. Both
+  roots are owner-only (`0700`, current uid) real directories reached from
+  the data dir without a symlinked component; neither is a user path, and
+  neither is ever covered by a root bookmark.
+- **Registration.** The repository registry records `kind: 'git'`,
+  `layout: 'bare_managed'`, the raw configured remote (redacted in every
+  DTO), `fetchRemote: 'origin'`, `defaultRef` from the clone's `HEAD`, and
+  `gitCommonDirIdentity` equal to the root identity (a bare repository is its
+  own common dir); it carries no `rootBookmarkId`. The project binding is
+  `{ repoId, canonicalRoot, layout: 'bare_managed' }` with
+  `defaultBaseRef` defaulting to `origin/<default branch>`, published as
+  `dev.project.updated` kind `project.cloned`. **No primary worktree record
+  is created** — `ensurePrimaryWorktree` and every repository proof's primary
+  reconciliation skip a managed clone.
+- **The managed proof.** Bare repositories are refused everywhere else. A
+  record is admitted as a managed clone only when its layout is
+  `bare_managed` AND the proof holds immediately before every use (worktree
+  create/adopt, merge plan, cleanup plan/commit, `dev.repo.authorize`/
+  `inspect { refresh: true }`/`refresh`, unbind): the managed root is
+  owner-only; the repository is a direct child named `<repoId>.git` for this
+  record's id, a canonical real directory (never a symlink, `symlink_rejected`)
+  owned by the current user with mode `0700`; it carries a regular `HEAD`
+  and `config`, real `objects/` and `refs/` directories, no `.git` entry, and
+  `core.bare=true`; and its device/inode equals the record's root identity
+  (`identity_mismatch`). A path outside the managed root, a non-managed name,
+  or a `..` spelling refuses with `unauthorized_root`/`path_escape`; a
+  widened or symlinked root with `dangerous_path`. Every other git record
+  must still be a checkout with a `.git` directory (`not_git_repo`).
+- **Worktrees.** `dev.worktree.create` derives the base dir for a managed
+  clone as its owner-only `managed-worktrees/<repoId>` root (there is no
+  user bookmark above it); the service refuses any other base with
+  `unauthorized_root`. Fetch, `worktree add`, gitdir backlink proof,
+  discovery (the bare entry lists first), merge (ref-level operations in the
+  bare repository), and cleanup (`worktree prune`, admin-entry checks, branch
+  CAS) all run against the bare directory as both repository and common dir.
+  `.worktreeinclude` copying has no primary working tree to read from: the
+  step copies nothing and reports `skipped: 'no_primary_working_tree'`.
+- **Unbind.** `dev.project.unbind` of a remote-only project runs the usual
+  refusals (version, live sessions), then refuses with `cleanup_blocked`
+  while any of the clone's worktree records is not `cleaned` or git still
+  lists a registered worktree, re-runs the managed proof, and quarantines the
+  bare clone into the managed root's owner-only trash
+  (`managed-repos/.adea-worktree-trash`, identity-proven on both sides of the
+  rename). Only after the binding removal is durable is the proven trash
+  entry deleted and the registry record dropped (an empty
+  `managed-worktrees/<repoId>` goes too); a failed binding write restores the
+  clone. A deletion failure after the commit is `cleanup_partial`: the
+  record stays as `unavailable` retained data and the entry keeps its
+  provenance record for the trash sweep. Nothing outside the managed roots
+  is ever touched; ordinary bindings still never touch files.
+- **Classification.** The remote URL, the managed paths, and branch names are
+  `workspace_private`: they stay in the device-local registry and never leave
+  the device; DTOs carry only the redacted remote. The client projection's
+  `source` is `remote_only` for a managed binding, `local_repo` for any other
+  bound repository, and `none` for a binding without repositories.
+
 ### Root authorization
 
 `dev.project.authorizeRoot` is the production mint path for the authorized
@@ -3013,7 +3117,9 @@ are not binding fields — and an archived project is frozen: `update` refuses
 with `invalid_state` until the project is unarchived. `unbind` removes the
 binding under the expected version and refuses with `invalid_state` while any
 non-archived session on the project is live, exactly like archive; it never
-touches files.
+touches files — except that a remote-only project's managed bare clone is
+removed through the quarantine path once all of its worktrees are cleaned
+(see "Remote-only projects (managed bare clone)").
 `archive` is a navigation-lifecycle flip only: `archived: true` refuses with
 `invalid_state` while any non-archived session on the project is still live
 (`preparing`, `ready`, `active`, `disconnected` — archive never stops or
@@ -3043,7 +3149,10 @@ insteadOf rewrites cannot mask the true origin) and the default ref from the
 origin HEAD symbolic ref with local `init.defaultBranch` as fallback.
 
 - `adopt { repoId, rootBookmarkId, expectedVersion }` re-proves the binding
-  under the named authorized bookmark and persists the durable record
+  under the named authorized bookmark (a managed bare clone refuses with
+  `invalid_state` — `dev.project.clone` registers it and no bookmark covers
+  it; its later proofs use the managed proof, see "Remote-only projects")
+  and persists the durable record
   (`kind`, identities, redacted remote, `defaultRef`, project ids) with
   lifecycle `ready`. A not-yet-materialized binding adopts at version 1 (the
   initial version every registry record carries); an existing record requires
@@ -3131,7 +3240,8 @@ local reads only; a detached or unborn HEAD leaves them absent. Later proofs
 and the fingerprint-gated `refreshRepo` pass (whose fingerprint stamps the
 main HEAD) re-inspect the checkout and persist moved facts at `version + 1`;
 the `generation` (the lease/plan fence) does not move. A folder repository
-has no primary record. The record's `projectId` is the repository's first
+has no primary record, and neither does a managed bare clone (a remote-only
+project has worktrees only). The record's `projectId` is the repository's first
 bound project; `provenance` is `external` (Adea did not create it), so every
 ownership-gated path already fails closed for it.
 
@@ -5006,6 +5116,7 @@ type DataClassification =
 | IDs, capability names, generic status               | workspace metadata              | authorized workspace clients                   |
 | cross-workspace run counts (`dev.summary`)          | workspace metadata              | workspace id + two integers; no names or paths |
 | local paths, repo names/remotes, command labels     | workspace private               | redact/home-alias remotely unless granted      |
+| managed clone remote URL and managed paths          | workspace private               | desktop only; DTOs carry the redacted remote   |
 | branch names, worktree titles, diff counts          | workspace private               | desktop only; never leaves the device          |
 | terminal bytes, prompts/results, file content/diffs | restricted local by default     | bounded explicit projection only               |
 | workspace memory entry text                         | restricted local                | owning workspace's settings and launch only    |
@@ -5201,6 +5312,7 @@ Screenshot references include lane/profile provenance, origin, viewport, and red
 | usage refresh | provider backoff plus 60-second manual-refresh floor |
 | cleanup lock/lease | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s |
 | device workspace scope | verified membership cached 24 hours per credential digest; 256 cached memberships (`IDENTITY_LIMITS`) |
+| managed clone | 10 minutes per network git child; 4 GiB on disk (500 ms size watchdog, 1,000,000 entries per sample); 2 clones in flight per node, 1 per project id; remote URL 2,048 chars; default base ref 256 chars |
 
 ## Performance and retention budgets
 
@@ -5380,6 +5492,18 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-10-06 — remote-only projects (ADR 0011, PR 15).** `dev.project.clone`
+  is implemented and no longer typed-unavailable; its body becomes
+  `{ projectId, remoteUrl: string(1..2048), mode: 'managed', credentialRefId?,
+defaultBaseRef?: string(1..256) }` (the unimplemented
+  `remote: RedactedRemoteInput` / `destinationBookmarkId` shape is gone) and
+  its reply decodes through the strict `Project` decoder. `Repo` gains the
+  optional `layout: 'bare_managed'` fact, and `ProjectRepoBinding` becomes a
+  union whose managed arm carries `layout` and no `rootBookmarkId`. Bare
+  repositories stay refused except a proven managed clone; managed roots,
+  the managed proof, the unbind cleanup order, the limits, and the
+  classification are in "Remote-only projects (managed bare clone)". The
+  operation total is unchanged (213).
 - **2026-10-06 — project groups removed; v2 project bindings (ADR 0011).**
   Removed `dev.group.list`/`reorder`/`create`/`update`/`delete` and
   `dev.project.reorder`, the `Group`/`GroupMutableFields` DTOs, and the
@@ -6176,6 +6300,24 @@ files in the same commit:
   non-directory paths before any ledger write, and `dev.project.authorizeRoot`
   serves the add-project surface through the scope-bound channel;
 - `scripts/docs-boundary.test.ts` — this spec is routed and links resolve;
+- remote-only projects: `apps/desktop/tests/managed-clone.test.ts` (clone
+  from a local `file://` bare origin into the owner-only managed root with
+  the `bare_managed` record and binding and no primary record; managed
+  worktree create/list/cleanup under `managed-worktrees/<repoId>` with the
+  include-copy skip; unbind refusing while a worktree is live, then
+  quarantining and deleting the clone; a replaced clone refusing unbind;
+  unsafe remotes, credential host mismatch, bound project ids, a resource
+  binding, transport/size/time/base-ref failures leaving nothing behind;
+  user bare repositories, forged out-of-root records, planted names, `..`
+  spellings, widened or symlinked roots, and symlinked clones refusing),
+  `apps/desktop/tests/dev-runtime-composition.test.ts` (the provider is
+  composed; capability and resource deny tests over the real channel; the
+  `dev.repo.list` layout fact; no primary worktree),
+  `packages/types/tests/dev-runtime.test.ts` (the clone body, the managed
+  `ProjectRepoBinding` arm, and the `Repo` layout fact),
+  `apps/web/test/session-state-projection.test.ts` (the projection's
+  `source`), and `scripts/dev-view-boundary.test.ts` (clone is no longer in
+  the typed-unavailable allowlist);
 - ADR 0011 production worktrees: `apps/desktop/tests/worktree-service.test.ts`
   (one primary record per registered git repository with the inspected
   branch, refreshed by the fingerprint-gated pass; no folder primary; typed

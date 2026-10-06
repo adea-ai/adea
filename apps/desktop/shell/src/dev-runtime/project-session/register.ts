@@ -41,6 +41,18 @@ export type ProjectSessionRuntime = Readonly<{
    * time — the repo registry re-proves containment and identity through the
    * roots authority itself. */
   findRepoBindings(repoId: string): readonly ProjectRepoBindingView[]
+  /** `dev.project.clone` pre-check: the cloud project id is a lowercase UUID
+   * with no local binding yet (`identity_mismatch` otherwise). */
+  assertUnboundProjectId(projectId: string): void
+  /** `dev.project.clone` commit: bind one managed bare clone to an unbound
+   * cloud project id. Re-checks the id under the same record write, so a
+   * concurrent bind loses with `identity_mismatch`. */
+  bindManagedClone(input: {
+    projectId: string
+    repoId: string
+    canonicalRoot: string
+    defaultBaseRef?: string
+  }): Project
   /** Test/ops introspection: the durable archive journal, oldest first. */
   archiveRecords(): readonly ArchiveRecord[]
 }>
@@ -394,6 +406,21 @@ export function registerProjectSessionRuntime(input: {
    * real bounded git runner. Returns the child's exit code.
    */
   runClone?: (args: { argv: readonly string[]; cwd: string }) => Promise<{ exitCode: number }>
+  /**
+   * Unbind side effects for managed bare clones (remote-only projects). The
+   * register calls `prepare` after its own refusals (version, live
+   * sessions) and before removing the binding; a refusal there leaves the
+   * binding intact. `commit` runs after the binding is durably removed and
+   * `rollback` when that write fails. Unbinding an ordinary binding never
+   * calls this hook and never touches files.
+   */
+  managedUnbind?: (project: Project) => Promise<
+    | Readonly<{
+        commit(): void
+        rollback(): void
+      }>
+    | undefined
+  >
 }): ProjectSessionRuntime {
   const store = createDurableSqliteStore<AuthorityRecord>({
     file: authorityStoreFile(input.dataDir, input.scope),
@@ -763,20 +790,62 @@ export function registerProjectSessionRuntime(input: {
       // Unbinding removes only the local binding record — it never stops a
       // process or touches repository files — so, like archive, it refuses
       // while any session on the project is still live.
-      const live = liveSessionCount(project.projectId)
-      if (live > 0)
+      const refuseLive = () => {
+        const live = liveSessionCount(project.projectId)
+        if (live > 0)
+          throw new DevAuthorityError(
+            'invalid_state',
+            `project ${project.projectId} still has ${live} live session(s); archive them first`
+          )
+      }
+      refuseLive()
+      const removeBinding = (effect?: { commit(): void; rollback(): void }): Project => {
+        const previous = record
+        record = {
+          ...record,
+          projects: record.projects.filter((entry) => entry.projectId !== projectId),
+        }
+        try {
+          save()
+        } catch (error) {
+          record = previous
+          effect?.rollback()
+          throw error
+        }
+        effect?.commit()
+        const projected = toProject(project)
+        publishProject(projected, 'project.unbound')
+        return projected
+      }
+      // A remote-only project owns a managed bare clone: its deletion is
+      // proven and quarantined before the binding goes (and refuses while any
+      // of its worktrees is still live). Ordinary bindings never touch files.
+      if (project.repos?.some((repo) => repo.layout === 'bare_managed') !== true)
+        return removeBinding()
+      const managedUnbind = input.managedUnbind
+      if (!managedUnbind)
         throw new DevAuthorityError(
           'invalid_state',
-          `project ${project.projectId} still has ${live} live session(s); archive them first`
+          'no managed clone authority is available to unbind a remote-only project'
         )
-      record = {
-        ...record,
-        projects: record.projects.filter((entry) => entry.projectId !== projectId),
-      }
-      save()
-      const projected = toProject(project)
-      publishProject(projected, 'project.unbound')
-      return projected
+      return managedUnbind(toProject(project)).then((effect) => {
+        // The hook awaited: the binding must still be exactly the one proven,
+        // and no session may have gone live meanwhile.
+        const current = record.projects.find((entry) => entry.projectId === projectId)
+        try {
+          if (current !== project)
+            throw new DevAuthorityError(
+              'stale_version',
+              `project ${projectId} moved on during unbind`,
+              current?.version
+            )
+          refuseLive()
+        } catch (error) {
+          effect?.rollback()
+          throw error
+        }
+        return removeBinding(effect)
+      })
     },
     'dev.session.create': (command) => {
       requireScope(command, input.scope)
@@ -1020,16 +1089,45 @@ export function registerProjectSessionRuntime(input: {
       return record.sessions.find((entry) => entry.id === runtimeSessionId)
     },
     findRepoBindings(repoId) {
+      // Managed bare clones carry no bookmark and are never adopted through
+      // a binding: `dev.project.clone` writes their registry record itself.
       return record.projects.flatMap((project) =>
-        (project.repos ?? [])
-          .filter((repo) => repo.repoId === repoId)
-          .map((repo) => ({
-            repoId: repo.repoId,
-            rootBookmarkId: repo.rootBookmarkId,
-            canonicalRoot: repo.canonicalRoot,
-            projectId: project.projectId,
-          }))
+        (project.repos ?? []).flatMap((repo) =>
+          repo.repoId === repoId && repo.layout === undefined
+            ? [
+                {
+                  repoId: repo.repoId,
+                  rootBookmarkId: repo.rootBookmarkId,
+                  canonicalRoot: repo.canonicalRoot,
+                  projectId: project.projectId,
+                },
+              ]
+            : []
+        )
       )
+    },
+    assertUnboundProjectId: (projectId) => requireUnboundProjectId(projectId),
+    bindManagedClone(bind) {
+      requireUnboundProjectId(bind.projectId)
+      const created: ProjectBinding = {
+        projectId: bind.projectId,
+        repoIds: [bind.repoId],
+        repos: [{ repoId: bind.repoId, canonicalRoot: bind.canonicalRoot, layout: 'bare_managed' }],
+        lifecycle: 'ready',
+        version: 1,
+        ...(bind.defaultBaseRef !== undefined ? { defaultBaseRef: bind.defaultBaseRef } : {}),
+      }
+      const previous = record
+      record = { ...record, projects: [...record.projects, created] }
+      try {
+        save()
+      } catch (error) {
+        record = previous
+        throw error
+      }
+      const projected = toProject(created)
+      publishProject(projected, 'project.cloned')
+      return projected
     },
     archiveRecords: () => [...record.archiveRecords],
   }

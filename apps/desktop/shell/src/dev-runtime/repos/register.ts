@@ -29,6 +29,7 @@ import { DevAuthorityError, sameScope } from '../authority'
 import type { ChannelAuthority } from '../channel/authority'
 import { identityOfPath, sameIdentity, type FileIdentityValue } from '../worktrees/identity'
 import { runGit, type GitRunResult } from '../worktrees/git-run'
+import { proveManagedBareRepo } from './managed'
 import {
   createRepoRegistryStore,
   redactRemoteUrl,
@@ -136,7 +137,9 @@ export function registerRepoRuntime(input: {
   /** Git-kind detection, identical to the #397 registrar: a `.git` directory
    *  is a repository root, a `.git` file is a linked worktree (refused — it
    *  is not a canonical root), a bare `HEAD` is a bare repository (refused),
-   *  and anything else is a plain folder workspace. */
+   *  and anything else is a plain folder workspace. The ONE admitted bare
+   *  layout — a managed clone — never reaches this path: its records carry
+   *  `layout: 'bare_managed'` and prove through `proveManaged`. */
   function proveRepoKind(canonicalRoot: string): 'git' | 'folder' {
     const dotGit = lstatSync(join(canonicalRoot, '.git'), { throwIfNoEntry: false })
     if (dotGit?.isDirectory()) return 'git'
@@ -225,6 +228,39 @@ export function registerRepoRuntime(input: {
     }
   }
 
+  /** The managed bare-clone proof (remote-only projects): the owner-only
+   *  managed root, the bare layout, `core.bare=true`, and the recorded file
+   *  identity — never a bookmark, which no user root provides here. */
+  async function proveManaged(
+    record: RepoRecord
+  ): Promise<Awaited<ReturnType<typeof proveBinding>>> {
+    const identity = await proveManagedBareRepo({
+      dataDir: input.dataDir,
+      canonicalRoot: record.canonicalRoot,
+      repoId: record.id,
+      expectedIdentity: record.rootIdentity,
+      git,
+    })
+    const facts = await readCanonicalGitFacts(record.canonicalRoot)
+    // A bare repository is its own git common dir.
+    return {
+      canonicalRoot: record.canonicalRoot,
+      identity,
+      gitCommonDirIdentity: identity,
+      kind: 'git',
+      ...facts,
+    }
+  }
+
+  /** Re-prove a durable record through the proof its layout requires. */
+  function proveRecord(record: RepoRecord): Promise<Awaited<ReturnType<typeof proveBinding>>> {
+    if (record.layout === 'bare_managed') return proveManaged(record)
+    return proveBinding({
+      canonicalRoot: record.canonicalRoot,
+      rootBookmarkId: record.rootBookmarkId!,
+    })
+  }
+
   /** Materialize or re-prove the durable record under `expectedVersion`.
    *  A not-yet-proven binding materializes at version 1 (the initial version
    *  every registry record carries); an existing record re-proofs at
@@ -254,13 +290,24 @@ export function registerRepoRuntime(input: {
         1
       )
     }
+    const managed = stored?.layout === 'bare_managed'
+    // A managed clone is registered by `dev.project.clone`; no user bookmark
+    // covers it, so there is nothing to adopt it under.
+    if (managed && request.rootBookmarkId !== undefined)
+      throw new DevAuthorityError(
+        'invalid_state',
+        'a managed clone is registered by dev.project.clone and is never adopted'
+      )
     // The proof bookmark: adopt names one from the command; authorize
     // re-proves the recorded (or first binding) bookmark. A client never
     // supplies a path — the canonical root comes from the binding or record.
-    const bookmarkId =
-      request.rootBookmarkId ?? stored?.rootBookmarkId ?? bindings[0]!.rootBookmarkId
+    const bookmarkId = managed
+      ? undefined
+      : (request.rootBookmarkId ?? stored?.rootBookmarkId ?? bindings[0]!.rootBookmarkId)
     const canonicalRoot = stored?.canonicalRoot ?? bindings[0]!.canonicalRoot
-    const proven = await proveBinding({ canonicalRoot, rootBookmarkId: bookmarkId })
+    const proven = managed
+      ? await proveManaged(stored)
+      : await proveBinding({ canonicalRoot, rootBookmarkId: bookmarkId! })
     if (request.credentialRefId !== undefined) {
       if (proven.kind !== 'git' || proven.remote === undefined)
         throw new DevAuthorityError(
@@ -289,11 +336,12 @@ export function registerRepoRuntime(input: {
       kind: proven.kind,
       lifecycle: 'ready',
       canonicalRoot: proven.canonicalRoot,
+      ...(managed ? { layout: 'bare_managed' as const } : {}),
       rootIdentity: proven.identity,
       ...(proven.gitCommonDirIdentity !== undefined
         ? { gitCommonDirIdentity: proven.gitCommonDirIdentity }
         : {}),
-      rootBookmarkId: bookmarkId,
+      ...(bookmarkId !== undefined ? { rootBookmarkId: bookmarkId } : {}),
       ...(proven.remote !== undefined ? { remote: proven.remote } : {}),
       // The base for new worktrees is fetched by remote name; the proven
       // remote is `remote.origin.url`, so the name is `origin`.
@@ -405,10 +453,7 @@ export function registerRepoRuntime(input: {
     if (!isRealDirectory(stored.canonicalRoot)) {
       next = { ...next, lifecycle: 'unavailable' }
     } else {
-      const proven = await proveBinding({
-        canonicalRoot: stored.canonicalRoot,
-        rootBookmarkId: stored.rootBookmarkId,
-      })
+      const proven = await proveRecord(stored)
       let lifecycle: RepoRecord['lifecycle'] = 'ready'
       if (proven.kind === 'git') {
         const probe = await git(['ls-remote', 'origin', 'HEAD'], {
@@ -537,10 +582,7 @@ export function registerRepoRuntime(input: {
       requireRepoResource(command, repoId, stored.version)
       const provenPromise =
         body.refresh === true
-          ? proveBinding({
-              canonicalRoot: stored.canonicalRoot,
-              rootBookmarkId: stored.rootBookmarkId,
-            })
+          ? proveRecord(stored)
               .then((proven) => persistProvenFacts(stored, proven))
               .then(async (record) => {
                 await input.onRepoProven?.(record.id)

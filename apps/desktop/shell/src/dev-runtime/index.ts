@@ -74,6 +74,7 @@ import {
 } from './worktrees/service'
 import { WorktreeError } from './worktrees/errors'
 import { registerProjectScanRuntime } from './projects/register'
+import { createManagedCloneAuthority } from './projects/clone'
 import { registerRepoRuntime } from './repos/register'
 import { registerFilesRuntime } from './files/register'
 import { registerGitRuntime } from './git/register'
@@ -309,6 +310,17 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       throw error
     }
   }
+  // Remote-only projects (ADR 0011): `dev.project.clone` places a managed
+  // bare clone in owner-only app data, and unbinding such a project removes
+  // it through the quarantine path once all of its worktrees are cleaned.
+  const managedClones = input.scope
+    ? createManagedCloneAuthority({
+        dataDir: input.dataDir,
+        scope: input.scope,
+        ...(worktreeService ? { worktreeService } : {}),
+        ...(input.audit ? { audit: input.audit } : {}),
+      })
+    : undefined
   const projectSession = input.scope
     ? registerProjectSessionRuntime({
         authority: input.authority,
@@ -352,8 +364,19 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           const minted = roots.authorize({ scope: input.scope!, absolutePath, label })
           return { id: minted.id }
         },
+        ...(managedClones ? { managedUnbind: managedClones.prepareUnbind } : {}),
       })
     : undefined
+  if (managedClones && projectSession) {
+    managedClones.registerCloneProvider({
+      authority: input.authority,
+      projectSession,
+      resolveCredentialRef: (credentialRefId) => {
+        const credential = vault.get({ scope: input.scope!, credentialRefId })
+        return { id: credential.id, host: credential.host, state: credential.state }
+      },
+    })
+  }
 
   // The monorepo scan provider rides the same authorized-root gate: scan
   // recommendations are previews bound to a bookmark, never free-form paths.

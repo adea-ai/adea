@@ -152,10 +152,21 @@ export function decodeRegistryDto(name: string, value: unknown, path: string): u
   }
   if (name === 'ProjectRepoBinding') {
     const item = record(value, path)
-    exactKeys(item, ['repoId', 'rootBookmarkId', 'canonicalRoot'], [], path)
+    // A managed bare clone carries `layout` and no bookmark; every other
+    // binding names exactly the bookmark that proves it.
+    const managed = item.layout !== undefined
+    exactKeys(
+      item,
+      managed
+        ? ['repoId', 'canonicalRoot', 'layout']
+        : ['repoId', 'rootBookmarkId', 'canonicalRoot'],
+      [],
+      path
+    )
     if (!uuidPattern.test(stringValue(item.repoId, `${path}.repoId`)))
       fail(`${path}.repoId`, 'expected lowercase UUID')
-    if (!uuidPattern.test(stringValue(item.rootBookmarkId, `${path}.rootBookmarkId`)))
+    if (managed) literal(item.layout, ['bare_managed'], `${path}.layout`)
+    else if (!uuidPattern.test(stringValue(item.rootBookmarkId, `${path}.rootBookmarkId`)))
       fail(`${path}.rootBookmarkId`, 'expected lowercase UUID')
     stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
     return value
@@ -174,13 +185,17 @@ export function decodeRegistryDto(name: string, value: unknown, path: string): u
     exactKeys(
       item,
       ['id', 'scope', 'kind', 'lifecycle', 'canonicalRoot', 'projectIds', 'version'],
-      ['gitCommonDirIdentity', 'remote', 'defaultRef'],
+      ['layout', 'gitCommonDirIdentity', 'remote', 'defaultRef'],
       path
     )
     if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
       fail(`${path}.id`, 'expected lowercase UUID')
     decodeScope(item.scope, `${path}.scope`)
     literal(item.kind, ['git', 'folder'], `${path}.kind`)
+    if (item.layout !== undefined) {
+      literal(item.layout, ['bare_managed'], `${path}.layout`)
+      if (item.kind !== 'git') fail(`${path}.layout`, 'a managed bare clone is a git repository')
+    }
     literal(
       item.lifecycle,
       ['authorizing', 'ready', 'unavailable', 'stale', 'refreshing'],

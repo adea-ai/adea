@@ -995,7 +995,7 @@
     "dev.project.clone": {
       "capabilities": ["dev.project.manage", "dev.repo.manage"],
       "resource": null,
-      "body": "{ projectId: string; remote: RedactedRemoteInput; credentialRefId?: string; destinationBookmarkId: string }",
+      "body": "{ projectId: string; remoteUrl: string(1..2048); mode: 'managed'; credentialRefId?: string; defaultBaseRef?: string(1..256) }",
       "reply": "Project"
     },
     "dev.project.create": {

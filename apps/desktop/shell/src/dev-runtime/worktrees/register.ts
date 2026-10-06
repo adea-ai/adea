@@ -30,6 +30,7 @@ import {
 } from './service'
 import type { CleanupPlan as ServiceCleanupPlan, CleanupStepKind } from './cleanup-plan'
 import type { MergePlan as ServiceMergePlan } from './merge'
+import { ensureManagedWorktreeBase } from '../repos/managed'
 
 const PLAN_TTL_MS = 10 * 60_000
 
@@ -306,7 +307,12 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
         ...(body.destinationName !== undefined
           ? { destinationName: body.destinationName as string }
           : {}),
-        worktreeBaseDir: worktreeBaseDir(repo.canonicalRoot),
+        // A managed bare clone (remote-only project) has no user bookmark
+        // above it: its worktrees live under its owner-only managed base.
+        worktreeBaseDir:
+          repo.layout === 'bare_managed'
+            ? ensureManagedWorktreeBase(input.dataDir, repo.id)
+            : worktreeBaseDir(repo.canonicalRoot),
         idempotencyKey: command.idempotencyKey,
       })
       return worktreeOperation(result, 'ready')

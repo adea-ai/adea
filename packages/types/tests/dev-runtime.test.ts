@@ -96,6 +96,16 @@ function command(operation: keyof typeof devOperationDefinitions, body: Record<s
   }
 }
 
+const cloneReply = (value: unknown) =>
+  decodeDevReply({
+    schemaVersion: 1,
+    operation: 'dev.project.clone',
+    requestId: '00000000-0000-4000-8000-0000000000c1',
+    ok: true,
+    value,
+    observedAt: new Date().toISOString(),
+  })
+
 describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
     // 165 before dev.device.capabilities, 166 before the source control
@@ -290,6 +300,59 @@ describe('Dev Runtime operation registry', () => {
     expect(() =>
       devOperationDecoders['dev.project.unbind'].request({ projectId, expectedVersion: 'x' })
     ).toThrow()
+  })
+
+  test('remote-only projects: clone body, managed bindings, and the layout fact', () => {
+    const projectId = '00000000-0000-4000-8000-000000000020'
+    const repoId = '00000000-0000-4000-8000-000000000030'
+    const clone = devOperationDecoders['dev.project.clone'].request
+    expect(
+      clone({
+        projectId,
+        remoteUrl: 'https://github.com/adea-ai/adea.git',
+        mode: 'managed',
+        credentialRefId: '00000000-0000-4000-8000-000000000040',
+        defaultBaseRef: 'origin/main',
+      })
+    ).toMatchObject({ mode: 'managed' })
+    for (const bad of [
+      { projectId, remoteUrl: 'https://x/y', mode: 'mirror' },
+      { projectId, remoteUrl: '', mode: 'managed' },
+      { projectId, remoteUrl: 'x'.repeat(2049), mode: 'managed' },
+      { projectId, remoteUrl: 'https://x/y' },
+      { projectId, remoteUrl: 'https://x/y', mode: 'managed', destinationBookmarkId: repoId },
+      { projectId, remoteUrl: 'https://x/y', mode: 'managed', defaultBaseRef: 'r'.repeat(257) },
+    ])
+      expect(() => clone(bad)).toThrow()
+
+    const managedBinding = { repoId, canonicalRoot: '/data/managed.git', layout: 'bare_managed' }
+    const project = { id: projectId, scope, repoIds: [repoId], lifecycle: 'ready', version: 1 }
+    expect(cloneReply({ ...project, repos: [managedBinding] }).ok).toBe(true)
+    // A managed binding carries no bookmark; an ordinary one must carry one.
+    expect(() =>
+      cloneReply({ ...project, repos: [{ ...managedBinding, rootBookmarkId: repoId }] })
+    ).toThrow()
+    expect(() =>
+      cloneReply({ ...project, repos: [{ ...managedBinding, layout: 'bare' }] })
+    ).toThrow()
+    expect(() =>
+      cloneReply({ ...project, repos: [{ repoId, canonicalRoot: '/data/checkout' }] })
+    ).toThrow()
+
+    const repo = {
+      id: repoId,
+      scope,
+      kind: 'git',
+      lifecycle: 'ready',
+      canonicalRoot: '/data/managed.git',
+      projectIds: [projectId],
+      version: 1,
+    }
+    expect(decodeRepo({ ...repo, layout: 'bare_managed' })).toMatchObject({
+      layout: 'bare_managed',
+    })
+    expect(() => decodeRepo({ ...repo, layout: 'bare' })).toThrow()
+    expect(() => decodeRepo({ ...repo, kind: 'folder', layout: 'bare_managed' })).toThrow()
   })
 
   test('decodes new stream-grant and list operation bodies', () => {

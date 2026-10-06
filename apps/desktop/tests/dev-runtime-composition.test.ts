@@ -356,6 +356,8 @@ describe('dev runtime composition', () => {
         'dev.project.archive',
         'dev.project.unbind',
         'dev.project.bookmarks',
+        // Remote-only projects: the managed bare clone (ADR 0011, PR 15).
+        'dev.project.clone',
         'dev.repo.list',
         'dev.repo.credentialRefs',
         // #398 repository registry: adopt/authorize/inspect/refresh.
@@ -1052,6 +1054,88 @@ describe('dev runtime composition', () => {
         value: { items: [] },
       })
     } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('dev.project.clone is capability-gated, resource-free, and binds a managed bare clone', async () => {
+    const shell = await boot({ verifier: fakeCloudVerifier({ workspaces: [SCOPE_A.workspaceId] }) })
+    const fixtureRoot = realpathSync(mkdtempSync(join(tmpdir(), 'adea-clone-origin-')))
+    try {
+      const origin = join(fixtureRoot, 'origin.git')
+      const seed = join(fixtureRoot, 'seed')
+      mkdirSync(seed)
+      const gitIn = (cwd: string, args: string[]) =>
+        Bun.spawnSync(['git', ...args], {
+          cwd,
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: 'Adea Tests',
+            GIT_AUTHOR_EMAIL: 'adea@example.com',
+            GIT_COMMITTER_NAME: 'Adea Tests',
+            GIT_COMMITTER_EMAIL: 'adea@example.com',
+            GIT_TERMINAL_PROMPT: '0',
+          },
+          stdout: 'pipe',
+          stderr: 'pipe',
+          timeout: 60_000,
+        })
+      gitIn(fixtureRoot, ['init', '--bare', '-b', 'main', origin])
+      gitIn(seed, ['init', '-b', 'main'])
+      gitIn(seed, ['config', 'core.hooksPath', '/dev/null'])
+      writeFileSync(join(seed, 'README.md'), '# remote only\n')
+      gitIn(seed, ['add', '.'])
+      gitIn(seed, ['commit', '-m', 'initial'])
+      gitIn(seed, ['push', origin, 'main'])
+
+      const channel = await shell.openChannel()
+      const projectId = randomUUID()
+      const body = { projectId, remoteUrl: `file://${origin}`, mode: 'managed' }
+      // Read-only capabilities never clone; a resource binding is refused.
+      const denied = await channel.execute(
+        commandFor('dev.project.clone', SCOPE_A, body, {
+          capabilities: ['dev.project.read'],
+        } as Partial<DevCommand>)
+      )
+      expect(denied.ok).toBe(false)
+      const halfGranted = await channel.execute(
+        commandFor('dev.project.clone', SCOPE_A, body, {
+          capabilities: ['dev.project.manage'],
+        } as Partial<DevCommand>)
+      )
+      expect(halfGranted.ok).toBe(false)
+      const withResource = await channel.execute(
+        commandFor('dev.project.clone', SCOPE_A, body, {
+          resource: { kind: 'project', id: projectId, generation: 1 },
+        } as Partial<DevCommand>)
+      )
+      expect(withResource.ok).toBe(false)
+      expect(await channel.execute(commandFor('dev.project.list', SCOPE_A))).toMatchObject({
+        ok: true,
+        value: { items: [] },
+      })
+
+      const cloned = await channel.execute(commandFor('dev.project.clone', SCOPE_A, body))
+      expect(cloned).toMatchObject({
+        ok: true,
+        value: { id: projectId, repos: [{ layout: 'bare_managed' }], lifecycle: 'ready' },
+      })
+      const repos = await channel.execute(commandFor('dev.repo.list', SCOPE_A, { projectId }))
+      expect(repos).toMatchObject({
+        ok: true,
+        value: { items: [{ kind: 'git', layout: 'bare_managed', projectIds: [projectId] }] },
+      })
+      const repo = (repos as { value: { items: { canonicalRoot: string; id: string }[] } }).value
+        .items[0]!
+      expect(repo.canonicalRoot).toBe(
+        join(realpathSync(shell.dataDir), 'dev-runtime', 'managed-repos', `${repo.id}.git`)
+      )
+      // No primary checkout record: a remote-only project has worktrees only.
+      expect(
+        await channel.execute(commandFor('dev.worktree.list', SCOPE_A, { projectId }))
+      ).toMatchObject({ ok: true, value: { items: [] } })
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true })
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
   })

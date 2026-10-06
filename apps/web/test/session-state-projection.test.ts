@@ -96,11 +96,40 @@ describe('flat project binding projection', () => {
       id: 'project-b',
       repoIds: ['repo-b'],
       branch: 'main',
+      source: 'local_repo',
       version: 3,
       sessions: [],
     })
     expect(projection.projects[1]!.sessions.map((session) => session.id)).toEqual(['session'])
     // The register carries no names; the projection never invents one.
     expect(projection.projects[1]).not.toHaveProperty('name')
+  })
+
+  test('projects the code source of each binding', () => {
+    const projection = toProjection(
+      {
+        items: [
+          {
+            id: 'remote',
+            repoIds: ['repo-r'],
+            repos: [{ repoId: 'repo-r', canonicalRoot: '/data/r.git', layout: 'bare_managed' }],
+          },
+          {
+            id: 'local',
+            repoIds: ['repo-l'],
+            repos: [{ repoId: 'repo-l', rootBookmarkId: 'b', canonicalRoot: '/work/l' }],
+          },
+          { id: 'empty', repoIds: [] },
+          { id: 'malformed', repos: 'nope' },
+        ],
+      },
+      { items: [] }
+    )
+    expect(projection.projects.map((entry) => [entry.id, entry.source])).toEqual([
+      ['remote', 'remote_only'],
+      ['local', 'local_repo'],
+      ['empty', 'none'],
+      ['malformed', 'none'],
+    ])
   })
 })
