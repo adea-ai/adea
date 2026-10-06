@@ -92,11 +92,13 @@ function PullRequestRow(props: {
         <GitPullRequestDraft class="dev-scm-row__icon--draft" aria-label="Draft" />
       </Show>
       <div class="dev-scm-row__main">
+        {/* Quiet title text, like every other list row: the row's action
+            button is its one coloured control. */}
         <Button
           type="button"
-          variant="link"
+          variant="ghost"
           size="sm"
-          class="h-auto max-w-full justify-start"
+          class="-ms-2 h-auto max-w-full justify-start"
           onClick={() => props.actions.openPullRequest(props.pr)}
         >
           <span class="dev-scm-truncate">{props.pr.title}</span>

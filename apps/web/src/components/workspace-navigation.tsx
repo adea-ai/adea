@@ -1063,6 +1063,17 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     workspaceStore.getState().setGlobalPanel('workspace-settings')
   }
   const openSearch = () => {
+    // Source control puts its own search in the title slot and advertises
+    // ⌘K on it, so the search command focuses that field while it shows.
+    const scmSearch =
+      activeAppId() === 'source-control' && !libraryOpen()
+        ? scmSearchMount()?.querySelector('input')
+        : undefined
+    if (scmSearch) {
+      scmSearch.focus()
+      scmSearch.select()
+      return
+    }
     if (resolveWorkspaceApp(railPreferences(), 'chat')?.id !== 'chat') {
       setLibrarySearchRequest((request) => request + 1)
       openAppLibrary()

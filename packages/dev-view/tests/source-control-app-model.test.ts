@@ -19,7 +19,11 @@ import { hasCheckLog, runTiming } from '../src/source-control-app/model/checks'
 import { fileKind } from '../src/source-control-app/model/file-kind'
 import { failureLines, logLines } from '../src/source-control-app/model/log'
 import { parseInline, parseMarkdown, stripComments } from '../src/source-control-app/model/markdown'
-import { mergeDock, preferredMethod } from '../src/source-control-app/model/merge-dock'
+import {
+  mergeDock,
+  mergeWhenReadyCopy,
+  preferredMethod,
+} from '../src/source-control-app/model/merge-dock'
 import {
   createAppStorage,
   decodeDraft,
@@ -351,6 +355,12 @@ describe('merge dock', () => {
     expect(preferredMethod(['merge', 'squash'], 'rebase')).toBe('squash')
     expect(preferredMethod(['rebase'], undefined)).toBe('rebase')
     expect(preferredMethod([], undefined)).toBeUndefined()
+  })
+
+  test('merge-when-ready copy names the method it will use', () => {
+    expect(mergeWhenReadyCopy('squash')).toBe('Squash and merge once approvals and checks are in.')
+    expect(mergeWhenReadyCopy('rebase')).toBe('Rebase and merge once approvals and checks are in.')
+    expect(mergeWhenReadyCopy(undefined)).toBe('Merges once approvals and checks are in.')
   })
 })
 

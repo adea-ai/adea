@@ -57,6 +57,14 @@ const mergeVerb: Record<GitHubMergeMethod, string> = {
   rebase: 'Rebase and merge',
 }
 
+/** What merge-when-ready will do, naming the method when one is chosen:
+ *  "Squash and merge once approvals and checks are in." */
+export function mergeWhenReadyCopy(method: GitHubMergeMethod | undefined): string {
+  return method
+    ? `${mergeVerb[method]} once approvals and checks are in.`
+    : 'Merges once approvals and checks are in.'
+}
+
 /** The method to offer: the remembered choice when the repository still
  *  allows it, else squash, else whatever the repository allows first. */
 export function preferredMethod(
