@@ -10,16 +10,16 @@ import {
   createDirectAgentChannel,
   createGroupChannel,
   createMessage,
-  createRoomChannel,
+  createProjectChannel,
   deleteMessage,
   editMessage,
   listChannelsForUser,
   listMessagesForUser,
-  provisionPrimaryRoomChannel,
+  provisionPrimaryProjectChannel,
   setChannelParticipants,
 } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
-import { archiveRoom, createRoom } from '../../src/rooms'
+import { archiveProject, createProject } from '../../src/projects'
 import {
   agents,
   artifacts,
@@ -29,7 +29,7 @@ import {
   messageArtifactReferences,
   messageMentions,
   messages,
-  rooms,
+  projects,
   temporaryUserSessions,
   users,
   workspaceMemberships,
@@ -73,7 +73,7 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
       .where(eq(channelParticipants.workspaceId, workspaceId))
     await connection.db.delete(channels).where(eq(channels.workspaceId, workspaceId))
     await connection.db.delete(agents).where(eq(agents.workspaceId, workspaceId))
-    await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspaceId))
+    await connection.db.delete(projects).where(eq(projects.workspaceId, workspaceId))
     await connection.db
       .delete(workspaceMemberships)
       .where(eq(workspaceMemberships.workspaceId, workspaceId))
@@ -86,47 +86,47 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
     }
   }
 
-  test('provisions exactly one primary Channel and protects it through Room lifecycle', async () => {
-    const { owner, workspace } = await fixture('Rooms and channels')
-    const room = await createRoom(connection.db, workspace.id, owner.principal, {
-      functionKey: 'engineering',
+  test('provisions exactly one primary Channel and protects it through Project lifecycle', async () => {
+    const { owner, workspace } = await fixture('Projects and channels')
+    const project = await createProject(connection.db, workspace.id, owner.principal, {
+      iconKey: 'engineering',
       name: 'Engineering',
     })
-    const channelsAfterRoom = await listChannelsForUser(
+    const channelsAfterProject = await listChannelsForUser(
       connection.db,
       workspace.id,
       owner.principal
     )
-    expect(channelsAfterRoom).toHaveLength(1)
-    expect(channelsAfterRoom[0]).toMatchObject({
-      isPrimaryRoomChannel: true,
-      kind: 'room',
-      roomId: room.id,
+    expect(channelsAfterProject).toHaveLength(1)
+    expect(channelsAfterProject[0]).toMatchObject({
+      isPrimaryProjectChannel: true,
+      kind: 'project',
+      projectId: project.id,
     })
-    const repaired = await provisionPrimaryRoomChannel(
+    const repaired = await provisionPrimaryProjectChannel(
       connection.db,
       workspace.id,
-      room.id,
+      project.id,
       owner.principal
     )
-    expect(repaired.id).toBe(channelsAfterRoom[0]!.id)
-    const secondary = await createRoomChannel(
+    expect(repaired.id).toBe(channelsAfterProject[0]!.id)
+    const secondary = await createProjectChannel(
       connection.db,
       workspace.id,
-      room.id,
+      project.id,
       owner.principal,
-      { idempotencyKey: 'room-secondary', title: 'Architecture' }
+      { idempotencyKey: 'project-secondary', title: 'Architecture' }
     )
-    expect(secondary.isPrimaryRoomChannel).toBe(false)
+    expect(secondary.isPrimaryProjectChannel).toBe(false)
     await expect(
       archiveChannel(connection.db, workspace.id, repaired.id, owner.principal, repaired.version)
-    ).rejects.toThrow('Primary Room Channel required')
-    await archiveRoom(connection.db, workspace.id, room.id, owner.principal)
+    ).rejects.toThrow('Primary Project Channel required')
+    await archiveProject(connection.db, workspace.id, project.id, owner.principal)
     expect(await listChannelsForUser(connection.db, workspace.id, owner.principal)).toEqual([])
     await cleanup(workspace.id, [owner.principal.userId])
   })
 
-  test('keeps direct and group conversation identity independent from Room and runtime state', async () => {
+  test('keeps direct and group conversation identity independent from Project and runtime state', async () => {
     const { owner, workspace } = await fixture('Direct and group')
     const nonParticipant = await createTemporaryUserSession(connection.db, {
       credentialDigest: `channel-nonparticipant-${crypto.randomUUID()}`,
@@ -152,7 +152,7 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
     )
     expect(retried.id).toBe(direct.id)
     expect(direct).toMatchObject({ agentId: agent.id, kind: 'direct_agent' })
-    expect(direct).not.toHaveProperty('roomId')
+    expect(direct).not.toHaveProperty('projectId')
 
     // Archiving then reopening moves the live conversation to a suffixed
     // idempotency key. Opening again must return that live row instead of
@@ -201,7 +201,7 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
       { agentId: agent.id, kind: 'agent' },
       { kind: 'user', userId: owner.principal.userId },
     ])
-    expect(withParticipants).not.toHaveProperty('roomId')
+    expect(withParticipants).not.toHaveProperty('projectId')
     expect(
       await listChannelsForUser(connection.db, workspace.id, nonParticipant.principal)
     ).toEqual([])

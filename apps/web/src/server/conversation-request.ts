@@ -37,7 +37,7 @@ export function conversationErrorResponse(
       status: 409,
     })
   if (
-    message === 'Primary Room Channel required' ||
+    message === 'Primary Project Channel required' ||
     message.endsWith('thread conflict') ||
     message.endsWith('reply conflict')
   )

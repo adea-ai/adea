@@ -5,7 +5,7 @@ import type { WorkspaceViewMode } from '@adea-ai/types'
 export type WorkspaceState = {
   cameraViewMode: WorkspaceViewMode
   selectedWorkspaceId: string | null
-  selectedRoomId: string | null
+  selectedProjectId: string | null
   selectedChannelId: string | null
   selectedTaskId: string | null
   selectedAgentId: string | null
@@ -15,7 +15,7 @@ export type WorkspaceState = {
   selectedDevPaneId: string | null
   threadRootMessageId: string | null
   activeSurface: 'agents' | 'conversation' | 'tasks'
-  collapsedRoomIds: readonly string[]
+  collapsedProjectIds: readonly string[]
   collapsedDevGroupIds: readonly string[]
   collapsedDevProjectIds: readonly string[]
   devFocusMode: boolean
@@ -25,7 +25,7 @@ export type WorkspaceState = {
   setCameraViewMode: (mode: WorkspaceViewMode) => void
   setSelectedWorkspaceId: (workspaceId: string | null) => void
   switchWorkspace: (workspaceId: string, options?: { preserveDevSelection?: boolean }) => void
-  setSelectedRoomId: (roomId: string | null) => void
+  setSelectedProjectId: (projectId: string | null) => void
   setSelectedChannelId: (channelId: string | null) => void
   setSelectedTaskId: (taskId: string | null) => void
   setSelectedAgentId: (agentId: string | null) => void
@@ -38,7 +38,7 @@ export type WorkspaceState = {
   setDraft: (channelId: string, value: string) => void
   setMobileSidebarOpen: (open: boolean) => void
   setGlobalPanel: (panel: WorkspaceState['globalPanel']) => void
-  toggleRoomCollapsed: (roomId: string) => void
+  toggleProjectCollapsed: (projectId: string) => void
   toggleDevGroupCollapsed: (groupId: string) => void
   toggleDevProjectCollapsed: (projectId: string) => void
   setDevFocusMode: (focusMode: boolean) => void
@@ -47,11 +47,11 @@ export type WorkspaceState = {
       Pick<
         WorkspaceState,
         | 'activeSurface'
-        | 'collapsedRoomIds'
+        | 'collapsedProjectIds'
         | 'drafts'
         | 'selectedAgentId'
         | 'selectedChannelId'
-        | 'selectedRoomId'
+        | 'selectedProjectId'
         | 'selectedTaskId'
         | 'selectedWorkspaceId'
         | 'threadRootMessageId'
@@ -78,7 +78,7 @@ function initialState(): WorkspaceState {
   return {
     cameraViewMode: 'orthographic',
     selectedWorkspaceId: null,
-    selectedRoomId: null,
+    selectedProjectId: null,
     selectedChannelId: null,
     selectedTaskId: null,
     selectedAgentId: null,
@@ -88,7 +88,7 @@ function initialState(): WorkspaceState {
     selectedDevPaneId: null,
     threadRootMessageId: null,
     activeSurface: 'conversation',
-    collapsedRoomIds: [],
+    collapsedProjectIds: [],
     collapsedDevGroupIds: [],
     collapsedDevProjectIds: [],
     devFocusMode: false,
@@ -101,7 +101,7 @@ function initialState(): WorkspaceState {
       set({
         activeSurface: 'conversation',
         cameraViewMode: 'orthographic',
-        collapsedRoomIds: [],
+        collapsedProjectIds: [],
         collapsedDevGroupIds: [],
         collapsedDevProjectIds: [],
         devFocusMode: false,
@@ -109,7 +109,7 @@ function initialState(): WorkspaceState {
         globalPanel: null,
         selectedAgentId: null,
         selectedChannelId: null,
-        selectedRoomId: null,
+        selectedProjectId: null,
         selectedTaskId: null,
         selectedWorkspaceId,
         selectedRuntimeNodeId: null,
@@ -125,7 +125,7 @@ function initialState(): WorkspaceState {
             }),
         threadRootMessageId: null,
       }),
-    setSelectedRoomId: (selectedRoomId) => set({ selectedRoomId }),
+    setSelectedProjectId: (selectedProjectId) => set({ selectedProjectId }),
     setSelectedChannelId: (selectedChannelId) =>
       set({ selectedChannelId, threadRootMessageId: null }),
     setSelectedTaskId: (selectedTaskId) => set({ selectedTaskId }),
@@ -151,11 +151,11 @@ function initialState(): WorkspaceState {
       setStore('drafts', (drafts) => ({ ...drafts, [channelId]: value })),
     setMobileSidebarOpen: (mobileSidebarOpen) => set({ mobileSidebarOpen }),
     setGlobalPanel: (globalPanel) => set({ globalPanel }),
-    toggleRoomCollapsed: (roomId) =>
-      setStore('collapsedRoomIds', (collapsedRoomIds) =>
-        collapsedRoomIds.includes(roomId)
-          ? collapsedRoomIds.filter((id) => id !== roomId)
-          : [...collapsedRoomIds, roomId]
+    toggleProjectCollapsed: (projectId) =>
+      setStore('collapsedProjectIds', (collapsedProjectIds) =>
+        collapsedProjectIds.includes(projectId)
+          ? collapsedProjectIds.filter((id) => id !== projectId)
+          : [...collapsedProjectIds, projectId]
       ),
     toggleDevGroupCollapsed: (groupId) =>
       setStore('collapsedDevGroupIds', (ids) =>

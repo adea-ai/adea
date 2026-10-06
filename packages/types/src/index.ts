@@ -81,7 +81,7 @@ export type AgentSummary = {
   presentationMetadata: Readonly<Record<string, string>>
   profile: Readonly<{ id: string; state: AgentProfileState; version: string }>
   roleSummary?: string
-  roomId?: string
+  projectId?: string
   updatedAt: string
   workspaceId: string
 }
@@ -115,18 +115,22 @@ export type WorkspaceUpdate = Readonly<{
   scene?: WorkspaceSceneId
 }>
 
-export type RoomLifecycleState = 'active' | 'archived'
+export type ProjectLifecycleState = 'active' | 'archived'
 
-export type RoomSummary = Readonly<{
+/**
+ * Whether a project is backed by a repository. Only this boolean-level fact
+ * leaves the device; repository paths, remotes and branches never do.
+ */
+export type ProjectSourceKind = 'none' | 'repository'
+
+export type ProjectSummary = Readonly<{
   createdAt: string
-  functionKey: string
+  iconKey: string
   id: string
-  layoutRef?: string
-  lifecycleState: RoomLifecycleState
+  lifecycleState: ProjectLifecycleState
   name: string
   sortOrder: number
-  spatialRef?: string
-  templateKey?: string
+  sourceKind: ProjectSourceKind
   updatedAt: string
   workspaceId: string
 }>
@@ -209,7 +213,7 @@ export type TaskSummary = Readonly<{
   objective?: string
   objectiveContentRefId?: string
   priority: TaskPriority
-  roomId?: string
+  projectId?: string
   title: string
   updatedAt: string
   version: number
@@ -223,11 +227,11 @@ export type ChannelSummary = Readonly<{
   agentId?: string
   createdAt: string
   id: string
-  isPrimaryRoomChannel: boolean
-  kind: 'room' | 'direct_agent' | 'group'
+  isPrimaryProjectChannel: boolean
+  kind: 'project' | 'direct_agent' | 'group'
   lifecycleState: 'active' | 'archived'
   participants: readonly ConversationParticipantRef[]
-  roomId?: string
+  projectId?: string
   sortOrder: number
   taskId?: string
   title: string
@@ -287,10 +291,10 @@ export type ChannelReadStateSummary = Readonly<{
 export type WorkspaceSearchResult = Readonly<{
   channelId?: string
   id: string
-  kind: 'action' | 'agent' | 'artifact' | 'channel' | 'message' | 'room' | 'settings' | 'task'
+  kind: 'action' | 'agent' | 'artifact' | 'channel' | 'message' | 'project' | 'settings' | 'task'
   label: string
   messageId?: string
-  roomId?: string
+  projectId?: string
   secondary: string
   taskId?: string
   threadRootMessageId?: string

@@ -1,7 +1,7 @@
 import type { AgentProfileState, AgentSummary, UserPrincipalRef } from '@adea-ai/types'
 import { and, asc, eq } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { agents, rooms, workspaceMemberships } from './schema'
+import { agents, projects, workspaceMemberships } from './schema'
 import { appendWorkspaceEvent } from './transactions'
 
 type AgentCreateInput = Readonly<{
@@ -12,7 +12,7 @@ type AgentCreateInput = Readonly<{
   profileId: string
   profileVersion: string
   roleSummary?: string
-  roomId?: string
+  projectId?: string
 }>
 
 type AgentPresentationInput = Readonly<{
@@ -38,7 +38,7 @@ function summary(row: typeof agents.$inferSelect): AgentSummary {
       version: row.profileVersion,
     }),
     ...(row.roleSummary ? { roleSummary: row.roleSummary } : {}),
-    ...(row.roomId ? { roomId: row.roomId } : {}),
+    ...(row.projectId ? { projectId: row.projectId } : {}),
     updatedAt: row.updatedAt.toISOString(),
     workspaceId: row.workspaceId,
   })
@@ -62,23 +62,23 @@ async function requireMembership(
   if (!membership) throw new Error('Agent unavailable')
 }
 
-async function requireActiveRoom(
+async function requireActiveProject(
   database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
-  roomId: string
+  projectId: string
 ) {
-  const [room] = await database
-    .select({ id: rooms.id })
-    .from(rooms)
+  const [project] = await database
+    .select({ id: projects.id })
+    .from(projects)
     .where(
       and(
-        eq(rooms.id, roomId),
-        eq(rooms.workspaceId, workspaceId),
-        eq(rooms.lifecycleState, 'active')
+        eq(projects.id, projectId),
+        eq(projects.workspaceId, workspaceId),
+        eq(projects.lifecycleState, 'active')
       )
     )
     .limit(1)
-  if (!room) throw new Error('Room unavailable')
+  if (!project) throw new Error('Project unavailable')
 }
 
 export async function createAgent(
@@ -89,7 +89,7 @@ export async function createAgent(
 ): Promise<AgentSummary> {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
-    if (input.roomId) await requireActiveRoom(transaction, workspaceId, input.roomId)
+    if (input.projectId) await requireActiveProject(transaction, workspaceId, input.projectId)
     const [created] = await transaction
       .insert(agents)
       .values({
@@ -100,7 +100,7 @@ export async function createAgent(
         profileId: input.profileId.trim(),
         profileVersion: input.profileVersion.trim(),
         roleSummary: input.roleSummary?.trim() || null,
-        roomId: input.roomId ?? null,
+        projectId: input.projectId ?? null,
         workspaceId,
       })
       .returning()
@@ -162,19 +162,19 @@ export async function getAgentForUser(
   return row ? summary(row.agent) : null
 }
 
-export async function assignAgentToRoom(
+export async function assignAgentToProject(
   database: AgentHqDatabase,
   workspaceId: string,
   agentId: string,
   principal: UserPrincipalRef,
-  roomId: string | null
+  projectId: string | null
 ): Promise<AgentSummary> {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
-    if (roomId) await requireActiveRoom(transaction, workspaceId, roomId)
+    if (projectId) await requireActiveProject(transaction, workspaceId, projectId)
     const [updated] = await transaction
       .update(agents)
-      .set({ roomId, updatedAt: new Date() })
+      .set({ projectId, updatedAt: new Date() })
       .where(
         and(
           eq(agents.id, agentId),
@@ -185,8 +185,8 @@ export async function assignAgentToRoom(
       .returning()
     if (!updated) throw new Error('Agent unavailable')
     await appendWorkspaceEvent(transaction, {
-      eventType: 'agent.room_assigned',
-      payload: { actorUserId: principal.userId, agentId, roomId },
+      eventType: 'agent.project_assigned',
+      payload: { actorUserId: principal.userId, agentId, projectId },
       workspaceId,
     })
     return summary(updated)

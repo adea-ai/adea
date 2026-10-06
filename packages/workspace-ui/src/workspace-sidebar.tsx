@@ -2,7 +2,7 @@ import type {
   AgentSummary,
   ChannelReadStateSummary,
   ChannelSummary,
-  RoomSummary,
+  ProjectSummary,
 } from '@adea-ai/types'
 import {
   Bot,
@@ -54,7 +54,7 @@ import { wideViewportAtLoad } from '@adea-ai/state'
 
 import { keyedRows } from './keyed-rows'
 import type { WorkspaceNavigation } from './workspace-model'
-import { RoomIcon } from './room-icon'
+import { ProjectIcon } from './project-icon'
 import { SidebarToggleButton } from './sidebar-toggle-button'
 
 // The dialogs stay in their own dynamically imported module. A static import
@@ -62,8 +62,8 @@ import { SidebarToggleButton } from './sidebar-toggle-button'
 // into the workspace shell chunk, which silently defeated the lazy imports in
 // `conventional-workspace-shell.tsx`: Rolldown reported the ineffective
 // dynamic-import boundary in every build (see docs/decisions/0008).
-const EditRoomDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.EditRoomDialog }))
+const EditProjectDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({ default: module.EditProjectDialog }))
 )
 const RenameConversationDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({
@@ -205,26 +205,26 @@ type Props = Readonly<{
    */
   archiveAction?: JSX.Element
   channelBusy: boolean
-  collapsedRoomIds: readonly string[]
+  collapsedProjectIds: readonly string[]
   mobileOpen: boolean
   navigation: WorkspaceNavigation
   restoreFocusRef?: () => HTMLElement | undefined
   onArchiveChannel: (channel: ChannelSummary) => Promise<void>
   onCreateGroup: () => void
-  onCreateRoom: () => void
+  onCreateProject: () => void
   onMarkAllRead: () => void | Promise<void>
   onOpenAgents: () => void
   /** Fires on hover/focus of a channel affordance — prefetch before click. */
   onChannelIntent?: (channelId: string) => void
   onRenameChannel: (channel: ChannelSummary, title: string) => Promise<void>
-  onSelectChannel: (channelId: string, roomId?: string) => void
+  onSelectChannel: (channelId: string, projectId?: string) => void
   onToggleMobile: (open: boolean) => void
-  onToggleRoom: (roomId: string) => void
-  onUpdateRoom: (
-    roomId: string,
-    update: Readonly<{ functionKey?: string; name?: string }>
+  onToggleProject: (projectId: string) => void
+  onUpdateProject: (
+    projectId: string,
+    update: Readonly<{ iconKey?: string; name?: string }>
   ) => Promise<void>
-  roomBusy: boolean
+  projectBusy: boolean
   selectedChannelId: string | null
   readState: readonly ChannelReadStateSummary[]
   status?: JSX.Element
@@ -240,7 +240,7 @@ export function WorkspaceSidebar(props: Props) {
   const [sidebar, setSidebar] = createSignal<HTMLElement>()
   const [sidebarWidth, setSidebarWidth] = createSignal(SIDEBAR_DEFAULT_WIDTH)
   const [isNarrowViewport, setIsNarrowViewport] = createSignal(false)
-  const [editingRoom, setEditingRoom] = createSignal<RoomSummary | null>(null)
+  const [editingProject, setEditingProject] = createSignal<ProjectSummary | null>(null)
   const [renamingChannel, setRenamingChannel] = createSignal<ChannelSummary | null>(null)
   const [actionError, setActionError] = createSignal<string | null>(null)
   // The inline panel is unmounted below 48rem, so the host root only becomes
@@ -259,14 +259,14 @@ export function WorkspaceSidebar(props: Props) {
   const readStateByChannel = createMemo(
     () => new Map(props.readState.map((state) => [state.channelId, state]))
   )
-  // The navigation projection produces fresh wrapper objects on every rooms or
+  // The navigation projection produces fresh wrapper objects on every projects or
   // channels refetch. Keying on the stable ids keeps each row's DOM (menus,
   // hover, focus) alive and lets the per-row accessor push actual changes.
-  const roomRows = keyedRows(
-    () => props.navigation.rooms,
-    (item) => item.room.id,
+  const projectRows = keyedRows(
+    () => props.navigation.projects,
+    (item) => item.project.id,
     (previous, next) =>
-      previous.room.updatedAt === next.room.updatedAt &&
+      previous.project.updatedAt === next.project.updatedAt &&
       previous.selectionChannelId === next.selectionChannelId &&
       previous.primaryChannel?.updatedAt === next.primaryChannel?.updatedAt &&
       sameChannels(previous.visibleChannels, next.visibleChannels)
@@ -359,8 +359,8 @@ export function WorkspaceSidebar(props: Props) {
     // The sheet also drops action tooltips: their focus layer swallows the
     // Escape that should dismiss the sheet itself.
     const rowTooltips = !context.mobile
-    const selectChannel = (channelId: string, roomId?: string) => {
-      props.onSelectChannel(channelId, roomId)
+    const selectChannel = (channelId: string, projectId?: string) => {
+      props.onSelectChannel(channelId, projectId)
       if (context.mobile) props.onToggleMobile(false)
     }
 
@@ -392,47 +392,47 @@ export function WorkspaceSidebar(props: Props) {
         </Show>
         <Show when={props.status}>{props.status}</Show>
         <SidebarNavSection
-          label="Rooms"
+          label="Projects"
           headingAs="h2"
           role="region"
-          aria-label="Rooms"
+          aria-label="Projects"
           action={
             <ActionButton
               type="button"
               variant="ghost"
               size="icon-md"
               touchTarget="comfortable"
-              tooltip={rowTooltips ? 'Create a room' : undefined}
-              aria-label="Create Room"
+              tooltip={rowTooltips ? 'Create a project' : undefined}
+              aria-label="Create Project"
               disabled={props.workspaceReady === false}
-              onClick={() => props.onCreateRoom()}
+              onClick={() => props.onCreateProject()}
             >
               <Plus aria-hidden="true" />
             </ActionButton>
           }
         >
           <Show
-            when={props.navigation.rooms.length}
+            when={props.navigation.projects.length}
             fallback={
               <EmptyDescription class="conventional-sidebar-empty">
-                Create a Room to organize the work.
+                Create a Project to organize the work.
               </EmptyDescription>
             }
           >
-            <For each={roomRows()}>
+            <For each={projectRows()}>
               {(entry) => {
                 const item = () => entry.item()
-                const collapsed = () => props.collapsedRoomIds.includes(item().room.id)
+                const collapsed = () => props.collapsedProjectIds.includes(item().project.id)
                 const selected = () =>
                   Boolean(item().selectionChannelId) &&
                   (props.selectedChannelId === item().selectionChannelId ||
                     item().visibleChannels.some(({ id }) => id === props.selectedChannelId))
-                const roomChannels = () => [
+                const projectChannels = () => [
                   ...(item().primaryChannel ? [item().primaryChannel!] : []),
                   ...item().visibleChannels.filter(({ id }) => id !== item().primaryChannel?.id),
                 ]
-                const roomUnread = () =>
-                  roomChannels().reduce((total, channel) => {
+                const projectUnread = () =>
+                  projectChannels().reduce((total, channel) => {
                     const state = readStateByChannel().get(channel.id)
                     return (
                       total + (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
@@ -445,7 +445,7 @@ export function WorkspaceSidebar(props: Props) {
                     previous.version === next.version && previous.updatedAt === next.updatedAt
                 )
                 return (
-                  <div class="conventional-sidebar__room">
+                  <div class="conventional-sidebar__project">
                     <SidebarNavRow
                       actions={
                         <>
@@ -456,9 +456,11 @@ export function WorkspaceSidebar(props: Props) {
                               size="icon-md"
                               touchTarget={rowTouchTarget}
                               tooltip={
-                                rowTooltips ? `Room options for ${item().room.name}` : undefined
+                                rowTooltips
+                                  ? `Project options for ${item().project.name}`
+                                  : undefined
                               }
-                              aria-label={`Room options for ${item().room.name}`}
+                              aria-label={`Project options for ${item().project.name}`}
                             >
                               <EllipsisVertical aria-hidden="true" />
                             </DropdownMenuTrigger>
@@ -472,7 +474,7 @@ export function WorkspaceSidebar(props: Props) {
                               <DropdownMenuItem
                                 onSelect={() => {
                                   setActionError(null)
-                                  setEditingRoom(item().room)
+                                  setEditingProject(item().project)
                                 }}
                               >
                                 <Pencil aria-hidden="true" />
@@ -488,12 +490,12 @@ export function WorkspaceSidebar(props: Props) {
                               touchTarget={rowTouchTarget}
                               tooltip={
                                 rowTooltips
-                                  ? `${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`
+                                  ? `${collapsed() ? 'Expand' : 'Collapse'} ${item().project.name}`
                                   : undefined
                               }
-                              aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
+                              aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().project.name}`}
                               aria-expanded={!collapsed()}
-                              onClick={() => props.onToggleRoom(item().room.id)}
+                              onClick={() => props.onToggleProject(item().project.id)}
                             >
                               <Show
                                 when={!collapsed()}
@@ -511,18 +513,18 @@ export function WorkspaceSidebar(props: Props) {
                         type="button"
                         active={selected()}
                         // aria-hidden: keep the row button's accessible
-                        // name exactly the room name.
+                        // name exactly the project name.
                         trailing={
-                          roomUnread() ? (
+                          projectUnread() ? (
                             <span class="conventional-unread-badge" aria-hidden="true">
-                              {roomUnread() > 99 ? '99+' : roomUnread()}
+                              {projectUnread() > 99 ? '99+' : projectUnread()}
                             </span>
                           ) : null
                         }
                         class="conventional-sidebar__nav-item"
                         onClick={() =>
                           item().selectionChannelId &&
-                          selectChannel(item().selectionChannelId!, item().room.id)
+                          selectChannel(item().selectionChannelId!, item().project.id)
                         }
                         onPointerEnter={() =>
                           item().selectionChannelId &&
@@ -533,8 +535,8 @@ export function WorkspaceSidebar(props: Props) {
                           props.onChannelIntent?.(item().selectionChannelId!)
                         }
                       >
-                        <RoomIcon functionKey={item().room.functionKey} />
-                        <SidebarNavLabel>{item().room.name}</SidebarNavLabel>
+                        <ProjectIcon iconKey={item().project.iconKey} />
+                        <SidebarNavLabel>{item().project.name}</SidebarNavLabel>
                       </SidebarNavItem>
                     </SidebarNavRow>
                     <Show when={item().visibleChannels.length && !collapsed()}>
@@ -547,7 +549,9 @@ export function WorkspaceSidebar(props: Props) {
                               nested
                               active={channelEntry.item().id === props.selectedChannelId}
                               trailing={unreadBadge(channelEntry.item().id)}
-                              onClick={() => selectChannel(channelEntry.item().id, item().room.id)}
+                              onClick={() =>
+                                selectChannel(channelEntry.item().id, item().project.id)
+                              }
                               onPointerEnter={() => props.onChannelIntent?.(channelEntry.item().id)}
                               onFocus={() => props.onChannelIntent?.(channelEntry.item().id)}
                             >
@@ -681,16 +685,16 @@ export function WorkspaceSidebar(props: Props) {
         onWidthChange={updateSidebarWidth}
         onWidthCommit={persistSidebarWidth}
       />
-      <Show when={editingRoom()}>
-        {(room) => (
-          <EditRoomDialog
-            busy={props.roomBusy}
-            initialFunctionKey={room().functionKey}
-            initialName={room().name}
-            onClose={() => setEditingRoom(null)}
-            onSave={(input) => props.onUpdateRoom(room().id, input)}
+      <Show when={editingProject()}>
+        {(project) => (
+          <EditProjectDialog
+            busy={props.projectBusy}
+            initialIconKey={project().iconKey}
+            initialName={project().name}
+            onClose={() => setEditingProject(null)}
+            onSave={(input) => props.onUpdateProject(project().id, input)}
             open
-            roomName={room().name}
+            projectName={project().name}
           />
         )}
       </Show>

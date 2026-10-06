@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
 import type { ApiAgentResponse } from '@adea-ai/api-client'
-import { assignAgentToRoom } from '@adea-ai/db'
+import { assignAgentToProject } from '@adea-ai/db'
 import { applicationDatabase } from '../../../../../../../../server/database'
 import {
   guardDesktopWorkspaceRequest,
@@ -25,22 +25,22 @@ async function post(
   if (!resolution) return workspaceUnavailableResponse(request, 401)
   if (!(await authorizeWorkspace(resolution.principal, 'workspace.update', workspaceId)).allowed)
     return workspaceUnavailableResponse(request)
-  let roomId: unknown
+  let projectId: unknown
   try {
-    roomId = ((await request.json()) as Record<string, unknown>).roomId
+    projectId = ((await request.json()) as Record<string, unknown>).projectId
   } catch {
     return workspaceInvalidRequestResponse(request)
   }
-  if (roomId !== null && (typeof roomId !== 'string' || !roomId.trim()))
+  if (projectId !== null && (typeof projectId !== 'string' || !projectId.trim()))
     return workspaceInvalidRequestResponse(request)
   try {
     const payload: ApiAgentResponse = {
-      agent: await assignAgentToRoom(
+      agent: await assignAgentToProject(
         applicationDatabase(),
         workspaceId,
         agentId,
         resolution.principal,
-        roomId
+        projectId
       ),
     }
     return workspaceJsonResponse(payload, resolution, request)
@@ -48,7 +48,7 @@ async function post(
     return workspaceUnavailableResponse(request)
   }
 }
-export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/agents/$agentId/room')({
+export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/agents/$agentId/project')({
   server: {
     handlers: {
       POST: ({ request, params }) => withRequestScope(() => post(request, { params })),

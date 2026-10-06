@@ -1,4 +1,4 @@
-import type { AgentSummary, RoomSummary, TaskSummary } from '@adea-ai/types'
+import type { AgentSummary, ProjectSummary, TaskSummary } from '@adea-ai/types'
 import {
   Archive,
   Bot,
@@ -50,7 +50,7 @@ import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 
 import { keyedRows } from './keyed-rows'
 import type { PrivateContentResolver } from './platform'
-import { RoomIcon } from './room-icon'
+import { ProjectIcon } from './project-icon'
 import { kindOptions, laneFor, priorityOptions, swatchTone } from './task-presentation'
 
 type TaskUpdate = Readonly<{
@@ -67,7 +67,7 @@ type SharedProps = Readonly<{
   /** Reports a write that failed after the panel closed. */
   onError?: (message: string) => void
   privateContent?: PrivateContentResolver
-  rooms: readonly RoomSummary[]
+  projects: readonly ProjectSummary[]
   tasks: readonly TaskSummary[]
 }>
 
@@ -93,7 +93,7 @@ type EditProps = SharedProps &
     onCancel: (task: TaskSummary) => Promise<void>
     onComplete: (task: TaskSummary) => Promise<void>
     onDependencies: (task: TaskSummary, dependencyIds: readonly string[]) => Promise<void>
-    onMoveRoom: (task: TaskSummary, roomId: string | null) => Promise<void>
+    onMoveProject: (task: TaskSummary, projectId: string | null) => Promise<void>
     onOpenConversation: (task: TaskSummary) => void
     onQueue: (task: TaskSummary) => Promise<void>
     onReview: (task: TaskSummary) => Promise<void>
@@ -202,7 +202,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
     initial?.priority ?? 'normal'
   )
   const [agentId, setAgentId] = createSignal<string | null>(initial?.agentId ?? null)
-  const [roomId, setRoomId] = createSignal<string | null>(initial?.roomId ?? null)
+  const [projectId, setProjectId] = createSignal<string | null>(initial?.projectId ?? null)
   const [dependencyIds, setDependencyIds] = createSignal<readonly string[]>(
     initial?.dependencyIds ?? []
   )
@@ -219,7 +219,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
   const kindChanged = () => kind() !== (initial?.kind ?? 'feature')
   const priorityChanged = () => priority() !== (initial?.priority ?? 'normal')
   const agentChanged = () => agentId() !== (initial?.agentId ?? null)
-  const roomChanged = () => roomId() !== (initial?.roomId ?? null)
+  const projectChanged = () => projectId() !== (initial?.projectId ?? null)
   const dependenciesChanged = () =>
     JSON.stringify([...dependencyIds()].toSorted()) !==
     JSON.stringify([...(initial?.dependencyIds ?? [])].toSorted())
@@ -229,7 +229,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
     kindChanged() ||
     priorityChanged() ||
     agentChanged() ||
-    roomChanged() ||
+    projectChanged() ||
     dependenciesChanged()
   const titleValid = () => trimmedTitle().length > 0 && trimmedTitle().length <= TITLE_LIMIT
   const canSave = () =>
@@ -238,20 +238,20 @@ export function TaskPanel(props: CreateProps | EditProps) {
 
   // Refetches hand these lists fresh object identities; keying by id keeps the
   // open list's rows (and their hover/focus) stable.
-  const roomRows = keyedRows(
-    () => props.rooms,
-    (room) => room.id
+  const projectRows = keyedRows(
+    () => props.projects,
+    (project) => project.id
   )
   const agentRows = keyedRows(
     () => props.agents,
     (agent) => agent.id
   )
-  const roomOptions = createMemo<PickerOption[]>(() => [
-    { value: NONE, label: 'No room', Icon: () => <CircleSlash aria-hidden="true" /> },
-    ...roomRows().map((entry) => ({
+  const projectOptions = createMemo<PickerOption[]>(() => [
+    { value: NONE, label: 'No project', Icon: () => <CircleSlash aria-hidden="true" /> },
+    ...projectRows().map((entry) => ({
       value: entry.item().id,
       label: entry.item().name,
-      Icon: () => <RoomIcon functionKey={entry.item().functionKey} />,
+      Icon: () => <ProjectIcon iconKey={entry.item().iconKey} />,
     })),
   ])
   const agentOptions = createMemo<PickerOption[]>(() => [
@@ -306,10 +306,10 @@ export function TaskPanel(props: CreateProps | EditProps) {
     if (priorityChanged()) update.priority = priority()
     if (Object.keys(update).length) writes.push((task) => edit.onUpdate(task, update))
     const nextAgent = agentId()
-    const nextRoom = roomId()
+    const nextProject = projectId()
     const nextDependencies = dependencyIds()
     if (agentChanged()) writes.push((task) => edit.onAssign(task, nextAgent))
-    if (roomChanged()) writes.push((task) => edit.onMoveRoom(task, nextRoom))
+    if (projectChanged()) writes.push((task) => edit.onMoveProject(task, nextProject))
     if (dependenciesChanged()) writes.push((task) => edit.onDependencies(task, nextDependencies))
     return writes
   }
@@ -461,11 +461,11 @@ export function TaskPanel(props: CreateProps | EditProps) {
             <Show when={editing()}>
               <div class="conventional-task-panel__grid">
                 <PickerField
-                  label="Room"
-                  value={roomId() ?? NONE}
-                  options={roomOptions()}
+                  label="Project"
+                  value={projectId() ?? NONE}
+                  options={projectOptions()}
                   disabled={fieldsDisabled()}
-                  onChange={(value) => setRoomId(value || null)}
+                  onChange={(value) => setProjectId(value || null)}
                 />
                 <PickerField
                   label="Agent"

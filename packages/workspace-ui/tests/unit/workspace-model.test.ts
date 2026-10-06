@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { AgentSummary, ChannelSummary, RoomSummary } from '@adea-ai/types'
+import type { AgentSummary, ChannelSummary, ProjectSummary } from '@adea-ai/types'
 
 import {
   fuzzySearchMatch,
@@ -9,9 +9,9 @@ import {
   reconcileWorkspaceChannelSelection,
 } from '../../src/workspace-model'
 
-const room = (id: string, sortOrder: number): RoomSummary => ({
+const project = (id: string, sortOrder: number): ProjectSummary => ({
   createdAt: '2026-01-01T00:00:00.000Z',
-  functionKey: id,
+  iconKey: id,
   id,
   lifecycleState: 'active',
   name: id === 'engineering' ? 'Engineering' : 'Marketing',
@@ -26,7 +26,7 @@ const channel = (
 ): ChannelSummary => ({
   createdAt: '2026-01-01T00:00:00.000Z',
   id,
-  isPrimaryRoomChannel: false,
+  isPrimaryProjectChannel: false,
   kind,
   lifecycleState: 'active',
   participants: [],
@@ -40,31 +40,31 @@ const channel = (
 })
 
 describe('conventional workspace projection', () => {
-  test('makes Rooms primary and hides a lone primary Channel label', () => {
+  test('makes Projects primary and hides a lone primary Channel label', () => {
     const navigation = projectWorkspaceNavigation(
-      [room('marketing', 2), room('engineering', 1)],
+      [project('marketing', 2), project('engineering', 1)],
       [
-        channel('engineering-main', 'room', {
-          isPrimaryRoomChannel: true,
-          roomId: 'engineering',
+        channel('engineering-main', 'project', {
+          isPrimaryProjectChannel: true,
+          projectId: 'engineering',
         }),
-        channel('marketing-main', 'room', {
-          isPrimaryRoomChannel: true,
-          roomId: 'marketing',
+        channel('marketing-main', 'project', {
+          isPrimaryProjectChannel: true,
+          projectId: 'marketing',
         }),
-        channel('campaigns', 'room', { roomId: 'marketing', sortOrder: 1 }),
+        channel('campaigns', 'project', { projectId: 'marketing', sortOrder: 1 }),
         channel('agent-dm', 'direct_agent', { agentId: 'agent-1' }),
         channel('group-1', 'group'),
       ]
     )
 
-    expect(navigation.rooms.map(({ room: summary }) => summary.id)).toEqual([
+    expect(navigation.projects.map(({ project: summary }) => summary.id)).toEqual([
       'engineering',
       'marketing',
     ])
-    expect(navigation.rooms[0]?.visibleChannels).toEqual([])
-    expect(navigation.rooms[0]?.selectionChannelId).toBe('engineering-main')
-    expect(navigation.rooms[1]?.visibleChannels.map(({ id }) => id)).toEqual([
+    expect(navigation.projects[0]?.visibleChannels).toEqual([])
+    expect(navigation.projects[0]?.selectionChannelId).toBe('engineering-main')
+    expect(navigation.projects[1]?.visibleChannels.map(({ id }) => id)).toEqual([
       'marketing-main',
       'campaigns',
     ])
@@ -74,14 +74,14 @@ describe('conventional workspace projection', () => {
 
   test('preserves valid direct and group selections without issuing a channel change', () => {
     const channels = [
-      channel('engineering-main', 'room', {
-        isPrimaryRoomChannel: true,
-        roomId: 'engineering',
+      channel('engineering-main', 'project', {
+        isPrimaryProjectChannel: true,
+        projectId: 'engineering',
       }),
       channel('agent-dm', 'direct_agent', { agentId: 'agent-1' }),
       channel('group-1', 'group'),
     ]
-    const navigation = projectWorkspaceNavigation([room('engineering', 1)], channels)
+    const navigation = projectWorkspaceNavigation([project('engineering', 1)], channels)
 
     for (const selectedChannelId of ['agent-dm', 'group-1']) {
       expect(
@@ -119,11 +119,11 @@ describe('conventional workspace projection', () => {
     ).toEqual({ action: 'preserve', clearExplicitSelection: true })
   })
 
-  test('replaces a stale channel selection with the first available room selection', () => {
+  test('replaces a stale channel selection with the first available project selection', () => {
     const channels = [
-      channel('engineering-main', 'room', {
-        isPrimaryRoomChannel: true,
-        roomId: 'engineering',
+      channel('engineering-main', 'project', {
+        isPrimaryProjectChannel: true,
+        projectId: 'engineering',
       }),
       channel('agent-dm', 'direct_agent', { agentId: 'agent-1' }),
     ]
@@ -131,10 +131,10 @@ describe('conventional workspace projection', () => {
       reconcileWorkspaceChannelSelection({
         channels,
         explicitSelection: null,
-        navigation: projectWorkspaceNavigation([room('engineering', 1)], channels),
+        navigation: projectWorkspaceNavigation([project('engineering', 1)], channels),
         selectedChannelId: 'removed-channel',
       })
-    ).toEqual({ action: 'select', channelId: 'engineering-main', roomId: 'engineering' })
+    ).toEqual({ action: 'select', channelId: 'engineering-main', projectId: 'engineering' })
   })
 
   test('fuzzy-matches command palette destinations without changing navigation ownership', () => {

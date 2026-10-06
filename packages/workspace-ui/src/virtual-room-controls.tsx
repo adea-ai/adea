@@ -6,13 +6,13 @@ import {
   useArchiveChannelMutation,
   useChannelListQuery,
   useCreateGroupChannelMutation,
-  useCreateRoomMutation,
+  useCreateProjectMutation,
   useMarkAllReadMutation,
   usePrefetchChannelMessages,
   useReadStateQuery,
-  useRoomListQuery,
+  useProjectListQuery,
   useUpdateChannelMutation,
-  useUpdateRoomMutation,
+  useUpdateProjectMutation,
   useWorkspaceBootstrapQuery,
 } from '@adea-ai/data'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
@@ -29,11 +29,11 @@ import { WorkspaceSidebar } from './workspace-sidebar'
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
 )
-const CreateRoomDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateRoomDialog }))
+const CreateProjectDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateProjectDialog }))
 )
 
-type SidebarDialog = 'create-group' | 'create-room' | null
+type SidebarDialog = 'create-group' | 'create-project' | null
 
 export function VirtualRoomControls(props: {
   archiveAction?: JSX.Element
@@ -47,27 +47,27 @@ export function VirtualRoomControls(props: {
   const bootstrap = useWorkspaceBootstrapQuery(client())
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
   const sidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
-  const collapsedRoomIds = useWorkspaceState((state) => state.collapsedRoomIds)
+  const collapsedProjectIds = useWorkspaceState((state) => state.collapsedProjectIds)
   const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
   const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
     bootstrapData()?.activeWorkspace
   const workspaceId = () => activeWorkspace()?.id
-  const rooms = useRoomListQuery(client(), workspaceId)
+  const projects = useProjectListQuery(client(), workspaceId)
   const channels = useChannelListQuery(client(), workspaceId)
   const agents = useAgentListQuery(client(), workspaceId)
   const readState = useReadStateQuery(client(), workspaceId)
-  const createRoomMutation = useCreateRoomMutation(client(), () => workspaceId() ?? '')
+  const createProjectMutation = useCreateProjectMutation(client(), () => workspaceId() ?? '')
   const createGroupMutation = useCreateGroupChannelMutation(client(), () => workspaceId() ?? '')
-  const updateRoomMutation = useUpdateRoomMutation(client(), () => workspaceId() ?? '')
+  const updateProjectMutation = useUpdateProjectMutation(client(), () => workspaceId() ?? '')
   const updateChannelMutation = useUpdateChannelMutation(client(), () => workspaceId() ?? '')
   const archiveChannelMutation = useArchiveChannelMutation(client(), () => workspaceId() ?? '')
   const markAllReadMutation = useMarkAllReadMutation(client(), () => workspaceId() ?? '')
   const prefetchChannelMessages = usePrefetchChannelMessages(client(), workspaceId)
   const [dialog, setDialog] = createSignal<SidebarDialog>(null)
   const navigation = createMemo(() =>
-    projectWorkspaceNavigation(settledData(rooms) ?? [], settledData(channels) ?? [])
+    projectWorkspaceNavigation(settledData(projects) ?? [], settledData(channels) ?? [])
   )
 
   createEffect(() => {
@@ -76,7 +76,7 @@ export function VirtualRoomControls(props: {
     workspaceStore.getState().setSelectedWorkspaceId(data.activeWorkspace.id)
   })
 
-  // Leave every valid room, direct-agent, or group selection untouched. The
+  // Leave every valid project, direct-agent, or group selection untouched. The
   // store's channel setter closes an open thread, so only stale selections may
   // be replaced while Virtual is mounted.
   let explicitSelection: string | null = null
@@ -92,7 +92,7 @@ export function VirtualRoomControls(props: {
       return
     }
     if (decision.action !== 'select') return
-    workspaceStore.getState().setSelectedRoomId(decision.roomId)
+    workspaceStore.getState().setSelectedProjectId(decision.projectId)
     workspaceStore.getState().setSelectedChannelId(decision.channelId)
   })
 
@@ -119,22 +119,24 @@ export function VirtualRoomControls(props: {
     }
     props.openChat()
   }
-  const selectChannel = (channelId: string, roomId?: string) => {
+  const selectChannel = (channelId: string, projectId?: string) => {
     explicitSelection = channelId
-    workspaceStore.getState().setSelectedRoomId(roomId ?? null)
+    workspaceStore.getState().setSelectedProjectId(projectId ?? null)
     workspaceStore.getState().setSelectedChannelId(channelId)
     routeToChat('conversation')
   }
-  const createRoom = async (input: Readonly<{ functionKey: string; name: string }>) => {
-    const result = await createRoomMutation.mutateAsync(input)
+  const createProject = async (input: Readonly<{ iconKey: string; name: string }>) => {
+    const result = await createProjectMutation.mutateAsync(input)
     const refreshedChannels = await channels.refetch()
     const primaryChannel = settledData(refreshedChannels)?.find(
       (channel) =>
-        channel.kind === 'room' && channel.roomId === result.room.id && channel.isPrimaryRoomChannel
+        channel.kind === 'project' &&
+        channel.projectId === result.project.id &&
+        channel.isPrimaryProjectChannel
     )
-    if (primaryChannel) selectChannel(primaryChannel.id, result.room.id)
+    if (primaryChannel) selectChannel(primaryChannel.id, result.project.id)
     else {
-      workspaceStore.getState().setSelectedRoomId(result.room.id)
+      workspaceStore.getState().setSelectedProjectId(result.project.id)
       routeToChat('conversation')
     }
   }
@@ -157,13 +159,15 @@ export function VirtualRoomControls(props: {
         update: { title },
       })
       .then(() => undefined)
-  const updateRoom = (roomId: string, update: Readonly<{ functionKey?: string; name?: string }>) =>
-    updateRoomMutation.mutateAsync({ roomId, update }).then(() => undefined)
+  const updateProject = (
+    projectId: string,
+    update: Readonly<{ iconKey?: string; name?: string }>
+  ) => updateProjectMutation.mutateAsync({ projectId, update }).then(() => undefined)
   const queryIssue = () => {
     if (bootstrap.isError)
       return { message: 'Workspace could not be loaded.', retry: () => void bootstrap.refetch() }
-    if (rooms.isError)
-      return { message: 'Rooms could not be loaded.', retry: () => void rooms.refetch() }
+    if (projects.isError)
+      return { message: 'Projects could not be loaded.', retry: () => void projects.refetch() }
     if (channels.isError)
       return {
         message: 'Conversations could not be loaded.',
@@ -199,10 +203,10 @@ export function VirtualRoomControls(props: {
           Loading workspace…
         </EmptyDescription>
       )
-    if (rooms.isPending && !settledData(rooms))
+    if (projects.isPending && !settledData(projects))
       return (
         <EmptyDescription role="status" class="conventional-sidebar-empty">
-          Loading rooms…
+          Loading projects…
         </EmptyDescription>
       )
     return undefined
@@ -214,21 +218,21 @@ export function VirtualRoomControls(props: {
         archiveAction={props.archiveAction}
         agents={settledData(agents) ?? []}
         channelBusy={updateChannelMutation.isPending || archiveChannelMutation.isPending}
-        collapsedRoomIds={collapsedRoomIds()}
+        collapsedProjectIds={collapsedProjectIds()}
         mobileOpen={sidebarOpen()}
         navigation={navigation()}
         onArchiveChannel={archiveChannel}
         onChannelIntent={prefetchChannelMessages}
         onCreateGroup={() => setDialog('create-group')}
-        onCreateRoom={() => setDialog('create-room')}
+        onCreateProject={() => setDialog('create-project')}
         onMarkAllRead={() => markAllReadMutation.mutateAsync().then(() => undefined)}
         onOpenAgents={() => routeToChat('agents')}
         onRenameChannel={renameChannel}
         onSelectChannel={selectChannel}
         onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
-        onToggleRoom={(roomId) => workspaceStore.getState().toggleRoomCollapsed(roomId)}
-        onUpdateRoom={updateRoom}
-        roomBusy={updateRoomMutation.isPending}
+        onToggleProject={(projectId) => workspaceStore.getState().toggleProjectCollapsed(projectId)}
+        onUpdateProject={updateProject}
+        projectBusy={updateProjectMutation.isPending}
         selectedChannelId={selectedChannelId()}
         readState={settledData(readState)?.readState ?? []}
         restoreFocusRef={props.restoreFocusRef}
@@ -237,12 +241,12 @@ export function VirtualRoomControls(props: {
         workspaceName={activeWorkspace()?.name ?? 'Virtual'}
       />
       <Suspense fallback={null}>
-        <Show when={dialog() === 'create-room' && activeWorkspace()}>
+        <Show when={dialog() === 'create-project' && activeWorkspace()}>
           {(workspace) => (
-            <CreateRoomDialog
-              busy={createRoomMutation.isPending}
+            <CreateProjectDialog
+              busy={createProjectMutation.isPending}
               onClose={() => setDialog(null)}
-              onCreate={createRoom}
+              onCreate={createProject}
               open
               template={workspace().scene}
             />

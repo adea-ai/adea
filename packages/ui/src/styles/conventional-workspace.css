@@ -349,7 +349,7 @@
   flex-direction: column;
   gap: 0.125rem;
 }
-.conventional-sidebar__room {
+.conventional-sidebar__project {
   display: flex;
   min-width: 0;
   flex-direction: column;

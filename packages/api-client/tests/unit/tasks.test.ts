@@ -43,7 +43,7 @@ describe('Task API client', () => {
     })
     const command = { expectedVersion: 1, idempotencyKey: 'key', requestId: crypto.randomUUID() }
     await client.assignTask('w', 't', 'a', command)
-    await client.moveTaskToRoom('w', 't', 'r', command)
+    await client.moveTaskToProject('w', 't', 'r', command)
     await client.setTaskDependencies('w', 't', ['d'], command)
     await client.setTaskArtifactReferences('w', 't', ['artifact:1'], command)
     await client.setTaskConversationReferences(
@@ -54,7 +54,7 @@ describe('Task API client', () => {
     )
     expect(paths).toEqual([
       '/api/v1/workspaces/w/tasks/t/assign',
-      '/api/v1/workspaces/w/tasks/t/room',
+      '/api/v1/workspaces/w/tasks/t/project',
       '/api/v1/workspaces/w/tasks/t/dependencies',
       '/api/v1/workspaces/w/tasks/t/artifacts',
       '/api/v1/workspaces/w/tasks/t/conversation',

@@ -2,11 +2,11 @@ import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
 import { handleDesktopWorkspacePreflight } from '../../../../../../../../server/desktop-workspace'
 import { handleTaskAction } from '../../../../../../../../server/task-request'
-export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/tasks/$taskId/room')({
+export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/tasks/$taskId/project')({
   server: {
     handlers: {
       POST: ({ request, params }) =>
-        withRequestScope(() => handleTaskAction('room', request, params)),
+        withRequestScope(() => handleTaskAction('project', request, params)),
       OPTIONS: ({ request }) => handleDesktopWorkspacePreflight(request),
     },
   },

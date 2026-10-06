@@ -1,4 +1,4 @@
-import type { AgentSummary, RoomSummary, TaskSummary } from '@adea-ai/types'
+import type { AgentSummary, ProjectSummary, TaskSummary } from '@adea-ai/types'
 import { Play, Plus, Search, X } from 'lucide-solid'
 import { createMemo, createSignal, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
@@ -19,7 +19,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/compon
 import { keyedRows, type KeyedRow } from './keyed-rows'
 import type { PrivateContentResolver } from './platform'
 import { TaskObjective } from './private-task-objective'
-import { RoomIcon } from './room-icon'
+import { ProjectIcon } from './project-icon'
 import { TaskPanel } from './task-detail'
 import {
   kindOption,
@@ -45,7 +45,7 @@ type Props = Readonly<{
     }>
   ) => Promise<void>
   onDependencies: (task: TaskSummary, dependencyIds: readonly string[]) => Promise<void>
-  onMoveRoom: (task: TaskSummary, roomId: string | null) => Promise<void>
+  onMoveProject: (task: TaskSummary, projectId: string | null) => Promise<void>
   onOpenConversation: (task: TaskSummary) => void
   onQueue: (task: TaskSummary) => Promise<void>
   onReview: (task: TaskSummary) => Promise<void>
@@ -61,7 +61,7 @@ type Props = Readonly<{
     }>
   ) => Promise<void>
   privateContent?: PrivateContentResolver
-  rooms: readonly RoomSummary[]
+  projects: readonly ProjectSummary[]
   selectedTaskId: string | null
   tasks: readonly TaskSummary[]
 }>
@@ -72,7 +72,9 @@ export function TaskBoard(props: Props) {
   const [boardError, setBoardError] = createSignal<string | null>(null)
   const selected = createMemo(() => props.tasks.find(({ id }) => id === props.selectedTaskId))
   const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
-  const roomById = createMemo(() => new Map(props.rooms.map((room) => [room.id, room])))
+  const projectById = createMemo(
+    () => new Map(props.projects.map((project) => [project.id, project]))
+  )
   const dropActions: Partial<Record<TaskState, (task: TaskSummary) => Promise<void>>> = {
     cancelled: props.onCancel,
     completed: props.onComplete,
@@ -84,8 +86,8 @@ export function TaskBoard(props: Props) {
   const matches = (task: TaskSummary, needle: string) => {
     if (!needle) return true
     const agent = task.agentId ? agentById().get(task.agentId)?.name : undefined
-    const room = task.roomId ? roomById().get(task.roomId)?.name : undefined
-    return [task.title, task.objective, task.kind, task.priority, agent, room].some((value) =>
+    const project = task.projectId ? projectById().get(task.projectId)?.name : undefined
+    return [task.title, task.objective, task.kind, task.priority, agent, project].some((value) =>
       value?.toLowerCase().includes(needle)
     )
   }
@@ -227,7 +229,8 @@ export function TaskBoard(props: Props) {
           const task = entry.item
           const priority = () => priorityOption(task().priority)
           const kind = () => kindOption(task().kind)
-          const room = () => (task().roomId ? roomById().get(task().roomId!) : undefined)
+          const project = () =>
+            task().projectId ? projectById().get(task().projectId!) : undefined
           const agentName = () =>
             task().agentId ? (agentById().get(task().agentId!)?.name ?? 'Unavailable agent') : null
           return (
@@ -251,10 +254,10 @@ export function TaskBoard(props: Props) {
                   <Dynamic component={kind().Icon} aria-hidden="true" />
                   {kind().label}
                 </Badge>
-                <Show when={room()}>
+                <Show when={project()}>
                   {(value) => (
                     <Badge variant="subtle">
-                      <RoomIcon functionKey={value().functionKey} />
+                      <ProjectIcon iconKey={value().iconKey} />
                       {value().name}
                     </Badge>
                   )}

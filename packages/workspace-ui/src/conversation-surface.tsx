@@ -82,8 +82,9 @@ function peopleForConversation(
       .map(({ agentId }) => agentId)
   )
   if (directAgent) participantIds.add(directAgent.id)
-  if (channel.kind === 'room' && participantIds.size === 0) {
-    for (const agent of agents) if (agent.roomId === channel.roomId) participantIds.add(agent.id)
+  if (channel.kind === 'project' && participantIds.size === 0) {
+    for (const agent of agents)
+      if (agent.projectId === channel.projectId) participantIds.add(agent.id)
   }
   const activeAgentId = directAgent?.id ?? participantIds.values().next().value
   const people: ConversationPerson[] = [
@@ -337,8 +338,8 @@ export function ConversationSurface(props: {
       when={props.channel}
       fallback={
         <WorkspaceEmpty
-          title="Choose a Room or conversation"
-          detail="Rooms keep durable work, Agents, Tasks, and conversation history together."
+          title="Choose a Project or conversation"
+          detail="Projects keep durable work, Agents, Tasks, and conversation history together."
         />
       }
     >
@@ -350,8 +351,8 @@ export function ConversationSurface(props: {
             <div class="conventional-conversation__header-top">
               <div class="conventional-conversation__identity">
                 <span>
-                  {channel().kind === 'room'
-                    ? 'Room conversation'
+                  {channel().kind === 'project'
+                    ? 'Project conversation'
                     : channel().kind === 'direct_agent'
                       ? 'Direct Conversation'
                       : 'Group conversation'}

@@ -4,7 +4,7 @@ import type {
   AgentSummary,
   ArtifactSummary,
   ChannelSummary,
-  RoomSummary,
+  ProjectSummary,
   TaskSummary,
   WorkspaceSearchResult,
 } from '@adea-ai/types'
@@ -31,7 +31,7 @@ type SearchResult = WorkspaceSearchResult
 const searchResultIcon = (kind: SearchResult['kind']) =>
   kind === 'agent' ? (
     <Bot aria-hidden="true" />
-  ) : kind === 'room' ? (
+  ) : kind === 'project' ? (
     <DoorOpen aria-hidden="true" />
   ) : kind === 'task' ? (
     <ListTodo aria-hidden="true" />
@@ -68,7 +68,7 @@ export function WorkspaceSearchDialog(props: {
   onSelect: (result: SearchResult) => void
   open: boolean
   privateContent?: PrivateContentResolver
-  rooms: readonly RoomSummary[]
+  projects: readonly ProjectSummary[]
   scopeChannelId?: string
   tasks: readonly TaskSummary[]
   workspaceId: string
@@ -170,11 +170,11 @@ export function WorkspaceSearchDialog(props: {
 
   const quickResults = createMemo(() => {
     const all: SearchResult[] = [
-      ...props.rooms.map((room) => ({
-        id: room.id,
-        kind: 'room' as const,
-        label: room.name,
-        secondary: 'Room',
+      ...props.projects.map((project) => ({
+        id: project.id,
+        kind: 'project' as const,
+        label: project.name,
+        secondary: 'Project',
         workspaceId: props.workspaceId,
       })),
       ...props.channels.map((channel) => ({
@@ -182,8 +182,8 @@ export function WorkspaceSearchDialog(props: {
         kind: 'channel' as const,
         label: channel.title,
         secondary:
-          channel.kind === 'room'
-            ? 'Room conversation'
+          channel.kind === 'project'
+            ? 'Project conversation'
             : channel.kind === 'direct_agent'
               ? 'Direct Agent conversation'
               : 'Group conversation',
@@ -272,7 +272,7 @@ export function WorkspaceSearchDialog(props: {
       open={props.open}
       onClose={props.onClose}
       title={props.scopeChannelId ? 'Search this conversation' : 'Search workspace'}
-      description="Search Rooms, conversations, Agents, Tasks, Artifacts, and cloud-safe message text."
+      description="Search Projects, conversations, Agents, Tasks, Artifacts, and cloud-safe message text."
     >
       {/* The host owns ranking across quick destinations, local private hits,
           and remote hits; cmdk only owns selection and keyboard behavior. */}
@@ -293,7 +293,7 @@ export function WorkspaceSearchDialog(props: {
         <CommandInput
           value={query()}
           onValueChange={setQuery}
-          placeholder="Find a Room, conversation, Agent, or Task"
+          placeholder="Find a Project, conversation, Agent, or Task"
           autofocus
         />
         <CommandList class="conventional-search-results" label="Search results" aria-live="polite">

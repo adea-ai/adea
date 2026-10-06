@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import { check, index, jsonb, text, uuid } from 'drizzle-orm/pg-core'
 import { appSchema } from './schema'
 import { entityId, timestampColumns, type JsonObject } from './conventions'
-import { rooms } from './rooms'
+import { projects } from './projects'
 import { workspaces } from './workspaces'
 
 export const agentLifecycleState = appSchema.enum('agent_lifecycle_state', [
@@ -23,7 +23,7 @@ export const agents = appSchema.table(
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
-    roomId: uuid('room_id').references(() => rooms.id, { onDelete: 'set null' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
     name: text('name').notNull(),
     roleSummary: text('role_summary'),
     avatarRef: text('avatar_ref'),
@@ -45,7 +45,7 @@ export const agents = appSchema.table(
       table.name,
       table.id
     ),
-    index('agents_workspace_room_idx').on(table.workspaceId, table.roomId),
+    index('agents_workspace_project_idx').on(table.workspaceId, table.projectId),
     index('agents_profile_idx').on(table.profileId, table.profileVersion),
   ]
 )

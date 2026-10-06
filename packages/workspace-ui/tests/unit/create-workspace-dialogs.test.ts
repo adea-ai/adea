@@ -1,21 +1,21 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
-  roomFormInputFromForm,
-  roomFunctionKeySuggestions,
+  projectFormInputFromForm,
+  projectIconKeySuggestions,
 } from '../../src/create-workspace-dialogs'
 
-describe('Room function key suggestions', () => {
-  test('submits a custom function key even when it is not a suggestion', () => {
-    const customFunctionKey = 'my-custom-space'
-    expect(roomFunctionKeySuggestions).not.toContain(customFunctionKey)
+describe('Project icon key suggestions', () => {
+  test('submits a custom icon key even when it is not a suggestion', () => {
+    const customIconKey = 'my-custom-space'
+    expect(projectIconKeySuggestions).not.toContain(customIconKey)
 
     const form = new FormData()
-    form.set('functionKey', customFunctionKey)
+    form.set('iconKey', customIconKey)
     form.set('name', 'Custom Space')
 
-    expect(roomFormInputFromForm(form)).toEqual({
-      functionKey: customFunctionKey,
+    expect(projectFormInputFromForm(form)).toEqual({
+      iconKey: customIconKey,
       name: 'Custom Space',
     })
   })

@@ -6,7 +6,7 @@ import { createArtifact } from '../../src/artifacts'
 import { createGroupChannel, createMessage } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import { createAgent } from '../../src/agents'
-import { createRoom } from '../../src/rooms'
+import { createProject } from '../../src/projects'
 import {
   archiveTask,
   assignTask,
@@ -15,7 +15,7 @@ import {
   createTask,
   getTaskForUser,
   listTasksForUser,
-  moveTaskToRoom,
+  moveTaskToProject,
   queueTask,
   reviewTask,
   setTaskArtifactReferences,
@@ -29,7 +29,7 @@ import {
   artifacts,
   channels,
   messages,
-  rooms,
+  projects,
   taskDependencies,
   taskMutations,
   tasks,
@@ -70,8 +70,8 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
       name: 'Task HQ',
       owner: owner.principal,
     })
-    const room = await createRoom(connection.db, workspace.id, owner.principal, {
-      functionKey: 'engineering',
+    const project = await createProject(connection.db, workspace.id, owner.principal, {
+      iconKey: 'engineering',
       name: 'Engineering',
     })
     const agent = await createAgent(connection.db, workspace.id, owner.principal, {
@@ -88,7 +88,7 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
         agentId: agent.id,
         objective: 'Ship the durable Task model',
         priority: 'high',
-        roomId: room.id,
+        projectId: project.id,
         title: 'Implement Tasks',
       },
       command('create-task')
@@ -101,7 +101,7 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
         agentId: agent.id,
         objective: 'Ship the durable Task model',
         priority: 'high',
-        roomId: room.id,
+        projectId: project.id,
         title: 'Implement Tasks',
       },
       command('create-task')
@@ -112,7 +112,7 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
       agentId: agent.id,
       artifactRefs: [],
       lifecycleState: 'created',
-      roomId: room.id,
+      projectId: project.id,
       version: 1,
       workspaceId: workspace.id,
     })
@@ -140,7 +140,7 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
     await connection.db.delete(tasks).where(eq(tasks.workspaceId, workspace.id))
     await connection.db.delete(agents).where(eq(agents.workspaceId, workspace.id))
     await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
-    await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspace.id))
+    await connection.db.delete(projects).where(eq(projects.workspaceId, workspace.id))
     await connection.db
       .delete(workspaceMemberships)
       .where(eq(workspaceMemberships.workspaceId, workspace.id))
@@ -460,7 +460,7 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
     await connection.db.delete(users).where(eq(users.id, owner.principal.userId))
   })
 
-  test('updates assignment, Room, dependencies, Artifact refs, and conversation provenance', async () => {
+  test('updates assignment, Project, dependencies, Artifact refs, and conversation provenance', async () => {
     const owner = await createTemporaryUserSession(connection.db, {
       credentialDigest: `task-context-${crypto.randomUUID()}`,
       expiresAt: new Date(Date.now() + 60_000),
@@ -470,8 +470,8 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
       name: 'Context HQ',
       owner: owner.principal,
     })
-    const room = await createRoom(connection.db, workspace.id, owner.principal, {
-      functionKey: 'planning',
+    const project = await createProject(connection.db, workspace.id, owner.principal, {
+      iconKey: 'planning',
       name: 'Planning',
     })
     const agent = await createAgent(connection.db, workspace.id, owner.principal, {
@@ -501,12 +501,12 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
       agent.id,
       command('assign', task.version)
     )
-    task = await moveTaskToRoom(
+    task = await moveTaskToProject(
       connection.db,
       workspace.id,
       task.id,
       owner.principal,
-      room.id,
+      project.id,
       command('move', task.version)
     )
     task = await setTaskDependencies(
@@ -572,7 +572,7 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
         threadRootMessageId: message.id,
       },
       dependencyIds: [dependency.id],
-      roomId: room.id,
+      projectId: project.id,
     })
 
     await connection.db.delete(messages).where(eq(messages.workspaceId, workspace.id))
@@ -584,7 +584,7 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
     await connection.db.delete(tasks).where(eq(tasks.workspaceId, workspace.id))
     await connection.db.delete(agents).where(eq(agents.workspaceId, workspace.id))
     await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
-    await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspace.id))
+    await connection.db.delete(projects).where(eq(projects.workspaceId, workspace.id))
     await connection.db
       .delete(workspaceMemberships)
       .where(eq(workspaceMemberships.workspaceId, workspace.id))

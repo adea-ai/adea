@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../server/request-scope'
-import type { ApiRoomCreateInput, ApiRoomResponse } from '@adea-ai/api-client'
-import { createRoom, listRoomsForUser } from '@adea-ai/db'
+import type { ApiProjectCreateInput, ApiProjectResponse } from '@adea-ai/api-client'
+import { createProject, isProjectId, isProjectSourceKind, listProjectsForUser } from '@adea-ai/db'
 
 import { applicationDatabase } from '../../../../../../server/database'
 import {
@@ -11,6 +11,7 @@ import {
 import { authorizeWorkspace } from '../../../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../../../server/workspace-principal'
 import {
+  projectConflictResponse,
   workspaceInvalidRequestResponse,
   workspaceJsonResponse,
   workspaceUnavailableResponse,
@@ -27,7 +28,7 @@ async function get(request: Request, { params }: { params: { workspaceId: string
     workspaceId
   )
   if (!authorization.allowed) return workspaceUnavailableResponse(request)
-  const result = await listRoomsForUser(applicationDatabase(), workspaceId, resolution.principal)
+  const result = await listProjectsForUser(applicationDatabase(), workspaceId, resolution.principal)
   return workspaceJsonResponse(result, resolution, request, {
     headers: { 'cache-control': 'private, no-store' },
   })
@@ -53,35 +54,41 @@ async function post(request: Request, { params }: { params: { workspaceId: strin
     return workspaceInvalidRequestResponse(request)
   }
   const candidate = body as Record<string, unknown>
-  const input: ApiRoomCreateInput = {
-    functionKey: typeof candidate.functionKey === 'string' ? candidate.functionKey.trim() : '',
-    name: typeof candidate.name === 'string' ? candidate.name.trim() : '',
-    ...(typeof candidate.layoutRef === 'string' ? { layoutRef: candidate.layoutRef.trim() } : {}),
-    ...(typeof candidate.spatialRef === 'string'
-      ? { spatialRef: candidate.spatialRef.trim() }
-      : {}),
-    ...(typeof candidate.templateKey === 'string'
-      ? { templateKey: candidate.templateKey.trim() }
-      : {}),
-  }
-  if (
-    !input.name ||
-    input.name.length > 80 ||
-    !input.functionKey ||
-    input.functionKey.length > 80
-  ) {
+  if (candidate.id !== undefined && !isProjectId(candidate.id)) {
     return workspaceInvalidRequestResponse(request)
   }
-  const payload: ApiRoomResponse = {
-    room: await createRoom(applicationDatabase(), workspaceId, resolution.principal, input),
+  if (candidate.sourceKind !== undefined && !isProjectSourceKind(candidate.sourceKind)) {
+    return workspaceInvalidRequestResponse(request)
   }
-  return workspaceJsonResponse(payload, resolution, request, { status: 201 })
+  const input: ApiProjectCreateInput = {
+    iconKey: typeof candidate.iconKey === 'string' ? candidate.iconKey.trim() : '',
+    name: typeof candidate.name === 'string' ? candidate.name.trim() : '',
+    ...(isProjectId(candidate.id) ? { id: candidate.id.toLowerCase() } : {}),
+    ...(isProjectSourceKind(candidate.sourceKind) ? { sourceKind: candidate.sourceKind } : {}),
+  }
+  if (!input.name || input.name.length > 80 || !input.iconKey || input.iconKey.length > 80) {
+    return workspaceInvalidRequestResponse(request)
+  }
+  try {
+    const payload: ApiProjectResponse = {
+      project: await createProject(applicationDatabase(), workspaceId, resolution.principal, input),
+    }
+    return workspaceJsonResponse(payload, resolution, request, { status: 201 })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Project unavailable') {
+      return workspaceUnavailableResponse(request)
+    }
+    if (error instanceof Error && error.message === 'Project id conflict') {
+      return projectConflictResponse(request)
+    }
+    throw error
+  }
 }
 
 function options(request: Request) {
   return handleDesktopWorkspacePreflight(request)
 }
-export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/rooms')({
+export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/projects')({
   server: {
     handlers: {
       GET: ({ request, params }) => withRequestScope(() => get(request, { params })),

@@ -1,4 +1,4 @@
-import type { AgentSummary, RoomSummary } from '@adea-ai/types'
+import type { AgentSummary, ProjectSummary } from '@adea-ai/types'
 import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from 'lucide-solid'
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
@@ -28,7 +28,7 @@ export type AgentCustomizationInput = Readonly<{
   profileId: string
   profileVersion: string
   roleSummary: string | null
-  roomId: string | null
+  projectId: string | null
 }>
 
 type Props = Readonly<{
@@ -45,14 +45,16 @@ type Props = Readonly<{
   onArchive: (agentId: string) => Promise<void>
   onMessage: (agentId: string) => Promise<void>
   onUpdate: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>
-  rooms: readonly RoomSummary[]
+  projects: readonly ProjectSummary[]
 }>
 
 export function AgentRoster(props: Props) {
   const [creating, setCreating] = createSignal(false)
   const [editingAgentId, setEditingAgentId] = createSignal<string | null>(null)
   const [error, setError] = createSignal<string | null>(null)
-  const roomById = createMemo(() => new Map(props.rooms.map((room) => [room.id, room])))
+  const projectById = createMemo(
+    () => new Map(props.projects.map((project) => [project.id, project]))
+  )
   const editingAgent = createMemo(() => props.agents.find(({ id }) => id === editingAgentId()))
   // Keyed by agent id: an agents refetch updates cards in place instead of
   // remounting the grid on every new object identity.
@@ -117,7 +119,7 @@ export function AgentRoster(props: Props) {
                 setError('Agent changes could not be saved. Review the fields and retry.')
               }
             }}
-            rooms={props.rooms}
+            projects={props.projects}
           />
         )}
       </Show>
@@ -143,10 +145,11 @@ export function AgentRoster(props: Props) {
                       <PropertyValue>
                         {entry.item().profile.id} · v{entry.item().profile.version}
                       </PropertyValue>
-                      <PropertyTerm>Room</PropertyTerm>
+                      <PropertyTerm>Project</PropertyTerm>
                       <PropertyValue>
-                        {entry.item().roomId
-                          ? (roomById().get(entry.item().roomId!)?.name ?? 'Unavailable Room')
+                        {entry.item().projectId
+                          ? (projectById().get(entry.item().projectId!)?.name ??
+                            'Unavailable Project')
                           : 'Unassigned'}
                       </PropertyValue>
                       <PropertyTerm>Profile state</PropertyTerm>
@@ -196,7 +199,7 @@ function AgentCustomizationForm(props: {
   onArchive: (agent: AgentSummary) => Promise<void>
   onCancel: () => void
   onSubmit: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>
-  rooms: readonly RoomSummary[]
+  projects: readonly ProjectSummary[]
 }) {
   const [archiveConfirmation, setArchiveConfirmation] = createSignal(false)
   return (
@@ -212,7 +215,7 @@ function AgentCustomizationForm(props: {
           profileId: String(form.get('profileId') ?? ''),
           profileVersion: String(form.get('profileVersion') ?? ''),
           roleSummary: String(form.get('roleSummary') ?? '').trim() || null,
-          roomId: String(form.get('roomId') ?? '').trim() || null,
+          projectId: String(form.get('projectId') ?? '').trim() || null,
         })
       }}
     >
@@ -239,13 +242,13 @@ function AgentCustomizationForm(props: {
           <Input name="name" required maxLength={120} value={props.agent.name} />
         </Label>
         <Label>
-          Room
+          Project
           <NativeSelect
-            name="roomId"
-            value={props.agent.roomId ?? ''}
+            name="projectId"
+            value={props.agent.projectId ?? ''}
             options={[
               { value: '', label: 'Unassigned' },
-              ...props.rooms.map((room) => ({ value: room.id, label: room.name })),
+              ...props.projects.map((project) => ({ value: project.id, label: project.name })),
             ]}
           />
         </Label>

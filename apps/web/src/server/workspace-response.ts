@@ -92,3 +92,13 @@ export function workspaceInvalidRequestResponse(request: Request) {
     request
   )
 }
+
+export function projectConflictResponse(request: Request) {
+  return withDesktopWorkspaceCors(
+    Response.json(
+      { code: 'project_conflict', message: 'Project id already used with different fields' },
+      { status: 409 }
+    ),
+    request
+  )
+}

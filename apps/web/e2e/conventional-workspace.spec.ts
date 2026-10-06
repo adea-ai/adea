@@ -48,7 +48,7 @@ const marketplacePluginSpecs = [
   ['slack', 'Slack', 'communication', 'connector'],
   ['asana', 'Asana', 'productivity', 'connector'],
   ['trello', 'Trello', 'productivity', 'connector'],
-  ['room-summaries', 'Room Summaries', 'productivity', 'skill'],
+  ['project-summaries', 'Project Summaries', 'productivity', 'skill'],
   ['todoist', 'Todoist', 'productivity', 'connector'],
   ['calendly', 'Calendly', 'productivity', 'connector'],
   ['linear', 'Linear', 'developer-tools', 'connector'],
@@ -158,11 +158,11 @@ function marketplaceFixture() {
   }
   return { artifacts, catalog, catalogId, plugins }
 }
-const rooms = [
+const projects = [
   {
     createdAt: timestamp,
-    functionKey: 'product',
-    id: 'room-product',
+    iconKey: 'product',
+    id: 'project-product',
     lifecycleState: 'active',
     name: 'Product',
     sortOrder: 0,
@@ -171,8 +171,8 @@ const rooms = [
   },
   {
     createdAt: timestamp,
-    functionKey: 'support',
-    id: 'room-support',
+    iconKey: 'support',
+    id: 'project-support',
     lifecycleState: 'active',
     name: 'Support',
     sortOrder: 1,
@@ -189,7 +189,7 @@ const agents = [
     presentationMetadata: {},
     profile: { id: 'profile-research', state: 'available', version: '1' },
     roleSummary: 'Customer and market research',
-    roomId: 'room-product',
+    projectId: 'project-product',
     updatedAt: timestamp,
     workspaceId: workspace.id,
   },
@@ -209,11 +209,11 @@ const channels = [
   {
     createdAt: timestamp,
     id: 'channel-product',
-    isPrimaryRoomChannel: true,
-    kind: 'room',
+    isPrimaryProjectChannel: true,
+    kind: 'project',
     lifecycleState: 'active',
     participants: [user],
-    roomId: 'room-product',
+    projectId: 'project-product',
     sortOrder: 0,
     title: 'Product',
     updatedAt: timestamp,
@@ -224,11 +224,11 @@ const channels = [
   {
     createdAt: timestamp,
     id: 'channel-support',
-    isPrimaryRoomChannel: true,
-    kind: 'room',
+    isPrimaryProjectChannel: true,
+    kind: 'project',
     lifecycleState: 'active',
     participants: [user],
-    roomId: 'room-support',
+    projectId: 'project-support',
     sortOrder: 0,
     title: 'Support',
     updatedAt: timestamp,
@@ -240,7 +240,7 @@ const channels = [
     agentId: 'agent-research',
     createdAt: timestamp,
     id: 'channel-agent',
-    isPrimaryRoomChannel: false,
+    isPrimaryProjectChannel: false,
     kind: 'direct_agent',
     lifecycleState: 'active',
     participants: [user, agentPrincipal],
@@ -254,7 +254,7 @@ const channels = [
   {
     createdAt: timestamp,
     id: 'channel-group',
-    isPrimaryRoomChannel: false,
+    isPrimaryProjectChannel: false,
     kind: 'group',
     lifecycleState: 'active',
     participants: [user, agentPrincipal],
@@ -278,7 +278,7 @@ const tasks = [
     lifecycleState: 'created',
     objective: 'Prepare the launch brief and confirm audience.',
     priority: 'high',
-    roomId: 'room-product',
+    projectId: 'project-product',
     title: 'Launch planning',
     updatedAt: timestamp,
     version: 1,
@@ -326,7 +326,7 @@ const artifacts = [
 const messages = [
   {
     artifactIds: [],
-    bodyText: 'Welcome to the Product Room. This is durable workspace history.',
+    bodyText: 'Welcome to the Product Project. This is durable workspace history.',
     channelId: 'channel-product',
     createdAt: timestamp,
     deleted: false,
@@ -432,7 +432,7 @@ async function mockWorkspace(page: Page, empty = false) {
       const updated = {
         ...agents[0],
         ...(url.pathname.endsWith('/presentation') ? body : {}),
-        ...(url.pathname.endsWith('/room') ? { roomId: body.roomId } : {}),
+        ...(url.pathname.endsWith('/project') ? { projectId: body.projectId } : {}),
         ...(url.pathname.endsWith('/profile')
           ? {
               profile: {
@@ -470,7 +470,7 @@ async function mockWorkspace(page: Page, empty = false) {
                 kind: 'message',
                 label: 'This is durable workspace history.',
                 messageId: 'message-root',
-                roomId: 'room-product',
+                projectId: 'project-product',
                 secondary: 'Product · Message',
                 workspaceId: workspace.id,
               },
@@ -481,8 +481,8 @@ async function mockWorkspace(page: Page, empty = false) {
         json: { privateResultsUnavailable: true, results },
       })
     }
-    if (url.pathname.endsWith('/rooms'))
-      return route.fulfill({ contentType: 'application/json', json: empty ? [] : rooms })
+    if (url.pathname.endsWith('/projects'))
+      return route.fulfill({ contentType: 'application/json', json: empty ? [] : projects })
     if (url.pathname.endsWith('/agents'))
       return route.fulfill({ contentType: 'application/json', json: empty ? [] : agents })
     if (url.pathname.endsWith('/tasks'))
@@ -519,7 +519,7 @@ async function mockWorkspace(page: Page, empty = false) {
 }
 
 async function mockConnectedWorkspace(page: Page) {
-  const mutableRooms = rooms.map((room) => ({ ...room }))
+  const mutableProjects = projects.map((project) => ({ ...project }))
   const mutableChannels = channels.map((channel) => ({ ...channel }))
 
   await page.addInitScript(() => {
@@ -542,29 +542,29 @@ async function mockConnectedWorkspace(page: Page) {
   await page.route('**/api/v1/workspaces/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
-    if (request.method() === 'POST' && url.pathname.endsWith('/rooms')) {
-      const body = request.postDataJSON() as { functionKey: string; name: string }
-      const createdRoom = {
+    if (request.method() === 'POST' && url.pathname.endsWith('/projects')) {
+      const body = request.postDataJSON() as { iconKey: string; name: string }
+      const createdProject = {
         createdAt: timestamp,
-        functionKey: body.functionKey,
-        id: 'room-created',
+        iconKey: body.iconKey,
+        id: 'project-created',
         lifecycleState: 'active' as const,
         name: body.name,
-        sortOrder: mutableRooms.length,
+        sortOrder: mutableProjects.length,
         updatedAt: timestamp,
         workspaceId: workspace.id,
       }
-      mutableRooms.push(createdRoom)
+      mutableProjects.push(createdProject)
       mutableChannels.push({
         createdAt: timestamp,
-        id: 'channel-created-room',
-        isPrimaryRoomChannel: true,
-        kind: 'room',
+        id: 'channel-created-project',
+        isPrimaryProjectChannel: true,
+        kind: 'project',
         lifecycleState: 'active',
         participants: [user],
-        roomId: createdRoom.id,
+        projectId: createdProject.id,
         sortOrder: 0,
-        title: createdRoom.name,
+        title: createdProject.name,
         updatedAt: timestamp,
         version: 1,
         visibility: 'workspace',
@@ -572,7 +572,7 @@ async function mockConnectedWorkspace(page: Page) {
       })
       return route.fulfill({
         contentType: 'application/json',
-        json: { room: createdRoom },
+        json: { project: createdProject },
         status: 201,
       })
     }
@@ -591,7 +591,7 @@ async function mockConnectedWorkspace(page: Page) {
       const createdChannel = {
         createdAt: timestamp,
         id: 'channel-created-group',
-        isPrimaryRoomChannel: false,
+        isPrimaryProjectChannel: false,
         kind: body.kind as 'group',
         lifecycleState: 'active' as const,
         participants: [user],
@@ -613,8 +613,8 @@ async function mockConnectedWorkspace(page: Page) {
       return route.fulfill({ contentType: 'application/json', json: {} })
     if (url.pathname.includes('/read-state'))
       return route.fulfill({ contentType: 'application/json', json: { readState } })
-    if (url.pathname.endsWith('/rooms'))
-      return route.fulfill({ contentType: 'application/json', json: mutableRooms })
+    if (url.pathname.endsWith('/projects'))
+      return route.fulfill({ contentType: 'application/json', json: mutableProjects })
     if (url.pathname.endsWith('/channels'))
       return route.fulfill({ contentType: 'application/json', json: mutableChannels })
     if (url.pathname.endsWith('/agents'))
@@ -777,7 +777,7 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
   await expect(page.getByRole('button', { name: 'Attach an Artifact' })).toBeVisible()
 })
 
-test('keeps the room draft and attachments after a failed send, then clears on retry', async ({
+test('keeps the project draft and attachments after a failed send, then clears on retry', async ({
   page,
 }) => {
   await mockWorkspace(page)
@@ -813,14 +813,14 @@ test('keeps the room draft and attachments after a failed send, then clears on r
   await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
 })
 
-test('keeps thread reply metadata separate from the room draft', async ({ page }) => {
+test('keeps thread reply metadata separate from the project draft', async ({ page }) => {
   await mockWorkspace(page)
   const submissions = await captureMessageSubmissions(page)
   await page.goto('/')
   await page.getByRole('button', { name: /^Product( |$)/ }).click()
 
-  const roomComposer = page.getByRole('textbox', { name: 'Message' }).first()
-  await roomComposer.fill('Room draft remains here.')
+  const projectComposer = page.getByRole('textbox', { name: 'Message' }).first()
+  await projectComposer.fill('Project draft remains here.')
   await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
   const threadComposer = page.getByRole('textbox', { name: 'Message' }).nth(1)
   await expect(threadComposer).toHaveAttribute(
@@ -838,15 +838,15 @@ test('keeps thread reply metadata separate from the room draft', async ({ page }
     replyToMessageId: 'message-root',
     threadRootMessageId: 'message-root',
   })
-  await expect(roomComposer).toHaveValue('Room draft remains here.')
+  await expect(projectComposer).toHaveValue('Project draft remains here.')
   await expect(threadComposer).toHaveValue('')
 })
 
-test('renders empty and populated Room-first workspace states', async ({ page }) => {
+test('renders empty and populated Project-first workspace states', async ({ page }) => {
   await mockWorkspace(page, true)
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Rooms' })).toBeVisible()
-  await expect(page.getByText('Create a Room to organize the work.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+  await expect(page.getByText('Create a Project to organize the work.')).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-empty-light.png', { animations: 'disabled' })
 
   await page.unrouteAll({ behavior: 'wait' })
@@ -857,7 +857,7 @@ test('renders empty and populated Room-first workspace states', async ({ page })
   })
   await expect(page.getByText('Private content unavailable')).toBeVisible()
   await expect(page.getByLabel('Attachment launch-brief.md')).toBeVisible()
-  await expect(page).toHaveScreenshot('workspace-room-populated-light.png', {
+  await expect(page).toHaveScreenshot('workspace-project-populated-light.png', {
     animations: 'disabled',
   })
 })
@@ -865,7 +865,7 @@ test('renders empty and populated Room-first workspace states', async ({ page })
 test('centers creation dialogs in the viewport', async ({ page }) => {
   await mockConnectedWorkspace(page)
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Rooms' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
   for (const viewport of [
     { width: 390, height: 844 },
     { width: 1280, height: 720 },
@@ -902,8 +902,8 @@ test('centers creation dialogs in the viewport', async ({ page }) => {
       }
     }
     await expect(navigation).toBeVisible()
-    await navigation.getByRole('button', { name: 'Create Room', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: 'Create Room' })
+    await navigation.getByRole('button', { name: 'Create Project', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Create Project' })
     const box = await dialog.boundingBox()
     expect(box).not.toBeNull()
     expect(Math.abs(box!.x + box!.width / 2 - viewport.width / 2)).toBeLessThanOrEqual(2)
@@ -940,20 +940,20 @@ test('loads chat before secure-context-only authentication APIs are requested', 
   await mockConnectedWorkspace(page)
   await page.goto('/')
 
-  await expect(page.getByRole('heading', { name: 'Rooms' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
 })
 
-test('connects newly created Rooms and group conversations to their canonical views', async ({
+test('connects newly created Projects and group conversations to their canonical views', async ({
   page,
 }) => {
   await mockConnectedWorkspace(page)
   await page.goto('/')
 
-  await page.getByRole('button', { name: 'Create Room', exact: true }).last().click()
-  const roomDialog = page.getByRole('dialog', { name: 'Create Room' })
-  await roomDialog.getByLabel('Room name').fill('Runtime Review')
-  await roomDialog.getByLabel('Function key').fill('runtime-review')
-  await roomDialog.getByRole('button', { name: 'Create Room', exact: true }).click()
+  await page.getByRole('button', { name: 'Create Project', exact: true }).last().click()
+  const projectDialog = page.getByRole('dialog', { name: 'Create Project' })
+  await projectDialog.getByLabel('Project name').fill('Runtime Review')
+  await projectDialog.getByLabel('Icon key').fill('runtime-review')
+  await projectDialog.getByRole('button', { name: 'Create Project', exact: true }).click()
   await expect(
     page.locator('#workspace-main').getByRole('heading', { name: 'Runtime Review', exact: true })
   ).toBeVisible()
@@ -973,7 +973,7 @@ test('connects newly created Rooms and group conversations to their canonical vi
   ).toBeVisible()
 })
 
-test('toggles chat and virtual Room views without losing shared selection or drafts', async ({
+test('toggles chat and virtual Project views without losing shared selection or drafts', async ({
   page,
 }) => {
   test.setTimeout(180_000)
@@ -1155,7 +1155,7 @@ test('browses the verified registry marketplace and submits an exact install req
   const productivityPlugins = pluginGroups.filter({
     has: page.getByRole('heading', { name: 'Productivity', exact: true }),
   })
-  await plugins.getByRole('button', { name: 'See Room Summaries, Todoist and more' }).click()
+  await plugins.getByRole('button', { name: 'See Project Summaries, Todoist and more' }).click()
   await expect(productivityPlugins.locator('[data-catalog-entry-id]')).toHaveCount(9)
   await productivityPlugins.getByRole('button', { name: 'Show less' }).click()
   await expect(productivityPlugins.locator('[data-catalog-entry-id]')).toHaveCount(6)
@@ -1601,7 +1601,7 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
       .locator('[aria-label="Collapse contextual sidebar"]')
   ).toHaveAttribute('aria-expanded', 'true')
   await expect(navigation.getByRole('heading', { level: 1 })).toBeVisible()
-  await expect(navigation.getByRole('region', { name: 'Rooms' })).toBeVisible()
+  await expect(navigation.getByRole('region', { name: 'Projects' })).toBeVisible()
   await expect(navigation.getByRole('region', { name: 'Conversations' })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-narrow-light.png', { animations: 'disabled' })
   // The published sheet owns the close chrome next to the navigation aside.
@@ -1648,7 +1648,7 @@ test('keeps contextual section actions visible on touch devices', async ({ brows
     await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
 
     const navigation = page.getByRole('complementary', { name: 'Workspace navigation' })
-    await expect(navigation.getByRole('button', { name: 'Create Room' })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Create Project' })).toBeVisible()
     await expect(
       navigation.getByRole('button', { name: 'Create group conversation' })
     ).toBeVisible()
@@ -1681,7 +1681,7 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
   await searchInput.press('ArrowDown')
   await searchInput.press('ArrowDown')
   const supportChannel = globalSearch.getByRole('option', {
-    name: /Support Room conversation/,
+    name: /Support Project conversation/,
   })
   await expect(supportChannel).toHaveAttribute('aria-selected', 'true')
   expect(await searchInput.getAttribute('aria-controls')).toBe(await results.getAttribute('id'))
@@ -1788,8 +1788,8 @@ test('workspace search keeps duplicate destination labels tied to their domain i
   const dialog = page.getByRole('dialog', { name: 'Search workspace' })
   const input = dialog.getByRole('combobox', { name: 'Search workspace' })
   const results = dialog.getByRole('listbox', { name: 'Search results' })
-  const room = results.getByRole('option', { name: 'Support Room', exact: true })
-  const channel = results.getByRole('option', { name: 'Support Room conversation', exact: true })
+  const project = results.getByRole('option', { name: 'Support Project', exact: true })
+  const channel = results.getByRole('option', { name: 'Support Project conversation', exact: true })
   await expect(results.getByRole('option')).toHaveCount(13)
 
   const channelPrefetch = page.waitForRequest((request) =>
@@ -1798,7 +1798,7 @@ test('workspace search keeps duplicate destination labels tied to their domain i
   await channel.hover()
   await channelPrefetch
   await expect(channel).toHaveAttribute('aria-selected', 'true')
-  await expect(room).toHaveAttribute('aria-selected', 'false')
+  await expect(project).toHaveAttribute('aria-selected', 'false')
   expect(await input.getAttribute('aria-activedescendant')).toBe(await channel.getAttribute('id'))
 })
 
@@ -1971,14 +1971,14 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   const form = page.locator('form.conventional-agent-customization')
   await form.getByLabel('Name').fill('Research Lead')
   await form.getByLabel('Role or persona').fill('Market evidence and customer research')
-  await form.getByLabel('Room').selectOption('room-support')
+  await form.getByLabel('Project').selectOption('project-support')
   await form.getByLabel('AgentProfile version').fill('2')
   const presentation = page.waitForRequest((request) => request.url().endsWith('/presentation'))
-  const room = page.waitForRequest((request) => request.url().endsWith('/room'))
+  const project = page.waitForRequest((request) => request.url().endsWith('/project'))
   const profile = page.waitForRequest((request) => request.url().endsWith('/profile'))
   await form.getByRole('button', { name: 'Save changes' }).click()
   expect((await presentation).postDataJSON()).toMatchObject({ name: 'Research Lead' })
-  expect((await room).postDataJSON()).toEqual({ roomId: 'room-support' })
+  expect((await project).postDataJSON()).toEqual({ projectId: 'project-support' })
   expect((await profile).postDataJSON()).toMatchObject({
     profileId: 'profile-research',
     profileVersion: '2',
@@ -2330,16 +2330,16 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
   expect(await virtualSidebar.screenshot({ animations: 'disabled' })).toEqual(narrowChatSidebar)
 })
 
-test('Virtual sidebar actions create a room and group conversation through workspace services', async ({
+test('Virtual sidebar actions create a project and group conversation through workspace services', async ({
   page,
 }) => {
   await mockConnectedWorkspace(page)
   await page.goto('/?view=virtual')
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
   const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
-  await expect(sidebar.getByRole('button', { name: 'Create Room' })).toBeVisible()
+  await expect(sidebar.getByRole('button', { name: 'Create Project' })).toBeVisible()
 
-  await sidebar.getByRole('button', { name: 'Create Room' }).click()
+  await sidebar.getByRole('button', { name: 'Create Project' }).click()
   await page.getByRole('button', { name: 'Engineering', exact: true }).click()
   await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toHaveAttribute(
     'aria-pressed',
@@ -2367,7 +2367,9 @@ test.describe('touch workspace sidebar actions', () => {
     viewport: { width: 390, height: 844 },
   })
 
-  test('exposes row actions without hover and opens the room menu by touch', async ({ page }) => {
+  test('exposes row actions without hover and opens the project menu by touch', async ({
+    page,
+  }) => {
     await mockConnectedWorkspace(page)
     await page.goto('/?view=chat')
 
@@ -2378,27 +2380,27 @@ test.describe('touch workspace sidebar actions', () => {
     await openNavigation.tap()
 
     const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
-    const roomOptions = sidebar.getByRole('button', { name: 'Room options for Product' })
+    const projectOptions = sidebar.getByRole('button', { name: 'Project options for Product' })
     const conversationOptions = sidebar.getByRole('button', {
       name: 'Conversation options for Research Agent',
     })
-    await expect(roomOptions).toBeVisible()
+    await expect(projectOptions).toBeVisible()
     await expect(conversationOptions).toBeVisible()
 
-    const roomActions = roomOptions.locator(
+    const projectActions = projectOptions.locator(
       'xpath=ancestor::*[@data-slot="sidebar-nav-row-actions"]'
     )
     const conversationActions = conversationOptions.locator(
       'xpath=ancestor::*[@data-slot="sidebar-nav-row-actions"]'
     )
     await expect
-      .poll(() => roomActions.evaluate((node) => getComputedStyle(node).opacity))
+      .poll(() => projectActions.evaluate((node) => getComputedStyle(node).opacity))
       .toBe('1')
     await expect
       .poll(() => conversationActions.evaluate((node) => getComputedStyle(node).opacity))
       .toBe('1')
 
-    await roomOptions.tap()
+    await projectOptions.tap()
     // The row menu portals to the document body, outside the navigation aside.
     await expect(page.getByRole('menuitem', { name: 'Edit' })).toBeVisible()
   })
@@ -2545,7 +2547,7 @@ test.describe('touch workspace sidebar actions', () => {
     await navigationToggle.tap()
     await expect(sidebar).toBeVisible()
     await expect(sidebar.getByRole('button', { name: /^Product( |$)/ })).toBeVisible()
-    await expect(sidebar.getByRole('button', { name: 'Room options for Product' })).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Project options for Product' })).toBeVisible()
     await expect
       .poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().left))
       .toBeGreaterThanOrEqual(0)
@@ -2617,14 +2619,14 @@ test.describe('touch workspace sidebar actions', () => {
     await navigationToggle.press('Enter')
     await expect(sidebar).toBeVisible()
 
-    const createRoom = sidebar.getByRole('button', { name: 'Create Room' })
-    await createRoom.click()
-    const roomDialog = page.getByRole('dialog', { name: 'Create Room' })
-    await expect(roomDialog.locator(':focus')).toBeVisible()
+    const createProject = sidebar.getByRole('button', { name: 'Create Project' })
+    await createProject.click()
+    const projectDialog = page.getByRole('dialog', { name: 'Create Project' })
+    await expect(projectDialog.locator(':focus')).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(roomDialog).not.toBeVisible()
+    await expect(projectDialog).not.toBeVisible()
     await expect(sidebar).toBeVisible()
-    await expect(createRoom).toBeFocused()
+    await expect(createProject).toBeFocused()
     // The open sheet hides the toolbar from role queries, so query the DOM
     // directly; locator resolution would keep failing on the hidden element.
     await expect

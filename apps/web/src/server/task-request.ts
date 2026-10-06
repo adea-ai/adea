@@ -6,7 +6,7 @@ import {
   assignTask,
   cancelTask,
   completeTask,
-  moveTaskToRoom,
+  moveTaskToProject,
   queueTask,
   reviewTask,
   setTaskArtifactReferences,
@@ -102,7 +102,7 @@ export type TaskAction =
   | 'dependencies'
   | 'queue'
   | 'review'
-  | 'room'
+  | 'project'
   | 'start'
 
 export async function handleTaskAction(
@@ -159,15 +159,15 @@ export async function handleTaskAction(
       case 'start':
         task = await startTask(database, workspaceId, taskId, resolution.principal, command)
         break
-      case 'room':
-        if (body.roomId !== null && !isUuid(body.roomId))
+      case 'project':
+        if (body.projectId !== null && !isUuid(body.projectId))
           return workspaceInvalidRequestResponse(request)
-        task = await moveTaskToRoom(
+        task = await moveTaskToProject(
           database,
           workspaceId,
           taskId,
           resolution.principal,
-          body.roomId,
+          body.projectId,
           command
         )
         break

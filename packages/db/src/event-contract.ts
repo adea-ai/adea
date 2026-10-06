@@ -17,7 +17,7 @@ export type WorkspaceEventAggregateType =
   | 'channel'
   | 'content_ref'
   | 'message'
-  | 'room'
+  | 'project'
   | 'runtime_node'
   | 'task'
   | 'workspace'
@@ -30,7 +30,7 @@ type WorkspaceEventContract = Readonly<{
   aggregateType: WorkspaceEventAggregateType
   /**
    * Payload key holding the aggregate's id, when a single aggregate owns the
-   * event. Events that describe a collection (`room.reordered`) omit it.
+   * event. Events that describe a collection (`project.reordered`) omit it.
    */
   aggregateIdKey?: string
 }>
@@ -49,7 +49,11 @@ export const WORKSPACE_EVENT_CONTRACTS = {
     aggregateIdKey: 'agentId',
   },
   'agent.profile_changed': { schemaVersion: 1, aggregateType: 'agent', aggregateIdKey: 'agentId' },
-  'agent.room_assigned': { schemaVersion: 1, aggregateType: 'agent', aggregateIdKey: 'agentId' },
+  'agent.project_assigned': {
+    schemaVersion: 1,
+    aggregateType: 'agent',
+    aggregateIdKey: 'agentId',
+  },
   'artifact.availability_changed': {
     schemaVersion: 1,
     aggregateType: 'artifact',
@@ -70,10 +74,15 @@ export const WORKSPACE_EVENT_CONTRACTS = {
   'message.created': { schemaVersion: 1, aggregateType: 'message', aggregateIdKey: 'messageId' },
   'message.deleted': { schemaVersion: 1, aggregateType: 'message', aggregateIdKey: 'messageId' },
   'message.updated': { schemaVersion: 1, aggregateType: 'message', aggregateIdKey: 'messageId' },
-  'room.archived': { schemaVersion: 1, aggregateType: 'room', aggregateIdKey: 'roomId' },
-  'room.created': { schemaVersion: 1, aggregateType: 'room', aggregateIdKey: 'roomId' },
-  'room.reordered': { schemaVersion: 1, aggregateType: 'room' },
-  'room.updated': { schemaVersion: 1, aggregateType: 'room', aggregateIdKey: 'roomId' },
+  'project.archived': {
+    schemaVersion: 1,
+    aggregateType: 'project',
+    aggregateIdKey: 'projectId',
+  },
+  'project.created': { schemaVersion: 1, aggregateType: 'project', aggregateIdKey: 'projectId' },
+  'project.deleted': { schemaVersion: 1, aggregateType: 'project', aggregateIdKey: 'projectId' },
+  'project.reordered': { schemaVersion: 1, aggregateType: 'project' },
+  'project.updated': { schemaVersion: 1, aggregateType: 'project', aggregateIdKey: 'projectId' },
   'runtime_node.key_rotated': {
     schemaVersion: 1,
     aggregateType: 'runtime_node',
@@ -114,7 +123,7 @@ export const WORKSPACE_EVENT_CONTRACTS = {
   'task.in_progress': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'task.in_review': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'task.queued': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
-  'task.room_changed': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
+  'task.project_changed': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'task.created': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'task.updated': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'workspace.archived': { schemaVersion: 1, aggregateType: 'workspace' },

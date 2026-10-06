@@ -9,7 +9,8 @@ import type {
   ContentRefSummary,
   MessageSummary,
   PrincipalRef,
-  RoomSummary,
+  ProjectSourceKind,
+  ProjectSummary,
   TaskKind,
   TaskSummary,
   WorkspaceSummary,
@@ -25,7 +26,7 @@ export type ApiAgentCreateInput = Readonly<{
   profileId: string
   profileVersion: string
   roleSummary?: string
-  roomId?: string
+  projectId?: string
 }>
 export type ApiAgentPresentationInput = Readonly<{
   avatarRef?: string | null
@@ -80,7 +81,7 @@ export type ApiTaskCreateInput = Readonly<{
   objective?: string
   objectiveContentRefId?: string
   priority?: 'low' | 'normal' | 'high' | 'urgent'
-  roomId?: string
+  projectId?: string
   title: string
 }>
 export type ApiTaskUpdateInput = Readonly<{
@@ -165,20 +166,18 @@ function taskCommandHeaders(command: ApiTaskCommand): Record<string, string> {
   }
 }
 
-export type ApiRoomCreateInput = Readonly<{
-  functionKey: string
-  layoutRef?: string
+export type ApiProjectCreateInput = Readonly<{
+  iconKey: string
+  /** Optional client-generated UUID; replaying the same create is idempotent. */
+  id?: string
   name: string
-  spatialRef?: string
-  templateKey?: string
+  sourceKind?: ProjectSourceKind
 }>
 
-export type ApiRoomUpdateInput = Readonly<{
-  functionKey?: string
-  layoutRef?: string | null
+export type ApiProjectUpdateInput = Readonly<{
+  iconKey?: string
   name?: string
-  spatialRef?: string | null
-  templateKey?: string | null
+  sourceKind?: ProjectSourceKind
 }>
 
 export type ApiRuntimeNodeKey = Readonly<{
@@ -226,8 +225,9 @@ export type ApiRuntimeNodeChallengeResponse = Readonly<{
 
 export type ApiRuntimeNodeRegistrationResponse = Readonly<{ node: ApiRuntimeNode }>
 
-export type ApiRoomResponse = Readonly<{ room: RoomSummary }>
-export type ApiRoomArchiveResponse = Readonly<{ archived: true }>
+export type ApiProjectResponse = Readonly<{ project: ProjectSummary }>
+export type ApiProjectArchiveResponse = Readonly<{ archived: true }>
+export type ApiProjectDeleteResponse = Readonly<{ deleted: true }>
 
 export type ApiWorkspaceResponse = {
   workspace: WorkspaceSummary
@@ -477,21 +477,24 @@ export class AgentHqApiClient {
     })
   }
 
-  async listRooms(workspaceId: string): Promise<readonly RoomSummary[]> {
-    return this.request<readonly RoomSummary[]>(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/rooms`
+  async listProjects(workspaceId: string): Promise<readonly ProjectSummary[]> {
+    return this.request<readonly ProjectSummary[]>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects`
     )
   }
 
-  async getRoom(workspaceId: string, roomId: string): Promise<ApiRoomResponse> {
-    return this.request<ApiRoomResponse>(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/rooms/${encodeURIComponent(roomId)}`
+  async getProject(workspaceId: string, projectId: string): Promise<ApiProjectResponse> {
+    return this.request<ApiProjectResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`
     )
   }
 
-  async createRoom(workspaceId: string, input: ApiRoomCreateInput): Promise<ApiRoomResponse> {
-    return this.request<ApiRoomResponse>(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/rooms`,
+  async createProject(
+    workspaceId: string,
+    input: ApiProjectCreateInput
+  ): Promise<ApiProjectResponse> {
+    return this.request<ApiProjectResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects`,
       {
         body: JSON.stringify(input),
         headers: { 'Content-Type': 'application/json' },
@@ -500,13 +503,13 @@ export class AgentHqApiClient {
     )
   }
 
-  async updateRoom(
+  async updateProject(
     workspaceId: string,
-    roomId: string,
-    input: ApiRoomUpdateInput
-  ): Promise<ApiRoomResponse> {
-    return this.request<ApiRoomResponse>(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/rooms/${encodeURIComponent(roomId)}`,
+    projectId: string,
+    input: ApiProjectUpdateInput
+  ): Promise<ApiProjectResponse> {
+    return this.request<ApiProjectResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`,
       {
         body: JSON.stringify(input),
         headers: { 'Content-Type': 'application/json' },
@@ -515,21 +518,29 @@ export class AgentHqApiClient {
     )
   }
 
-  async archiveRoom(workspaceId: string, roomId: string): Promise<ApiRoomArchiveResponse> {
-    return this.request<ApiRoomArchiveResponse>(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/rooms/${encodeURIComponent(roomId)}`,
+  async archiveProject(workspaceId: string, projectId: string): Promise<ApiProjectArchiveResponse> {
+    return this.request<ApiProjectArchiveResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`,
       { method: 'DELETE' }
     )
   }
 
-  async reorderRooms(
+  /** Soft-delete a project: it leaves every listing and its id cannot be reused. */
+  async deleteProject(workspaceId: string, projectId: string): Promise<ApiProjectDeleteResponse> {
+    return this.request<ApiProjectDeleteResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/delete`,
+      { method: 'POST' }
+    )
+  }
+
+  async reorderProjects(
     workspaceId: string,
-    roomIds: readonly string[]
-  ): Promise<readonly RoomSummary[]> {
-    return this.request<readonly RoomSummary[]>(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/rooms/reorder`,
+    projectIds: readonly string[]
+  ): Promise<readonly ProjectSummary[]> {
+    return this.request<readonly ProjectSummary[]>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/reorder`,
       {
-        body: JSON.stringify({ roomIds }),
+        body: JSON.stringify({ projectIds }),
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       }
@@ -554,15 +565,15 @@ export class AgentHqApiClient {
     })
   }
 
-  async assignAgentToRoom(
+  async assignAgentToProject(
     workspaceId: string,
     agentId: string,
-    roomId: string | null
+    projectId: string | null
   ): Promise<ApiAgentResponse> {
     return this.request(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}/room`,
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}/project`,
       {
-        body: JSON.stringify({ roomId }),
+        body: JSON.stringify({ projectId }),
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       }
@@ -762,13 +773,13 @@ export class AgentHqApiClient {
     return this.taskCommand(workspaceId, taskId, 'assign', { agentId }, command)
   }
 
-  async moveTaskToRoom(
+  async moveTaskToProject(
     workspaceId: string,
     taskId: string,
-    roomId: string | null,
+    projectId: string | null,
     command: ApiTaskCommand
   ): Promise<ApiTaskResponse> {
-    return this.taskCommand(workspaceId, taskId, 'room', { roomId }, command)
+    return this.taskCommand(workspaceId, taskId, 'project', { projectId }, command)
   }
 
   async queueTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
@@ -853,11 +864,11 @@ export class AgentHqApiClient {
     )
   }
 
-  async createRoomChannel(
+  async createProjectChannel(
     workspaceId: string,
-    input: Readonly<{ idempotencyKey: string; roomId: string; taskId?: string; title: string }>
+    input: Readonly<{ idempotencyKey: string; projectId: string; taskId?: string; title: string }>
   ): Promise<ApiChannelResponse> {
-    return this.createChannel(workspaceId, { ...input, kind: 'room' })
+    return this.createChannel(workspaceId, { ...input, kind: 'project' })
   }
 
   async createDirectAgentChannel(
@@ -1000,8 +1011,8 @@ export class AgentHqApiClient {
     input: Readonly<{
       agentId?: string
       idempotencyKey: string
-      kind: 'room' | 'direct_agent' | 'group'
-      roomId?: string
+      kind: 'project' | 'direct_agent' | 'group'
+      projectId?: string
       taskId?: string
       title: string
     }>

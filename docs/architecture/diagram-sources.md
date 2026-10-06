@@ -278,7 +278,7 @@ flowchart LR
 erDiagram
     USER ||--o{ MEMBERSHIP : has
     WORKSPACE ||--o{ MEMBERSHIP : contains
-    WORKSPACE ||--o{ ROOM : contains
+    WORKSPACE ||--o{ PROJECT : contains
     WORKSPACE ||--o{ AGENT : contains
     WORKSPACE ||--o{ TASK : contains
     WORKSPACE ||--o{ CONTENT_REF : owns

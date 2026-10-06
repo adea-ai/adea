@@ -10,20 +10,22 @@ beforeEach(() => {
 })
 
 test('releaseWorkspaceCache removes every cached entry for the outgoing workspace', () => {
-  queryClient.setQueryData(['workspaces', 'workspace-work', 'rooms', 'list'], { rooms: [] })
+  queryClient.setQueryData(['workspaces', 'workspace-work', 'projects', 'list'], { projects: [] })
   queryClient.setQueryData(['workspaces', 'workspace-work', 'agents', 'list'], [])
-  queryClient.setQueryData(['workspaces', 'workspace-home', 'rooms', 'list'], [])
+  queryClient.setQueryData(['workspaces', 'workspace-home', 'projects', 'list'], [])
   queryClient.setQueryData(['workspaces', 'bootstrap'], { workspaces: [] })
 
   releaseWorkspaceCache(queryClient, 'workspace-work')
 
   expect(
-    queryClient.getQueryData(['workspaces', 'workspace-work', 'rooms', 'list'])
+    queryClient.getQueryData(['workspaces', 'workspace-work', 'projects', 'list'])
   ).toBeUndefined()
   expect(
     queryClient.getQueryData(['workspaces', 'workspace-work', 'agents', 'list'])
   ).toBeUndefined()
-  expect(queryClient.getQueryData(['workspaces', 'workspace-home', 'rooms', 'list'])).toBeDefined()
+  expect(
+    queryClient.getQueryData(['workspaces', 'workspace-home', 'projects', 'list'])
+  ).toBeDefined()
   expect(queryClient.getQueryData(['workspaces', 'bootstrap'])).toBeDefined()
 })
 

@@ -513,7 +513,7 @@ export function WorkspaceSettingsDialog(props: {
             />
           </SettingsRow>
           <p class="conventional-settings-note">
-            <Bell aria-hidden="true" /> Notification clicks will use canonical Room, Channel,
+            <Bell aria-hidden="true" /> Notification clicks will use canonical Project, Channel,
             Message, and Task identities when live events are wired in M3.
           </p>
         </TabsContent>

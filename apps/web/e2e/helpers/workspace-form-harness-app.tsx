@@ -4,8 +4,8 @@ import { render } from 'solid-js/web'
 import { AboutDialog } from '@adea-ai/ui/components/composites/about-dialog'
 import {
   CreateGroupDialog,
-  CreateRoomDialog,
-  EditRoomDialog,
+  CreateProjectDialog,
+  EditProjectDialog,
   RenameConversationDialog,
 } from '../../../../packages/workspace-ui/src/create-workspace-dialogs'
 import { Button } from '@adea-ai/ui/components/ui/button'
@@ -22,23 +22,23 @@ function Harness() {
   const close = () => setKind('')
   return (
     <>
-      <Button onClick={() => setKind('room')}>Open room</Button>
+      <Button onClick={() => setKind('project')}>Open project</Button>
       <Button onClick={() => setKind('edit')}>Open edit</Button>
       <Button onClick={() => setKind('rename')}>Open rename</Button>
       <Button onClick={() => setKind('group')}>Open group</Button>
       <Button onClick={() => setKind('about')}>Open about</Button>
       <Input aria-label="Shared input reference" value="Reference" />
       <output aria-label="Requests">{JSON.stringify(calls())}</output>
-      <Show when={kind() === 'room'}>
-        <CreateRoomDialog open busy={false} template="home" onClose={close} onCreate={save} />
+      <Show when={kind() === 'project'}>
+        <CreateProjectDialog open busy={false} template="home" onClose={close} onCreate={save} />
       </Show>
       <Show when={kind() === 'edit'}>
-        <EditRoomDialog
+        <EditProjectDialog
           open
           busy={false}
           initialName="Study"
-          initialFunctionKey="study"
-          roomName="Study"
+          initialIconKey="study"
+          projectName="Study"
           onClose={close}
           onSave={save}
         />
