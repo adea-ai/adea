@@ -268,7 +268,7 @@ export function WorkspaceSearchDialog(props: {
   return (
     <ModalDialog
       modal={false}
-      class="conventional-dialog"
+      class="max-h-full overflow-y-auto"
       open={props.open}
       onClose={props.onClose}
       title={props.scopeChannelId ? 'Search this conversation' : 'Search workspace'}
@@ -277,7 +277,7 @@ export function WorkspaceSearchDialog(props: {
       {/* The host owns ranking across quick destinations, local private hits,
           and remote hits; cmdk only owns selection and keyboard behavior. */}
       <Command
-        class="conventional-search-command h-auto"
+        class="h-auto"
         label="Search workspace"
         shouldFilter={false}
         vimBindings={false}
@@ -296,7 +296,7 @@ export function WorkspaceSearchDialog(props: {
           placeholder="Find a Project, conversation, Agent, or Task"
           autofocus
         />
-        <CommandList class="conventional-search-results" label="Search results" aria-live="polite">
+        <CommandList class="max-h-72" label="Search results" aria-live="polite">
           <For each={resultRows()}>
             {(entry) => {
               const result = entry.item
@@ -319,7 +319,8 @@ export function WorkspaceSearchDialog(props: {
                 >
                   {searchResultIcon(result().kind)}
                   <span>
-                    <strong>{result().label}</strong> <small>{result().secondary}</small>
+                    <strong class="font-semibold">{result().label}</strong>{' '}
+                    <small class="text-xs text-muted-foreground">{result().secondary}</small>
                   </span>
                 </CommandItem>
               )

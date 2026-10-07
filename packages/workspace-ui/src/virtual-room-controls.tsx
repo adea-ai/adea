@@ -217,7 +217,7 @@ export function VirtualRoomControls(props: {
     const issue = queryIssue()
     if (issue) {
       return (
-        <Alert variant="destructive" class="conventional-sidebar-error">
+        <Alert variant="destructive" class="mx-2 mb-2 w-auto">
           <AlertDescription>
             {issue.message}{' '}
             <ActionButton
@@ -233,15 +233,15 @@ export function VirtualRoomControls(props: {
     }
     if (bootstrap.isPending)
       return (
-        <EmptyDescription role="status" class="conventional-sidebar-empty">
-          Loading workspace…
-        </EmptyDescription>
+        <div class="px-3">
+          <EmptyDescription role="status">Loading workspace…</EmptyDescription>
+        </div>
       )
     if (projects.isPending && !settledData(projects))
       return (
-        <EmptyDescription role="status" class="conventional-sidebar-empty">
-          Loading projects…
-        </EmptyDescription>
+        <div class="px-3">
+          <EmptyDescription role="status">Loading projects…</EmptyDescription>
+        </div>
       )
     return undefined
   }

@@ -252,7 +252,7 @@ function AgentCustomizationForm(props: {
             ]}
           />
         </Label>
-        <Label class="conventional-form-grid__wide">
+        <Label class="col-span-full">
           Role or persona
           <Textarea
             name="roleSummary"
@@ -307,7 +307,7 @@ function AgentCustomizationForm(props: {
           fallback={
             <Button
               type="button"
-              class="conventional-danger-button"
+              variant="outline"
               disabled={props.busy}
               onClick={() => setArchiveConfirmation(true)}
             >

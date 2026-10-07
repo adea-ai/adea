@@ -19,7 +19,9 @@ export function WorkspaceSkeleton(props: { label?: string }) {
       aria-label={props.label ?? 'Loading workspace'}
     >
       <For each={Array.from({ length: 6 })}>
-        {() => <Skeleton class="conventional-skeleton__bar" />}
+        {() => (
+          <Skeleton class="h-3 w-104 max-w-3/4 nth-2:w-80 nth-2:max-w-3/5 nth-3:w-92 nth-3:max-w-2/3" />
+        )}
       </For>
     </div>
   )

@@ -50,7 +50,7 @@ describe('private application UI boundary', () => {
 
   test('keeps host surface policy without copied shared resets', () => {
     const theme = source('styles/theme.css')
-    expect(theme).toContain("[data-surface='frosted'] .conventional-dialog")
+    expect(theme).toContain("[data-surface='frosted'] [role='dialog']:not([data-variant])")
     expect(theme).not.toContain('button:not(:disabled)')
     expect(theme).not.toContain('border-color: var(--border)')
     expect(theme).not.toContain('background: var(--background)')

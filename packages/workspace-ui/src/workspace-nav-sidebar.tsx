@@ -696,7 +696,7 @@ export function WorkspaceNavSidebar(props: Props) {
             />
             <Show when={actionError()}>
               {(message) => (
-                <Alert variant="destructive" class="conventional-sidebar-error">
+                <Alert variant="destructive" class="mx-2 mb-2 w-auto">
                   <AlertDescription>{message()}</AlertDescription>
                 </Alert>
               )}

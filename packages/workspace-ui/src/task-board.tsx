@@ -161,7 +161,7 @@ export function TaskBoard(props: Props) {
             {props.tasks.length}
           </Badge>
         </div>
-        <InputGroup class="conventional-kanban__filter">
+        <InputGroup class="w-full max-w-72">
           <InputGroupAddon>
             <Search aria-hidden="true" />
           </InputGroupAddon>
@@ -192,7 +192,7 @@ export function TaskBoard(props: Props) {
       </header>
       <Show when={boardError()}>
         {(message) => (
-          <Alert variant="destructive" class="conventional-kanban__alert">
+          <Alert variant="destructive" class="items-center">
             <AlertDescription>{message()}</AlertDescription>
             <ActionButton
               variant="ghost"
@@ -216,7 +216,7 @@ export function TaskBoard(props: Props) {
         onMove={(move) => void moveTask(move)}
         label="Task board"
         collapseEmpty
-        class="conventional-kanban__board"
+        class="h-full flex-1"
         emptyColumn={(column) =>
           query()
             ? 'No matching tasks'
@@ -234,7 +234,7 @@ export function TaskBoard(props: Props) {
           const agentName = () =>
             task().agentId ? (agentById().get(task().agentId!)?.name ?? 'Unavailable agent') : null
           return (
-            <BoardCardBody class="conventional-kanban-card">
+            <BoardCardBody>
               <div class="conventional-kanban-card__header">
                 <BoardCardTrigger aria-haspopup="dialog" onClick={() => openTask(task().id)}>
                   {task().title}

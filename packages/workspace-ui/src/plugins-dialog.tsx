@@ -113,7 +113,7 @@ function PluginFilterMenu(props: {
         hideArrow
         placement="bottom-start"
         gutter={4}
-        class="plugins-filter max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+        class="w-48 max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
       >
         <DropdownMenuGroup>
           <DropdownMenuLabel>Type</DropdownMenuLabel>
@@ -460,7 +460,7 @@ function NavigationPanel(props: { navigation: AppLibraryNavigation }) {
                   <ChevronDown aria-hidden="true" />
                 </ActionButton>
                 <Checkbox
-                  class="plugins-navigation__visibility"
+                  class="ms-2"
                   label="Show"
                   checked={!props.navigation.preferences.hidden.includes(item.id)}
                   onChange={(checked: boolean) => props.navigation.onSetHidden(item.id, !checked)}
@@ -686,14 +686,14 @@ export function PluginsDialog(props: {
   return (
     <ModalDialog
       modal={false}
-      class="conventional-dialog plugins-dialog"
+      class="flex h-176 max-h-full w-full max-w-280 flex-col overflow-hidden"
       description="Browse and manage apps, providers, and skills available to your agents."
       onClose={close}
       open={props.open}
       title="Plugins"
     >
       <CatalogBrowser
-        class="plugins-browser"
+        class="flex min-h-0 flex-1 flex-col"
         open={props.open}
         tabs={tabs()}
         tab={tab()}

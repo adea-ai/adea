@@ -114,7 +114,8 @@ export function AccountMenu(props: AccountMenuProps) {
       <DropdownMenuTrigger
         as={SideRailButton}
         label="User settings"
-        class="global-rail__account-trigger"
+        class="relative"
+        data-account-trigger=""
         aria-label={updatePending() ? 'User settings, update available' : undefined}
         onPointerEnter={() => props.onIntent?.()}
         onFocus={() => props.onIntent?.()}
@@ -129,7 +130,7 @@ export function AccountMenu(props: AccountMenuProps) {
         // would push the menu 19px off the button instead of the 4px corner
         // alignment this right-end placement promises.
         hideArrow
-        class="global-rail__account-menu min-w-56 max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+        class="min-w-56 max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
         onCloseAutoFocus={(event) => {
           const selection = pendingAfterClose
           pendingAfterClose = undefined

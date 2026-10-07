@@ -171,7 +171,7 @@ export function GlobalWorkspaceRail(props: {
             the contextual sidebar's Workspaces accordion (ADR 0011). It
             keeps the old trigger's row height so the rail rhythm holds. */}
         <span class="global-rail__mark">
-          <WorkspaceLogo aria-hidden="true" class="global-rail__logo" />
+          <WorkspaceLogo aria-hidden="true" class="size-9" />
         </span>
       </SideRailHeader>
 

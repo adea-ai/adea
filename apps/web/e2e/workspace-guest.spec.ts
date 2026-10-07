@@ -85,7 +85,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   const accountMenuPosition = await accountMenu.evaluate((menu) => {
     const menuBox = menu.getBoundingClientRect()
     const triggerBox = document
-      .querySelector<HTMLElement>('.global-rail__account-trigger')!
+      .querySelector<HTMLElement>('[data-account-trigger]')!
       .getBoundingClientRect()
     return {
       menuLeft: menuBox.left,
