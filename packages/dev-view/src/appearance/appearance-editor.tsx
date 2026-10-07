@@ -886,11 +886,21 @@ export function AdeaAppearanceEditor(props: AppearanceEditorProps) {
  * trigger is this composition's own: when the host swaps its lazy fallback for
  * this popover, the trigger here is the persistent control focus returns to
  * after dismissal. */
+/** The editor in an inset Sheet docked beside the main view: the body scrolls and
+ * Reset/Cancel/Save sit in the panel's full-width footer, always reachable.
+ * Dismissal (Escape, the close button, an outside click) is `onDismiss`. The
+ * trigger is this composition's own: when the host swaps its lazy fallback for
+ * this popover, the trigger here is the persistent control focus returns to
+ * after dismissal. */
 export function AdeaAppearancePopover(props: AppearancePopoverProps) {
   const [menuPortalMount, setMenuPortalMount] = createSignal<HTMLElement>()
 
   return (
     <Sheet open={props.open} onOpenChange={(open) => (open ? props.onOpen() : props.onDismiss())}>
+      {/* The `dev-appearance-trigger` hook adds the published pressed rung the
+          shared ActionButton has no expanded variant for: Kobalte marks the
+          trigger `data-expanded` while its sheet is open, and without it the
+          open control reads identical to its closed neighbours. */}
       <SheetTrigger
         as={ActionButton}
         variant="ghost"
@@ -898,6 +908,7 @@ export function AdeaAppearancePopover(props: AppearancePopoverProps) {
         tooltip="Open appearance settings"
         tooltipIcon={<Palette aria-hidden="true" />}
         aria-label="Appearance settings"
+        class="dev-appearance-trigger"
       >
         <Palette aria-hidden="true" />
       </SheetTrigger>
