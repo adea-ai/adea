@@ -47,6 +47,14 @@ current authorization locks before releasing ciphertext. Migrations 0037/0038
 add those records and a distinct runtime-node event actor. Unrecoverable legacy
 authority remains withheld. Pull is not execution acceptance or a host receipt.
 
+Migration 0039 adds an expired-ciphertext purge marker and a partial expiry
+index. The [retention operator](../../docs/guides/relay-ciphertext-retention.md)
+uses an explicit workspace and direct application-role connection, defaults to
+dry-run, and preserves the submission identity and execution/history state.
+Apply and verify the additive schema before deploying code that reads the new
+column; independent main-push migration and Worker workflows are not an ordering
+guarantee. Nothing runs cleanup automatically.
+
 Production rollback is forward-only: deploy an application rollback while the expanded schema is
 compatible, then add a reviewed corrective migration. Point-in-time restore is for data-loss
 recovery, not routine schema rollback.

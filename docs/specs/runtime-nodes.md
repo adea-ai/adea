@@ -308,6 +308,13 @@ private key, credential or content.
 SKIP LOCKED, retaining the full minute rate window even for old proofs. An
 operator schedules it; no in-process timer determines replay correctness.
 
+Expired Task submission ciphertext has a separate
+[workspace-scoped cleanup contract](remote-content.md#cloud-relay-ciphertext-retention).
+It removes the outbox envelope while retaining submission, node/key identity and
+all execution/history state. The supported operator entry defaults to dry-run;
+neither nonce cleanup nor ciphertext cleanup is host acknowledgement or
+execution cancellation. Production scheduling remains separately configured.
+
 The transaction preserves admission's membership/workspace, Task, Agent, node
 and key lock order. It rechecks the original owner/admin, Task version,
 project, Agent pin/revision, node and expiry before releasing one envelope.

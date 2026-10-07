@@ -154,15 +154,48 @@ and public scope metadata. The separate `task_submissions` row and durable
 An identical retry reuses the original intent; another key or changed envelope
 cannot silently create a second logical submission for that Task. Expired
 intent reads report `expired` and retain the identity rather than resubmitting.
-The outbox foreign key refuses deletion while its intent survives; future expiry
-cleanup must remove ciphertext without erasing that identity. Initial admission
+After cleanup, the durable purge marker also forces the `expired` read state,
+even if the application clock is behind the database; it never reports purged
+work as pending delivery.
+The outbox foreign key refuses deletion while its intent survives. Bounded
+operator cleanup removes the expired `payload.envelope` without erasing that
+identity or the retained payload hash. Initial admission
 checks conversation and objective-reference workspace ownership and refuses a
 Task with an existing execution reference. Duplicate reads retain their original
 snapshot rather than adopting newer Task/profile/conversation metadata.
 This producer neither authenticates ciphertext nor accepts execution. Authenticated
-host pull/receipt handling, local inbox/decrypt, fresh host authorization, expiry
-purging, key grace, SDK validation/acceptance and reconciliation remain required
+host receipt handling, local inbox/decrypt, fresh host authorization, operational
+expiry cleanup, host key grace, SDK validation/acceptance and reconciliation remain required
 before the delivery path can run work.
+
+## Cloud relay ciphertext retention
+
+`packages/db/src/task-submission-retention.ts` supplies a read-only bounded
+preview and an atomic purge for one explicit workspace, with a limit of 1–1,000
+submissions. The database statement clock decides expiry; the caller cannot
+supply an earlier cutoff. A partial workspace/expiry/identity index contains
+only submissions whose `ciphertextPurgedAt` is null. A database constraint
+refuses a purge marker earlier than the submission's expiry.
+
+Purge locks each selected submission and outbox row with `SKIP LOCKED`, removes
+only the outbox's `envelope`, and writes the marker in the same transaction.
+Five-second statement and one-second lock deadlines bound each operation.
+Intent identity, payload hash, selected node/profile, outbox status/attempts,
+Task lifecycle, execution attempts, keys and canonical history are preserved.
+Already-absent envelopes are marked once; the count reports processed intents,
+not byte reclamation. Rollback restores both envelope and marker. A skipped
+locked row remains eligible, so a zero purge count does not establish an empty
+backlog. Preview can observe locked candidates and must be repeated as needed.
+
+The supported [`relay:purge` operator entry](../guides/relay-ciphertext-retention.md)
+defaults to dry-run and requires exact database target, workspace and limit.
+It uses the private direct application-role connection, never migration
+credentials or client configuration, and emits counts or fixed error codes.
+Nothing schedules it automatically. Scheduling, production rollout and host
+inbox/key retention are separate operational acceptance. Removing a current
+JSONB envelope does not establish secure erasure from WAL, backups or replicas;
+those stores retain their own policy. Relay cleanup never purges Message or
+ContentReplica history.
 
 ## Pinned by
 
@@ -173,6 +206,14 @@ retirement, within its own expiry and the 24-hour grace. Node revocation and
 retired signing keys block pulls; ciphertext is never rebound or re-encrypted.
 Host retention of the old private key, durable inbox, local authorization and
 SDK acceptance remain separate requirements.
+
+- `packages/db/tests/integration/task-submissions.test.ts` — actual database
+  expiry, bounded scope, preserved intent/history/status, concurrent claims,
+  locked rows, rollback, schema constraint and supported operator dry-run/apply.
+- `packages/db/tests/integration/runtime-node-delivery.test.ts` — no redelivery
+  after expiry cleanup, alongside current node authorization and key grace.
+- `scripts/relay-retention-config.test.ts` — explicit target, private app-role
+  connection, bounded arguments and sanitized refusal.
 
 - `packages/remote-content/tests/unit/remote-content.test.ts` — deterministic
   standards-library vector, round-trip encryption, AAD/ciphertext/recipient

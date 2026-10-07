@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { and, eq, sql } from 'drizzle-orm'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
-import { runtimeNodePullMessage } from '@adea-ai/types/runtime-node-delivery'
+import {
+  runtimeNodePullMessage,
+  RUNTIME_NODE_PULL_WINDOW_MS,
+} from '@adea-ai/types/runtime-node-delivery'
 
 import { createAgent } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
@@ -32,6 +35,7 @@ import {
 import { enqueueTaskSubmission } from '../../src/task-submissions'
 import { createTask } from '../../src/tasks'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
+import { purgeExpiredTaskSubmissionCiphertext } from '../../src/task-submission-retention'
 
 const publicKey = async (key: CryptoKey) =>
   Buffer.from(await crypto.subtle.exportKey('raw', key)).toString('base64url')
@@ -147,6 +151,29 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
     return { owner, workspace, agent, task, node, envelope, submission, scope, proof, pull }
   }
 
+  test('an expired purged command cannot be redelivered or erase the retained intent', async () => {
+    const f = await fixture()
+    const first = await f.pull()
+    expect(first?.submissionId).toBe(f.submission.id)
+    await connection.db
+      .update(taskSubmissions)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(taskSubmissions.id, f.submission.id))
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(1)
+    expect(await f.pull()).toBeNull()
+    const [intent] = await connection.db
+      .select()
+      .from(taskSubmissions)
+      .where(eq(taskSubmissions.id, f.submission.id))
+    expect(intent!.commandId).toBe(first!.commandId)
+    const [outbox] = await connection.db
+      .select()
+      .from(commandOutbox)
+      .where(eq(commandOutbox.id, first!.commandId))
+    expect(outbox!.status).toBe('pending')
+    expect(outbox!.payload).not.toHaveProperty('envelope')
+  })
+
   test('fresh signatures redeliver one immutable ciphertext identity after reconnect without acceptance', async () => {
     const f = await fixture()
     const first = await f.pull()
@@ -231,7 +258,11 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
 
   test('an old but valid signed request retains rate accounting beyond its remaining replay window', async () => {
     const f = await fixture()
-    const proof = await f.proof(new Date(Date.now() - 119_000).toISOString())
+    // Keep less than one full rate window, but enough validity for hosted DB admission.
+    // A one-second remainder expired during real Neon round trips; rejection was correct.
+    const proof = await f.proof(
+      new Date(Date.now() - (RUNTIME_NODE_PULL_WINDOW_MS - 30_000)).toISOString()
+    )
     expect(await pullRuntimeNodeCommand(connection.db, f.scope, proof)).not.toBeNull()
     const [request] = await connection.db
       .select()
@@ -239,6 +270,9 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
       .where(eq(runtimeNodeDeliveryRequests.nonce, proof.nonce))
     expect(request!.expiresAt.getTime() - request!.createdAt.getTime()).toBeGreaterThanOrEqual(
       60_000
+    )
+    expect(request!.expiresAt.getTime()).toBeGreaterThan(
+      Date.parse(proof.issuedAt) + RUNTIME_NODE_PULL_WINDOW_MS
     )
   })
 

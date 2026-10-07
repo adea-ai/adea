@@ -145,6 +145,13 @@ records independent validation and the remaining host-delivery, SDK acceptance,
 reconciliation, expiry cleanup and product gates. Pending delivery is not runtime
 acceptance or a Task lifecycle transition.
 
+The [expired-ciphertext operator](../guides/relay-ciphertext-retention.md)
+provides bounded workspace-scoped dry-run/apply cleanup, preserving intent and
+all execution/history state. Its additive migration and supported entry need
+ordered rollout and separately configured scheduling before operational expiry
+acceptance. Host inbox/key retention and cross-product certification remain
+open; this implementation changes no criterion's verification state.
+
 ## Authenticated outbound delivery
 
 The outbound node pull increment authenticates the selected node, claims

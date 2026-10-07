@@ -48,6 +48,8 @@ export const taskSubmissions = appSchema.table(
     payloadHash: text('payload_hash').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
     expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+    /** Physical relay cleanup only; the immutable intent and execution state survive. */
+    ciphertextPurgedAt: timestamp('ciphertext_purged_at', { mode: 'date', withTimezone: true }),
     ...timestampColumns(),
   },
   (table) => [
@@ -83,6 +85,13 @@ export const taskSubmissions = appSchema.table(
       table.runtimeNodeId,
       table.state,
       table.createdAt
+    ),
+    index('task_submissions_ciphertext_expiry_idx')
+      .on(table.workspaceId, table.expiresAt, table.id)
+      .where(sql`${table.ciphertextPurgedAt} is null`),
+    check(
+      'task_submissions_purge_after_expiry',
+      sql`${table.ciphertextPurgedAt} is null or ${table.ciphertextPurgedAt} >= ${table.expiresAt}`
     ),
     check(
       'task_submissions_version_valid',

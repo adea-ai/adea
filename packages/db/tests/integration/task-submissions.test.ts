@@ -1,5 +1,7 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { and, eq } from 'drizzle-orm'
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test'
+import { and, eq, sql } from 'drizzle-orm'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
 
 import { createAgent } from '../../src/agents'
@@ -30,7 +32,20 @@ import {
   type TaskSubmissionInput,
 } from '../../src/task-submissions'
 import { createTask, getTaskForUser, setTaskConversationReferences } from '../../src/tasks'
+import {
+  inspectExpiredTaskSubmissionCiphertext,
+  purgeExpiredTaskSubmissionCiphertext,
+} from '../../src/task-submission-retention'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
+
+function invokeRetention(input: string[]) {
+  return spawnSync('bun', ['run', 'relay:purge', ...input], {
+    cwd: fileURLToPath(new URL('../../../../', import.meta.url)),
+    env: process.env,
+    encoding: 'utf8',
+    timeout: 15000,
+  })
+}
 
 const url = process.env.DATABASE_URL
 const profile = { id: `prf_${'0'.repeat(25)}1`, version: `pfv_${'0'.repeat(25)}1`, revision: 0 }
@@ -137,8 +152,286 @@ describe.skipIf(!url)('durable encrypted Task intent', () => {
         candidate,
         metadata
       )
-    return { owner, workspace, project, agent, task, node, keys, command, input, envelope, enqueue }
+    return {
+      owner,
+      workspace,
+      project,
+      agent,
+      task,
+      node,
+      keys,
+      command,
+      input,
+      envelope,
+      enqueue,
+      encryption,
+    }
   }
+
+  async function anotherSubmission(f: Awaited<ReturnType<typeof fixture>>) {
+    const task = await createTask(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        agentId: f.agent.id,
+        projectId: f.project.id,
+        title: 'Additional relay intent',
+        objective: 'PRIVATE_PROMPT_SENTINEL',
+      },
+      { requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }
+    )
+    const command = {
+      expectedVersion: task.version,
+      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
+    }
+    const envelope = await sealRemoteContent({
+      keyId: f.envelope.keyId,
+      recipientPublicKey: f.encryption.publicKey,
+      aad: { ...f.envelope.aad, requestId: command.requestId },
+      plaintext: new TextEncoder().encode('PRIVATE_CONTEXT_SENTINEL'),
+    })
+    return enqueueTaskSubmission(
+      connection.db,
+      f.workspace.id,
+      task.id,
+      f.owner.principal,
+      { ...f.input, envelope },
+      command
+    )
+  }
+
+  async function expire(id: string) {
+    await connection.db
+      .update(taskSubmissions)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(taskSubmissions.id, id))
+  }
+
+  async function readSubmissionOutbox(id: string) {
+    const [row] = await connection.db
+      .select({ outbox: commandOutbox })
+      .from(taskSubmissions)
+      .innerJoin(commandOutbox, eq(commandOutbox.id, taskSubmissions.commandId))
+      .where(eq(taskSubmissions.id, id))
+    return row!.outbox
+  }
+
+  test('expired ciphertext is purged without erasing intent or claiming execution cancellation', async () => {
+    const f = await fixture()
+    const original = await f.enqueue()
+    const before = await connection.db
+      .select()
+      .from(workspaceEvents)
+      .where(eq(workspaceEvents.workspaceId, f.workspace.id))
+    await expire(original.id)
+
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(1)
+    const clock = spyOn(Date, 'now').mockReturnValue(Date.now() - 3_600_000)
+    try {
+      expect(
+        await getTaskSubmissionForUser(connection.db, f.workspace.id, f.task.id, f.owner.principal)
+      ).toMatchObject({ id: original.id, state: 'expired' })
+    } finally {
+      clock.mockRestore()
+    }
+    const outbox = await readSubmissionOutbox(original.id)
+    expect(outbox!.payload).not.toHaveProperty('envelope')
+    expect(outbox!.status).toBe('pending')
+    expect(outbox!.payload.submissionId).toBe(original.id)
+    expect(await f.enqueue()).toMatchObject({
+      id: original.id,
+      requestId: original.requestId,
+      state: 'expired',
+    })
+    expect(
+      (await getTaskForUser(connection.db, f.workspace.id, f.task.id, f.owner.principal))!
+        .lifecycleState
+    ).toBe(f.task.lifecycleState)
+    expect(
+      await connection.db
+        .select()
+        .from(taskExecutionAttempts)
+        .where(eq(taskExecutionAttempts.taskId, f.task.id))
+    ).toEqual([])
+    expect(
+      await connection.db
+        .select()
+        .from(workspaceEvents)
+        .where(eq(workspaceEvents.workspaceId, f.workspace.id))
+    ).toEqual(before)
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(0)
+  })
+
+  test('dry-run, batch bounds and workspace isolation preserve future and foreign ciphertext', async () => {
+    const f = await fixture()
+    const foreign = await fixture()
+    const first = await f.enqueue()
+    const second = await anotherSubmission(f)
+    const future = await anotherSubmission(f)
+    const other = await foreign.enqueue()
+    for (const id of [first.id, second.id, other.id]) await expire(id)
+    const original = await readSubmissionOutbox(first.id)
+    expect(await inspectExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id, 1)).toBe(1)
+    expect(await readSubmissionOutbox(first.id)).toEqual(original)
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id, 1)).toBe(1)
+    expect(await inspectExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id, 1000)).toBe(
+      1
+    )
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(1)
+    expect((await readSubmissionOutbox(future.id)).payload).toHaveProperty('envelope')
+    expect((await readSubmissionOutbox(other.id)).payload).toHaveProperty('envelope')
+    expect(await inspectExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(0)
+  })
+
+  test('concurrent purges claim each expired submission once and preserve delivery status', async () => {
+    const f = await fixture()
+    const submissions = [await f.enqueue(), await anotherSubmission(f), await anotherSubmission(f)]
+    const statuses = ['processing', 'delivered', 'failed'] as const
+    for (const [index, submission] of submissions.entries()) {
+      await expire(submission.id)
+      const row = await readSubmissionOutbox(submission.id)
+      await connection.db
+        .update(commandOutbox)
+        .set({ status: statuses[index]!, attempts: 3 })
+        .where(eq(commandOutbox.id, row.id))
+    }
+    const counts = await Promise.all(
+      Array.from({ length: 3 }, () =>
+        purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id, 2)
+      )
+    )
+    expect(counts.reduce((total, count) => total + count, 0)).toBe(3)
+    for (const [index, submission] of submissions.entries()) {
+      const row = await readSubmissionOutbox(submission.id)
+      expect(row.payload).not.toHaveProperty('envelope')
+      expect(row.status).toBe(statuses[index]!)
+      expect(row.attempts).toBe(3)
+    }
+  })
+
+  test('locked outbox rows are skipped and remain eligible after their owner releases the lock', async () => {
+    const f = await fixture()
+    const submission = await f.enqueue()
+    await expire(submission.id)
+    let unlock!: () => void
+    let locked!: () => void
+    const release = new Promise<void>((resolve) => {
+      unlock = resolve
+    })
+    const ready = new Promise<void>((resolve) => {
+      locked = resolve
+    })
+    const queued = await readSubmissionOutbox(submission.id)
+    const holder = connection.db.transaction(async (transaction) => {
+      await transaction.execute(
+        sql`select id from ${commandOutbox} where id = ${queued.id}::uuid for update`
+      )
+      locked()
+      await release
+    })
+    try {
+      await Promise.race([ready, holder])
+      expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(0)
+      expect((await readSubmissionOutbox(submission.id)).payload).toHaveProperty('envelope')
+    } finally {
+      unlock()
+      await holder
+    }
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(1)
+  })
+
+  test('outer rollback restores ciphertext and the purge marker together', async () => {
+    const f = await fixture()
+    const submission = await f.enqueue()
+    await expire(submission.id)
+    await expect(
+      connection.db.transaction(async (transaction) => {
+        expect(await purgeExpiredTaskSubmissionCiphertext(transaction, f.workspace.id)).toBe(1)
+        throw new Error('rollback retention fixture')
+      })
+    ).rejects.toThrow('rollback retention fixture')
+    expect((await readSubmissionOutbox(submission.id)).payload).toHaveProperty('envelope')
+    const [row] = await connection.db
+      .select()
+      .from(taskSubmissions)
+      .where(eq(taskSubmissions.id, submission.id))
+    expect(row!.ciphertextPurgedAt).toBeNull()
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(1)
+  })
+
+  test('the schema refuses early purge markers and already-absent envelopes converge once', async () => {
+    const f = await fixture()
+    const submission = await f.enqueue()
+    await expect(
+      connection.db
+        .update(taskSubmissions)
+        .set({ ciphertextPurgedAt: new Date() })
+        .where(eq(taskSubmissions.id, submission.id))
+        .execute()
+    ).rejects.toThrow()
+    const queued = await readSubmissionOutbox(submission.id)
+    await connection.db.execute(
+      sql`update ${commandOutbox} set payload = payload - 'envelope' where id = ${queued.id}::uuid`
+    )
+    await expire(submission.id)
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(1)
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(0)
+    const [row] = await connection.db
+      .select()
+      .from(taskSubmissions)
+      .where(eq(taskSubmissions.id, submission.id))
+    expect(row!.ciphertextPurgedAt!.getTime()).toBeGreaterThanOrEqual(row!.expiresAt.getTime())
+  })
+
+  test('operator entry refuses a wrong target, previews unchanged rows and applies explicit cleanup', () => {
+    return (async () => {
+      const f = await fixture()
+      const submission = await f.enqueue()
+      await expire(submission.id)
+      const target = new URL(process.env.DATABASE_URL_UNPOOLED!)
+      const args = [
+        '--host',
+        target.hostname,
+        '--port',
+        target.port || '5432',
+        '--database',
+        decodeURIComponent(target.pathname.slice(1)),
+        '--workspace',
+        f.workspace.id,
+        '--limit',
+        '10',
+      ]
+      const wrong = invokeRetention(
+        args.map((value) => (value === target.hostname ? 'wrong.invalid' : value))
+      )
+      expect(wrong.status).toBe(1)
+      expect(wrong.stderr).toContain('wrong_target')
+      expect(wrong.stderr).not.toContain(target.password)
+      expect(wrong.stderr).not.toContain('postgresql:')
+      const preview = invokeRetention(args)
+      expect(preview.status).toBe(0)
+      expect(JSON.parse(preview.stdout.trim().split('\n').at(-1)!)).toEqual({
+        schemaVersion: 1,
+        mode: 'dry_run',
+        count: 1,
+        limit: 10,
+      })
+      expect((await readSubmissionOutbox(submission.id)).payload).toHaveProperty('envelope')
+      const applied = invokeRetention([...args, '--apply'])
+      expect(applied.status).toBe(0)
+      expect(JSON.parse(applied.stdout.trim().split('\n').at(-1)!)).toEqual({
+        schemaVersion: 1,
+        mode: 'apply',
+        count: 1,
+        limit: 10,
+      })
+      expect((await readSubmissionOutbox(submission.id)).payload).not.toHaveProperty('envelope')
+      expect((await f.enqueue()).id).toBe(submission.id)
+      expect(applied.stdout).not.toContain('PRIVATE_')
+    })()
+  }, 30000)
 
   test('one selected host, immutable profile snapshot, canonical conversation correlation and no false acceptance', async () => {
     const f = await fixture('local_device')
