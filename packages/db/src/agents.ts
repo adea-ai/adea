@@ -1,4 +1,4 @@
-import type { AgentProfileState, AgentSummary, UserPrincipalRef } from '@adea-ai/types'
+import type { AgentSummary, UserPrincipalRef } from '@adea-ai/types'
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { agents, projects, workspaceMemberships, workspaces } from './schema'
@@ -267,7 +267,7 @@ export async function changeAgentProfile(
   input: Readonly<{
     expectedRevision: number
     profileId: string
-    profileState?: AgentProfileState
+    profileState?: (typeof agents.$inferSelect)['profileState']
     profileVersion: string
   }>
 ): Promise<AgentSummary> {

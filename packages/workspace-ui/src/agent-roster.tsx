@@ -4,6 +4,7 @@ import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { AgentStatus } from './agent-status'
 import { agentProfileActionNotice } from './agent-profile-notice'
+import { agentProfileStateNotice } from './agent-profile-state'
 import { keyedRows } from './keyed-rows'
 import { WorkspaceEmpty } from './workspace-states'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -156,6 +157,9 @@ export function AgentRoster(props: Props) {
                       <PropertyTerm>Profile state</PropertyTerm>
                       <PropertyValue>{entry.item().profile.state}</PropertyValue>
                     </PropertyList>
+                    <Show when={entry.item().profile.state !== 'available'}>
+                      <p>{agentProfileStateNotice(entry.item().profile.state)}</p>
+                    </Show>
                   </div>
                 </CardContent>
                 <CardFooter>
