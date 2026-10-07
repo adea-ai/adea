@@ -95,7 +95,7 @@ const credentialRecord = {
   workspaceId: WSP,
 }
 
-/** A Control Plane double answering by path; the default echoes the canary everywhere. */
+/** A Control Plane double answering by path with the real response identity. */
 function controlPlane(
   answer: (path: string, body: Record<string, unknown>) => Response = defaultAnswer
 ) {
@@ -108,13 +108,23 @@ function controlPlane(
       body,
       url: url.pathname,
     })
-    return answer(url.pathname, body)
+    const response = answer(url.pathname, body)
+    const payload = (await response.json()) as Record<string, unknown>
+    return Response.json(
+      {
+        contractVersion: body.contractVersion,
+        requestId: body.requestId,
+        correlation: body.correlation,
+        ...payload,
+      },
+      { status: response.status }
+    )
   }) as typeof fetch
   return { fetchImpl, requests }
 }
 
 function envelope(data: unknown): Response {
-  return Response.json({ contractVersion: { major: 3, minor: 0 }, data, requestId: 'req_x' })
+  return Response.json({ data })
 }
 
 function defaultAnswer(path: string): Response {
@@ -143,11 +153,9 @@ function defaultAnswer(path: string): Response {
       changed: [{ ...skillVersion, lifecycle: 'deprecated', revision: 3 }],
       skill: skillRecord,
     })
-  // A misbehaving upstream that echoes the secret back must not leak it.
-  const echoed = { ...credentialRecord, secret: CANARY, secretPreview: CANARY.slice(0, 12) }
   if (path === '/v1/credentials/list')
-    return envelope({ credentials: [echoed], nextCursor: 'cur_abcdefgh', secret: CANARY })
-  return envelope({ credential: echoed, secret: CANARY })
+    return envelope({ credentials: [credentialRecord], nextCursor: 'cur_abcdefgh' })
+  return envelope({ credential: credentialRecord })
 }
 
 const member: WorkspacePrincipalResolution = {
@@ -366,7 +374,15 @@ describe('workspace skills proxy', () => {
     const readCalls = captureConsole()
     const upstream = controlPlane(() =>
       Response.json(
-        { error: { code: 'CATALOG_ITEM_READ_ONLY', message: 'upstream detail <script>' } },
+        {
+          error: {
+            class: 'authorization',
+            code: 'CATALOG_ITEM_READ_ONLY',
+            message: 'upstream detail <script>',
+            retryable: false,
+            source: 'policy',
+          },
+        },
         { status: 403 }
       )
     )
@@ -502,7 +518,16 @@ describe('cloud connections proxy', () => {
     const readCalls = captureConsole()
     const upstream = controlPlane(() =>
       Response.json(
-        { error: { code: 'CREDENTIAL_EXISTS', message: `duplicate ${CANARY}` }, echo: CANARY },
+        {
+          error: {
+            class: 'conflict',
+            code: 'CREDENTIAL_EXISTS',
+            message: `duplicate ${CANARY}`,
+            retryable: false,
+            source: 'persistence',
+          },
+          echo: CANARY,
+        },
         { status: 409 }
       )
     )
@@ -534,6 +559,47 @@ describe('cloud connections proxy', () => {
 })
 
 describe('fail closed', () => {
+  test('foreign-workspace records and secret-bearing replies cannot cross the product boundary', async () => {
+    const environment = await scopedEnvironment()
+    const cases = [
+      {
+        kind: 'skill',
+        data: {
+          items: [
+            {
+              skill: {
+                ...skillRecord,
+                ownership: { scope: 'workspace', workspaceId: 'wsp_01JABCDEF0123456789ABCDEFH' },
+              },
+            },
+          ],
+          page: {},
+        },
+      },
+      {
+        kind: 'credential',
+        data: {
+          credentials: [{ ...credentialRecord, workspaceId: 'wsp_01JABCDEF0123456789ABCDEFH' }],
+        },
+      },
+      { kind: 'credential', data: { credentials: [{ ...credentialRecord, secret: CANARY }] } },
+    ]
+    for (const entry of cases) {
+      const readCalls = captureConsole()
+      const upstream = controlPlane(() => envelope(entry.data))
+      const deps = dependencies('member', { environment, fetchImpl: upstream.fetchImpl })
+      const response =
+        entry.kind === 'skill'
+          ? await handleCatalogList('skill', request('/skills'), 'adea-ws-1', deps)
+          : await handleCloudConnectionsList(request('/cloud-connections'), 'adea-ws-1', deps)
+      expect(response.status).toBe(503)
+      const body = await response.text()
+      expect(body).not.toContain(CANARY)
+      expect(body).not.toContain('Release notes')
+      expect(readCalls()).not.toContain(CANARY)
+    }
+  })
+
   test('without a signing key every route is unavailable without calling upstream', async () => {
     const upstream = controlPlane()
     const deps = dependencies('admin', {
