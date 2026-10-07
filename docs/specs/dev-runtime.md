@@ -5651,8 +5651,19 @@ published primitive (RadioGroup, DropdownMenu, Sheet, Switch, Input, Label,
 Button) or published composite (font settings group, editor actions, theme
 previews), while Adea owns the composition — the text (font) settings rows
 close the option list, after every palette and surface row, and the accent
-picker offers the six presets plus one control named "Custom". Upstreaming a
-row-order and accent-entries seam to the published package retires the fork.
+picker offers the six presets plus one control named "Custom". The fork keeps
+the published editor's control idioms, not generic radio rows: the accent
+picker draws the published swatch grid — one round swatch per preset painted
+with the catalogue's light/dark pair value for the resolved appearance,
+selection shown by the checked ring, the single Custom chip beside them, and
+no theme-default entry; the mode cards keep their miniature previews; the
+light, dark, and terminal menus render preview-card items (the published
+`ThemeMenuPreview` idiom — rendered from the exported `ThemeMiniature` in the
+menu card's geometry until the published package exports the composite); and
+the glass choices render as the published chips. Swatch and chip colors are
+catalogue values, so a swatch paints its color as an SVG fill: consumers may
+neither inline a style nor author palette literals. Upstreaming a row-order
+and accent-entries seam to the published package retires the fork.
 Its host remains responsible for the V2 draft snapshot,
 live preview, persistence, cancellation, native transparency capability, custom
 accent validation, and the verified App Library contract. The app-local package

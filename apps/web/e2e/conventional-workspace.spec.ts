@@ -2135,15 +2135,31 @@ test('the live appearance popover previews the visible workspace at wide and nar
     await expect(popup).toBeVisible()
   }).toPass({ timeout: 120_000 })
   const modes = popup.getByRole('radiogroup', { name: 'Appearance mode' })
+  // The editor's sheet body is the scroll container, and pointer or focus
+  // work during the open loop can leave it scrolled; a taller option list
+  // scrolls farther, so each capture pins the scroll to the top first to
+  // stay deterministic.
+  const settleSheet = async () => {
+    await popup
+      .locator('div.overflow-y-auto')
+      .first()
+      .evaluate((node) => {
+        node.scrollTop = 0
+      })
+    await page.waitForTimeout(150)
+  }
   await modes.getByText('Light', { exact: true }).click()
+  await settleSheet()
   await expect(page).toHaveScreenshot('workspace-appearance-popover-light.png', {
     animations: 'disabled',
   })
   await modes.getByText('Dark', { exact: true }).click()
+  await settleSheet()
   await expect(page).toHaveScreenshot('workspace-appearance-popover-dark.png', {
     animations: 'disabled',
   })
   await page.setViewportSize({ width: 390, height: 844 })
+  await settleSheet()
   await expect(page).toHaveScreenshot('workspace-appearance-popover-narrow.png', {
     animations: 'disabled',
   })

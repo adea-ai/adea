@@ -389,10 +389,17 @@ function ThemeSelectMenu(props: {
                   onSelect={() => setRestoreTriggerFocus(true)}
                 >
                   {/* The published menu preview element keeps the data hook
-                      the browser specs select on; the palette strip itself is
-                      the published primitive. */}
-                  <span data-theme-menu-preview aria-hidden="true">
-                    <PalettePreview theme={option.preview} />
+                      the browser specs select on. The published composition
+                      renders ThemeMenuPreview here, which 0.113.0 does not
+                      export — so the menu-scale card is the exported
+                      ThemeMiniature in the published preview's geometry, and
+                      the upstream seam covers exporting the composite. */}
+                  <span
+                    data-theme-menu-preview
+                    aria-hidden="true"
+                    class="block h-16 w-28 shrink-0 overflow-hidden rounded-md border border-border"
+                  >
+                    <ThemeMiniature theme={option.preview} />
                   </span>
                   <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span class="truncate">{option.name}</span>
@@ -514,57 +521,59 @@ const SURFACES = [
 
 export function ModeChoices(props: AppearanceEditorProps) {
   return (
-    <RadioGroup
-      value={props.draft.mode}
-      disabled={props.saving}
-      aria-label="Appearance mode"
-      class="grid grid-cols-1 sm:grid-cols-3"
-      onChange={(mode) => {
-        const option = MODES.find((candidate) => candidate.value === mode)
-        if (option) props.onChange({ mode: option.value })
-      }}
-    >
-      <For each={MODES}>
-        {(option) => (
-          <div class="rounded-lg focus-within:ring-3 focus-within:ring-ring/50">
-            {/* The card is the control's published Label (associated by the
+    <div class="px-4 py-4">
+      <RadioGroup
+        value={props.draft.mode}
+        disabled={props.saving}
+        aria-label="Appearance mode"
+        class="grid-cols-1 sm:grid-cols-3"
+        onChange={(mode) => {
+          const option = MODES.find((candidate) => candidate.value === mode)
+          if (option) props.onChange({ mode: option.value })
+        }}
+      >
+        <For each={MODES}>
+          {(option) => (
+            <div class="rounded-lg focus-within:ring-3 focus-within:ring-ring/50">
+              {/* The card is the control's published Label (associated by the
                 deterministic item/input id pair), so clicking anywhere on the
                 miniature selects the mode; the hidden radio control keeps the
                 group keyboard-driven and the wrapper carries its focus ring. */}
-            <RadioGroupItem
-              id={`appearance-mode-${option.value}`}
-              value={option.value}
-              controlClass="sr-only"
-            >
-              <Label for={`appearance-mode-${option.value}-input`} class="w-full">
-                <span
-                  class={cn(
-                    'flex w-full cursor-pointer flex-col gap-2 rounded-lg border p-2 text-center text-xs',
-                    {
-                      'border-primary': props.draft.mode === option.value,
-                    }
-                  )}
-                >
-                  <span class="block h-20 w-full">
-                    <Show
-                      when={option.value === 'system'}
-                      fallback={
-                        <ThemeMiniature
-                          theme={option.value === 'light' ? props.lightTheme : props.darkTheme}
-                        />
+              <RadioGroupItem
+                id={`appearance-mode-${option.value}`}
+                value={option.value}
+                controlClass="sr-only"
+              >
+                <Label for={`appearance-mode-${option.value}-input`} class="w-full">
+                  <span
+                    class={cn(
+                      'flex w-full cursor-pointer flex-col gap-2 rounded-lg border p-2 text-center text-xs',
+                      {
+                        'border-primary': props.draft.mode === option.value,
                       }
-                    >
-                      <ThemeMiniatureSplit light={props.lightTheme} dark={props.darkTheme} />
-                    </Show>
+                    )}
+                  >
+                    <span class="block h-20 w-full">
+                      <Show
+                        when={option.value === 'system'}
+                        fallback={
+                          <ThemeMiniature
+                            theme={option.value === 'light' ? props.lightTheme : props.darkTheme}
+                          />
+                        }
+                      >
+                        <ThemeMiniatureSplit light={props.lightTheme} dark={props.darkTheme} />
+                      </Show>
+                    </span>
+                    <span>{option.label}</span>
                   </span>
-                  <span>{option.label}</span>
-                </span>
-              </Label>
-            </RadioGroupItem>
-          </div>
-        )}
-      </For>
-    </RadioGroup>
+                </Label>
+              </RadioGroupItem>
+            </div>
+          )}
+        </For>
+      </RadioGroup>
+    </div>
   )
 }
 
@@ -580,18 +589,35 @@ export function ModeChoices(props: AppearanceEditorProps) {
 function accentEntries(accentOptions: readonly AccentPreset[]): readonly {
   id: string
   label: string
+  light: string
+  dark: string
 }[] {
   return accentOptions.filter((option) => option.id !== 'theme')
 }
 
+/**
+ * The designed accent picker: a swatch grid, as the published
+ * `AccentSwatchGroups` idiom draws it — one round swatch per preset, painted
+ * with the catalogue's light or dark pair value for the resolved appearance,
+ * selection carried by the checked ring. The published composite itself is
+ * not exported at 0.113.0 and hardcodes a leading "Theme default" swatch the
+ * owner removed, so the grid is composed app-locally from the published
+ * RadioGroup primitives (the swatch data colors are catalogue values painted
+ * as SVG fills — a consumer can neither inline a style nor author palette
+ * literals). Keyboard semantics are the RadioGroup's: roving focus, arrow
+ * keys, Space to select, one labelled control per entry.
+ */
 export function AccentChoices(props: AppearanceEditorProps) {
+  const resolvedAppearance = () =>
+    props.draft.mode === 'system' ? props.resolvedAppearance : props.draft.mode
   const accentSelection = () => (isCustomAccent(props) ? 'custom' : props.draft.accent)
   return (
     <RadioGroup
       value={accentSelection()}
       disabled={props.saving}
       aria-label="Accent"
-      class="grid sm:grid-cols-3"
+      class="grid-cols-4"
+      data-accent-grid=""
       onChange={(accent) =>
         props.onChange({
           accent: accent === 'custom' ? (props.customAccentValue ?? '') : accent,
@@ -599,9 +625,56 @@ export function AccentChoices(props: AppearanceEditorProps) {
       }
     >
       <For each={accentEntries(props.accentOptions)}>
-        {(option) => <RadioGroupItem value={option.id} label={option.label} />}
+        {(option) => (
+          <div class="rounded-full focus-within:ring-3 focus-within:ring-ring/50">
+            {/* The card is the control's published Label (associated by the
+                deterministic item/input id pair), so clicking anywhere on the
+                swatch selects the accent; the hidden radio control keeps the
+                group keyboard-driven, the wrapper carries its focus ring, and
+                the checked ring rides the same conditional treatment the mode
+                cards use. The swatch paints the catalogue's light/dark pair
+                value as an SVG fill — a consumer can neither inline a style
+                nor author palette literals. */}
+            <RadioGroupItem
+              id={`appearance-accent-${option.id}`}
+              value={option.id}
+              controlClass="sr-only"
+            >
+              <Label for={`appearance-accent-${option.id}-input`} class="w-full">
+                <span
+                  class={cn('block size-7 cursor-pointer rounded-full border p-0.5', {
+                    'border-primary ring-1 ring-primary': accentSelection() === option.id,
+                  })}
+                >
+                  <svg class="size-full" viewBox="0 0 16 16" aria-hidden="true">
+                    <circle
+                      cx="8"
+                      cy="8"
+                      r="8"
+                      fill={resolvedAppearance() === 'light' ? option.light : option.dark}
+                    />
+                  </svg>
+                </span>
+                <span class="sr-only">{option.label}</span>
+              </Label>
+            </RadioGroupItem>
+          </div>
+        )}
       </For>
-      <RadioGroupItem value="custom" label="Custom" />
+      <div class="rounded-md focus-within:ring-3 focus-within:ring-ring/50">
+        <RadioGroupItem id="appearance-accent-custom" value="custom" controlClass="sr-only">
+          <Label for="appearance-accent-custom-input" class="w-full">
+            <span
+              class={cn(
+                'flex h-7 cursor-pointer items-center rounded-md border px-2 text-xs whitespace-nowrap',
+                { 'border-primary ring-1 ring-primary': accentSelection() === 'custom' }
+              )}
+            >
+              Custom
+            </span>
+          </Label>
+        </RadioGroupItem>
+      </div>
     </RadioGroup>
   )
 }
@@ -619,13 +692,37 @@ export function GlassChoices(props: AppearanceEditorProps) {
       }}
     >
       <For each={SURFACES}>
-        {(option) => (
-          <RadioGroupItem
-            value={option.value}
-            label={option.label}
-            disabled={option.value === 'frosted' && !props.surfaceCapability.frosted}
-          />
-        )}
+        {(option) => {
+          const unavailable = option.value === 'frosted' && !props.surfaceCapability.frosted
+          return (
+            <div class="rounded-md focus-within:ring-3 focus-within:ring-ring/50">
+              {/* The chip is the control's published Label (associated by the
+                  deterministic item/input id pair); the chip treatment itself
+                  rides a plain span, mirroring the accent swatches and mode
+                  cards. */}
+              <RadioGroupItem
+                id={`appearance-surface-${option.value}`}
+                value={option.value}
+                controlClass="sr-only"
+                disabled={unavailable}
+              >
+                <Label for={`appearance-surface-${option.value}-input`} class="w-full">
+                  <span
+                    class={cn(
+                      'flex h-7 cursor-pointer items-center rounded-md border px-2 text-xs whitespace-nowrap',
+                      {
+                        'border-primary ring-1 ring-primary': props.draft.surface === option.value,
+                        'cursor-not-allowed opacity-50': unavailable,
+                      }
+                    )}
+                  >
+                    {option.label}
+                  </span>
+                </Label>
+              </RadioGroupItem>
+            </div>
+          )
+        }}
       </For>
     </RadioGroup>
   )
@@ -799,6 +896,7 @@ export function AdeaAppearancePopover(props: AppearancePopoverProps) {
         variant="ghost"
         size="icon-sm"
         tooltip="Open appearance settings"
+        tooltipIcon={<Palette aria-hidden="true" />}
         aria-label="Appearance settings"
       >
         <Palette aria-hidden="true" />

@@ -198,6 +198,46 @@ for (const width of [1280, 390]) {
       expect(await page.evaluate(() => localStorage.getItem('appearance'))).toBeNull()
     })
 
+    test('the toolbar trigger tooltip keeps its icon across the lazy trigger swap', async ({
+      page,
+    }) => {
+      // The control swaps its lazy loading fallback for the popover's own
+      // persistent trigger after the first open. Both generations run through
+      // the shared ActionButton and must repeat the trigger glyph in the tip's
+      // icon cell, like every other top-bar icon action.
+      const trigger = page.getByRole('button', { name: 'Appearance settings', exact: true })
+      const expectIconTip = async () => {
+        // A cold dev server hydrates long after the SSR shell paints; the
+        // hover-and-tip exchange retries through that window like
+        // openLiveAppearance does for the dialog. Each attempt leaves the
+        // control first: a hover already on the trigger dispatches no new
+        // pointerenter, and after a sheet close the restored focus needs the
+        // pointer to move off the control (releasing the focus gate's phantom)
+        // before a real hover can open the tip.
+        await expect(async () => {
+          await page.mouse.move(2, 400)
+          await trigger.hover()
+          const tooltip = page.getByRole('tooltip')
+          await expect(tooltip).toHaveText('Open appearance settings')
+          const icon = tooltip.locator('[data-slot="tooltip-icon"]')
+          await expect(icon).toHaveCount(1)
+          await expect(icon.locator('svg')).toHaveCount(1)
+        }).toPass({ timeout: 60_000 })
+        await page.mouse.move(2, 400)
+        await expect(page.getByRole('tooltip')).toBeHidden()
+      }
+      // Before the first open the control is the loading fallback.
+      await expectIconTip()
+      const popup = await openLiveAppearance(page)
+      await popup.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await expect(popup).toBeHidden()
+      // After the swap the trigger is the popover composition's own
+      // SheetTrigger — the surface that lost the icon when the editor fork
+      // recomposed the control.
+      await expect(trigger).toBeFocused()
+      await expectIconTip()
+    })
+
     test('the nested theme library retains the preview and returns focus', async ({ page }) => {
       const popup = await openLiveAppearance(page)
       await popup
