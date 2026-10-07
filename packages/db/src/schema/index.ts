@@ -22,6 +22,7 @@ export {
   runtimeNodeChallengePurpose,
   runtimeNodeChallenges,
   runtimeNodeExchangeCredentials,
+  runtimeNodeDeliveryRequests,
   runtimeNodeKeyAlgorithm,
   runtimeNodeKeyRole,
   runtimeNodeKeys,

@@ -267,6 +267,12 @@ cases in `packages/db/tests/integration/task-submissions.test.ts` pin this bound
 
 ## Pinned by
 
+Outbound pulls emit the version-1 `runtime_node.proof_accepted` event at most
+once per minute with node UUID, request UUID, signing fingerprint and explicit
+actor kind `runtime_node` (migration 0038). Nonce, liveness and event commit
+atomically. The log contains no signature/ciphertext or inferred user identity.
+This proves liveness, never execution acceptance.
+
 - `packages/db/tests/integration/workspace-events.test.ts`: atomicity with the
   domain mutation, rollback with no sequence gap, concurrent writers,
   replay/cursor behavior, cross-workspace isolation, retention, a lost wake-up,

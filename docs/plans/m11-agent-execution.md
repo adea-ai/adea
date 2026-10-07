@@ -145,6 +145,16 @@ records independent validation and the remaining host-delivery, SDK acceptance,
 reconciliation, expiry cleanup and product gates. Pending delivery is not runtime
 acceptance or a Task lifecycle transition.
 
+## Authenticated outbound delivery
+
+The outbound node pull increment authenticates the selected node, claims
+durable nonce/rate records and rechecks original submission authority before
+releasing one unchanged encrypted command. Reconnect retains the original
+identity. Node liveness has a distinct audit actor. Host inbox, local policy,
+SDK acceptance and reconciliation remain the next delivery work.
+[Delivery evidence](../evidence/m11-runtime-node-delivery.md) records the
+independent database and compiled Worker checks and remaining acceptance gates.
+
 ## Authoritative profile availability on reads
 
 The authorized Agent list and single-Agent reads check the exact saved public

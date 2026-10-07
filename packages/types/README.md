@@ -3,6 +3,10 @@
 Small domain contracts shared across Adea packages, including workspace scenes,
 agents, tasks, and messages.
 
+`@adea-ai/types/runtime-node-delivery` exports the strict outbound pull proof,
+canonical message and WebCrypto verifier. It grants no user authority and
+persists no private key. Host transport consumers use this focused entry.
+
 Dev Runtime's complete contract is exported from `@adea-ai/types/dev-runtime`.
 Client code that needs only a part of that contract should use the focused
 subpaths: `dev-runtime-operation-metadata` for tree-shakeable operation

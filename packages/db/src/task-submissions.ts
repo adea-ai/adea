@@ -73,7 +73,7 @@ function summary(row: SubmissionRow): TaskSubmissionSummary {
   })
 }
 
-async function authorizedTask(
+export async function authorizeTaskSubmission(
   transaction: AgentHqTransaction,
   workspaceId: string,
   taskId: string,
@@ -150,7 +150,7 @@ async function authorizedTask(
   return task
 }
 
-async function submissionConversation(
+export async function submissionConversation(
   transaction: AgentHqTransaction,
   workspaceId: string,
   task: Readonly<{
@@ -244,7 +244,7 @@ export async function enqueueTaskSubmission(
     await transaction.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`adea-task-submit-request:${workspaceId}:${command.requestId}`}, 0))`
     )
-    const task = await authorizedTask(transaction, workspaceId, taskId, principal)
+    const task = await authorizeTaskSubmission(transaction, workspaceId, taskId, principal)
     const idempotencyKey = command.idempotencyKey.trim()
     const [existing] = await transaction
       .select()
@@ -399,6 +399,7 @@ export async function enqueueTaskSubmission(
         taskId,
         requestId: command.requestId,
         agentId: task.agentId,
+        actorUserId: principal.userId,
         runtimeNodeId: node.id,
         locationKind: node.kind,
         state: online ? 'pending_delivery' : 'queued_for_node',
@@ -435,7 +436,7 @@ export async function getTaskSubmissionForUser(
   principal: UserPrincipalRef
 ): Promise<TaskSubmissionSummary | null> {
   return database.transaction(async (transaction) => {
-    await authorizedTask(transaction, workspaceId, taskId, principal)
+    await authorizeTaskSubmission(transaction, workspaceId, taskId, principal)
     const [row] = await transaction
       .select()
       .from(taskSubmissions)

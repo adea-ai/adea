@@ -22,7 +22,7 @@ export type WorkspaceEventAggregateType =
   | 'task'
   | 'workspace'
 
-export type WorkspaceEventActorKind = 'agent' | 'system' | 'user'
+export type WorkspaceEventActorKind = 'agent' | 'runtime_node' | 'system' | 'user'
 
 type WorkspaceEventContract = Readonly<{
   /** Payload shape version. Bump it when a payload changes shape. */

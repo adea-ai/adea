@@ -13,6 +13,7 @@ import {
 import { agents } from './agents'
 import { entityId, timestampColumns } from './conventions'
 import { commandOutbox } from './events'
+import { users } from './identity'
 import { runtimeNodeKind, runtimeNodes } from './runtime-nodes'
 import { appSchema } from './schema'
 import { tasks } from './tasks'
@@ -35,6 +36,8 @@ export const taskSubmissions = appSchema.table(
     commandId: uuid('command_id').notNull(),
     requestId: uuid('request_id').notNull(),
     agentId: uuid('agent_id').notNull(),
+    /** Original authority; legacy rows without recoverable audit provenance remain withheld. */
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'restrict' }),
     runtimeNodeId: uuid('runtime_node_id').notNull(),
     locationKind: runtimeNodeKind('location_kind').notNull(),
     state: taskSubmissionState('state').notNull(),
