@@ -16,16 +16,7 @@
     "shadcn/no-restyle": [
       "error",
       {
-        "allow": [
-          "layout",
-          "conventional-*",
-          "dev-*",
-          "global-*",
-          "plugin-*",
-          "plugins-*",
-          "virtual-*",
-          "workspace-*"
-        ]
+        "allow": ["layout", "dev-*"]
       }
     ],
     "shadcn/no-raw-colors": [
