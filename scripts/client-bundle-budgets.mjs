@@ -206,9 +206,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // gzip against the same build of main's 298,056 / 98,800; the same
     // workspace-nav delta Virtual carries. Raw holds; gzip ratchets to
     // 98 KiB (~0.9% headroom).
-    // The machine-wide janitor (2026-10-07) shares the registry/decoder
-    // chunks this route pulls: 301,071 raw. Raw ratchets to 296 KiB
-    // (~0.7% headroom); gzip holds at 98 KiB.
+    // The machine-wide janitor shares the registry/decoder chunks this route
+    // pulls, and the owner audit's entry fixes touch the same workspace shell
+    // (2026-10-07): 301,071 → 301,621 raw. Raw ratchets to 296 KiB (~0.7%
+    // headroom); gzip holds at 98 KiB.
     chat: { rawBytes: 296 * 1024, gzipBytes: 98 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
