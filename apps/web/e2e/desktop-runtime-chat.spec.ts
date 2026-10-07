@@ -98,6 +98,33 @@ test('refused returning Chat stays in canonical recovery and retries without lau
     page.getByText('This conversation is unavailable. Retry or select another session.')
   ).toBeVisible()
   await expect(page.getByText('Legacy team chat')).toHaveCount(0)
+
+  // The unavailable state shares the chat column's other states' treatment:
+  // the published Empty surface centred in the column, not bare text and a
+  // button pinned to the top-left.
+  const placement = await page.evaluate(() => {
+    const column = document.querySelector('.workspace-runtime-chat')
+    const empty = column?.querySelector('[data-slot="empty"]')
+    const description = empty?.querySelector('[data-slot="empty-description"]')
+    if (!column || !empty || !description) throw new Error('unavailable state not rendered')
+    const columnBox = column.getBoundingClientRect()
+    const emptyBox = empty.getBoundingClientRect()
+    const descriptionStyle = getComputedStyle(description)
+    return {
+      horizontalCenterDrift: Math.abs(
+        emptyBox.left + emptyBox.width / 2 - (columnBox.left + columnBox.width / 2)
+      ),
+      verticalCenterDrift: Math.abs(
+        emptyBox.top + emptyBox.height / 2 - (columnBox.top + columnBox.height / 2)
+      ),
+      descriptionColor: descriptionStyle.color,
+      foreground: getComputedStyle(document.body).color,
+    }
+  })
+  expect(placement.horizontalCenterDrift).toBeLessThanOrEqual(2)
+  expect(placement.verticalCenterDrift).toBeLessThanOrEqual(2)
+  expect(placement.descriptionColor).not.toBe(placement.foreground)
+
   await page.evaluate(() => window.desktopRuntimeChatHarness.refuseAttach(false))
   await page.getByRole('button', { name: 'Retry conversation' }).click()
   await expect(page.getByRole('heading', { name: 'Second canonical session' })).toBeVisible()

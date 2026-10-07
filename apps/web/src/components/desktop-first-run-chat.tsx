@@ -28,7 +28,9 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { createEffect, createMemo, createSignal, onCleanup, Show, type JSX } from 'solid-js'
 
 import { useWorkspaceState, workspaceStore, wideViewportAtLoad } from '@adea-ai/state'
+import { AlertCircle } from 'lucide-solid'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Empty, EmptyContent, EmptyDescription, EmptyMedia } from '@adea-ai/ui/components/ui/empty'
 import '@adea-ai/app-ui/dev-view.css'
 
 import {
@@ -368,19 +370,35 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                       <Show
                         when={state().kind === 'first-run'}
                         fallback={
-                          <div role="status">
-                            <p>
-                              {attachmentError() ||
-                                (selection()?.status === 'empty' || !conversationSelectionId()
-                                  ? 'Select a project with a conversation.'
-                                  : 'Opening conversation…')}
-                            </p>
-                            <Show when={attachmentError()}>
-                              <Button onClick={() => setRetry((value) => value + 1)}>
-                                Retry conversation
-                              </Button>
+                          // The column's pending and unavailable states share
+                          // the published Empty treatment: centred in the chat
+                          // column like its other states, instead of bare text
+                          // pinned to the top-left.
+                          <Empty class="h-full" role="status">
+                            <Show
+                              when={attachmentError()}
+                              fallback={
+                                <EmptyDescription>
+                                  {selection()?.status === 'empty' || !conversationSelectionId()
+                                    ? 'Select a project with a conversation.'
+                                    : 'Opening conversation…'}
+                                </EmptyDescription>
+                              }
+                            >
+                              <EmptyMedia variant="icon">
+                                <AlertCircle aria-hidden="true" />
+                              </EmptyMedia>
+                              <EmptyDescription>{attachmentError()}</EmptyDescription>
+                              <EmptyContent>
+                                <Button
+                                  type="button"
+                                  onClick={() => setRetry((value) => value + 1)}
+                                >
+                                  Retry conversation
+                                </Button>
+                              </EmptyContent>
                             </Show>
-                          </div>
+                          </Empty>
                         }
                       >
                         {(() => {
