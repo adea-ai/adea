@@ -10,18 +10,24 @@ import type {
 } from '@adea-ai/types/dev-runtime'
 
 import {
+  attentionIssues,
   attentionSummary,
   barSegments,
   cleanupCandidates,
   FALLBACK_PREFERENCES,
+  formatDuration,
   formatSize,
   isResourcePreferences,
   leakState,
+  leakText,
   memoryBreakdown,
+  parseStartIdentity,
   serverGroups,
   sparklinePoints,
+  startedLabel,
   storageRows,
   storageTotals,
+  trendGeometry,
 } from '../src/resources/resources-view-model'
 
 const scope = {
@@ -121,6 +127,11 @@ describe('leak detection', () => {
     const state = leakState(points, alerts)
     expect(state.kind).toBe('growing')
     expect(state.growthBytes).toBeCloseTo(0.6 * GiB, 0)
+    expect(state.windowSeconds).toBe(alerts.growthWindowSeconds)
+    // The leak line names the window the growth happened in.
+    expect(leakText(state)).toBe('Leaking · +614 MB in 10 min')
+    expect(leakText({ kind: 'over_limit' })).toBe('Over your memory limit')
+    expect(leakText({ kind: 'normal' })).toBeUndefined()
   })
 
   test('a server over the limit without growth is over_limit; a quiet one is normal', () => {
@@ -395,5 +406,136 @@ describe('helpers', () => {
   test('sparkline points span the box', () => {
     expect(sparklinePoints([0, 10], 72, 20)).toBe('0.0,19.0 72.0,1.0')
     expect(sparklinePoints([], 72, 20)).toBe('')
+  })
+})
+
+describe('owned server rows', () => {
+  test('name the command, PID, uptime, and session', () => {
+    const started = new Date(2026, 9, 6, 9, 0, 0).getTime()
+    const groups = serverGroups({
+      snapshot: snapshot({
+        processes: [
+          process('p-web', {
+            worktreeId: 'wt-main',
+            startIdentity: 'Tue Oct  6 09:00:00 2026',
+            executableIdentity: '/opt/homebrew/bin/node',
+            runtimeSessionId: 'session-abcdef123456',
+            pid: 4321,
+          }),
+          process('p-here', {
+            pid: 4322,
+            runtimeSessionId: 'session-current',
+            state: 'unknown',
+          }),
+        ],
+      }),
+      worktrees: [worktree('wt-main', { projectId: 'project-9' })],
+      alerts,
+      now: started + 2 * 3_600_000,
+      currentSessionId: 'session-current',
+    })
+    const rows = groups.flatMap((group) => group.rows)
+    const web = rows.find((row) => row.id === 'p-web')!
+    expect(web).toMatchObject({
+      kind: 'owned',
+      title: 'Server · p-web',
+      detail: 'node · PID 4321 · up 2h · session session-',
+      command: 'node',
+      startedAt: started,
+      projectId: 'project-9',
+    })
+    const here = rows.find((row) => row.id === 'p-here')!
+    // Not running: the state stays visible instead of an uptime.
+    expect(here.detail).toBe('node · PID 4322 · Identity unproven · this session')
+  })
+
+  test('a deleted worktree keeps the branch it was last listed with', () => {
+    const groups = serverGroups({
+      snapshot: snapshot({ processes: [process('p-1', { worktreeId: 'wt-gone' })] }),
+      worktrees: [],
+      alerts,
+      rememberedWorktreeTitles: new Map([['wt-gone', 'feat/login']]),
+    })
+    expect(groups[0]).toMatchObject({
+      kind: 'missing_worktree',
+      title: 'feat/login',
+      subtitle: 'Worktree deleted · its servers are orphaned',
+    })
+    const unknown = serverGroups({
+      snapshot: snapshot({ processes: [process('p-1', { worktreeId: 'wt-gone' })] }),
+      worktrees: [],
+      alerts,
+    })
+    expect(unknown[0]).toMatchObject({ title: 'Worktree deleted' })
+  })
+})
+
+describe('attention issues', () => {
+  test('the banner names every kind of issue, not only leaks', () => {
+    const groups = serverGroups({
+      snapshot: snapshot({
+        processes: [
+          process('p-orphan', { worktreeId: 'wt-gone' }),
+          process('p-leak', { pid: 4002 }),
+        ],
+        metrics: [metric('p-leak', 0, 1 * GiB), metric('p-leak', 60_000, 2 * GiB)],
+        foreign: [
+          foreign('f-port', { listeningPorts: [4000] }),
+          foreign('f-big', { residentBytes: String(3 * GiB), residentHistory: [String(3 * GiB)] }),
+        ],
+      }),
+      worktrees: [],
+      alerts,
+    })
+    const worktrees = [worktree('wt-archived', { archived: true })]
+    const candidates = cleanupCandidates({
+      groups,
+      worktrees,
+      storage: storageRows(worktrees, []),
+      preferences: FALLBACK_PREFERENCES,
+    })
+    expect(attentionIssues(candidates, groups)).toEqual([
+      '1 server leaking memory',
+      '1 server over your memory limit',
+      '1 server whose worktree was deleted',
+      '1 archived worktree',
+      '1 process not started by Adea holding a port',
+    ])
+    expect(attentionIssues([], [])).toEqual([])
+  })
+})
+
+describe('time and charts', () => {
+  test('start identities read as local time and format relative plus locale', () => {
+    const at = new Date(2026, 9, 6, 9, 14, 3).getTime()
+    expect(parseStartIdentity('Tue Oct  6 09:14:03 2026')).toBe(at)
+    expect(parseStartIdentity('start')).toBeUndefined()
+    const label = startedLabel('Tue Oct 6 09:14:03 2026', at + 3 * 3_600_000)
+    expect(label.startsWith('3h ago · ')).toBe(true)
+    expect(label).toContain('2026')
+    expect(startedLabel('not a time', at)).toBe('not a time')
+    expect(formatDuration(600)).toBe('10 min')
+    expect(formatDuration(30)).toBe('30 s')
+    expect(formatDuration(7200)).toBe('2 h')
+  })
+
+  test('trend charts carry a time axis and draw a nearby threshold', () => {
+    const samples = [
+      { at: 0, value: 1 * GiB },
+      { at: 600_000, value: 1.5 * GiB },
+    ]
+    const near = trendGeometry(samples, { width: 240, height: 64, threshold: 2 * GiB })
+    expect(near.startLabel).toBe('10 min ago')
+    expect(near.endLabel).toBe('now')
+    expect(near.thresholdY).toBeDefined()
+    expect(near.thresholdY!).toBeLessThan(64)
+    // A limit far above the samples is not drawn, so the trend stays readable.
+    const far = trendGeometry(samples, { width: 240, height: 64, threshold: 64 * GiB })
+    expect(far.thresholdY).toBeUndefined()
+    expect(trendGeometry([], { width: 240, height: 64 })).toEqual({
+      points: '',
+      startLabel: '',
+      endLabel: '',
+    })
   })
 })

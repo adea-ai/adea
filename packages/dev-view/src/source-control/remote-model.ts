@@ -52,6 +52,25 @@ export function checksLabel(summary: CheckSummary): string {
   return parts.join(', ')
 }
 
+const conclusionLabel: Readonly<Record<NonNullable<GitHubCheck['conclusion']>, string>> = {
+  success: 'Passed',
+  failure: 'Failed',
+  neutral: 'Neutral',
+  cancelled: 'Cancelled',
+  skipped: 'Skipped',
+  timed_out: 'Timed out',
+  action_required: 'Action required',
+  stale: 'Stale',
+}
+
+/** One check's state as a word ("Running", "Timed out"), never the raw
+ *  provider enum such as `in_progress`. */
+export function checkStateLabel(check: Pick<GitHubCheck, 'status' | 'conclusion'>): string {
+  if (check.status === 'queued') return 'Queued'
+  if (check.status === 'in_progress') return 'Running'
+  return check.conclusion ? conclusionLabel[check.conclusion] : 'Completed'
+}
+
 export function pullRequestStateLabel(pr: Pick<GitHubPullRequest, 'state' | 'draft'>): string {
   if (pr.state === 'merged') return 'merged'
   if (pr.state === 'closed') return 'closed'

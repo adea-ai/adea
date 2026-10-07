@@ -48,6 +48,14 @@ export function parsePatch(patch: string): readonly DiffRow[] {
   return rows
 }
 
+/** The last `count` rows of a review thread's diff hunk, numbered from the
+ *  whole hunk so the excerpt keeps its real old and new line numbers. */
+export function threadExcerpt(hunk: string, count = 4): readonly DiffRow[] {
+  return parsePatch(hunk)
+    .filter((row) => row.kind !== 'meta')
+    .slice(-count)
+}
+
 export function anchorOf(row: DiffRow): DiffAnchor | undefined {
   if (row.kind === 'delete' && row.oldLine !== undefined) return { side: 'left', line: row.oldLine }
   if ((row.kind === 'add' || row.kind === 'context') && row.newLine !== undefined)

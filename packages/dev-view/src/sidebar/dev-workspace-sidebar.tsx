@@ -680,6 +680,7 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
           resizeLabel="Resize workspace navigation"
           sidebarClass="h-full w-full"
           sheetClass="dev-sidebar__sheet"
+          titleVisibility="mobile"
           footerClass="max-h-1/2 overflow-y-auto"
           onSidebarElement={sidebarWidth.onSidebarElement}
           content={(context) => {

@@ -13,6 +13,8 @@ export type LinkedSession = Readonly<{
   runtimeSessionId: string
   projectId: string
   worktreeId: string
+  /** The worktree's checkout on this device, when the runtime reports it. */
+  worktreePath?: string
   title: string
   lifecycle: string
 }>
@@ -28,7 +30,7 @@ export type InboxGroupId = 'drafts' | 'needs_review' | 'ready' | 'blocked' | 'wa
 
 export type RowAction = 'open_session' | 'open' | 'review' | 'merge' | 'update_branch'
 
-export type Tone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'unknown'
+export type Tone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'pending' | 'unknown'
 
 export type ScmProvider = 'github' | 'gitlab'
 

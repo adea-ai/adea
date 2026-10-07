@@ -43,7 +43,7 @@ const ACTOR_FIELDS = `__typename login ... on User { name }`
 const SUMMARY_FIELDS = `
   id number title url state isDraft
   author { ${ACTOR_FIELDS} }
-  headRefName headRefOid baseRefName isCrossRepository
+  headRefName headRefOid baseRefName baseRefOid isCrossRepository
   additions deletions changedFiles
   commits { totalCount }
   labels(first: 50) { nodes { name } }
@@ -447,6 +447,10 @@ export function mapSummary(
     headRef: str(item.headRefName, `${path}.headRefName`, 512),
     headSha: gitSha(item.headRefOid, `${path}.headRefOid`),
     baseRef: str(item.baseRefName, `${path}.baseRefName`, 512),
+    // Decoration for the status bar: a missing or malformed oid is omitted.
+    ...(typeof item.baseRefOid === 'string' && /^[0-9a-f]{40}$/.test(item.baseRefOid)
+      ? { baseSha: item.baseRefOid }
+      : {}),
     crossRepository: bool(item.isCrossRepository, `${path}.isCrossRepository`),
     additions: num(item.additions, `${path}.additions`),
     deletions: num(item.deletions, `${path}.deletions`),

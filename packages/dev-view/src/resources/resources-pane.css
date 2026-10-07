@@ -289,8 +289,11 @@
   border-radius: var(--radius-md, 0.5rem);
 }
 
+/* The port column fits a full loopback address (`127.0.0.1:65535`) in the
+   Code font; anything longer truncates inside the column instead of running
+   under the title. */
 .dev-resources__server {
-  grid-template-columns: 5rem minmax(0, 1fr) 4.5rem 4.5rem auto;
+  grid-template-columns: 8.75rem minmax(0, 1fr) 4.5rem 4.5rem auto;
 }
 
 .dev-resources__storage-row {
@@ -316,6 +319,18 @@
   min-width: 0;
   align-items: baseline;
   gap: 0.25rem;
+  overflow: hidden;
+}
+
+.dev-resources__server-port > .dev-resources__code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-resources__server-port > .dev-resources__row-detail {
+  flex: none;
 }
 
 .dev-resources__server-memory {
@@ -415,9 +430,45 @@
   color: var(--chart-3);
 }
 
-.dev-resources__tile .dev-resources__spark[viewBox^='0 0 240'] {
+/* Detail history charts: the plot fills the tile, a dashed line marks the
+   memory limit, and the axis under it names how long ago each end is. */
+.dev-resources__trend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dev-resources__tile .dev-resources__trend-plot {
   width: 100%;
   height: 4rem;
+}
+
+.dev-resources__trend-threshold {
+  stroke: var(--warning);
+  stroke-dasharray: 4 3;
+  stroke-width: 1;
+}
+
+.dev-resources__trend-axis {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: calc(0.6875rem * var(--font-ui-scale, 1));
+  font-variant-numeric: tabular-nums;
+}
+
+.dev-resources__trend-threshold-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dev-resources__trend-threshold-swatch {
+  display: inline-block;
+  width: 0.75rem;
+  border-top: 1px dashed var(--warning);
 }
 
 /* ── Drill-in views ───────────────────────────────────────────────────── */

@@ -4937,10 +4937,14 @@ auth is the user's `gh` CLI context, and Adea stores no GitHub token.
   the collapsed group, mirroring how the resize grips are exposed.
 
 - **Read models.** `pullRequestSummaries` (one repository, newest update
-  first, at most 50 a page) and `pullRequestSummary` (one PR, plus `body` and
-  the compare-derived `behindBy`) return `GitHubPullRequestSummary`: author
-  (`user`, `bot`, or `team`), requested reviewers, the latest review per
-  reviewer, GitHub's review decision, `mergeable`, `mergeState`, a check
+  first, at most 50 a page) and `pullRequestSummary` (one PR, plus `body`,
+  the compare-derived `behindBy`, and `requiredApprovals`, the larger of the
+  base branch's ruleset pull request rule and its classic branch protection,
+  each read best effort so a refused read — classic protection needs admin —
+  leaves it absent) return `GitHubPullRequestSummary`: author
+  (`user`, `bot`, or `team`), the base ref's oid (`baseSha`, omitted when
+  absent), requested reviewers, the latest review per reviewer, GitHub's
+  review decision, `mergeable`, `mergeState`, a check
   rollup with per-bucket counts, auto-merge, the repository's allowed merge
   methods, and closing issues. `timeline` returns comments, reviews, commits
   with their rollup state, review threads (first page only, with the first
@@ -5011,7 +5015,8 @@ provider's rules, with these differences:
   `Draft:` title prefix becomes the `draft` flag and is stripped from the
   title; approvals become `approved` reviews and a reviewer who requested
   changes a `changes_requested` review; `reviewDecision` follows the
-  project's approval rule. The head pipeline's jobs are the checks
+  project's approval rule, whose `approvalsRequired` is `requiredApprovals`,
+  and the diff's start sha is `baseSha`. The head pipeline's jobs are the checks
   (`stage / name`); an `allow_failure` job that failed is `neutral`, manual
   and skipped jobs are `skipped`. Discussions anchored to a diff position
   are threads (their id is the discussion id); other notes are comments;
@@ -5455,31 +5460,55 @@ host, widened to 37.5rem through its `dev-resources-sheet` hook. All resource
 management and all resource settings live in this one sheet
 (`packages/dev-view/src/resources/`):
 
-- **Header:** the title, the coverage (`This machine` or `Adea only`), and
-  the refresh and settings `ActionButton`s.
+- **Header:** the title, the coverage (`This machine` or `Adea only`) with
+  the sampling interval (`sampled every N s`), and the refresh and settings
+  `ActionButton`s.
 - **Overview:** the memory used by Adea (proven launches plus processes in
   Adea terminals) over a machine memory bar split into Adea, other listed
-  processes, other apps, and free; then CPU, ports, and storage tiles.
+  processes, other apps, and free; then CPU, ports (`N Adea · M other`), and
+  storage tiles.
 - **Attention banner:** the pre-selected clean-up count and the disk it
-  would free, or the leaking servers and port-holding foreign processes that
-  need a look, with a Review action.
+  would free (or how many things need a look), with one line naming every
+  kind of issue present — servers leaking memory, servers over the memory
+  limit, servers whose worktree was deleted, idle servers, archived
+  worktrees, and processes Adea did not start that hold ports — and a Review
+  action.
 - **Servers & apps tab:** rows grouped by worktree (proven launches and
   foreign rows whose working directory is in a registered worktree), then
-  "Worktree deleted" for launches whose worktree is gone, then "Adea", then
-  "Elsewhere on this machine", then "Protected". Each row shows its port, what
-  it is, who started it, a memory sparkline, and tree memory, plus row actions:
-  restart (proven launches), stop (stoppable rows), and details. A row is
-  leaking when its memory grew by at least `alerts.growthBytes` within
-  `alerts.growthWindowSeconds`, and over its limit when it holds at least
-  `alerts.residentBytesAbove`; both use the warning tone. Protected rows show
-  why and have no stop.
+  deleted worktrees for launches whose worktree is gone, then "Adea", then
+  "Elsewhere on this machine", then "Protected". A deleted worktree's group
+  keeps the branch title the sheet last listed for it (remembered for the
+  page's lifetime) and says the worktree was deleted; without one it reads
+  "Worktree deleted". Each row shows its port (the column fits a full
+  loopback address and truncates anything longer), what it is, who started
+  it, a memory sparkline, and tree memory, plus row actions: restart (proven
+  launches), stop (stoppable rows), and details. A proven launch's second
+  line names its executable, PID, uptime (from its start identity; the state
+  instead when it is not running), and its runtime session (`this session`
+  for the session the sheet is scoped to). A row is leaking when its memory
+  grew by at least `alerts.growthBytes` within `alerts.growthWindowSeconds`,
+  and the leak line names that window (`Leaking · +600 MB in 10 min`); a row
+  is over its limit when it holds at least `alerts.residentBytesAbove`; both
+  use the warning tone. Protected rows show why and have no stop.
 - **Storage tab:** a disk bar (worktree source, builds and dependencies,
   retained data), the worktree list with state badges and sizes, and the
-  read-only retained-data breakdown.
+  read-only retained-data breakdown. The tab trigger carries a badge: the
+  measured total once storage has been measured, the worktree count before.
 - **Agents & usage tab:** the provider usage cards.
-- **Drill-in views:** server details (memory and CPU history, facts, and
+- **Drill-in views:** server details (memory and CPU history charts with a
+  time axis, the memory chart with a dashed line at `alerts.residentBytesAbove`
+  when the limit is within twice the highest sample; facts including the
+  command, session, and the start time as relative age plus locale date; and
   ownership), the clean-up review, resource settings, and the stop, restart,
-  and foreign-stop confirmation in the shared `AlertDialog`.
+  and foreign-stop confirmation in the shared `AlertDialog`. The confirmation
+  has an Owner row (the launch owner and session, or who started a foreign
+  process) and formats the start time the same way. A proven launch with a
+  preview URL offers **Open preview** (the host's external-link hand-off on
+  desktop, a new tab on the web), and one with a runtime session offers **Go
+  to session** when the host supplies the hand-off: the sheet closes and the
+  workspace navigates to Dev with the `devProject` (from the launch's
+  registered worktree) and `devSession` deep-link params, which Dev View
+  resolves like any deep link.
 - While the sheet is open and the page is visible, it re-reads the snapshot
   every `sampling.visibleSeconds`.
 

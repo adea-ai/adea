@@ -23,7 +23,7 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
-import type { ServerRow } from './resources-view-model'
+import { startedLabel, type ServerRow } from './resources-view-model'
 
 export type StopIntent = Readonly<{ mode: 'stop' | 'restart'; row: ServerRow }>
 
@@ -231,23 +231,33 @@ export function StopDialog(props: {
                 <dt>Folder</dt>
                 <dd class="dev-resources__code">{current().record.cwdLabel}</dd>
               </Show>
+              <dt>Owner</dt>
+              <dd>{current().attributionLabel ?? 'Unknown'} · not started by Adea</dd>
               <dt>Process</dt>
               <dd>
-                PID {current().record.pid} · started {current().record.startIdentity} ·{' '}
-                {current().record.childCount} child{' '}
+                PID {current().record.pid} · {current().record.childCount} child{' '}
                 {current().record.childCount === 1 ? 'process' : 'processes'}
               </dd>
+              <dt>Started</dt>
+              <dd>{startedLabel(current().record.startIdentity, Date.now())}</dd>
             </dl>
           )}
         </Show>
         <Show when={owned()}>
           {(current) => (
             <dl class="dev-resources__facts">
+              <dt>Owner</dt>
+              <dd>
+                {current().title}
+                {current().sessionLabel ? ` · ${current().sessionLabel}` : ''}
+              </dd>
               <dt>Process</dt>
               <dd>
-                {current().title} · PID {current().record.pid} · generation{' '}
+                {current().command} · PID {current().record.pid} · generation{' '}
                 {current().record.generation}
               </dd>
+              <dt>Started</dt>
+              <dd>{startedLabel(current().record.startIdentity, Date.now())}</dd>
             </dl>
           )}
         </Show>

@@ -4,15 +4,24 @@
  * the proven launch record; for everything else it says Adea did not start
  * it and why it is or is not stoppable.
  */
-import { ChevronLeft, RotateCcw, Square } from 'lucide-solid'
+import { ChevronLeft, ExternalLink, RotateCcw, Square, SquareTerminal } from 'lucide-solid'
 import { Show } from 'solid-js'
 import { Alert, AlertDescription, AlertTitle } from '@adea-ai/ui/components/ui/alert'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
-import { Sparkline } from './resources-charts'
-import { formatPercent, formatSize, STATE_LABELS, type ServerRow } from './resources-view-model'
+import type { ResourcePreferencesInput } from '@adea-ai/types/dev-runtime'
+
+import { TrendChart } from './resources-charts'
+import {
+  formatDuration,
+  formatPercent,
+  formatSize,
+  startedLabel,
+  STATE_LABELS,
+  type ServerRow,
+} from './resources-view-model'
 
 const PROTECTION_TEXT = {
   none: 'Not protected',
@@ -24,15 +33,25 @@ const PROTECTION_TEXT = {
 export function ServerDetail(props: {
   row: ServerRow
   busy: boolean
+  alerts: ResourcePreferencesInput['alerts']
+  now: number
   onBack(): void
   onStop(row: ServerRow): void
   onRestart(row: ServerRow): void
+  /** Opens the row's preview URL; absent hides the action. */
+  onOpenPreview?(url: string): void
+  /** Focuses the row's runtime session in Dev; absent hides the action. */
+  onOpenSession?(row: Extract<ServerRow, { kind: 'owned' }>): void
 }) {
   const row = () => props.row
   const foreign = () =>
     row().kind === 'foreign' ? (row() as Extract<ServerRow, { kind: 'foreign' }>) : undefined
   const owned = () =>
     row().kind === 'owned' ? (row() as Extract<ServerRow, { kind: 'owned' }>) : undefined
+  const limit = () => {
+    const value = Number(props.alerts.residentBytesAbove)
+    return Number.isFinite(value) && value > 0 ? value : undefined
+  }
   const ports = () =>
     row().kind === 'owned'
       ? (owned()?.ports ?? []).map((port) => `${port.host}:${port.port}`)
@@ -70,6 +89,33 @@ export function ServerDetail(props: {
       </div>
 
       <div class="dev-resources__view-actions">
+        <Show when={props.onOpenPreview && owned()?.previewUrl}>
+          {(url) => (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => props.onOpenPreview?.(url())}
+            >
+              <ExternalLink aria-hidden="true" />
+              Open preview
+            </Button>
+          )}
+        </Show>
+        <Show when={props.onOpenSession && owned()?.record.runtimeSessionId !== undefined}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const current = owned()
+              if (current) props.onOpenSession?.(current)
+            }}
+          >
+            <SquareTerminal aria-hidden="true" />
+            Go to session
+          </Button>
+        </Show>
         <span class="dev-resources__spacer" />
         <Show when={owned()?.stoppable}>
           <Button
@@ -101,8 +147,8 @@ export function ServerDetail(props: {
         <Alert variant="warning">
           <AlertTitle>
             {row().leak.kind === 'growing'
-              ? `Memory grew ${formatSize(row().leak.growthBytes)} recently`
-              : 'Memory is over your limit'}
+              ? `Memory grew ${formatSize(row().leak.growthBytes)} in ${formatDuration(row().leak.windowSeconds ?? props.alerts.growthWindowSeconds)}`
+              : `Memory is over your ${formatSize(limit())} limit`}
           </AlertTitle>
           <AlertDescription>
             {row().kind === 'owned'
@@ -114,24 +160,25 @@ export function ServerDetail(props: {
 
       <div class="dev-resources__tiles">
         <div class="dev-resources__tile">
-          <span class="dev-resources__row-detail">Memory · recent</span>
+          <span class="dev-resources__row-detail">Memory</span>
           <span class="dev-resources__tile-value">{formatSize(row().residentBytes)}</span>
-          <Sparkline
-            values={row().history.map((point) => point.bytes)}
+          <TrendChart
+            samples={row().history.map((point) => ({ at: point.at, value: point.bytes }))}
             tone={row().leak.kind !== 'normal' ? 'warning' : 'neutral'}
-            width={240}
-            height={64}
+            {...(limit() !== undefined
+              ? { threshold: limit(), thresholdLabel: `Limit ${formatSize(limit())}` }
+              : {})}
+            now={props.now}
             label={`Memory history for ${row().title}`}
           />
         </div>
         <div class="dev-resources__tile">
           <span class="dev-resources__row-detail">CPU</span>
           <span class="dev-resources__tile-value">{formatPercent(row().cpuPercent)}</span>
-          <Sparkline
-            values={owned()?.cpuHistory ?? []}
+          <TrendChart
+            samples={owned()?.cpuPoints ?? []}
             tone="cpu"
-            width={240}
-            height={64}
+            now={props.now}
             label={`CPU history for ${row().title}`}
           />
         </div>
@@ -156,6 +203,8 @@ export function ServerDetail(props: {
                 PID {current().record.pid} · {current().record.childCount} child{' '}
                 {current().record.childCount === 1 ? 'process' : 'processes'}
               </dd>
+              <dt>Started</dt>
+              <dd>{startedLabel(current().record.startIdentity, props.now)}</dd>
               <dt>Executable</dt>
               <dd class="dev-resources__code">{current().record.executableIdentity}</dd>
               <dt>Protection</dt>
@@ -168,6 +217,14 @@ export function ServerDetail(props: {
             <>
               <dt>Owner</dt>
               <dd>{current().title}</dd>
+              <dt>Command</dt>
+              <dd class="dev-resources__code">{current().record.executableIdentity}</dd>
+              <Show when={current().sessionLabel}>
+                <dt>Session</dt>
+                <dd>{current().sessionLabel}</dd>
+              </Show>
+              <dt>Started</dt>
+              <dd>{startedLabel(current().record.startIdentity, props.now)}</dd>
               <Show when={current().previewUrl}>
                 <dt>Preview</dt>
                 <dd class="dev-resources__code">{current().previewUrl}</dd>

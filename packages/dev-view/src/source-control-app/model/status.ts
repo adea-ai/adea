@@ -79,7 +79,7 @@ export function checksFacet(checks: GitHubCheckRollup): Facet {
     }
   if (checks.running > 0 || checks.state === 'pending')
     return {
-      tone: 'info',
+      tone: 'pending',
       label:
         checks.running > 0
           ? `${checks.passing.toLocaleString('en-US')} passing, ${checks.running.toLocaleString('en-US')} running`
@@ -94,6 +94,16 @@ export function checksFacet(checks: GitHubCheckRollup): Facet {
   }
 }
 
+/** Approvals against the base branch's requirement when the provider
+ *  reports one ("1 of 2 approvals"), else the plain count ("1 approval"). */
+export function approvalProgress(pr: PullRequestView): string {
+  const approvals = approvalCount(pr)
+  const required = pr.requiredApprovals
+  if (required !== undefined && required > 0)
+    return `${approvals.toLocaleString('en-US')} of ${plural(required, 'approval')}`
+  return plural(approvals, 'approval')
+}
+
 export function reviewFacet(pr: PullRequestView): Facet {
   const approvals = approvalCount(pr)
   if (changesRequested(pr)) return { tone: 'danger', label: 'Changes requested' }
@@ -102,7 +112,12 @@ export function reviewFacet(pr: PullRequestView): Facet {
   if (pr.reviewDecision === 'review_required')
     return {
       tone: 'warning',
-      label: approvals > 0 ? `${plural(approvals, 'approval')}, more required` : 'Review required',
+      label:
+        pr.requiredApprovals !== undefined && pr.requiredApprovals > 0
+          ? approvalProgress(pr)
+          : approvals > 0
+            ? `${plural(approvals, 'approval')}, more required`
+            : 'Review required',
     }
   if (pr.requestedReviewers.length > 0) return { tone: 'warning', label: 'Review requested' }
   if (approvals > 0) return { tone: 'success', label: `Approved by ${approvals}` }

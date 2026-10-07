@@ -12,7 +12,7 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { cn } from '@adea-ai/ui/lib/utils'
 
 import { Sparkline } from './resources-charts'
-import { formatSize, type ServerGroup, type ServerRow } from './resources-view-model'
+import { formatSize, leakText, type ServerGroup, type ServerRow } from './resources-view-model'
 
 export type ServerActions = Readonly<{
   onDetails(row: ServerRow): void
@@ -20,12 +20,6 @@ export type ServerActions = Readonly<{
   onRestart(row: ServerRow): void
   busy: boolean
 }>
-
-function leakText(row: ServerRow): string | undefined {
-  if (row.leak.kind === 'growing') return `Leaking · +${formatSize(row.leak.growthBytes)} recently`
-  if (row.leak.kind === 'over_limit') return 'Over your memory limit'
-  return undefined
-}
 
 function portLabels(row: ServerRow): string[] {
   if (row.kind === 'owned') return row.ports.map((port) => `${port.host}:${port.port}`)
@@ -57,7 +51,7 @@ export function ServerRowView(props: { row: ServerRow; actions: ServerActions })
         'dev-resources__server--muted': row().kind === 'owned' && !row().stoppable,
       })}
     >
-      <span class="dev-resources__server-port">
+      <span class="dev-resources__server-port" title={ports().join(', ') || undefined}>
         <Show when={ports().length > 0} fallback={<span class="dev-resources__row-detail">—</span>}>
           <span class="dev-resources__code">{ports()[0]}</span>
           <Show when={ports().length > 1}>
@@ -85,7 +79,7 @@ export function ServerRowView(props: { row: ServerRow; actions: ServerActions })
             'dev-resources__row-detail--warning': warning(),
           })}
         >
-          {leakText(row()) ?? protectionText(row()) ?? row().detail}
+          {leakText(row().leak) ?? protectionText(row()) ?? row().detail}
         </span>
       </span>
       <Sparkline

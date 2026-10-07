@@ -2,8 +2,11 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   activeWorkspace,
+  emptyWorkspaceHint,
   groupTree,
   mergeLeaves,
+  navAgentCountLabel,
+  navTimeAgo,
   projectCollapsedSummary,
   projectSummary,
   sortProjectLeaves,
@@ -336,5 +339,51 @@ describe('workspaces', () => {
     expect(sortWorkspaces(workspaces).map((entry) => entry.id)).toEqual(['a', 'b'])
     expect(activeWorkspace({ activeWorkspaceId: 'b', workspaces, needsYou: 0 })?.id).toBe('b')
     expect(activeWorkspace({ activeWorkspaceId: 'z', workspaces, needsYou: 0 })).toBeUndefined()
+  })
+})
+
+describe('navTimeAgo', () => {
+  const now = Date.parse('2026-10-05T12:00:00.000Z')
+  const ago = (ms: number) => navTimeAgo(new Date(now - ms).toISOString(), now)
+  const minute = 60_000
+
+  test('compact text with words for assistive technology', () => {
+    expect(ago(20_000)).toEqual({ text: 'now', label: 'Active just now' })
+    expect(ago(minute)).toEqual({ text: '1m', label: 'Active 1 minute ago' })
+    expect(ago(4 * minute)).toEqual({ text: '4m', label: 'Active 4 minutes ago' })
+    expect(ago(90 * minute)).toEqual({ text: '1h', label: 'Active 1 hour ago' })
+    expect(ago(3 * 24 * 60 * minute)).toEqual({ text: '3d', label: 'Active 3 days ago' })
+    expect(ago(15 * 24 * 60 * minute)).toEqual({ text: '2w', label: 'Active 2 weeks ago' })
+    expect(ago(60 * 24 * 60 * minute)?.text).toBe('Aug 6')
+  })
+
+  test('future times read as now; unreadable times show nothing', () => {
+    expect(ago(-5 * minute)?.text).toBe('now')
+    expect(navTimeAgo('not a date', now)).toBeUndefined()
+  })
+})
+
+describe('navAgentCountLabel', () => {
+  test('counts agents, and an empty desk says so', () => {
+    expect(navAgentCountLabel(0)).toBe('empty')
+    expect(navAgentCountLabel(1)).toBe('1 agent')
+    expect(navAgentCountLabel(3)).toBe('3 agents')
+  })
+})
+
+describe('emptyWorkspaceHint', () => {
+  test('explains how to start, offering only the wired actions', () => {
+    expect(emptyWorkspaceHint('Project', { create: true, settings: true })).toBe(
+      'No projects yet. Use + to add one, or open workspace settings to add connections, set a mark and pick a colour.'
+    )
+    expect(emptyWorkspaceHint('Room', { create: true, settings: false })).toBe(
+      'No rooms yet. Use + to add one.'
+    )
+    expect(emptyWorkspaceHint('Project', { create: false, settings: true })).toBe(
+      'No projects yet. Open workspace settings to add connections, set a mark and pick a colour.'
+    )
+    expect(emptyWorkspaceHint('Project', { create: false, settings: false })).toBe(
+      'No projects yet.'
+    )
   })
 })

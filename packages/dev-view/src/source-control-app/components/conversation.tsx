@@ -5,17 +5,43 @@
  * string renders as text; nothing here forwards text to an agent.
  */
 import type { GitHubTimelineItem } from '@adea-ai/types/dev-runtime'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
-import { For, Match, Show, Switch, createMemo, createSignal, type JSX } from 'solid-js'
+import {
+  Check,
+  CircleX,
+  Eye,
+  FileDiff,
+  GitBranch,
+  GitCommitHorizontal,
+  GitMerge,
+  GitPullRequest,
+  GitPullRequestClosed,
+  GitPullRequestDraft,
+  MessageSquare,
+  Upload,
+  UserPlus,
+} from 'lucide-solid'
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createMemo,
+  createSignal,
+  type Component,
+  type JSX,
+} from 'solid-js'
 
 import { errorText, type ScmClient } from '../client'
+import { threadExcerpt } from '../model/diff'
 import { displayLogin, relativeTime, shortSha } from '../model/format'
 import type { PullRequestView } from '../model/types'
 import type { AppActions } from './actions'
-import { Person, RollupChip } from './bits'
+import { EventMark, Person, PersonAvatar, RollupChip } from './bits'
 import { RichText } from './rich-text'
 
 type Commit = Extract<GitHubTimelineItem, { kind: 'commit' }>
@@ -55,6 +81,31 @@ const eventText: Record<Extract<GitHubTimelineItem, { kind: 'event' }>['event'],
   review_requested: 'requested a review',
   head_ref_force_pushed: 'force-pushed the branch',
   base_ref_changed: 'changed the base branch',
+}
+
+type EventKind = Extract<GitHubTimelineItem, { kind: 'event' }>['event']
+type Mark = Readonly<{
+  icon: Component
+  tone: 'neutral' | 'success' | 'warning' | 'danger' | 'info'
+}>
+
+const eventMark: Record<EventKind, Mark> = {
+  merged: { icon: GitMerge, tone: 'info' },
+  closed: { icon: GitPullRequestClosed, tone: 'danger' },
+  reopened: { icon: GitPullRequest, tone: 'success' },
+  ready_for_review: { icon: Eye, tone: 'info' },
+  converted_to_draft: { icon: GitPullRequestDraft, tone: 'neutral' },
+  review_requested: { icon: UserPlus, tone: 'neutral' },
+  head_ref_force_pushed: { icon: Upload, tone: 'warning' },
+  base_ref_changed: { icon: GitBranch, tone: 'neutral' },
+}
+
+const reviewMark: Record<string, Mark> = {
+  approved: { icon: Check, tone: 'success' },
+  changes_requested: { icon: FileDiff, tone: 'danger' },
+  commented: { icon: MessageSquare, tone: 'neutral' },
+  dismissed: { icon: CircleX, tone: 'neutral' },
+  pending: { icon: Eye, tone: 'neutral' },
 }
 
 const reviewText: Record<string, string> = {
@@ -104,7 +155,7 @@ export function ThreadCard(props: {
       setBusy(false)
     }
   }
-  const hunkTail = () => (props.thread.diffHunk ?? '').split('\n').slice(-4)
+  const excerpt = () => threadExcerpt(props.thread.diffHunk ?? '')
   return (
     <article class="dev-scm-card" aria-label={`Review thread on ${props.thread.path}`}>
       <div class="dev-scm-card__head">
@@ -124,29 +175,23 @@ export function ThreadCard(props: {
           {props.thread.resolved ? 'Resolved' : 'Unresolved'}
         </Badge>
       </div>
-      <Show when={hunkTail().some((line) => line.length > 0)}>
+      <Show when={excerpt().some((row) => row.kind === 'hunk' || row.text.length > 0)}>
         <div class="dev-scm-diff" aria-label="Code under discussion">
-          <For each={hunkTail()}>
-            {(line) => (
+          <For each={excerpt()}>
+            {(row) => (
               <div
-                class={
-                  line.startsWith('+')
-                    ? 'dev-scm-diff__line dev-scm-diff__line--add'
-                    : line.startsWith('-')
-                      ? 'dev-scm-diff__line dev-scm-diff__line--delete'
-                      : line.startsWith('@@')
-                        ? 'dev-scm-diff__line dev-scm-diff__line--hunk'
-                        : 'dev-scm-diff__line'
-                }
+                class={cn('dev-scm-diff__line', {
+                  'dev-scm-diff__line--add': row.kind === 'add',
+                  'dev-scm-diff__line--delete': row.kind === 'delete',
+                  'dev-scm-diff__line--hunk': row.kind === 'hunk',
+                })}
               >
-                <span class="dev-scm-diff__num" />
-                <span class="dev-scm-diff__num" />
+                <span class="dev-scm-diff__num">{row.oldLine ?? ''}</span>
+                <span class="dev-scm-diff__num">{row.newLine ?? ''}</span>
                 <span class="dev-scm-diff__marker">
-                  {line.startsWith('@@') ? '' : line.charAt(0)}
+                  {row.kind === 'add' ? '+' : row.kind === 'delete' ? '-' : ''}
                 </span>
-                <span class="dev-scm-diff__code">
-                  {line.startsWith('@@') ? line : line.slice(1)}
-                </span>
+                <span class="dev-scm-diff__code">{row.text}</span>
               </div>
             )}
           </For>
@@ -299,6 +344,11 @@ export function Conversation(props: {
             <Match when={entry.kind === 'review' && entry}>
               {(item) => (
                 <div class="dev-scm-event">
+                  <EventMark
+                    icon={(reviewMark[item().state] ?? reviewMark.commented!).icon}
+                    tone={(reviewMark[item().state] ?? reviewMark.commented!).tone}
+                    label={reviewText[item().state] ?? 'reviewed'}
+                  />
                   <div class="dev-scm-event__body">
                     <span>
                       <Person actor={item().author} /> {reviewText[item().state] ?? 'reviewed'} ·{' '}
@@ -318,6 +368,7 @@ export function Conversation(props: {
             <Match when={entry.kind === 'push' && entry}>
               {(push) => (
                 <div class="dev-scm-event">
+                  <EventMark icon={GitCommitHorizontal} label="Pushed commits" />
                   <div class="dev-scm-event__body w-full">
                     <span>
                       {displayLogin(
@@ -357,6 +408,11 @@ export function Conversation(props: {
             <Match when={entry.kind === 'event' && entry}>
               {(event) => (
                 <div class="dev-scm-event">
+                  <EventMark
+                    icon={eventMark[event().event].icon}
+                    tone={eventMark[event().event].tone}
+                    label={eventText[event().event]}
+                  />
                   <span>
                     <Person actor={event().actor} /> {eventText[event().event]}
                     <Show when={event().detail}>
@@ -380,6 +436,7 @@ export function Conversation(props: {
 
       <Show when={props.pr.state !== 'merged'}>
         <div class="dev-scm-composer">
+          <Show when={props.viewer}>{(viewer) => <PersonAvatar login={viewer()} size="md" />}</Show>
           <div class="dev-scm-composer__field">
             <Textarea
               rows={3}
