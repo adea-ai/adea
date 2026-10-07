@@ -138,7 +138,7 @@ test('appearance font roles change computed typography in Resources and Permissi
   const sheet = page.locator('[role="dialog"][data-variant]')
   const resources = sheet.getByRole('region', { name: 'Runtime resources' })
   await expect(resources).toBeVisible()
-  const resourceUi = sheet.locator('.dev-resources__title')
+  const resourceUi = sheet.getByRole('heading', { name: 'Runtime resources' })
   const resourceContent = resources
     .locator('.dev-resources__note, .dev-resources__unavailable')
     .first()

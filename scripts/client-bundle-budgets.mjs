@@ -281,6 +281,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // gzip to 59 KiB (~2.4%).
     // The entry audit's dev-view fixes grow the shell chunk (2026-10-07):
     // CI measures 177,280 raw (local builds measure ~2.7 KB lighter).
+    // Shared UI 0.117 (2026-10-07): the published rung grip, the comfortable
+    // transcript density and the rail-aware sidebar sheet width replace Dev's
+    // local restyles, so the shared resizable and transcript parts grow while
+    // the Dev stylesheet shrinks; the 174 KiB cap above still holds both.
     devShell: { rawBytes: 174 * 1024, gzipBytes: 59 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this

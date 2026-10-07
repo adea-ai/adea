@@ -6,14 +6,6 @@
  * Content family, and ports, paths, and codes use the Code family.
  */
 
-/* The panel geometry — edge docking, overlay z-order, the pinned bands —
-   belongs to the shared Sheet. This hook widens the end-docked panel so the
-   server table fits. The title band's published `pe-12` already reserves the
-   corner where the sheet's close button sits. */
-.dev-resources-sheet.dev-resources-sheet {
-  width: min(37.5rem, calc(100vw - 1rem));
-}
-
 /* The pane body fills the scrolling region between the pinned bands; the
    SheetBody owns the scroll and the panel padding. */
 .dev-resources {
@@ -53,13 +45,6 @@
 .dev-resources__header-actions {
   display: flex;
   gap: 0.125rem;
-}
-
-/* The settings action toggles the drill-in view, so it reads pressed while
-   that view is open (same treatment as the workspace bar's toggles). */
-.dev-resources__header-toggle[aria-pressed='true'] {
-  color: var(--primary);
-  background-color: var(--primary-subtle);
 }
 
 .dev-resources__spacer {
@@ -558,10 +543,6 @@
 /* The pinned clean-up band is the published SheetFooter (border, padding,
    hairline and the #1082 muted step are its); layout only here — the note
    sits at the start edge, the action at the end edge. */
-.dev-resources__sheet-footer {
-  justify-content: space-between;
-}
-
 .dev-resources__settings-group {
   display: flex;
   flex-direction: column;

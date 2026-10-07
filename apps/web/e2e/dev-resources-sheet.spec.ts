@@ -32,7 +32,9 @@ test.describe('resources sheet structure', () => {
     // band holds the title and the refresh/settings actions; the action band
     // holds the clean-up decision.
     await expect(header).toBeVisible()
-    await expect(header.locator('.dev-resources__title')).toHaveText('Runtime resources')
+    await expect(header.getByRole('heading', { name: 'Runtime resources' })).toHaveText(
+      'Runtime resources'
+    )
     await expect(header.getByRole('button', { name: 'Refresh resources' })).toBeVisible()
     await expect(body).toBeVisible()
     await expect(footer).toBeVisible()

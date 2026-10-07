@@ -679,7 +679,7 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
           step={SIDEBAR_WIDTH_STEP}
           resizeLabel="Resize workspace navigation"
           sidebarClass="h-full w-full"
-          sheetClass="dev-sidebar__sheet"
+          resizeGrip="rung"
           titleVisibility="mobile"
           footerClass="max-h-1/2 overflow-y-auto"
           onSidebarElement={sidebarWidth.onSidebarElement}
