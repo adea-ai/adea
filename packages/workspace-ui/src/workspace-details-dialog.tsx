@@ -119,7 +119,7 @@ export function WorkspaceDetailsDialog(props: {
         onChange={(value) => selectSection(value as WorkspaceSettingsSection)}
       >
         <SettingsNavigation
-          class="-me-2 w-52 max-md:me-0 max-md:-mb-2 max-md:w-full max-md:data-[orientation=vertical]:flex-row max-md:overflow-x-auto max-md:overflow-y-hidden max-md:*:w-max max-md:*:max-w-full max-md:*:flex-none"
+          class="w-52 max-md:w-full max-md:data-[orientation=vertical]:flex-row max-md:overflow-x-auto max-md:overflow-y-hidden max-md:*:w-max max-md:*:max-w-full max-md:*:flex-none"
           aria-label="Workspace settings sections"
           value={section()}
           onReselect={(value) => selectSection(value as WorkspaceSettingsSection)}
@@ -137,11 +137,7 @@ export function WorkspaceDetailsDialog(props: {
             },
           ]}
         />
-        <TabsContent
-          value="general"
-          id="workspace-settings-panel-general"
-          class="min-h-0 min-w-0 overflow-y-auto"
-        >
+        <TabsContent value="general" id="workspace-settings-panel-general" class="min-h-0 min-w-0">
           <div class="conventional-settings-panel">
             <header>
               <Settings2 aria-hidden="true" />
@@ -156,11 +152,7 @@ export function WorkspaceDetailsDialog(props: {
             />
           </div>
         </TabsContent>
-        <TabsContent
-          value="memory"
-          id="workspace-settings-panel-memory"
-          class="min-h-0 min-w-0 overflow-y-auto"
-        >
+        <TabsContent value="memory" id="workspace-settings-panel-memory" class="min-h-0 min-w-0">
           <div class="conventional-settings-panel">
             <header>
               <Brain aria-hidden="true" />
@@ -177,11 +169,7 @@ export function WorkspaceDetailsDialog(props: {
             </Show>
           </div>
         </TabsContent>
-        <TabsContent
-          value="skills"
-          id="workspace-settings-panel-skills"
-          class="min-h-0 min-w-0 overflow-y-auto"
-        >
+        <TabsContent value="skills" id="workspace-settings-panel-skills" class="min-h-0 min-w-0">
           <div class="conventional-settings-panel">
             <header>
               <Sparkles aria-hidden="true" />
@@ -201,7 +189,7 @@ export function WorkspaceDetailsDialog(props: {
         <TabsContent
           value="connections"
           id="workspace-settings-panel-connections"
-          class="min-h-0 min-w-0 overflow-y-auto"
+          class="min-h-0 min-w-0"
         >
           <div class="conventional-settings-panel">
             <header>

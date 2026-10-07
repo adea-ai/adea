@@ -1156,6 +1156,12 @@
   object-fit: contain;
 }
 .conventional-settings-panel {
+  /* The panel, not its tab content, scrolls: sticky footers (the appearance
+     editor's save bar) pin against the padded scrollport as before. */
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
   padding: 1.25rem;
 }
 .conventional-settings-panel > header,

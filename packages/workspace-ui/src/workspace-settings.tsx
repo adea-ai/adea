@@ -307,7 +307,7 @@ export function WorkspaceSettingsDialog(props: {
         onChange={(value) => selectSection(value as SettingsSection)}
       >
         <SettingsNavigation
-          class="-me-2 w-52 max-md:me-0 max-md:-mb-2 max-md:w-full max-md:data-[orientation=vertical]:flex-row max-md:overflow-x-auto max-md:overflow-y-hidden max-md:*:w-max max-md:*:max-w-full max-md:*:flex-none"
+          class="w-52 max-md:w-full max-md:data-[orientation=vertical]:flex-row max-md:overflow-x-auto max-md:overflow-y-hidden max-md:*:w-max max-md:*:max-w-full max-md:*:flex-none"
           aria-label="Settings sections"
           value={section()}
           onReselect={(value) => selectSection(value as SettingsSection)}
@@ -323,11 +323,7 @@ export function WorkspaceSettingsDialog(props: {
             }),
           }))}
         />
-        <TabsContent
-          value="account"
-          id="settings-panel-account"
-          class="min-h-0 min-w-0 overflow-y-auto"
-        >
+        <TabsContent value="account" id="settings-panel-account" class="min-h-0 min-w-0">
           <div class="conventional-settings-panel">
             <header>
               <UserRound aria-hidden="true" />
@@ -364,11 +360,7 @@ export function WorkspaceSettingsDialog(props: {
             </SettingsRow>
           </div>
         </TabsContent>
-        <TabsContent
-          value="appearance"
-          id="settings-panel-appearance"
-          class="min-h-0 min-w-0 overflow-y-auto"
-        >
+        <TabsContent value="appearance" id="settings-panel-appearance" class="min-h-0 min-w-0">
           <div class="conventional-settings-panel">
             <Show
               when={props.appearancePanel}
@@ -403,11 +395,7 @@ export function WorkspaceSettingsDialog(props: {
             </Show>
           </div>
         </TabsContent>
-        <TabsContent
-          value="agents"
-          id="settings-panel-agents"
-          class="min-h-0 min-w-0 overflow-y-auto"
-        >
+        <TabsContent value="agents" id="settings-panel-agents" class="min-h-0 min-w-0">
           <div class="conventional-settings-panel">
             <header>
               <Bot aria-hidden="true" />
@@ -439,7 +427,7 @@ export function WorkspaceSettingsDialog(props: {
         <TabsContent
           value="input-notifications"
           id="settings-panel-input-notifications"
-          class="min-h-0 min-w-0 overflow-y-auto"
+          class="min-h-0 min-w-0"
         >
           <div class="conventional-settings-panel">
             <header>
@@ -523,11 +511,7 @@ export function WorkspaceSettingsDialog(props: {
             </p>
           </div>
         </TabsContent>
-        <TabsContent
-          value="privacy-data"
-          id="settings-panel-privacy-data"
-          class="min-h-0 min-w-0 overflow-y-auto"
-        >
+        <TabsContent value="privacy-data" id="settings-panel-privacy-data" class="min-h-0 min-w-0">
           <div class="conventional-settings-panel">
             <header>
               <Database aria-hidden="true" />
@@ -565,11 +549,7 @@ export function WorkspaceSettingsDialog(props: {
             </p>
           </div>
         </TabsContent>
-        <TabsContent
-          value="integrations"
-          id="settings-panel-integrations"
-          class="min-h-0 min-w-0 overflow-y-auto"
-        >
+        <TabsContent value="integrations" id="settings-panel-integrations" class="min-h-0 min-w-0">
           <div class="conventional-settings-panel">
             <header>
               <Link2 aria-hidden="true" />
@@ -611,11 +591,7 @@ export function WorkspaceSettingsDialog(props: {
             />
           </div>
         </TabsContent>
-        <TabsContent
-          value="permissions"
-          id="settings-panel-permissions"
-          class="min-h-0 min-w-0 overflow-y-auto"
-        >
+        <TabsContent value="permissions" id="settings-panel-permissions" class="min-h-0 min-w-0">
           <div class="conventional-settings-panel">
             <header>
               <ShieldCheck aria-hidden="true" />
