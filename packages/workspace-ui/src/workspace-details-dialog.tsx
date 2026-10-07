@@ -119,7 +119,7 @@ export function WorkspaceDetailsDialog(props: {
         onChange={(value) => selectSection(value as WorkspaceSettingsSection)}
       >
         <SettingsNavigation
-          class="w-52 max-md:w-full max-md:flex-row max-md:overflow-x-auto max-md:overflow-y-hidden max-md:*:w-max max-md:*:max-w-full max-md:*:flex-none"
+          class="-me-2 w-52 max-md:me-0 max-md:-mb-2 max-md:w-full max-md:data-[orientation=vertical]:flex-row max-md:overflow-x-auto max-md:overflow-y-hidden max-md:*:w-max max-md:*:max-w-full max-md:*:flex-none"
           aria-label="Workspace settings sections"
           value={section()}
           onReselect={(value) => selectSection(value as WorkspaceSettingsSection)}
