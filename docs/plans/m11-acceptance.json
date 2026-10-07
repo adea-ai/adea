@@ -1,0 +1,1203 @@
+{
+  "schemaVersion": 1,
+  "milestone": "https://github.com/adea-ai/adea/milestone/6",
+  "capturedAt": "2026-10-07",
+  "acceptance": "unverified",
+  "issues": [
+    {
+      "number": 36,
+      "url": "https://github.com/adea-ai/adea/issues/36",
+      "title": "M6.1 \u2014 Adopt portable Control Plane SDK/contracts and service-auth integration",
+      "sourceState": "closed",
+      "sourceUpdatedAt": "2026-09-26T01:45:13Z",
+      "sourceBodySha256": "da68e050457aef4615dfda325fecbc4f8cf7faeb65495c6705801b48067dfc31",
+      "dependencies": "#7, #29, #85",
+      "criteria": [
+        {
+          "id": "36.1",
+          "requirement": "Agent HQ builds against the pinned SDK without importing Control Plane server/domain/database/Restate packages.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "36.2",
+          "requirement": "The same Agent HQ Task/Execution contracts target Local and Self-hosted Control Planes.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "36.3",
+          "requirement": "Local client operation can use the approved direct local boundary without requiring a cloud service credential or network gateway.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "36.4",
+          "requirement": "Remote service authentication is distinct from user, RuntimeNode, and E2E payload credentials.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "36.5",
+          "requirement": "Wrong audience, expired/revoked credentials, incompatible versions, and malformed responses fail closed.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "36.6",
+          "requirement": "Trace/request/correlation IDs propagate across direct and remote integration boundaries.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "36.7",
+          "requirement": "Agent HQ Cloud service code does not require plaintext access to E2E remote command payloads.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "36.8",
+          "requirement": "Contract tests run without cloning or starting the Control Plane repository.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 37,
+      "url": "https://github.com/adea-ai/adea/issues/37",
+      "title": "M6.2 \u2014 Consume location-aware Control Plane runtime and host read models",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:28:47Z",
+      "sourceBodySha256": "0e2bc05d8cfa3e1091792930bc8d36488c09625c3f93e4024f750614fcfad2a1",
+      "dependencies": "#29, #30, #36, #85",
+      "criteria": [
+        {
+          "id": "37.1",
+          "requirement": "Agent HQ displays both `local_device` and `remote_host` execution locations from deterministic fixtures. *(Landed in #633: the composer's Customize controls list the registered runtimes the host knows, and a resolved-location chip renders `Running on Local device \u00b7 direct local` / `Self-hosted host \u00b7 remote gateway` \u2014 labelled from the runtime the **resolution** selected, so a request that asked for one place and got another reports what actually ran.)*",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "37.2",
+          "requirement": "Node/host state and individual RuntimeConnection health are explicit and not conflated. \u2014 NOT VERIFIED 2026-09-25: the only node read model is `RuntimeNodeExecutionReadModel`, which carries a single `availability` field (`packages/types/src/execution-location.ts`); there is no separate RuntimeConnection inventory and no connection-health dimension in `packages/types`, `packages/data` or the app. The RuntimeConnection inventory the M12 sidebar was to project is the same missing piece, so there is nothing to keep distinct yet.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "37.3",
+          "requirement": "Direct-local and remote transport variants are represented without changing Agent/RuntimeConnection identity. \u2014 NOT VERIFIED 2026-09-25: no transport variant is represented. The read model carries no transport field, and the \"direct local\" / \"remote gateway\" labels the UI renders come from the resolved runtime definition rather than from a modelled transport, so this cannot hold or fail yet.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "37.4",
+          "requirement": "Offline/revoked/ineligible locations cannot appear executable.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "37.5",
+          "requirement": "An offline execution host does not hide or invalidate Agent HQ Channel/Message metadata.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "37.6",
+          "requirement": "Authorized synchronized ContentReplica history may remain readable while the execution host is offline; local-only body content is explicitly unavailable in that same condition.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "37.7",
+          "requirement": "Stale read models are visibly classified and refreshed/reconciled.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "37.8",
+          "requirement": "Sensitive native/runtime/provider metadata is absent from Agent HQ persistence/client payloads. \u2014 NOT VERIFIED 2026-09-25: the policy read model is deliberately free of transport and credential fields, but nothing persists runtime metadata yet at all (#671), and no test asserts absence from persistence or client payloads. The property is unexercised rather than proven.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "37.9",
+          "requirement": "Tests cover Local healthy/unhealthy runtime, Self-hosted online/offline, stale inventory, revoked host, missing grant, capability mismatch, synchronized-history-available/host-offline, local-only-history-unavailable/host-offline, and future cloud feature gating. \u2014 PARTIAL 2026-09-25: `packages/types/tests/execution-location.test.ts` covers Local default, explicit self-hosted selection, several self-hosted nodes at once (added 2026-09-25), offline/stale/revoked/incompatible/unknown admission, capability mismatch with remediation, the history-vs-execution independence pair, and the cloud gate. NOT COVERED: \"missing grant\" (no grant case exists in the blocker set), \"stale inventory\" as distinct from observation/proof freshness, and the fixture-*inventory* half of the box \u2014 because the inventory read model above does not exist.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "37.10",
+          "requirement": "Tests run without cloning or starting the Control Plane repository.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 38,
+      "url": "https://github.com/adea-ai/adea/issues/38",
+      "title": "M6.3 \u2014 Implement location-aware Task submission and durable command relay",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:29:17Z",
+      "sourceBodySha256": "dd0146cc68f989a99b964a033a3336d82ab0a1a69fb2017c14d596c812d72d3b",
+      "dependencies": "#14, #15, #36, #37, #85, #184",
+      "criteria": [
+        {
+          "id": "38.1",
+          "requirement": "A desktop-origin Local Task can be accepted by the co-located Control Plane without an Agent HQ Cloud execution hop.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "38.2",
+          "requirement": "A conversation-originated Task preserves its originating Agent HQ Message/Channel reference independently from runtime/session state.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "38.3",
+          "requirement": "A web/mobile-origin Task can be durably relayed to an online Local or Self-hosted Control Plane.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "38.4",
+          "requirement": "Offline selected nodes produce explicit queued/offline behavior according to policy and never silently fail over to Agent HQ Cloud.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "38.5",
+          "requirement": "Duplicate direct or relayed submission converges on one logical execution and does not duplicate the originating Message/Task intent.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "38.6",
+          "requirement": "A timeout after acceptance produces reconciliation behavior rather than guessing success/failure.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "38.7",
+          "requirement": "Agent HQ Cloud does not require storage of prompt bodies, ContextPackages, repository content, credentials, or other sensitive execution payloads for developer-MVP remote control.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "38.8",
+          "requirement": "Remote relay ciphertext is not treated as canonical Agent HQ conversation history.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "38.9",
+          "requirement": "Runtime/location preference cannot bypass Control Plane security or capability policy.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "38.10",
+          "requirement": "Tests cover transaction rollback, duplicate dispatch, node offline/reconnect, payload conflict, timeout, dead letter, unavailable runtime, stale context, process restart, and originating Message correlation.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "38.11",
+          "requirement": "Tests run without cloning or starting the Control Plane repository.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 39,
+      "url": "https://github.com/adea-ai/adea/issues/39",
+      "title": "M6.4 \u2014 Implement cloud-safe ControlPlaneEventInbox and WorkspaceEvent mapping",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:29:18Z",
+      "sourceBodySha256": "be7f5e0013876ff7a69b066884fa1e0aaecac9e87b4c98d93e8b8bc8ae152906",
+      "dependencies": "#18, #38, #84, #184, #15",
+      "criteria": [
+        {
+          "id": "39.1",
+          "requirement": "Local and Self-hosted fixture events map to the same Agent HQ Task lifecycle semantics.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "39.2",
+          "requirement": "Duplicate events do not repeat state transitions, Message creation/update, Artifact metadata, or usage attribution.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "39.3",
+          "requirement": "Out-of-order/gapped events are handled deterministically or reconciled.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "39.4",
+          "requirement": "Agent HQ commits product state plus WorkspaceEvent atomically where required.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "39.5",
+          "requirement": "Plaintext prompt/response/ContextPackage/provider content canaries never appear in Agent HQ cloud inbox rows, WorkspaceEvents, logs, or telemetry.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "39.6",
+          "requirement": "Local/private content is represented by authorized opaque references/availability rather than copied payloads.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "39.7",
+          "requirement": "Agent HQ Message history remains reconstructable from Channel/Message/ContentRef state even if the Control Plane event log, Restate history, or native runtime session is unavailable.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "39.8",
+          "requirement": "A Control Plane event can create/update at most the intended idempotent Agent HQ Message projection and cannot inject an unbounded runtime transcript into the canonical conversation timeline.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "39.9",
+          "requirement": "Failed/cancelled/timed-out/offline work remains inspectable with stable location/execution references.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "39.10",
+          "requirement": "Tests cover duplicate, reorder, gap, schema mismatch, wrong workspace/location, transaction failure, replay, redaction, Message projection idempotency, and content leakage.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "39.11",
+          "requirement": "Tests run without cloning or starting the Control Plane repository.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 40,
+      "url": "https://github.com/adea-ai/adea/issues/40",
+      "title": "M6.5 \u2014 Implement cancellation, resume, approval, and awaiting-input product flows",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:29:19Z",
+      "sourceBodySha256": "a6e7978e7d64b8e96279245d5beb611aaa98787af9326a63d7296de46f06a873",
+      "dependencies": "#38, #39, #85, #15, #184",
+      "criteria": [
+        {
+          "id": "40.1",
+          "requirement": "An authorized desktop user can control a Local execution without a cloud execution hop.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "40.2",
+          "requirement": "Web/mobile can cancel, approve, deny, resume, and answer work on an online Local or Self-hosted execution location through the durable relay.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "40.3",
+          "requirement": "An offline selected node produces explicit unavailable/queued behavior; no command silently moves to Agent HQ Cloud.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "40.4",
+          "requirement": "Unauthorized or wrong-workspace principals cannot control execution.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "40.5",
+          "requirement": "Awaiting-input work accepts one valid response and continues when supported.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "40.6",
+          "requirement": "Duplicate cancel, resume, approval, and input requests do not repeat effects or duplicate associated Agent HQ Messages.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "40.7",
+          "requirement": "Stale, expired, wrong-attempt, and wrong-location actions fail with structured conflicts.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "40.8",
+          "requirement": "Agent HQ conversation history remains reconstructable from Message/ContentRef state without Control Plane InteractionRequest history.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "40.9",
+          "requirement": "Tests cover terminal races, direct-local control, remote relay, reconnect, permission revocation, wrong attempt, expired input, approval denial, and Message correlation/idempotency.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "40.10",
+          "requirement": "Tests run without cloning or starting the Control Plane repository.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 41,
+      "url": "https://github.com/adea-ai/adea/issues/41",
+      "title": "M6.6 \u2014 Implement AgentProfile reference and version synchronization",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:28:48Z",
+      "sourceBodySha256": "45499bff0bc6c20d80ade7c6dc31211c73d85be87a544a1e0634e6f5c9bb56bb",
+      "dependencies": "- #13, #36.",
+      "criteria": [
+        {
+          "id": "41.1",
+          "requirement": "Persistent Agent identity remains stable while profile versions evolve.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "41.2",
+          "requirement": "Profile changes are explicit, authorized, and auditable. \u2014 NOT VERIFIED 2026-09-25: a profile-version change is an explicit column write (`agents.profile_id`/`profile_version`, `packages/db/src/schema/agents.ts`) and \"preserves identity while room, presentation, and explicit profile version change\" pins the identity half (`packages/db/tests/integration/agents.test.ts`), but nothing authorizes the change against the Control Plane and no audit record is written. The clause needs both before it holds.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "41.3",
+          "requirement": "New executions reference the selected profile version; the fixture records the exact immutable ExecutionPlan and Skill manifest used. \u2014 PARTIAL 2026-09-25: the reference half holds \u2014 `profile_id`, `profile_version` and `profile_state` are required non-empty columns on the Agent row and the integration test above proves a version change leaves identity stable. The fixture half does not exist: nothing records the immutable ExecutionPlan or Skill manifest an execution used, because the compiled plan is Control Plane-owned (control-plane#558) and #400 binds harness runs to a runtime definition, not to a recorded plan.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "41.4",
+          "requirement": "Missing/deprecated/revoked/incompatible versions have explicit blocked or remediation states. \u2014 PARTIAL 2026-09-25: `agent_profile_state` models `available`, `deprecated` and `missing` (`packages/db/src/schema/agents.ts`). It has no `revoked` or `incompatible` member, and no read model turns any of the three states into a blocked or remediation message, so the states exist as data without a product consequence.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "41.5",
+          "requirement": "Agent HQ does not duplicate full profile/runtime configuration. \u2014 verified 2026-09-25: the Agent row stores the reference and nothing else \u2014 `profile_id`, `profile_version` and `profile_state` alongside identity and presentation columns (`packages/db/src/schema/agents.ts`); there is no profile body, tool set, model configuration or runtime configuration column anywhere in the schema, and `packages/types/src/dev-runtime.ts` carries no profile payload. The profile itself stays Control Plane-owned (control-plane#558).",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "41.6",
+          "requirement": "Tests cover upgrade, rollback, missing/revoked version, permission denial, and concurrent profile change versus submission. \u2014 PARTIAL 2026-09-25: only the reference and identity-stability case exists (\"preserves identity while room, presentation, and explicit profile version change\", `packages/db/tests/integration/agents.test.ts`). Upgrade, rollback, missing/revoked version, permission denial and concurrent change-versus-submission are uncovered, and the last two need the authorization and submission paths that do not exist yet.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "41.7",
+          "requirement": "All tests run without cloning or starting the Control Plane repository.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 43,
+      "url": "https://github.com/adea-ai/adea/issues/43",
+      "title": "M6.7 \u2014 Implement location-aware external harness session listing, reference, and resume UI",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:29:20Z",
+      "sourceBodySha256": "035098e42f81936f8431d27b7c7953d21d4e7a368bdc7aaf9321e978c3d23b1c",
+      "dependencies": "#32, #36, #37, #186",
+      "criteria": [
+        {
+          "id": "43.1",
+          "requirement": "Supported Local sessions can be listed/referenced/resumed through the direct local ACP path.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "43.2",
+          "requirement": "Supported Self-hosted sessions can be listed/referenced/resumed through the appropriate remote-host path.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "43.3",
+          "requirement": "Resume/close/history controls appear only when the exact capability is currently valid.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "43.4",
+          "requirement": "Offline/stale/removed/incompatible sessions have explicit recoverable states tied to their execution location.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "43.5",
+          "requirement": "Agent HQ persists no raw credentials, absolute paths, or fabricated native history.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "43.6",
+          "requirement": "Agent HQ Channel/Message history remains usable even when the external harness exposes no history capability.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "43.7",
+          "requirement": "Native history shown through a capability-supported view is clearly distinguished from Agent HQ Message ownership.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "43.8",
+          "requirement": "Referencing/disabling a session does not mutate unrelated native configuration.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "43.9",
+          "requirement": "Tests cover capability absence/change, Local direct transport, Self-hosted remote transport, disconnect, stale ID, unauthorized workspace, resume-without-history, history-without-import, and concurrent native use.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 86,
+      "url": "https://github.com/adea-ai/adea/issues/86",
+      "title": "M6.8 \u2014 Configure Agent HQ R2 and implement Artifact promotion, scanning, and access lifecycle",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:29:21Z",
+      "sourceBodySha256": "f8bf7ced15364d86265718ac176d3527cbd4a14e1cfbe0bce504533883d1e059",
+      "dependencies": "#84, #18, #85, #38, #39",
+      "criteria": [
+        {
+          "id": "86.1",
+          "requirement": "A dedicated Agent HQ R2 bucket exists and is verified through authenticated Wrangler tooling; it is not the Control Plane `ctrl-plane` bucket.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.2",
+          "requirement": "Agent HQ and Control Plane use independently scoped R2 credentials/buckets even when they share the same Cloudflare account.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.3",
+          "requirement": "Environment/bucket mapping, lifecycle/retention, multipart/CORS policy, and server-only configuration are documented without secrets.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.4",
+          "requirement": "Agent HQ ObjectStore adapter passes write/read/delete smoke tests against the selected bucket before Artifact promotion is considered operational.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.5",
+          "requirement": "Current desktop/application configuration contains no active Vercel Blob provider, URL, CSP allowlist, environment variable, or test expectation unless explicitly documented as historical/non-runtime evidence.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.6",
+          "requirement": "CSP/allowlist tests prove the accepted Agent HQ R2/capability path works without granting arbitrary Cloudflare/R2 bucket access.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.7",
+          "requirement": "PostgreSQL stores provider-neutral Artifact metadata rather than large Artifact bytes.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.8",
+          "requirement": "Local/Self-hosted Artifacts remain local unless explicit promotion occurs.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.9",
+          "requirement": "R2 credentials and durable private object URLs never reach ordinary clients, runtimes, logs, or model context.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.10",
+          "requirement": "Ordinary promotion rejects >100 MiB before issuing a capability; explicitly enabled large mode is bounded at 1 GiB and uses multipart.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.11",
+          "requirement": "Upload/download capabilities are single-Artifact scoped and expire after 15/5 minutes respectively.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.12",
+          "requirement": "Every promoted object is unavailable until digest/type/policy and ClamAV verification succeeds.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.13",
+          "requirement": "Scanner outage, stale/unhealthy signature state, timeout, unscannable/encrypted archive, or positive malware result cannot produce an `available` Artifact.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.14",
+          "requirement": "Cross-workspace access and guessed object keys fail closed.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.15",
+          "requirement": "Deletion coordinates R2 cleanup, metadata state, audit, WorkspaceEvents, and scan-temp cleanup.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.16",
+          "requirement": "A RuntimeNode promotes one Artifact without receiving broad storage or scanner credentials.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.17",
+          "requirement": "ClamAV can be replaced by another scanner through the same conformance contract without changing Artifact IDs/product lifecycle semantics.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "86.18",
+          "requirement": "Tests cover MIME spoofing, digest mismatch, truncated/multipart upload, malware fixture, scanner outage, signature staleness, encrypted archive, size boundaries, quarantine, capability expiry, cross-workspace access, deletion, accidental cross-bucket credential use, and the removal/rejection of the legacy Vercel Blob path.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 186,
+      "url": "https://github.com/adea-ai/adea/issues/186",
+      "title": "M6.12 \u2014 Implement execution-location selection and no-silent-failover policy",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:25:52Z",
+      "sourceBodySha256": "c82d2bc63c7a35f77af3ee5f8f0fff3c354cd591d23e8a30546fbb615ede10b0",
+      "dependencies": "#37, #38, #40, #29",
+      "criteria": [
+        {
+          "id": "186.1",
+          "requirement": "A user can explicitly choose Local or one registered Self-hosted location before execution. *(Landed in #633: the composer's Customize controls carry a **Location** picker over the registered runtimes, the choice travels as `runtime: { runtimeDefinitionId }` in the explicit pins, and \u2014 like every other explicit selection \u2014 it is refused in Auto mode, whose contract is that the Control Plane decides. The resolved location is then shown back to the user.)*",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "186.2",
+          "requirement": "Local is the default developer-MVP choice unless the user changes policy.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "186.3",
+          "requirement": "Offline/revoked/incompatible selected locations produce explicit blocked/queued/remediation states.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "186.4",
+          "requirement": "No code path silently changes Local/Self-hosted work to Agent HQ Cloud.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "186.5",
+          "requirement": "Retries preserve the selected location unless an explicit authorized location change is recorded. \u2014 verified 2026-09-25: \"preserves the selected location when retrying\", \"requires explicit authorization before changing location\", \"rejects a raw authorization boolean and does not treat it as proof\", \"rejects a proof bound to another attempt, scope, or target\", \"an empty scoped authorization proof is rejected\", \"a valid proof cannot bypass missing, capability, or cloud admission\", and \"records an authorized reroute as a new attempt location\" in `packages/types/tests/execution-location.test.ts`.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "186.6",
+          "requirement": "UI and persisted Task/execution history identify the actual execution location and relevant RuntimeNode. \u2014 NOT VERIFIED 2026-09-25: no implementation exists. The policy layer models the resolved location and node (`RuntimeNodeExecutionReadModel`, `ExecutionLocationDecision`) and the retry family records a reroute as a new attempt, but nothing persists that per attempt and no surface renders it \u2014 a task cannot answer \"where did this run, and on which node\" after the fact. Filed as #671 with the exact acceptance (read model + persisted per-attempt history + a surface + the cross-checks); the box closes with it.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "186.7",
+          "requirement": "Agent HQ Channel/Message metadata remains accessible when the selected execution location is offline.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "186.8",
+          "requirement": "Authorized `agent_hq_e2ee_sync` history can remain readable while execution is unavailable; local-only bodies remain explicitly unavailable when their authority is offline. \u2014 verified 2026-09-25: \"keeps history and content dimensions independent from execution availability\" in `packages/types/tests/execution-location.test.ts` asserts this pair against an offline host: synchronized history stays available while local-only content reports unavailable.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "186.9",
+          "requirement": "RuntimeNode availability is never used as a substitute for ContentSyncDevice/content-key authorization. \u2014 verified 2026-09-25: the same test keeps the content dimension independent of node availability (an offline node changes neither field), and `ExecutionDataAvailability` models the two as separate dimensions rather than one.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "186.10",
+          "requirement": "Tests cover Local default, multiple self-hosted nodes, offline node, capability mismatch, explicit location change, retry, synchronized-history-available/host-offline, local-only-body-unavailable/host-offline, and future cloud feature gating. \u2014 verified 2026-09-25: `packages/types/tests/execution-location.test.ts` covers the list by name except one clause: \"defaults to the local device and does not consider self-hosted nodes\", \"honors an explicit self-hosted selection\", \"does not silently relocate an unavailable local default to self-hosted\", \"blocks a missing capability and reports deterministic remediation data\", \"keeps history and content dimensions independent from execution availability\" (with the offline host), the retry/authorization family, and \"gates the future cloud location explicitly without falling back to it\". The multi-host clause was closed 2026-09-25 by \"selects among several self-hosted nodes by identity and never substitutes another host\", which drives two self-hosted nodes at once.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 187,
+      "url": "https://github.com/adea-ai/adea/issues/187",
+      "title": "M6.13 \u2014 Implement web/mobile durable remote control for Local and Self-hosted execution",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:29:22Z",
+      "sourceBodySha256": "1cc5d707a199be73f7b683cf38ebae0038c479dbb0a11cf29ae8721d1df08d32",
+      "dependencies": "#18, #19, #20, #29, #38, #39, #40, #85, #184, #186, #189",
+      "criteria": [
+        {
+          "id": "187.1",
+          "requirement": "Web and mobile can start a Task on an online paired Local node.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.2",
+          "requirement": "Web and mobile can start a Task on an online registered Self-hosted node while the user's desktop is offline.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.3",
+          "requirement": "Web/mobile can cancel, approve/deny, answer input, monitor progress, and inspect completion state.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.4",
+          "requirement": "Content-bearing remote execution payloads use #189 and Agent HQ Cloud stores only RemoteContentEnvelope ciphertext plus bounded metadata.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.5",
+          "requirement": "Relay/Neon compromise fixtures cannot recover plaintext from stored command/result payloads.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.6",
+          "requirement": "Relay records cannot be mistaken for or queried as canonical Agent HQ conversation history.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.7",
+          "requirement": "Node/host disconnect and reconnect preserve durable encrypted commands and reconcile outcomes safely.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.8",
+          "requirement": "Duplicate remote delivery cannot create duplicate logical executions or repeat completed effects.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.9",
+          "requirement": "Remote control works without plaintext prompt/repository/ContextPackage/credential storage in Agent HQ Cloud.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.10",
+          "requirement": "Local-only results require E2E bounded transfer or explicit R2 promotion before cloud-backed preview/download unless separately persisted/synchronized through the Agent HQ Message/ContentRef/#193 path.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.11",
+          "requirement": "Revoked nodes, rotated remote-command keys, invalid envelopes, expired commands, or revoked workspace permissions immediately block invalid/new remote execution operations.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.12",
+          "requirement": "RuntimeNode remote-command revocation does not silently substitute for ContentSyncDevice/member revocation; synchronized-history authorization remains independently enforced by #193.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "187.13",
+          "requirement": "Railway outage/redeploy does not lose durable relay state because Neon-backed records remain authoritative.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 188,
+      "url": "https://github.com/adea-ai/adea/issues/188",
+      "title": "M6.14 \u2014 Implement Self-hosted Control Plane registration, setup, and connection UX",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:29:23Z",
+      "sourceBodySha256": "1cb48b7dd81db09920bc24c0e32ebf06102f2bfc680dfd6d9f789a836f5f9d78",
+      "dependencies": "#29, #37, #85, #186, #187",
+      "criteria": [
+        {
+          "id": "188.1",
+          "requirement": "A user can deploy the documented reference stack on a generic VPS and register it without editing Agent HQ source code.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "188.2",
+          "requirement": "Registration proves host possession and does not transmit reusable server/provider/database credentials to Agent HQ.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "188.3",
+          "requirement": "A compatible host becomes an explicit `remote_host` execution location with current health/capabilities.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "188.4",
+          "requirement": "An incompatible or outdated host is blocked with actionable remediation.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "188.5",
+          "requirement": "Revocation prevents new Agent HQ remote execution commands while leaving user-owned server data intact.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "188.6",
+          "requirement": "RuntimeNode revocation does not claim to revoke already authorized ContentSyncDevice/history-decryption state; that is separately governed by #193/member/device policy.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "188.7",
+          "requirement": "If configured, a Self-hosted `content_authority` ContentSyncDevice uses distinct identity/keys and can synchronize authorized private body revisions without Agent HQ Cloud plaintext access.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "188.8",
+          "requirement": "Multiple self-hosted hosts remain distinct and selectable.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "188.9",
+          "requirement": "The host can continue its own already-running work while the user's desktop is offline.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "188.10",
+          "requirement": "Synchronized Message history availability is not falsely tied to current Self-hosted execution-host liveness.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "188.11",
+          "requirement": "Tests cover pairing replay, wrong account/workspace, version mismatch, endpoint failure, reconnect, revoke, multiple hosts, account switch, separate ContentSyncDevice provisioning, and attempted key-role substitution.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 189,
+      "url": "https://github.com/adea-ai/adea/issues/189",
+      "title": "M6.15 \u2014 Implement E2E remote-content encryption and key lifecycle",
+      "sourceState": "open",
+      "sourceUpdatedAt": "2026-09-25T01:28:49Z",
+      "sourceBodySha256": "26724897dcb6ff7a46694353c3a094dc0b1e1aef793d78df8fa53b544e4a4021",
+      "dependencies": "#29, #184",
+      "criteria": [
+        {
+          "id": "189.1",
+          "requirement": "Browser/TypeScript -> desktop-shell Bun and Browser/TypeScript -> standalone Self-hosted host test vectors decrypt identically.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "189.2",
+          "requirement": "Host -> browser/mobile-compatible return envelopes decrypt only with the requesting client's private return key. \u2014 NOT VERIFIED 2026-09-25: the return direction does not exist. `packages/remote-content` models the command envelope only (its exported surface is `generateRemoteCommandKeyPair`, `deriveRemoteCommandKeyPair`, `createRemoteContentAad`, `parseRemoteContentEnvelope`, `createRemoteContentReplayGuard`); a search for a return-key or result-envelope surface across `packages/remote-content`, `packages/types`, `apps/web` and `packages/db` finds none, so there is no return key for a client to hold.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "189.3",
+          "requirement": "Relay/Neon fixtures containing only public keys and ciphertext cannot recover plaintext fixture content. \u2014 NOT VERIFIED 2026-09-25: there is no relay and no Neon-side envelope fixture to attack. The envelope module refuses plaintext-bearing errors and retagged key ids in unit vectors (`packages/remote-content/tests/unit/remote-content.test.ts`), which is the closest existing evidence, but the box needs the relay path that #38 owns.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "189.4",
+          "requirement": "Wrong recipient, wrong key version, tamper, replay, expiry, downgrade, malformed AAD, and unsupported suite/version fail closed.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "189.5",
+          "requirement": "Signing/authentication keys, RuntimeNode remote-command encryption keys, and ContentSyncDevice synchronization keys cannot be substituted for one another. \u2014 PARTIAL 2026-09-25: two of the three classes are explicitly separated. The runtime-node key role enum admits exactly `signing` and `command_encryption` and the repository refuses a shared key (\"Signing and encryption keys must be distinct\", `packages/db/src/runtime-nodes.ts`, covered by `packages/db/tests/integration/runtime-nodes.test.ts`); the proof layer refuses a mismatched class with `key_mismatch` \u2014 \"Runtime node key class does not match its role\" (`apps/web/src/server/runtime-node-proof.ts`), and the refusal-message test keeps that reason distinct. The third class does not exist: there is no ContentSyncDevice key material in this repository (#193 was moved out of M10/M11 by the owner decision of 2026-09-23), so it cannot yet be proven non-substitutable.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "189.6",
+          "requirement": "Rotation/revocation handles queued RemoteContentEnvelopes deterministically without cloud plaintext access. \u2014 NOT VERIFIED 2026-09-25: no envelope is queued anywhere, so there is nothing for rotation to drain. There is no rotation surface for remote-command keys (the only `rotateKey` in the tree belongs to the desktop local-content store), and the replay guard the module does ship binds claims to workspace and node scope rather than to a key generation.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "189.7",
+          "requirement": "RemoteContentEnvelope persistence cannot be mistaken for durable synchronized Message history. \u2014 PARTIAL 2026-09-25: nothing persists an envelope yet, so the confusion cannot occur \u2014 but that is absence, not proof. The type separation is real (`RemoteContentEnvelope` is not a `Message`, and #187/#189 both state that relay records are not canonical history), yet no test asserts that a stored envelope is unqueryable as conversation history because no store exists. The box closes with the persistence path in #38/#187.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "189.8",
+          "requirement": "No custom cryptographic primitive or home-grown KDF/AEAD implementation is introduced.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "189.9",
+          "requirement": "Security tests and official/golden test vectors run in CI.",
+          "sourceChecked": true,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "linkedCertificationGates": [
+    {
+      "number": 42,
+      "url": "https://github.com/adea-ai/adea/issues/42",
+      "title": "M6.9 \u2014 Final pre-release: certify Local and Self-hosted Agent HQ + Control Plane execution",
+      "sourceState": "open",
+      "sourceBodySha256": "77186a812e3974c62ae073c6e10c6d9b1d5b06c16126dcd526104ca9bfca18c9",
+      "criteria": [
+        {
+          "id": "42.1",
+          "requirement": "Local desktop execution has no Agent HQ Cloud or Runtime Gateway hop in the synchronous runtime path.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.2",
+          "requirement": "Agent HQ Desktop installs/supervises the local stack without asking an ordinary user to install Docker, PostgreSQL, Redis/Valkey, or Temporal.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.3",
+          "requirement": "One Task creates one logical Control Plane Execution under retry/redelivery.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.4",
+          "requirement": "Agent HQ owns one canonical Channel/Message timeline shared by Slack-style and spatial views; Control Plane ProjectState, Restate/LangGraph history, ExternalSession history, and harness-native history are not required to reconstruct it.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.5",
+          "requirement": "Web/mobile can read already synchronized `agent_hq_e2ee_sync` Message/Task history while the selected execution host is offline.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.6",
+          "requirement": "Local-only content is explicitly unavailable remotely when its authority is offline rather than fabricated or silently promoted.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.7",
+          "requirement": "Web/mobile can start, cancel, approve, answer, monitor, and inspect both Local and Self-hosted work through the durable remote-control path when the selected execution host is online.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.8",
+          "requirement": "RemoteContentEnvelope execution transport and ContentReplica durable history synchronization remain separate identities, stores, key lifecycles, and retention policies.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.9",
+          "requirement": "Self-hosted execution remains functional independently of the user's desktop after connection/setup.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.10",
+          "requirement": "Offline selected execution locations never silently move work to Agent HQ-managed cloud.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.11",
+          "requirement": "Sensitive execution content remains Local/Self-hosted by default; cloud Artifact storage requires explicit Agent HQ R2 promotion and cross-device Message history requires explicit E2E synchronization policy.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.12",
+          "requirement": "Agent HQ and Control Plane R2 buckets/credentials remain independently scoped; sharing a Cloudflare account/provider does not create cross-product storage authority.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.13",
+          "requirement": "A clean promoted Artifact completes upload, integrity/type verification, malware scanning, authorization, and short-lived retrieval through Agent HQ's bucket.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.14",
+          "requirement": "Duplicate commands/events/synchronization attempts do not duplicate logical execution, Message revisions, ContentReplicas, Artifact metadata, memory writes, or usage attribution.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.15",
+          "requirement": "Restart/reconnect preserves committed execution and conversation state and reconciles ambiguous outcomes safely.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "42.16",
+          "requirement": "Exact app, SDK/schema, conversation/content-sync schema, Control Plane, Restate, adapter, driver, Pi, profile, Skill, storage-adapter, node, and protocol versions are recorded.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "number": 130,
+      "url": "https://github.com/adea-ai/adea/issues/130",
+      "title": "M6.11 \u2014 Final pre-release: certify Agent HQ and Control Plane across Local and Self-hosted profiles",
+      "sourceState": "open",
+      "sourceBodySha256": "d6aa69ec25ede92f1f0b6192034616c2e362da400bdd3b7541d03961cf228e03",
+      "criteria": [
+        {
+          "id": "130.1",
+          "requirement": "No-provider Local and Self-hosted paths remain fully functional.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "130.2",
+          "requirement": "Agent HQ owns mapping/preferences/status/approval UX; Control Plane owns provider selection/retrieval/validation/ContextPackage/failure policy.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "130.3",
+          "requirement": "Provider removal/replacement does not alter Task/execution contracts.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "130.4",
+          "requirement": "Failures never broaden scope, upload provider content, or leak reusable credentials/private paths.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "130.5",
+          "requirement": "Remote content-bearing commands/results remain E2E encrypted through Agent HQ Cloud relay.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        },
+        {
+          "id": "130.6",
+          "requirement": "Final report records exact two-product compatibility windows for Local and Self-hosted modes, upgrade/rollback boundaries, and no-provider fallback.",
+          "sourceChecked": false,
+          "verification": "unverified",
+          "evidence": []
+        }
+      ]
+    }
+  ]
+}

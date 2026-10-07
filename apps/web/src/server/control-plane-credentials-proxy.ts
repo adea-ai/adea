@@ -58,7 +58,9 @@ export async function listCloudConnections(
     'credential.list'
   )
   if (!isRecord(data) || !Array.isArray(data.credentials)) throw invalidResponse()
-  const connections = data.credentials.map(cloudConnection)
+  const connections = data.credentials.map((value) =>
+    cloudConnection(value, credential.workspaceId)
+  )
   return {
     connections,
     ...(typeof data.nextCursor === 'string' ? { nextCursor: data.nextCursor } : {}),
@@ -96,7 +98,7 @@ export async function createCloudConnection(
     dependencies,
     'credential.create'
   )
-  return credentialFrom(data)
+  return credentialFrom(data, credential.workspaceId)
 }
 
 export async function rotateCloudConnection(
@@ -125,7 +127,7 @@ export async function rotateCloudConnection(
     dependencies,
     'credential.rotate'
   )
-  return credentialFrom(data)
+  return credentialFrom(data, credential.workspaceId)
 }
 
 export async function revokeCloudConnection(
@@ -147,19 +149,20 @@ export async function revokeCloudConnection(
     dependencies,
     'credential.revoke'
   )
-  return credentialFrom(data)
+  return credentialFrom(data, credential.workspaceId)
 }
 
-function credentialFrom(data: unknown): ApiCloudConnection {
+function credentialFrom(data: unknown, workspaceId: string): ApiCloudConnection {
   if (!isRecord(data)) throw invalidResponse()
-  return cloudConnection(data.credential)
+  return cloudConnection(data.credential, workspaceId)
 }
 
 /** Allow-listed metadata only; anything else the upstream sends is dropped. */
-function cloudConnection(value: unknown): ApiCloudConnection {
+function cloudConnection(value: unknown, workspaceId: string): ApiCloudConnection {
   if (!isRecord(value)) throw invalidResponse()
   const { connectorRef, createdAt, credentialId, provider, revision, status } = value
   if (
+    value.workspaceId !== workspaceId ||
     typeof credentialId !== 'string' ||
     typeof provider !== 'string' ||
     typeof connectorRef !== 'string' ||

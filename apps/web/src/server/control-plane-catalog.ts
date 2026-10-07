@@ -72,7 +72,7 @@ export async function listWorkspaceCatalog(
   if (!isRecord(data) || !Array.isArray(data.items)) throw invalidResponse()
   const items = data.items.map((entry) => {
     if (!isRecord(entry)) throw invalidResponse()
-    return catalogItem(kind, entry[kind], entry.latestVersion)
+    return catalogItem(kind, entry[kind], entry.latestVersion, credential.workspaceId)
   })
   const nextCursor =
     isRecord(data.page) && typeof data.page.nextCursor === 'string'
@@ -114,7 +114,7 @@ export async function publishWorkspaceSkill(
     operation
   )
   if (!isRecord(data)) throw invalidResponse()
-  const item = catalogItem('skill', data.skill, data.version)
+  const item = catalogItem('skill', data.skill, data.version, credential.workspaceId)
   if (!item.latestVersion) throw invalidResponse()
   return { item, version: item.latestVersion }
 }
@@ -161,11 +161,16 @@ export async function changeWorkspaceCatalogLifecycle(
   if (!isRecord(data) || !Array.isArray(data.changed)) throw invalidResponse()
   return {
     changed: data.changed.map((version) => catalogVersion(kind, version)),
-    item: catalogItem(kind, data[kind], undefined),
+    item: catalogItem(kind, data[kind], undefined, credential.workspaceId),
   }
 }
 
-function catalogItem(kind: CatalogKind, record: unknown, latest: unknown): ApiCatalogItem {
+function catalogItem(
+  kind: CatalogKind,
+  record: unknown,
+  latest: unknown,
+  workspaceId: string
+): ApiCatalogItem {
   if (!isRecord(record)) throw invalidResponse()
   const id = kind === 'skill' ? record.skillId : record.profileId
   const ownership = record.ownership
@@ -175,7 +180,8 @@ function catalogItem(kind: CatalogKind, record: unknown, latest: unknown): ApiCa
     typeof record.readOnly !== 'boolean' ||
     typeof record.createdAt !== 'string' ||
     !isRecord(ownership) ||
-    (ownership.scope !== 'system' && ownership.scope !== 'workspace')
+    (ownership.scope !== 'system' && ownership.scope !== 'workspace') ||
+    (ownership.scope === 'workspace' && ownership.workspaceId !== workspaceId)
   )
     throw invalidResponse()
   return {
