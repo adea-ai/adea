@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import { platformModifierKey, settingsShortcutLabel } from '../../src/keyboard-shortcuts'
+import {
+  platformModifierKey,
+  searchShortcutLabel,
+  settingsShortcutLabel,
+} from '../../src/keyboard-shortcuts'
 
 describe('keyboard shortcut labels', () => {
   test('the modifier glyph follows the operating system, not the build host', () => {
@@ -21,5 +25,11 @@ describe('keyboard shortcut labels', () => {
     expect(settingsShortcutLabel('MacIntel')).toBe('⌘,')
     expect(settingsShortcutLabel('Win32')).toBe('Ctrl,')
     expect(settingsShortcutLabel()).toBe(`${platformModifierKey()},`)
+  })
+
+  test('the search chord spells Ctrl out where the ⌘ glyph does not exist', () => {
+    expect(searchShortcutLabel('MacIntel')).toBe('⌘K')
+    expect(searchShortcutLabel('Win32')).toBe('Ctrl+K')
+    expect(searchShortcutLabel('Linux x86_64')).toBe('Ctrl+K')
   })
 })

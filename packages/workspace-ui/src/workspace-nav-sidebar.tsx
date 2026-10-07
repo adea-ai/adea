@@ -21,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@adea-ai/ui/components/ui/dropdown-menu'
-import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
+import { Kbd, KbdGroup } from '@adea-ai/ui/components/ui/kbd'
 import {
   SidebarNavButton,
   SidebarNavItem,
@@ -70,6 +70,7 @@ import {
 import { WorkspaceNav } from '@adea-ai/workspace-nav/workspace-nav'
 
 import { keyedRows } from './keyed-rows'
+import { platformModifierKey } from './keyboard-shortcuts'
 import { createProjectShare, ProjectShareHost, type ProjectShareContext } from './project-share'
 import { createClientRequestId } from './request-id'
 import { SidebarToggleButton } from './sidebar-toggle-button'
@@ -238,13 +239,20 @@ export function GlobalQuickActions(props: {
       <SidebarNavButton
         type="button"
         aria-label="Mark all read"
-        aria-keyshortcuts="Meta+Shift+A"
+        aria-keyshortcuts="Meta+Shift+A Control+Shift+A"
         disabled={!props.hasUnread}
         onClick={() => props.onMarkAllRead()}
       >
         <MessageCircle aria-hidden="true" />
         Mark all read
-        <KbdChord keys="⇧⌘A" size="compact" class="ml-auto" />
+        {/* Modifier first, then ⇧ then A — the same cap order the Help
+            Center draws for this chord; the modifier follows the running OS
+            while `aria-keyshortcuts` declares both working modifiers. */}
+        <KbdGroup size="compact" class="ml-auto">
+          <Kbd size="compact">{platformModifierKey()}</Kbd>
+          <Kbd size="compact">⇧</Kbd>
+          <Kbd size="compact">A</Kbd>
+        </KbdGroup>
       </SidebarNavButton>
     </div>
   )
