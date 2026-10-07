@@ -646,13 +646,23 @@ describe('diff rows', () => {
   })
 })
 
-describe('review popover copy', () => {
-  const approved = (login: string, commitSha = HEAD) => ({
-    actor: { login, kind: 'user' as const },
-    state: 'approved' as const,
-    commitSha,
-  })
+const approved = (login: string, commitSha = HEAD) => ({
+  actor: { login, kind: 'user' as const },
+  state: 'approved' as const,
+  commitSha,
+})
 
+const run = (overrides: Partial<GitHubCheck> = {}): GitHubCheck => ({
+  id: '1',
+  name: 'unit',
+  status: 'completed',
+  conclusion: 'success',
+  startedAt: '2026-10-03T11:20:00.000Z',
+  completedAt: '2026-10-03T11:26:12.000Z',
+  ...overrides,
+})
+
+describe('review popover copy', () => {
   test('verdict descriptions follow the approvals still needed', () => {
     const pr = view({
       reviewDecision: 'review_required',
@@ -703,16 +713,6 @@ describe('file kinds', () => {
 })
 
 describe('check runs', () => {
-  const run = (overrides: Partial<GitHubCheck> = {}): GitHubCheck => ({
-    id: '1',
-    name: 'unit',
-    status: 'completed',
-    conclusion: 'success',
-    startedAt: '2026-10-03T11:20:00.000Z',
-    completedAt: '2026-10-03T11:26:12.000Z',
-    ...overrides,
-  })
-
   test('only a finished Actions job offers its log on GitHub; GitLab jobs always do', () => {
     const job = run({ detailsUrl: 'https://github.com/acme/widgets/actions/runs/9/job/1' })
     expect(hasCheckLog(job, 'github')).toBe(true)
