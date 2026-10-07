@@ -87,6 +87,11 @@ completed|failed|cancelled|disconnected|unknown`, plus independent
 
 One agent per issue; issues carry the same acceptance criteria as below.
 
+Verification pass 2026-10-07 (#719): every ticked box carries its proof in the
+corresponding closed issue (#36, #531, #532, #533, #534, #535) as a named test,
+`path:line`, or evidence record. Remaining open boxes are annotated inline and
+owned by open issues (#716, #536).
+
 ### S1 — Conversation model: one conversation per canonical RuntimeSession (M13.1)
 
 Scope: the chat model layer in `packages/dev-view/src/chat/model/**` —
@@ -102,22 +107,22 @@ in the same commit.
 
 Acceptance criteria:
 
-- [ ] Creating a conversation produces exactly one `RuntimeSession` through
+- [x] Creating a conversation produces exactly one `RuntimeSession` through
       the #400 launch transaction; retry with the same idempotency key never
       duplicates a session, a run, or a prompt.
-- [ ] The conversation list is a projection of the session registry and
+- [x] The conversation list is a projection of the session registry and
       projects/groups hierarchy — deleting the session removes the
       conversation; there is no chat-side conversation identity.
-- [ ] Resume is new-generation under the same session; archived conversations
+- [x] Resume is new-generation under the same session; archived conversations
       keep history readable (generation binding holds) per the
       `runtime-events-v1` contract.
-- [ ] Dev↔Chat switching preserves session ID, sequence, draft, and
+- [x] Dev↔Chat switching preserves session ID, sequence, draft, and
       scrollback with no relaunch — the #400 shared-contract test driven from
       the Chat side.
-- [ ] Retention bounds are surfaced: reads beyond the retained window report
+- [x] Retention bounds are surfaced: reads beyond the retained window report
       bounded availability; no code path copies terminal scrollback into the
       event store.
-- [ ] Unit/integration tests cover create/attach/resume/cancel/archive,
+- [x] Unit/integration tests cover create/attach/resume/cancel/archive,
       duplicate-event dedupe, sequence-gap resync, and `stale_generation`.
 
 ### S2 — Chat surface: composer, transcript, and streaming (M13.2)
@@ -134,15 +139,15 @@ port composition into Solid/Adea tokens.
 
 Acceptance criteria:
 
-- [ ] Streaming replies render from `runtime-events-v1` frames with
+- [x] Streaming replies render from `runtime-events-v1` frames with
       attach-replay + live push, ack flow, and reconnect/resync — a dropped
       frame window recovers from the event log, never from a chat-side cache.
-- [ ] Approvals, questions, and steering work end-to-end against #400
+- [x] Approvals, questions, and steering work end-to-end against #400
       fixtures (native/ACP, authenticated-hook, and PTY-fallback tiers);
       fallback-only sessions show the truthful label + jump-to-terminal.
-- [ ] The composer is disabled-with-reason (not hidden) for non-owned input
+- [x] The composer is disabled-with-reason (not hidden) for non-owned input
       authority, awaiting-approval holds, and disconnected sessions.
-- [ ] The typed composer draft writes to the canonical session model through
+- [x] The typed composer draft writes to the canonical session model through
       the scoped desktop Chat host. Same-session Chat remounts and
       resume-as-new-generation preserve its in-memory text and paste-block
       sidecar as one value; account/workspace/runtime-node changes isolate it.
@@ -155,13 +160,13 @@ Acceptance criteria:
       the mounted scope/session/generation identity, so a late failure cannot
       reappear after a scope change, an A→B→A transition, or disposal. This does
       not add wire or durable paste-block storage.
-- [ ] Chat's initial graph contains no xterm/CodeMirror/browser code
+- [x] Chat's initial graph contains no xterm/CodeMirror/browser code
       (spec performance budget); the dev-view chunk ratchet stays green or is
       re-ratcheted with measurement in the same PR.
-- [ ] Secrets/private paths are redacted per the spec's data classification
+- [x] Secrets/private paths are redacted per the spec's data classification
       before any chat render; harness-supplied strings render as
       size/depth/rate-limited text, never as markup.
-- [ ] Visual-lane fixtures cover transcript states (streaming, approval,
+- [x] Visual-lane fixtures cover transcript states (streaming, approval,
       fallback label) deterministically.
 
 ### S3 — Auto mode: the decision-layer consumer client (M13.3)
@@ -199,22 +204,22 @@ Dev Runtime wire operation.
 
 Acceptance criteria:
 
-- [ ] Auto mode resolves only through the CP decision-layer contract; no
+- [x] Auto mode resolves only through the CP decision-layer contract; no
       chat-side harness/model selection logic exists (code inspection is an
       acceptance test).
-- [ ] Mode, Agent, and Customize controls and CP-pins copy are present only
+- [x] Mode, Agent, and Customize controls and CP-pins copy are present only
       when both a typed request factory and a valid decision consumer are
       available; partial wiring hides them without disabling ordinary Send or
       Steer.
-- [ ] Auto launch uses the same launch transaction and idempotency rules as
+- [x] Auto launch uses the same launch transaction and idempotency rules as
       explicit launches; resolution failures render typed remediation, never
       a silent fallback to a default harness.
-- [ ] Customize pins are authoritative: an explicit harness/model choice
+- [x] Customize pins are authoritative: an explicit harness/model choice
       survives policy application unchanged (#400: policy applies without
       overriding explicit choices).
-- [ ] Entitlement-absent states (control-plane#552 undecided) render one
+- [x] Entitlement-absent states (control-plane#552 undecided) render one
       obvious action and never block the developer path or crash the surface.
-- [ ] Composer preferences (mode, agent, favorites, recents) persist per
+- [x] Composer preferences (mode, agent, favorites, recents) persist per
       user/project without persisting credential values.
 
 ### S4 — First-run onboarding: the zero-config "mom flow" (M13.4)
@@ -231,18 +236,18 @@ precedents for composition.
 
 Acceptance criteria:
 
-- [ ] Clean-desktop E2E: fresh profile → sign in or guest → managed Pi
+- [x] Clean-desktop E2E: fresh profile → sign in or guest → managed Pi
       installs (or is already present) → first conversation streams in chat
       with no harness/model/runtime choices presented.
-- [ ] Every blocking state (auth required, install failure, discovery miss,
+- [x] Every blocking state (auth required, install failure, discovery miss,
       incompatible version) renders one obvious action with typed remediation;
       no state dead-ends or surfaces raw diagnostics as the primary UI.
-- [ ] Discovered user-installed harnesses enter the ordering only through user
+- [x] Discovered user-installed harnesses enter the ordering only through user
       action; reset-to-discovered restores managed-Pi-first (#400 root-default
       policy verified from the onboarding path).
-- [ ] The journey re-runs green on the packaged macOS build (evidence into
+- [x] The journey re-runs green on the packaged macOS build (evidence into
       the `test:packaged` lane artifacts).
-- [ ] Guest sessions work or gate cleanly per the control-plane#552 decision;
+- [x] Guest sessions work or gate cleanly per the control-plane#552 decision;
       the flow degrades truthfully if model access is unprovisioned.
 
 ### S5 — Daily-driver conversation features: history, search, notifications (M13.5)
@@ -259,17 +264,17 @@ state watcher.
 
 Acceptance criteria:
 
-- [ ] History search covers prompts, result summaries, tool/approval/question
+- [ ] History search covers prompts, result summaries, tool/approval/question — OPEN: owned by #716 (component built and tested, never rendered; verified on main 2026-10-07).
       events, and statuses across sessions with jump-to-session and
       jump-to-event, paged/virtualized per the spec's row budgets.
-- [ ] Search reads only authoritative stores (`HarnessRun` records, canonical
+- [x] Search reads only authoritative stores (`HarnessRun` records, canonical
       event windows); no second transcript index or store is introduced.
-- [ ] Notifications fire from canonical state transitions only, respect
+- [x] Notifications fire from canonical state transitions only, respect
       focus/authority (no notification storm while the surface is focused),
       and are redacted (no prompt/tool content in the notification body).
-- [ ] Resume-from-history re-enters the same `RuntimeSession`
+- [x] Resume-from-history re-enters the same `RuntimeSession`
       (new generation) or reports explicit non-resumability.
-- [ ] 1,000 project/session rows remain virtualized in the chat list
+- [ ] 1,000 project/session rows remain virtualized in the chat list — VACUOUS AS WRITTEN: no chat conversation-list surface exists; ChatView renders one conversation and `model.list()` pages at 500 (`packages/dev-view/src/chat/model/index.ts`). Re-scope with #716.
       (spec performance budget).
 
 ### S6 — M13 certification path: chat daily-driver evidence (M13.6)
@@ -287,16 +292,16 @@ those gates consume is green and recorded. Closes last in the milestone.
 
 Acceptance criteria:
 
-- [ ] The chat owner journey passes end-to-end on the packaged build with
+- [ ] The chat owner journey passes end-to-end on the packaged build with — OPEN: owned by #536 (partially evidenced by docs/evidence/m13-536-chat-packaged-2026-09-22.md).
       evidence artifacts under `artifacts/` (screenshots, logs, timings).
-- [ ] Dev↔Chat repeated-switch proof (no process/session/sequence/draft/
+- [ ] Dev↔Chat repeated-switch proof (no process/session/sequence/draft/ — OPEN: owned by #536 (chat-view.spec.ts covers the switch; packaged re-run pending).
       scrollback loss, no relaunch) recorded on the packaged build.
-- [ ] WCAG 2.2 AA audit of the chat surface filed and green (keyboard,
+- [ ] WCAG 2.2 AA audit of the chat surface filed and green (keyboard, — OPEN: owned by #536.
       focus, live-region announcements for streaming text).
-- [ ] Performance budgets extended with chat numbers (initial graph, streaming
+- [ ] Performance budgets extended with chat numbers (initial graph, streaming — OPEN: owned by #536 (budget gates exist: scripts/check-dev-view-bundle.mjs, scripts/client-bundle-budgets.mjs).
       render interaction budget) and a 24-hour multi-conversation soak record
       with bounded memory/disk/descriptors.
-- [ ] A written chat-side evidence summary exists for #42 and #130, listing
+- [ ] A written chat-side evidence summary exists for #42 and #130, listing — OPEN: owned by #536.
       every chat-side input each gate consumes and where its artifact lives.
 
 ## Waves
