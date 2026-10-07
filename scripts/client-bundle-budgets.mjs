@@ -273,7 +273,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // among them), and the workspace-create row and its Input/form-field
     // chunks leave the route. Raw ratchets down to 173 KiB (~1.9% headroom);
     // gzip to 59 KiB (~2.4%).
-    devShell: { rawBytes: 173 * 1024, gzipBytes: 59 * 1024 },
+    // Shared UI 0.117 (2026-10-07): the published rung grip, the comfortable
+    // transcript density and the rail-aware sidebar sheet width replace Dev's
+    // local restyles, so the shared resizable and transcript parts grow while
+    // the Dev stylesheet shrinks. 177,316 raw in CI, 164 bytes over the
+    // 173 KiB cap. Raw ratchets to the next whole KiB; gzip keeps its cap.
+    devShell: { rawBytes: 174 * 1024, gzipBytes: 59 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested
