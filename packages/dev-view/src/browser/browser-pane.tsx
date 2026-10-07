@@ -63,6 +63,7 @@ import {
 } from './navigation-model'
 import { isPreviewableRow, mergeServers, type PreviewableServer } from './ports-model'
 import { MiniPreview } from './mini-preview'
+import { LANE_KIND_LABEL } from './lane-kind-label'
 import {
   presetById,
   resolvePresetViewport,
@@ -76,12 +77,6 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { ListRowControl } from '@adea-ai/ui/components/composites/list-row'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
-
-const LANE_KIND_LABEL: Record<BrowserLane['kind'], string> = {
-  human_embedded: 'Human · embedded',
-  task_owned: 'Task-owned agent',
-  user_context: 'User context · external',
-}
 
 export type BrowserPaneProps = {
   context: DevUtilityContextReader

@@ -207,6 +207,18 @@
   color: var(--muted-foreground);
 }
 
+/* The published FloatingPreview header band pins h-control-sm while its own
+   Move control measures the same h-control-sm inside the band's p-1, so the
+   action overflows the band by the padding and the band reads shorter than
+   its button. Size the band to its content inside the Dev mini preview —
+   geometry only; the band's colours and controls are the shared component's.
+   The hook container is unpositioned, so the preview still anchors to the
+   pane exactly as it does unwrapped. */
+.dev-browser-mini section > header {
+  height: auto;
+  min-height: calc(var(--control-height-sm) + 0.5rem);
+}
+
 .dev-browser-mini__viewport {
   width: 100%;
   height: 100%;
