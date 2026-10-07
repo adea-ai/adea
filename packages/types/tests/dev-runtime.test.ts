@@ -118,10 +118,12 @@ describe('Dev Runtime operation registry', () => {
     // (foreign stop, restart, worktree storage, and resource preferences),
     // 228 before dev.repo.remove (the owner's removal of one adopted
     // registry record), 229 before the machine-wide janitor slice (scan,
-    // measure, plan, commit): the registry ratchet moves only when an
+    // measure, plan, commit), 233 before dev.github.repositories (the
+    // authenticated account's repository listing, the add surface's "From
+    // GitHub" import source): the registry ratchet moves only when an
     // operation is deliberately added, and the decoder-key check below is
     // what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(233)
+    expect(devOperations).toHaveLength(234)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
