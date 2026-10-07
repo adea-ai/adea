@@ -38,3 +38,14 @@ and Skill provenance, large-inventory pagination and live candidate certificatio
 remain required. No profile automatically follows a newer version. No database
 migration, production deployment, credential or external configuration change
 is part of this increment.
+
+## CI tooltip regression repair
+
+The first ready CI run caught an outdated status-tooltip expectation in
+`apps/web/e2e/workspace-tooltip.spec.ts`: the component correctly rendered
+`The selected profile version is configured.` while the test still expected
+the previous generic configuration description. The assertion now names the
+new product copy. All six tests in that file passed locally in headless Chromium,
+including pointer transparency, keyboard access and profile/lifecycle updates.
+The isolated Vite and browser process groups were stopped and their port closed.
+Final-head CI remains a separate gate.
