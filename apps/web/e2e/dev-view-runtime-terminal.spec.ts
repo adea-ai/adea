@@ -42,7 +42,13 @@ declare global {
 async function openHarness(page: Page, scenario: string) {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.route(new RegExp(`${DEV_WORKSPACE_RUNTIME_TERMINAL_PATH}(?:\\?.*)?$`), (route) =>
-    route.fulfill({ contentType: 'text/html', body: devWorkspaceRuntimeTerminalHtml() })
+    route.fulfill({
+      contentType: 'text/html',
+      // Only the no-project scenario reads theme tokens (its assertions pin
+      // computed colors); the tokenless page keeps the runtime scenarios on
+      // the text metrics their timing was written against.
+      body: devWorkspaceRuntimeTerminalHtml({ themeTokens: scenario === 'no-session' }),
+    })
   )
   await page.goto(`${DEV_WORKSPACE_RUNTIME_TERMINAL_PATH}?scenario=${scenario}`)
   await page.addScriptTag({
