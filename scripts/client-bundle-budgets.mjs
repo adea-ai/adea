@@ -129,8 +129,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // Shared UI 0.120 (2026-10-07): the toolbar Button variant and the
   // 0.118-0.119 theme fixes measure 2,963,219 raw / 903,176 gzip across 157
   // files. Raw ratchets to 2,990,000 (~0.9% headroom); gzip and files hold.
+  // Canonical themes 0.9.10 (2026-10-07, #1139): the generated provenance
+  // strings in the startup chunk measure 238,657 gzip, 65 bytes over the
+  // 233 KiB cap (raw holds). Startup gzip ratchets to 234 KiB.
   total: { rawBytes: 2_990_000, gzipBytes: 890 * 1024, fileCount: 157 },
-  startup: { rawBytes: 720 * 1024, gzipBytes: 233 * 1024 },
+  startup: { rawBytes: 720 * 1024, gzipBytes: 234 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now

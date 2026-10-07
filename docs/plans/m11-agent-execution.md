@@ -115,7 +115,7 @@ pinned SDK before persistence; callers cannot assert availability. Revision
 fencing and schema-versioned previous/new reference events make upgrades and
 rollbacks explicit and auditable. Existing Agents do not follow a newer version
 automatically. Submission-time pin snapshots, ExecutionPlan/Skill manifest
-provenance and authoritative read-time remediation remain required for #41.
+provenance remain required for #41. Read-time remediation is described below.
 
 [Profile adoption evidence](../evidence/m11-agent-profile-pins.md) records the
 SDK, concurrency, database and product checks and the remaining acceptance gates.
@@ -144,3 +144,25 @@ does not select another node. [Queue evidence](../evidence/m11-task-submission-i
 records independent validation and the remaining host-delivery, SDK acceptance,
 reconciliation, expiry cleanup and product gates. Pending delivery is not runtime
 acceptance or a Task lifecycle transition.
+
+## Authoritative profile availability on reads
+
+The authorized Agent list and single-Agent reads check the exact saved public
+profile/version through the pinned SDK catalog and resolver. Approved published
+pins remain available; missing, deprecated, revoked, unapproved and incompatible
+versions have explicit remediation. Outages and malformed responses report
+unavailable instead of inheriting the database's previous available value.
+Neither read changes the stored pin, revision or audit history.
+
+Read work deduplicates shared pins, uses at most four concurrent checks and 32
+distinct pins, and has one five-second deadline including scope resolution.
+Unvisited or cancelled checks remain unavailable. A single-Agent read can check
+a pin beyond the list's bound; large inventories need paginated availability
+work before claiming full catalog coverage. The check timestamp records an
+attempt, including failures, rather than execution authorization. Submission
+must recheck policy and snapshot the pin atomically; this read model does not
+replace that remaining #41 requirement.
+
+[Availability evidence](../evidence/m11-agent-profile-availability.md) records the
+SDK, compiled Worker, isolation, deadline and roster checks. Criterion 41.4 links
+this local evidence without changing its source requirement or verification state.
