@@ -291,37 +291,17 @@
 }
 
 .dev-utility > .dev-utility-splitter {
+  /* A host-owned overlay across the pane: the shared edge ruler positions
+     itself against it, and the lift keeps the edge grabbable over the Dev
+     center. The ruler is pointer-events-none except for its handle and the
+     cursor inherits, so the pointer parity every other workspace drag
+     affordance shows starts here. The rung grip, its hover wash and the 24px
+     target (WCAG 2.5.8) are the published `grip="rung"`. */
+  position: absolute;
+  inset: 0;
   z-index: var(--z-docked);
-  /* The same shared edge ruler the sidebar resize handles wrap; the ruler is
-     pointer-events-none except for its handle and the cursor inherits, so the
-     pointer parity every other workspace drag affordance shows starts here. */
+  pointer-events: none;
   cursor: pointer;
-}
-
-/* The shared resizable grip renders as a small bordered chip; the owner wants
-   the drag affordance barely there. The grip becomes a tall, skinny,
-   translucent rung (its icon dropped) while the separator keeps the full hit
-   target, the pointer cursor, and a quieter hover wash on the 1px line. The
-   sidebar ruler is the published ContextualSidebar's classless handle, so it
-   is addressed through its corvu root inside the Dev sidebar. */
-.dev-sidebar [data-corvu-resizable-root] [role='separator'] > div,
-.dev-utility-splitter [role='separator'] > div {
-  /* The 1px separator would flex-shrink the rung to its border box. */
-  flex: none;
-  height: 2.75rem;
-  width: 0.375rem;
-  border-color: transparent;
-  background: color-mix(in srgb, var(--border) 55%, transparent);
-}
-
-.dev-sidebar [data-corvu-resizable-root] [role='separator'] > div svg,
-.dev-utility-splitter [role='separator'] > div svg {
-  display: none;
-}
-
-.dev-sidebar [data-corvu-resizable-root] [role='separator']:hover,
-.dev-utility-splitter [role='separator']:hover {
-  background: color-mix(in srgb, var(--primary) 45%, transparent);
 }
 
 /* The contextual project sidebar's published resize ruler is an absolutely
@@ -339,16 +319,12 @@
    minimum. Widen the extension on the drag axis — the 1px visible line does
    not move. A vertical separator (a row split) drags horizontally; a
    horizontal one drags vertically. The dev center hosts the published
-   SplitLayout's separators; the sidebar and utility edges carry their own
-   repo-scoped hooks above. */
-.dev-sidebar [data-corvu-resizable-root] [role='separator'][aria-orientation='vertical']::after,
-.dev-utility-splitter [role='separator'][aria-orientation='vertical']::after,
+   SplitLayout's separators; the sidebar and utility edges use the published
+   rung grip, which carries the 24px target itself. */
 .dev-center [role='separator'][aria-orientation='vertical']::after {
   width: 1.5rem;
   inset-inline: -0.75rem;
 }
-.dev-sidebar [data-corvu-resizable-root] [role='separator'][aria-orientation='horizontal']::after,
-.dev-utility-splitter [role='separator'][aria-orientation='horizontal']::after,
 .dev-center [role='separator'][aria-orientation='horizontal']::after {
   height: 1.5rem;
   inset-block: -0.75rem;
@@ -531,10 +507,6 @@
   .dev-sidebar {
     /* The shared Sheet is portaled; its source wrapper owns no mobile track. */
     display: contents;
-  }
-  .dev-sidebar__sheet {
-    width: min(19rem, max(9rem, calc(100vw - var(--workspace-rail-width, 4rem))));
-    max-width: min(19rem, max(9rem, calc(100vw - var(--workspace-rail-width, 4rem))));
   }
 }
 

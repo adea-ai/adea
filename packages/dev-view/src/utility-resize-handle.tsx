@@ -1,5 +1,4 @@
 import { PixelResizeHandle } from '@adea-ai/ui/components/layout/contextual-sidebar'
-import { cn } from '@adea-ai/app-ui/lib/utils'
 
 import { snapUtilitySize, utilitySizeSteps } from './utility-model'
 
@@ -11,20 +10,21 @@ export function UtilityResizeHandle(props: {
 }) {
   const steps = utilitySizeSteps[props.side]
 
+  // The host-owned wrapper lifts the ruler over the pane and hides it with the
+  // workspace's focus/full layouts; the shared rung grip is left as published.
   return (
-    <PixelResizeHandle
-      side={props.side}
-      value={props.size}
-      minimum={steps[0]}
-      maximum={steps[steps.length - 1]!}
-      step={48}
-      label={`Resize ${props.side} utility pane`}
-      controls={`dev-utility-panel-${props.side}`}
-      class={cn('dev-utility-splitter', {
-        'dev-utility-splitter--left': props.side === 'left',
-        'dev-utility-splitter--right': props.side === 'right',
-      })}
-      onChange={(size) => props.onResize(snapUtilitySize(size, props.side))}
-    />
+    <div class="dev-utility-splitter">
+      <PixelResizeHandle
+        side={props.side}
+        value={props.size}
+        minimum={steps[0]}
+        maximum={steps[steps.length - 1]!}
+        step={48}
+        label={`Resize ${props.side} utility pane`}
+        controls={`dev-utility-panel-${props.side}`}
+        grip="rung"
+        onChange={(size) => props.onResize(snapUtilitySize(size, props.side))}
+      />
+    </div>
   )
 }

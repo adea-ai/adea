@@ -809,7 +809,6 @@ export function WorkspaceNavSidebar(props: Props) {
           element?.setAttribute('data-conventional-sidebar', '')
           sidebarWidth.onSidebarElement(element, mobile)
         }}
-        sheetClass="conventional-sidebar-sheet"
         titleVisibility="mobile"
         footerClass="w-full"
         content={renderSidebarContent}

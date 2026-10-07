@@ -15,7 +15,7 @@
   background: var(--background);
 }
 
-.dev-chat > .dev-chat__stream {
+.dev-chat > [data-dev-chat-stream] {
   grid-row: 3;
 }
 
@@ -78,15 +78,6 @@
   flex-direction: column;
   gap: 0.75rem;
   padding: 1rem;
-}
-
-.dev-chat__composition [data-slot='transcript-rows'] {
-  gap: 0.75rem;
-}
-
-.dev-chat__composition [data-slot='transcript-row-content'] {
-  display: flex;
-  flex-direction: column;
 }
 
 .dev-chat__row {

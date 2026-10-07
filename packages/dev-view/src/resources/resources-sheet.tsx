@@ -56,9 +56,9 @@ export type ResourcesSheetProps = {
  * and the body explains the wait. */
 function ResourcesSheetPending() {
   return (
-    <SheetContent side="end" class="dev-resources-sheet" closeLabel="Close runtime resources">
+    <SheetContent side="end" class="w-150" closeLabel="Close runtime resources">
       <SheetHeader>
-        <SheetTitle class="dev-resources__title">Runtime resources</SheetTitle>
+        <SheetTitle>Runtime resources</SheetTitle>
       </SheetHeader>
       <SheetBody>
         <p class="dev-resources__note">Loading…</p>

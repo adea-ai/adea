@@ -393,7 +393,10 @@ export function ResourcesPane(props: ResourcesPaneProps) {
   }
 
   return (
-    <SheetContent side="end" class="dev-resources-sheet" closeLabel="Close runtime resources">
+    // The panel geometry (edge docking, overlay z-order, the pinned bands)
+    // belongs to the shared Sheet; the host only widens the inset panel so the
+    // server table fits. The published inset cap keeps it inside the window.
+    <SheetContent side="end" class="w-150" closeLabel="Close runtime resources">
       {/* Pinned title band (#1082's muted header): the title, the coverage
           line, and the refresh and settings actions. The refresh action
           belongs beside the title, vertically centered with it, not pushed to
@@ -403,7 +406,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
         <div class="dev-resources__header">
           <div class="dev-resources__row-main">
             <div class="dev-resources__title-row">
-              <SheetTitle class="dev-resources__title">Runtime resources</SheetTitle>
+              <SheetTitle>Runtime resources</SheetTitle>
               <ActionButton
                 type="button"
                 variant="ghost"
@@ -431,9 +434,8 @@ export function ResourcesPane(props: ResourcesPaneProps) {
           <span class="dev-resources__header-actions">
             <ActionButton
               type="button"
-              variant="ghost"
+              variant={view().kind === 'settings' ? 'subtle' : 'ghost'}
               size="icon-sm"
-              class="dev-resources__header-toggle"
               aria-label="Resource settings"
               tooltip={
                 serviceReady()
@@ -759,7 +761,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
           It belongs to the main view only — the drill-in reviews carry their
           own action rows. */}
       <Show when={serviceReady() && view().kind === 'main' && current()}>
-        <SheetFooter class="dev-resources__sheet-footer">
+        <SheetFooter class="justify-between">
           <Button
             type="button"
             variant="outline"

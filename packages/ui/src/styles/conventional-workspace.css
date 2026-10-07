@@ -1424,10 +1424,6 @@
   [data-conventional-sidebar][data-contextual-sidebar='desktop'] {
     display: none;
   }
-  .conventional-sidebar-sheet {
-    width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
-    max-width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
-  }
   [data-conventional-sidebar][data-contextual-sidebar='mobile'] {
     --sidebar-width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
     width: 100%;
