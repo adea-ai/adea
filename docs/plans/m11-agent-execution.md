@@ -72,3 +72,11 @@ The [node-reference increment](../evidence/m11-runtime-node-references.md) suppl
 the missing stable join between Adea UUID node identities and the public SDK's
 `rnr_` references. It is identity substrate; it does not register a Control Plane
 host or supply RuntimeConnection discovery by itself.
+
+The [public discovery increment](../evidence/m11-runtime-discovery.md) consumes
+the pinned SDK through an authenticated, node-scoped API and typed client. It
+preserves registration, node and connection health independently, classifies
+freshness on read, and projects bounded capabilities/grants/eligibility without
+native metadata. Product UI integration and direct Local discovery remain.
+Contracts 1.14.0 do not report discovery transport: retain `unreported`, then
+consume actual execution-resolution transport rather than inventing a value.

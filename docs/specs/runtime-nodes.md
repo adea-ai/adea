@@ -183,6 +183,44 @@ its members pair, which is a handful. It resolves each node with two queries per
 node, which is the right shape at that scale — if a consumer ever appears with
 thousands of nodes, paginate or batch it then rather than carrying a silent cap.
 
+## Control Plane connection discovery (M11 #37)
+
+`GET .../runtime-nodes/:runtimeNodeId/connections` uses the same workspace
+`runtime.invoke` permission and desktop-origin guard as the node identity API.
+It resolves the registered UUID in that workspace first, then calls the pinned
+public SDK's `runtime-connection.list` with exactly its `rnr_` reference and a
+fresh workspace-scoped service credential containing only `runtime:read`.
+The bounded, nonredirecting SDK hop and request/trace validation are shared with
+the administration proxy. The only accepted query parameter is a bounded cursor;
+the page limit is 100. Responses are `private, no-store`.
+
+The projection preserves Adea registration/pairing/proof-derived health separately
+from the reported Control Plane node status/health and individual connection
+status/health/availability. It carries adapter/driver/harness versions, capability
+support, compatibility limitations, grant requirements, entitlement state and
+eligibility reason/remediation codes. It is metadata only: public keys, node
+endpoints, native paths, process handles, credentials, free-form upstream labels
+and native session state are excluded. The nested node's reported location must
+match the registered kind. Missing/foreign node references, changed location,
+duplicate connection identities and managed-cloud entries fail closed.
+
+Every read reclassifies stale, expired or future inventory observations using the
+five-minute admission window. The SDK's discovery schema does not report a
+RuntimeTransport: the DTO says `transport.state: 'unreported'`. It must not infer
+`direct_local` or `remote_gateway` from location or change connection identity.
+Actual execution resolution owns the selected transport. Discovery remains a
+read model, never an execution or authorization proof; submission must freshly
+admit the registered node and respect the Control Plane's policy/capability gates.
+
+An unconfigured signer, inaccessible service, rejected or invalid discovery reply
+returns registered node metadata with `discovery.state: 'unavailable'` and no
+connections. This differs from `available` with an empty inventory. It never
+changes execution location, node registration, canonical conversation metadata,
+ContentSyncDevice authorization or history availability. Missing/foreign Adea
+nodes retain the generic workspace refusal. Consumers use the typed
+`listRuntimeNodeConnections` API client; native Dev Runtime discovery retains its
+existing host authority and cannot be replaced by this cloud projection.
+
 ## Durable events
 
 Every state change is recorded through the one publication path
@@ -243,6 +281,11 @@ challenge's life.
 - `apps/web/test/runtime-node-proof.test.ts` — real Ed25519 signatures: exact
   message shape, tampering, replay across workspace/node/purpose/kind, an
   impostor key, and malformed input treated as failure rather than an exception.
+- `apps/web/test/control-plane-discovery.test.ts` — actual public SDK fixtures,
+  exact node/location binding, duplicate/cloud refusal, independent health,
+  freshness, grants, compatibility and metadata-leak canaries.
+- `packages/api-client/tests/unit/control-plane.test.ts` — encoded node discovery
+  requests alongside the catalog and credential API contracts.
 - `apps/web/start/browser/runtime-nodes.e2e.ts` — the whole flow against an
   isolated host and PostgreSQL, including the desktop-origin guard.
 - `scripts/event-stream-authorization-boundary.test.ts` — the stream authorizes

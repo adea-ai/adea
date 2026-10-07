@@ -2,12 +2,16 @@
 import { ControlApiOperations, ControlPlaneClient } from '@adea-ai/sdk'
 
 /** Keep the SDK's typed request parsing at each operation boundary. */
-export function callControlPlaneAdmin(
+export function callControlPlaneOperation(
   client: ControlPlaneClient,
   path: string,
   body: Record<string, unknown>
 ): Promise<{ data: unknown; requestId: string; correlation: { traceId: string } }> {
   switch (path) {
+    case ControlApiOperations.listRuntimeConnections.path:
+      return client.listRuntimeConnections(
+        ControlApiOperations.listRuntimeConnections.requestSchema.parse(body)
+      )
     case ControlApiOperations.listWorkspaceSkills.path:
       return client.listWorkspaceSkills(
         ControlApiOperations.listWorkspaceSkills.requestSchema.parse(body)
@@ -51,6 +55,6 @@ export function callControlPlaneAdmin(
     case ControlApiOperations.listCredentials.path:
       return client.listCredentials(ControlApiOperations.listCredentials.requestSchema.parse(body))
     default:
-      throw new Error('Unsupported Control Plane administration operation')
+      throw new Error('Unsupported Control Plane operation')
   }
 }

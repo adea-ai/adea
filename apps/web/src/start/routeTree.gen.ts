@@ -74,6 +74,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRouteImpo
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
@@ -468,6 +469,14 @@ const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute =
       getParentRoute: () => rootRouteImport,
     } as any,
   )
+const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute =
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRouteImport.update(
+    {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections',
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute =
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRouteImport.update({
     id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof',
@@ -638,6 +647,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
@@ -722,6 +732,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
@@ -807,6 +818,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
@@ -893,6 +905,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
@@ -977,6 +990,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
@@ -1061,6 +1075,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
@@ -1117,6 +1132,7 @@ export interface RootRouteChildren {
   ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
@@ -1577,6 +1593,13 @@ declare module '@tanstack/solid-router' {
       path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
       fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections': {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
+      fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': {
@@ -2091,6 +2114,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute,
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute:
     ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute,
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute:
+    ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute,
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute:
     ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute,
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute:
