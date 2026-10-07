@@ -10,6 +10,7 @@
  * See NOTICE and docs/research/dev-view-donor-audit.md.
  */
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
 import { RefreshCw } from 'lucide-solid'
 import { For, Show, createSignal, onCleanup, onMount } from 'solid-js'
 
@@ -24,6 +25,16 @@ import {
 } from './model'
 import { createUnavailableMacPermissionsService, type MacPermissionsPageService } from './service'
 import './permissions-pane.css'
+
+/** The probe presentation's tone drawn with the published status rung:
+ *  granted is success, denied is danger, not-requested is warning, and an
+ *  unprobed permission stays honestly unknown. */
+const PERMISSION_CHIP_TONE: Record<'ready' | 'blocked' | 'attention' | 'unknown', StatusTone> = {
+  ready: 'success',
+  blocked: 'danger',
+  attention: 'warning',
+  unknown: 'unknown',
+}
 
 export function PermissionsPane(props: { service?: MacPermissionsPageService }) {
   // The unavailable service keeps the web-only dev mode truthful: every row
@@ -176,9 +187,11 @@ export function PermissionsPane(props: { service?: MacPermissionsPageService }) 
                     <div class="dev-permissions__identity">
                       <div class="dev-permissions__title-line">
                         <h4 class="dev-permissions__title">{row.meta.title}</h4>
-                        <span class="dev-permissions__status" data-tone={presentation().tone}>
-                          {presentation().label}
-                        </span>
+                        <StatusChip
+                          data-permissions-status=""
+                          tone={PERMISSION_CHIP_TONE[presentation().tone]}
+                          label={presentation().label}
+                        />
                       </div>
                       <p class="dev-permissions__purpose">{row.meta.purpose}</p>
                       <p

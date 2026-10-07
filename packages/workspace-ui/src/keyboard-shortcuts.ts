@@ -1,28 +1,24 @@
 /**
  * Shortcut labels the support surfaces display.
  *
- * Every global chord binds `(metaKey || ctrlKey)`, so the working key is the
- * platform's command modifier wherever the app runs — but Apple platforms
- * draw it as ⌘ and everyone else spells it Ctrl. The label helpers here are
- * the one place that decides which glyph a surface advertises, so the rail,
- * the account menu, and the Help Center cannot drift apart.
+ * The one place that decides which glyph a surface advertises lives next to
+ * the key caps it draws: `@adea-ai/ui`'s kbd module owns
+ * `platformModifierKey` and `searchShortcutLabel`, so every surface that can
+ * reach the shared library — including packages that must not import this one
+ * (the Dev view, which the shell depends on) — draws the same chord. This
+ * module keeps the shell's import surface stable and composes the one
+ * shell-specific label on top of the shared primitives.
  */
 
-/** The modifier glyph the running OS renders for Meta: ⌘ on Apple platforms, Ctrl elsewhere. */
-export function platformModifierKey(platform?: string): '⌘' | 'Ctrl' {
-  // The guard keeps server renders honest: no navigator means no Apple
-  // platform string, so they fall back to the spelled-out modifier.
-  const browserPlatform = platform ?? (typeof navigator === 'undefined' ? '' : navigator.platform)
-  return /Mac|iPhone|iPad|iPod/i.test(browserPlatform) ? '⌘' : 'Ctrl'
-}
+import { platformModifierKey } from '@adea-ai/ui/components/ui/kbd'
+
+export {
+  platformModifierKey,
+  searchShortcutKeyshortcuts,
+  searchShortcutLabel,
+} from '@adea-ai/ui/components/ui/kbd'
 
 /** The settings chord label: the platform modifier followed by a comma. */
 export function settingsShortcutLabel(platform?: string): string {
   return `${platformModifierKey(platform)},`
-}
-
-/** The workspace search chord label as the rail's hover text draws it: the
- *  platform modifier plus K (`⌘K`, or `Ctrl+K` where ⌘ does not exist). */
-export function searchShortcutLabel(platform?: string): string {
-  return platformModifierKey(platform) === '⌘' ? '⌘K' : 'Ctrl+K'
 }

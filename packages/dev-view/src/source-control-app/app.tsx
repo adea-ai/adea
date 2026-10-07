@@ -21,7 +21,12 @@ import {
 } from '@adea-ai/ui/components/ui/alert-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
-import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
+import {
+  Kbd,
+  KbdGroup,
+  platformModifierKey,
+  searchShortcutKeyshortcuts,
+} from '@adea-ai/ui/components/ui/kbd'
 import { Popover, PopoverAnchor, PopoverContent } from '@adea-ai/ui/components/ui/popover'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import { Switch as Toggle } from '@adea-ai/ui/components/ui/switch'
@@ -66,10 +71,11 @@ export type SourceControlAppProps = Readonly<{
   /** Top bar mount for the search, sync state, and sync control. */
   toolbarMount?: HTMLElement
   /**
-   * Top bar title-slot mount. When present, the pull-request search portals
-   * here so it is center aligned where the plain workspace-name title would
-   * be; the sync state and control stay in the leading toolbar mount. Hosts
-   * without one (the test harness) keep the search in the toolbar group.
+   * Top bar title-slot mount. When present, the whole search + sync group
+   * portals here so the pull-request search sits left of the sync status in
+   * the bar's centre column — the only track with room for a field wide
+   * enough for its placeholder. Hosts without one (bare integrations) keep
+   * the group in the leading toolbar mount.
    */
   titleMount?: HTMLElement
   /** Defaults to the browser's local storage when available. */
@@ -139,9 +145,9 @@ function TopBarSearch(props: { state: SourceControlState; actions: AppActions })
           </InputGroupAddon>
           <InputGroupInput
             type="search"
-            placeholder="Search pull requests and branches"
+            placeholder="Search pull requests"
             aria-label="Search pull requests and branches"
-            aria-keyshortcuts="Meta+K"
+            aria-keyshortcuts={searchShortcutKeyshortcuts}
             value={query()}
             onInput={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={(event) => {
@@ -153,7 +159,14 @@ function TopBarSearch(props: { state: SourceControlState; actions: AppActions })
             }}
           />
           <InputGroupAddon align="end">
-            <KbdChord keys="⌘K" size="compact" />
+            {/* The chord binds Meta and Ctrl alike (the rail owns the global
+                handler), so the caps draw the modifier the running OS renders.
+                A spelled-out Ctrl cannot ride KbdChord's one-cap-per-character
+                split — the shared group draws one cap per entry. */}
+            <KbdGroup size="compact" aria-hidden="true">
+              <Kbd size="compact">{platformModifierKey()}</Kbd>
+              <Kbd size="compact">K</Kbd>
+            </KbdGroup>
           </InputGroupAddon>
         </InputGroup>
       </PopoverAnchor>
@@ -184,29 +197,20 @@ function TopBarSearch(props: { state: SourceControlState; actions: AppActions })
   )
 }
 
-function TopBarControls(props: {
-  state: SourceControlState
-  actions: AppActions
-  searchMount?: HTMLElement
-}): JSX.Element {
+function TopBarControls(
+  props: { state: SourceControlState; actions: AppActions } & Readonly<{ mount?: HTMLElement }>
+): JSX.Element {
   const synced = () => {
     const at = props.state.syncedAt()
     return at === undefined
       ? 'Not synced yet'
       : `Synced ${relativeTime(new Date(at).toISOString(), props.state.tick())}`
   }
-  return (
+  const group = () => (
     <div class="dev-scm-topbar">
-      <Show
-        when={props.searchMount}
-        fallback={<TopBarSearch state={props.state} actions={props.actions} />}
-      >
-        {(mount) => (
-          <Portal mount={mount()}>
-            <TopBarSearch state={props.state} actions={props.actions} />
-          </Portal>
-        )}
-      </Show>
+      {/* The search leads the group so it reads left of the sync status, and
+          grows with the group's track (see the stylesheet). */}
+      <TopBarSearch state={props.state} actions={props.actions} />
       <span class="dev-scm-topbar__synced">
         <StatusChip
           tone={
@@ -232,6 +236,11 @@ function TopBarControls(props: {
         <RefreshCw aria-hidden="true" />
       </ActionButton>
     </div>
+  )
+  return (
+    <Show when={props.mount} fallback={group()}>
+      {(mount) => <Portal mount={mount()}>{group()}</Portal>}
+    </Show>
   )
 }
 
@@ -422,7 +431,7 @@ function ConnectedApp(
       <Show when={props.toolbarMount}>
         {(mount) => (
           <Portal mount={mount()}>
-            <TopBarControls state={state} actions={actions} searchMount={props.titleMount} />
+            <TopBarControls state={state} actions={actions} mount={props.titleMount} />
           </Portal>
         )}
       </Show>

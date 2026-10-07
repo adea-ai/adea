@@ -258,8 +258,7 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
 
   test('an old but valid signed request retains rate accounting beyond its remaining replay window', async () => {
     const f = await fixture()
-    // Keep less than one full rate window, but enough validity for hosted DB admission.
-    // A one-second remainder expired during real Neon round trips; rejection was correct.
+    // Retain less than a full rate window, allowing for hosted database admission latency.
     const proof = await f.proof(
       new Date(Date.now() - (RUNTIME_NODE_PULL_WINDOW_MS - 30_000)).toISOString()
     )

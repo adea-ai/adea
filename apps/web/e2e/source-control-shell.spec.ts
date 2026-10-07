@@ -1,10 +1,11 @@
 // Source control in the production workspace shell: the view's top bar keeps
 // the left-side boundary every other view obeys. The leading section's
 // vertical divider lands on the contextual sidebar's right edge while that
-// sidebar is inline, everything scene-specific (sync status, sync control,
-// and the title-slot pull-request search) sits strictly right of it, and a
-// collapsed or drawer-presented sidebar collapses the boundary back in flow
-// after the leading controls — the exact geometry the Dev view's gate pins.
+// sidebar is inline, everything scene-specific (the pull-request search that
+// leads the group, the sync status, and the sync control) sits strictly right
+// of it, and a collapsed or drawer-presented sidebar collapses the boundary
+// back in flow after the leading controls — the exact geometry the Dev view's
+// gate pins.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
 
@@ -96,11 +97,14 @@ async function expectBoundary(page: Page, width: number) {
     const box = await bounds(sceneControl, 'Scene control')
     expect(box.x).toBeGreaterThanOrEqual(dividerBounds.x + dividerBounds.width)
   }
-  // The title-slot search is scene-specific too; below 48rem the title slot
+  // The pull-request search is scene-specific too; below 48rem the search
   // hides entirely.
   if (width > 768) {
-    const searchBounds = await bounds(search, 'Title-slot search')
+    const searchBounds = await bounds(search, 'Pull-request search')
     expect(searchBounds.x).toBeGreaterThanOrEqual(dividerBounds.x + dividerBounds.width)
+    // The search leads the group: it sits entirely left of the sync status.
+    const syncedBounds = await bounds(page.locator('.dev-scm-topbar__synced'), 'Sync status')
+    expect(searchBounds.x + searchBounds.width).toBeLessThanOrEqual(syncedBounds.x + 1)
   }
 }
 
