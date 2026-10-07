@@ -88,6 +88,17 @@ jobs:
         if: steps.changes.outputs.desktop == 'true'
         run: bun install --frozen-lockfile
 
+      # The browser download (network + apt) never touches the workspace the
+      # client build writes to, so it runs concurrently with the build instead
+      # of serializing in front of the packaged client check. wait-all is the
+      # safe join here: on desktop-clean PRs no background step started and it
+      # is a no-op, and it has no `if` support by design.
+      - name: Install browser for packaged client check
+        id: browser-install
+        if: steps.changes.outputs.desktop == 'true'
+        run: bunx playwright install --with-deps chromium
+        background: true
+
       # The workspace packages ship `dist` (their exports point at it) and the
       # client build reads the staged public assets, so the client is prepared
       # before it is bundled for the shell. The client is the web app's own
@@ -97,9 +108,8 @@ jobs:
         working-directory: apps/desktop
         run: bun run shell:client:build
 
-      - name: Install browser for packaged client check
-        if: steps.changes.outputs.desktop == 'true'
-        run: bunx playwright install --with-deps chromium
+      - name: Wait for the browser install
+        wait-all: true
 
       - name: Check packaged client entry and recovery
         if: steps.changes.outputs.desktop == 'true'
