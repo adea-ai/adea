@@ -121,7 +121,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // headroom; main had 477 bytes); gzip to 880 KiB (~1.1%).
   // The machine-wide janitor (2026-10-07) adds its lazy tab chunk:
   // fileCount ratchets to 156; raw and gzip stay under their caps.
-  total: { rawBytes: 2_960_000, gzipBytes: 880 * 1024, fileCount: 156 },
+  // The owner audit's entry fixes (2026-10-07, #1122): the shell's
+  // bootstrap-fallback toggle hide, root states surface and desktop first-run
+  // chat changes measure 901,316 gzip against the 880 KiB cap and split one
+  // more lazy chunk (157 files; total raw and every per-route cap hold).
+  // Gzip takes its established 10 KiB step, 880 → 890 KiB (~1.1% headroom).
+  total: { rawBytes: 2_960_000, gzipBytes: 890 * 1024, fileCount: 157 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 233 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
