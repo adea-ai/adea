@@ -3,6 +3,7 @@ import { createSignal, Match, onMount, Switch } from 'solid-js'
 
 import { parseDesktopCallbackFragment } from '../lib/desktop-auth-navigation'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { TextLink } from '@adea-ai/ui/components/ui/text-link'
 
 type CompletionStatus = 'opening' | 'opened' | 'invalid' | 'early_access'
 
@@ -53,10 +54,18 @@ export function DesktopAuthComplete() {
         <p class="auth-introduction" role="status">
           Please reach out on github if you&apos;d like to contribute.
         </p>
-        <a href="https://github.com/adea-ai/adea" target="_blank" rel="noreferrer">
+        {/* The published inline link keeps the icon beside the label: bare
+            lucide SVGs are display:block at their intrinsic 24px, which dropped
+            the mark onto its own line below the label. */}
+        <TextLink
+          href="https://github.com/adea-ai/adea"
+          target="_blank"
+          rel="noreferrer"
+          class="inline-flex items-center"
+        >
           Adea on GitHub
-          <ExternalLink aria-hidden="true" />
-        </a>
+          <ExternalLink aria-hidden="true" class="ml-1 size-4 shrink-0" />
+        </TextLink>
       </Match>
       <Match when={status() === 'invalid'}>
         <p class="auth-eyebrow">Adea desktop</p>
