@@ -62,12 +62,6 @@
   background-color: var(--primary-subtle);
 }
 
-/* The Activity row's cancel action is a normal-sized action at the row's
-   start edge, not a stretched row (the row is a column flex). */
-.dev-resources__cancel {
-  align-self: flex-start;
-}
-
 .dev-resources__spacer {
   flex: 1 1 auto;
 }
