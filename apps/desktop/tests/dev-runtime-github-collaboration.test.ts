@@ -380,6 +380,35 @@ describe('pull request read models', () => {
     expect(summary.linkedIssues).toHaveLength(1)
   })
 
+  test('a single summary carries the base branch required approvals, best effort', async () => {
+    const { run } = harness((path) => {
+      if (path === 'graphql') return summaryResponse({ baseRefOid: BASE })
+      if (path.startsWith('repos/acme/widgets/compare/')) return json({ ahead_by: 1, behind_by: 0 })
+      if (path.startsWith('repos/acme/widgets/rules/branches/'))
+        return json([
+          { type: 'deletion' },
+          { type: 'pull_request', parameters: { required_approving_review_count: 2 } },
+        ])
+      // Classic protection is admin-only: the refusal leaves the ruleset count.
+      return undefined
+    })
+    const summary = valueOf<Record<string, unknown>>(
+      await run('dev.github.pullRequestSummary', { pullRequestId: PR_ID, refresh: true })
+    )
+    expect(summary.requiredApprovals).toBe(2)
+    expect(summary.baseSha).toBe(BASE)
+
+    const { run: refused } = harness((path) => {
+      if (path === 'graphql') return summaryResponse()
+      return undefined
+    })
+    const bare = valueOf<Record<string, unknown>>(
+      await refused('dev.github.pullRequestSummary', { pullRequestId: PR_ID, refresh: true })
+    )
+    expect(bare.requiredApprovals).toBeUndefined()
+    expect(bare.behindBy).toBeUndefined()
+  })
+
   test('the timeline interleaves threads, skips unknown nodes and sorts by time', async () => {
     const { run } = harness((path, call) => {
       if (path === 'graphql' && graphqlQuery(call).includes('timelineItems'))

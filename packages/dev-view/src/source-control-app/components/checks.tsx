@@ -23,11 +23,12 @@ import {
 } from 'solid-js'
 
 import { errorText, type ScmClient } from '../client'
+import { hasCheckLog, runTiming } from '../model/checks'
 import { duration, relativeTime, shortSha } from '../model/format'
 import { failureLines, logLines } from '../model/log'
-import type { ProviderCapabilities, PullRequestView } from '../model/types'
+import { providerOf, type ProviderCapabilities, type PullRequestView } from '../model/types'
 import type { AppActions } from './actions'
-import { RollupChip, StateMessage } from './bits'
+import { RollupChip, StateMessage, rollupLabel } from './bits'
 
 function checkTone(check: GitHubCheck): { tone: StatusTone; label: string } {
   if (check.status !== 'completed')
@@ -156,11 +157,14 @@ export function ChecksView(props: {
     })
   )
   const selectedCheck = () => (checks() ?? []).find((check) => check.id === selected())
+  const logged = (check: GitHubCheck) =>
+    props.capabilities.checkLogs && hasCheckLog(check, providerOf(props.pr.id))
+  const loggedCheck = () => {
+    const check = selectedCheck()
+    return check && logged(check) ? check : undefined
+  }
   const [log] = createResource(
-    () =>
-      props.capabilities.checkLogs && selectedCheck()?.status === 'completed'
-        ? { pr: props.pr.id, id: selected()! }
-        : undefined,
+    () => (loggedCheck() ? { pr: props.pr.id, id: selected()! } : undefined),
     async (source) => props.client.checkLog(source.pr, source.id)
   )
   const lines = createMemo(() => (log() ? logLines(log()!.text) : []))
@@ -190,7 +194,7 @@ export function ChecksView(props: {
           {(entry) => (
             <Button
               type="button"
-              variant="ghost"
+              variant={entry.sha === sha() ? 'secondary' : 'ghost'}
               size="sm"
               class="h-auto w-full justify-start"
               aria-current={entry.sha === sha() ? 'true' : undefined}
@@ -200,7 +204,8 @@ export function ChecksView(props: {
               <span class="flex min-w-0 flex-col items-start">
                 <span class="dev-scm-truncate">{entry.headline}</span>
                 <span class="dev-scm-caption">
-                  {shortSha(entry.sha)} · {relativeTime(entry.committedAt, props.now)}
+                  {shortSha(entry.sha)} · {relativeTime(entry.committedAt, props.now)} ·{' '}
+                  {rollupLabel[entry.checks]}
                 </span>
               </span>
             </Button>
@@ -223,6 +228,9 @@ export function ChecksView(props: {
             <span class="dev-scm-caption">
               On <span class="dev-scm-mono">{shortSha(sha())}</span>
               {commit() ? ` · ${commit()!.headline}` : ''}
+              {runTiming(checks() ?? [], props.now)
+                ? ` · ${runTiming(checks() ?? [], props.now)}`
+                : ''}
             </span>
           </div>
           <ActionButton
@@ -286,7 +294,7 @@ export function ChecksView(props: {
                       <span class="dev-scm-caption">
                         {duration(check.startedAt, check.completedAt)}
                       </span>
-                      <Show when={check.status === 'completed' && props.capabilities.checkLogs}>
+                      <Show when={logged(check)}>
                         <Button
                           type="button"
                           variant="link"
@@ -295,7 +303,7 @@ export function ChecksView(props: {
                           aria-label={`View log for ${check.name}`}
                           onClick={() => setSelected(check.id)}
                         >
-                          View log
+                          {check.id === selected() ? 'Log below' : 'View log'}
                         </Button>
                       </Show>
                     </div>
@@ -305,7 +313,7 @@ export function ChecksView(props: {
             </div>
           </Show>
         </Show>
-        <Show when={selectedCheck()}>
+        <Show when={loggedCheck()}>
           {(check) => (
             <section class="dev-scm-log" aria-label={`Log for ${check().name}`}>
               <div class="dev-scm-log__head">

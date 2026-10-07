@@ -294,6 +294,7 @@ export function createSourceControlState(options: {
             id: worktree.id,
             ...(worktree.repoId ? { repoId: worktree.repoId } : {}),
             ...(worktree.headRef ? { headRef: worktree.headRef } : {}),
+            ...(worktree.canonicalRoot ? { path: worktree.canonicalRoot } : {}),
             archived: worktree.archived,
           })),
           sessions.map((session) => ({

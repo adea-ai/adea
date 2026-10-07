@@ -48,19 +48,7 @@ export function MergeDockView(props: {
       <div class="dev-scm-dock__row">
         <FacetChip facet={props.dock.reviews} />
         <span class="dev-scm-caption dev-scm-truncate dev-scm-dock__detail">
-          {props.pr.reviews.length > 0
-            ? props.pr.reviews
-                .filter(
-                  (review) => review.state === 'approved' || review.state === 'changes_requested'
-                )
-                .map(
-                  (review) =>
-                    `${review.actor.login} ${review.state === 'approved' ? 'approved' : 'requested changes'}`
-                )
-                .join(', ') || 'No approvals yet.'
-            : props.pr.requestedReviewers.length > 0
-              ? `Waiting on ${props.pr.requestedReviewers.map((reviewer) => reviewer.login).join(', ')}.`
-              : 'No reviews yet.'}
+          {props.dock.reviews.summary}
         </span>
         <Show when={props.dock.reviews.canReview}>
           <Button type="button" variant="outline" size="sm" onClick={() => props.onReview()}>
@@ -71,7 +59,7 @@ export function MergeDockView(props: {
       <div class="dev-scm-dock__row">
         <FacetChip facet={props.dock.checks} />
         <span class="dev-scm-caption dev-scm-truncate dev-scm-dock__detail">
-          {props.pr.checks.skipped > 0 ? `${props.pr.checks.skipped} skipped.` : ''}
+          {props.dock.checks.summary}
         </span>
         <Button type="button" variant="ghost" size="sm" onClick={() => props.onViewChecks()}>
           View checks
@@ -215,7 +203,7 @@ export function MergeDockView(props: {
         >
           <Button
             type="button"
-            variant="ghost"
+            variant="destructive"
             size="sm"
             disabled={props.busy !== undefined}
             onClick={() => props.onClose()}

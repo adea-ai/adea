@@ -224,6 +224,7 @@ const MR_FIELDS = `
   id iid title webUrl state draft
   author { ${ACTOR} }
   sourceBranch targetBranch diffHeadSha sourceProjectId targetProjectId
+  diffRefs { startSha }
   labels { nodes { title } }
   assignees { nodes { ${ACTOR} } }
   reviewers { nodes { ${ACTOR} mergeRequestInteraction { reviewState approved } } }
@@ -398,6 +399,14 @@ export type ProjectSettings = Readonly<{
   defaultBranch: string
 }>
 
+/** The target branch commit the merge request's diff starts from, as
+ *  decoration: a missing or malformed sha is omitted. */
+function baseShaOf(refs: unknown): { baseSha?: string } {
+  if (typeof refs !== 'object' || refs === null) return {}
+  const start = (refs as Record<string, unknown>).startSha
+  return typeof start === 'string' && /^[0-9a-f]{40}$/.test(start) ? { baseSha: start } : {}
+}
+
 export function settingsFromProject(payload: unknown): ProjectSettings {
   const item = obj(payload, 'project')
   const method = optStr(item.merge_method, 'project.merge_method', 32) ?? 'merge'
@@ -488,6 +497,7 @@ export function mapMergeRequest(
     headRef: str(item.sourceBranch, `${path}.sourceBranch`, 512),
     headSha: gitSha(item.diffHeadSha, `${path}.diffHeadSha`),
     baseRef: str(item.targetBranch, `${path}.targetBranch`, 512),
+    ...baseShaOf(item.diffRefs),
     crossRepository: String(item.sourceProjectId) !== String(item.targetProjectId),
     additions: typeof stats.additions === 'number' ? stats.additions : 0,
     deletions: typeof stats.deletions === 'number' ? stats.deletions : 0,
@@ -503,6 +513,9 @@ export function mapMergeRequest(
     requestedReviewers: requested,
     reviews,
     ...(reviewDecision ? { reviewDecision } : {}),
+    ...(Number.isSafeInteger(item.approvalsRequired) && approvalsRequired >= 0
+      ? { requiredApprovals: Math.min(approvalsRequired, 100) }
+      : {}),
     mergeable: conflicts ? 'conflicting' : detailed === 'MERGEABLE' ? 'mergeable' : 'unknown',
     mergeState,
     checks: rollupOf(item.headPipeline, `${path}.headPipeline`),

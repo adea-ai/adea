@@ -13,6 +13,8 @@ export type LinkedSession = Readonly<{
   runtimeSessionId: string
   projectId: string
   worktreeId: string
+  /** The worktree's checkout on this device, when the runtime reports it. */
+  worktreePath?: string
   title: string
   lifecycle: string
 }>

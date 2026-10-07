@@ -401,6 +401,7 @@ const files: GitHubChangedFile[] = [
 const checks: GitHubCheck[] = [
   {
     id: '101',
+    detailsUrl: 'https://github.com/adea-ai/adea/actions/runs/9001/job/101',
     name: 'unit-tests',
     status: 'completed',
     conclusion: 'failure',
@@ -410,6 +411,7 @@ const checks: GitHubCheck[] = [
   },
   {
     id: '102',
+    detailsUrl: 'https://github.com/adea-ai/adea/actions/runs/9001/job/102',
     name: 'typecheck',
     status: 'completed',
     conclusion: 'failure',
@@ -419,6 +421,7 @@ const checks: GitHubCheck[] = [
   },
   {
     id: '103',
+    detailsUrl: 'https://github.com/adea-ai/adea/actions/runs/9001/job/103',
     name: 'lint',
     status: 'completed',
     conclusion: 'success',
