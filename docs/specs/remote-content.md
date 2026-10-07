@@ -83,6 +83,45 @@ The ledger callback must provide the durable atomic insert/compare-and-set
 operation; the package cannot prove atomicity for an adapter backed by an
 external database.
 
+## Request-bound return results
+
+`createRemoteResultReceiver` creates a fresh client X25519 key pair for one
+workspace/node/request and a positive validity window of at most 24 hours.
+WebCrypto generates its private key as nonextractable. A module-private WeakMap
+holds that key; the frozen receiver exposes only a public descriptor. Neither
+JSON serialization nor a structurally copied receiver exports or recovers the
+private capability. The descriptor contains exactly `version`, a fresh
+`return_<UUID>` key ID, canonical 32-byte base64url `publicKey`, `workspaceId`,
+`runtimeNodeId`, `requestId`, `issuedAt` and `expiresAt`.
+
+The client places the public descriptor inside its authenticated encrypted
+command body. The host's `sealRemoteResult` validates its exact bounded shape,
+canonical fields and expiry, and matches all three scope identities against the
+independently authorized command. It seals with the existing standards-library
+suite and envelope v1, using authenticated `execution.result` payload type and
+the descriptor's return key ID, scope and validity window. It introduces no new
+cryptographic primitive, envelope wire version or command-key authority.
+
+`openRemoteResult` checks the original receiver, scope, return key ID, payload
+direction and window before the generic authenticated decrypt/replay operation.
+The same branded atomic replay guard is required. Only one in-flight open and
+one successful plaintext release are permitted per receiver. A failed
+authentication does not consume the receiver. After success, the private key
+reference is dropped. `closeRemoteResultReceiver` drops it on cancellation,
+account/workspace changes or client teardown, including during an awaited
+replay claim; a cancelled handoff clears decrypted bytes and fails closed as
+`return_key_unavailable` instead of releasing them.
+
+HPKE **base mode does not authenticate the sender**. Return-key possession is
+not host authorization. The caller must validate the host's authenticated
+transport or signed receipt before calling the result opener. Similarly, the
+host must authorize the command before trusting its return descriptor. The
+module establishes confidentiality and request binding; durable relay/inbox
+storage, authenticated node receipt handling, reconnect/restart key recovery,
+queued key rotation/revocation and product lifecycle integration remain their
+owning lanes. These transient result keys grant no ContentSyncDevice or
+durable-history decryption authority.
+
 ## Key boundary and lifecycle
 
 `generateRemoteCommandKeyPair` and the HPKE operations accept `CryptoKey`
@@ -112,3 +151,16 @@ require their owning lanes.
   expiry, and error redaction.
 - `packages/remote-content/fixtures/remote-content-envelope-v1.json` — known
   nonproduction vector inputs and expected RFC 9180 envelope bytes.
+- `packages/remote-content/tests/unit/remote-result.test.ts` — distinct client
+  return recipients, no private-key serialization, scope/direction/window
+  binding, strict public descriptors, wrong command keys, concurrent replay,
+  cancellation during an atomic claim, bounded content and sanitized errors.
+- `apps/web/e2e/remote-result-crypto.spec.ts` — production module bundled for
+  headless Chromium, client-held return key, Node and Bun host sealing and
+  browser decryption, no private-key transfer and no second plaintext release.
+  The main E2E lane includes this fixture; it validates crypto interoperability,
+  not the unfinished relay or authenticated host-receipt integration.
+- `packages/remote-content/tests/unit/node-entry.test.ts` — consumes the built
+  Node ESM entry without a TypeScript loader, preserving command exports and
+  completing a request-bound result round trip. The package test command builds
+  the entry before running Bun's native suite.

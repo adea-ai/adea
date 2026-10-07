@@ -16,7 +16,7 @@
     "lint": "oxlint",
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
-    "test": "bun test tests/unit",
+    "test": "bun run build && bun test tests/unit",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
