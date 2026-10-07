@@ -1657,6 +1657,7 @@
 .workspace-app-library__heading h1 {
   margin: 0;
   font-size: calc(1.75rem * var(--font-ui-scale, 1));
+  font-weight: 600;
 }
 .workspace-app-library__heading p {
   margin: 0.25rem 0 0;
