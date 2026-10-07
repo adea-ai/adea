@@ -6,6 +6,11 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
+    "./runtime-node-delivery": {
+      "types": "./dist/runtime-node-delivery.d.ts",
+      "development": "./src/runtime-node-delivery.ts",
+      "import": "./dist/runtime-node-delivery.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "development": "./src/index.ts",

@@ -1,0 +1,1 @@
+ALTER TYPE "app"."workspace_event_actor_kind" ADD VALUE 'runtime_node';

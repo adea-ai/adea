@@ -11,17 +11,17 @@ same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
 ## Scope
 
-This page describes **identity**: registering a node, proving it is alive,
-rotating its keys, and revoking it. It is the substrate the local and
-self-hosted runtime work builds on. It does not describe command dispatch,
-relay, or execution: nothing here can make a machine run anything, and no path
-in this subsystem reads a secret from a node.
+This page describes **identity** and authenticated outbound delivery: registering
+a node, proving it is alive, rotating its keys, revoking it, and pulling its
+encrypted commands. It is the substrate the local and self-hosted runtime work
+builds on. Execution acceptance belongs to the host: this subsystem does not
+decrypt content or make a machine run anything.
 
-A registered node is **not a principal**. It has no session, no cookie, and no
-permission of its own; every request that registers, rotates, or revokes one is
+A registered node has no user session or cookie. Its signing key authenticates
+only its own delivery and liveness; every request that registers, rotates, or revokes one is
 authorized as a _user_ who holds `runtime.invoke` on the workspace (owner or
 admin, see `packages/types/src/index.ts`). This is what keeps a compromised
-node's key from being able to grant itself anything beyond proving it exists.
+node's key from granting itself user, administration, execution or history authority.
 
 ## Two kinds, two key classes
 
@@ -33,8 +33,8 @@ Every node holds exactly two keys, and the classes are not interchangeable:
 
 | Role                 | Algorithm | Purpose                                            |
 | -------------------- | --------- | -------------------------------------------------- |
-| `signing`            | `ed25519` | Proves identity and liveness by signing challenges |
-| `command_encryption` | `x25519`  | Would receive command material; never signs        |
+| `signing`            | `ed25519` | Proves identity and liveness; signs outbound pulls |
+| `command_encryption` | `x25519`  | Receives encrypted command material; never signs   |
 
 The role/algorithm pair is enforced twice, because the cost of a confused
 signing key is a node that can be impersonated:
@@ -280,6 +280,53 @@ Queue admission records intent only. Delivery must recheck revocation, retired
 keys, task/profile authorization and expiry before releasing a command.
 `packages/db/tests/integration/task-submissions.test.ts` pins admission/key-change
 races and rejection after revocation.
+
+## Authenticated outbound command pull
+
+`POST .../runtime-nodes/:runtimeNodeId/commands/pull` accepts only the paired
+node's active verified Ed25519 proof. It never resolves or mints a user session.
+Pairing, rotation and revocation retain their user authorization. Node possession
+grants only its delivery/liveness boundary, never administration or history access.
+
+The exact streamed-byte-bounded 1 KiB body is `{ version: 1, keyId, nonce,
+issuedAt, signature }`. UUIDs, UTC millisecond timestamps and 64-byte base64url
+signatures must be canonical. The signed bytes are UTF-8 JSON serialization of
+`['adea-runtime-node-delivery', 1, 'commands.pull', workspaceId, runtimeNodeId,
+keyId, nonce, issuedAt]`; `@adea-ai/types/runtime-node-delivery` supplies the
+shared builder and WebCrypto verifier. Validity is two minutes with at most
+30 seconds of future skew. Operation/scope binding cannot authenticate pairing,
+rotation, another workspace or another node.
+
+Each verified pull atomically claims a durable node/nonce identity. A node has
+60 pulls per minute including empty polls; replay is 409 and exhaustion is 429
+with Retry-After. Foreign/retired keys, revoked nodes and unavailable workspaces
+share a refusal. Invalid proofs consume nothing. Request records retain both
+the proof window and a full minute of rate accounting; they hold no signature,
+private key, credential or content.
+
+`pruneRuntimeNodeDeliveryRequests` deletes at most 1,000 expired records using
+SKIP LOCKED, retaining the full minute rate window even for old proofs. An
+operator schedules it; no in-process timer determines replay correctness.
+
+The transaction preserves admission's membership/workspace, Task, Agent, node
+and key lock order. It rechecks the original owner/admin, Task version,
+project, Agent pin/revision, node and expiry before releasing one envelope.
+Legacy actors are recovered only from unambiguous queue audit provenance;
+missing authority remains withheld. Node possession cannot replace it.
+
+Valid pulls update proof/last-seen timestamps. The first proof per minute emits
+`runtime_node.proof_accepted` with an explicit `runtime_node` actor; every pull
+remains in the nonce ledger. Responses are private/no-store and set no session
+cookie. The separate client omits user credentials, rejects redirects and has
+a five-second native Fetch deadline including response-body reading.
+
+Delivery is at least once: reconnect obtains the same command, submission,
+request identity and ciphertext. Pull never acknowledges delivery, creates an
+attempt or changes Task lifecycle. Durable host inbox/receipts, local policy,
+SDK acceptance/reconciliation and deployed outbound host operation remain.
+
+The boundary is pinned by the runtime-node-delivery integration suite and the
+shared-message, bounded request and API-client tests in their owning packages.
 
 ## What pins this
 

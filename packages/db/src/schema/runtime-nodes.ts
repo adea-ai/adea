@@ -1,5 +1,6 @@
 import {
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -201,5 +202,31 @@ export const runtimeNodeExchangeCredentials = appSchema.table(
   (table) => [
     uniqueIndex('runtime_node_exchange_credentials_digest_uidx').on(table.digest),
     index('runtime_node_exchange_credentials_challenge_idx').on(table.challengeId),
+  ]
+)
+
+/** Authenticated outbound requests only: no user cookies, content or private keys. */
+export const runtimeNodeDeliveryRequests = appSchema.table(
+  'runtime_node_delivery_requests',
+  {
+    id: entityId(),
+    workspaceId: uuid('workspace_id').notNull(),
+    runtimeNodeId: uuid('runtime_node_id').notNull(),
+    signingKeyId: uuid('signing_key_id')
+      .notNull()
+      .references(() => runtimeNodeKeys.id),
+    nonce: uuid('nonce').notNull(),
+    expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.workspaceId, table.runtimeNodeId],
+      foreignColumns: [runtimeNodes.workspaceId, runtimeNodes.id],
+      name: 'runtime_node_delivery_requests_scope_fk',
+    }).onDelete('cascade'),
+    uniqueIndex('runtime_node_delivery_requests_nonce_uidx').on(table.runtimeNodeId, table.nonce),
+    index('runtime_node_delivery_requests_rate_idx').on(table.runtimeNodeId, table.createdAt),
+    index('runtime_node_delivery_requests_expiry_idx').on(table.expiresAt),
   ]
 )

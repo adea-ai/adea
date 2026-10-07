@@ -166,6 +166,14 @@ before the delivery path can run work.
 
 ## Pinned by
 
+Authenticated node pull projects fixed public metadata and the original parsed
+envelope only after fresh node, signing-key, original submitter, Task and Agent
+checks. A rotated encryption key serves only an admitted envelope issued before
+retirement, within its own expiry and the 24-hour grace. Node revocation and
+retired signing keys block pulls; ciphertext is never rebound or re-encrypted.
+Host retention of the old private key, durable inbox, local authorization and
+SDK acceptance remain separate requirements.
+
 - `packages/remote-content/tests/unit/remote-content.test.ts` — deterministic
   standards-library vector, round-trip encryption, AAD/ciphertext/recipient
   tampering, key-ID retagging, expiry, downgrade, suite/key mismatch, malformed

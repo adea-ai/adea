@@ -34,6 +34,7 @@ export const workspaceEventActorKind = appSchema.enum('workspace_event_actor_kin
   'user',
   'agent',
   'system',
+  'runtime_node',
 ])
 
 export const workspaceEvents = appSchema.table(

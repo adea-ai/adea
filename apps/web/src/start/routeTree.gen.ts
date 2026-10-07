@@ -93,6 +93,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRouteImport } f
 import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRouteImport } from './routes/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
 import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRouteImport } from './routes/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
+import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -587,6 +588,14 @@ const ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute =
     getParentRoute: () =>
       ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute =
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRouteImport.update(
+    {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull',
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -673,6 +682,7 @@ export interface FileRoutesByFullPath {
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -759,6 +769,7 @@ export interface FileRoutesByTo {
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -846,6 +857,7 @@ export interface FileRoutesById {
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -934,6 +946,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -1020,6 +1033,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
   id:
     | '__root__'
     | '/'
@@ -1106,6 +1120,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1149,6 +1164,7 @@ export interface RootRouteChildren {
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
 }
 
 declare module '@tanstack/solid-router' {
@@ -1741,6 +1757,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute
     }
+    '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull': {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
+      fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -2145,6 +2168,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute,
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute:
     ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute,
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute:
+    ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

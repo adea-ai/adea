@@ -39,8 +39,13 @@ user IDs or workspace foreign keys.
    `bun run --cwd packages/db test:integration`.
 
 The root and package integration runners build the public `remote-content`
-entry before running the database producer tests, so a fresh checkout needs no
+and `types/runtime-node-delivery` entries before running the database producer tests, so a fresh checkout needs no
 previous workspace build.
+
+Outbound pulls retain the original submission actor, nonce/rate records and
+current authorization locks before releasing ciphertext. Migrations 0037/0038
+add those records and a distinct runtime-node event actor. Unrecoverable legacy
+authority remains withheld. Pull is not execution acceptance or a host receipt.
 
 Production rollback is forward-only: deploy an application rollback while the expanded schema is
 compatible, then add a reviewed corrective migration. Point-in-time restore is for data-loss
