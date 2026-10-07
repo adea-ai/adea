@@ -122,6 +122,7 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
         aria-label="Terminal output"
         role="region"
         class="min-h-0 flex-1"
+        data-terminal-surface=""
         orientation="both"
         ref={setSurface}
       >

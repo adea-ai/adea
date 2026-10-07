@@ -29,7 +29,7 @@ test('terminal attach renders authenticated shell state and remains keyboard acc
     'authenticated'
   )
   await expect(terminal.getByRole('listitem', { name: /printf fixture, exit 0/ })).toBeVisible()
-  await expect(terminal.locator('.dev-terminal-surface')).toBeVisible()
+  await expect(terminal.locator('[data-terminal-surface]')).toBeVisible()
   await expect(terminal).toHaveAttribute('data-attach-from', '0')
   await expect(terminal).toHaveAttribute('data-renderer', /^(webgl|dom)$/)
 
@@ -84,7 +84,7 @@ test('terminal reconnects after a bounded transport flap and survives a split', 
     'data-state',
     'open'
   )
-  await expect(terminals.nth(1).locator('.dev-terminal-surface')).toBeVisible()
+  await expect(terminals.nth(1).locator('[data-terminal-surface]')).toBeVisible()
   // `open` is set as soon as the socket exists. The initial fixture bytes prove
   // this pane accepted its own sequence-0 stream instead of dropping output
   // after another pane consumed the shared fixture counter.

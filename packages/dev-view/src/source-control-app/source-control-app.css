@@ -74,6 +74,7 @@
    the plain workspace-name title would be. */
 
 @media (max-width: 48rem) {
+  [data-scm-search],
   .dev-scm-topbar__synced {
     display: none;
   }

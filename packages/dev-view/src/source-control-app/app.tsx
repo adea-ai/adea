@@ -136,7 +136,7 @@ function TopBarSearch(props: { state: SourceControlState; actions: AppActions })
       <PopoverAnchor>
         <Input
           type="search"
-          class="w-full min-w-0 max-md:hidden"
+          class="w-full min-w-0"
           data-scm-search=""
           placeholder="Search pull requests and branches"
           aria-label="Search pull requests and branches"

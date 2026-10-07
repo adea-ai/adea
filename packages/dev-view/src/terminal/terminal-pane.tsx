@@ -680,7 +680,7 @@ export function TerminalPane(props: TerminalPaneProps) {
           ))}
       </div>
       <div class="dev-terminal-surface-anchor">
-        <div class="dev-terminal-surface" ref={setSurface} />
+        <div class="dev-terminal-surface" data-terminal-surface="" ref={setSurface} />
         <Show when={search().open}>
           <div class="dev-terminal-search" role="search" aria-label="Search terminal">
             <Input
