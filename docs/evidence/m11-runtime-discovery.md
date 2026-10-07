@@ -1,6 +1,7 @@
 # M11 public runtime discovery increment
 
-Recorded 2026-10-07 after the stable node-reference increment `e8309bdda`.
+Recorded 2026-10-07 after the stable node-reference increment `72c45cc5f`
+(rebased onto merged SDK foundation `d452f30ed`).
 `GET /api/v1/workspaces/:workspaceId/runtime-nodes/:runtimeNodeId/connections`
 joins the authorized Adea registration to public SDK discovery by its exact
 `rnr_` reference. The browser consumes an explicit metadata DTO through the
@@ -30,3 +31,13 @@ transport must be projected separately when available. This is an explicit
 remaining #37 requirement, alongside product UI wiring, direct Local transport,
 content/history availability and live release-candidate certification. Neither a
 successful inventory read nor its eligibility fields authorizes an execution.
+
+After rebasing onto the merged SDK foundation and current shared UI changes,
+`mise exec -- bun run test` passed all workspace tasks and root coverage
+(296 tests, 7,010 assertions). A fresh web production build verified 99
+rendered shared UI modules against 182 sources. Workspace type checks (30
+tasks), lint (17 tasks), formatting and compiled browser guards passed. Final
+route review added the shared request scope so all database clients close after
+the response; the final rebuilt Worker passed all 44 headless desktop/mobile
+cases plus restricted entry/API checks. The isolated Worker and database were
+removed; process and socket checks found no matching test resource remaining.

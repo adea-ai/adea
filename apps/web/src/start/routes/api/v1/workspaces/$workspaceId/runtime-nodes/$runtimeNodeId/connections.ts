@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/solid-router'
+import { withRequestScope } from '../../../../../../../../server/request-scope'
 import { readRuntimeNode, RuntimeNodeError } from '@adea-ai/db'
 import { applicationDatabase } from '../../../../../../../../server/database'
 import { parseListQuery } from '../../../../../../../../server/control-plane-admin-request'
@@ -60,7 +61,7 @@ export const Route = createFileRoute(
 )({
   server: {
     handlers: {
-      GET: ({ request, params }) => get(request, params),
+      GET: ({ request, params }) => withRequestScope(() => get(request, params)),
       OPTIONS: ({ request }) => handleDesktopWorkspacePreflight(request),
     },
   },
