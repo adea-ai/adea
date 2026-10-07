@@ -399,12 +399,8 @@ export function WorkspaceDetailsDialog(props: {
         >
           <AlertDialogTitle>Delete {props.workspace.name}?</AlertDialogTitle>
           <AlertDialogDescription>
-            This permanently deletes the workspace, projects, tasks, agents, conversations, artifact
-            records and stored content in Adea, and removes access for all members. You cannot undo
-            this. On this device, Adea archives session records and removes workspace content,
-            memory and bindings after cleanup is verified. Harness history, shared credentials and
-            your own repositories are preserved. Deletion waits when connected services or other
-            devices cannot verify cleanup.
+            Permanent deletion is unavailable until Adea can verify cleanup. Your workspace and its
+            data will be kept. Once supported, deletion will be permanent and cannot be undone.
           </AlertDialogDescription>
           <Label for="workspace-delete-confirmation">Type {props.workspace.name} to confirm</Label>
           <Input
