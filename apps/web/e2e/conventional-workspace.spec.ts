@@ -2203,11 +2203,12 @@ test('workspace search keeps duplicate destination labels tied to their domain i
       ?.closest('[role="dialog"]')
       ?.querySelector<HTMLElement>('[cmdk-item][aria-selected="true"]')
     const emphasis = option?.querySelector('strong')
-    const frame = emphasis?.closest('.conventional-workspace')
-    if (!emphasis || !frame) return null
+    if (!emphasis) return null
+    // The dialog portals outside the workspace frame; the --cw-* aliases
+    // resolve at :root (#1115), so read the token where the emphasis sits.
     return {
       emphasis: getComputedStyle(emphasis).color,
-      text: getComputedStyle(frame).getPropertyValue('--cw-text').trim(),
+      text: getComputedStyle(emphasis).getPropertyValue('--cw-text').trim(),
     }
   })
   expect(parseColor(emphasisPaint!.emphasis)).toEqual(parseColor(emphasisPaint!.text))
