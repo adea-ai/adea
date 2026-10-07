@@ -11,6 +11,7 @@ import {
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'
 import { statusLabel } from './presentation'
 import './chat.css'
+import { statusDotVariants } from '@adea-ai/ui/components/ui/status-chip'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type ChatViewProps = Readonly<{
@@ -189,7 +190,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           </p>
         </div>
         <div class="dev-chat__status" role="status">
-          <span aria-hidden="true" class="dev-status-dot" />
+          <span aria-hidden="true" class={statusDotVariants({ tone: 'neutral' })} />
           <span>
             {streamState() === 'connecting' ? 'Connecting' : connected() ? 'Live' : 'Disconnected'}
           </span>

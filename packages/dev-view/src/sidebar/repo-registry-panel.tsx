@@ -30,7 +30,6 @@
  * the panel renders that typed state instead of dead controls. This module
  * rides its own lazy chunk (client budget), so it stays dependency-light.
  */
-import { cn } from '@adea-ai/app-ui/lib/utils'
 import type {
   CredentialRef,
   DevCommand,
@@ -78,6 +77,7 @@ import {
   type RepoRegistryRow,
   type RepoRegistryState,
 } from './repo-registry-model'
+import { Badge, type BadgeProps } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
@@ -89,6 +89,19 @@ export type RepoRegistryPanelProps = Readonly<{
   /** Cloud project names keyed by project id; absent names show the short id. */
   projectNames?: DevProjectNames
 }>
+
+/** The lifecycle tone drawn with the published badge rung: success stays
+ *  success, a failed probe is destructive, and the in-flight tones (authorizing,
+ *  refreshing) ride the informational tint. */
+const LIFECYCLE_BADGE_VARIANT: Record<
+  'success' | 'failure' | 'progress' | 'plain',
+  NonNullable<BadgeProps['variant']>
+> = {
+  success: 'success',
+  failure: 'destructive',
+  progress: 'info',
+  plain: 'outline',
+}
 
 type Notice = Readonly<{ tone: 'status' | 'alert'; text: string }>
 
@@ -381,16 +394,9 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                     <span class="dev-tree-row__title" title={row.canonicalRoot}>
                       {repoBaseName(row.canonicalRoot)}
                     </span>
-                    <span
-                      class={cn(
-                        'dev-row-badge',
-                        badge().tone === 'success' && 'dev-row-badge--success',
-                        badge().tone === 'failure' && 'dev-row-badge--failure',
-                        badge().tone === 'progress' && 'dev-row-badge--progress'
-                      )}
-                    >
+                    <Badge size="sm" variant={LIFECYCLE_BADGE_VARIANT[badge().tone ?? 'plain']}>
                       {badge().label}
-                    </span>
+                    </Badge>
                     <Show when={row.record?.remote}>
                       <p class="dev-tree-empty">
                         {row.record?.remote?.displayUrl}

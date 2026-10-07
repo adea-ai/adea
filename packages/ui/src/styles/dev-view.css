@@ -170,19 +170,6 @@
   line-height: 1.4;
 }
 
-.dev-status-dot {
-  width: 0.48rem;
-  height: 0.48rem;
-  flex: none;
-  border-radius: 50%;
-  background: var(--dev-muted);
-}
-
-.dev-status-dot--active {
-  background: var(--success);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 18%, transparent);
-}
-
 .dev-center {
   flex: 1 1 auto;
   min-width: 0;
@@ -328,35 +315,6 @@
 .dev-center [role='separator'][aria-orientation='horizontal']::after {
   height: 1.5rem;
   inset-block: -0.75rem;
-}
-
-.dev-row-badge {
-  /* A solid pill pairs the badge text with the workspace background instead
-     of whatever row wash it sits on, so every status tone keeps 4.5:1 on
-     selected/hover rows (WCAG audit #599). */
-  padding: 0 0.3rem;
-  border: 1px solid var(--dev-border);
-  border-radius: 999px;
-  background: var(--background);
-  color: var(--dev-muted);
-  font-size: calc(0.56rem * var(--font-ui-scale, 1));
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
-.dev-row-badge--success {
-  color: var(--success);
-  border-color: color-mix(in srgb, var(--success) 40%, transparent);
-}
-
-.dev-row-badge--failure {
-  color: var(--destructive);
-  border-color: color-mix(in srgb, var(--destructive) 40%, transparent);
-}
-
-.dev-row-badge--progress {
-  color: var(--primary);
-  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
 }
 
 .dev-tree-row__title {

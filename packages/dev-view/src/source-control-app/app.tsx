@@ -21,7 +21,12 @@ import {
 } from '@adea-ai/ui/components/ui/alert-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
-import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
+import {
+  Kbd,
+  KbdGroup,
+  platformModifierKey,
+  searchShortcutKeyshortcuts,
+} from '@adea-ai/ui/components/ui/kbd'
 import { Popover, PopoverAnchor, PopoverContent } from '@adea-ai/ui/components/ui/popover'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import { Switch as Toggle } from '@adea-ai/ui/components/ui/switch'
@@ -141,7 +146,7 @@ function TopBarSearch(props: { state: SourceControlState; actions: AppActions })
             type="search"
             placeholder="Search pull requests and branches"
             aria-label="Search pull requests and branches"
-            aria-keyshortcuts="Meta+K"
+            aria-keyshortcuts={searchShortcutKeyshortcuts}
             value={query()}
             onInput={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={(event) => {
@@ -153,7 +158,14 @@ function TopBarSearch(props: { state: SourceControlState; actions: AppActions })
             }}
           />
           <InputGroupAddon align="end">
-            <KbdChord keys="⌘K" size="compact" />
+            {/* The chord binds Meta and Ctrl alike (the rail owns the global
+                handler), so the caps draw the modifier the running OS renders.
+                A spelled-out Ctrl cannot ride KbdChord's one-cap-per-character
+                split — the shared group draws one cap per entry. */}
+            <KbdGroup size="compact" aria-hidden="true">
+              <Kbd size="compact">{platformModifierKey()}</Kbd>
+              <Kbd size="compact">K</Kbd>
+            </KbdGroup>
           </InputGroupAddon>
         </InputGroup>
       </PopoverAnchor>
