@@ -72,6 +72,13 @@ export type FilesPaneProps = Readonly<{
    * whenever a node had more than one.
    */
   worktreeId?: string
+  /**
+   * The open file's worktree-relative path, when it belongs to this pane's
+   * worktree. The tree marks that row with the shared selected-row
+   * affordance, so the opened file stays identifiable after focus moves to
+   * the editor leaf.
+   */
+  openPath?: string
   /** Raised when the user opens a file; the central editor leaf consumes it. */
   onOpenFile?: (file: {
     worktreeId: string
@@ -1153,6 +1160,9 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                     <TreeRow
                       class="dev-files__tree-row"
                       item={treeItemById().get(row.node.relativePath)!}
+                      selected={
+                        props.openPath !== undefined && row.node.relativePath === props.openPath
+                      }
                       leading={
                         row.hasChildren ? (
                           <Folder aria-hidden="true" class="dev-files__icon" />
