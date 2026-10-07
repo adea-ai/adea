@@ -318,7 +318,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                             return (
                               <ListRowControl
                                 as="div"
-                                class="dev-devices__row"
+                                stackTrailing={false}
                                 description={`${item.platform} · ${item.state}`}
                                 leading={<Smartphone aria-hidden="true" />}
                                 trailing={
