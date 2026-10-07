@@ -24,6 +24,12 @@
       "development": "./src/appearance/index.ts",
       "import": "./dist/appearance/index.js"
     },
+    "./appearance/window-surface": {
+      "types": "./dist/appearance/window-surface.d.ts",
+      "solid": "./src/appearance/window-surface.ts",
+      "development": "./src/appearance/window-surface.ts",
+      "import": "./dist/appearance/window-surface.js"
+    },
     "./browser": {
       "types": "./dist/browser/index.d.ts",
       "solid": "./src/browser/index.ts",
