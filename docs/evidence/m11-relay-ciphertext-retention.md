@@ -76,10 +76,14 @@ interop and manual product acceptance are not established by these results.
 
 The schema phase merged as main `25264860b403f5f400ab9b4c933f06a15524cba3`.
 That exact commit's [production migration job](https://github.com/adea-ai/adea/actions/runs/37698097521/job/113054687222)
-and Worker deployment reported success. A read-only catalog check against the
-explicit approved project/branch/database remains pending; the available Neon
-connector is unscoped and requires a project ID. No production SQL, live cleanup,
-credential or scheduler action was performed for this evidence update.
+and Worker deployment reported success. A subsequent read-only transaction on
+the Adea project's production branch confirmed the nullable timestamptz column,
+valid/ready partial expiry index, validated expiry constraint and exact 0039 SQL
+hash in the 40-entry migration ledger. Project/branch/database metadata came from
+the authenticated Neon CLI; the transaction was explicitly read-only with a
+five-second statement deadline. Only catalog/migration metadata was read. No
+Task/outbox/content rows, live cleanup, migration dispatch, credential change or
+scheduler action was involved.
 
 After integrating that main commit, both comment/documentation merge conflicts
 were resolved without changing the retention behavior or production proof window.
@@ -99,6 +103,10 @@ application diff now contains no migration SQL or snapshot change.
 
 Production migration/deployment verification, an authorized retention schedule,
 and independent operational evidence remain required. Current-row removal is
+not configured on production: the read-only role catalog found no `_app` role,
+so the supported operator's application-role credential and activation still
+require their own authorized setup. No role/password was created or changed.
+Current-row removal is
 not secure erasure from WAL, backups or replicas. Host inbox/replay, private-key
 retention, supported Control Plane command/result interoperability, execution
 acceptance/reconciliation and packaged/live certification remain their owning
