@@ -121,7 +121,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // headroom; main had 477 bytes); gzip to 880 KiB (~1.1%).
   // The machine-wide janitor (2026-10-07) adds its lazy tab chunk:
   // fileCount ratchets to 156; raw and gzip stay under their caps.
-  total: { rawBytes: 2_960_000, gzipBytes: 880 * 1024, fileCount: 156 },
+  // The owner audit's entry fixes (2026-10-07, #1122): the shell's
+  // bootstrap-fallback toggle hide, root states surface and desktop first-run
+  // chat changes measure 901,316 gzip against the 880 KiB cap and split one
+  // more lazy chunk (157 files; total raw and every per-route cap hold).
+  // Gzip takes its established 10 KiB step, 880 → 890 KiB (~1.1% headroom).
+  total: { rawBytes: 2_960_000, gzipBytes: 890 * 1024, fileCount: 157 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 233 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -206,9 +211,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // gzip against the same build of main's 298,056 / 98,800; the same
     // workspace-nav delta Virtual carries. Raw holds; gzip ratchets to
     // 98 KiB (~0.9% headroom).
-    // The machine-wide janitor (2026-10-07) shares the registry/decoder
-    // chunks this route pulls: 301,071 raw. Raw ratchets to 296 KiB
-    // (~0.7% headroom); gzip holds at 98 KiB.
+    // The machine-wide janitor shares the registry/decoder chunks this route
+    // pulls, and the owner audit's entry fixes touch the same workspace shell
+    // (2026-10-07): 301,071 → 301,621 raw. Raw ratchets to 296 KiB (~0.7%
+    // headroom); gzip holds at 98 KiB.
     chat: { rawBytes: 296 * 1024, gzipBytes: 98 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
@@ -273,7 +279,9 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // among them), and the workspace-create row and its Input/form-field
     // chunks leave the route. Raw ratchets down to 173 KiB (~1.9% headroom);
     // gzip to 59 KiB (~2.4%).
-    devShell: { rawBytes: 173 * 1024, gzipBytes: 59 * 1024 },
+    // The entry audit's dev-view fixes grow the shell chunk (2026-10-07):
+    // CI measures 177,280 raw (local builds measure ~2.7 KB lighter).
+    devShell: { rawBytes: 174 * 1024, gzipBytes: 59 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested

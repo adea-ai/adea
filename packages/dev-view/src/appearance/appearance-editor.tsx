@@ -891,6 +891,10 @@ export function AdeaAppearancePopover(props: AppearancePopoverProps) {
 
   return (
     <Sheet open={props.open} onOpenChange={(open) => (open ? props.onOpen() : props.onDismiss())}>
+      {/* The `dev-appearance-trigger` hook adds the published pressed rung the
+          shared ActionButton has no expanded variant for: Kobalte marks the
+          trigger `data-expanded` while its sheet is open, and without it the
+          open control reads identical to its closed neighbours. */}
       <SheetTrigger
         as={ActionButton}
         variant="ghost"
@@ -898,6 +902,7 @@ export function AdeaAppearancePopover(props: AppearancePopoverProps) {
         tooltip="Open appearance settings"
         tooltipIcon={<Palette aria-hidden="true" />}
         aria-label="Appearance settings"
+        class="dev-appearance-trigger"
       >
         <Palette aria-hidden="true" />
       </SheetTrigger>
