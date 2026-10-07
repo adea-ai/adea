@@ -1,4 +1,13 @@
 /** Cloud-safe projections of the public Control Plane discovery contract. */
+export type ApiRuntimeNode = ApiRuntimeNodeConnectionsResponse['node'] &
+  Readonly<{
+    platform: string
+    softwareVersion: string
+    lastSeenAt: string | null
+  }>
+
+export type ApiRuntimeNodesResponse = Readonly<{ nodes: readonly ApiRuntimeNode[] }>
+
 export type ApiRuntimeConnection = Readonly<{
   id: string
   runtimeDefinitionId: string
