@@ -16,7 +16,8 @@ declare global {
   }
 }
 
-async function openShellWithSourceControl(page: Page) {
+/** Load the production WorkspaceNavigation harness; it boots into the Dev view. */
+async function openShellHarness(page: Page) {
   await page.route('**' + path, (route) =>
     route.fulfill({
       contentType: 'text/html',
@@ -32,6 +33,10 @@ async function openShellWithSourceControl(page: Page) {
   await page.waitForFunction(() => Boolean(window.workspaceNavigationPresentationHarness), null, {
     timeout: 120_000,
   })
+}
+
+async function openShellWithSourceControl(page: Page) {
+  await openShellHarness(page)
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   await page.getByRole('button', { name: 'Enable Source control', exact: true }).click()
@@ -98,6 +103,54 @@ async function expectBoundary(page: Page, width: number) {
     expect(searchBounds.x).toBeGreaterThanOrEqual(dividerBounds.x + dividerBounds.width)
   }
 }
+
+test('the Dev git pane lays its rows out and sizes its glyphs', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  // The presentation harness boots into the Dev view with a worktree that
+  // carries a repository, so the pane's remote section renders.
+  await openShellHarness(page)
+  const left = page.getByRole('complementary', { name: 'Developer utilities (left)' })
+  await left
+    .getByRole('group', { name: 'Files and Source Control' })
+    .getByRole('button', { name: 'Source control' })
+    .click()
+  const pane = left.getByRole('region', { name: 'Source control' })
+  await expect(pane).toBeVisible()
+
+  // The header's commit glyph rides the text at the shared inline-icon size,
+  // not lucide's unsized 24px default.
+  const glyph = pane.locator('.dev-sc__header svg').first()
+  await expect(glyph).toBeVisible()
+  await expect
+    .poll(() => glyph.evaluate((node) => Math.round(node.getBoundingClientRect().width)))
+    .toBe(16)
+
+  // Git pane rows are aligned flex rows whose names truncate on their line;
+  // before the pane's stylesheet rules existed these were unaligned inline
+  // runs.
+  const row = pane.locator('.dev-files__row').first()
+  await expect(row).toBeVisible()
+  await expect.poll(() => row.evaluate((node) => getComputedStyle(node).display)).toBe('flex')
+  const name = row.locator('.dev-files__name')
+  await expect(name).toBeVisible()
+  expect(await name.evaluate((node) => getComputedStyle(node).whiteSpace)).toBe('nowrap')
+
+  // Check badges share their run's row instead of wrapping under the name.
+  await pane.getByRole('button', { name: 'Load checks' }).click()
+  const checkRow = pane.locator('.dev-sc__list .dev-files__row').first()
+  await expect(checkRow).toBeVisible()
+  await expect
+    .poll(() =>
+      checkRow.evaluate((node) => {
+        const badge = node.querySelector('.dev-files__badge')
+        if (!badge) return null
+        const rowBox = node.getBoundingClientRect()
+        const badgeBox = badge.getBoundingClientRect()
+        return badgeBox.top >= rowBox.top && badgeBox.bottom <= rowBox.bottom + 1
+      })
+    )
+    .toBe(true)
+})
 
 for (const width of [768, 1024, 1440]) {
   test(`source control top bar keeps the sidebar boundary at ${width}px`, async ({ page }) => {

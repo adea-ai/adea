@@ -142,6 +142,114 @@ const runtime = {
           },
         ],
       }
+    } else if (command.operation === 'dev.worktree.list') {
+      // The source control pane resolves its worktree context here; the
+      // fixture worktree carries the repository id its remote section reads.
+      value = {
+        items: [
+          {
+            id: 'fixture-adea-example',
+            repoId: 'fixture-repo-adea',
+            headRef: 'feature/example',
+            lifecycle: 'ready',
+            generation: 1,
+          },
+        ],
+        observedAt: new Date().toISOString(),
+      }
+    } else if (command.operation === 'dev.git.status') {
+      value = {
+        worktreeId: String(command.body.worktreeId),
+        headRef: 'feature/example',
+        indexSha: '0'.repeat(40),
+        entries: [],
+        observedAt: new Date().toISOString(),
+      }
+    } else if (command.operation === 'dev.github.account') {
+      value = {
+        provider: 'github',
+        host: 'github.com',
+        login: 'octocat',
+        observedAt: new Date().toISOString(),
+      }
+    } else if (command.operation === 'dev.github.repository') {
+      value = {
+        repoId: command.body.repoId,
+        provider: 'github',
+        host: 'github.com',
+        owner: 'example',
+        name: 'repository',
+        fullName: 'example/repository',
+        defaultBranch: 'main',
+        url: 'https://github.com/example/repository',
+        visibility: 'private',
+        fork: false,
+        freshness: 'fresh',
+        observedAt: new Date().toISOString(),
+        defaultBranchHead: { sha: 'a'.repeat(40), checks: 'success' },
+      }
+    } else if (command.operation === 'dev.github.pullRequests') {
+      value = {
+        items: [
+          {
+            id: 'gh:example/repository#7',
+            repoId: command.body.repoId,
+            number: 7,
+            title: 'Dev View foundation',
+            url: 'https://github.com/example/repository/pull/7',
+            state: 'open',
+            draft: false,
+            author: { login: 'juno', kind: 'bot' },
+            headRef: 'feature/example',
+            headSha: 'b'.repeat(40),
+            baseRef: 'main',
+            crossRepository: false,
+            additions: 12,
+            deletions: 4,
+            changedFiles: 2,
+            commitCount: 1,
+            labels: [],
+            assignees: [],
+            requestedReviewers: [],
+            reviews: [],
+            mergeable: 'mergeable',
+            mergeState: 'clean',
+            checks: { state: 'success', passing: 2, failing: 0, running: 0, skipped: 0, total: 2 },
+            mergeMethods: ['merge', 'squash'],
+            autoMergeAllowed: false,
+            viewerCanUpdateBranch: true,
+            linkedIssues: [],
+            createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+            updatedAt: new Date(Date.now() - 600_000).toISOString(),
+            observedAt: new Date().toISOString(),
+          },
+        ],
+        observedAt: new Date().toISOString(),
+      }
+    } else if (command.operation === 'dev.github.checks') {
+      value = {
+        items: [
+          {
+            id: '201',
+            name: 'unit-tests',
+            status: 'completed',
+            conclusion: 'success',
+            title: 'All green',
+            startedAt: new Date(Date.now() - 900_000).toISOString(),
+            completedAt: new Date(Date.now() - 800_000).toISOString(),
+          },
+          {
+            id: '202',
+            name: 'typecheck',
+            status: 'completed',
+            conclusion: 'failure',
+            title: '1 error',
+            startedAt: new Date(Date.now() - 900_000).toISOString(),
+            completedAt: new Date(Date.now() - 790_000).toISOString(),
+          },
+        ],
+        observedAt: new Date().toISOString(),
+      }
     } else if (command.operation === 'dev.device.capabilities') {
       value = {
         items: [

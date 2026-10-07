@@ -394,6 +394,14 @@ test.describe('source control app', () => {
     await shot(page, '06-checks')
     await page.getByRole('button', { name: 'Re-run failed jobs' }).click()
     await expect(page.getByText('Failed jobs are re-running.')).toBeVisible()
+
+    // The Commits tab headline sits at the row-title scale (the 12px text-xs
+    // the sidebar's commit rows inherit from Button sm), not the app's 16px
+    // base towering over every other row title.
+    await page.getByRole('tab', { name: 'Commits', exact: true }).click()
+    const headline = page.locator('.dev-scm-commit-line .dev-scm-truncate').first()
+    await expect(headline).toBeVisible()
+    await expect(headline).toHaveCSS('font-size', '12px')
   })
 
   test('new pull request opens a draft and opens it', async ({ page }) => {
@@ -778,6 +786,76 @@ test.describe('source control app', () => {
       (entry) => entry.operation === 'dev.gitlab.account'
     )
     expect(gitlabChecks.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('inbox rows carry the pull request state in a 20px mark', async ({ page }) => {
+    await openHarness(page)
+    const openIcon = page.locator('[data-pr="912"] > svg')
+    await expect(openIcon).toHaveAttribute('aria-label', 'Open')
+    // The mark fits the 20px leading grid column instead of lucide's 24px
+    // default overflowing it.
+    await expect
+      .poll(() => openIcon.evaluate((node) => Math.round(node.getBoundingClientRect().width)))
+      .toBe(20)
+    const openColor = await openIcon.evaluate((node) => getComputedStyle(node).color)
+
+    // A merged row shows the merge mark in its own hue, never the green
+    // open icon. The scope tabs live on the project inbox.
+    await page.getByRole('tab', { name: 'Merged' }).click()
+    const mergedIcon = page.locator('.dev-scm-row > svg').first()
+    await expect(mergedIcon).toHaveAttribute('aria-label', 'Merged')
+    await expect(mergedIcon).toHaveClass(/dev-scm-row__icon--merged/)
+    await expect
+      .poll(() => mergedIcon.evaluate((node) => Math.round(node.getBoundingClientRect().width)))
+      .toBe(20)
+    expect(await mergedIcon.evaluate((node) => getComputedStyle(node).color)).not.toBe(openColor)
+
+    // Drafts keep the draft mark; the draft row lives on the inbox scope.
+    await page.getByRole('tab', { name: 'Inbox', exact: true }).click()
+    const draftIcon = page.locator('[data-pr="913"] > svg')
+    await expect(draftIcon).toHaveAttribute('aria-label', 'Draft')
+    await expect(draftIcon).toHaveClass(/dev-scm-row__icon--draft/)
+  })
+
+  test('the new pull request arrow fits its grid column', async ({ page }) => {
+    await openHarness(page)
+    await page.getByRole('button', { name: 'New pull request' }).click()
+    const dialog = page.getByRole('dialog', { name: 'New pull request' })
+    await expect(dialog.getByText('6 commits · 9 files')).toBeVisible()
+
+    // The branch-flow arrow fits its 20px grid column instead of lucide's
+    // unsized 24px default overflowing it.
+    const arrow = dialog.locator('svg.lucide-arrow-left')
+    await expect
+      .poll(() => arrow.evaluate((node) => Math.round(node.getBoundingClientRect().width)))
+      .toBe(20)
+  })
+
+  test('the branch select stretches with its column, chevron inside', async ({ page }) => {
+    await openHarness(page)
+    await page.getByRole('button', { name: 'New pull request' }).click()
+    const dialog = page.getByRole('dialog', { name: 'New pull request' })
+    await expect(dialog.getByText('6 commits · 9 files')).toBeVisible()
+    const select = dialog.locator('[data-slot="native-select"]').first()
+    await expect(select).toBeVisible()
+    // Stretch the form column beyond the select's intrinsic width: the fix
+    // makes the select track its stretched wrapper, so the absolute chevron
+    // stays inside the box at any column width. Before it, the wrapper
+    // stretched while the select stayed intrinsic and the chevron landed
+    // outside the box on short branch lists.
+    await page.addStyleTag({
+      content: '.dev-scm-form__branches { grid-template-columns: 30rem 1.25rem 30rem !important; }',
+    })
+    await expect
+      .poll(() =>
+        select.evaluate((node) => {
+          const wrapper = node.closest('[data-slot="native-select-wrapper"]')
+          const chevron = wrapper?.querySelector('[data-slot="native-select-icon"]')
+          if (!wrapper || !chevron) return false
+          return chevron.getBoundingClientRect().right <= node.getBoundingClientRect().right + 1
+        })
+      )
+      .toBe(true)
   })
 
   test('the labels picker keeps its list mounted while refetching', async ({ page }) => {
