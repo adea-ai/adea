@@ -152,3 +152,7 @@ work before claiming full catalog coverage. The check timestamp records an
 attempt, including failures, rather than execution authorization. Submission
 must recheck policy and snapshot the pin atomically; this read model does not
 replace that remaining #41 requirement.
+
+[Availability evidence](../evidence/m11-agent-profile-availability.md) records the
+SDK, compiled Worker, isolation, deadline and roster checks. Criterion 41.4 links
+this local evidence without changing its source requirement or verification state.
