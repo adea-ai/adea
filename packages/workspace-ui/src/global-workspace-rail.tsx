@@ -165,8 +165,8 @@ export function GlobalWorkspaceRail(props: {
   })
 
   return (
-    <SideRail collapsed class="global-rail" aria-label="Global navigation">
-      <SideRailHeader class="global-rail__header">
+    <SideRail collapsed data-global-rail="" aria-label="Global navigation">
+      <SideRailHeader data-global-rail-header="">
         {/* The product mark, not a control: workspaces are switched from
             the contextual sidebar's Workspaces accordion (ADR 0011). It
             keeps the old trigger's row height so the rail rhythm holds. */}
@@ -175,7 +175,7 @@ export function GlobalWorkspaceRail(props: {
         </span>
       </SideRailHeader>
 
-      <SideRailContent class="global-rail__content">
+      <SideRailContent data-global-rail-content="">
         <SideRailSection label="Search">
           {/* The chord is drawn as outlined key caps under the icon — the one
               row that advertises a shortcut — while the accessible chord stays
@@ -192,7 +192,7 @@ export function GlobalWorkspaceRail(props: {
             >
               <Search aria-hidden="true" />
             </SideRailItem>
-            <KbdChord keys="⌘K" size="compact" class="global-rail__search-keys" />
+            <KbdChord keys="⌘K" size="compact" data-global-rail-search-keys="" />
           </div>
         </SideRailSection>
 

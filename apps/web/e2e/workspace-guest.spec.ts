@@ -60,7 +60,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   ]) {
     await page.setViewportSize(viewport)
     const layout = await page.evaluate(() => {
-      const rail = document.querySelector<HTMLElement>('.global-rail')!
+      const rail = document.querySelector<HTMLElement>('[data-global-rail]')!
       const surface = document.querySelector<HTMLElement>('.workspace-frame__surface')!
       const railBox = rail.getBoundingClientRect()
       const surfaceBox = surface.getBoundingClientRect()

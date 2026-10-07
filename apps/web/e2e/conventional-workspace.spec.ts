@@ -1236,7 +1236,7 @@ test('the top-bar title slot shows Workspace › Project › Leaf without adding
   )
   await page.goto('/')
   const toolbar = page.getByLabel('Workspace toolbar')
-  const title = toolbar.locator('.workspace-topbar__title')
+  const title = toolbar.locator('[data-topbar-title]')
   await expect(workspaceNav(page).getByRole('heading', { name: 'Work', level: 3 })).toBeVisible()
   const barBefore = await toolbar.boundingBox()
 
@@ -1285,7 +1285,7 @@ test('the top-bar title slot shows Workspace › Project › Leaf without adding
   await workspaceNav(page)
     .getByRole('treeitem', { name: /Roadmap/, level: 2 })
     .click()
-  await page.locator('.global-rail').getByRole('button', { name: 'Virtual view' }).click()
+  await page.locator('[data-global-rail]').getByRole('button', { name: 'Virtual view' }).click()
   await expect(page).toHaveURL(/view=virtual/)
   await expect(
     workspaceNav(page).getByRole('button', { name: 'New room in Work', exact: true })
@@ -1592,7 +1592,7 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
   // must not also carry the conversation transcript's 40px outer gutters.
   const threadComposerGutters = await page.evaluate(() => {
     const composer = document.querySelector<HTMLElement>(
-      '.conventional-thread .conventional-composer'
+      '[data-conventional-thread] .conventional-composer'
     )
     if (!composer) return null
     const style = getComputedStyle(composer)
@@ -1616,7 +1616,7 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
     .poll(
       async () => {
         const offsets = await page
-          .locator('.conventional-transcript > div:first-child')
+          .locator('[data-conventional-transcript]')
           .evaluateAll((nodes) => nodes.map((node) => node.scrollTop).join(','))
         const settled = offsets === previousOffsets
         previousOffsets = offsets
@@ -1655,7 +1655,7 @@ test('restores a channel reading position without rearming transcript follow', a
 
   await page.goto('/')
   await projectConversation(page, 'Product').click()
-  const transcript = page.locator('.conventional-transcript > div:first-child')
+  const transcript = page.locator('[data-conventional-transcript]')
   await expect.poll(() => transcript.evaluate((node) => node.scrollHeight)).toBeGreaterThan(1000)
   await transcript.evaluate((node) => {
     node.scrollTop = 420
@@ -2698,7 +2698,7 @@ test('integrated chrome keeps the global rail while Virtual navigation collapses
   await expect(navigation).toBeVisible()
   const bounds = await page.locator('.workspace-frame').evaluate((frame) => {
     const bar = frame.querySelector('[data-slot="top-bar"]')!.getBoundingClientRect()
-    const rail = frame.querySelector('.global-rail')!.getBoundingClientRect()
+    const rail = frame.querySelector('[data-global-rail]')!.getBoundingClientRect()
     return {
       sameWidth: bar.width === frame.getBoundingClientRect().width,
       below: rail.top >= bar.bottom,
@@ -2745,7 +2745,7 @@ for (const designer of ['roomDesigner', 'characterDesigner'] as const) {
       toolbar.getByRole('button', { name: /(?:Collapse|Expand) (?:contextual|utility) sidebar/ })
     ).toHaveCount(0)
     const bounds = await page.locator('.workspace-frame').evaluate((frame) => {
-      const railBounds = frame.querySelector('.global-rail')!.getBoundingClientRect()
+      const railBounds = frame.querySelector('[data-global-rail]')!.getBoundingClientRect()
       const surface = frame.querySelector('.workspace-frame__surface')!.getBoundingClientRect()
       return { railWidth: railBounds.width, gap: Math.abs(surface.left - railBounds.right) }
     })
@@ -2784,7 +2784,7 @@ test('Chat and Virtual use the same resizable sidebar and preserve selection and
       await expect
         .poll(async () => {
           const sidebar = await chatSidebar.boundingBox()
-          const divider = await toolbar.locator('.workspace-topbar__view-divider').boundingBox()
+          const divider = await toolbar.locator('[data-topbar-view-divider]').boundingBox()
           if (!sidebar || !divider) return Number.POSITIVE_INFINITY
           return Math.abs(divider.x - (sidebar.x + sidebar.width))
         })
@@ -3308,7 +3308,9 @@ test('collapsed Chat navigation is absent from keyboard and accessibility naviga
     // unmounts entirely; both cases must leave nothing focusable behind.
     expect(
       await page.evaluate(() => {
-        const button = document.querySelector<HTMLButtonElement>('.conventional-sidebar button')
+        const button = document.querySelector<HTMLButtonElement>(
+          '[data-conventional-sidebar] button'
+        )
         if (!button) return false
         button.focus()
         return button === document.activeElement

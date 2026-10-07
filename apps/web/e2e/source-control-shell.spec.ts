@@ -53,10 +53,10 @@ async function bounds(locator: Locator, label: string) {
 }
 
 async function expectBoundary(page: Page, width: number) {
-  const navigation = page.locator('.workspace-topbar__navigation')
-  const divider = navigation.locator('.workspace-topbar__view-divider')
+  const navigation = page.locator('[data-topbar-navigation]')
+  const divider = navigation.locator('[data-topbar-view-divider]')
   const sidebar = page.locator('.dev-scm .dev-sidebar')
-  const rail = page.locator('.global-rail')
+  const rail = page.locator('[data-global-rail]')
   const leadingControls = [
     navigation.getByRole('button', { name: 'Back', exact: true }),
     navigation.getByRole('button', { name: 'Forward', exact: true }),

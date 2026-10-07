@@ -120,14 +120,14 @@ export function WorkspaceTopBar(props: {
 
   return (
     <TopBar
-      class="workspace-topbar"
+      data-workspace-topbar=""
       data-dev-actions={props.showDevActions ? '' : undefined}
       draggable={props.platform === 'desktop'}
       macosInset={macos()}
       aria-label="Workspace toolbar"
     >
       <TopBarSection
-        class="workspace-topbar__navigation"
+        data-topbar-navigation=""
         data-dev-actions={props.showDevActions ? '' : undefined}
       >
         <div class="workspace-topbar__navigation-controls">
@@ -182,11 +182,7 @@ export function WorkspaceTopBar(props: {
           {/* The divider renders on every view so the left side of the bar has
               one shape: back/forward/contextual toggle, divider, then the
               Dev-only pane section (empty everywhere else). */}
-          <Separator
-            orientation="vertical"
-            class="workspace-topbar__view-divider"
-            aria-hidden="true"
-          />
+          <Separator orientation="vertical" data-topbar-view-divider="" aria-hidden="true" />
           <div
             class="workspace-topbar__view-actions"
             ref={props.actionsMount}
@@ -195,7 +191,7 @@ export function WorkspaceTopBar(props: {
           />
         </div>
       </TopBarSection>
-      <TopBarTitle class="workspace-topbar__title">
+      <TopBarTitle data-topbar-title="">
         <Show
           when={props.showTitleControls}
           fallback={
@@ -207,7 +203,7 @@ export function WorkspaceTopBar(props: {
           <div class="workspace-topbar__title-mount" ref={props.titleMount} />
         </Show>
       </TopBarTitle>
-      <TopBarSection align="end" class="workspace-topbar__actions">
+      <TopBarSection align="end" data-topbar-actions="">
         {props.resources}
         <WorkspaceAppearanceControl />
         <ActionButton
@@ -230,7 +226,7 @@ export function WorkspaceTopBar(props: {
             control speaks for each side on every view. */}
         <Show when={props.showSidebarDivider}>
           <div class="workspace-topbar__sidebar">
-            <Separator orientation="vertical" class="workspace-topbar__sidebar-divider" />
+            <Separator orientation="vertical" data-topbar-sidebar-divider="" />
             <div class="workspace-topbar__sidebar-mount" ref={props.sidebarMount} />
           </div>
         </Show>

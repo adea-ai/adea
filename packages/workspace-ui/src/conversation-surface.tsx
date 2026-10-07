@@ -440,7 +440,7 @@ export function ConversationSurface(props: {
             </nav>
           </header>
           <SharedConversationSurface
-            class="conventional-transcript"
+            data-conventional-transcript=""
             ref={setTranscript}
             resetKey={channel().id}
             initialReadingPosition={transcriptCache.get(channel().id)?.readingPosition}
@@ -562,7 +562,7 @@ export function ConversationSurface(props: {
             fallback={
               <Show when={props.threadRootMessageId}>
                 <SharedThreadPanel
-                  class="conventional-thread"
+                  data-conventional-thread=""
                   label="Thread"
                   onClose={() => props.onThreadChange(null)}
                 >
