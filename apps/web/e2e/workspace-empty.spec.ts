@@ -19,7 +19,7 @@ async function openFixture(page: Page, attribute: string) {
   return page.getByRole('region', { name: 'No workspaces', exact: true })
 }
 
-test('the shared web/desktop empty screen validates names, supports keyboard creation and blocks duplicates', async ({
+test('the native recovery empty screen validates names, supports keyboard creation and blocks duplicates', async ({
   page,
 }) => {
   const empty = await openFixture(page, 'data-create-delayed')

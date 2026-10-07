@@ -136,9 +136,7 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // bytes above this build of main's 238,819 (~0.3%), repeating the
   // zero-headroom lesson the chat route documented on 2026-10-01. Startup
   // gzip moves to 238 KiB (~2% headroom); startup raw holds.
-  // Workspace deletion adds one lazy empty-workspace creation chunk.
-  // Byte ceilings hold; the measured chunk count moves 157 → 158.
-  total: { rawBytes: 2_990_000, gzipBytes: 890 * 1024, fileCount: 158 },
+  total: { rawBytes: 2_990_000, gzipBytes: 890 * 1024, fileCount: 157 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 238 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the

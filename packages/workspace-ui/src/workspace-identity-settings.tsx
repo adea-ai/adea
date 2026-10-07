@@ -101,7 +101,7 @@ export function WorkspaceIdentitySettings(props: {
       saving: 'Saving…',
       saved: 'Saved.',
       conflict: 'This workspace changed elsewhere. The latest settings are shown; try again.',
-      error: 'The change could not be saved. Use one emoji, or clear it to use the workspace icon.',
+      error: 'Could not save. Use one emoji or clear it for the workspace icon.',
     })[state()]
 
   return (
@@ -123,7 +123,7 @@ export function WorkspaceIdentitySettings(props: {
           }}
         />
       </SettingsRow>
-      <SettingsRow label="Mark" description="One emoji, or leave blank to use the workspace icon.">
+      <SettingsRow label="Mark" description="One emoji, or blank for the workspace icon.">
         <div class="workspace-identity-settings__mark">
           <WorkspaceIdentityMark
             accent={props.workspace.accent}

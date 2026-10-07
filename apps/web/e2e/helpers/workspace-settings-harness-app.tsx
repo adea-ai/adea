@@ -77,6 +77,8 @@ function Harness() {
   const [workspace, setWorkspace] = createSignal({
     ...initialWorkspace,
     isPersonal: document.querySelector('#harness-root')?.hasAttribute('data-personal') ?? false,
+    deletionPending:
+      document.querySelector('#harness-root')?.hasAttribute('data-delete-pending') ?? false,
     logo: document.querySelector('#harness-root')?.hasAttribute('data-personal')
       ? { kind: 'home' as const }
       : initialWorkspace.logo,

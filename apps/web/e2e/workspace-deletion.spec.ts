@@ -19,36 +19,18 @@ async function openFixture(page: Page, attribute?: string) {
   return page.getByRole('dialog', { name: 'Settings harness workspace settings', exact: true })
 }
 
-test('confirmation must match; Cancel resets it and Escape keeps it reviewable; default mark is a box', async ({
+test('active deletion is unavailable and cannot invoke the mutation; default mark is a box', async ({
   page,
 }) => {
   const settings = await openFixture(page)
-  await expect(settings.locator('[data-workspace-icon="box"]')).toHaveCount(2)
-  await settings.getByRole('button', { name: 'Delete workspace', exact: true }).click()
-  const confirmation = page.getByRole('alertdialog', { name: 'Delete Settings harness?' })
-  const input = confirmation.getByRole('textbox', { name: 'Type Settings harness to confirm' })
-  await expect(
-    confirmation.getByRole('button', { name: 'Permanently delete workspace' })
-  ).toBeDisabled()
-  await input.fill('wrong')
-  await expect(
-    confirmation.getByRole('button', { name: 'Permanently delete workspace' })
-  ).toBeDisabled()
-  await input.fill('Settings harness')
-  await expect(
-    confirmation.getByRole('button', { name: 'Permanently delete workspace' })
-  ).toBeEnabled()
-  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await settings.getByRole('button', { name: 'Delete workspace', exact: true }).click()
-  await expect(input).toHaveValue('')
-  await input.press('Escape')
-  await expect(confirmation).toBeVisible()
-  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(confirmation).not.toBeVisible()
-  await expect(
-    settings.getByRole('button', { name: 'Delete workspace', exact: true })
-  ).toBeFocused()
+  const button = settings.getByRole('button', { name: 'Delete workspace', exact: true })
+  await expect(button).toBeDisabled()
+  await expect(settings).toContainText('Permanent deletion is currently unavailable')
+  await expect(settings).toContainText('Your workspace and its data will be kept')
+  await button.dispatchEvent('click')
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('data-delete-calls')
+  await expect(settings.locator('[data-workspace-icon="box"]')).toHaveCount(2)
   await settings.getByRole('textbox', { name: 'Workspace emoji' }).fill('📦')
   await settings.getByRole('textbox', { name: 'Workspace emoji' }).blur()
   await expect(settings.locator('[data-workspace-icon="box"]')).toHaveCount(0)
@@ -56,32 +38,16 @@ test('confirmation must match; Cancel resets it and Escape keeps it reviewable; 
   await expect(settings.locator('[data-workspace-icon="box"]')).toHaveCount(2)
 })
 
-test('failed deletion stays reviewable and retries without dismissing prematurely', async ({
+test('an interrupted pending workspace keeps its data and cannot submit deletion', async ({
   page,
 }) => {
-  const settings = await openFixture(page, 'data-delete-failure')
-  await settings.getByRole('button', { name: 'Delete workspace', exact: true }).click()
-  const confirmation = page.getByRole('alertdialog')
-  await confirmation.getByRole('textbox').fill('Settings harness')
-  await confirmation.getByRole('button', { name: 'Permanently delete workspace' }).click()
-  await expect(confirmation.getByRole('alert')).toContainText('Workspace could not be deleted')
-  await confirmation.getByRole('button', { name: 'Permanently delete workspace' }).click()
-  await expect(settings).not.toBeVisible()
-  await expect(page.locator('#harness-root')).toHaveAttribute('data-delete-calls', '2')
-})
-
-test('pending deletion cannot be submitted twice or dismissed', async ({ page }) => {
-  const settings = await openFixture(page, 'data-delete-delayed')
-  await settings.getByRole('button', { name: 'Delete workspace', exact: true }).click()
-  const confirmation = page.getByRole('alertdialog')
-  await confirmation.getByRole('textbox').fill('Settings harness')
-  await confirmation.getByRole('button', { name: 'Permanently delete workspace' }).click()
-  await expect(confirmation.getByRole('button', { name: 'Deleting…' })).toBeDisabled()
-  await confirmation.press('Escape')
-  await expect(confirmation).toBeVisible()
-  await expect(page.locator('#harness-root')).toHaveAttribute('data-delete-calls', '1')
-  await page.evaluate(() => window.dispatchEvent(new Event('fixture:delete-complete')))
-  await expect(settings).not.toBeVisible()
+  const settings = await openFixture(page, 'data-delete-pending')
+  await expect(
+    settings.getByRole('button', { name: 'Delete workspace', exact: true })
+  ).toBeDisabled()
+  await expect(settings).toContainText('Deletion is pending')
+  await expect(settings).toContainText('Permanent deletion is currently unavailable')
+  await expect(page.locator('#harness-root')).not.toHaveAttribute('data-delete-calls')
 })
 
 test('a non-owner has no destructive settings action', async ({ page }) => {

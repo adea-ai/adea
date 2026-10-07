@@ -10,7 +10,6 @@ import {
   settledData,
   useAgentListQuery,
   useUpdateWorkspaceMutation,
-  useDeleteWorkspaceMutation,
   useReorderWorkspacesMutation,
   useWorkspaceListQuery,
 } from '@adea-ai/data'
@@ -392,13 +391,11 @@ function WorkspaceSettingsOverlay(props: {
 function WorkspaceDetailsOverlay(props: {
   client: AgentHqApiClient
   onClose: () => void
-  onDeleted: (result: ApiWorkspaceDeleteResponse) => void
   open: boolean
   services: WorkspacePlatformServices
   workspace: WorkspaceSummary
   workspaceOrder: readonly WorkspaceSummary[]
 }) {
-  const deleteWorkspace = useDeleteWorkspaceMutation(props.client)
   const reorderWorkspaces = useReorderWorkspacesMutation(props.client)
   const updateWorkspace = useUpdateWorkspaceMutation(props.client)
   return (
@@ -409,13 +406,6 @@ function WorkspaceDetailsOverlay(props: {
       }}
       client={props.client}
       onClose={props.onClose}
-      onDeleteWorkspace={async (confirmation) => {
-        const result = await deleteWorkspace.mutateAsync({
-          workspaceId: props.workspace.id,
-          confirmation,
-        })
-        props.onDeleted(result)
-      }}
       onUpdateWorkspace={async (update) => {
         await updateWorkspace.mutateAsync({ update, workspaceId: props.workspace.id })
       }}
@@ -1459,30 +1449,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         <WorkspaceDetailsOverlay
           workspaceOrder={orderedWorkspaces()}
           client={props.client}
-          onDeleted={(result) => {
-            props.onWorkspaceDeleted?.(result)
-            const next =
-              result.workspaces.find((workspace) => workspace.isPersonal) ?? result.workspaces[0]
-            const state = workspaceStore.getState()
-            state.restoreConventionalState({
-              sidebarGroupBy: Object.fromEntries(
-                Object.entries(state.sidebarGroupBy).filter(([id]) => id !== result.workspaceId)
-              ),
-            })
-            state.switchWorkspace(next?.id ?? null)
-            try {
-              window.localStorage.removeItem(`adea:workspace-events-cursor:${result.workspaceId}`)
-              window.localStorage.removeItem(`adea:workspace-events-resume:${result.workspaceId}`)
-            } catch {
-              // Storage can be disabled; server deletion and navigation still complete.
-            }
-            setHashWorkspaceSettingsOpen(false)
-            void navigate({
-              search: { scene: next?.scene ?? 'home' } as never,
-              hash: '',
-              replace: true,
-            })
-          }}
           onClose={() => {
             setHashWorkspaceSettingsOpen(false)
             workspaceStore.getState().setGlobalPanel(null)

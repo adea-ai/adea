@@ -536,10 +536,7 @@ export class AgentHqApiClient {
   }
 
   async reorderWorkspaces(workspaceIds: readonly string[]): Promise<readonly WorkspaceSummary[]> {
-    return this.request<readonly WorkspaceSummary[]>('/workspaces/reorder', {
-      method: 'POST',
-      body: JSON.stringify({ workspaceIds }),
-    })
+    return this.postJson<readonly WorkspaceSummary[]>('/workspaces/reorder', { workspaceIds })
   }
 
   async createWorkspace(
@@ -585,10 +582,9 @@ export class AgentHqApiClient {
     workspaceId: string,
     confirmation: Readonly<{ confirmationName: string; expectedVersion: number }>
   ): Promise<Readonly<{ workspaceId: string; cleanupPending: true }>> {
-    return this.request(`/workspaces/${encodeURIComponent(workspaceId)}/delete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...confirmation, phase: 'prepare' }),
+    return this.postJson(`/workspaces/${encodeURIComponent(workspaceId)}/delete`, {
+      ...confirmation,
+      phase: 'prepare',
     })
   }
 
@@ -596,13 +592,9 @@ export class AgentHqApiClient {
     workspaceId: string,
     confirmation: Readonly<{ confirmationName: string; expectedVersion: number }>
   ): Promise<ApiWorkspaceDeleteResponse> {
-    return this.request<ApiWorkspaceDeleteResponse>(
+    return this.postJson<ApiWorkspaceDeleteResponse>(
       `/workspaces/${encodeURIComponent(workspaceId)}/delete`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(confirmation),
-      }
+      confirmation
     )
   }
 

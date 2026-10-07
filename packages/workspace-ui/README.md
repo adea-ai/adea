@@ -150,7 +150,7 @@ changes another member's list. Failures keep the prior position and show retry
 guidance. The active workspace stays selected after an order change.
 
 Active permanent workspace deletion is explicitly unavailable until a server-owned
-cleanup-completion verifier exists. The owner confirmation cannot authorize it
-through desktop headers or prepare intent. Pending/restarted retries keep cloud
+cleanup-completion verifier exists. General shows its availability notice and a
+disabled owner action; desktop headers or prepare intent cannot authorize it. Pending/restarted retries keep cloud
 and remaining local data. Blank additional workspaces have no seeded bindings;
 **Use device default** can still use existing device CLI authentication.

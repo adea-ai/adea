@@ -5673,7 +5673,7 @@ in database helpers and API routes, including retries; the UI hides destruction
 even if a stale capability says it is allowed, and fresh native deletion proof is
 unavailable for the root.
 
-General offers an owner-only **Delete workspace** confirmation for additional
+General shows a disabled owner-only **Delete workspace** action for additional
 workspaces with an explicit availability notice. Active permanent deletion is
 currently unavailable: the server lacks a native cleanup-completion verifier.
 Both prepare and final requests return `workspace_deletion_cleanup_required`,
@@ -5682,8 +5682,9 @@ protection remain authoritative. A caller boolean/header, desktop origin,
 owner credential, local receipt or prepare timestamp is never completion proof.
 No new pending intent is created. Historical deleted receipts are retryable only
 when the cloud root is absent; a receipt alongside an active root cannot produce
-`deleted` proof. The shared empty creation screen is a compatibility/recovery
-fallback, not a normal last-workspace flow. Chosen emoji marks remain intact.
+`deleted` proof. Native historical recovery retains an empty creation fallback; the web keeps the
+established inline New workspace navigation. Home prevents a normal last-workspace
+flow. Chosen emoji marks remain intact.
 
 Native preflight uses signed-window commands and `workspace-deletions/cleanup.json`
 to fence admission and refuse live work, PTYs, browser/device lanes, unresolved

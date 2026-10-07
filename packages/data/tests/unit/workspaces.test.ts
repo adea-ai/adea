@@ -2,7 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { QueryClient } from '@tanstack/solid-query'
 
-import { workspaceMutationOptions, workspaceQueryKeys, workspaceQueryOptions } from '../../src'
+import {
+  workspaceMutationOptions,
+  workspaceDeleteMutationOptions,
+  workspaceQueryKeys,
+  workspaceQueryOptions,
+} from '../../src'
 
 const workspace = {
   accent: null,
@@ -116,7 +121,7 @@ describe('workspace identity mutations', () => {
       ['dev-runtime', 'account', next.id, 'node', 'sessions'],
       ['keep runtime']
     )
-    const options = workspaceMutationOptions.delete({} as AgentHqApiClient, queryClient)
+    const options = workspaceDeleteMutationOptions({} as AgentHqApiClient, queryClient)
     await options.onSuccess({ deleted: true, workspaceId: workspace.id, workspaces: [next] })
     expect(queryClient.getQueryData(workspaceQueryKeys.detail(workspace.id))).toBeUndefined()
     expect(
@@ -152,7 +157,7 @@ describe('workspace identity mutations', () => {
           }),
       })
       .catch(() => undefined)
-    const options = workspaceMutationOptions.delete({} as AgentHqApiClient, queryClient)
+    const options = workspaceDeleteMutationOptions({} as AgentHqApiClient, queryClient)
     await options.onSuccess({ deleted: true, workspaceId: workspace.id, workspaces: [] })
     finish!('private')
     await read
@@ -172,7 +177,7 @@ describe('workspace identity mutations', () => {
           }),
       })
       .catch(() => undefined)
-    const options = workspaceMutationOptions.delete({} as AgentHqApiClient, queryClient)
+    const options = workspaceDeleteMutationOptions({} as AgentHqApiClient, queryClient)
     await options.onSuccess({ deleted: true, workspaceId: workspace.id, workspaces: [next] })
     finish!(bootstrap([workspace, next]))
     await read
@@ -189,7 +194,7 @@ describe('workspace identity mutations', () => {
       workspaceQueryKeys.detail(workspace.id),
     ])
       queryClient.setQueryData(queryKey, {})
-    const options = workspaceMutationOptions.delete({} as AgentHqApiClient, queryClient)
+    const options = workspaceDeleteMutationOptions({} as AgentHqApiClient, queryClient)
     await options.onError(new Error('Workspace version conflict'), { workspaceId: workspace.id })
     for (const queryKey of [
       workspaceQueryKeys.bootstrap,

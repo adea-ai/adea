@@ -5,18 +5,10 @@ import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { SettingsNavigation } from '@adea-ai/ui/components/composites/settings'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { Input } from '@adea-ai/ui/components/ui/input'
-import { Label } from '@adea-ai/ui/components/ui/label'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogTitle,
-} from '@adea-ai/ui/components/ui/alert-dialog'
 import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
 import { Brain, LockKeyhole, Settings2, Sparkles } from 'lucide-solid'
-import { createEffect, createSignal, lazy, on, Show, Suspense, type Accessor } from 'solid-js'
+import { createEffect, createSignal, For, lazy, Show, Suspense, type Accessor } from 'solid-js'
 
 import type { WorkspacePlatformServices } from './platform'
 import {
@@ -87,17 +79,6 @@ export function WorkspaceDetailsDialog(props: {
 }) {
   const apiClient = () => props.client ?? props.services?.client
   const [section, setSection] = createSignal<WorkspaceSettingsSection>('general')
-  let deleteOpener: HTMLButtonElement | undefined
-  const [confirmDelete, setConfirmDelete] = createSignal(false)
-  const [confirmationName, setConfirmationName] = createSignal('')
-  const [deleting, setDeleting] = createSignal(false)
-  const [deleteError, setDeleteError] = createSignal('')
-  const resetDeletion = () => {
-    setConfirmDelete(false)
-    setConfirmationName('')
-    setDeleteError('')
-  }
-  createEffect(on(() => [props.workspace.id, props.workspace.version, props.open], resetDeletion))
   const [moving, setMoving] = createSignal(false)
   const [orderError, setOrderError] = createSignal('')
   const workspacePosition = () =>
@@ -114,48 +95,11 @@ export function WorkspaceDetailsDialog(props: {
     try {
       await props.onReorderWorkspaces(ids)
     } catch {
-      setOrderError(
-        'Workspace order could not be saved. Refresh your workspace list and try again.'
-      )
+      setOrderError('Workspace order could not be saved. Try again.')
     } finally {
       setMoving(false)
     }
   }
-  const deleteConfirmed = async () => {
-    if (
-      props.workspace.isPersonal ||
-      !props.workspace.canDelete ||
-      deleting() ||
-      confirmationName() !== props.workspace.name ||
-      !props.onDeleteWorkspace
-    )
-      return
-    setDeleting(true)
-    setDeleteError('')
-    try {
-      await props.onDeleteWorkspace({
-        confirmationName: confirmationName(),
-        expectedVersion: props.workspace.version,
-      })
-      setDeleting(false)
-      resetDeletion()
-      close()
-    } catch (error) {
-      setDeleteError(
-        error instanceof Error &&
-          ['WorkspaceCleanupRefusal', 'WorkspaceCleanupPending'].includes(error.name)
-          ? error.message
-          : error instanceof Error &&
-              'code' in error &&
-              error.code === 'workspace_deletion_cleanup_required'
-            ? error.message
-            : 'Workspace could not be deleted. Check its current name and try again.'
-      )
-    } finally {
-      setDeleting(false)
-    }
-  }
-
   createEffect(() => {
     if (!props.open) return
     const requested = workspaceSettingsSectionFromHash(window.location.hash) ?? 'general'
@@ -174,8 +118,6 @@ export function WorkspaceDetailsDialog(props: {
     if (window.location.hash !== nextHash) window.history.replaceState(null, '', nextHash)
   }
   const close = () => {
-    if (deleting()) return
-    resetDeletion()
     if (window.location.hash.startsWith(workspaceSettingsHashPrefix))
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
     props.onClose()
@@ -240,33 +182,28 @@ export function WorkspaceDetailsDialog(props: {
               {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
             />
             <Show when={props.onReorderWorkspaces && workspacePosition() >= 0}>
-              <SettingsRow
-                label="Workspace order"
-                description="Move this workspace in your own workspace list."
-              >
+              <SettingsRow label="Workspace order">
                 <div class="flex flex-col gap-2">
                   <p role="status">
                     Position {workspacePosition() + 1} of {props.workspaceOrder?.length ?? 0}
                   </p>
                   <div class="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={moving() || workspacePosition() <= 0}
-                      onClick={() => void moveWorkspace(-1)}
-                    >
-                      Move up
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={
-                        moving() || workspacePosition() >= (props.workspaceOrder?.length ?? 0) - 1
-                      }
-                      onClick={() => void moveWorkspace(1)}
-                    >
-                      Move down
-                    </Button>
+                    <For each={[-1, 1] as const}>
+                      {(direction) => (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={
+                            moving() ||
+                            workspacePosition() + direction < 0 ||
+                            workspacePosition() + direction >= (props.workspaceOrder?.length ?? 0)
+                          }
+                          onClick={() => void moveWorkspace(direction)}
+                        >
+                          Move {direction === -1 ? 'up' : 'down'}
+                        </Button>
+                      )}
+                    </For>
                   </div>
                   <Show when={orderError()}>
                     <Alert variant="destructive">
@@ -278,40 +215,18 @@ export function WorkspaceDetailsDialog(props: {
             </Show>
             <Show when={props.workspace.isPersonal}>
               <p class="conventional-settings-note">
-                Your personal workspace stays with your account. You can rename it, change its mark
-                and settings, and move it in your workspace list.
+                Your personal workspace stays with your account.
               </p>
             </Show>
-            <Show
-              when={
-                !props.workspace.isPersonal && props.workspace.canDelete && props.onDeleteWorkspace
-              }
-            >
-              <section class="mt-6 flex flex-col gap-3" aria-label="Delete workspace">
-                <h4>Delete workspace</h4>
-                <Show when={props.workspace.deletionPending}>
-                  <p role="status">
-                    Deletion is pending. This workspace stays visible until cleanup finishes. Retry
-                    deletion to continue.
-                  </p>
-                </Show>
-                <p>
-                  Permanent deletion is currently unavailable until Adea can verify cleanup
-                  completion. Your workspace and its data will be kept.
-                </p>
-                <Button
-                  ref={(element) => {
-                    deleteOpener = element
-                  }}
-                  variant="destructive"
-                  onClick={() => {
-                    resetDeletion()
-                    setConfirmDelete(true)
-                  }}
-                >
+            <Show when={!props.workspace.isPersonal && props.workspace.canDelete}>
+              <SettingsRow
+                label="Delete workspace"
+                description={`${props.workspace.deletionPending ? 'Deletion is pending. ' : ''}Permanent deletion is currently unavailable until cleanup is verified. Your workspace and its data will be kept.`}
+              >
+                <Button variant="destructive" disabled>
                   Delete workspace
                 </Button>
-              </section>
+              </SettingsRow>
             </Show>
           </div>
         </TabsContent>
@@ -380,55 +295,6 @@ export function WorkspaceDetailsDialog(props: {
           </div>
         </TabsContent>
       </Tabs>
-      <AlertDialog
-        open={confirmDelete()}
-        onOpenChange={(open) => {
-          if (!deleting()) {
-            if (open) setConfirmDelete(true)
-            else resetDeletion()
-          }
-        }}
-      >
-        <AlertDialogContent
-          onCloseAutoFocus={(event) => {
-            if (props.open && deleteOpener?.isConnected) {
-              event.preventDefault()
-              deleteOpener.focus()
-            }
-          }}
-        >
-          <AlertDialogTitle>Delete {props.workspace.name}?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Permanent deletion is unavailable until Adea can verify cleanup. Your workspace and its
-            data will be kept. Once supported, deletion will be permanent and cannot be undone.
-          </AlertDialogDescription>
-          <Label for="workspace-delete-confirmation">Type {props.workspace.name} to confirm</Label>
-          <Input
-            id="workspace-delete-confirmation"
-            value={confirmationName()}
-            disabled={deleting()}
-            onInput={(event) => setConfirmationName(event.currentTarget.value)}
-          />
-          <Show when={deleteError()}>
-            <Alert variant="destructive">
-              <AlertDescription>{deleteError()}</AlertDescription>
-            </Alert>
-          </Show>
-          <div class="flex justify-end gap-2">
-            <Button variant="outline" disabled={deleting()} onClick={resetDeletion}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={deleting() || confirmationName() !== props.workspace.name}
-              aria-busy={deleting()}
-              onClick={() => void deleteConfirmed()}
-            >
-              {deleting() ? 'Deleting…' : 'Permanently delete workspace'}
-            </Button>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
     </ModalDialog>
   )
 }
