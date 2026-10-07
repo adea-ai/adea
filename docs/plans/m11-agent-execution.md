@@ -160,6 +160,8 @@ all execution/history state. Its additive migration and supported entry need
 ordered rollout and separately configured scheduling before operational expiry
 acceptance. Host inbox/key retention and cross-product certification remain
 open; this implementation changes no criterion's verification state.
+[Retention evidence](../evidence/m11-relay-ciphertext-retention.md) separates
+local regression coverage from deployment and operational acceptance.
 
 ## Authenticated outbound delivery
 
