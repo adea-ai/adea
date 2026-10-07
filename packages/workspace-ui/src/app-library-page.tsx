@@ -79,7 +79,7 @@ function AppLibraryTile(props: {
         <ActionButton
           variant={props.enabled ? 'default' : 'outline'}
           size="icon-xs"
-          class="workspace-app-library__tile-toggle"
+          class="absolute -top-1.5 -end-1.5"
           aria-label={`${props.enabled ? 'Disable' : 'Enable'} ${props.app.name}`}
           tooltip={
             props.enabled
@@ -100,7 +100,7 @@ function AppLibraryTile(props: {
         <ActionButton
           variant="ghost"
           size="sm"
-          class="workspace-app-library__tile-open"
+          data-tile-open=""
           aria-label={`Open ${props.app.name}`}
           tooltip={`Switch to ${props.app.name}`}
           onClick={() => props.onOpen(props.app.id)}
@@ -125,7 +125,8 @@ function AppLibraryTile(props: {
         <ActionButton
           variant="ghost"
           size="icon-xs"
-          class="workspace-app-library__tile-grip"
+          // The grip drags like its card: same grab cursor, same active state.
+          class="cursor-grab active:cursor-grabbing"
           aria-label={`Drag ${props.app.name} to reorder`}
           aria-description="Drag the app to reorder it. Use the Move left and Move right buttons to reorder without dragging."
           tooltip={`Drag ${props.app.name} to reorder`}

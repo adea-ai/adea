@@ -46,7 +46,8 @@
    chose it and the platform can honor it. Native window vibrancy (the
    desktop's translucent surface) remains shell work; this is the tokenized
    frost the appearance preferences promise everywhere else. */
-[data-surface='frosted'] .conventional-dialog {
+/* Modal dialogs only: sheets carry data-variant and keep their own bands. */
+[data-surface='frosted'] [role='dialog']:not([data-variant]) {
   background-color: color-mix(
     in srgb,
     var(--background) calc(var(--surface-alpha) * 100%),

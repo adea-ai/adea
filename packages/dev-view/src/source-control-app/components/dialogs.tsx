@@ -183,7 +183,7 @@ export function NewPullRequestDialog(props: {
       onClose={() => props.onClose()}
       title="New pull request"
       description={props.repoLabel}
-      class="conventional-dialog"
+      class="max-h-full overflow-y-auto"
     >
       <div class="dev-scm-form">
         <div class="dev-scm-form__branches">
@@ -472,7 +472,7 @@ export function ProvidersDialog(props: {
       onClose={() => props.onClose()}
       title="Git providers"
       description="Checking confirms the CLI sign-in Adea uses for your pull requests. Registered repositories appear in the sidebar grouped by their owner, with your projects underneath."
-      class="conventional-dialog"
+      class="max-h-full overflow-y-auto"
     >
       <div class="dev-scm-form">
         <For each={PROVIDER_ROWS}>

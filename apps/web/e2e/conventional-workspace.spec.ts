@@ -1622,7 +1622,7 @@ test('creates a Task from a side panel without moving the board', async ({ page 
   })
   await page.goto('/?view=chat&app=kanban')
   // A CSS locator: the open modal panel hides the board from role queries.
-  const board = page.locator('.conventional-kanban__board')
+  const board = page.locator('[role="region"][aria-label="Task board"]')
   await expect(board).toBeVisible()
   const before = await board.boundingBox()
   await page.getByRole('button', { name: 'New task', exact: true }).click()
@@ -3711,9 +3711,7 @@ test('App Library tiles retain readable content and actions in narrow and enlarg
           .querySelector('[class*="workspace-app-library__tile-media"]')
           ?.getBoundingClientRect()
         const name = element
-          .querySelector(
-            '[class*="workspace-app-library__tile-name"], [class*="workspace-app-library__tile-open"]'
-          )
+          .querySelector('[class*="workspace-app-library__tile-name"], [data-tile-open]')
           ?.getBoundingClientRect()
         const controls = Array.from(element.querySelectorAll('button')).map((button) =>
           button.getBoundingClientRect()

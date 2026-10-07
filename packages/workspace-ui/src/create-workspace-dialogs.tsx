@@ -40,7 +40,7 @@ export function CreateProjectDialog(props: {
   return (
     <ModalDialog
       modal={false}
-      class="conventional-dialog"
+      class="max-h-full overflow-y-auto"
       open={props.open}
       onClose={props.onClose}
       title="Create Project"
@@ -142,7 +142,7 @@ export function EditProjectDialog(props: {
   return (
     <ModalDialog
       modal={false}
-      class="conventional-dialog"
+      class="max-h-full overflow-y-auto"
       open={props.open}
       onClose={props.onClose}
       title={`Edit ${props.projectName}`}
@@ -213,7 +213,7 @@ export function RenameConversationDialog(props: {
   return (
     <ModalDialog
       modal={false}
-      class="conventional-dialog"
+      class="max-h-full overflow-y-auto"
       open={props.open}
       onClose={props.onClose}
       title={`Rename ${noun()}`}
@@ -275,7 +275,7 @@ export function CreateGroupDialog(props: {
   return (
     <ModalDialog
       modal={false}
-      class="conventional-dialog"
+      class="max-h-full overflow-y-auto"
       open={props.open}
       onClose={props.onClose}
       title="New group conversation"

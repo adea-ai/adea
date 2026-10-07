@@ -730,7 +730,7 @@ export function ConventionalWorkspaceShell(props: {
               <Show when={dialog() === 'details'}>
                 <ModalDialog
                   modal={false}
-                  class="conventional-dialog"
+                  class="max-h-full overflow-y-auto"
                   open
                   onClose={() => setDialog(null)}
                   title="Conversation details"

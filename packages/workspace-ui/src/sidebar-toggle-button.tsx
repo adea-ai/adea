@@ -17,18 +17,21 @@ export function SidebarToggleButton(props: { expanded: boolean; onOpen: () => vo
   const label = () => (props.expanded ? 'Close workspace navigation' : 'Open workspace navigation')
 
   return (
-    <ActionButton
-      type="button"
-      class="conventional-mobile-menu"
-      touchTarget="comfortable"
-      tooltip={label()}
-      aria-label={label()}
-      aria-expanded={props.expanded}
-      onClick={() => props.onOpen()}
-    >
-      <Show when={props.expanded} fallback={<PanelLeftOpen aria-hidden="true" />}>
-        <PanelLeftClose aria-hidden="true" />
-      </Show>
-    </ActionButton>
+    <div class="conventional-mobile-menu">
+      <ActionButton
+        type="button"
+        variant="outline"
+        size="icon-lg"
+        touchTarget="comfortable"
+        tooltip={label()}
+        aria-label={label()}
+        aria-expanded={props.expanded}
+        onClick={() => props.onOpen()}
+      >
+        <Show when={props.expanded} fallback={<PanelLeftOpen aria-hidden="true" />}>
+          <PanelLeftClose aria-hidden="true" />
+        </Show>
+      </ActionButton>
+    </div>
   )
 }

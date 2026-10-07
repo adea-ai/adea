@@ -19,7 +19,6 @@ import {
 import { useTheme } from '@adea-ai/app-ui/components/theme-provider'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
-import { Label } from '@adea-ai/ui/components/ui/label'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { createMemo, createSignal, onCleanup, onMount, untrack } from 'solid-js'
 import { MonitorCog } from 'lucide-solid'
@@ -328,10 +327,10 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
         onClose={() => setLibraryOpen(false)}
         title="Manage themes"
         description="Import a theme file. Imported themes appear in the Light and Dark theme menus and stay on this device."
-        class="conventional-dialog conventional-theme-library-dialog"
+        class="max-h-full w-full max-w-104 overflow-y-auto"
       >
         <div class="conventional-theme-library">
-          <Label class="conventional-theme-library__import">
+          <Button as="label" class="w-full">
             <Input
               type="file"
               accept=".json,application/json"
@@ -343,7 +342,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
               }}
             />
             Import a theme file (.json)
-          </Label>
+          </Button>
           <Show when={importStatus()}>
             <p class="conventional-theme-library__status" role="status">
               {importStatus()}

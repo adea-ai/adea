@@ -177,10 +177,6 @@
   align-items: center;
   justify-content: center;
 }
-.global-rail__logo {
-  width: 2.25rem;
-  height: 2.25rem;
-}
 
 /*
  * The search entry advertises its chord as outlined key caps under the icon
@@ -213,10 +209,7 @@
  * controls extend their accessible names ("update available") so the state is
  * announced, and the dialog itself remains the source of truth.
  */
-.global-rail__account-trigger {
-  position: relative;
-}
-.global-rail__account-trigger .global-rail__update-dot {
+[data-account-trigger] .global-rail__update-dot {
   position: absolute;
   top: 0.4rem;
   right: 0.6rem;
@@ -226,7 +219,7 @@
   background: var(--primary);
   pointer-events: none;
 }
-.global-rail__account-menu .global-rail__update-dot {
+[role='menuitem'] .global-rail__update-dot {
   flex: none;
   width: 0.45rem;
   height: 0.45rem;
@@ -235,9 +228,10 @@
   background: var(--primary);
 }
 
+/* Root-level so portaled dialogs and sheets resolve the aliases too. */
+:root,
 .conventional-workspace,
-.workspace-shell--contextual,
-.conventional-dialog {
+.workspace-shell--contextual {
   --cw-bg: var(--background);
   --cw-surface: var(--card);
   --cw-surface-muted: var(--muted);
@@ -389,31 +383,19 @@
   flex-direction: column;
   gap: 0.125rem;
 }
-.conventional-sidebar-error {
-  margin: 0 0.55rem 0.5rem;
-}
-.conventional-sidebar-empty {
-  padding-inline: 0.75rem;
-  color: var(--muted-foreground);
-  font-size: calc(0.875rem * var(--font-ui-scale, 1));
-  line-height: 1.45;
-}
 .conventional-sidebar__footer-action {
   width: 100%;
 }
+/* The fixed opener's host: it pins the outline button over the view and
+   gives it the card surface to sit on. */
 .conventional-mobile-menu {
   position: fixed;
   z-index: 12;
   top: 0.65rem;
   left: 4.65rem;
   display: grid;
-  width: 2.75rem;
-  height: 2.75rem;
-  place-items: center;
-  border: 1px solid var(--cw-border, var(--border));
-  border-radius: 0.4rem;
+  border-radius: var(--radius-md);
   background: var(--cw-surface, var(--card));
-  color: var(--cw-text, var(--foreground));
   pointer-events: auto;
 }
 .conventional-workspace:has(> .conventional-sidebar--open) .conventional-mobile-menu {
@@ -793,20 +775,10 @@
   font-weight: 600;
   line-height: 1.5;
 }
-.conventional-kanban__filter {
-  width: min(18rem, 100%);
-}
 .conventional-kanban__filter-result {
   color: var(--muted-foreground);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
-}
-.conventional-kanban__alert {
-  align-items: center;
-}
-.conventional-kanban__board {
-  flex: 1;
-  height: 100%;
 }
 .conventional-kanban-card__header {
   display: flex;
@@ -992,21 +964,6 @@
   background: transparent;
 }
 
-/* Every .conventional-dialog renders inside the shared dialog positioner
-   (fixed inset-0 grid place-items-center), which owns centering and the
-   viewport bounds. Sizing the box in-flow — content height capped by
-   max-height — keeps small dialogs content-sized everywhere; the previous
-   fixed + inset + height:fit-content composition stretched small dialogs to
-   the window in the desktop shell (block-axis fit-content does not hold
-   there), which is exactly what this rule must never do. */
-.conventional-dialog {
-  box-sizing: border-box;
-  min-height: 0;
-  width: min(34rem, calc(100% - 4rem));
-  max-width: min(34rem, calc(100% - 4rem));
-  max-height: calc(100svh - 2rem);
-  overflow: auto;
-}
 .conventional-settings-logo {
   display: block;
   flex: 0 0 auto;
@@ -1023,16 +980,9 @@
 .conventional-dialog-form {
   display: grid;
 }
-.conventional-template-options,
-.conventional-search-results {
+.conventional-template-options {
   display: grid;
   gap: 0.45rem;
-}
-/* The palette sizes to its rows; the cap only bounds very long result sets
-   (five rows visible, the rest scroll) so an empty query never leaves a tall
-   half-blank panel. Overrides the shared list's max-h-80. */
-.conventional-search-results {
-  max-height: 18rem;
 }
 .conventional-template-options button {
   display: grid;
@@ -1068,40 +1018,6 @@
   color: var(--cw-muted);
   font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
-/* Search results are cmdk options (divs carrying [cmdk-item]), not buttons;
-   they carry the row-card treatment the workspace dialog always had. */
-.conventional-search-results [cmdk-item] {
-  display: flex;
-  min-height: 3.2rem;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--cw-border);
-  border-radius: 0.45rem;
-  background: var(--cw-surface);
-  text-align: left;
-  cursor: pointer;
-}
-.conventional-search-results [cmdk-item] svg {
-  width: 1.25rem;
-  height: 1.25rem;
-  flex: none;
-  color: var(--cw-muted);
-}
-.conventional-search-results [cmdk-item]:hover,
-.conventional-search-results [cmdk-item][aria-selected='true'] {
-  background: var(--cw-surface-muted);
-  outline: 2px solid var(--cw-focus);
-  outline-offset: -2px;
-}
-.conventional-search-results [cmdk-item] strong {
-  color: var(--cw-foreground);
-  font-weight: 600;
-}
-.conventional-search-results [cmdk-item] small {
-  color: var(--cw-muted);
-  font-size: calc(0.75rem * var(--font-ui-scale, 1));
-}
 .conventional-dialog-empty {
   padding: 1rem;
   color: var(--cw-muted);
@@ -1133,33 +1049,9 @@
   color: var(--cw-muted);
 }
 
-.conventional-theme-library-dialog {
-  width: min(26rem, calc(100% - 3rem));
-}
 .conventional-theme-library {
   display: grid;
   gap: 0.75rem;
-}
-.conventional-theme-library__import {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 2.25rem;
-  padding: 0.45rem 0.9rem;
-  border: 1px solid transparent;
-  border-radius: 0.5rem;
-  background: var(--cw-accent);
-  color: var(--cw-accent-contrast);
-  font-size: calc(0.8rem * var(--font-ui-scale, 1));
-  font-weight: 600;
-  cursor: pointer;
-}
-.conventional-theme-library__import:hover {
-  background: var(--cw-accent-strong);
-}
-.conventional-theme-library__import:focus-visible {
-  outline: 2px solid var(--cw-focus);
-  outline-offset: 1px;
 }
 .conventional-theme-library__status {
   margin: 0;
@@ -1197,27 +1089,6 @@
   white-space: nowrap;
 }
 
-.plugins-dialog {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  width: min(70rem, calc(100% - 4rem));
-  max-width: 70rem;
-  height: min(44rem, calc(100svh - 2rem));
-  overflow: hidden;
-}
-.plugins-browser {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  min-height: 0;
-}
-.plugins-filter {
-  width: 12rem;
-}
-.plugins-filter[aria-pressed='true'] {
-  border-color: var(--cw-accent);
-  color: var(--cw-accent);
-}
 .plugins-filter__dot {
   width: 0.4rem;
   height: 0.4rem;
@@ -1269,14 +1140,6 @@
   display: flex;
   align-items: center;
   gap: 0.2rem;
-}
-.plugins-navigation__visibility {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-left: 0.5rem;
-  color: var(--cw-muted);
-  font-size: calc(0.78rem * var(--font-ui-scale, 1));
 }
 .plugin-logo {
   display: flex;
@@ -1423,23 +1286,12 @@
   background: var(--cw-surface);
   color: var(--cw-text);
 }
-.conventional-form-grid__wide {
-  grid-column: 1 / -1;
-}
 .conventional-agent-customization__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.7rem;
   align-items: center;
   margin-top: 1rem;
-}
-.conventional-danger-button {
-  min-height: 2.5rem;
-  padding: 0 0.8rem;
-  border: 1px solid var(--cw-danger);
-  border-radius: 0.4rem;
-  background: transparent;
-  color: var(--cw-danger) !important;
 }
 .conventional-destructive-confirmation {
   display: grid;
@@ -1462,10 +1314,6 @@
 }
 
 @media (max-width: 44rem) {
-  .plugins-dialog {
-    width: calc(100% - 3rem);
-    height: calc(100svh - 1rem);
-  }
   .plugin-logo {
     width: 2.5rem;
     height: 2.5rem;
@@ -1487,9 +1335,6 @@
   }
   .conventional-form-grid {
     grid-template-columns: 1fr;
-  }
-  .conventional-form-grid__wide {
-    grid-column: auto;
   }
   .conventional-destructive-confirmation {
     grid-template-columns: auto 1fr;
@@ -1526,16 +1371,6 @@
   border: 1px solid var(--cw-border);
   border-radius: 0.4rem;
   background: var(--cw-surface);
-}
-.conventional-skeleton__bar {
-  width: min(26rem, 75vw);
-  height: 0.8rem;
-}
-.conventional-skeleton__bar:nth-child(2) {
-  width: min(20rem, 60vw);
-}
-.conventional-skeleton__bar:nth-child(3) {
-  width: min(23rem, 68vw);
 }
 .visually-hidden {
   position: absolute !important;
@@ -1939,19 +1774,6 @@
 .workspace-app-library__tile[data-enabled='false'] .workspace-app-library__tile-name {
   color: var(--muted-foreground);
   font-weight: 500;
-}
-.workspace-app-library__tile-toggle {
-  position: absolute;
-  top: -0.375rem;
-  inset-inline-end: -0.375rem;
-  box-shadow: var(--shadow-xs);
-}
-/* The grip button drags like its card: same grab cursor, same active state. */
-.workspace-app-library__tile-grip {
-  cursor: grab;
-}
-.workspace-app-library__tile-grip:active {
-  cursor: grabbing;
 }
 .workspace-app-library__tile-name {
   display: flex;

@@ -165,7 +165,7 @@ export function ProjectShareDialog(props: ProjectShareDialogProps) {
 
   return (
     <ModalDialog
-      class="conventional-dialog"
+      class="max-h-full overflow-y-auto"
       open={props.open}
       onClose={props.onClose}
       title={`Share ${props.project.name}`}

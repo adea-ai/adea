@@ -146,7 +146,6 @@ export function MessageComposer(props: {
     >
       <SharedMessageComposer
         ref={setForm}
-        class="conventional-composer__shared"
         value={props.draft}
         onValueChange={props.onDraftChange}
         onSubmit={submit}
