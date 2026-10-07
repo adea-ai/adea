@@ -160,3 +160,7 @@ require their owning lanes.
   browser decryption, no private-key transfer and no second plaintext release.
   The main E2E lane includes this fixture; it validates crypto interoperability,
   not the unfinished relay or authenticated host-receipt integration.
+- `packages/remote-content/tests/unit/node-entry.test.ts` — consumes the built
+  Node ESM entry without a TypeScript loader, preserving command exports and
+  completing a request-bound result round trip. The package test command builds
+  the entry before running Bun's native suite.

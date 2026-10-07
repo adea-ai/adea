@@ -7,7 +7,7 @@ import {
   sealRemoteContent,
   type RemoteContentEnvelope,
   type RemoteContentReplayGuard,
-} from './envelope'
+} from './envelope.js'
 
 const RESULT_PAYLOAD_TYPE = 'execution.result'
 const RETURN_KEY_PATTERN =

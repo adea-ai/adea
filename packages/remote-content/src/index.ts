@@ -1,2 +1,2 @@
-export * from './envelope'
-export * from './result'
+export * from './envelope.js'
+export * from './result.js'
