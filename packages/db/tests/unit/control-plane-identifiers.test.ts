@@ -16,7 +16,7 @@ function decodeTime(identifier: string): number {
 
 describe('Control Plane identifier minting', () => {
   test('matches the Control Plane grammar for every prefix', () => {
-    for (const prefix of ['wsp', 'prj', 'tsk', 'agt'] as const) {
+    for (const prefix of ['wsp', 'prj', 'rnr', 'tsk', 'agt'] as const) {
       for (let index = 0; index < 200; index += 1) {
         const identifier = mintControlPlaneIdentifier(prefix)
         expect(identifier).toMatch(new RegExp(`^${prefix}_[0-9A-HJKMNP-TV-Z]{26}$`, 'u'))

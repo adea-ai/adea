@@ -67,3 +67,8 @@ This increment has no execution-submission or Local IPC completion claim. The
 decision-resolution fixture remains a mirror for its separate contract. Next,
 consume the public runtime/location read models and wire durable Task intent,
 acceptance/reconciliation and event projection to the selected authority.
+
+The [node-reference increment](../evidence/m11-runtime-node-references.md) supplies
+the missing stable join between Adea UUID node identities and the public SDK's
+`rnr_` references. It is identity substrate; it does not register a Control Plane
+host or supply RuntimeConnection discovery by itself.

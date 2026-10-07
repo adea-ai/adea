@@ -6,7 +6,7 @@
 // signature itself.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { listWorkspaceEventsAfter } from '../../src/event-log'
@@ -40,6 +40,7 @@ import {
   runtimeNodeChallenges,
   runtimeNodeExchangeCredentials,
   runtimeNodeKeys,
+  runtimeNodes,
   temporaryUserSessions,
 } from '../../src/schema'
 import { inTransaction } from '../../src/transactions'
@@ -130,6 +131,7 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
       workspaceId: workspace.id,
     })
     expect(first.kind).toBe('local_device')
+    expect(first.controlPlaneRuntimeNodeRefId).toMatch(/^rnr_[0-9A-HJKMNP-TV-Z]{26}$/u)
     expect(first.pairingState).toBe('paired')
     expect(first.keys).toHaveLength(2)
     expect(first.keys.find((key) => key.role === 'signing')?.keyVersion).toBe(1)
@@ -148,6 +150,7 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
     })
 
     expect(resumed.id).toBe(first.id)
+    expect(resumed.controlPlaneRuntimeNodeRefId).toBe(first.controlPlaneRuntimeNodeRefId)
     expect(resumed.keys).toHaveLength(2)
     expect(await listRuntimeNodesForUser(connection.db, workspace.id)).toHaveLength(1)
     expect(resumed.lastProofAt).not.toBeNull()
@@ -173,6 +176,48 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
     }
     const nodes = await listRuntimeNodesForUser(connection.db, workspace.id)
     expect(nodes.map((node) => node.displayName).toSorted()).toEqual(['Laptop', 'Studio'])
+    expect(new Set(nodes.map((node) => node.controlPlaneRuntimeNodeRefId)).size).toBe(2)
+  })
+
+  test('Control Plane node references have an expand-only default and database constraints', async () => {
+    const { owner, workspace } = await fixture('runtime-cp-ref')
+    const insert = async (reference?: string) =>
+      connection.db
+        .insert(runtimeNodes)
+        .values({
+          ...(reference === undefined ? {} : { controlPlaneRuntimeNodeRefId: reference }),
+          displayName: 'Reference fixture',
+          kind: 'remote_host',
+          ownerUserId: owner.principal.userId,
+          platform: 'linux',
+          softwareVersion: '1.0.0',
+          workspaceId: workspace.id,
+        })
+        .returning()
+    const [node] = await insert()
+    expect(node!.controlPlaneRuntimeNodeRefId).toMatch(/^rnr_[0-9A-HJKMNP-TV-Z]{26}$/u)
+    for (const reference of [
+      'invalid',
+      'wsp_01JABCDEF0123456789ABCDEFG',
+      node!.controlPlaneRuntimeNodeRefId,
+    ]) {
+      await expect(insert(reference)).rejects.toBeInstanceOf(Error)
+    }
+    const rows = await connection.db.transaction(async (transaction) => {
+      await transaction.execute(
+        sql`create temporary table runtime_ref_backfill (id int primary key) on commit drop`
+      )
+      await transaction.execute(
+        sql`insert into runtime_ref_backfill select generate_series(1, 500)`
+      )
+      await transaction.execute(
+        sql`alter table runtime_ref_backfill add column ref text default app.control_plane_identifier('rnr') not null`
+      )
+      return transaction.execute<{ ref: string }>(sql`select ref from runtime_ref_backfill`)
+    })
+    const refs = [...rows].map((row) => row.ref)
+    expect(new Set(refs).size).toBe(500)
+    for (const ref of refs) expect(ref).toMatch(/^rnr_[0-9A-HJKMNP-TV-Z]{26}$/u)
   })
 
   test('a self-hosted host registers once with its exchange credential', async () => {
@@ -197,6 +242,7 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
       workspaceId: workspace.id,
     })
     expect(node.kind).toBe('remote_host')
+    expect(node.controlPlaneRuntimeNodeRefId).toMatch(/^rnr_[0-9A-HJKMNP-TV-Z]{26}$/u)
 
     // The credential is spent: a second registration with it is refused, and it
     // never becomes a user session (the node has no session of its own).
@@ -412,6 +458,7 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
     })
 
     const signing = rotated.keys.filter((key) => key.role === 'signing')
+    expect(rotated.controlPlaneRuntimeNodeRefId).toBe(node.controlPlaneRuntimeNodeRefId)
     expect(signing).toHaveLength(2)
     expect(signing.find((key) => key.keyVersion === 2)?.retiredAt).toBeNull()
     // The previous key is retired, not deleted: queued envelopes that reference
@@ -446,6 +493,7 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
       workspaceId: workspace.id,
     })
     expect(revoked.pairingState).toBe('revoked')
+    expect(revoked.controlPlaneRuntimeNodeRefId).toBe(node.controlPlaneRuntimeNodeRefId)
     expect(revoked.revocationReason).toBe('device lost')
     // Still readable: the record and its audit trail survive revocation.
     expect((await readRuntimeNode(connection.db, workspace.id, node.id)).keys).toHaveLength(2)

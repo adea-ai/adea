@@ -148,6 +148,23 @@ node is decided by workspace membership plus `runtime.invoke`.
 
 ## The read model
 
+Every node also has an immutable public Control Plane reference,
+`controlPlaneRuntimeNodeRefId` (`rnr_` plus 26 Crockford characters). Adea mints
+it once at registration independently of the UUID; resume, key rotation and
+revocation retain it. Discovery consumers join on this reference within the
+authorized workspace, never on a display name, transport, key, or array position.
+Possessing the reference grants no authority and does not register the node with
+the Control Plane; the host integration must present the same reference through
+its authorized Control Plane boundary.
+
+Migration `0034_control-plane-runtime-node-refs` expands the identifier generator
+and adds a unique, grammar-checked column with a volatile default. Existing nodes
+receive distinct references, and older application insert paths continue working.
+Apply the schema expansion before deploying a consumer that selects the column.
+The field is public identity metadata; it is returned in the existing node read
+model alongside the Adea UUID. Control Plane host health, RuntimeConnection
+health, and Adea's proof-derived node health remain separate observations.
+
 `readRuntimeNode` and `listRuntimeNodesForUser` return public material only:
 display name, kind, platform, software version, pairing state, timestamps, and
 the key list, each key carrying its role, algorithm, public key, fingerprint,
@@ -221,7 +238,8 @@ challenge's life.
   replay/expiry/purpose/node binding, the role↔algorithm rule at both layers,
   rotation ordering, revocation semantics, sign-out and account-switch
   boundaries, cross-workspace invisibility, the read model, the durable log,
-  retention, and cross-node proof binding.
+  retention, cross-node proof binding, stable Control Plane node references,
+  default/backfill uniqueness, and reference grammar/uniqueness constraints.
 - `apps/web/test/runtime-node-proof.test.ts` — real Ed25519 signatures: exact
   message shape, tampering, replay across workspace/node/purpose/kind, an
   impostor key, and malformed input treated as failure rather than an exception.
