@@ -1,7 +1,7 @@
 /**
- * The shared hop for workspace-scoped Control Plane administration APIs
+ * The shared hop for workspace-scoped Control Plane metadata APIs
  * (ADR 0013): the workspace catalog (`/v1/catalog/*`) and the credential
- * vault (`/v1/credentials/*`). Both speak contract major 3 and both name
+ * vault (`/v1/credentials/*`) and runtime discovery. They speak contract major 3 and name
  * exactly one envelope workspace, so a request may only ever run under a
  * per-request signed credential minted for the caller's own mapped `wsp_`.
  *
@@ -14,7 +14,7 @@
 import { createHash } from 'node:crypto'
 import { ControlPlaneClient, ControlPlaneClientError } from '@adea-ai/sdk'
 
-import { callControlPlaneAdmin } from './control-plane-sdk'
+import { callControlPlaneOperation } from './control-plane-sdk'
 
 import {
   CONTROL_PLANE_SERVICE_PRINCIPAL_ID,
@@ -208,7 +208,7 @@ export async function postControlPlane(
       fetch: dependencies.fetch ?? fetch,
       timeoutMs: 5_000,
     })
-    const envelope = await callControlPlaneAdmin(client, path, body)
+    const envelope = await callControlPlaneOperation(client, path, body)
     if (
       envelope.requestId !== requestId ||
       !isRecord(body.correlation) ||

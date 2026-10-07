@@ -25,6 +25,9 @@ import type {
   WorkspaceSearchPage,
 } from '@adea-ai/types'
 
+import type { ApiRuntimeNodeConnectionsResponse } from './runtime-connections'
+export type { ApiRuntimeConnection, ApiRuntimeNodeConnectionsResponse } from './runtime-connections'
+
 export type ApiAgentCreateInput = Readonly<{
   avatarRef?: string
   characterRef?: string
@@ -662,6 +665,18 @@ export class AgentHqApiClient {
     return this.request<ApiWorkspaceInvitationResponse>(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/invitations/${encodeURIComponent(invitationId)}/revoke`,
       { method: 'POST' }
+    )
+  }
+
+  /** Normalized discovery for exactly one registered execution host (M11 #37). */
+  async listRuntimeNodeConnections(
+    workspaceId: string,
+    runtimeNodeId: string,
+    cursor?: string
+  ): Promise<ApiRuntimeNodeConnectionsResponse> {
+    const query = cursor ? `?${new URLSearchParams({ cursor })}` : ''
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/runtime-nodes/${encodeURIComponent(runtimeNodeId)}/connections${query}`
     )
   }
 

@@ -78,8 +78,8 @@ bunx playwright install chromium
 bun run --cwd apps/web start:test:local
 ```
 
-`start:verify` builds first because the route tree is generated and ignored in
-Git. `start:check-bundle` reads the compiled client output plus the build
+`start:verify` builds first because the tracked route tree is generated; rebuild
+it after adding a route before running typecheck. `start:check-bundle` reads the compiled client output plus the build
 plugin's module evidence and fails rather than reporting success without them.
 Web and canonical desktop builds also run `start:check-ui-sources` (the desktop
 build passes `--desktop`) to verify selective UI source coverage against the

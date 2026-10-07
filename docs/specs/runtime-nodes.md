@@ -148,6 +148,23 @@ node is decided by workspace membership plus `runtime.invoke`.
 
 ## The read model
 
+Every node also has an immutable public Control Plane reference,
+`controlPlaneRuntimeNodeRefId` (`rnr_` plus 26 Crockford characters). Adea mints
+it once at registration independently of the UUID; resume, key rotation and
+revocation retain it. Discovery consumers join on this reference within the
+authorized workspace, never on a display name, transport, key, or array position.
+Possessing the reference grants no authority and does not register the node with
+the Control Plane; the host integration must present the same reference through
+its authorized Control Plane boundary.
+
+Migration `0034_control-plane-runtime-node-refs` expands the identifier generator
+and adds a unique, grammar-checked column with a volatile default. Existing nodes
+receive distinct references, and older application insert paths continue working.
+Apply the schema expansion before deploying a consumer that selects the column.
+The field is public identity metadata; it is returned in the existing node read
+model alongside the Adea UUID. Control Plane host health, RuntimeConnection
+health, and Adea's proof-derived node health remain separate observations.
+
 `readRuntimeNode` and `listRuntimeNodesForUser` return public material only:
 display name, kind, platform, software version, pairing state, timestamps, and
 the key list, each key carrying its role, algorithm, public key, fingerprint,
@@ -165,6 +182,44 @@ The list read is deliberately unbounded: a workspace's nodes are the machines
 its members pair, which is a handful. It resolves each node with two queries per
 node, which is the right shape at that scale — if a consumer ever appears with
 thousands of nodes, paginate or batch it then rather than carrying a silent cap.
+
+## Control Plane connection discovery (M11 #37)
+
+`GET .../runtime-nodes/:runtimeNodeId/connections` uses the same workspace
+`runtime.invoke` permission and desktop-origin guard as the node identity API.
+It resolves the registered UUID in that workspace first, then calls the pinned
+public SDK's `runtime-connection.list` with exactly its `rnr_` reference and a
+fresh workspace-scoped service credential containing only `runtime:read`.
+The bounded, nonredirecting SDK hop and request/trace validation are shared with
+the administration proxy. The only accepted query parameter is a bounded cursor;
+the page limit is 100. Responses are `private, no-store`.
+
+The projection preserves Adea registration/pairing/proof-derived health separately
+from the reported Control Plane node status/health and individual connection
+status/health/availability. It carries adapter/driver/harness versions, capability
+support, compatibility limitations, grant requirements, entitlement state and
+eligibility reason/remediation codes. It is metadata only: public keys, node
+endpoints, native paths, process handles, credentials, free-form upstream labels
+and native session state are excluded. The nested node's reported location must
+match the registered kind. Missing/foreign node references, changed location,
+duplicate connection identities and managed-cloud entries fail closed.
+
+Every read reclassifies stale, expired or future inventory observations using the
+five-minute admission window. The SDK's discovery schema does not report a
+RuntimeTransport: the DTO says `transport.state: 'unreported'`. It must not infer
+`direct_local` or `remote_gateway` from location or change connection identity.
+Actual execution resolution owns the selected transport. Discovery remains a
+read model, never an execution or authorization proof; submission must freshly
+admit the registered node and respect the Control Plane's policy/capability gates.
+
+An unconfigured signer, inaccessible service, rejected or invalid discovery reply
+returns registered node metadata with `discovery.state: 'unavailable'` and no
+connections. This differs from `available` with an empty inventory. It never
+changes execution location, node registration, canonical conversation metadata,
+ContentSyncDevice authorization or history availability. Missing/foreign Adea
+nodes retain the generic workspace refusal. Consumers use the typed
+`listRuntimeNodeConnections` API client; native Dev Runtime discovery retains its
+existing host authority and cannot be replaced by this cloud projection.
 
 ## Durable events
 
@@ -221,10 +276,16 @@ challenge's life.
   replay/expiry/purpose/node binding, the role↔algorithm rule at both layers,
   rotation ordering, revocation semantics, sign-out and account-switch
   boundaries, cross-workspace invisibility, the read model, the durable log,
-  retention, and cross-node proof binding.
+  retention, cross-node proof binding, stable Control Plane node references,
+  default/backfill uniqueness, and reference grammar/uniqueness constraints.
 - `apps/web/test/runtime-node-proof.test.ts` — real Ed25519 signatures: exact
   message shape, tampering, replay across workspace/node/purpose/kind, an
   impostor key, and malformed input treated as failure rather than an exception.
+- `apps/web/test/control-plane-discovery.test.ts` — actual public SDK fixtures,
+  exact node/location binding, duplicate/cloud refusal, independent health,
+  freshness, grants, compatibility and metadata-leak canaries.
+- `packages/api-client/tests/unit/control-plane.test.ts` — encoded node discovery
+  requests alongside the catalog and credential API contracts.
 - `apps/web/start/browser/runtime-nodes.e2e.ts` — the whole flow against an
   isolated host and PostgreSQL, including the desktop-origin guard.
 - `scripts/event-stream-authorization-boundary.test.ts` — the stream authorizes

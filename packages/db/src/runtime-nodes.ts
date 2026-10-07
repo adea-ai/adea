@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNull, lt } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { mintControlPlaneIdentifier } from './control-plane-identifiers'
 import { appendWorkspaceEvent } from './transactions'
 import {
   runtimeNodeChallenges,
@@ -51,6 +52,7 @@ export class RuntimeNodeError extends Error {
 
 /** The product read model. Public material only: no private keys, no endpoints. */
 export type RuntimeNodeView = Readonly<{
+  controlPlaneRuntimeNodeRefId: string
   displayName: string
   health: 'healthy' | 'stale' | 'unknown'
   id: string
@@ -284,6 +286,7 @@ export async function registerRuntimeNode(
     const [node] = await transaction
       .insert(runtimeNodes)
       .values({
+        controlPlaneRuntimeNodeRefId: mintControlPlaneIdentifier('rnr'),
         displayName: input.displayName,
         kind: input.kind,
         lastProofAt: now,
@@ -508,6 +511,7 @@ function runtimeNodeView(
           : 'unknown'
 
   return {
+    controlPlaneRuntimeNodeRefId: node.controlPlaneRuntimeNodeRefId,
     displayName: node.displayName,
     health,
     id: node.id,

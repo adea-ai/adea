@@ -64,7 +64,9 @@ async function guest(context: Client) {
 
 async function pairedNode(response: APIResponse) {
   expect(response.status()).toBe(200)
-  return (await response.json()) as { node: { id: string; kind: string; keys: unknown[] } }
+  return (await response.json()) as {
+    node: { id: string; controlPlaneRuntimeNodeRefId: string; kind: string; keys: unknown[] }
+  }
 }
 
 test('a device pairs, proves liveness, rotates its key, and is revoked', async ({
@@ -108,6 +110,7 @@ test('a device pairs, proves liveness, rotates its key, and is revoked', async (
       })
     )
     const listed = (await (await own.get(nodesUrl)).json()).nodes
+    expect(node.controlPlaneRuntimeNodeRefId).toMatch(/^rnr_[0-9A-HJKMNP-TV-Z]{26}$/u)
     expect(listed).toHaveLength(1)
     expect(listed[0]).toMatchObject({
       displayName: 'Playwright laptop',
@@ -121,6 +124,36 @@ test('a device pairs, proves liveness, rotates its key, and is revoked', async (
     // The read model is public material only: no private key ever crosses the wire.
     for (const key of listed[0].keys) expect(Object.keys(key).toSorted()).toEqual(KEY_FIELDS)
     expect(listed[0].keys.every((key: { verifiedAt: string | null }) => key.verifiedAt)).toBe(true)
+
+    // The isolated Worker has no Control Plane signer. Discovery preserves
+    // registered identity and an explicit unavailable state, never an empty
+    // inventory that looks executable. No native keys or metadata cross it.
+    const connectionsUrl = `${nodesUrl}/${node.id}/connections`
+    const inventory = await own.get(connectionsUrl)
+    expect(inventory.status()).toBe(200)
+    expect(inventory.headers()['cache-control']).toBe('private, no-store')
+    const discovery = await inventory.json()
+    expect(discovery.node).toMatchObject({
+      id: node.id,
+      controlPlaneRuntimeNodeRefId: node.controlPlaneRuntimeNodeRefId,
+    })
+    expect(Object.keys(discovery.node).toSorted()).toEqual([
+      'controlPlaneRuntimeNodeRefId',
+      'displayName',
+      'health',
+      'id',
+      'kind',
+      'lastProofAt',
+      'pairingState',
+    ])
+    expect(discovery.discovery).toEqual({ state: 'unavailable', code: 'CONTROL_PLANE_UNAVAILABLE' })
+    expect(discovery.connections).toEqual([])
+    expect((await foreign.get(connectionsUrl)).status()).toBe(404)
+    expect((await own.get(`${nodesUrl}/${crypto.randomUUID()}/connections`)).status()).toBe(404)
+    expect((await own.get(`${connectionsUrl}?limit=1000`)).status()).toBe(400)
+    expect(
+      (await own.get(connectionsUrl, { headers: desktop('https://evil.example') })).status()
+    ).toBe(403)
 
     // A proof signed by a key nobody registered is refused, and the refusal does
     // not burn the challenge: the same challenge still pairs a real device.
@@ -223,6 +256,7 @@ test('a device pairs, proves liveness, rotates its key, and is revoked', async (
       })
     )
     expect(rotated.node.id).toBe(node.id)
+    expect(rotated.node.controlPlaneRuntimeNodeRefId).toBe(node.controlPlaneRuntimeNodeRefId)
     const rotatedView = (await (await own.get(nodesUrl)).json()).nodes.find(
       (item: { id: string }) => item.id === node.id
     )
@@ -294,6 +328,10 @@ test('a device pairs, proves liveness, rotates its key, and is revoked', async (
       (item: { id: string }) => item.id === node.id
     )
     expect(afterRevocation.revokedAt).toBeTruthy()
+    expect((await (await own.get(connectionsUrl)).json()).node).toMatchObject({
+      pairingState: 'revoked',
+      controlPlaneRuntimeNodeRefId: node.controlPlaneRuntimeNodeRefId,
+    })
     expect(
       afterRevocation.keys.filter((key: { retiredAt: string | null }) => !key.retiredAt)
     ).toHaveLength(2)
@@ -335,6 +373,7 @@ test('a self-hosted host registers with a one-time credential', async ({ playwri
       await context.post(`${nodesUrl}/pair`, { data: { ...registration, signature } })
     )
     expect(node.kind).toBe('remote_host')
+    expect(node.controlPlaneRuntimeNodeRefId).toMatch(/^rnr_[0-9A-HJKMNP-TV-Z]{26}$/u)
 
     // The credential is single-use, and it is bound to the challenge it was
     // issued for: neither a new challenge nor a missing credential works.

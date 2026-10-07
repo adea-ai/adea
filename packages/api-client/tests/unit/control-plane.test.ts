@@ -2,6 +2,25 @@ import { describe, expect, test } from 'bun:test'
 import { createApiClient } from '../../src'
 
 describe('Workspace Skills and Cloud connections API client', () => {
+  test('reads one registered node inventory with encoded workspace, node and cursor', async () => {
+    let request: Request | undefined
+    const client = createApiClient({
+      baseUrl: 'https://hq.example/api',
+      fetchImpl: async (input, init) => {
+        request = new Request(input, init)
+        return Response.json({
+          discovery: { state: 'unavailable', code: 'CONTROL_PLANE_UNAVAILABLE' },
+          connections: [],
+        })
+      },
+    })
+    const result = await client.listRuntimeNodeConnections('workspace 1', 'node/1', 'cur_abc+def')
+    expect(request?.method).toBe('GET')
+    expect(request?.url).toBe(
+      'https://hq.example/api/v1/workspaces/workspace%201/runtime-nodes/node%2F1/connections?cursor=cur_abc%2Bdef'
+    )
+    expect(result.discovery.state).toBe('unavailable')
+  })
   test('routes every call under the workspace and keeps secrets out of URLs', async () => {
     const requests: Request[] = []
     const client = createApiClient({

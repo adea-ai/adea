@@ -6,15 +6,16 @@ import { projects, workspaces } from './schema'
 /**
  * Control Plane scope identifiers (ADR 0013). Adea mints one opaque, prefixed
  * ULID per workspace (`wsp_`) and project (`prj_`) — never derived from the
- * Adea UUID and never reused. Task and agent prefixes are reserved for when
+ * Adea UUID and never reused. Runtime nodes carry stable `rnr_` references.
+ * Task and agent prefixes are reserved for when
  * executions are wired. The grammar is the Control Plane's own
  * (`packages/contracts/src/identifiers.ts` in that repository).
  */
-export type ControlPlaneIdentifierPrefix = 'agt' | 'prj' | 'tsk' | 'wsp'
+export type ControlPlaneIdentifierPrefix = 'agt' | 'prj' | 'rnr' | 'tsk' | 'wsp'
 
 const CROCKFORD_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 
-export const CONTROL_PLANE_IDENTIFIER_PATTERN = /^(wsp|prj|tsk|agt)_[0-9A-HJKMNP-TV-Z]{26}$/u
+export const CONTROL_PLANE_IDENTIFIER_PATTERN = /^(wsp|prj|rnr|tsk|agt)_[0-9A-HJKMNP-TV-Z]{26}$/u
 
 export function isControlPlaneIdentifier(
   prefix: ControlPlaneIdentifierPrefix,

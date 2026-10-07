@@ -10,7 +10,12 @@ import {
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
-import { entityId, type JsonObject, timestampColumns } from './conventions'
+import {
+  controlPlaneIdentifierColumn,
+  entityId,
+  type JsonObject,
+  timestampColumns,
+} from './conventions'
 import { appSchema } from './schema'
 import { users } from './identity'
 import { workspaces } from './workspaces'
@@ -55,6 +60,11 @@ export const runtimeNodes = appSchema.table(
   'runtime_nodes',
   {
     id: entityId(),
+    /** Stable public Control Plane reference; never derived from the Adea UUID. */
+    controlPlaneRuntimeNodeRefId: controlPlaneIdentifierColumn(
+      'control_plane_runtime_node_ref_id',
+      'rnr'
+    ),
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
@@ -79,6 +89,11 @@ export const runtimeNodes = appSchema.table(
   (table) => [
     index('runtime_nodes_workspace_idx').on(table.workspaceId, table.kind),
     index('runtime_nodes_owner_idx').on(table.ownerUserId),
+    uniqueIndex('runtime_nodes_control_plane_ref_uidx').on(table.controlPlaneRuntimeNodeRefId),
+    check(
+      'runtime_nodes_control_plane_ref_valid',
+      sql`${table.controlPlaneRuntimeNodeRefId} ~ '^rnr_[0-9A-HJKMNP-TV-Z]{26}$'`
+    ),
     check(
       'runtime_nodes_revocation_consistent',
       sql`(${table.pairingState} = 'revoked' and ${table.revokedAt} is not null) or (${table.pairingState} = 'paired' and ${table.revokedAt} is null)`

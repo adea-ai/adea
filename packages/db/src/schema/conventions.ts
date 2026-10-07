@@ -23,12 +23,12 @@ export function softDeleteColumns() {
 
 /**
  * A Control Plane scope identifier (ADR 0013): a prefixed ULID in the Control
- * Plane grammar `^(wsp|prj|tsk|agt)_[0-9A-HJKMNP-TV-Z]{26}$`. Adea mints it on
+ * Plane grammar `^(wsp|prj|rnr|tsk|agt)_[0-9A-HJKMNP-TV-Z]{26}$`. Adea mints it on
  * create; the database default (`app.control_plane_identifier`, migration
  * 0033) mints one for any other insert path and backfilled existing rows, so
  * a Worker that predates the column keeps inserting.
  */
-export function controlPlaneIdentifierColumn(name: string, prefix: 'prj' | 'wsp') {
+export function controlPlaneIdentifierColumn(name: string, prefix: 'prj' | 'rnr' | 'wsp') {
   return text(name)
     .default(sql.raw(`app.control_plane_identifier('${prefix}')`))
     .notNull()
