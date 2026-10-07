@@ -55,7 +55,8 @@ async function scopedEnvironment(): Promise<Record<string, string>> {
   }
 }
 
-const unscopedEnvironment = {
+/** No signing key; a leftover static token from the retired fallback is ignored. */
+const unsignedEnvironment = {
   CONTROL_PLANE_ORIGIN: ORIGIN,
   CONTROL_PLANE_SCOPE_WORKSPACE_ID: WSP,
   CONTROL_PLANE_SERVICE_TOKEN: 'static-fallback-token',
@@ -532,11 +533,11 @@ describe('cloud connections proxy', () => {
   })
 })
 
-describe('unscoped fallback refusal', () => {
-  test('every route refuses the shared static-token workspace without calling upstream', async () => {
+describe('fail closed', () => {
+  test('without a signing key every route is unavailable without calling upstream', async () => {
     const upstream = controlPlane()
     const deps = dependencies('admin', {
-      environment: unscopedEnvironment,
+      environment: unsignedEnvironment,
       fetchImpl: upstream.fetchImpl,
     })
     const responses = await Promise.all([
@@ -576,7 +577,7 @@ describe('unscoped fallback refusal', () => {
     for (const response of responses) {
       expect(response.status).toBe(503)
       const body = (await response.json()) as { code: string; message: string }
-      expect(body.code).toBe('CONTROL_PLANE_UNSCOPED')
+      expect(body.code).toBe('CONTROL_PLANE_UNAVAILABLE')
       expect(JSON.stringify(body)).not.toContain(CANARY)
     }
     expect(upstream.requests).toEqual([])

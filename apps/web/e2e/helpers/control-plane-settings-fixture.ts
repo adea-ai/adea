@@ -10,12 +10,13 @@ function record(method: string, path: string, body: unknown) {
 /**
  * An in-memory stand-in for Adea's workspace Skills and Cloud connections
  * routes, for the settings harness. `scoped` serves a workspace skill, a
- * read-only system skill and the cloud connections it holds; `unscoped`
- * answers every route the way an unscoped deployment does. Each request's
+ * read-only system skill and the cloud connections it holds; `unavailable`
+ * answers every route the way a deployment without a signing key does
+ * (`503 CONTROL_PLANE_UNAVAILABLE`). Each request's
  * method, path and body are appended to `data-requests` on the harness root
  * so the spec can assert what left the page.
  */
-export function controlPlaneSettingsClient(mode: 'scoped' | 'unscoped'): AgentHqApiClient {
+export function controlPlaneSettingsClient(mode: 'scoped' | 'unavailable'): AgentHqApiClient {
   let revision = 1
   let skillLifecycle = 'published'
   const connections: Record<string, unknown>[] = [
@@ -79,9 +80,9 @@ export function controlPlaneSettingsClient(mode: 'scoped' | 'unscoped'): AgentHq
           ? { ...body, secret: `<${body.secret.length} characters>` }
           : body
       )
-      if (mode === 'unscoped')
+      if (mode === 'unavailable')
         return Response.json(
-          { code: 'CONTROL_PLANE_UNSCOPED', message: 'unscoped' },
+          { code: 'CONTROL_PLANE_UNAVAILABLE', message: 'Control Plane is not configured' },
           { status: 503 }
         )
       const path = url.pathname.replace(/^\/api\/workspaces\/[^/]+\//u, '')

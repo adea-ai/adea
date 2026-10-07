@@ -165,7 +165,7 @@ describe('Control Plane project-state initialization (ADR 0013)', () => {
     expect(logs[0]?.entry).toMatchObject({ reason: 'timeout' })
   })
 
-  test('the static fallback skips with a debug line and never resolves the scope', async () => {
+  test('without a signing key it skips with a debug line and never resolves the scope', async () => {
     let resolved = false
     const sent: Sent[] = []
     const outcome = await initializeControlPlaneProjectState(
@@ -174,11 +174,7 @@ describe('Control Plane project-state initialization (ADR 0013)', () => {
         return { projectId: projectScope, workspaceId: workspaceScope }
       },
       {
-        environment: {
-          CONTROL_PLANE_ORIGIN: 'https://control-plane.example',
-          CONTROL_PLANE_SCOPE_WORKSPACE_ID: workspaceScope,
-          CONTROL_PLANE_SERVICE_TOKEN: 'test-token',
-        },
+        environment: { CONTROL_PLANE_ORIGIN: 'https://control-plane.example' },
         fetch: fakeControlPlane(sent, () => Response.json({})),
         log,
       }
@@ -188,7 +184,7 @@ describe('Control Plane project-state initialization (ADR 0013)', () => {
     expect(sent).toHaveLength(0)
     expect(logs).toEqual([
       {
-        entry: { event: 'control_plane.project_state.initialize_skipped', reason: 'unscoped' },
+        entry: { event: 'control_plane.project_state.initialize_skipped', reason: 'unconfigured' },
         level: 'debug',
       },
     ])

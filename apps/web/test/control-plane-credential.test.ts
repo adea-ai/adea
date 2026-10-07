@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, spyOn, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { createPublicKey, verify as nodeVerify } from 'node:crypto'
 
 import {
@@ -7,7 +7,6 @@ import {
   controlPlaneCredential,
   controlPlaneCredentialMode,
   mintControlPlaneServiceJwt,
-  resetUnscopedReportForTests,
 } from '../src/server/control-plane-credential'
 
 const WORKSPACE = 'wsp_01JABCDEF0123456789ABCDEFG'
@@ -58,10 +57,6 @@ function signingEnvironment(key: string, overrides: Record<string, string | unde
   }
 }
 
-afterEach(() => {
-  resetUnscopedReportForTests()
-})
-
 describe('Control Plane service JWT', () => {
   test('signs exactly the claims the Control Plane accepts', async () => {
     const keys = await keyPair()
@@ -73,7 +68,7 @@ describe('Control Plane service JWT', () => {
       signingEnvironment(keys.pem),
       NOW
     )
-    expect(credential).toMatchObject({ mode: 'scoped', projectId: PROJECT, workspaceId: WORKSPACE })
+    expect(credential).toMatchObject({ projectId: PROJECT, workspaceId: WORKSPACE })
 
     const { claims, header, valid } = await verify(credential.token, keys.publicKey)
     expect(valid).toBeTrue()
@@ -218,12 +213,7 @@ describe('Control Plane service JWT', () => {
     ]) {
       const failure = await controlPlaneCredential(
         scope,
-        {
-          ...signingEnvironment(keys.pem, overrides),
-          // A configured static token must not mask a broken signer.
-          CONTROL_PLANE_SCOPE_WORKSPACE_ID: WORKSPACE,
-          CONTROL_PLANE_SERVICE_TOKEN: 'static-token',
-        },
+        signingEnvironment(keys.pem, overrides),
         NOW
       ).catch((error: unknown) => error)
       expect(failure).toBeInstanceOf(ControlPlaneCredentialError)
@@ -245,57 +235,31 @@ describe('Control Plane service JWT', () => {
   })
 })
 
-describe('static-token fallback', () => {
-  test('keeps the configured token and workspace, never resolving a scope', async () => {
-    const warn = spyOn(console, 'warn').mockImplementation(() => {})
+describe('without a signing key', () => {
+  test('fails closed and never resolves a scope, whatever else is configured', async () => {
     let resolved = false
-    const environment = {
-      CONTROL_PLANE_SCOPE_WORKSPACE_ID: WORKSPACE,
-      CONTROL_PLANE_SERVICE_TOKEN: 'static-token',
-    }
-    try {
-      for (let index = 0; index < 3; index += 1) {
-        const credential = await controlPlaneCredential(
-          {
-            resolveScope: async () => {
-              resolved = true
-              return { workspaceId: 'wsp_01JABCDEF0123456789ABCDEFH' }
-            },
-            scopes: ['marketplace:read'],
-          },
-          environment
-        )
-        expect(credential).toEqual({
-          mode: 'unscoped',
-          token: 'static-token',
-          workspaceId: WORKSPACE,
-        })
-      }
-      expect(resolved).toBeFalse()
-      // Reported once per isolate, naming the missing secret but no value.
-      expect(warn).toHaveBeenCalledTimes(1)
-      const line = String(warn.mock.calls[0]?.[0])
-      expect(line).toContain('control_plane.credential.unscoped')
-      expect(line).not.toContain('static-token')
-      expect(controlPlaneCredentialMode(environment)).toBe('unscoped')
-    } finally {
-      warn.mockRestore()
-    }
-  })
-
-  test('is unavailable without a token or a valid workspace', async () => {
     for (const environment of [
       {},
-      { CONTROL_PLANE_SCOPE_WORKSPACE_ID: WORKSPACE },
-      { CONTROL_PLANE_SCOPE_WORKSPACE_ID: 'workspace-1', CONTROL_PLANE_SERVICE_TOKEN: 'token' },
+      { CONTROL_PLANE_SIGNING_KEY: '   ' },
+      { CONTROL_PLANE_SIGNING_ISSUER: ISSUER, CONTROL_PLANE_SIGNING_KEY_ID: KEY_ID },
+      // A leftover static token from the retired fallback is ignored.
+      { CONTROL_PLANE_SCOPE_WORKSPACE_ID: WORKSPACE, CONTROL_PLANE_SERVICE_TOKEN: 'static-token' },
     ]) {
       const failure = await controlPlaneCredential(
-        { scopes: ['marketplace:read'] },
+        {
+          resolveScope: async () => {
+            resolved = true
+            return { workspaceId: WORKSPACE }
+          },
+          scopes: ['marketplace:read'],
+        },
         environment
       ).catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(ControlPlaneCredentialError)
       expect((failure as ControlPlaneCredentialError).reason).toBe('unconfigured')
+      expect(controlPlaneCredentialMode(environment)).toBe('unconfigured')
     }
-    expect(controlPlaneCredentialMode({})).toBe('unconfigured')
+    expect(resolved).toBeFalse()
     expect(controlPlaneCredentialMode({ CONTROL_PLANE_SIGNING_KEY: 'x' })).toBe('scoped')
   })
 })

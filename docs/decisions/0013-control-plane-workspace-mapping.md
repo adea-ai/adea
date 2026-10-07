@@ -146,4 +146,8 @@ Status (2026-10-06):
 - Both surfaces refuse the unscoped static-token fallback
   (`503 CONTROL_PLANE_UNSCOPED`) rather than write into its shared workspace
   ([runbook](../control-plane-credentials.md)).
+- Static-token fallback: removed from Adea on 2026-10-07 after the signer was
+  provisioned (runbook step 6); a deployment without the signing key fails
+  closed with `503 CONTROL_PLANE_UNAVAILABLE`. Revoking the static credential
+  on the Control Plane remains an owner action.
 - Control Plane credential-vault HTTP API: open (in review upstream).

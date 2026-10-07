@@ -20,8 +20,7 @@ import {
  * any retry replays the original initialization. Both a fresh or replayed
  * `200` and `409 PROJECT_STATE_ALREADY_INITIALIZED` mean the state exists.
  *
- * Only the signed credential path initializes: the static fallback credential
- * names no project, so the Control Plane would reject it. In that mode the
+ * A deployment without a signing key has no Control Plane credential, so the
  * call is skipped with a debug line.
  *
  * `ensureControlPlaneProjectState` is the lazy path: any future
@@ -82,7 +81,7 @@ export async function initializeControlPlaneProjectState(
   if (controlPlaneCredentialMode(environment) !== 'scoped') {
     log('debug', {
       event: 'control_plane.project_state.initialize_skipped',
-      reason: 'unscoped',
+      reason: 'unconfigured',
     })
     return 'skipped'
   }

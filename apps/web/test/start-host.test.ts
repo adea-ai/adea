@@ -241,7 +241,6 @@ describe('browser dependency guard', () => {
   })
   it('keeps the Control Plane signing configuration out of client output', () => {
     for (const name of [
-      'CONTROL_PLANE_SERVICE_TOKEN',
       'CONTROL_PLANE_SIGNING_KEY',
       'CONTROL_PLANE_SIGNING_KEY_ID',
       'CONTROL_PLANE_SIGNING_ISSUER',

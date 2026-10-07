@@ -41,7 +41,6 @@ export const PRIVATE_ENV_NAMES = [
   'DATABASE_MIGRATION_URL',
   'NEON_AUTH_COOKIE_SECRET',
   'CONTROL_PLANE_API_TOKEN',
-  'CONTROL_PLANE_SERVICE_TOKEN',
   // ADR 0013 per-request signer: the Ed25519 private key (Worker secret) and
   // its key id/issuer stay server-only.
   'CONTROL_PLANE_SIGNING_KEY',
