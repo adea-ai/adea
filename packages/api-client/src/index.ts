@@ -17,6 +17,7 @@ import type {
   ProjectVisibility,
   TaskKind,
   TaskSummary,
+  TaskSubmissionSummary,
   WorkspaceInvitationRole,
   WorkspaceInvitationSummary,
   WorkspaceMemberSummary,
@@ -104,6 +105,13 @@ export type ApiTaskUpdateInput = Readonly<{
   title?: string
 }>
 export type ApiTaskResponse = Readonly<{ task: TaskSummary }>
+export type ApiTaskSubmissionInput = Readonly<{
+  runtimeNodeId: string
+  queueWhenOffline: boolean
+  profile: TaskSubmissionSummary['profile']
+  envelope: unknown
+}>
+export type ApiTaskSubmissionResponse = Readonly<{ submission: TaskSubmissionSummary | null }>
 
 export type ApiContentRefCreateInput = Readonly<{
   availability: Exclude<ContentRefSummary['availability'], 'deleted'>
@@ -1452,7 +1460,7 @@ export class AgentHqApiClient {
     })
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  protected async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers)
     headers.set('Accept', 'application/json')
     if (this.client === 'desktop') headers.set('X-Adea-Client', 'desktop')
@@ -1494,4 +1502,30 @@ function controlPlanePath(workspaceId: string, path: string, cursor?: string) {
 
 export function createApiClient(options?: ApiClientOptions): AgentHqApiClient {
   return new AgentHqApiClient(options)
+}
+
+/** Separate client so delivery commands are loaded only by their consumers. */
+export class TaskSubmissionApiClient extends AgentHqApiClient {
+  /** Durable ciphertext admission. The response is delivery intent, not execution acceptance. */
+  async enqueueTaskSubmission(
+    workspaceId: string,
+    taskId: string,
+    input: ApiTaskSubmissionInput,
+    command: ApiTaskCommand
+  ): Promise<ApiTaskSubmissionResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/submission`,
+      {
+        method: 'POST',
+        headers: taskCommandHeaders(command),
+        body: JSON.stringify(input),
+      }
+    )
+  }
+
+  async getTaskSubmission(workspaceId: string, taskId: string): Promise<ApiTaskSubmissionResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/submission`
+    )
+  }
 }

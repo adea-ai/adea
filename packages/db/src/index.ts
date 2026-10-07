@@ -2,6 +2,12 @@ import 'server-only'
 
 export { accountWorkspaceSummaries } from './account-summary'
 export {
+  enqueueTaskSubmission,
+  getTaskSubmissionForUser,
+  TaskSubmissionError,
+  type TaskSubmissionInput,
+} from './task-submissions'
+export {
   createArtifact,
   deleteArtifact,
   getArtifactForUser,

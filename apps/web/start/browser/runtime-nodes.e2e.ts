@@ -11,6 +11,7 @@ import { Client } from './request-client'
 const KEY_FIELDS = [
   'algorithm',
   'fingerprint',
+  'keyId',
   'keyVersion',
   'publicKey',
   'retiredAt',
@@ -123,6 +124,11 @@ test('a device pairs, proves liveness, rotates its key, and is revoked', async (
     expect(listed[0].lastProofAt).toBeTruthy()
     // The read model is public material only: no private key ever crosses the wire.
     for (const key of listed[0].keys) expect(Object.keys(key).toSorted()).toEqual(KEY_FIELDS)
+    for (const key of listed[0].keys)
+      expect(key.keyId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+      )
+    expect(new Set(listed[0].keys.map((key: { keyId: string }) => key.keyId)).size).toBe(2)
     expect(listed[0].keys.every((key: { verifiedAt: string | null }) => key.verifiedAt)).toBe(true)
 
     // The isolated Worker has no Control Plane signer. Discovery preserves

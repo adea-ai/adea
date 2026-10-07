@@ -29,6 +29,7 @@
     "db:verify": "bun src/verify-migrations.ts"
   },
   "dependencies": {
+    "@adea-ai/remote-content": "workspace:*",
     "@adea-ai/types": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "postgres": "^3.4.9",

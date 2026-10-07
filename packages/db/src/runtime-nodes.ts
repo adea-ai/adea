@@ -60,6 +60,7 @@ export type RuntimeNodeView = Readonly<{
     Readonly<{
       algorithm: RuntimeNodeKeyAlgorithmValue
       fingerprint: string
+      keyId: string
       keyVersion: number
       publicKey: string
       retiredAt: string | null
@@ -89,12 +90,14 @@ export type RuntimeNodeKeyInput = Readonly<{
 async function requireNode(
   database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
-  runtimeNodeId: string
+  runtimeNodeId: string,
+  lockForMutation = false
 ) {
-  const [node] = await database
+  const query = database
     .select()
     .from(runtimeNodes)
     .where(and(eq(runtimeNodes.id, runtimeNodeId), eq(runtimeNodes.workspaceId, workspaceId)))
+  const [node] = await (lockForMutation ? query.for('update') : query)
   if (!node) throw new RuntimeNodeError('not_found', 'Runtime node unavailable')
   return node
 }
@@ -396,7 +399,7 @@ export async function rotateRuntimeNodeKeys(
   }>
 ): Promise<RuntimeNodeView> {
   return inTransaction(database, async (transaction) => {
-    const node = await requireNode(transaction, input.workspaceId, input.runtimeNodeId)
+    const node = await requireNode(transaction, input.workspaceId, input.runtimeNodeId, true)
     if (node.pairingState === 'revoked') {
       throw new RuntimeNodeError('revoked', 'Runtime node is revoked')
     }
@@ -436,7 +439,7 @@ export async function recordRuntimeNodeProof(
   }>
 ): Promise<Readonly<{ lastProofAt: Date | null; runtimeNodeId: string }>> {
   return inTransaction(database, async (transaction) => {
-    const node = await requireNode(transaction, input.workspaceId, input.runtimeNodeId)
+    const node = await requireNode(transaction, input.workspaceId, input.runtimeNodeId, true)
     if (node.pairingState === 'revoked') {
       throw new RuntimeNodeError('revoked', 'Runtime node is revoked')
     }
@@ -474,7 +477,7 @@ export async function revokeRuntimeNode(
   const reason = input.reason.trim().slice(0, 200)
   if (!reason) throw new RuntimeNodeError('invalid', 'A revocation reason is required')
   return inTransaction(database, async (transaction) => {
-    const node = await requireNode(transaction, input.workspaceId, input.runtimeNodeId)
+    const node = await requireNode(transaction, input.workspaceId, input.runtimeNodeId, true)
     if (node.pairingState === 'revoked') {
       throw new RuntimeNodeError('revoked', 'Runtime node is already revoked')
     }
@@ -518,6 +521,7 @@ function runtimeNodeView(
     keys: keys.map((key) => ({
       algorithm: key.algorithm,
       fingerprint: key.fingerprint,
+      keyId: key.id,
       keyVersion: key.keyVersion,
       publicKey: key.publicKey,
       retiredAt: key.retiredAt?.toISOString() ?? null,

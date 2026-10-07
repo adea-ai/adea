@@ -89,6 +89,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdProjectRouteImport } from
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/submission'
 import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRouteImport } from './routes/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
 import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRouteImport } from './routes/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
@@ -561,6 +562,12 @@ const ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute =
     path: '/start',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRoute =
+  ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRouteImport.update({
+    id: '/submission',
+    path: '/submission',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute,
+  } as any)
 const ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute =
   ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRouteImport.update({
     id: '/$profileId/deprecate',
@@ -662,6 +669,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
+  '/api/v1/workspaces/$workspaceId/tasks/$taskId/submission': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRoute
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
@@ -747,6 +755,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
+  '/api/v1/workspaces/$workspaceId/tasks/$taskId/submission': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRoute
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
@@ -833,6 +842,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/review': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/start': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
+  '/api/v1/workspaces/$workspaceId/tasks/$taskId/submission': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRoute
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRoute
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
@@ -920,6 +930,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+    | '/api/v1/workspaces/$workspaceId/tasks/$taskId/submission'
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
@@ -1005,6 +1016,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+    | '/api/v1/workspaces/$workspaceId/tasks/$taskId/submission'
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
@@ -1090,6 +1102,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/queue'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/review'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/start'
+    | '/api/v1/workspaces/$workspaceId/tasks/$taskId/submission'
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
@@ -1700,6 +1713,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute
     }
+    '/api/v1/workspaces/$workspaceId/tasks/$taskId/submission': {
+      id: '/api/v1/workspaces/$workspaceId/tasks/$taskId/submission'
+      path: '/submission'
+      fullPath: '/api/v1/workspaces/$workspaceId/tasks/$taskId/submission'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute
+    }
     '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate': {
       id: '/api/workspaces/$workspaceId/skills/profiles/$profileId/deprecate'
       path: '/$profileId/deprecate'
@@ -2015,6 +2035,7 @@ interface ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdQueueRoute
   ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute
   ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute
+  ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRoute: typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRoute
 }
 
 const ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteChildren: ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteChildren =
@@ -2041,6 +2062,8 @@ const ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteChildren: ApiV1WorkspacesWorkspa
       ApiV1WorkspacesWorkspaceIdTasksTaskIdReviewRoute,
     ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute:
       ApiV1WorkspacesWorkspaceIdTasksTaskIdStartRoute,
+    ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRoute:
+      ApiV1WorkspacesWorkspaceIdTasksTaskIdSubmissionRoute,
   }
 
 const ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren =

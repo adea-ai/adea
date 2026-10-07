@@ -1,8 +1,45 @@
 import { describe, expect, test } from 'bun:test'
 
-import { AgentHqApiClient } from '../../src'
+import { AgentHqApiClient, TaskSubmissionApiClient } from '../../src'
 
 describe('Task API client', () => {
+  test('keeps encrypted submission admission distinct from lifecycle commands', async () => {
+    const requests: Request[] = []
+    const response = { submission: { id: 'intent', state: 'queued_for_node' } }
+    const client = new TaskSubmissionApiClient({
+      baseUrl: 'https://adea.invalid/api',
+      fetchImpl: async (input, init) => {
+        requests.push(new Request(input, init))
+        return Response.json(response)
+      },
+    })
+    const input = {
+      runtimeNodeId: 'node',
+      queueWhenOffline: true,
+      profile: { id: 'profile', version: 'pin', revision: 0 },
+      envelope: { ciphertext: 'opaque' },
+    }
+    const command = {
+      idempotencyKey: 'stable-key',
+      requestId: crypto.randomUUID(),
+      expectedVersion: 3,
+    }
+    expect(await client.enqueueTaskSubmission('workspace/1', 'task/1', input, command)).toEqual(
+      response
+    )
+    expect(await client.getTaskSubmission('workspace/1', 'task/1')).toEqual(response)
+    expect(requests.map((request) => request.url)).toEqual(
+      Array(2).fill(
+        'https://adea.invalid/api/v1/workspaces/workspace%2F1/tasks/task%2F1/submission'
+      )
+    )
+    expect(requests[0]!.method).toBe('POST')
+    expect(requests[0]!.headers.get('idempotency-key')).toBe(command.idempotencyKey)
+    expect(requests[0]!.headers.get('x-request-id')).toBe(command.requestId)
+    expect(requests[0]!.headers.get('if-match')).toBe('3')
+    expect(await requests[0]!.json()).toEqual(input)
+    expect(requests[1]!.method).toBe('GET')
+  })
   test('sends idempotency and correlation metadata for create and versioned mutations', async () => {
     const requests: Request[] = []
     const client = new AgentHqApiClient({

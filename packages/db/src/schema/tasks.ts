@@ -4,7 +4,7 @@ import { check, index, integer, jsonb, text, unique, uuid } from 'drizzle-orm/pg
 
 import { agents } from './agents'
 import { contentRefs } from './content-refs'
-import { entityId, timestampColumns } from './conventions'
+import { controlPlaneIdentifierColumn, entityId, timestampColumns } from './conventions'
 import { users } from './identity'
 import { projects } from './projects'
 import { runtimeNodes } from './runtime-nodes'
@@ -27,6 +27,7 @@ export const tasks = appSchema.table(
   'tasks',
   {
     id: entityId(),
+    controlPlaneTaskId: controlPlaneIdentifierColumn('control_plane_task_id', 'tsk'),
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
@@ -56,6 +57,12 @@ export const tasks = appSchema.table(
     ...timestampColumns(),
   },
   (table) => [
+    unique('tasks_control_plane_id_unique').on(table.controlPlaneTaskId),
+    unique('tasks_workspace_id_unique').on(table.workspaceId, table.id),
+    check(
+      'tasks_control_plane_id_valid',
+      sql`${table.controlPlaneTaskId} ~ '^tsk_[0-9A-HJKMNP-TV-Z]{26}$'`
+    ),
     check('tasks_title_nonempty', sql`length(btrim(${table.title})) > 0`),
     check(
       'tasks_objective_available',

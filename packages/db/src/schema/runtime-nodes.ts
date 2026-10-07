@@ -90,6 +90,7 @@ export const runtimeNodes = appSchema.table(
     index('runtime_nodes_workspace_idx').on(table.workspaceId, table.kind),
     index('runtime_nodes_owner_idx').on(table.ownerUserId),
     uniqueIndex('runtime_nodes_control_plane_ref_uidx').on(table.controlPlaneRuntimeNodeRefId),
+    uniqueIndex('runtime_nodes_workspace_id_uidx').on(table.workspaceId, table.id),
     check(
       'runtime_nodes_control_plane_ref_valid',
       sql`${table.controlPlaneRuntimeNodeRefId} ~ '^rnr_[0-9A-HJKMNP-TV-Z]{26}$'`
