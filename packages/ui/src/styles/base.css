@@ -33,6 +33,17 @@
   pointer-events: none !important;
 }
 
+/* Alert copy reads beside its icon, wherever a centred dialog hosts the alert
+   (the shared About dialog centres its identity block around the mark). The
+   alert is a grid whose glyph column stays on the start edge, so an inherited
+   `text-align: center` would centre the body text away from that glyph. The
+   roles are the published Dialog and Alert contracts, so the repair holds for
+   every host that centres a dialog instead of each centring wrapper. */
+[role='dialog'] [role='alert'],
+[role='alertdialog'] [role='alert'] {
+  text-align: start;
+}
+
 /* shimmer */
 @property --shimmer-angle {
   syntax: '<angle>';

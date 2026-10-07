@@ -19,6 +19,8 @@ export function ConventionalWorkspaceEntry(props: {
   embedded?: boolean
   manageSettings?: boolean
   onConsumeDeepLink?: () => void
+  /** Forwards the shell's bootstrap-fallback state to the frame's top bar. */
+  onBootstrapFallbackChange?: (fallback: boolean) => void
   onOpenTaskBoard?: () => void
   onViewChange: (view: WorkspaceView) => void
   services: WorkspacePlatformServices
@@ -33,6 +35,7 @@ export function ConventionalWorkspaceEntry(props: {
         restoreFocusRef={props.restoreFocusRef}
         deepLink={props.deepLink}
         manageSettings={props.manageSettings ?? true}
+        onBootstrapFallbackChange={props.onBootstrapFallbackChange}
         onConsumeDeepLink={props.onConsumeDeepLink}
         onOpenTaskBoard={props.onOpenTaskBoard}
         onViewChange={props.onViewChange}

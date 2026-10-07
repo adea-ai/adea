@@ -109,26 +109,12 @@
   gap: 0.75rem;
 }
 
+/* Actions are the published Button with its own variants; the hook keeps only
+   the auth surface's comfortable touch target. Fill, border, focus, and
+   disabled states belong to the variant, so an outline action — the start
+   surface's "Sign in" next to the filled "Try again" — survives. */
 .auth-actions button {
   min-height: 2.75rem;
-  padding: 0 1rem;
-  border: 0;
-  border-radius: 0.45rem;
-  color: var(--auth-accent-foreground);
-  background: var(--auth-accent);
-  font: inherit;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.auth-actions button:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.auth-actions button:focus-visible {
-  outline: 3px solid var(--auth-foreground);
-  outline-offset: 2px;
 }
 
 .auth-note {

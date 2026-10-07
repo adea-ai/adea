@@ -12,6 +12,9 @@
  * and the compiled client-boundary guard keeps `src/server` out of browsers.
  */
 import { createHash } from 'node:crypto'
+import { ControlPlaneClient, ControlPlaneClientError } from '@adea-ai/sdk'
+
+import { callControlPlaneAdmin } from './control-plane-sdk'
 
 import {
   CONTROL_PLANE_SERVICE_PRINCIPAL_ID,
@@ -174,62 +177,64 @@ export async function postControlPlane(
 ): Promise<unknown> {
   const environment = dependencies.environment ?? process.env
   const origin = environment.CONTROL_PLANE_ORIGIN?.trim()
-  if (!origin)
-    throw new ControlPlaneProxyError('CONTROL_PLANE_UNAVAILABLE', 'Control Plane is not configured')
-  let url: URL
+  const requestId =
+    typeof body.requestId === 'string' &&
+    body.requestId.startsWith('req_') &&
+    OPAQUE_ID_PATTERN.test(body.requestId)
+      ? body.requestId
+      : ''
   try {
-    url = new URL(path, origin.endsWith('/') ? origin : `${origin}/`)
-  } catch {
-    throw new ControlPlaneProxyError('CONTROL_PLANE_UNAVAILABLE', 'Control Plane is not configured')
-  }
-  if (url.protocol !== 'https:' && environment.NODE_ENV === 'production')
-    throw new ControlPlaneProxyError('CONTROL_PLANE_UNAVAILABLE', 'Control Plane is not configured')
-  const requestId = typeof body.requestId === 'string' ? body.requestId : ''
-  let response: Response
-  try {
-    response = await (dependencies.fetch ?? fetch)(url, {
-      body: JSON.stringify(body),
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${credential.token}`,
-        'Content-Type': 'application/json',
-        'X-Request-ID': requestId,
-      },
-      method: 'POST',
-    })
-  } catch {
-    reportFailure(operation, 0, 'CONTROL_PLANE_UNAVAILABLE', requestId)
-    throw new ControlPlaneProxyError('CONTROL_PLANE_UNAVAILABLE', 'Control Plane is unavailable')
-  }
-  if (!response.ok) {
-    const code = await rejectionCode(response)
-    const error = rejection(response.status, code)
-    reportFailure(operation, response.status, error.code, requestId)
-    throw error
-  }
-  let envelope: unknown
-  try {
-    envelope = await response.json()
-  } catch {
-    envelope = undefined
-  }
-  if (!isRecord(envelope) || !('data' in envelope)) {
-    reportFailure(operation, response.status, 'CONTROL_PLANE_INVALID_RESPONSE', requestId)
-    throw new ControlPlaneProxyError(
-      'CONTROL_PLANE_UNAVAILABLE',
-      'Control Plane returned an invalid response'
+    if (
+      !origin ||
+      body.workspaceId !== credential.workspaceId ||
+      body.operation !== operation ||
+      !isRecord(body.caller) ||
+      body.caller.servicePrincipalId !== CONTROL_PLANE_SERVICE_PRINCIPAL_ID
     )
-  }
-  return envelope.data
-}
-
-async function rejectionCode(response: Response): Promise<string | undefined> {
-  try {
-    const payload: unknown = await response.json()
-    const code = isRecord(payload) && isRecord(payload.error) ? payload.error.code : undefined
-    return typeof code === 'string' && CONTROL_PLANE_CODE_PATTERN.test(code) ? code : undefined
-  } catch {
-    return undefined
+      throw new Error('Invalid Control Plane scope or configuration')
+    const url = new URL(origin)
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.pathname !== '/' ||
+      (url.protocol !== 'https:' && environment.NODE_ENV === 'production')
+    )
+      throw new Error('Invalid Control Plane origin')
+    const client = new ControlPlaneClient({
+      baseUrl: url,
+      credential: credential.token,
+      fetch: dependencies.fetch ?? fetch,
+      timeoutMs: 5_000,
+    })
+    const envelope = await callControlPlaneAdmin(client, path, body)
+    if (
+      envelope.requestId !== requestId ||
+      !isRecord(body.correlation) ||
+      envelope.correlation.traceId !== body.correlation.traceId
+    )
+      throw new Error('Mismatched Control Plane response identity')
+    return envelope.data
+  } catch (cause) {
+    // SDK errors can contain upstream text. Carry only a validated code from
+    // a correlated rejection; everything else is a fixed unavailable error.
+    const validRejection =
+      cause instanceof ControlPlaneClientError &&
+      cause.requestId === requestId &&
+      cause.status !== undefined &&
+      !['INVALID_CONTROL_PLANE_RESPONSE', 'INCOMPATIBLE_CONTRACT_VERSION'].includes(cause.code) &&
+      CONTROL_PLANE_CODE_PATTERN.test(cause.code)
+    const error = validRejection
+      ? rejection(cause.status!, cause.code)
+      : new ControlPlaneProxyError('CONTROL_PLANE_UNAVAILABLE', 'Control Plane is unavailable')
+    reportFailure(
+      operation,
+      cause instanceof ControlPlaneClientError ? (cause.status ?? 0) : 0,
+      error.code,
+      requestId
+    )
+    throw error
   }
 }
 

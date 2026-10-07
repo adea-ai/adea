@@ -87,6 +87,12 @@ export function ConventionalWorkspaceShell(props: {
   manageSettings?: boolean
   /** Called after a deep link applies — the host removes its params. */
   onConsumeDeepLink?: () => void
+  /**
+   * Reports whether this shell renders its bootstrap fallback (skeleton or
+   * error) instead of the workspace with its contextual sidebar. Hosts with a
+   * frame top bar hide the sidebar toggle while nothing it controls renders.
+   */
+  onBootstrapFallbackChange?: (fallback: boolean) => void
   onViewChange?: (view: WorkspaceView) => void
   services?: WorkspacePlatformServices
   view?: WorkspaceView
@@ -137,6 +143,18 @@ export function ConventionalWorkspaceShell(props: {
     (accountAuthenticated() ? (principal()?.displayName ?? 'Account') : 'Sign in')
 
   createEffect(on(sessionIdentity, () => setSessionNoticeDismissed(false), { defer: true }))
+
+  // Exactly the render condition of the fallback mains below: while it holds,
+  // no contextual sidebar is mounted, so a frame top bar has nothing for its
+  // sidebar toggle to control.
+  createEffect(() => {
+    props.onBootstrapFallbackChange?.(
+      controller.bootstrap.isPending ||
+        controller.bootstrap.isError ||
+        !controller.persistenceReady ||
+        !(controller.activeWorkspace && controller.workspaceId)
+    )
+  })
 
   const selectChannel = (channelId: string, projectId?: string) => {
     setSelectedArtifactId(null)

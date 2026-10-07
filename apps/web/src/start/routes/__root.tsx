@@ -2,6 +2,7 @@ import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/solid-r
 import { HydrationScript } from 'solid-js/web'
 import type { JSX } from 'solid-js'
 import { ThemeScript } from '@adea-ai/app-ui/components/theme-provider'
+import { TextLink } from '@adea-ai/ui/components/ui/text-link'
 import '../globals.css'
 
 /**
@@ -29,6 +30,34 @@ export type WorkspaceSearch = {
   workspace?: string
 }
 
+/** The router-level fallbacks share the entry surfaces' standard treatment —
+ * the centred auth-shell panel with the app eyebrow, the display headline and
+ * the inline link action — instead of bare unstyled document flow. */
+function RootStatePage(props: {
+  alert?: boolean
+  eyebrow: string
+  title: string
+  detail: string
+  actionLabel: string
+}) {
+  return (
+    <main class="auth-shell">
+      <section
+        class="auth-panel"
+        role={props.alert ? 'alert' : undefined}
+        aria-labelledby="root-state-title"
+      >
+        <p class="auth-eyebrow">{props.eyebrow}</p>
+        <h1 class="auth-title" id="root-state-title">
+          {props.title}
+        </h1>
+        <p class="auth-introduction">{props.detail}</p>
+        <TextLink href="/">{props.actionLabel}</TextLink>
+      </section>
+    </main>
+  )
+}
+
 export const Route = createRootRoute({
   validateSearch: (search: Record<string, unknown>): WorkspaceSearch => search as WorkspaceSearch,
   head: () => ({
@@ -49,16 +78,21 @@ export const Route = createRootRoute({
   component: () => <Outlet />,
   shellComponent: Document,
   notFoundComponent: () => (
-    <main>
-      <h1>Page not found</h1>
-      <a href="/">Open Adea</a>
-    </main>
+    <RootStatePage
+      eyebrow="Adea"
+      title="Page not found"
+      detail="This address doesn't match a workspace page. Open Adea and continue from your workspace."
+      actionLabel="Open Adea"
+    />
   ),
   errorComponent: () => (
-    <main role="alert">
-      <h1>Unable to open Adea</h1>
-      <a href="/">Try again</a>
-    </main>
+    <RootStatePage
+      alert
+      eyebrow="Adea"
+      title="Unable to open Adea"
+      detail="Something interrupted the app before it could open. Reload, or try again from the start."
+      actionLabel="Try again"
+    />
   ),
 })
 

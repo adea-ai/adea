@@ -164,6 +164,44 @@ for (const width of [1280, 390]) {
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'nord')
     })
 
+    test('the trigger reads pressed while its sheet is open', async ({ page }) => {
+      // The open sheet is modal: it marks the top bar aria-hidden, so the
+      // role locator cannot resolve the trigger while pressed. The attribute
+      // locator reads the same element in both states.
+      const trigger = page.locator('button[aria-label="Appearance settings"]')
+      const popup = await openLiveAppearance(page)
+      // Kobalte marks the trigger `data-expanded` while the sheet is open; the
+      // published pressed rung (the menubar's `data-expanded:bg-surface-active`)
+      // has to ride on that state so an open control no longer reads identical
+      // to its closed neighbours.
+      await expect(trigger).toHaveAttribute('data-expanded', '')
+      const surfaceActivePaint = await page.evaluate(() => {
+        const probe = document.createElement('div')
+        probe.style.backgroundColor = 'var(--surface-active)'
+        document.body.append(probe)
+        const value = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return value
+      })
+      // The pointer rests on the trigger after opening it, and the shared
+      // control's hover rung legitimately paints while it does. Move it away
+      // so the sample reads the open (pressed) paint, not the hover paint.
+      await page.mouse.move(4, 300)
+      // The shared control transitions colours; sample once the paint settles
+      // instead of catching the interpolation's first frames.
+      await expect
+        .poll(() => trigger.evaluate((element) => getComputedStyle(element).backgroundColor))
+        .toBe(surfaceActivePaint)
+
+      // Dismiss through the sheet's own close affordance: the dismissed panel
+      // must leave the trigger released.
+      await popup.getByRole('button', { name: 'Close appearance settings' }).click()
+      await expect(popup).toBeHidden()
+      await expect
+        .poll(() => trigger.evaluate((element) => getComputedStyle(element).backgroundColor))
+        .not.toBe(surfaceActivePaint)
+    })
+
     test('Cancel, Escape and outside dismissal revert the opening snapshot', async ({ page }) => {
       const trigger = page.getByRole('button', { name: 'Appearance settings', exact: true })
       const before = await page.locator('html').getAttribute('data-theme')

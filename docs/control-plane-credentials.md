@@ -92,6 +92,20 @@ against the environment you mean to change.
   Proxy failures log one `control_plane.admin.failed` line with the
   operation, status, a sanitized code and the request id — never a body.
 
+  The administration hop uses the published `@adea-ai/sdk` **1.11.0** and
+  `@adea-ai/contracts` **1.14.0**, pinned exactly in the web manifest and Bun
+  lockfile. The SDK owns request and response validation and contract-version
+  compatibility. The repository pins Node 24.21.0 to meet both packages' runtime
+  requirement. Adea also verifies response request/trace identity, sends
+  both correlation headers, refuses redirects, and bounds each hop to five
+  seconds. An incompatible, malformed, or miscorrelated response is unavailable;
+  upstream error text and validation details never reach clients or logs.
+  `CONTROL_PLANE_ORIGIN` is a root origin without credentials, path, query,
+  or fragment. HTTPS is required, with loopback HTTP allowed only outside
+  production. The SDK and its runtime schemas are blocked from browser bundles.
+  These pins cover administration today; execution submission, Local IPC,
+  and remote relay integration remain M11 work.
+
 - **Marketplace.** The proxy sets both the envelope `workspaceId` and the
   nested `workspaceIdentity.workspaceId` to the active workspace's mapped
   `wsp_`. Each workspace therefore has its own installations and idempotency

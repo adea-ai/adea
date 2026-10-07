@@ -8,6 +8,8 @@ export function forbiddenClientModule(id) {
     /(?:^|\/)server-only(?:\/|$|\?)/.test(path) ||
     /\/packages\/db\/(?:src|dist)\//.test(path) ||
     /\/@adea-ai\/db\//.test(path) ||
+    // The published Control Plane client and schemas are host-only packages.
+    /\/@adea-ai\/(?:sdk|contracts)\//.test(path) ||
     /\/apps\/web\/src\/server\//.test(path) ||
     /\/packages\/auth\/(?:src|dist)\/(?:server|start|desktop-server|desktop-http-server|config|security)\./.test(
       path
