@@ -246,3 +246,47 @@ test('about dialog keeps its accessible name and product identity on the shared 
   await expect(page.locator('#harness-root')).not.toHaveAttribute('inert', '')
   await expect(page.locator('#preexisting-inert')).toHaveAttribute('inert', '')
 })
+
+test('about dialog error alert reads start-aligned beside its icon inside the centred dialog', async ({
+  page,
+}) => {
+  // The shared About dialog centres its identity block; without the alert
+  // alignment repair the copy failure body inherits that centring while the
+  // alert's glyph column stays on the start edge.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => Promise.reject(new Error('clipboard denied')) },
+      configurable: true,
+    })
+  })
+  await page.getByRole('button', { name: 'Open about', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'About Adea', exact: true })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Copy version info' }).click()
+  const alert = dialog.getByRole('alert')
+  await expect(alert).toBeVisible()
+  await expect(alert).toContainText('Could not copy version info')
+
+  const alignment = await alert.evaluate((element) => {
+    const description = element.querySelector('[data-slot="alert-description"]') ?? element
+    const icon = element.querySelector('[data-slot="alert-icon"]') ?? element
+    const cell = description.getBoundingClientRect()
+    // Measure the rendered text, not the cell: the description div spans its
+    // whole grid column whatever its text-align is, so only the text run
+    // proves where the words sit.
+    const range = document.createRange()
+    range.selectNodeContents(description)
+    const text = range.getBoundingClientRect()
+    return {
+      textAlign: getComputedStyle(description).textAlign,
+      cellLeft: cell.left,
+      textLeft: text.left,
+      iconLeft: icon.getBoundingClientRect().left,
+    }
+  })
+  // The declared contract: the dialog's centring stops at the alert boundary.
+  expect(alignment.textAlign).toBe('start')
+  // And the words sit on the start edge of the body cell, beside the glyph.
+  expect(Math.abs(alignment.textLeft - alignment.cellLeft)).toBeLessThanOrEqual(1)
+  expect(alignment.iconLeft).toBeLessThan(alignment.textLeft)
+})
