@@ -252,7 +252,10 @@ function AppActivationSection(props: { activation: WorkspaceAppActivation }) {
         when={props.activation.status === 'activatable'}
         fallback={
           <p role="note">
-            <ShieldCheck aria-hidden="true" />
+            {/* Size + inline at the call site: lucide's unclassed default is a
+               24px block, which stacks the mark on its own line above the
+               copy (owner audit tkvr-3). */}
+            <ShieldCheck aria-hidden="true" class="mr-0.5 inline size-4 align-middle" />
             <Show when={isPlainReason()} fallback={<span>{copy()}</span>}>
               {copy() === 'not-installed'
                 ? 'Activation unlocks after this app is installed.'
@@ -262,8 +265,8 @@ function AppActivationSection(props: { activation: WorkspaceAppActivation }) {
         }
       >
         <p>
-          <Check aria-hidden="true" /> Bundled first-party app entry{' '}
-          <code>{activationEntryId(props.activation)}</code> can activate.
+          <Check aria-hidden="true" class="mr-0.5 inline size-4 align-middle" /> Bundled first-party
+          app entry <code>{activationEntryId(props.activation)}</code> can activate.
         </p>
       </Show>
     </CatalogDetailSection>
@@ -330,7 +333,8 @@ function PluginDetail(props: {
           <Show when={props.installError}>{(message) => <p role="alert">{message()}</p>}</Show>
           <Show when={props.plugin.installed}>
             <p role="status">
-              <Check aria-hidden="true" /> Installed through Control Plane
+              <Check aria-hidden="true" class="mr-0.5 inline size-4 align-middle" /> Installed
+              through Control Plane
             </p>
           </Show>
           <Show when={props.plugin.installationId ? props.onUninstall : undefined}>
@@ -353,7 +357,7 @@ function PluginDetail(props: {
           <For each={props.plugin.capabilities}>
             {(capability) => (
               <li>
-                <Check aria-hidden="true" /> {capability}
+                <Check aria-hidden="true" class="mr-0.5 inline size-4 align-middle" /> {capability}
               </li>
             )}
           </For>
@@ -361,7 +365,7 @@ function PluginDetail(props: {
       </CatalogDetailSection>
       <CatalogDetailSection title="Connection">
         <p>
-          <ShieldCheck aria-hidden="true" />{' '}
+          <ShieldCheck aria-hidden="true" class="mr-0.5 inline size-4 align-middle" />
           {props.plugin.auth === 'oauth'
             ? 'OAuth provider'
             : props.plugin.auth === 'api-key'

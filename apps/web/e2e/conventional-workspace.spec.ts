@@ -658,6 +658,16 @@ async function mockConnectedWorkspace(page: Page) {
       return route.fulfill({ contentType: 'application/json', json: {} })
     if (url.pathname.includes('/read-state'))
       return route.fulfill({ contentType: 'application/json', json: { readState } })
+    if (url.pathname.endsWith('/members') && !url.pathname.includes('/projects'))
+      return route.fulfill({
+        contentType: 'application/json',
+        json: {
+          members: [
+            { userId: 'user-e2e', displayName: 'E2E Owner', role: 'owner' },
+            { userId: 'user-collaborator', displayName: 'Collaborator', role: 'member' },
+          ],
+        },
+      })
     if (url.pathname.endsWith('/projects'))
       return route.fulfill({ contentType: 'application/json', json: mutableProjects })
     if (url.pathname.endsWith('/channels'))
@@ -1098,7 +1108,58 @@ test('the project menu opens the lazy Share dialog from the accordion', async ({
     'Delete',
   ])
   await page.getByRole('menuitem', { name: 'Share', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: 'Share Product' })).toBeVisible()
+  const share = page.getByRole('dialog', { name: 'Share Product' })
+  await expect(share).toBeVisible()
+  // The member search composes the published ComboboxControl, so the field
+  // carries the shared chrome instead of a bare borderless input.
+  const search = share.getByPlaceholder('Search members')
+  await expect(search).toBeVisible()
+  const chrome = await search.evaluate((input) => {
+    const control = input.parentElement
+    if (!control) return null
+    const style = getComputedStyle(control)
+    return { controlBorder: style.borderTopWidth, controlBorderColor: style.borderTopColor }
+  })
+  expect(chrome).not.toBeNull()
+  expect(chrome!.controlBorder).toBe('1px')
+  expect(chrome!.controlBorderColor).not.toBe('rgba(0, 0, 0, 0)')
+})
+
+test('the artifact detail keeps the surface header composition', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.goto('/?view=chat')
+  const composer = page.locator('textarea[id^="composer-"]')
+  await expect(composer).toBeVisible()
+  await page.getByRole('button', { name: 'Search this conversation' }).click()
+  const search = page.getByRole('dialog', { name: /Search/i })
+  await search.getByPlaceholder('Find a Project, conversation, Agent, or Task').fill('brief')
+  await search.getByText('launch-brief.md').click()
+  const detail = page.locator('.conventional-artifact-detail')
+  await expect(detail).toBeVisible()
+  const composition = await page.evaluate(() => {
+    const section = document.querySelector('.conventional-artifact-detail')
+    const header = section?.querySelector('.conventional-surface-header')
+    const h1 = section?.querySelector('h1')
+    if (!section || !header || !h1) return null
+    const sectionStyle = getComputedStyle(section)
+    const sectionRect = section.getBoundingClientRect()
+    const headerRect = header.getBoundingClientRect()
+    return {
+      sectionPaddingTop: sectionStyle.paddingTop,
+      headerFullWidth:
+        headerRect.left - sectionRect.left >= Number.parseFloat(sectionStyle.paddingLeft) - 2 &&
+        headerRect.width > sectionRect.width * 0.6,
+      h1Weight: getComputedStyle(h1).fontWeight,
+    }
+  })
+  expect(composition).not.toBeNull()
+  // The header keeps the standard surface inset and spans the view instead of
+  // shrink-wrapping to its copy and centring the wrap.
+  expect(Number.parseFloat(composition!.sectionPaddingTop)).toBeGreaterThan(0)
+  expect(composition!.headerFullWidth).toBe(true)
+  // The surface heading carries the published semibold role, not preflight's
+  // inherited 400.
+  expect(composition!.h1Weight).toBe('600')
 })
 
 test('the top-bar title slot shows Workspace › Project › Leaf without adding a row', async ({

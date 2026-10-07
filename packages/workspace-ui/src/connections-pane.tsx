@@ -187,21 +187,26 @@ export function ConnectionsPane(props: { service?: WorkspaceConnectionsService }
                 {(row) => (
                   <>
                     <SettingsRow label={row.displayName} description={row.detail}>
-                      <NativeSelect
-                        aria-label={`Account for ${row.displayName}`}
-                        value={row.value}
-                        disabled={busy()}
-                        options={row.options}
-                        onChange={(event) => bindAccount(row, event.currentTarget.value)}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={busy()}
-                        onClick={() => openAdd(row)}
-                      >
-                        Add account…
-                      </Button>
+                      {/* The shared row control slot shrink-wraps its children;
+                         spacing the pair here keeps the select and the add
+                         action from touching. */}
+                      <div class="flex flex-wrap items-center gap-2">
+                        <NativeSelect
+                          aria-label={`Account for ${row.displayName}`}
+                          value={row.value}
+                          disabled={busy()}
+                          options={row.options}
+                          onChange={(event) => bindAccount(row, event.currentTarget.value)}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={busy()}
+                          onClick={() => openAdd(row)}
+                        >
+                          Add account…
+                        </Button>
+                      </div>
                     </SettingsRow>
                     <Show when={addingFor() === row.harnessId}>
                       <SettingsRow

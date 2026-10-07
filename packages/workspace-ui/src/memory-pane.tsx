@@ -197,6 +197,7 @@ function MemoryManager(props: { service: WorkspaceMemoryService; workspaceId: st
                   <Textarea
                     name="memory-note"
                     rows={3}
+                    class="field-sizing-fixed"
                     maxLength={MEMORY_ENTRY_MAX_CHARS}
                     value={draft()}
                     placeholder="For example: this project uses bun, never npm."
@@ -324,6 +325,7 @@ function MemoryManager(props: { service: WorkspaceMemoryService; workspaceId: st
                                 <Textarea
                                   name="memory-note-edit"
                                   rows={3}
+                                  class="field-sizing-fixed"
                                   maxLength={MEMORY_ENTRY_MAX_CHARS}
                                   value={current().text}
                                   disabled={busy()}
