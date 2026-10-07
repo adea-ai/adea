@@ -685,7 +685,8 @@ export function WorkspaceNavSidebar(props: Props) {
         }}
         workspaceDraftError={workspaceDraftError()}
         workspaceDraftPending={workspaceDraftPending() || createWorkspace.isPending}
-        onCreateProject={props.workspaceReady === false ? undefined : () => props.onCreateProject()}
+        onCreateProject={() => props.onCreateProject()}
+        createDisabled={props.workspaceReady === false}
         onOpenWorkspaceSettings={
           props.host.onOpenWorkspaceSettings
             ? () => {

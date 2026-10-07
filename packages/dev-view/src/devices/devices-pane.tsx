@@ -328,7 +328,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                                       <Button
                                         type="button"
                                         variant="outline"
-                                        size="sm"
+                                        size="md"
                                         disabled={
                                           item.state === 'unauthorized' ||
                                           !hasDevUtilitySession(context())
@@ -343,7 +343,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                                     <Button
                                       type="button"
                                       variant="outline"
-                                      size="sm"
+                                      size="md"
                                       onClick={() => {
                                         const session = sessionItems().find(
                                           (entry) =>
