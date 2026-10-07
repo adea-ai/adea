@@ -74,6 +74,29 @@ interop and manual product acceptance are not established by these results.
 
 ## Remaining acceptance
 
+The schema phase merged as main `25264860b403f5f400ab9b4c933f06a15524cba3`.
+That exact commit's [production migration job](https://github.com/adea-ai/adea/actions/runs/37698097521/job/113054687222)
+and Worker deployment reported success. A read-only catalog check against the
+explicit approved project/branch/database remains pending; the available Neon
+connector is unscoped and requires a project ID. No production SQL, live cleanup,
+credential or scheduler action was performed for this evidence update.
+
+After integrating that main commit, both comment/documentation merge conflicts
+were resolved without changing the retention behavior or production proof window.
+The runtime declaration and the already-landed 0039 snapshot agree, and this
+application diff now contains no migration SQL or snapshot change.
+
+- `mise exec -- bun run test:unit`: 30 successful Turbo tasks; root coverage
+  308 passed / zero failed / 7,188 assertions across 54 files.
+- `mise exec -- bun run test:integration`: 118 passed / zero failed /
+  1,878 assertions across 23 files; all 40 migrations and their idempotent rerun
+  passed on an owned disposable target. Its project/volume and listener closed.
+- `mise exec -- bun run lint`: 17 tasks plus root Oxlint, zero findings.
+- `mise exec -- bun run typecheck`: 31 tasks passed in the integration commit hook.
+- `mise exec -- bun run build`: 15 tasks passed, reusing the unit dependency builds.
+- `mise exec -- bun run format:check`: 1,809 files passed before this evidence update.
+- `mise exec -- bun run --cwd packages/db db:check`: passed.
+
 Production migration/deployment verification, an authorized retention schedule,
 and independent operational evidence remain required. Current-row removal is
 not secure erasure from WAL, backups or replicas. Host inbox/replay, private-key
