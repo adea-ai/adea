@@ -18,8 +18,18 @@ import {
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
-import { ChevronDown, GitBranch, GitPullRequest, GitPullRequestDraft, Plus } from 'lucide-solid'
+import {
+  ChevronDown,
+  GitBranch,
+  GitMerge,
+  GitPullRequest,
+  GitPullRequestClosed,
+  GitPullRequestDraft,
+  Plus,
+  type LucideIcon,
+} from 'lucide-solid'
 import { For, Show, createMemo, createResource, createSignal, type JSX } from 'solid-js'
+import { Dynamic } from 'solid-js/web'
 
 import { errorText } from '../client'
 import { prRef, relativeTime, shortSha } from '../model/format'
@@ -63,6 +73,27 @@ function PullRequestRow(props: {
       return `Closed ${relativeTime(props.pr.closedAt, props.state.tick())}`
     return `Updated ${relativeTime(props.pr.updatedAt, props.state.tick())}`
   }
+  // The row's state mark: one 20px icon for the first grid column, with the
+  // icon and colour the pull request's actual state carries — merged rows are
+  // not open rows, and a closed row is not a green open icon.
+  const stateMark = createMemo(() => {
+    const pr = props.pr
+    if (pr.draft)
+      return {
+        Icon: GitPullRequestDraft as LucideIcon,
+        class: 'dev-scm-row__icon--draft',
+        label: 'Draft',
+      }
+    if (pr.state === 'merged')
+      return { Icon: GitMerge as LucideIcon, class: 'dev-scm-row__icon--merged', label: 'Merged' }
+    if (pr.state === 'closed')
+      return {
+        Icon: GitPullRequestClosed as LucideIcon,
+        class: 'dev-scm-row__icon--closed',
+        label: 'Closed',
+      }
+    return { Icon: GitPullRequest as LucideIcon, class: 'dev-scm-row__icon--open', label: 'Open' }
+  })
   const run = () => {
     const pr = props.pr
     switch (props.action ?? 'open') {
@@ -85,12 +116,11 @@ function PullRequestRow(props: {
   }
   return (
     <div class="dev-scm-row" data-pr={props.pr.number}>
-      <Show
-        when={props.pr.draft}
-        fallback={<GitPullRequest class="dev-scm-row__icon--open" aria-label="Open" />}
-      >
-        <GitPullRequestDraft class="dev-scm-row__icon--draft" aria-label="Draft" />
-      </Show>
+      <Dynamic
+        component={stateMark().Icon}
+        class={cn('size-5', stateMark().class)}
+        aria-label={stateMark().label}
+      />
       <div class="dev-scm-row__main">
         {/* Quiet title text, like every other list row: the row's action
             button is its one coloured control. */}
