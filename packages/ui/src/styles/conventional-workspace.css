@@ -1525,35 +1525,16 @@
  * Each crumb clips its own label, the leaf giving way last, while the marks
  * and separators keep their size.
  */
-.workspace-topbar__crumbs {
-  min-width: 0;
-}
-.workspace-topbar__crumb-list {
-  flex-wrap: nowrap;
-  min-width: 0;
-  overflow: hidden;
-}
-.workspace-topbar__crumb {
-  min-width: 0;
-  flex-shrink: 3;
-}
-.workspace-topbar__crumb[data-crumb='leaf'] {
-  flex-shrink: 1;
-}
-.workspace-topbar__crumb-mark,
-.workspace-topbar__crumb-separator {
+.workspace-topbar__crumb-mark {
   display: inline-flex;
   flex-shrink: 0;
 }
 .workspace-topbar__crumb-label {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.workspace-topbar__crumb-link {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
 }
 /*
  * Restate the shared TopBar's macOS inset as a host rule. The shared rule is a
@@ -1607,9 +1588,6 @@
 }
 .workspace-topbar__title {
   text-align: center;
-}
-.workspace-topbar__crumb-list {
-  justify-content: center;
 }
 /* A view-owned title-slot control (source control's pull-request search)
    fills the centred slot in place of the plain title, so the field itself is
