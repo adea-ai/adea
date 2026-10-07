@@ -12,13 +12,23 @@ export const devViewFixtureProjects: readonly DevProjectFixture[] = [
     repository: 'example/repository',
     branch: 'main',
     worktrees: [
-      { id: 'fixture-adea-checkout', projectId: 'fixture-adea', kind: 'primary', headRef: 'main' },
+      {
+        id: 'fixture-adea-checkout',
+        projectId: 'fixture-adea',
+        kind: 'primary',
+        headRef: 'main',
+        // The source control pane's remote section reads the checked-out
+        // worktree's repository; the fixture worktrees carry one so the pane
+        // renders its rows in the shell harness.
+        repoId: 'fixture-repo-adea',
+      },
       {
         id: 'fixture-adea-example',
         projectId: 'fixture-adea',
         kind: 'managed',
         branchRef: 'feature/example',
         title: 'Dev View foundation',
+        repoId: 'fixture-repo-adea',
       },
     ],
     sessions: [

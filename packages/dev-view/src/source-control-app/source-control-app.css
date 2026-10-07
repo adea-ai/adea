@@ -332,6 +332,17 @@
   color: var(--dev-muted);
 }
 
+/* Merged and closed carry their own marks: the canonical palette has no
+   purple role, so merged rides the sanctioned informational hue, and a
+   closed-without-merge reads destructive — never a green open icon. */
+.dev-scm-row__icon--merged {
+  color: var(--info);
+}
+
+.dev-scm-row__icon--closed {
+  color: var(--destructive);
+}
+
 @media (max-width: 70rem) {
   .dev-scm-row {
     grid-template-columns: 1.25rem minmax(0, 1fr) auto;
@@ -557,7 +568,10 @@
 }
 
 .dev-scm-person {
-  display: flex;
+  /* Inline-level: the person rides inside caption and event runs ("juno · 3
+     hours ago"), so a block-level flex box here dropped the avatar onto its
+     own line and wrapped the time or verb below it. */
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   min-height: 1.75rem;

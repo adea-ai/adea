@@ -145,6 +145,39 @@
   border-block-end: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
 }
 
+/* Git pane rows: one aligned row per fact instead of unaligned inline runs.
+   The name truncates on its line; the state badge keeps its own place at the
+   row end and never wraps under the name. */
+.dev-files__row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: var(--dev-files-row-height, 1.75rem);
+  padding: 0 0.5rem;
+}
+
+.dev-files__row > .dev-files__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-files__row > .dev-files__badge {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: calc(0.6875rem * var(--font-ui-scale, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dev-sc__commit textarea {
   min-height: 3rem;
   padding: 0.35rem 0.5rem;

@@ -94,7 +94,10 @@ export function CommitsList(props: {
                 <div class="dev-scm-commit-line px-3 py-1">
                   <span class="dev-scm-mono dev-scm-muted">{shortSha(commit.sha)}</span>
                   <span class="flex min-w-0 flex-col">
-                    <span class="dev-scm-truncate">{commit.headline}</span>
+                    {/* The row-title scale every other list row uses (the
+                       sidebar's commit rows ride Button sm's text-xs), not the
+                       app's 16px base. */}
+                    <span class="dev-scm-truncate text-xs">{commit.headline}</span>
                     <span class="dev-scm-caption">
                       {commit.authorLogin ?? commit.authorName ?? 'Unknown author'} ·{' '}
                       {relativeTime(commit.committedAt, props.now)}

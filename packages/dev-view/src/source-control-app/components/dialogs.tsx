@@ -188,7 +188,13 @@ export function NewPullRequestDialog(props: {
       <div class="dev-scm-form">
         <div class="dev-scm-form__branches">
           <FormField label="Into" controlId="dev-scm-new-base">
+            {/* w-full: the FormField column stretches the wrapper, and without
+               a filling select the intrinsic-width box strands the absolute
+               chevron outside it on short branch lists. The published
+               NativeSelect owns this seam — its select carries no w-full — so
+               consumers stretch it until the component does. */}
             <NativeSelect
+              class="w-full"
               id="dev-scm-new-base"
               value={base()}
               options={options()}
@@ -196,9 +202,10 @@ export function NewPullRequestDialog(props: {
               onChange={(event) => setBase(event.currentTarget.value)}
             />
           </FormField>
-          <ArrowLeft class="mb-2" aria-hidden="true" />
+          <ArrowLeft class="mb-2 size-5" aria-hidden="true" />
           <FormField label="From" controlId="dev-scm-new-head">
             <NativeSelect
+              class="w-full"
               id="dev-scm-new-head"
               value={head()}
               options={options()}
