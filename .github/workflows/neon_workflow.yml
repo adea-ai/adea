@@ -35,7 +35,10 @@ jobs:
       github.event.action == 'synchronize' ||
       github.event.action == 'ready_for_review'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Run 37700345381 verified all 40 migrations, then hit the old 20m
+    # limit while the cloud integration suite was still passing. Allow
+    # bounded cloud round-trip headroom; retain every test and its deadline.
+    timeout-minutes: 35
     permissions:
       contents: read
     steps:
