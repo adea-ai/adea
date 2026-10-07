@@ -13,6 +13,24 @@ const desktopPackageJson = JSON.parse(
 ) as { version: string }
 
 describe('test suite boundaries', () => {
+  test('installs locked Playwright before downloading browsers for the Start host', () => {
+    const workflow = Bun.YAML.parse(
+      readFileSync(resolve(root, '.github/workflows/tanstack-start.yml'), 'utf8')
+    ) as {
+      jobs: { verify: { steps: { run?: string; id?: string; wait?: string[] }[] } }
+    }
+    const steps = workflow.jobs.verify.steps
+    const dependencies = steps.findIndex((step) => step.run === 'bun install --frozen-lockfile')
+    const browser = steps.findIndex((step) => step.id === 'playwright-install')
+    const suite = steps.findIndex((step) => step.run?.includes('start:test:local'))
+    const join = steps.findIndex((step) => step.wait?.includes('playwright-install'))
+
+    expect(dependencies).toBeGreaterThanOrEqual(0)
+    expect(browser).toBeGreaterThan(dependencies)
+    expect(join).toBeGreaterThan(browser)
+    expect(suite).toBeGreaterThan(join)
+  })
+
   test('exposes Code Foundry entry points for every test category', () => {
     expect(packageJson.scripts.test).toBe('bun run test:unit')
     expect(packageJson.scripts['test:unit']).toContain('turbo run test')

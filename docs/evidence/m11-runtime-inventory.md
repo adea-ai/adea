@@ -83,6 +83,25 @@ or node mutation is part of this increment. Native direct-local discovery and
 the full packaged/deployed certification matrix remain separate requirements.
 No source checkbox or acceptance-ledger verification state is changed.
 
+## CI browser installation correction
+
+The initial ready candidate `32e34b680d7954c52a321e6782221a2e5ab1cb5e`
+passed the aggregate validation, desktop and visual lanes, but the
+[Start host run](https://github.com/adea-ai/adea/actions/runs/37688227607)
+failed before most browser assertions. Browser installation ran before the
+frozen dependency install: `bunx` fetched Chromium revision 1248, while the
+locked Playwright 1.63.0 suite requires revision 1243. The workflow now installs
+the frozen workspace first and downloads its browser concurrently with builds.
+No test, browser check or dependency pin is removed.
+
+The workflow-order regression failed before this correction and passes after it.
+`mise exec -- bun test scripts/test-suite-boundary.test.ts` passes 12 tests and
+185 assertions; the full `mise exec -- bun run test` passes all 30 Turbo tasks
+and the root coverage suite's 302 tests / 7,127 assertions. Focused Oxfmt and
+Oxlint and Code Foundry doctor pass. Current-head hosted verification remains
+required before merging; these local checks do not claim the Linux browser
+installation or Worker suite has passed.
+
 ## Host integration boundary still to align
 
 Control Plane owns durable host acceptance and the normal CommandInbox. At its
