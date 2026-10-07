@@ -4,11 +4,16 @@ import {
   type WorkspaceSummary,
   type WorkspaceUpdate,
 } from '@adea-ai/types'
+import { accentPresetById, themeRegistry } from '@adea-ai/app-ui/components/appearance'
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
+import { cn } from '@adea-ai/app-ui/lib/utils'
+import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
 import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@adea-ai/ui/components/ui/radio-group'
+import type { JSX } from 'solid-js'
 import { createEffect, createSignal, For, Show } from 'solid-js'
 
 const ACCENT_LABELS: Record<WorkspaceAccentId, string> = {
@@ -158,19 +163,13 @@ export function WorkspaceIdentitySettings(props: {
         label="Accent"
         description="Colours the app while this workspace is active, and its mark everywhere."
       >
-        <RadioGroup
-          aria-label="Workspace accent"
-          value={props.workspace.accent ?? 'theme'}
+        <AccentSwatches
+          selected={props.workspace.accent ?? 'theme'}
           disabled={!editable()}
-          onChange={(value) =>
+          onSelect={(value) =>
             void save({ accent: value === 'theme' ? null : (value as WorkspaceAccentId) })
           }
-        >
-          <RadioGroupItem value="theme" label="Theme default" />
-          <For each={workspaceAccentIds}>
-            {(accent) => <RadioGroupItem value={accent} label={ACCENT_LABELS[accent]} />}
-          </For>
-        </RadioGroup>
+        />
       </SettingsRow>
       <SettingsRow label="Virtual world" description="The world the Virtual view opens in.">
         <RadioGroup
@@ -187,5 +186,87 @@ export function WorkspaceIdentitySettings(props: {
         {status()}
       </p>
     </>
+  )
+}
+
+/**
+ * The workspace accent picker, drawn as the same swatch grid the appearance
+ * editor's AccentChoices composes from the published RadioGroup primitives:
+ * one round swatch per accent painted with the catalogue's light/dark pair
+ * value, selection carried by the checked ring. It differs from the global
+ * grid in exactly one entry — a leading "Theme default" swatch (the
+ * workspace's `null` accent), painted with the inherited primary so it shows
+ * the accent the workspace would keep. Keyboard semantics are the
+ * RadioGroup's: roving focus, arrow keys, Space to select.
+ */
+function AccentSwatches(props: {
+  selected: string
+  disabled?: boolean
+  onSelect: (value: string) => void
+}) {
+  const theme = useOptionalTheme()
+  const appearance = (): 'light' | 'dark' => {
+    const variant = themeRegistry().find((entry) => entry.id === theme?.variantId())
+    return variant?.appearance === 'light' ? 'light' : 'dark'
+  }
+  const choices = (): { id: string; label: string; fill: JSX.Element }[] => [
+    {
+      id: 'theme',
+      label: 'Theme default',
+      fill: <span class="block size-full rounded-full bg-primary" />,
+    },
+    ...workspaceAccentIds.map((id) => {
+      const preset = accentPresetById(id)
+      const fill: JSX.Element = preset ? (
+        <svg class="size-full" viewBox="0 0 16 16" aria-hidden="true">
+          <circle
+            cx="8"
+            cy="8"
+            r="8"
+            fill={appearance() === 'light' ? preset.light : preset.dark}
+          />
+        </svg>
+      ) : (
+        <span class="block size-full rounded-full bg-muted-foreground/40" />
+      )
+      return { id, label: ACCENT_LABELS[id], fill }
+    }),
+  ]
+  return (
+    <RadioGroup
+      aria-label="Workspace accent"
+      value={props.selected}
+      disabled={props.disabled}
+      class="grid-cols-4"
+      data-accent-grid=""
+      onChange={(value) => props.onSelect(value)}
+    >
+      <For each={choices()}>
+        {(option) => (
+          <div class="rounded-full focus-within:ring-3 focus-within:ring-ring/50">
+            {/* The card is the control's published Label (associated by the
+                deterministic item/input id pair), so clicking anywhere on the
+                swatch selects the accent; the hidden radio control keeps the
+                group keyboard-driven and the wrapper carries its focus ring. */}
+            <RadioGroupItem
+              id={`workspace-accent-${option.id}`}
+              value={option.id}
+              controlClass="sr-only"
+            >
+              <Label for={`workspace-accent-${option.id}-input`} class="w-full">
+                <span
+                  class={cn('block size-7 cursor-pointer rounded-full border p-0.5', {
+                    'border-primary ring-1 ring-primary': props.selected === option.id,
+                  })}
+                >
+                  {option.fill}
+                </span>
+                <span class="sr-only">{option.label}</span>
+              </Label>
+            </RadioGroupItem>
+          </div>
+        )}
+      </For>
+    </RadioGroup>
   )
 }

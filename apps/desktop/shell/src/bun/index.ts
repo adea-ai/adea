@@ -52,6 +52,7 @@ import { createProcessAdapter } from '../supervision/process-adapter'
 import type { SupervisionAdapter, SupervisionEvent } from '../supervision/supervisor'
 import type { SidecarClient } from '../dev-runtime/terminal/sidecar/client'
 import { createBunSecretsVaultKeyStore, createSystemVaultKeyStore } from '../dev-runtime/vault'
+import { windowTransparentFor } from '../window-surface'
 import {
   adoptShellTerminalSidecar,
   reconcileSupervisionAtBoot,
@@ -671,6 +672,10 @@ const nativeWindow = new BrowserWindow({
   // y:4 measures a 20px center), while the 48px top bar centers its controls
   // at 24px; y:8 puts the native buttons on that row.
   trafficLightOffset: process.platform === 'darwin' ? { x: 0, y: 8 } : undefined,
+  // The appearance sheet's Frosted glass makes the whole window see-through
+  // (macOS); the persisted preference applies at creation, so a change lands
+  // on relaunch.
+  transparent: windowTransparentFor(DATA_DIR, process.platform),
   url: `http://127.0.0.1:${PORT}/`,
   frame: { width: 1280, height: 840, x: 120, y: 90 },
 })

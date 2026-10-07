@@ -47,6 +47,14 @@ current authorization locks before releasing ciphertext. Migrations 0037/0038
 add those records and a distinct runtime-node event actor. Unrecoverable legacy
 authority remains withheld. Pull is not execution acceptance or a host receipt.
 
+Migration 0039 is the [relay retention expansion phase](../../docs/evidence/m11-relay-retention-schema.md).
+It adds a nullable purge marker, partial expiry index and expiry constraint before
+the matching application declaration/operator deploys. During this short staged
+rollout the generated snapshot is ahead of the runtime declaration: integrate
+the application phase before generating further migrations from that declaration.
+Verify the approved target's schema readiness before publishing code that reads
+the column; parallel main-push migration and Worker jobs do not establish order.
+
 Production rollback is forward-only: deploy an application rollback while the expanded schema is
 compatible, then add a reviewed corrective migration. Point-in-time restore is for data-loss
 recovery, not routine schema rollback.
@@ -93,7 +101,12 @@ appends to the member's list, and never seeds accounts, projects or agents.
 All memberships, including Home, remain reorderable; bootstrap's default is the
 personal identity rather than list position.
 
-Migration 0040 recognizes only stable `default-home`/`default` creation metadata;
+The production API regression uses the `react-server` condition to exercise its
+`server-only` database entry; both supported integration runners build that entry
+before executing the tests. Workspace migrations 0040/0041 preserve the 0039
+retention expansion in their snapshots without activating its runtime declaration.
+
+Migration 0041 recognizes only stable `default-home`/`default` creation metadata;
 it preserves customizations and content and restores a proven archived root.
 Legacy Work remains. Historical `claimed:<id>` metadata cannot prove which
 workspace was originally personal: bootstrap retains all of them and creates a

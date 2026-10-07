@@ -156,8 +156,9 @@ export function WorkspaceTopBar(props: {
           <Show when={!props.hideSidebarToggle}>
             <ActionButton
               ref={props.sidebarToggleRef}
-              variant="outline"
+              variant="toolbar"
               size="icon-sm"
+              data-expanded={sidebarOpen() ? '' : undefined}
               tooltip={sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'}
               tooltipIcon={
                 <Show when={sidebarOpen()} fallback={<PanelLeftOpen aria-hidden="true" />}>

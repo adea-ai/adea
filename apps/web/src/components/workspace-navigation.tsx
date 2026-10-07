@@ -593,8 +593,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const openExternal = isDesktopRuntime() ? openExternalUrl : undefined
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
-  // Source control portals its pull-request search into the top bar's title
-  // slot so the field replaces the plain workspace-name title, center aligned.
+  // Source control portals its search + sync group into the top bar's title
+  // slot: the centre column is the only track with room for a search field
+  // wide enough for its placeholder, with the sync status to its right.
   const [scmSearchMount, setScmSearchMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
   // The chat shell reports its bootstrap fallback: while it renders the
@@ -1117,8 +1118,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     workspaceStore.getState().setGlobalPanel('workspace-settings')
   }
   const openSearch = () => {
-    // Source control puts its own search in the title slot and advertises
-    // ⌘K on it, so the search command focuses that field while it shows.
+    // Source control keeps its pull-request search in the title slot and
+    // advertises ⌘K on it, so the search command focuses that field while it
+    // shows.
     const scmSearch =
       activeAppId() === 'source-control' && !libraryOpen()
         ? scmSearchMount()?.querySelector('input')
@@ -1183,8 +1185,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             <ActionButton
               ref={setUtilityOpener}
               type="button"
-              variant="ghost"
+              variant="toolbar"
               size="icon-sm"
+              data-expanded={utilityOwner.rightUtilityOpen() ? '' : undefined}
               tooltip={
                 utilityOwner.rightUtilityOpen()
                   ? 'Collapse utility sidebar'

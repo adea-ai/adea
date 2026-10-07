@@ -1,5 +1,5 @@
 {
-  "id": "e9a31db3-d467-476f-a970-0541e265cf50",
+  "id": "e12ba2f4-d904-463a-9574-926e7b3088c0",
   "prevId": "6eef0b7e-aee1-4540-b86d-3e8c68607ec6",
   "version": "7",
   "dialect": "postgresql",
@@ -4922,6 +4922,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "ciphertext_purged_at": {
+          "name": "ciphertext_purged_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -4967,6 +4973,34 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "task_submissions_ciphertext_expiry_idx": {
+          "name": "task_submissions_ciphertext_expiry_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"app\".\"task_submissions\".\"ciphertext_purged_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5059,6 +5093,10 @@
       },
       "policies": {},
       "checkConstraints": {
+        "task_submissions_purge_after_expiry": {
+          "name": "task_submissions_purge_after_expiry",
+          "value": "\"app\".\"task_submissions\".\"ciphertext_purged_at\" is null or \"app\".\"task_submissions\".\"ciphertext_purged_at\" >= \"app\".\"task_submissions\".\"expires_at\""
+        },
         "task_submissions_version_valid": {
           "name": "task_submissions_version_valid",
           "value": "\"app\".\"task_submissions\".\"task_version\" > 0 and \"app\".\"task_submissions\".\"profile_revision\" >= 0"
@@ -5786,71 +5824,6 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "app.workspace_deletions": {
-      "name": "workspace_deletions",
-      "schema": "app",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "owner_user_id": {
-          "name": "owner_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "workspace_deletions_owner_idx": {
-          "name": "workspace_deletions_owner_idx",
-          "columns": [
-            {
-              "expression": "owner_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "workspace_deletions_owner_user_id_users_id_fk": {
-          "name": "workspace_deletions_owner_user_id_users_id_fk",
-          "tableFrom": "workspace_deletions",
-          "tableTo": "users",
-          "schemaTo": "app",
-          "columnsFrom": ["owner_user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -6646,18 +6619,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 1
-        },
-        "deletion_requested_at": {
-          "name": "deletion_requested_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "control_plane_used_at": {
-          "name": "control_plane_used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         },
         "owner_user_id": {
           "name": "owner_user_id",

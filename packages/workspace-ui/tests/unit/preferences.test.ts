@@ -10,6 +10,7 @@ describe('workspace preferences boundary', () => {
         notifyMentions: false,
         notifyTasks: 'yes',
         privateNotificationPreviews: true,
+        windowSurface: 'frosted',
         secret: 'must-not-survive',
       })
     ).toEqual({
@@ -17,6 +18,7 @@ describe('workspace preferences boundary', () => {
       notifyMentions: false,
       notifyTasks: true,
       privateNotificationPreviews: true,
+      windowSurface: 'frosted',
       version: 1,
     })
   })
@@ -32,6 +34,7 @@ describe('workspace preferences boundary', () => {
       notifyMentions: true,
       notifyTasks: false,
       privateNotificationPreviews: false,
+      windowSurface: 'opaque',
       version: 1,
     })
     expect(await provider.load()).toEqual(saved)

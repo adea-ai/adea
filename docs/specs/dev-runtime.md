@@ -5458,10 +5458,11 @@ Safety contract (non-negotiable, enforced by the provider design):
   the user's `~/.Trash` (recoverable, destination names deduplicate without
   overwriting, and a cross-volume rename fails the item instead of deleting).
   Only entries discovered inside the Trash offer `trash_empty` (the OS already
-  classified them deleted), and only a provably stale git worktree admin entry
-  (`git worktree list` `prunable` reason, directory still gone at commit time)
-  offers `prune` (fixed-argv `git worktree prune` scoped to the reporting
-  repository).
+  classified them deleted). Git worktrees dispose two ways: a provably stale
+  admin entry (`git worktree list` `prunable` reason, directory still gone at
+  commit time) offers `prune` (fixed-argv `git worktree prune` scoped to the
+  reporting repository), and a healthy unregistered worktree — any worktree the
+  user created outside Adea included — offers `trash` like the junk roots.
 - Discovery and sizing are read-only: `readdir`/`lstat` at the item roots,
   never symlink-following, and fixed-argv git. The scan universe is closed
   over first-level entries of the well-known roots plus worktrees under the
@@ -5475,9 +5476,12 @@ Safety contract (non-negotiable, enforced by the provider design):
 - Worktree discovery runs `git worktree list --porcelain` per configured scan
   root (default: the register's authorized repository roots — the user's
   configured project roots; the composition's `janitorScanRoots` seam
-  overrides). The primary checkout and every Adea-registered root are never
-  candidates; an unregistered worktree is a candidate only when Git itself
-  marks it prunable.
+  overrides). The primary checkout, every Adea-registered root, and a locked
+  worktree are never candidates. Every other unregistered worktree is a
+  candidate: Git's `prunable` reason (a registry entry whose directory is
+  gone) offers `prune`, and a healthy directory offers `trash`, listed only
+  when `lstat` proves the directory at scan time and disposed through the
+  same identity-re-proved move to Trash as the junk roots.
 - The whole authority composes on macOS only; elsewhere every janitor command
   fails closed with `capability_unavailable`.
 
@@ -5687,6 +5691,1926 @@ used. There is no explicit “no account” policy mode in the current native re
 nor verified personal/additional metadata in its membership-ID contract. Home's
 ready-to-use defaults and that existing fallback are preserved. Isolated account
 behavior requires a separate persisted policy and launch-path implementation.
+
+Client preference schema:
+
+```ts
+type AppearancePreferencesV2 = {
+  version: 2
+  mode: 'system' | 'light' | 'dark'
+  lightThemeId: string
+  darkThemeId: string
+  /** `'theme'` follows the interface theme; a theme id pins that palette. */
+  terminalThemeId: 'theme' | string
+  /** A preset id (the default is the Violet preset), a theme-carried
+    `ansi-<slot>` id, or a validated `#rrggbb` color. Legacy documents may
+    still store `'theme'`; normalization migrates it. */
+  accent: 'theme' | string
+  surface: 'opaque' | 'frosted' | 'translucent'
+  reduceTransparency: boolean
+  // Absent in legacy V2 records; normalized by the published UI font contract.
+  fonts?: {
+    ui: { family: string; size: number }
+    content: { family: string; size: number }
+    code: { family: string; size: number }
+  }
+}
+```
+
+The `surface` also drives the native window on the desktop shell: the web
+mirrors the user-facing glass choice into the persisted workspace preferences
+(`windowSurface`, normalized to `theme`/`frosted`/`opaque`), and the shell
+reads that file when it creates the window — `frosted` creates the window
+see-through on macOS so the alpha-mixed background composites over the
+desktop. Electrobun 2.0.1 sets transparency at window creation only, so a
+change applies on relaunch; `theme` and `opaque` (and reduced transparency)
+stay fully opaque, and a missing or unreadable preference stays opaque.
+
+Font choices are device-local and use the shared UI's supported family IDs and
+normalizer, with System defaults at 14px for UI/content and 12px for code. The
+shared three-row group places System first above a divider in each family menu;
+each row has a size input, and the rows close the editor's option list. The
+platform zoom chords — Cmd/Ctrl with `=` or `+` zooming in, `-` zooming out,
+`0` restoring the System defaults — step all three tiers one pixel within the
+shared range instead of browser page zoom: the provider owns the chord, every
+text element is tied to one of the three tiers through the shared projection
+(UI drives the `text-*` scale; content and code scale their own roles), and
+the live projection reflows without a reload. Live preview, Save, Cancel,
+Reset, and dismissal include all three font roles. Existing V2 documents recover missing fields without
+discarding the document. Font projection and structural typography remain
+shared UI-owned; terminal/editor adapters consume its code tokens without
+recreating the runtime session or losing output/selection. This owner follow-up
+supersedes #425's earlier exclusion of font controls.
+
+All Adea-owned Dev View surfaces consume those same three projected roles.
+Interaction labels, statuses, owner identifiers, metadata, and captions use the
+UI family and scale; readable chat/search text, onboarding explanations,
+permission explanations, resource messages, and source-control discussion use
+the Content family and size; terminal/editor text, browser URLs/inspection and
+diagnostic output, resource error codes and ports, source-control paths,
+identifiers, diffs, and logs use the Code family and size. Editable fields and
+other published UI controls keep the typography supplied by their shared
+primitives. Browser acceptance pins computed Content/UI in
+`apps/web/e2e/chat-transcript-composition.spec.ts`, computed UI/Content/Code
+roles in Browser and Resources panes in `apps/web/e2e/dev-browser-pane.spec.ts`,
+real-provider UI/Content roles in Resources and Permissions in
+`apps/web/e2e/dev-view-permissions.spec.ts`, and Source Control captions,
+discussion, and diffs in `apps/web/e2e/source-control-app.spec.ts`. The
+terminal suite pins computed Code styles and current-generation PTY resize in
+`apps/web/e2e/dev-view-terminal-pane.spec.ts`.
+
+Migrate the old `theme` key without flash or deletion. System mode follows the
+OS; pinned modes do not. Accent affects only semantic accent/interactive roles
+and must pass contrast validation; the accent override owns `--primary`,
+`--primary-foreground`, and `--ring`, so a non-default variant's own copy of
+those roles must never be written over an active override — otherwise presets
+silently revert to the theme's primary on every catalogue and imported theme
+while working only on the default pair. Accents are one global preset axis for
+every theme, not a per-theme list, and the default accent is itself one of the
+six catalogue presets (Violet) rather than a seventh "theme default" entry
+beside them: the picker offers the six presets plus the custom color, a stored
+legacy `'theme'` value migrates to the default preset on read and on resolve,
+and every selection — the default included — is therefore an active override
+that owns the three accent tokens. OS or user reduced transparency forces
+opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
+syntax/diff/search roles come from the same manifest and update without remount.
+The terminal palette follows the resolved interface theme unless
+`terminalThemeId` pins another registry theme: the pin resolves at apply time
+and its `--terminal-*` roles are written after every variant token, so it
+overlays inline variant maps and stylesheet-owned defaults alike; dropping the
+pin hands the names back to the interface variant (or the stylesheet on the
+default pair), and an unknown pinned id degrades to the interface palette,
+never a blank terminal. Terminals only exist after application JavaScript
+mounts, so the pre-paint script deliberately skips the pin — there is no
+pre-hydration terminal paint.
+The built-in registry is the published `@adea-ai/themes` catalogue adapted
+into this manifest's CSS, terminal, editor, and chart roles, led by the
+`adea-light`/`adea-dark` default pair; all published themes clear the editor
+floor. Preference IDs and pre-paint document authority remain Adea-owned.
+Every variant, including the default pair, ships in the generated
+`packages/ui/src/styles/canonical-themes.css` sheet. Its framework roles come
+from the published UI projection, including sidebar, status, and raised surfaces;
+terminal/editor aliases come from Themes adapters. The pre-paint script resolves
+the attribute and the render-blocking stylesheet paints the stored palette.
+App-authored styles cannot redeclare published palette tokens. Palette
+normalization, accents, and contrast math remain catalogue-owned. Generated editor roles use the published
+quantized-hex contrast projection, while the syntax API retains its quieter
+comment role. Unknown stored theme IDs fall back to the default of the same
+appearance in both the pre-paint script and the mounted provider.
+
+The workspace toolbar opens the appearance Sheet over the current view without
+route navigation. Its editor/catalogue chunk loads on the first intentional
+open. Save commits and closes; Cancel, Escape, and outside dismissal restore
+the opening snapshot and close. Reopening takes a fresh snapshot of committed
+preferences. Both the toolbar Sheet and the Settings section render Adea's
+app-local editor composition (`@adea-ai/dev-view`'s `AdeaAppearanceEditor`),
+adapted from the published `AppearanceEditor` because its fixed internals
+cannot express Adea's row order or accent entries: every control remains a
+published primitive (RadioGroup, DropdownMenu, Sheet, Switch, Input, Label,
+Button) or published composite (font settings group, editor actions, theme
+previews), while Adea owns the composition — the text (font) settings rows
+close the option list, after every palette and surface row, and the accent
+picker offers the six presets plus one control named "Custom". The fork keeps
+the published editor's control idioms, not generic radio rows: the accent
+picker draws the published swatch grid — one round swatch per preset painted
+with the catalogue's light/dark pair value for the resolved appearance,
+selection shown by the checked ring, the single Custom chip beside them, and
+no theme-default entry; the mode cards keep their miniature previews; the
+light, dark, and terminal menus render preview-card items (the published
+`ThemeMenuPreview` idiom — rendered from the exported `ThemeMiniature` in the
+menu card's geometry until the published package exports the composite); and
+the glass choices render as the published chips. Swatch and chip colors are
+catalogue values, so a swatch paints its color as an SVG fill: consumers may
+neither inline a style nor author palette literals. Upstreaming a row-order
+and accent-entries seam to the published package retires the fork.
+Its host remains responsible for the V2 draft snapshot,
+live preview, persistence, cancellation, native transparency capability, custom
+accent validation, and the verified App Library contract. The app-local package
+is temporarily named `@adea-ai/app-ui` so the published package can be consumed
+without a second package alias; app-specific shell styles and preference/host
+adapters remain there until the broader package migration is reviewed.
+
+The declared-license theme-library view uses the published `ModalDialog`,
+including its nested-layer inertness and focus restoration. Opening it keeps
+the appearance editor mounted beneath the dialog, so live preview and the
+uncommitted draft survive Close and Escape; dismissal restores focus to
+Manage themes without closing the containing Settings dialog or Appearance
+popover. No application
+copy of the dialog primitives remains.
+
+Appearance and rail preference storage uses a read-modify-write contract with
+a recovery envelope: a malformed or future-version stored document is
+quarantined — byte-for-byte, with a reason and capture time — into a separate
+recovery key at read time, before any later write can touch the main key.
+Saving valid preferences never destroys unread original data, and the legacy
+key migrates without deletion. Layout storage retains unread values under its
+unread key; rail storage quarantines malformed and future records the same
+way. Storage-level round-trip tests, not only normalizer tests, pin each of
+these behaviors.
+
+Theme imports are deferred until signed App Library support and require a known
+license/provenance or explicit `unknown/unverified`; “User supplied” does not
+prove redistribution permission.
+
+The workspace shell has one themed top bar, built from the published `TopBar`.
+On macOS the pinned Electrobun window uses `hiddenInset`: native close,
+minimize and expand controls stay native while the client uses their row.
+Interactive controls opt out of the drag region. Back/Forward use the host
+router's guarded history and only advertise proven router positions; a push
+truncates the Forward branch. A tab-local watermark survives reloads but is
+collapsed after an external or BFCache return. The left cluster controls the
+contextual sidebar. In the Dev view, its pane-action group begins at a vertical
+divider aligned to the contextual sidebar's right edge while that sidebar is
+visible, or to the later of the outer rail edge and leading history/context
+controls when the sidebar is collapsed or hidden. At phone widths, the
+contextual sidebar is an overlay below the top bar and Dev actions remain in
+flow after the contextual controls. The source control view's leading section
+obeys the same geometry: its sync status and sync control begin at the same
+vertical divider aligned to the contextual sidebar's right edge while that
+sidebar is visible, and fall back in flow after the leading controls when it is
+collapsed or hidden; the title-slot search sits strictly right of that divider
+either way. The group contains the left utility
+slot collapse/reopen control, split-pane action, and window-local reopen-closed-
+pane action. Files versus Source Control is selected inside the left utility
+slot; its top-bar control only opens or collapses that slot. The workspace-wide
+runtime-resources action remains available by default on every view. The
+active view's bundled utility sidebar toggle — one control for the right
+slot's browser/devices/agents/history panes, reopening the pane last shown —
+rides the trailing mount after the workspace actions, separated by a vertical
+divider, and both hide while no view supplies it. Dev keeps this collapse
+control available while a utility pane is full width. Dev pane actions
+mount only while Dev owns the active surface. Chat, Dev, and Virtual consume
+the same contextual utility owner and lazy Browser/Devices/Agents/History host,
+with view-specific session binding and the shared trailing collapse control.
+The integrated global shell owns that right slot and toggle once across all
+three main views; standalone Dev integrations lazy-load the same host locally
+only when a right utility is visible. Shell-owned Dev must not load a second
+utility host merely by mounting its center. Focus
+mode and a full-width left Dev utility hide the right slot without disposing
+the shared owner. Standalone Source Control and Kanban retain their own content
+and suspend these contextual utility bindings.
+The utility resize divider spans the pane border with the shared centered grip;
+its ruler matches each side's maximum width so the hit target stays on that edge. Expanding is a per-panel concern: the full-width control lives in each
+utility pane's heading, and focus mode stays on its keyboard chord with no
+top-bar control.
+The outer rail remains visible in every view, including focus mode. Its header
+is the static, non-interactive Adea mark at one rail-item height; the rail has
+no workspace switcher (ADR 0011). Chat and Virtual mount the shared
+`@adea-ai/workspace-nav` accordion inside the published `ContextualSidebar`
+(landmark "Workspace navigation", width key `adea:workspace-sidebar-width`):
+quick actions, a "Needs you" strip that totals mentions across workspaces
+(hidden at zero; the desktop Dev summary adds input-needing runs once it
+ships; activating it switches to the first other workspace that needs the
+user, else groups the active workspace by status — the same fallback as
+Dev), the Workspaces heading with always-visible group-by and New workspace
+actions, the active workspace expanded with its projects, and every other
+workspace as one row with unread and mention chips whose click switches
+through the same guarded helper `?workspace=` links use. New workspace is an
+inline draft row: Enter creates it with a fresh idempotency key and the home
+world, then switches; a repeat Enter while that create is pending is ignored,
+and a failure shows inline and keeps the typed name. The grouping (project,
+status, recent: the one `sidebarGroupModes` list in `@adea-ai/types`) is
+persisted per workspace. A project's
+primary channel is its default leaf; its other channels and open tasks are
+leaves whose status is running for a task in progress, in review for a task in
+review, and idle otherwise; unread activity is a count, never a status. Project
+menus offer rename and settings (the edit dialog), archive and soft delete
+behind a confirmation, and Share only when the sharing host is present; leaf
+menus offer only actions the cloud supports. Virtual uses the same tree with
+its own nouns (rooms and desks), independent of engine entitlement. The
+active workspace's accent themes the app while it is active, overriding the
+appearance accent; a workspace without an accent keeps the appearance accent,
+and collapsed workspace marks show their own accent (or the appearance accent)
+rather than the active one.
+The quick actions (Agents, Mark all read), the Conversations section and the
+archive footer are global: the Dev sidebar, which the desktop runtime Chat also
+mounts, carries the same sections through the `globalNav` slots of its
+workspace nav host, rendered from the active workspace's cloud data
+(`@adea-ai/workspace-ui/global-nav-sections`). Opening Agents or a
+conversation from them goes to Chat; on the desktop the team surface shows
+beside the runtime sidebar (the conventional shell in its `embedded` mode)
+until a runtime leaf is selected again.
+The top bar's existing title slot shows the Workspace › Project › Leaf path as
+published `Breadcrumb` crumbs instead of the plain workspace name; there is no
+extra row and the slot keeps its single-line ellipsis and its sub-48rem hiding.
+The path comes from the pure `breadcrumbsFor` in `@adea-ai/workspace-nav` over
+the same tree and selection the sidebar renders: the workspace mark and name,
+the project (or room), then the leaf labelled by the view adapter — the task
+or channel title in Chat, the desk in Virtual — with each crumb's noun given to
+assistive technology. A Chat or Virtual default leaf is named after its
+project, so the path ends at the project rather than repeating it. The last
+crumb is the current page; an earlier crumb is a link that opens its default
+leaf (the workspace's first project's default leaf, or the project's) and is
+plain text when that would reopen what is already shown. Dev, not yet on the
+shared sidebar, reports its selected project and checked-out branch, shown in
+mono; branch names stay on the client and Dev crumbs are a readout. App
+Library, the designers and views without a path keep the plain title. Source
+control is the one view that owns the slot instead: it portals its
+pull-request search into the title mount, so the centered field replaces the
+plain workspace-name title, while its sync state and control stay in the
+leading actions group — the search and that group both sit strictly right of
+the view divider aligned to the contextual sidebar's edge, never over the
+sidebar column.
+Room and Character designer entries use the same global app container and retain
+the global rail even when the private engine is unavailable. Both designers hide
+the left and right contextual sidebars and their toolbar collapse toggles. The
+utility owner suspends its active view while a designer or App Library hides
+the contextual surfaces; entering and leaving that surface invalidates pending
+archive operations even when the user returns to the same Virtual view.
+The shared sidebar layout accepts view-owned content; future app views can replace
+that content without rebuilding the container or its resize/collapse behavior.
+Unavailable-engine content in these contextual shells uses the host's single
+main landmark and fills its viewport, without nesting a second full-screen shell.
+Collapsed contextual navigation is excluded from keyboard focus and the
+accessibility tree at desktop and narrow widths; collapsing its grid column
+alone is insufficient.
+
+[Owner correction #757](../research/shell-app-library-owner-corrections.md)
+separates **App Library** from the external **Plugins** marketplace. Library is
+an always-reachable full-screen destination directly below the rail's app
+icons. Virtual, Chat, Dev and Kanban are bundled and enabled by default;
+Source control is a compiled optional destination, enabled explicitly. Kanban
+is the only full task list (the workspace sidebar has no Tasks entry; open tasks
+appear only as leaves under their project, and closed ones leave the sidebar):
+it mounts the task board full width, with no workspace sidebar, through a
+route-scoped surface without changing the previous Chat surface. A search
+result or link to a task opens Kanban; with Kanban disabled, the board opens
+inside Chat instead. Library retains rail reorder and reset controls.
+Chat’s central conversation surface uses the canonical theme background in
+both light and dark modes, rather than imposing a separate grayscale palette.
+Each reorder moves one enabled app by one visible rail slot, skipping disabled
+and unknown entries while preserving their stored slots; boundary controls are
+disabled relative to that same enabled order, independently of Library filters.
+Source control projects the selected runtime
+session into the existing source-control surface at full width, without
+rewriting the Dev pane preferences. Code browsing remains available in Dev.
+
+Enablement reuses the versioned rail order/hidden record, preserving unknown
+IDs and quarantined data. A default-on app is enabled unless hidden; an
+optional app is enabled only when its compiled ID is explicitly in that
+record's order and is not hidden. Disabling an active
+app resolves to another enabled app; if every app is disabled, Library remains
+available to re-enable them. Enablement never installs external code, deletes
+app data, replaces a RuntimeSession, or stops its harness. External metadata
+cannot register or retarget a workspace destination.
+
+The historical plugin contribution resolver remains fail-closed for its
+external catalog records: installation, compiled entry membership,
+entry-digest integrity, verified install-plan shape and source revision are
+still required. These external-plugin checks are not prerequisites for
+bundled app enablement. Installable community modules require an actual
+verified installation lifecycle before they may appear as usable destinations.
+No downloaded JS, `eval`, remote module URL, arbitrary postinstall, or empty
+placeholder view is permitted. Cortana installation/activation remains
+unshipped scope; Library does not pretend a plugin installation enables it.
+
+## macOS permissions onboarding
+
+Opening System Settings catches both synchronous bridge failures and rejected
+host promises. A failed action clears its pending state and announces that
+System Settings could not be opened; the permissions page remains usable.
+
+The permissions page (issue #471) reports macOS TCC permissions the shipped
+features depend on: `accessibility`, `screen_recording`, `notifications`,
+`automation_apple_events`, and `microphone`. No permission ships without a
+recorded feature reason in the page row metadata, and nothing is auto-granted,
+prompted in a loop, or probed from browser context.
+
+Status rides the guarded legacy invoke path behind the M10 channel gate —
+`desktop_permissions_snapshot` and `desktop_permissions_open_settings` — with
+DTOs in `packages/types/src/desktop-permissions.ts`. The shell measures the
+real host (`apps/desktop/shell/src/desktop-permissions.ts`) through fixed-argv
+commands with injectable runners; single-flight coordination means concurrent
+snapshots share one probe set. Every report carries its probe time; a re-check
+reflects System Settings changes within one interaction (focus-return triggers
+one, never a polling interval) and no app restart.
+
+Capability matrix (permission × what this lane can honestly report):
+
+| Permission              | Probe (fixed argv)                                                           | granted | denied                                                                                                                         | not_determined                              | unavailable                   |
+| ----------------------- | ---------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- | ----------------------------- |
+| accessibility           | `osascript` System Events process count, 3 s deadline                        | exit 0  | assistive-access refusal text                                                                                                  | probe deadline hit (consent prompt pending) | other failures                |
+| automation_apple_events | `osascript` Apple Event to Finder, 3 s deadline                              | exit 0  | `errAEEventNotPermitted` text                                                                                                  | probe deadline hit                          | other failures                |
+| screen_recording        | JXA `CGPreflightScreenCaptureAccess` preflight (non-prompting), 3 s deadline | `true`  | `false` (not granted; the preflight cannot separate an unanswered prompt from a refusal, so the fail-closed state is reported) | — (the preflight never prompts)             | probe failure or deadline hit |
+| notifications           | none in this lane                                                            | —       | —                                                                                                                              | —                                           | `capability_unavailable`      |
+| microphone              | none in this lane                                                            | —       | —                                                                                                                              | —                                           | `capability_unavailable`      |
+
+`unavailable` is a first-class typed state (`capability_unavailable`,
+`unsupported_platform`), never a stand-in for denied or granted, and no
+fixture status exists in any production path (fixtures are E2E-only). A
+non-macOS host reports `hostPlatform: 'other'`; a lane with no shell (plain
+web tab) reports `hostPlatform: 'unknown'` and every row unavailable.
+
+Deep links are the frozen `x-apple.systempreferences` anchors
+(`Privacy_Accessibility`, `Privacy_ScreenCapture`,
+`com.apple.preference.notifications`, `Privacy_Automation`,
+`Privacy_Microphone`), resolved on macOS 13–15, held only in the shell's
+`SETTINGS_PANES` table: the client names a permission id and the shell opens
+that exact URL through fixed-argv `open`. No client string ever reaches argv,
+and no arbitrary URL can be opened.
+
+Screen Recording has one extra fixed step before its pane: macOS creates a
+Screen Recording TCC entry only after the app itself calls the requesting API,
+so `open`ing the pane never puts Adea in the pane's list (owner report:
+opening System Settings "doesn't create the request"). Opening Screen
+Recording settings therefore first dispatches the prompting
+`CGRequestScreenCaptureAccess` through the same fixed-argv JXA discipline —
+attributed to the packaged shell's bundle, a silent no-op once granted, and no
+prompt after an explicit refusal — ignores the answer, and then opens the
+pane. No other permission dispatches a request, and no request runs on a
+non-macOS host.
+
+The page (`packages/dev-view/src/permissions/**`, a Solid pane with a pure
+DOM-free model) groups rows into System control and System interactions,
+shows per-permission purpose and the feature-level consequence of denial
+("Without it: computer-use sessions cannot start"), and offers Request only
+where a probe can actually surface the macOS consent prompt; a denied
+permission's repair path is the exact Settings pane, because macOS ignores
+re-prompts. Accessibility contract: all actions are real buttons in DOM order,
+status changes and action outcomes are announced through a polite live region
+(only on change — first paint stays quiet), the pane carries no transitions
+(reduced motion needs no override), and rem-based wrapping layout survives
+200% zoom. `packages/dev-view` consumes the page service port
+(`MacPermissionsPageService`); the desktop lane binds it in
+`apps/web/src/lib/desktop-permissions.ts`, and every other lane binds
+`createUnavailableMacPermissionsService`.
+
+Pinned by `packages/types/tests/desktop-permissions.test.ts`,
+`apps/desktop/tests/shell-permissions.test.ts` (probe outcomes, fixed argv,
+settings table, bridge commands), and
+`packages/dev-view/tests/permissions-model.test.ts` (presentation, action
+affordances, announcements, honest degradation).
+
+## Data classification and redaction
+
+```ts
+type DataClassification =
+  'public' | 'workspace_metadata' | 'workspace_private' | 'credential' | 'restricted_local'
+```
+
+| Data                                                | Minimum class                   | Client/event policy                            |
+| --------------------------------------------------- | ------------------------------- | ---------------------------------------------- |
+| IDs, capability names, generic status               | workspace metadata              | authorized workspace clients                   |
+| cross-workspace run counts (`dev.summary`)          | workspace metadata              | workspace id + two integers; no names or paths |
+| local paths, repo names/remotes, command labels     | workspace private               | redact/home-alias remotely unless granted      |
+| managed clone remote URL and managed paths          | workspace private               | desktop only; DTOs carry the redacted remote   |
+| branch names, worktree titles, diff counts          | workspace private               | desktop only; never leaves the device          |
+| terminal bytes, prompts/results, file content/diffs | restricted local by default     | bounded explicit projection only               |
+| workspace memory entry text                         | restricted local                | owning workspace's settings and launch only    |
+| screenshots/annotations/check logs                  | workspace private or restricted | provenance + retention + redaction             |
+| cookies, tokens, keys, auth headers, secret env     | credential                      | never renderer event/log; vault operation only |
+| connection bindings, account profile ids/labels     | workspace private               | device-local ids only; never leaves device     |
+| connection resolution audit (ids, host, connection) | workspace private               | owner-only local audit; no secret material     |
+| usage account identifiers                           | workspace private               | safe display label, no token/account secret    |
+| process argv/env                                    | restricted local                | sanitized labels only                          |
+
+Redaction runs before persistence to shared logs/events and again before remote
+serialization. Secret patterns are defense in depth, not authorization. Error
+messages never echo untrusted payloads, credentials, full terminal output, or
+private file content. Audit records contain IDs, operation, actor, scope,
+result/error code, byte/count summaries, and redacted target labels.
+Chat transcript projection also drops any `credential`-classified event before
+rendering, including a malformed producer's otherwise renderable event kind.
+
+## Error contract
+
+```ts
+type DevErrorCode =
+  | 'unauthenticated'
+  | 'unauthorized'
+  | 'workspace_unavailable'
+  | 'runtime_node_unavailable'
+  | 'runtime_node_revoked'
+  | 'capability_denied'
+  | 'channel_unauthenticated'
+  | 'channel_unauthorized'
+  | 'token_expired'
+  | 'replay_rejected'
+  | 'not_found'
+  | 'identity_mismatch'
+  | 'stale_generation'
+  | 'stale_version'
+  | 'invalid_state'
+  | 'unsupported_version'
+  | 'corrupt_state'
+  | 'already_completed'
+  | 'idempotency_conflict'
+  | 'unauthorized_root'
+  | 'path_escape'
+  | 'symlink_rejected'
+  | 'special_file_rejected'
+  | 'file_changed'
+  | 'not_git_repo'
+  | 'gitdir_unproven'
+  | 'remote_unavailable'
+  | 'base_not_found'
+  | 'name_collision'
+  | 'path_collision'
+  | 'bootstrap_denied'
+  | 'bootstrap_failed'
+  | 'dirty'
+  | 'unpushed'
+  | 'behind'
+  | 'conflicted'
+  | 'protected_branch'
+  | 'external_ownership'
+  | 'dangerous_path'
+  | 'nested_worktree'
+  | 'lock_timeout'
+  | 'unsupported_capability'
+  | 'capability_unavailable'
+  | 'unavailable'
+  | 'limit_exceeded'
+  | 'spawn_failed'
+  | 'auth_required'
+  | 'incompatible'
+  | 'sidecar_incompatible'
+  | 'profile_scope_denied'
+  | 'remote_host_untrusted'
+  | 'force_push_denied'
+  | 'timeout'
+  | 'cancelled'
+  | 'backpressure'
+  | 'sequence_gap'
+  | 'resync_required'
+  | 'checkpoint_corrupt'
+  | 'crash_loop'
+  | 'delivery_ambiguous'
+  | 'navigation_blocked'
+  | 'ssrf_blocked'
+  | 'permission_denied'
+  | 'cookie_import_failed'
+  | 'rate_limited'
+  | 'remote_changed'
+  | 'branch_protected'
+  | 'leased'
+  | 'ownership_unproven'
+  | 'plan_stale'
+  | 'cleanup_blocked'
+  | 'cleanup_partial'
+  | 'recovery_required'
+  | 'rollback_failed'
+
+type DevError = {
+  code: DevErrorCode
+  retryable: boolean
+  message: string
+  remediation?: { action: string; parameters?: Record<string, string> }
+  currentVersion?: number
+  observedAt?: string
+}
+```
+
+Stable codes include:
+
+- authority: `unauthenticated`, `unauthorized`, `workspace_unavailable`,
+  `runtime_node_unavailable`, `runtime_node_revoked`, `capability_denied`,
+  `channel_unauthenticated` (missing/invalid channel credential),
+  `channel_unauthorized` (authenticated channel lacks this operation/scope),
+  `profile_scope_denied`, `token_expired`, `replay_rejected`;
+- identity/state: `not_found`, `identity_mismatch`, `stale_generation`,
+  `stale_version`, `invalid_state`, `unsupported_version`, `corrupt_state`,
+  `already_completed`, `idempotency_conflict`;
+- filesystem/git: `unauthorized_root`, `path_escape`, `symlink_rejected`,
+  `special_file_rejected`, `file_changed`, `not_git_repo`, `gitdir_unproven`,
+  `remote_unavailable`, `base_not_found`, `name_collision`, `path_collision`,
+  `bootstrap_denied`, `bootstrap_failed`, `dirty`, `unpushed`, `behind`,
+  `conflicted`, `protected_branch`, `external_ownership`, `dangerous_path`,
+  `nested_worktree`, `lock_timeout`;
+- runtime: `unsupported_capability` (platform can never provide it),
+  `capability_unavailable` (known capability is temporarily not ready),
+  `unavailable` (whole provider/read model unavailable), `limit_exceeded`,
+  `spawn_failed`, `auth_required`, `incompatible`, `sidecar_incompatible`,
+  `timeout`, `cancelled`, `backpressure`, `sequence_gap`,
+  `resync_required`, `checkpoint_corrupt`, `crash_loop`, `delivery_ambiguous`;
+- browser/provider: `navigation_blocked`, `ssrf_blocked`, `permission_denied`,
+  `cookie_import_failed`, `rate_limited`, `remote_host_untrusted`,
+  `remote_changed`, `branch_protected`, `force_push_denied`;
+- cleanup: `leased`, `ownership_unproven`, `plan_stale`, `cleanup_blocked`,
+  `cleanup_partial`, `recovery_required`, `rollback_failed`.
+
+Messages may change; code, retryability, and remediation shape are API. Unknown
+host failures map to `invalid_state`/`unsupported_version`, never success.
+
+## Failure behavior
+
+Every UI surface distinguishes `loading`, `empty`, `unavailable`, `stale`,
+`degraded`, `error`, and `ready`. Provider loss keeps UI and recoverable data
+mounted. Switching runtime node clears previous-node private data before loading
+new data.
+
+Required adversarial cases include:
+
+- loopback/origin/channel spoof and token replay;
+- account/workspace/node/resource/generation crossover;
+- path traversal, symlink/parent swap, special files, newline/option injection;
+- shell/argv/env and bootstrap/teardown injection;
+- OSC/title/link/clipboard/paste and oversized fragmented protocol input;
+- duplicate/out-of-order/gapped events and ambiguous prompt delivery;
+- dirty/unpushed/external/protected cleanup and crash at every transition;
+- PID/PGID/port reuse and unrelated process replacement;
+- browser SSRF/rebinding/redirect, profile crossover, stale takeover;
+- cookie partial failure and secret logging;
+- malicious PR/check/issue and plugin/theme manifests;
+- disk full, permission loss, watcher overflow, runtime disconnect/revoke,
+  sidecar incompatibility/crash loop, sleep/wake, app update/rollback.
+
+## Consolidated limits registry
+
+Distributed subsystem text remains normative; this table is the implementer's
+single lookup. A lower upstream M10/M11 limit wins. Limit exhaustion returns
+partial metadata plus `limit_exceeded` or the more specific typed error; it
+never truncates silently or allocates an unbounded fallback.
+
+| Surface               | M12 initial limit                                                                                                                                                                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| center layout         | 8 leaves, depth 8, ratio 0.1–0.9                                                                                                                                                                                                                                               |
+| command               | 256 KiB control body; 60-second expiry; 30-second clock skew                                                                                                                                                                                                                   |
+| nonce/idempotency     | ≥128-bit nonce; key 1–128 printable ASCII; completed mutation 24 hours–7 days                                                                                                                                                                                                  |
+| event                 | 256 KiB JSON; depth 32; string 64 KiB; 1,000 frames/s; page 500/default 100; 100,000/session or 30 days                                                                                                                                                                        |
+| hook/OSC              | authenticated hook frame 8 KiB; OSC payload 2 KiB                                                                                                                                                                                                                              |
+| terminal              | 64 KiB chunks; 4 MiB/10,000-chunk memory ring; 256 MiB/session; 2 GiB/workspace; 4,096 sealed segments/session; 8 subscribers; 1 MiB input/subscriber queue                                                                                                                    |
+| terminal liveness     | 15-second heartbeat; unhealthy at 45 seconds; reconnect 250 ms exponential to 30 seconds; checkpoint ≤5 seconds and each 1 MiB                                                                                                                                                 |
+| scanner               | depth 16; 100,000 entries; 10,000 packages; 2 MiB/manifest; 10 seconds; concurrency 8                                                                                                                                                                                          |
+| watcher/status        | 250 ms coalesce; refresh concurrency 4; degraded fingerprint no faster than 60 seconds                                                                                                                                                                                         |
+| include copy          | 1,000 regular files; 100 MiB total; 16 MiB/file                                                                                                                                                                                                                                |
+| bootstrap/teardown    | 15 minutes/step; 10 MiB output; one owned process group                                                                                                                                                                                                                        |
+| files                 | directory page 500; inline read/write 256 KiB on the control path; bulk via `file-bytes-v1` stream (64 MiB, 64 KiB frames, 1 MiB read credit); editable 8 MiB; preview 64 MiB; 30-second operation; tree plans: depth 64, 5,000 items, 256 MiB copy volume, 10-minute plan TTL |
+| editor/diff           | reduced tokenization after 10,000 lines or 5 MiB; 10,000 hunks/20 MiB rendered diff before metadata fallback                                                                                                                                                                   |
+| search                | 10,000 matches; 1,000 matched files; 50 MiB scan-result budget; 1 MiB emitted; 30 seconds                                                                                                                                                                                      |
+| git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies; a timed-out, cancelled, or over-budget child gets `SIGTERM`, then `SIGKILL` after 1 s, and is reaped (5 s grace) before the run rejects                                                         |
+| harness discovery     | 1 MiB input; 1,000 models/commands; 64 KiB/record; 10 seconds                                                                                                                                                                                                                  |
+| workspace memory      | entry 2,000 characters; 200 entries and 20 pending proposals per workspace; launch preamble 16 KiB of whole entries, overflow reported as `memory_truncated`                                                                                                                   |
+| cookie import         | 10,000 cookies; 16 MiB serialized; atomic transaction                                                                                                                                                                                                                          |
+| screencast            | 15 FPS default/30 max; 4096×4096; 8 MiB/frame; one in-flight plus newest; 240 inputs/s                                                                                                                                                                                         |
+| computer-use frames   | same bounded publication and input caps as screencast; consent record ≤60 seconds and single-use                                                                                                                                                                               |
+| screenshot/annotation | 25 MiB/item; 1 GiB/workspace; 30 days unless user pins it                                                                                                                                                                                                                      |
+
+Screenshot references include lane/profile provenance, origin, viewport, and redaction state. The bounded encoded bytes remain retrievable by reference until expiry; metadata-only capture records are not valid evidence.
+| metrics | 2 s active, 10 s visible idle, 60 s hidden; concurrency 4/node; 5-second/1 MiB child limits; 720 points and 24 hours |
+| usage refresh | provider backoff plus 60-second manual-refresh floor |
+| cleanup lock/lease | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s |
+| device workspace scope | verified membership cached 24 hours per credential digest; 256 cached memberships (`IDENTITY_LIMITS`) |
+| managed clone | 10 minutes per network git child; SSH connect 30 s in batch mode; kill escalation 1 s `SIGTERM` then 5 s reap grace after `SIGKILL`; 4 GiB on disk (500 ms size watchdog, 1,000,000 entries per sample); 2 clones in flight per node, 1 per project id; remote URL 2,048 chars; default base ref 256 chars |
+
+## Performance and retention budgets
+
+These are release gates on reference hardware unless an owner-approved measured
+ADR waiver changes them:
+
+- Chat/Virtual initial graphs contain no Dev/xterm/CodeMirror/browser code;
+- cached Dev shell useful paint within 200 ms after chunk load;
+- terminal local input-to-paint p95 ≤16 ms under ordinary output and no source
+  byte loss under the burst fixture;
+- common interactions target <16 ms; no fixture interaction task >50 ms;
+- 1,000 project/session rows and 100,000 files are virtualized;
+- 10,000-line file and 10,000-hunk diff use worker/bounded fallback;
+- hidden Dev has no steady subprocess or per-row polling storm;
+- explicit caps apply to terminal, events, browser frames, screenshots,
+  checkpoints, metrics, and usage caches;
+- 24-hour multi-session soak has bounded descriptors, listeners, processes,
+  memory, disk, and network queues.
+
+## Compatibility, migrations, and waivers
+
+- Wire, durable-record, layout, appearance, sidecar, hook, and checkpoint formats
+  each carry an independent integer version. A decoder accepts only versions it
+  names; new optional fields require backward tests, while removed/renamed or
+  semantic fields require a new version and migration.
+- Migrations are idempotent, journaled, tested from every released version, and
+  retain the original record until the migrated replacement commits. Failure
+  returns `corrupt_state`/`unsupported_version` plus export/reset remediation;
+  it never silently rewrites or deletes the input.
+- Sidecar protocol compatibility is an explicit matrix in the packaged app.
+  Compatible old sessions drain; incompatible versions return
+  `sidecar_incompatible`; no PID/port adoption fallback exists.
+- Runtime-node or credential rotation invalidates channels/tokens but not durable
+  user data. Reconnect reauthorizes and resynchronizes by cursor/generation.
+- A limit, performance, or platform waiver requires an owner-accepted issue and
+  same-commit ADR/spec/plan update naming measurement, affected platform,
+  expiry, fallback UX, and follow-up. Authorization, tenant isolation, lossless
+  cleanup, credential/profile boundaries, provenance, and Warp/OpenGrok rules
+  are not waivable.
+
+## Test contract
+
+Deterministic CI fixtures MUST include fake PTY, disposable git remotes and
+worktrees, fake RuntimeConnection, native/ACP/hook/transcript harness corpus,
+browser/CDP/device/cookie fixtures, GitHub pagination/rate/mutation fixtures,
+metrics/PID/port-reuse fixtures, and corrupt/disk-full persistence.
+
+Required layers:
+
+1. decoder/property tests for IDs, envelopes, versions, paths, state machines;
+2. pure reducer tests for layout, status, event precedence, plans;
+3. host unit tests with injected filesystem/process/network clocks;
+4. disposable-repo and fake-PTY integration tests;
+5. packaged macOS tests for M10 channel authorization, real Bun PTY, CEF/CDP,
+   sidecar adoption/update;
+6. Playwright owner journey across 320/768/1280/1920 px and 80/100/200% zoom;
+7. WCAG 2.2 AA keyboard, screen-reader, focus, separator, reduced-motion and
+   reduced-transparency checks;
+8. performance commands and a 24-hour soak with retained results;
+9. provenance/package scans described in the donor audit.
+
+Named evidence commands (root `package.json`; each exits nonzero on failure
+and prints a retained summary under git-ignored `artifacts/dev-runtime/`):
+`test:packaged` (the packaged macOS evidence lane, below),
+`test:security:dev-runtime` (shell-channel/browser/vault/terminal-input
+suites), `test:performance:dev-runtime`, `test:soak:dev-runtime`, and
+`test:bundle:dev-view` (lazy-chunk boundary). The visual lane
+(`test:e2e:visual` plus the `Workspace visual lane` workflow) renders every
+document of `apps/web/e2e/conventional-workspace.spec.ts` without CSS
+transitions (`apps/web/e2e/helpers/visual.ts`) so captures are always the
+settled frame; baseline regeneration stays a single owner-run pass on the
+final merged tree.
+
+`test:packaged` is the packaged macOS evidence lane: it builds the
+Electrobun `.app` (including the **bundled terminal sidecar component**,
+staged by the packaging lane at `Contents/Resources/app/dev-runtime-sidecar/`
+from the same source entry), then runs the packaged proof suite against the
+real bundled layout and retains one JSON artifact per proof under
+git-ignored `artifacts/packaged/`:
+
+1. **Install-location resolution + supervision proofs** (`supervision-smoke`):
+   every packaged component's manifest label resolves inside the `.app` with
+   its real SHA-256 digest (the sidecar on the bundled Bun runtime
+   `Contents/MacOS/bun`, the launcher resolution-only), the four
+   supervision proofs run with the sidecar launched from the bundled layout,
+   and proof 0 additionally exercises the production composition path: the
+   shell entry's own manifest loader (`loadPackagedManifestForEntry`) must
+   resolve the same components with the same digests from the bundled entry
+   directory, so the install-location proofs run against the exact boot path
+   the shipped composition is fed from. A missing bundle is a labeled dev
+   fallback, never packaged evidence.
+2. **Terminal replay across a host restart** (`packaged-terminal-smoke`): a
+   packaged sidecar boot, a separate host process creating a real PTY
+   session with a durable checkpoint history exceeding the memory ring
+   (eviction), the host exiting, and a fresh host re-adopting the same live
+   sidecar — durable search serves the new host, the ring replays its
+   covered window exactly once in order, and live delivery continues.
+   The flood's durable total is read from the session's checksummed
+   segment files, not summed from checkpoint footers: the sink auto-flushes
+   its open buffer every `checkpointIntervalBytes` (1 MiB), so most of the
+   flood never passes through a host-visible footer. The below-ring
+   durable-bridge replay is proven on this lane: an attach at `sinceSeq 0`
+   (strictly beyond the 4 MiB memory ring) is served by the durable
+   checkpoints bridging `[0, ringOldest)` plus the whole live ring —
+   exactly once, contiguous, in order, byte-faithful — and after a seeded,
+   bounded retention-GC eviction (`evictOldestSealedSegments`, the same GC
+   the write-time pass runs) removes the bridge floor, the same attach
+   resyncs to the deterministic live-ring anchor, the SAME anchor on every
+   retry, with zero data frames — never a partial replay. The historical
+   socket write-drop defect it was once blocked on is fixed by the
+   serialized drain-aware writer (the "Sidecar transport writes"
+   contract); the `packaged-transport-defect-probe` stays only as a
+   finding recorder.
+3. **Worktree digest containment** (`packaged-worktree-smoke`): worktree
+   creation through the production registrar over the M10 gate, dependency-
+   template promotion and per-file CoW materialization into a registrar-
+   created worktree, post-promotion digest-tamper refusal
+   (`identity_mismatch`, nothing cloned), and envelope generation fencing
+   (`stale_generation`). Host-side modules run on the packaged lane; running
+   them inside the packaged app process arrives with the production
+   composition root and stays named work, not packaged evidence.
+4. **Browser/devices matrix** (`packaged-browser-matrix`): organized by the
+   host's engine era — what its Bun reports for `Bun.WebView` — so every row
+   passes on both host classes and the proof never leaves a lane crashed.
+   Era-agnostic rows: lane registration through the M10 gate with per-kind
+   profile identities; the human_embedded lane's typed
+   `capability_unavailable` (the packaged CEF handle is unexposed); an
+   SSRF-target navigation refused by the provider's admission gate before any
+   engine involvement; the SSRF regression matrix on the per-hop admission
+   gate (loopback, metadata, and both textual IPv4-mapped-IPv6 forms); the
+   typed capability matrix; and real host device inventory through the gate.
+   Engine-available rows (conditional on `Bun.WebView` existing): lane
+   provisioning and admitted navigation against the proof's own loopback
+   Adea-owned service, admitHop-gated redirect chains (admitted per hop, and
+   refused mid-flight onto an unowned loopback port), screenshot publication
+   with provider-admitted provenance, frame publication through a real minted
+   `browser-frames-v1` grant attached before the view exists, and crash →
+   typed recovery (an admitted-but-dead owned port yields `crash_loop` and the
+   same lane recovers to ready by navigating again). The engine-seam row
+   (runs on both eras, last) proves through `attachBrowserEngine(undefined)`
+   that an admitted navigation without an attached engine is refused with
+   typed `capability_unavailable` — the engine-less era contract — never
+   faked.
+
+The `bun test` wrappers in `apps/desktop/tests/` shell out to the same
+scripts and skip loudly when the bundle has not been built; the packaged
+lane is the enforcement point. Run packaged test files one at a time in
+fresh worktrees.
+
+The fixture terminal renderer and its synthetic connect/observation callbacks
+are development-only (`import.meta.env.DEV`). Both production client builds omit
+that renderer. Local Vite journeys may load it lazily to test reconnect, keyboard
+search and stable pane identity; those tests do not attach a native PTY. The web
+production module gate rejects emitted fixture-terminal code.
+
+No issue closes on fixture-only production integration. Unsupported platform
+states remain deterministic fixtures, but the local packaged macOS path must
+pass before M12 release. M12 also requires authorized fake
+RuntimeConnection/revocation/scope-isolation fixtures against the shared remote
+adapter. Production remote RuntimeConnection certification is explicitly owned
+by M14 and is not a hidden M12 acceptance criterion.
+
+Real-process lane contract (packaged macOS smokes): `bun test` executes every
+test file on one shared process thread, so a synchronous stall in any file
+silences the whole runner at apparent zero CPU — the last printed file header
+(often the real-PTY smoke) is not evidence of where a run is stuck. Every
+real-process lane therefore owns its own truth: deadline-based readiness
+polls (never fixed attempt counts sized for an idle machine), a per-test
+budget with headroom over the sum of its inner bounds, drained child pipes,
+and teardown that escalates SIGTERM to SIGKILL on observed exit so no
+evidence lane can leak a sidecar orphan or hang the shared runner. Fixture
+helpers that shell out synchronously (`git` in the worktree fixtures) pass an
+explicit spawn timeout for the same reason.
+
+## Spec changes
+
+Post-baseline contract changes are recorded here so issue mirrors and audits
+can distinguish intentional spec evolution from drift:
+
+- **2026-10-06 — shared workspace sidebar in the Dev view (ADR 0011, PR 10b).**
+  `DevSidebarShell`/`DevSidebarNavigation` are replaced by the shared
+  `WorkspaceNav` (`dev` adapter): cloud projects joined with local bindings by
+  id, checkout and worktree leaves from `dev.worktree.list`, observed leaf
+  status, batched visible-row diff counts, desktop run counts on collapsed
+  workspaces, and the worktree/project menus above. The landmark is
+  "Workspace navigation". No Dev Runtime operation changed. See "Shared
+  workspace sidebar (ADR 0011)".
+- **2026-10-06 — workspace connections (ADR 0012).** Added
+  `dev.connections.get`/`setGitHosting`/`setHarnessAccount` and
+  `dev.harness.accountProfiles.list`/`create`/`delete` (total operations
+  221, from 215), the `WorkspaceConnections`/`HarnessAccountProfile` DTOs, the `null`
+  literal in the body grammar, the per-scope binding partition and the
+  device-wide profile store with its reverse index, credential resolution for
+  git/gh/glab children and harness launches, the sidecar launch-credential
+  allowlist (protocol 1.1), and Workspace settings › Connections. New
+  "Workspace connections" section.
+
+- **2026-10-06 — remote-only projects (ADR 0011, PR 15).** `dev.project.clone`
+  gains a mode: its body becomes `{ projectId, mode?: 'checkout' | 'managed',
+remote: RedactedRemoteInput, credentialRefId?, destinationBookmarkId?,
+defaultBaseRef?: string(1..256) }`. `checkout` (the default) is #1061's
+  authorized-destination working copy, unchanged for existing callers except
+  that `destinationBookmarkId` is now required by the mode rather than the
+  grammar; `managed` places a bare clone under the owner-only app-data
+  managed root with no primary record. `Repo` gains the optional
+  `layout: 'bare_managed'` fact, and `ProjectRepoBinding` becomes a union
+  whose managed arm carries `layout` and no `rootBookmarkId`. Both modes
+  share one hardened transport policy: production refuses `file://` and
+  local remotes (a test-only `allowLocalCloneRemotes` composition flag admits
+  fixtures), every network child runs batch-mode SSH with no prompts, and
+  cleanup waits for the reaped git child. Bare repositories stay refused
+  except a proven managed clone; see "Clone sources (`dev.project.clone`)"
+  and "Remote-only projects (managed bare clone)". The operation total is
+  unchanged (215).
+- **2026-10-05 — workspace accordion in Chat and Virtual (ADR 0011, PR 10).**
+  The Chat/Virtual contextual sidebar becomes the shared `@adea-ai/workspace-nav`
+  accordion (`WorkspaceNavSidebar`); the rail's workspace switcher is removed
+  and its header is a static mark; the active workspace's accent overrides the
+  appearance accent while active. No Dev Runtime operation changed; the Dev
+  sidebar shell is replaced in a later change.
+- **2026-10-06 — project groups removed; v2 project bindings (ADR 0011).**
+  Removed `dev.group.list`/`reorder`/`create`/`update`/`delete` and
+  `dev.project.reorder`, the `Group`/`GroupMutableFields` DTOs, and the
+  `group` resource kind; added `dev.project.unbind` (total operations 215, from 220).
+  `dev.project.create`/`import`/`clone` take the client-supplied cloud
+  `projectId` instead of `name`/`groupIds`, `ProjectMutableFields` drops
+  `name`/`groupIds`, and `Project` carries no name or groups. The register's
+  authority record is schema v2 (`ProjectBinding` keyed by the cloud project
+  id) in `authority-v2-<sha256(scope)>.sqlite3`; v1 files are left unread on
+  disk with no migration (owner decision). The client projection is flat and
+  names come from the host (`projectNames`). The clone-URL import kind binds
+  its clone to the body's `projectId` through the same import path, labels
+  the minted bookmark with the repository name, and re-checks the id after
+  the clone completes. See "Durable project/session authority (desktop
+  host)".
+
+- **2026-10-06 — source control search in the title slot.** The Source
+  control view portals its pull-request search into the top bar's title slot,
+  center aligned in place of the plain workspace-name title; the sync state
+  and sync control stay in the leading actions group, and hosts without a
+  title mount (the test harness) keep the search in the toolbar group. The
+  title-slot paragraph above moves with the behavior.
+
+- **2026-10-05 — ADR 0012: workspace memory.** Launch step 7 now compiles
+  the session workspace's active memory entries into a bounded (16 KiB) preamble
+  delivered ahead of the initial prompt over the same ordered channel, with a
+  typed `memory_truncated` run diagnostic (`HarnessRun.diagnostics`) and host
+  fact on overflow. Added `dev.memory.propose` (total operations 217) and its
+  `dev.memory.propose` capability for pending agent proposals, the
+  `MemoryProposalReceipt` reply, and the "Workspace memory preamble" section.
+  Pinned by `apps/desktop/tests/workspace-memory-launch.test.ts`,
+  `apps/desktop/tests/workspace-memory-store.test.ts`, and
+  `packages/types/tests/dev-runtime-harness.test.ts`.
+
+- **2026-10-03 — source control app: GitLab.** Added the 29-operation
+  `dev.gitlab.*` mirror of the source control contract (total operations 215) with `dev.gitlab.read`/`dev.gitlab.write`, the `glab`-backed host
+  provider, and `gl:<path>!<iid>` review request ids (provider literals now
+  `github | gitlab`). New "GitLab provider (source control app)" section; the
+  client section gained per-provider routing, accounts and capabilities.
+  Pinned by `apps/desktop/tests/dev-runtime-gitlab-provider.test.ts`,
+  `packages/types/tests/dev-runtime-github.test.ts`, and the opt-in
+  `apps/desktop/tests/live/gitlab-collaboration-live-read.ts`.
+
+- **2026-10-03 — source control app: pull request collaboration.** Added 20
+  `dev.github` operations (total operations 186): the inbox and detail read
+  models, timeline, commits, changed files, check logs, label/assignee/branch
+  pickers, compare, comments, thread reply and resolution, reviewer/assignee/
+  label edits, review submission bound to the head SHA, re-running failed
+  jobs, and the `autoMerge` and server-side `syncBranch` plan/commit pairs.
+  `checks` gained an optional `sha` and `GitHubCheck.title`; `mergePlan`
+  gained `deleteBranch` with `GitHubPullRequest.headBranchDeleted`; and the
+  `updatePlan` patch gained `state` plus two-way draft conversion. New
+  "Pull request collaboration (source control app)" section. Pinned by
+  `apps/desktop/tests/dev-runtime-github-collaboration.test.ts` and
+  `packages/types/tests/dev-runtime-github.test.ts`; the opt-in, read-only
+  `apps/desktop/tests/live/github-collaboration-live-read.ts` runs every read
+  against a real repository through the production `gh` transport.
+
+- **2026-09-22 — #424: on-device usage adapters and provable cleanup facts.**
+  The `usage` surface stopped being truthful-empty where the runtime can prove
+  a number: on-device adapters serve harness session counts and wall-clock
+  durations from the registrar's durable run history and terminal
+  durable-history bytes from the sealed checkpoint segments (source
+  `harness_protocol`, confidence `measured`, declared 60-second freshness,
+  bounded reads — no shell, no network, no spawning). Provider-billed usage
+  has no reviewed endpoint and stays a typed `capability_unavailable` row;
+  file-stream bytes stay typed-unavailable until a durable transfer journal
+  exists. Cleanup facts became provable-or-absent: the worktree facts seam
+  joins durable records to live read-only observations — `pr_merged` (with
+  source) from the GitHub provider's durable merge journal verified against
+  the remote ref, `active_owned_resources` from the composed owned-resource
+  census observed asynchronously, plus git clean/pushed, leases, and
+  `archived_seconds` — and the cleanup-policy authority awaits either facts
+  shape, failing closed on unknown worktrees and unobservable facts. Pinned by
+  `apps/desktop/tests/dev-runtime-resources.test.ts`.
+- **2026-09-22 — M10 #33 vault metadata migration.** Credential references now
+  migrate from the retained `dev-runtime/vault/credentials.json` envelope into
+  the reviewed WAL/full-sync `credentials.sqlite3` store. Strict metadata
+  decoding refuses secret-shaped fields, scope-invalid records, duplicate IDs,
+  and malformed versions before persistence; migration rollback, restart
+  recovery, SQLite loss, corrupt-payload retention, and the downgrade-visible
+  revocation tombstone are pinned by `apps/desktop/tests/dev-runtime-vault.test.ts`.
+  The Bun.secrets and legacy OS-keychain key adapter remains unchanged.
+- **2026-09-21 — #185: live supervision events under a crash-storm bound,
+  and the managed Pi as a truthful-absence manifest component.** Two
+  follow-ups to the packaged supervision wiring. (1) The supervision
+  engine's exit/unhealthy observations now surface as a LIVE typed shell
+  event (`supervision.componentEvent`, the same bus path
+  `git.statusInvalidated` rides): crash (`exit`, `expected: false`),
+  restart (`start` with `start`/`restart`/`auto-restart` cause), operator
+  and upgrade stops, unresponsive recycles (`unhealthy`), unadoptable
+  persisted launches, and `crash_loop` verdicts are observable without
+  polling ("Local stack supervision"). Payloads are engine-authored and
+  secret-free; the live surface is bounded per component and kind (5 per
+  sliding 60 seconds) — events beyond the cap are coalesced into a
+  `suppressed` counter carried by the kind's next emitted event, while the
+  durable journal and audit ring record everything unbounded. The numbers
+  align with the 5-failures/10-minutes restart policy, so an engine-native
+  crash storm is never coalesced and anything faster than the policy cannot
+  flood the stream. The composition attaches the engine's sink to the shell
+  event bus after every recomposition, before the boot steps run. (2) The
+  managed Pi registers as a packaged manifest component: the manifest schema
+  gains an additive `installKind` (`bundled` — bundle-relative label, strict
+  boot-time resolution, unchanged for existing components; `managed-data-dir`
+  — data-dir-relative label under the owner-only data root, resolved with
+  truthful-absence semantics), the managed Pi entry carries the driver's
+  build-time pin (pinned version + archive digest, process health probe,
+  phase 1, no adoption protocol, optional), and before the first ensure the
+  component is truthfully absent — typed absence, `spawn_failed` starts that
+  never burn the crash-loop budget, and drift surfaced as a digest mismatch
+  the driver heals ("The managed Pi installation lifecycle"). The ownership
+  boundary is unchanged: the driver installs, the engine observes/starts per
+  policy and never installs. Pinned by
+  `apps/desktop/tests/supervision-supervisor.test.ts` (emission + bound),
+  `apps/desktop/tests/supervision-manifest.test.ts` (install-kind decode),
+  `apps/desktop/tests/dev-runtime-managed-pi.test.ts` (registration,
+  truthful absence, digest-match and drift resolutions, containment), and
+  the packaged supervision smoke's proofs 5–6.
+
+- **2026-09-21 — M12: in-process command dispatch (`dispatchLocal`) and
+  renderer push consumption of git status invalidations.** Two closures of the
+  watcher slice's handoffs, with no new registry operations (the 163 stand) and
+  no wire or limits change. (1) The channel authority gained an in-process
+  dispatch seam, `authority.dispatchLocal` ("Command envelope and
+  authorization"): trusted shell code dispatches a fully-formed `DevCommand`
+  through the same terminal steps the socket path runs — the exact
+  `decodeDevCommand` structural decoder, the freshness/expiry window, scope
+  admission via `authorizeCommand` (no channel identity on this lane),
+  capability derivation, registered-provider invocation, and the shared
+  `DevReply`/audit/refusal machinery — gated by a module-private
+  `INTERNAL_DISPATCH_MARKER` whose absence or mismatch throws
+  `channel_unauthenticated` before the command is examined (fail closed). The
+  marker replaces only the proofs an internal caller satisfies structurally —
+  trusted origin, channel credential/identity proof, and replay — because the
+  envelope is authored in-process and holds no client-supplied bytes; resource
+  binding and the generation fence stay with the provider exactly as for an
+  external caller, and the lane's audit records carry no channel fields, making
+  internal dispatches distinguishable in the audit trail. The git watcher
+  lane's `readStatus` seam now dispatches the registered `dev.git.status`
+  provider through this seam instead of calling the handler directly (the
+  one-place upgrade the registrar's comment promised); watcher refreshes leave
+  channel-less `command_accepted` audit records, and a lost race still
+  resolves to an honestly empty cache. (2) The desktop `DevRuntimeService`
+  gained an optional `events()` subscription surface ("Watcher-driven status
+  invalidation"): typed, capability-checked (subscribe only on a granted
+  `dev.git.read` snapshot — fail closed), generation-fenced delivery of
+  `git.statusInvalidated` over the gateway's existing signed event stream via
+  the bridge's existing `listen` seam (the frozen bridge contract is not
+  widened). SSE payloads are structurally validated before delivery — a
+  malformed frame is dropped, never trusted. The source-control pane's status
+  cache and the files pane's marker cache consume pushes through one shared
+  pure predicate (`pushInvalidationDecision`): same-generation
+  `tree_changed`/`degraded` invalidates and repopulates through the
+  capability-checked pull, a moved generation re-resolves the context, and
+  other worktrees' events plus `refreshed`/`stopped` bookkeeping are ignored.
+  Push never carries status bytes: with no event surface (web non-desktop
+  runtime, or a bridge predating `listen`) panes keep generation-fenced pull
+  unchanged. Pinned by `apps/desktop/tests/dev-runtime-dispatch-local.test.ts`
+  (the seam contract plus socket-path parity),
+  `apps/desktop/tests/dev-runtime-git-watcher-dispatch.test.ts` (the watcher
+  read rides the gate, audited channel-less),
+  `apps/web/test/desktop-event-surface.test.ts` (the renderer surface), and
+  the extended `packages/dev-view/tests/status-cache.test.ts`.
+
+- **2026-09-21 — #399 residue: the stream inbound validator is reconciled per
+  direction (write frames carry byte offsets, not counters).** The generic
+  inbound validator (`createStreamInbound`) required client sequences strictly
+  above the grant's `fromSequence`, which is correct for sequence-counter
+  frames but wrong for the write direction, whose frames carry byte-offset
+  sequences — the first `file-bytes-v1` chunk legitimately equals
+  `fromSequence` (`'0'`), so every WebSocket write attach would have been
+  refused on its first frame (never fired in production: nothing attached via
+  WebSocket; the relay had deferred offset contiguity to the provider). The
+  validator is now grant-direction-aware on sequencing: `read` grants accept
+  only client credit (`ack`) exactly as before — byte-for-byte unchanged —
+  while `write` grants enforce byte-offset contiguity on byte-bearing `input`
+  frames (first chunk exactly at `fromSequence`, every later chunk exactly at
+  the running offset end = previous offset + bytes length; gaps, replays, and
+  overlaps all close typed `incompatible`) and keep strictly increasing event
+  sequences on byte-less `gesture`/`resize` frames that never fall behind
+  bytes already consumed. Direction, generation fencing, and frame-bound
+  checks are unchanged. The shell-side stream relay applies the shared
+  discipline verbatim again (the write-direction deferral is gone); its relay
+  legs (JSON/base64, ≤ 64 KiB frames, ≤ 128 KiB decode bound) are unchanged,
+  and the provider's byte-exact atomic-write guarantees stand on top. Gateway
+  consumers audited under the new write rule: the full-duplex WebSocket path
+  has no production write attach today (file streams ride the relay; the
+  terminal pane renders a placeholder; `browser-frames-v1`/`device-frames-v1`
+  registers an unavailable stream), the `desktop-frames-v1` computer-use write
+  path re-derives admission provider-side and now additionally requires
+  byte-offset sequences from any future client, and read-direction behavior
+  is identical. Pinned by the extended `shell-channel.test.ts` validator
+  cases (first chunk at `fromSequence` passes; gapped, replayed, and
+  overlapping offsets close typed) and the new `file-stream-relay.test.ts`
+  offset-discipline case. No wire, registry, or limits change (the 163
+  operations stand).
+
+- **2026-09-21 — #31: the managed Pi installation lifecycle is real (zero
+  manual Pi installation).** The managed Pi driver's archive resolution is no
+  longer a test-only seam: the production chain is "installed at the pin →
+  bundled archive (packaged app dir) → data-dir cache → one bounded fetch of
+  a build-time pinned URL" ("The managed Pi installation lifecycle"). The URL
+  embeds the exact pinned version (never a "latest" lookup) and is published
+  together with the version and archive digest; downloads are hard-capped,
+  deadline-bounded, and cached only after digest verification. The failure
+  matrix is typed end to end (`capability_unavailable`, `unavailable`,
+  `remote_unavailable`, `timeout`, `limit_exceeded`, `corrupt_state`,
+  `incompatible`), including version drift: a `ready` record cache-hits only
+  when the on-disk manifest still declares the pin, a drifted installation
+  heals by reinstall, and a failed heal revokes the ready claim with a typed
+  `incompatible` naming the drift. The fetch path carries a Bun
+  runtime-version guard (adea#490) refusing older/unknown runtimes while
+  local sources still install. Ensures are single-flight, and the composition
+  gained an explicit `managedPiAutoInstall` opt-in boot warm (fire-and-forget,
+  never run for scripted drivers) plus a `managedPiArchiveResolver` override
+  for the default driver. No new registry operations (163 stand); the
+  ownership boundary is unchanged — the driver installs/launches nothing but
+  the pinned runtime and owns no decision-layer behavior. Pinned by
+  `apps/desktop/tests/dev-runtime-managed-pi.test.ts`.
+- **2026-09-21 — #185/#396 residues: boot reconcile adoption, the shell
+  terminal lane's packaged sidecar, and the below-ring bridge replay.** The
+  packaged shell entry now reconciles at boot ("Local stack supervision"):
+  after the composition holds the engine, the durable launch journal is
+  reconciled — a sidecar launch persisted by a previous app run is adopted
+  through the full ownership re-proof (PID start identity + executable
+  identity + observable group; never clobbering a launch the engine owns)
+  or journaled as an unadoptable expected exit; a boot without an engine
+  reconciles nothing, and the boot step reports outcomes from durable facts
+  only (the engine's adoption audit joined against the journal), never
+  throwing. The shell's terminal lane adopts its sidecar through one typed
+  seam ("Sidecar adoption"): a packaged boot's spawn belongs to the
+  supervision engine (the packaged adapter command — bundled Bun runtime +
+  bundled entry — so the journal records it) and the adoption verdict is
+  the engine's `evaluateAdoption`; a dev run keeps the dev fallback
+  (source-tree entry); a packaged boot never falls back to a dev spawn.
+  The packaged manifest's sidecar registration protocol is corrected to the
+  wire constant `adea-terminal-sidecar` (it declared a name the sidecar
+  never registers with, which would make the engine's name-and-major
+  verdict refuse the real endpoint protocol); the supervision smoke's dev
+  manifest is corrected the same way. The packaged terminal replay lane now
+  proves the below-ring durable-bridge replay end to end ("`test:packaged`",
+  terminal replay): a sinceSeq-0 attach beyond the 4 MiB ring is served by
+  the durable bridge plus the whole live ring exactly once in order and
+  byte-faithful, and a seeded, bounded retention-GC eviction
+  (`evictOldestSealedSegments`) turns the same attach into the
+  deterministic resync anchor on every retry with zero data frames — never
+  a partial replay; the former "known transport boundary / documented
+  handoff" note is closed. Supervision smoke timing: the smoke's engine
+  construction now injects the clock and probe delay explicitly (the
+  #185 timer-flake policy — grace windows measured on the injected clock in
+  bounded probe ticks, never the engine's `setTimeout` default). No
+  supervision state-machine semantics changed; no new registry operations.
+  "Local stack supervision", "Sidecar adoption", and the packaged-lane
+  terminal-replay item updated; pinned by
+  `apps/desktop/tests/supervision-boot-reconcile.test.ts` and the extended
+  `packaged-terminal-smoke` checks.
+- **2026-09-21 — M12: the watcher-driven status invalidation lane is
+  constructed in production, and the Dev View caches follow its honesty
+  contract.** The git registrar now composes the previously unconstructed
+  watcher module: one bounded watcher per ready worktree, reconciled on the
+  git dispatch path against the live worktree record (created on the first
+  ready sighting, `refence`d when the live generation moves, stopped and
+  discarded when the record disappears or stops being ready — lifetime bound
+  to the worktree's live/generation state, no polling, no second lifecycle
+  authority). Production seams are the module defaults: recursive `fs.watch`
+  through the deprecation-safe handle factory and the `setTimeout` coalesce
+  scheduler, with one refresh gate (4) shared by a host's watchers; a
+  platform that cannot watch degrades exactly once to the typed
+  `mode: 'degraded'` snapshot and never refuses a command. The injected
+  `readStatus` dispatches the REGISTERED `dev.git.status` provider with a
+  full command envelope pinned to the live generation — the public path,
+  never a private shortcut — so every admission proof re-runs as for an
+  external caller and a lost race resolves to an honestly empty cache.
+  Tree-moving mutations invalidate through the manual lane. Watcher events
+  publish on the shell event bus as `git.statusInvalidated` (secret-free;
+  the gateway's authenticated SSE stream carries them). Renderer-side, the
+  source-control pane's status cache and the files pane's marker cache
+  become generation-fenced client caches: invalidation and failed refreshes
+  turn them UNDEFINED — never stale-fresh — a moved worktree generation
+  refences them, and only a successful capability-checked dispatch
+  repopulates them. No wire, registry, or limits change (the 163 operations
+  and the watcher/status limits row stand). Pinned by the extended
+  `apps/desktop/tests/git-status-watcher.test.ts` and the new
+  `packages/dev-view/tests/status-cache.test.ts`.
+- **2026-09-21 — #399 residue: the desktop client attach for `file-bytes-v1`.**
+  `DevRuntimeService.streams()` is now production-bound on the desktop: the
+  injected bridge signs stream-attach proofs inside its closure (the channel
+  secret never leaves it), and a shell-side stream relay composed in the shell
+  entry consumes the grant through the authority's real `attachStream`,
+  applies the gateway's inbound frame discipline, and drives the real
+  `file-bytes-v1` provider byte-halves over an in-memory session on the page's
+  own channel — no second WebSocket exists (the bootstrap is consumed once per
+  page, handshakes mint new channels, and grants are caller-channel-bound).
+  Frames ride the signed event/invoke paths (base64 within the frame bound,
+  strict send-order delivery); stream-backed open/save activate only when the
+  bridge seam binds, and refused binds surface typed
+  `capability_unavailable`. Residual (reconciled later the same day, see the
+  wire-validator entry): the generic inbound validator's strictly-increasing
+  client-sequence rule conflicted with the write
+  direction's byte-offset sequences (first chunk equals `fromSequence`); the
+  relay kept the validator's direction/generation/frame-bound checks and
+  deferred offset contiguity to the provider until the validator was
+  reconciled.
+  No new registry operations (the 163 from the hunk-staging delta stand).
+- **2026-09-21 — #399/#396 residues: checkpoint retention/GC and
+  watcher-driven status invalidation.** Terminal durable history is now
+  bounded by an explicit GC policy enforced at durable-write time
+  ("Checkpoint retention and GC"): the spec's 256 MiB/session and
+  2 GiB/workspace byte budgets plus a new named 4,096 sealed
+  segments/session count cap; eviction is strictly oldest-sealed-first with
+  the newest surviving segment kept, so the sealed chain stays contiguous
+  from its oldest survivor forward and any pruned span resolves through the
+  unchanged deterministic-resync anchor — never a partial replay. A live
+  replay window is protected: the sidecar reserves the bridge span from
+  `sinceSeq` for the duration of a durable bridge replay, a reserved
+  segment (and everything newer) is never evicted, and a fully protected
+  scope stays over budget truthfully. Deletion is atomic per segment
+  (containment re-proof, same-directory tombstone rename, unlink; crashed
+  tombstones are swept); quarantined bytes are never GC'd. The scope pass
+  evicts the oldest eligible session whole after retention protection
+  (active writer and live floors ineligible). Retention constants are
+  exported from `terminal/retention.ts` (`CHECKPOINT_RETENTION`); no wire,
+  durable-format, or registry change. Alongside it, the git status lane
+  gained its watcher-driven invalidation contract ("Watcher-driven status
+  invalidation"): one bounded recursive watcher per ready worktree root
+  (deprecation-safe handle factory, one-time degrade to a ≤60-second
+  demand-driven stat fingerprint), 250 ms burst coalescing into one
+  invalidation and at most one refresh, refresh concurrency 4 through a
+  shared gate with per-watcher in-flight dedupe, and generation-fenced
+  cache/events/in-flight reads — the git provider is untouched (status
+  flows through an injected `readStatus` seam). Limits registry terminal
+  row updated with the sealed-segment cap; the watcher/status row is now
+  implemented for this lane.
+- **2026-09-21 — #399 residues: hunk-level staging and files-pane quick-open.**
+  Added `dev.git.hunkStagingPlan`/`dev.git.hunkStagingCommit` (total operations
+  163). The plan carries structured `DiffHunk` selections (≤ 200) and a
+  `stage`/`unstage` direction; the provider never trusts client patch text —
+  it re-runs the authoritative diff over the exact `git apply --cached`
+  pre-image, locates every selected hunk by path plus `@@` header quadruple,
+  and slices git's own output verbatim into the plan's patch (missing hunks
+  are `stale_version`). The commit re-proves the worktree generation and the
+  index fingerprint (`stale_generation`/`stale_version`), then applies the
+  stored patch offline via fixed argv (`git apply --cached [--reverse]
+--whitespace=nowarn`) with the patch on stdin; application failure is typed
+  `invalid_state`, commits are single-use and reply with the re-read
+  `GitStatus`. The source-control pane grows per-hunk stage/unstage buttons on
+  its diff view (client-side splitting is the tested pure `splitFileHunks`
+  model), additive to file-level stage/unstage. The files pane grows
+  quick-open: a keyboard-first picker (Ctrl/Cmd+P or toolbar) over the paths
+  loaded into the tree, fuzzy-ranked with bounded results (20), opening files
+  through the existing identity-pinned open path. Fuzzy-over-loaded-paths is
+  the accepted v1; a prebuilt whole-worktree index is an explicitly deferred
+  future slice. Registry regenerated (163).
+- **2026-09-21 — the shipped shell loads the packaged component manifest
+  (#185 one-supervisor wiring).** The last #185 code gap: the production
+  shell entry (`apps/desktop/shell/src/bun/index.ts`) never fed the
+  composition root's `componentManifest` seam, so the shipped shell kept
+  truthful-empty resource listings and never constructed the supervision
+  engine. The entry now loads the manifest at boot — it locates the `.app`
+  it runs from (`Contents/Resources/app` → bundle root) and resolves the
+  component manifest through the packaging lane's strict install-location
+  resolution (`loadPackagedManifestForEntry` in
+  `apps/desktop/shell/scripts/packaged-install.ts`), the same resolution the
+  packaged supervision smoke's proof 0 exercises. A repo dev run (no bundle)
+  and a found bundle whose resolution or strict decode fails (missing or
+  non-artifact install entries) load nothing: the shell logs the typed
+  reason and boots the truthful no-supervision composition — truthful-empty
+  listings, `capability_unavailable` stops — never fabricated state. The
+  packaged supervision smoke's proof 0 now also asserts the entry loader
+  resolves the same components and digests as the lane's own resolution, so
+  the install-location proofs exercise the real composition path. No
+  supervision state-machine semantics changed; no new registry operations.
+  "Local stack supervision", "Host provider policy (M12 #424)", and the
+  packaged-lane note updated; pinned by the three #185 wiring tests in
+  `apps/desktop/tests/dev-runtime-composition.test.ts`.- **2026-09-20 — #399 residue: `file-bytes-v1` bulk stream, overwrite rename
+  plan/commit, and recursive delete/copy plans.** Added six
+  `dev.files.*Plan`/`*Commit` operations — `renameOverwrite` (pins BOTH the
+  moving source and the colliding destination identity; the one sanctioned
+  clobber), `deleteTree` (bounded dry-run enumeration: depth ≤ 64, ≤ 5,000
+  items, per-item mtime/size facts, symlink/special-file refusal, explicit
+  confirmation id), and `copyTree` (same enumeration plus a 256 MiB volume
+  budget; destination must be free) — with `FileTreeMutationResult` as the
+  commit reply DTO and `MutationPlan` as the plan reply. Plans expire after
+  10 minutes, commits verify the plan digest and are single-use, and every
+  commit re-proves the enumerated tree against the live lstat before
+  touching anything (`plan_stale`/`file_changed` on drift). The desktop
+  shell's files registrar additionally landed the `file-bytes-v1` gateway
+  attach: `readStream`/`writeStream` mint single-use 60 s grants bound to the
+  channel identity, the `workspace_root` resource generation, and the CAS
+  file identity; attached reads pump 64 KiB `data` frames at byte-offset
+  sequences with ≤ 1 MiB unacknowledged credit; attached writes accumulate
+  generation-stamped chunks in an owner-only same-directory temp file and
+  rename atomically only after length, digest, and identity re-proof —
+  any mismatch discards the temp and reports `file_changed`. Bulk writes are
+  byte-exact (`lf`/`crlf` policies are refused there with `invalid_state`);
+  without a composed gateway the two stream operations stay
+  typed-unavailable. Registry regenerated (total operations 161).
+- **2026-09-20 — #400 deferred residues closed: the ACP lane prompt handoff
+  and the harness-in-PTY spawn path.** The two residues the merged launch
+  slice explicitly deferred. (1) The ACP lane's silent deferral becomes a
+  typed handoff: `lane.deliverPrompt` (host-internal lane seam, no new
+  operation; total operations unchanged at 155) receives the run/session-bound
+  prompt, is generation-fenced and session-bound like every lane mutation,
+  and either delivers through the lane's structured transport or refuses
+  typed (`identity_mismatch`/`invalid_state`/`stale_generation`/`not_found`,
+  or `capability_unavailable` for a driver without a delivery seam). An
+  accepted handoff records one host `turn.user_input` provenance event
+  (transport `acp`, connection identity, byte count, process identity);
+  refusals record `capability.degraded`; both dedupe on `host:prompt:<runId>`;
+  the host never touches the PTY input stream while a lane is live and never
+  fabricates a harness turn event over the lane's tier. "Initial prompt
+  delivery" updated; pinned by `dev-runtime-harness-prompt.test.ts` and the
+  lane-level fence test in `dev-runtime-harness.test.ts`. (2) The
+  harness-in-PTY spawn path: `dev.session.launchHarness` and
+  `dev.session.launchDefault` accept an optional `attachTerminal` body flag,
+  and the launch spawns the host-resolved installation executable (argv[0]
+  alone) as the PTY child of a NEW session-bound terminal through the
+  terminal runtime's `terminal.create` spawn patterns — BEFORE the run record
+  and `run.starting` exist, so a failed spawn refuses typed `spawn_failed`
+  with no fabricated run and an absent terminal runtime refuses
+  `capability_unavailable`. The run DTO carries `terminalId`/
+  `terminalGeneration` (additive, strict decoder updated; registry artifact
+  regenerated), `run.starting` records transport `pty_process`, and later
+  status derives ONLY from sidecar-OBSERVED terminations: first notice
+  naming the bound terminal consumed, foreign terminals/generations inert,
+  0 → completed, non-zero → failed, null (signalled) → disconnected (a
+  signal is never an exit status), illegal edges demote to `disconnected`
+  preserving the observed code, terminal states never overwritten, cancel
+  signals nothing. New "Harness-in-PTY spawn (attachTerminal)" section; the
+  Agents pane surfaces the binding additively ("in terminal" badge). Pinned
+  by `dev-runtime-harness-pty-spawn.test.ts` (real in-process sidecar over
+  the fake PTY plus a register-level rig with scripted exit subscription and
+  injected clock).
+- **2026-09-20 — repository registry providers and project archive/update
+  (#398 follow-up).** The previously typed-unavailable `dev.repo.adopt`/
+  `authorize`/`inspect`/`refresh` and `dev.project.update`/`archive`
+  operations gained reachable production providers (total operations
+  unchanged). The project/session register serves `dev.project.update` /
+  `dev.project.archive`: mutable-field patches with group-membership
+  consistency, archived-project freeze, and an archive flip that refuses
+  while any session on the project is live; both bind the `project` resource
+  at the record's version and publish `dev.project.updated`. A new durable
+  repository registry (`dev-runtime/repos/registry.json`) serves the repo
+  family over the import-minted `Project.repos` bindings: adopt re-proves
+  kind/identity/containment under the authorized bookmark and records the
+  canonical remote and default ref from local git config only; authorize
+  binds a vault credential reference whose host must equal the remote's
+  proven host; inspect computes read-only facts network-free; refresh probes
+  the remote offline-safe (`git ls-remote origin HEAD`) and degrades the
+  durable record to `stale`/`unavailable` typed truth. Strict
+  `Repo`/`RepoInspection` decoders (plus the `dev.repo.list` page) installed;
+  `dev.project.list`/`dev.project.get` reply decoders remain an explicit
+  handoff for the project-registry slice. No acceptance criteria changed.
+
+- **2026-09-20 — packaged macOS evidence lane (M12 packaged-evidence wave,
+  #396/#397/#422/#185 re-closure evidence).** `test:packaged` now builds the
+  bundled terminal sidecar component into the `.app`
+  (`Contents/Resources/app/dev-runtime-sidecar/`) and runs the packaged proof
+  suite against the real bundled layout, retaining one artifact per proof
+  under `artifacts/packaged/`: install-location resolution with real artifact
+  digests feeding the component manifest, the supervision proofs on the
+  bundled layout, terminal durable-checkpoint replay across a host restart,
+  worktree template materialization + digest-tamper refusal through the
+  production registrar, and the browser/devices packaged matrix without a
+  real engine (typed capability states; the engine lane stays named
+  out-of-scope). Records the sidecar transport finding: Bun unix socket
+  writes drop past the send buffer and the sidecar duplex never checks
+  writability, so below-ring durable-bridge replay is blocked until the
+  transport drains (`packaged-transport-defect-probe` retains the
+  reproduction). No supervision or replay state-machine semantics changed.
+
+- **2026-09-20 — #400 launch residues: initial prompt delivery, runtime-events
+  e2e proof, pane mounts, and reset pinning.** `dev.session.launchHarness` and
+  `dev.session.launchDefault` accept an optional bounded `initialPrompt`
+  (1–64 KiB; total operations unchanged) delivered per launch step 7: guarded
+  PTY input for PTY-backed launches (the terminal input authority's
+  `prompt_delivery` single-writer takeover, per-chunk re-admission, one
+  bounded submit, exactly-once per run via the idempotent-launch early return
+  plus `host:prompt:<runId>` dedupe), explicit deferral to the ACP lane
+  adapter while a live ACP lane owns the session, and canonical
+  provenance-only `turn.user_input` (`workspace_private`) or
+  `capability.degraded` events — never prompt content in the event log, never
+  a launch failure from a delivery failure. New "Initial prompt delivery"
+  section. The Agents pane mounts the harness status surface and the History
+  pane the run-history rows (lazy-chunked, per "Runtime activity"). The
+  reset-to-defaults contract (scope-wide vs per-project reset, version-0
+  re-addressing, discovery/runs untouched) is documented and pinned.
+- **2026-09-19 — supervised computer-use lanes (#472, planning slice).**
+  Added the `dev.computeruse` operation family (`capabilities`, `lanes`,
+  `laneCreate`, `laneClose`, `consent`, `attach`, `input`, `takeover`,
+  `release`; total operations 148) and the `desktop-frames-v1` stream
+  protocol, with the new "Computer use lanes" section: session-scoped lanes
+  whose grants die with the runtime session, an authority gate that
+  re-derives every admission from provider-owned state (scope binding,
+  generation fencing, automation owner, issuance-backed single-use ≤60 s
+  consent records tied to the #471 permission substrate, fresh-permission
+  re-checks), a kill switch that revokes input authority immediately, stale
+  input inert by generation, screencast-inherited frame/input bounds
+  (15/30 FPS, 4096×4096, 8 MiB, 240 inputs/s), and honest capability probing
+  — capture and accessibility-tree reading are typed
+  `capability_unavailable` until the deferred native capture helper and an
+  authorized AX bridge exist. Threat-model additions TM-015–TM-017
+  (privileged-surface typing, secret capture, grant escalation) land with
+  this slice.
+- **2026-09-19 — M10 #33/#34 substrate-gap closure: spawn environment
+  allowlist, executed rollback, and pinned failure-injection evidence.** The
+  "Local stack supervision" rules gain two bullets: a supervised component
+  child's environment starts from a positive allowlist of host keys plus the
+  packaging lane's declared additions (the shell's whole environment is never
+  inherited; argv arrays are handed to the OS verbatim), and an update
+  rollback is executed against the real install layout — the failed artifact
+  quarantined with raw bytes retained, the explicit staged previous install
+  restored only after it proves complete, an implicit rollback refused, and
+  component data locations never touched. No supervision state-machine
+  semantics changed. The paragraph is now also pinned by the
+  environment-contract, failure-injection (gateway loss, duplicate remote
+  command replay, host sleep/wake clock jump, supervision ledger expiry),
+  vault key-role-confusion, shell/argv/OSC injection adversarial, and
+  executed-rollback test files.
+- **2026-09-19 — Dev View product completion, preferences trust, and App
+  Library activation trust (#395/#425).** Added the "Durable project/session
+  authority (desktop host)" section: the shell register is the canonical,
+  durably persisted project/session/archive authority with transactional
+  `ArchiveRecord` commits, scope/generation/version enforcement, and a
+  one-time retained seed from the legacy projection; client selection now
+  enforces scope, generation, revocation, freshness, and archive state with
+  deterministic, self-converging `devProject`/`devSession` deep links and
+  accessible pointer+keyboard reordering. Specified the appearance/rail
+  storage recovery-envelope contract (unread originals survive later valid
+  writes) and the compiled trusted first-party entry registry with ordered
+  fail-closed activation reasons (`untrusted-entry`, `integrity-failure`,
+  `plan-unverified`, `stale`). No registry operations were added or changed.
+- **2026-09-19 — project registry providers, monorepo scan, and contextual
+  sidebar wiring (#398).** The previously typed-unavailable
+  `dev.group.create`/`update`/`delete`, `dev.project.import`/`create`, and
+  `dev.project.scan` operations gained reachable production providers.
+  Import/create are served by the durable project/session register (snapshot
+  writes keep project and group membership consistent; import resolves the
+  authorized root bookmark fail-closed and refuses duplicates with
+  `identity_mismatch`); scan is a companion provider whose canonical root
+  comes only from the bookmark recheck, with fingerprint-keyed caching,
+  fingerprint-bound cursors (`stale_version` on a moved scan), and partial
+  results carrying `budget_exhausted`/`cancelled` diagnostics. Group
+  `update`/`delete` require the `group` envelope resource binding; `delete`
+  additionally requires an empty group and a `confirmationId`. Additive
+  `Project.repos` bindings record the authoritative
+  `repoId`/`rootBookmarkId`/`canonicalRoot` triple. Fixed the shared request
+  decoder's field splitting so `<=`-bounded array types (`string[]<=32`) may
+  precede another body field without being mis-parsed as a generic; this was
+  a latent defect for mid-body bounded arrays and changes no documented
+  shapes. Success replies for the six operations now decode through strict
+  provider-owned decoders.
+- **2026-09-19 — control-plane composition and fail-closed approvals
+  (remediation gate).** Hardened the host control plane without changing the
+  operation registry:
+  - **Authenticated identity binding.** The Dev Runtime scope is never
+    injected as a renderer global. The shell binds
+    `(account, workspace, runtime node)` once per authentication over the
+    signed legacy channel (`desktop_identity_bind`, `desktop_identity_scope`,
+    `desktop_identity_unbind`), verifying the presented desktop session
+    against the cloud (`GET /api/workspaces` proves liveness and workspace
+    membership) and the runtime-node pairing read model (node must be paired).
+    The gate refuses a command whose scope differs from the verified binding
+    **before** capability derivation and dispatch, re-proves node eligibility
+    on every privileged operation (no TTL cache: a revoked node fails the
+    next command), and revokes every channel on rebind, workspace switch, or
+    unbind — reconnects must complete a fresh trusted handshake.
+  - **Owner approvals are issuance-backed.** `createOwnerApprovalVerifier`
+    records an authoritative issuance (owner prompt/setting) and consumption
+    requires that exact record: scope-bound, action-bound, expiry-checked,
+    single-use, maximum 10-minute window. `approvalVerifier` is a required
+    constructor parameter of the vault, root-bookmark, and project-grant
+    authorities; a missing verifier fails construction, so a caller-supplied
+    non-empty string is never owner consent.
+  - **Keychain failure taxonomy.** The vault key store classifies every
+    `security` CLI outcome (`item_not_found`, `keychain_locked`,
+    `access_denied`, `malformed_output`, `process_failure`, `timeout`,
+    `unavailable_executable`). Only item-not-found permits first-time key
+    generation; every other outcome fails closed without generating or
+    overwriting a key. If CLI stderr contains conflicting signals, locked or
+    denied takes precedence over item-not-found; a mixed diagnostic never
+    permits first-time generation. Lookups re-validate base64 strictly.
+  - **Production registration matrix.** The composition root
+    (`apps/desktop/shell/src/dev-runtime/index.ts`) registers every provider
+    with a reachable implementation — capability snapshot, project/session
+    projection (including canonical `dev.session.create` with worktree-proof
+    validation and `dev.session.transferInput` generation fencing), browser
+    and device lanes, the worktree service (registrar at
+    `worktrees/register.ts`), terminal (when the sidecar adopts), and the
+    grant authorities — and fills every remaining registry operation with a
+    typed-unavailable provider that names the missing host adapter. The
+    composition bootstraps with a restored binding or recomposes on rebind.
+  - **Launch bootstrap document gate.** The one-time launch bootstrap is
+    injected only into document loads that present trusted browser fetch
+    metadata (`Sec-Fetch-Dest: document` with a trusted `Sec-Fetch-Site`);
+    header-less local processes receive HTML without the credential, so the
+    launch capability cannot be retrieved by omitting Origin/Sec-Fetch
+    headers and cannot be reused without passing the trusted-origin gate.
+    Pinned by `apps/desktop/tests/dev-runtime-composition.test.ts` (boots the
+    actual registration graph and enumerates the operation/provider matrix),
+    `apps/desktop/tests/dev-runtime-approvals.test.ts`, and
+    `apps/desktop/tests/dev-runtime-vault-keychain.test.ts`.
+- **2026-09-19 — host-correctness tightening (#396/#397/#185).** Terminal:
+  attach below the memory ring now replays a contiguous durable checkpoint
+  bridge exactly once, in order, before live delivery, and a genuinely
+  unavailable span resyncs at the deterministically derived oldest covered
+  sequence (spec "Output and replay" updated); the sidecar durably captures
+  every ring chunk even for terminals adopted into a fresh process.
+  Supervision: exits are observed, never assumed — stop/restart wait for
+  observed termination with bounded SIGTERM→SIGKILL escalation and
+  `stop_unconfirmed` retains the launch record and blocks replacement;
+  the ownership proof now includes executable identity and observable
+  process group; readiness derives health at decision time (spec "Local
+  stack supervision" updated). Worktrees: template materialization
+  recomputes the promoted content digest from disk immediately before the
+  first clone (stat fingerprints are a pre-check only, per the existing
+  "content-digest-verified at materialization" rule), and include-copy
+  application re-proves structural containment per item. No new registry
+  operations; no limit changes.
+
+- **2026-09-18 — worktree lifecycle implementation detail (#397).** Added the
+  worktree-name retirement registry (fixed pool, permanent retirement,
+  watermark compaction) and the per-project dependency-template cache
+  (digest-validated, approved immutable promotion, one build per project,
+  CoW materialization with identity reproofs) to the Worktree lifecycle
+  section. Both follow the CoW-first materialization rule: per-file
+  `copyFile` clones, never stream loops and never bulk directory clones.
+- **2026-09-17 — foundation-gap resolution.** Defined the authoritative typed
+  Dev provider projection and canonical Dev↔Chat `RuntimeSession` invariants;
+  made layout preferences explicitly session-scoped; introduced the V2 utility
+  envelope with independent left/right slots and V1 migration requirements;
+  required leaf-only focus restoration; clarified that unbounded file offsets,
+  lengths, and byte counts use `uint64-string`; and moved production remote-node
+  certification to M14 while retaining remote-ready fake-node fixtures in M12.
+
+- **2026-09-18 — local stack supervision substrate (M10 #185).** Added the
+  "Local stack supervision" section: the desktop shell is the single
+  supervisor for the bundled local stack, specified as the component-manifest
+  model (strict decode, compatibility gate, sequential startup order,
+  explicit rollback targets, optional-component baseline) plus the
+  supervision rules (launch-record identity with pre-signal recheck,
+  5-in-10-minutes crash-loop verdict that survives restarts, probe health
+  defaults, idempotent starts, adopt/drain_upgrade/sidecar_incompatible
+  handshake, owner-only quarantined records, bounded secret-free audit).
+  This transcribes the supervision authority M12 consumes; it adds no Dev
+  Runtime registry operations and changes no acceptance criteria.
+
+- **2026-09-18 — browser and device lanes implementation (#422).** Landed the
+  lane host adapters and UI behind the existing registry (no new operations):
+  browser lanes derive an immutable profile identity from
+  `(account, workspace, runtime node, session, kind)`, so human and
+  task-owned lanes can never share a profile; takeover and release are the
+  only generation-incrementing ownership transfers and input granted under an
+  old generation is inert; screencast publication keeps one in-flight plus
+  the newest complete frame under credit backpressure with the spec's
+  15/30 FPS, 4096×4096, 8 MiB, and 240 inputs/s limits enforced; navigation
+  revalidates scheme, credentials, and every resolved address on each hop and
+  admits loopback only for a proven Adea-owned service (loopback ports 80/443
+  are never owned); cookie import starts from the sources the client may
+  read (`dev.browser.cookieSources` — one typed entry per detected browser
+  profile, carrying its availability rather than that being inferred) and is
+  then a previewed plan/commit transaction — digest-bound, scoped to the
+  imported registrable families, excluding
+  non-transplantable origins (google.com) unless explicitly overridden, and
+  fully rolled back on any failure or cancellation with values never logged;
+  the port inventory scans loopback listeners only (no LAN probe), marks
+  Adea-owned services from launch metadata, keeps vanished ports stale, and
+  associates a confirmed listener with the ready task-owned browser lane for
+  the same runtime session when one exists. Unknown, unconfirmed, and stale
+  rows never receive a new preview association and remain non-actionable;
+  device inventory is capability-gated `xcrun simctl`/`adb` with fixed argv
+  templates bound to verified inventory IDs, and stops only an Adea-launched,
+  still-identity-matching process (user-booted devices detach, never shut
+  down). `dev.browser.attach`/`input`/`screenshot` and
+  `dev.device.attach`/`input`/`screenshot` replies are typed
+  `capability_unavailable` at the provider layer until the channel-identity
+  grant-minting seam and the #400 agent-event attachment land; agent-event attachment remains explicitly unavailable for #422 closure.
+
+- **2026-09-27 — responsive inventory and scoped device sessions.**
+  `dev.device.list` includes the process-free responsive row at generation 1
+  with the reserved host ID `adea:responsive`, even without simulator tooling.
+  Kind filtering and limits apply to that row exactly as they do to verified
+  host inventory. Host items using the reserved ID fail closed with
+  `identity_mismatch` on list and start; an Android AVD actually named
+  `responsive` remains an Android inventory row and starts through the Android
+  launch path. The pane selects the responsive row by its `kind`, not its
+  opaque ID. Responsive start binds the advertised inventory generation and
+  refuses a stale one. `dev.device.sessions` returns only records matching the
+  command's account, workspace and runtime node, in addition to its
+  session/kind filters. The signed-channel list → resource-bound start → scoped
+  sessions → stop path is pinned by
+  `apps/desktop/tests/dev-runtime-browser-registrar.test.ts`; provider and
+  registry collision regressions are pinned by
+  `dev-runtime-devices-engine.test.ts` and `dev-runtime-devices.test.ts`.
+  Host inventory IDs are opaque: start never guesses a platform from an ID's
+  spelling. It resolves the requested ID to exactly one row in the combined
+  verified inventory and derives the launch path from that row's matching
+  `kind` and `platform`; a duplicate host ID makes list and start fail closed
+  with `identity_mismatch`. The caller-provided expected inventory generation
+  is still checked before a session is planned.
+  This does not establish a responsive pixel stream or make the pane's local
+  preset/rotation controls a host viewport operation.
+
+- **2026-10-06 — `dev.project.clone` is implemented (was typed-unavailable).**
+  The clone-URL import kind (#666) now has its shell provider: the remote
+  arrives redacted into parts, the URL is rebuilt from trusted components
+  (the scheme is assembled from parts so the boot-boundary gate's URL scan
+  never misreads the builder as a served endpoint), and a bounded shallow
+  clone (`--depth 1`, the registry's 60s git-child window) lands inside an
+  **authorized destination bookmark** before the one shared import path —
+  the same atomic snapshot write `dev.project.import` uses — binds it.
+  Credential-backed private remotes refuse typed `unavailable` until the
+  vault wiring ships; an unknown destination refuses before any clone runs;
+  a failed clone child refuses `spawn_failed` without touching the record.
+  GitHub-as-source stays a restatement for #666: an authenticated GitHub API
+  - token story is an owner product decision (BYOK, no forced sign-in), not
+    a missing implementation.
+
+- **2026-09-26 — contracted operations with no host adapter, recorded.**
+  `dev.worktree.cleanupJobs` is declared in the normative registry but no
+  shell provider registers it, so the registrar answers with typed
+  `capability_unavailable` ("no host adapter is available for this
+  operation") and its declared reply type — `Page<CleanupJobRecord>` — never
+  arrives. This is recorded rather than left implicit because the
+  JSON↔generated-types check cannot see it: the operation is pinned by name
+  in `scripts/dev-view-boundary.test.ts`, which fails if a SECOND operation
+  becomes unimplemented, and requires each unimplemented operation to be
+  documented here as typed-unavailable. (`dev.project.clone` was on this
+  list until 2026-10-06; it is implemented now, above.)
+  `dev.worktree.cleanupJobs` stays refused until the trash sweeper's
+  persisted continuation backlog (`worktrees/trash.ts`) is exposed as a
+  paged read.
+
+- **2026-09-16 — contract completeness audit fixes.** Added the missing
+  operations the M12 issue bodies already require: `dev.group.*`
+  (create/update/delete/list/reorder) for #398; `dev.session.archive` and
+  `dev.session.unarchive` producing `ArchiveRecord` for #395; `dev.browser.input`,
+  `dev.browser.lanes`, and `dev.browser.profilePolicies` for #422;
+  `dev.github.pullRequests` for #423; `dev.terminal.list`,
+  `dev.terminal.shellProfiles`, `dev.device.sessions`, and
+  `dev.worktree.cleanupJobs` for disconnect/restart rediscovery;
+  `dev.project.bookmarks` and `dev.repo.credentialRefs` defining the
+  authorized-root and vault-reference seams; and `dev.files.readStream`/
+  `dev.files.writeStream` plus the `file-bytes-v1` protocol for bulk file
+  transfer. Corrected `dev.github.updatePlan.expectedVersion` from `string` to
+  `integer`, added `Group.colorToken` and `RuntimeSession.displayName`, defined
+  the `GroupMutableFields`, `RootBookmark`, `CredentialRef`, `ShellProfile`,
+  `ProfilePolicy`, and `CleanupJobRecord` DTOs, capped inline file content at
+  the 256 KiB control limit, and promoted the terminal UX requirements
+  (styled default profile with system-terminal opt-out, bottom editor with
+  raw-mode escape, authenticated prompt blocks, deferred link sharing, and the
+  AGPL clean-room boundary) from #396. Total operations: 133. Issue bodies for
+  #394/#397/#400/#424 were corrected to the pinned Muxy revision
+  `5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6`; #394 remains closed.
+  `RuntimeSession.terminalId` is documented as the primary terminal only —
+  `dev.terminal.list` enumerates a session's split-leaf terminals — and
+  `dev.appearance`/`dev.appLibrary` are clarified as capability-snapshot-only
+  grants with `dev.capability.snapshot` as their sole consumer.
+
+- **2026-10-03 — #624: the computer-use lane publishes real screen frames
+  behind a typed screen-recording gate.** The `screen_recording` permission
+  row stopped being structurally unprobeable: a fixed-argv JXA
+  `CGPreflightScreenCaptureAccess` preflight (non-prompting, macOS 10.15+)
+  measures the responsible process's Screen Recording grant with the same
+  attribution and probe-honesty rules as the accessibility probe — `true`
+  proves granted, `false` reports the fail-closed `denied` state (the
+  preflight cannot separate an unanswered prompt from a refusal), and a probe
+  that cannot answer stays `capability_unavailable`. The computer-use
+  capture row mirrors the preflight exactly instead of the blanket
+  deferred-helper `unavailable`, and the read direction of
+  `desktop-frames-v1` publishes live frames: attach requires a fresh granted
+  answer (refusals close typed, never a fabricated frame), capture runs the
+  macOS `screencapture` host tool behind fixed argv with engine-owned temp
+  paths, frames are bounds-checked (4096×4096, 8 MiB; over-bounds is a typed
+  `limit_exceeded` — downscaling is not available in this lane), classified
+  `restricted_local` with honest `redacted: false` provenance before egress,
+  and delivered through the shared screencast pacer. Observation requires a
+  live consent record without consuming it
+  (`gate.verifyObservation`), revocation paths stop attached streams
+  synchronously, and a moved screen-recording state stops frames at the
+  first boundary after the consent freshness window. AX-tree reading stays
+  typed-unavailable (deliberately out of scope for #624). The shared
+  screencast pacer gained a delivery-ordering fix (a direct flush drops the
+  pending throttled frame instead of letting its stale timer invert the
+  wire order). No wire, registry, or limits change (the 163 operations
+  stand). Pinned by `apps/desktop/tests/shell-permissions.test.ts`,
+  `apps/desktop/tests/dev-runtime-computeruse.test.ts` (frame pipeline,
+  fences, throttle, revocation timing), and the screencast ordering stress
+  test in `apps/desktop/tests/dev-runtime-browser.test.ts`; packaged
+  real-TCC frame evidence stays an owner-side step (#542's lane).
+
+## What pins this
+
+As implementation lands, each row MUST be replaced or augmented with exact test
+files in the same commit:
+
+- `apps/desktop/tests/dev-runtime-roots.test.ts` — the root-bookmark
+  authority: `authorize` mints a `RootBookmark` from an absolute host path
+  with a host-recorded single-use issuance (kind observed from `.git`,
+  canonicalized path, idempotent re-authorization), refuses missing or
+  non-directory paths before any ledger write, and `dev.project.authorizeRoot`
+  serves the add-project surface through the scope-bound channel;
+- `scripts/docs-boundary.test.ts` — this spec is routed and links resolve;
+- clone modes: `apps/desktop/tests/project-registry.test.ts` (#1061's
+  checkout clone with the `file://` fixture behind the test flag; the shared
+  hardened argv; stderr-typed `remote_unavailable`/`auth_required`; bare exit
+  `spawn_failed`; mode/field mixing refusals; managed without its authority
+  `unavailable`; a production register refusing `file://`; a stopped clone's
+  partial checkout reported `cleanup_partial` and kept);
+- remote-only projects: `apps/desktop/tests/managed-clone.test.ts` (clone
+  from a local `file://` bare origin into the owner-only managed root with
+  the `bare_managed` record and binding and no primary record; managed
+  worktree create/list/cleanup under `managed-worktrees/<repoId>` with the
+  include-copy skip; unbind refusing while a worktree is live, then
+  quarantining and deleting the clone; a replaced clone refusing unbind;
+  unsafe remotes, credential host mismatch, bound project ids, a resource
+  binding, transport/size/time/base-ref failures leaving nothing behind;
+  production refusing `file://` and the shell entry never opting in; the
+  batch-mode SSH environment with host-key `remote_unavailable` and prompt
+  `auth_required`; an unconfirmed child exit quarantining without deleting
+  as `cleanup_partial`; the runner reaping a killed child;
+  user bare repositories, forged out-of-root records, planted names, `..`
+  spellings, widened or symlinked roots, and symlinked clones refusing),
+  `apps/desktop/tests/dev-runtime-composition.test.ts` (the provider is
+  composed; the production composition refuses `file://`; capability and resource deny tests over the real channel; the
+  `dev.repo.list` layout fact; no primary worktree),
+  `packages/types/tests/dev-runtime.test.ts` (the clone body, the managed
+  `ProjectRepoBinding` arm, and the `Repo` layout fact),
+  `apps/web/test/session-state-projection.test.ts` (the projection's
+  `source`), and `scripts/dev-view-boundary.test.ts` (clone is no longer in
+  the typed-unavailable allowlist);
+- ADR 0011 production worktrees: `apps/desktop/tests/worktree-service.test.ts`
+  (one primary record per registered git repository with the inspected
+  branch, refreshed by the fingerprint-gated pass; no folder primary; typed
+  primary refusals for archive/cleanup/merge-back/rename; rename under the
+  expected version; diff summary counts against the base or HEAD),
+  `apps/desktop/tests/repo-registry.test.ts` (one registry shared by
+  `dev.repo.*` and the worktree service; adopt and later proofs reconcile
+  exactly one primary), `apps/desktop/tests/dev-runtime-composition.test.ts`
+  (the composition wires one service; `dev.session.create` binds to the
+  primary; rename/diffSummary success, refusal, and deny-by-default
+  capability/resource tests), `packages/types/tests/dev-runtime.test.ts` (the
+  strict `Worktree`/`WorktreeDiffSummary` DTOs and request bodies), and
+  `packages/dev-view/tests/leaf-activity.test.ts` (leaf activity from run
+  states);
+- ADR 0011 counts-only cross-workspace status:
+  `apps/desktop/tests/dev-runtime-workspace-summary.test.ts` (per-workspace
+  counts across same-account/node scopes with another account and another
+  node excluded; terminal and `unknown` runs excluded; running vs
+  needs-input classification; the active scope's archived and unresolvable
+  sessions excluded; deny-by-default capability, extra-body-key, resource,
+  and foreign-scope refusals; an audit record with the operation only; no
+  other authority partition opened or created; a scope's run-registry write
+  preserving other scopes' runs), `packages/types/tests/dev-runtime.test.ts`
+  (the strict `WorkspaceRunSummary` reply decoder and empty request body),
+  and `apps/web/test/desktop-workspace-summary.test.ts` (the fail-closed
+  `workspaceSummaries()` client helper);
+- `apps/desktop/tests/dev-runtime-connections.test.ts` — Workspace
+  connections: git hosting CRUD with version conflicts and vault validation
+  (unknown/foreign refs `not_found`, host mismatch `identity_mismatch`, SSH
+  keys `incompatible`), cross-workspace isolation (a binding in A is never
+  visible or resolved in B, which reports `device_default`), resolution audit,
+  fail-closed resolution of a revoked binding, a tampered partition refused
+  `corrupt_state`, profile reuse across workspaces with delete refused while
+  any workspace binds it, foreign-scope and unknown-key denial for all six
+  operations, the git/gh/glab env builders, and real `git credential fill`
+  proof that the inline helper answers only the bound host and overrides a
+  device helper;
+- `apps/desktop/tests/dev-runtime-connections-launch.test.ts` — through the
+  full composition and the real sidecar: a harness launch injects exactly the
+  bound profile's key into the PTY child env and nowhere else (reply, events,
+  any persisted file), provenance records the profile id, an unbound
+  workspace launches `device_default`, a revoked bound account refuses the
+  launch, `gh` receives `GH_TOKEN` only after a binding, and the channel
+  refuses forged capabilities and foreign scopes for every connection
+  operation;
+- `apps/web/test/desktop-workspace-connections.test.ts` and
+  `packages/workspace-ui/tests/unit/connections-model.test.ts` — the client
+  bridge (registry-exact bodies on the runtime scope, strict decode failing
+  closed, typed refusals verbatim, unavailable without a bound runtime) and
+  the settings view model (device-default first, usable refs only, an
+  unusable bound ref rendered disabled);
+- M10 channel/desktop boundary tests — no loopback or browsed-page privilege;
+- `packages/types` contract/property tests — envelope and state decoders;
+  `packages/types/tests/dev-runtime.test.ts` pins the `RootBookmark` and
+  `CredentialRef` grant DTOs and the success page decoders for
+  `dev.project.bookmarks` and `dev.repo.credentialRefs` (M10 #34), and the
+  `Repo`/`RepoInspection` registry DTOs with the reply-decoder matrix for
+  `dev.repo.adopt`/`authorize`/`inspect`/`refresh`/`list` and
+  `dev.project.update`/`archive` (#398 follow-up);
+- `packages/types/tests/dev-runtime-computeruse.test.ts` — #472 wire
+  contract: every `dev.computeruse.*` request body and success reply decodes,
+  authority fields are rejected, stale generations and forged consent ids
+  fail closed at the decoder layer;
+- `apps/desktop/tests/dev-runtime-computeruse.test.ts` — #472 lane
+  lifecycle and authority gate: session-scoped lanes with immutable
+  generation fencing on takeover/release/close, kill-switch immediacy,
+  stale-generation input inertness, consent records that are issuance-backed,
+  scope/generation-bound, single-use, ≤60 s, and refusal when the #471
+  permission state is not granted or not fresh, bounded desktop-frame
+  publication (one in-flight plus newest, 240 inputs/s), fixed-argv host
+  tooling templates with scripted runners (no real capture or input in CI),
+  typed-unavailable classification for AX-tree reading, and the #624
+  desktop-frames read stream: the capture row mirroring the screen-recording
+  preflight, typed attach refusals when capture is not proven (never a
+  fabricated frame, the capture source never invoked), classification-before-
+  egress provenance (`restricted_local`, `redacted: false`), screencast
+  throttling with grant-bound credit and ack-driven resume, over-bounds
+  refusal, and synchronous frame stops on takeover/kill-switch/session
+  teardown plus digest-move stops after the consent freshness window;
+- `apps/desktop/tests/shell-channel.test.ts` — the M10 channel/desktop
+  boundary: no loopback or browsed-page privilege (trusted-origin gate,
+  bootstrap handshake, proof/replay/expiry refusals, single-use grants,
+  full-duplex attach, secret-free audit);
+- `packages/types/tests/dev-runtime-browser-device.test.ts` — #422 wire
+  contract: every `dev.browser.*`/`dev.device.*` request body and success
+  reply decodes, lane crossover and stale generations fail closed, and
+  gesture/viewport/cookie limits bind on the stream;
+- `apps/desktop/tests/dev-runtime-browser.test.ts` — lane/profile identity
+  separation, takeover generation fencing, screencast bounded publication and
+  stale-input inertness, cookie import scope/atomic rollback/secret-free
+  results, loopback-only port inventory with stale handling, screenshot
+  provenance and limits;
+- `apps/desktop/tests/dev-runtime-browser-providers.test.ts` — provider
+  preconditions behind the M10 gate: scope identity, generation binding, SSRF
+  refusals recorded as policy diagnostics, and typed-unavailable engine
+  seams;
+- `apps/desktop/tests/dev-runtime-devices.test.ts` — simctl/adb inventory
+  parsing fixtures, fixed argv templates, gesture pixel clamping, and
+  launch-identity stop rules including adopt-never-kill.
+- `packages/types` contract/property tests
+  (`packages/types/tests/dev-runtime.test.ts`) — envelope, channel, stream,
+  and state decoders;
+- `packages/dev-view` unit/component tests — layout/status/accessibility;
+  `packages/dev-view/tests/selection.test.ts` pins selection enforcement
+  (scope, generation, revocation, freshness, archive recovery);
+  `packages/dev-view/tests/sidebar-navigation-filter.test.ts` pins the
+  non-mutating project/session filter projection;
+  `apps/web/e2e/dev-sidebar-search.spec.ts` pins filtering and collapse-state
+  restoration through the returning Chat runtime harness;
+  `packages/dev-view/tests/archive-shelf-model.test.ts`
+  pins the restore flow, the destructive-delete confirmation gate, and the
+  explicit `dev.session.delete` handoff;
+  `apps/desktop/tests/project-session-register.test.ts` pins the durable
+  project/session authority: restart survival without fixtures, transactional
+  archive records, scope/generation/version rejection, fail-closed corruption
+  (including a v2 record carrying groups or project names), create/import
+  binding of client-supplied cloud project ids with duplicate refusal,
+  `dev.project.unbind` success and live-session refusal without touching
+  files, and v1 authority files left byte-identical and unread.
+  `apps/web/test/session-state-projection.test.ts` pins the flat projection
+  (every binding kept in register order, no invented names);
+  `apps/desktop/tests/host-store.test.ts` pins
+  the shared SQLite boundary's WAL/full-sync setup, scope isolation, format
+  guard, corruption retention, restart recovery, and interrupted migration
+  retry, native-state refusal after SQLite loss, and stale-source refusal after
+  SQLite loss;
+  `apps/desktop/tests/repo-registry.test.ts`
+  pins the repository registry (#398 follow-up): adopt-time
+  containment/identity proof with durable restart, unknown/stale/foreign-scope
+  refusals, out-of-root containment refusal before any write, read-only
+  inspect facts with dirty detection and stale-generation fencing,
+  host-matched credential authorization, offline-safe refresh (`stale` /
+  `unavailable` typed truth, version kept when nothing moved), and remote
+  redaction;
+  `packages/ui/tests/appearance.test.ts` pins the storage-level recovery
+  envelope round-trips; `packages/workspace-ui/tests/unit/app-library.test.ts`
+  pins the compiled trusted entry registry and every activation rejection;
+  `apps/web/e2e/dev-view.spec.ts` and `apps/web/e2e/appearance.spec.ts` pin the
+  deep-link recovery, flat project list (no reorder affordance), shelf,
+  zoom/reduced-motion, and CSP-safe journeys;
+- macOS permissions (#471): `apps/desktop/tests/shell-permissions.test.ts`
+  pins the probe outcome matrix (including the #624 screen-recording
+  preflight: `true`→granted, `false`→fail-closed denied, unanswerable→
+  `capability_unavailable`), fixed-argv discipline, settings deep-link
+  table, and the `desktop_permissions_*` bridge commands;
+  `packages/dev-view/tests/permissions-model.test.ts` pins presentation,
+  action affordances, live-region announcements, and honest degradation;
+  `packages/types/tests/desktop-permissions.test.ts` pins the DTO universes
+  and the permission-id guard;
+- computer use (#472): `packages/dev-view/tests/computeruse-model.test.ts`
+  pins the pane model — capability rows rendered from the injected service
+  port only, consent/takeover/release affordances gated on lane state,
+  capture/AX-tree unavailable guidance naming the missing piece, and no
+  fixture capability states;
+- desktop Dev Runtime unit/integration tests — filesystem, worktree, terminal,
+  process, browser, provider, cleanup;
+  `apps/desktop/tests/terminal-pty-adapter.test.ts`,
+  `apps/desktop/tests/terminal-manager.test.ts`,
+  `apps/desktop/tests/terminal-checkpoints.test.ts`,
+  `apps/desktop/tests/terminal-input-authority.test.ts`,
+  `apps/desktop/tests/terminal-shell-integration.test.ts`,
+  `apps/desktop/tests/terminal-sidecar.test.ts`,
+  `apps/desktop/tests/terminal-channel.test.ts`, and the real-PTY packaged
+  smoke `apps/desktop/tests/terminal-pty-smoke.test.ts` pin the Terminal
+  protocol, sidecar adoption, shell integration, and input authority sections
+  (issue #396);
+  `packages/dev-view/tests/terminal-transport.test.ts` and
+  `packages/dev-view/tests/terminal-renderer-editor.test.ts` pin the client
+  transport, renderer fallback policy, command blocks, and bottom editor;
+  `apps/desktop/tests/dev-runtime-roots.test.ts`,
+  `apps/desktop/tests/dev-runtime-vault.test.ts`, and
+  `apps/desktop/tests/dev-runtime-grants.test.ts` pin the M10 #34
+  authorized-root containment/identity rechecks, vault enrollment/resolution,
+  and project grant binding;
+- `apps/desktop/tests/dev-runtime-approvals.test.ts` pins the fail-closed
+  owner-approval verifier (mandatory construction, issuance-bound single-use
+  consumption, replay/expiry/wrong-scope/forgery refusals);
+- `apps/desktop/tests/dev-runtime-vault-keychain.test.ts` pins the keychain
+  failure taxonomy (only item-not-found permits first-time generation);
+- `apps/desktop/tests/dev-runtime-vault-bun-secrets.test.ts` pins the
+  application-level Bun.secrets migration, runtime-version fallback, exact
+  key read-back, locked/denied/unavailable refusals, legacy-key retention, and
+  key-mismatch fail-closed behavior, including sealed-vault access after a
+  runtime downgrade;
+- `apps/desktop/tests/dev-runtime-vault.test.ts` also pins the credential
+  metadata migration, retained legacy source, restart/rollback recovery,
+  SQLite loss refusal, scope filtering, corruption retention, downgrade-visible
+  revocation tombstones, and the absence of plaintext or key material from
+  SQLite;
+- `scripts/test-m10-33-packaged-vault.mjs` bundles
+  `apps/desktop/shell/scripts/packaged-vault-smoke.ts` and executes the real
+  adapter with the Bun runtime from a macOS app bundle. Its disposable
+  Keychain journey proves legacy-slot retention across upgrade/downgrade and
+  records redacted denied/locked/mismatched-store refusals with parent and
+  child cleanup;
+- `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
+  registration graph and pins the operation/provider matrix, the
+  scope-before-dispatch gate ordering, revocation and refused-rebind
+  behavior, and the typed-unavailable host capability results;
+- `apps/desktop/tests/dev-runtime-harness-launch.test.ts` pins the #400
+  launch orchestration: the clean-desktop managed-Pi root default, user
+  preference authority (version fencing, default exclusivity, disabled-never-
+  auto-launched), typed refusals for unlaunchable explicit defaults, the
+  launchDefault resolution order with the install remediation gap, and the
+  observed `dev.harness.runStatus` machine (legal edges, illegal edges,
+  terminal refusals, generation/scope fencing, canonical event emission), plus
+  the durable run-status notification observer on the composed host publish
+  path;
+- `apps/desktop/tests/harness-notifications.test.ts` pins wrapped
+  `dev.harness.updated` observation, focus suppression, baseline advancement,
+  disposal, and value-free native request handling; Chat/Dev source precedence,
+  serialization, and transport failure handling are pinned by
+  `apps/web/test/desktop-chat-presentation.test.ts`;
+- `apps/desktop/tests/dev-runtime-harness-status.test.ts` pins the pure
+  transition table edge-by-edge, idempotent same-state replays, typed
+  refusal codes, event-kind mapping, and the bounded run-history store
+  (terminal-first eviction that never drops a live run, the 50-entry
+  transition journal, scope isolation) on injected clocks;
+- `apps/desktop/tests/dev-runtime-harness-events.test.ts` pins the canonical
+  event log (per-generation sequencing, dedupe vs `idempotency_conflict`,
+  bounded retention, bounded reads, scope isolation, live subscriptions),
+  the `dev.session.events` grant path (caller-identity binding, single-use
+  attach with channel-secret proof, foreign-channel refusal), and the
+  runtime-events-v1 handler (bounded newest-frame replay, live push,
+  stale-generation close, read-only discipline);
+  `apps/desktop/tests/harness-events-channel.test.ts` proves the full
+  websocket attach end-to-end over a real channel gateway (grant mint →
+  signed attach → `opened` → bounded CBOR replay → live push → ack →
+  single-use attach replay refusal → generation-fenced `stale_generation`
+  close);
+- `apps/desktop/tests/dev-runtime-harness-prompt.test.ts` pins the
+  launch→prompt-delivery residues: exactly-once fenced delivery into the
+  session PTY through the `prompt_delivery` input authority (with provenance
+  events and no prompt content), typed non-delivery without a live terminal,
+  ACP-lane deferral, and single-writer fencing (a superseded user writer is
+  rejected before the PTY);
+- `packages/types/tests/dev-runtime-harness.test.ts` pins the #400 wire
+  contract: every new request body and success reply (preferences, run
+  status, launchDefault, the events stream grant) decodes strictly and
+  credential-shaped or malformed extras fail closed;
+- `packages/dev-view/tests/harness-status-model.test.ts` and
+  `packages/dev-view/tests/run-history-model.test.ts` pin the Agents/History
+  pane presentation models: truthful status labels (unknown stays unknown),
+  terminal-fallback surfacing, installation display distinctions, bounded
+  newest-first history rows, injected-clock elapsed times, and
+  redaction-by-construction;
+- `apps/desktop/tests/project-scan.test.ts` pins the monorepo scanner's
+  prune-first discovery, workspace declaration parsing, symlink refusal,
+  ignore handling (including the negation diagnostic), malformed-manifest
+  diagnostics, package/entry/time budgets, cancellation, and fingerprints;
+- `apps/desktop/tests/project-registry.test.ts` pins the project registry
+  providers: import root resolution and cloud project id binding, duplicate
+  refusal, restart persistence, scan cache/cursor/partial semantics, and the
+  strict reply decoders; `apps/desktop/tests/dev-runtime-composition.test.ts`
+  pins `dev.project.unbind` capability and resource-binding refusal through
+  the authenticated channel;
+- `packages/dev-view/tests/scan-preview-model.test.ts` pins the sidebar's
+  scan preview/duplicate/notice/import-plan presentation model;
+- web/desktop Playwright owner journey;
+- named Dev Runtime performance and soak commands
+  (`test:performance:dev-runtime`, `test:soak:dev-runtime`) and the packaged,
+  security, and bundle lanes (`test:packaged`, `test:security:dev-runtime`,
+  `test:bundle:dev-view`), each writing its summary under
+  `artifacts/dev-runtime/`;
+- package/provenance denylist tests.
+
+Until those files exist, the matching implementation issue remains open; prose
+alone is not evidence of implemented behavior.
 
 ### Shared utility action controls
 

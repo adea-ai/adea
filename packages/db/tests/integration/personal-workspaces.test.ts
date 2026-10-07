@@ -322,7 +322,7 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
       .set({ logoKind: 'emoji', logoValue: '🌲', accent: 'green', deletedAt: new Date() })
       .where(eq(workspaces.id, legacy.id))
     const migration = readFileSync(
-      new URL('../../drizzle/0040_personal-workspaces.sql', import.meta.url),
+      new URL('../../drizzle/0041_personal-workspaces.sql', import.meta.url),
       'utf8'
     )
     const backfill = migration.slice(migration.indexOf('WITH personal_candidates AS'))

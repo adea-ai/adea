@@ -1,6 +1,6 @@
 {
-  "id": "c038890e-f2bc-4021-b9f1-5b1b1fd2e265",
-  "prevId": "e12ba2f4-d904-463a-9574-926e7b3088c0",
+  "id": "c867bc24-e3bf-4a40-b3af-43eb667020ce",
+  "prevId": "c038890e-f2bc-4021-b9f1-5b1b1fd2e265",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6670,7 +6670,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'monogram'"
+          "default": "'box'"
         },
         "logo_value": {
           "name": "logo_value",
@@ -6684,6 +6684,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 1
+        },
+        "is_personal": {
+          "name": "is_personal",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "deletion_requested_at": {
           "name": "deletion_requested_at",
@@ -6738,6 +6745,22 @@
         }
       },
       "indexes": {
+        "workspaces_personal_owner_unique": {
+          "name": "workspaces_personal_owner_unique",
+          "columns": [
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"app\".\"workspaces\".\"is_personal\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "workspaces_owner_idx": {
           "name": "workspaces_owner_idx",
           "columns": [
@@ -6806,6 +6829,10 @@
           "name": "workspaces_control_plane_workspace_id_valid",
           "value": "\"app\".\"workspaces\".\"control_plane_workspace_id\" ~ '^wsp_[0-9A-HJKMNP-TV-Z]{26}$'"
         },
+        "workspaces_personal_active": {
+          "name": "workspaces_personal_active",
+          "value": "not \"app\".\"workspaces\".\"is_personal\" or (\"app\".\"workspaces\".\"deleted_at\" is null and \"app\".\"workspaces\".\"deletion_requested_at\" is null)"
+        },
         "workspaces_name_nonempty": {
           "name": "workspaces_name_nonempty",
           "value": "length(btrim(\"app\".\"workspaces\".\"name\")) > 0"
@@ -6824,7 +6851,7 @@
         },
         "workspaces_logo_valid": {
           "name": "workspaces_logo_valid",
-          "value": "(\"app\".\"workspaces\".\"logo_kind\" = 'monogram' and \"app\".\"workspaces\".\"logo_value\" is null) or (\"app\".\"workspaces\".\"logo_kind\" = 'emoji' and length(\"app\".\"workspaces\".\"logo_value\") between 1 and 16)"
+          "value": "(\"app\".\"workspaces\".\"logo_kind\" in ('monogram', 'home', 'box') and \"app\".\"workspaces\".\"logo_value\" is null) or (\"app\".\"workspaces\".\"logo_kind\" = 'emoji' and length(\"app\".\"workspaces\".\"logo_value\") between 1 and 16)"
         },
         "workspaces_version_positive": {
           "name": "workspaces_version_positive",

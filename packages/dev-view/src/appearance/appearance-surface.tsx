@@ -17,10 +17,11 @@ import {
   type AppearancePreferencesV2,
 } from '@adea-ai/app-ui/components/appearance'
 import { useTheme } from '@adea-ai/app-ui/components/theme-provider'
+import { mirrorWindowSurface } from './window-surface'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
-import { createMemo, createSignal, onCleanup, onMount, untrack } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from 'solid-js'
 import { MonitorCog } from 'lucide-solid'
 
 import { readCustomThemeLibrary, removeCustomTheme } from '@adea-ai/app-ui/components/appearance'
@@ -63,6 +64,13 @@ export function AppearanceControl(props: AppearanceControlProps) {
 function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   const appearance = useTheme()
   const editor = createAppearanceEditor()
+  // Mirror the glass choice to the native window whenever it changes (the
+  // desktop host registers the transport; everywhere else this is a no-op).
+  // The mirror is idempotent, so firing on the restored draft is harmless.
+  createEffect(() => {
+    const surface = editor.draft().surface
+    mirrorWindowSurface(surface === 'translucent' ? 'theme' : surface)
+  })
   const [customAccent, setCustomAccent] = createSignal('')
   // The published editor is controlled by the draft it receives. Keep an
   // invalid raw string in that presentation draft while the host's canonical
@@ -274,7 +282,8 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     },
     surfaceCapability: {
       frosted: true,
-      themeDefaultDescription: 'Native window vibrancy where supported; tokenized frost elsewhere.',
+      themeDefaultDescription:
+        'Frosted makes the whole window translucent on macOS (applies after a relaunch).',
     },
     onChange,
     onSave: save,

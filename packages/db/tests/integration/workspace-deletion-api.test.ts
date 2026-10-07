@@ -2,7 +2,11 @@ import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { eq, inArray } from 'drizzle-orm'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
-import { createWorkspaceWithOwner, ensureBootstrapWorkspaces } from '../../src/workspaces'
+import {
+  createWorkspaceWithOwner,
+  ensureBootstrapWorkspaces,
+  workspaceDeletionState,
+} from '../../src/workspaces'
 import {
   authorizationAuditRecords,
   temporaryUserSessions,

@@ -97,7 +97,7 @@ test('the permissions section is reachable and states typed statuses, never gues
 
   // Rows exist, each with a status chip and the reason it cannot be checked.
   await expect(pane.getByRole('group').first()).toBeVisible()
-  const statuses = pane.locator('.dev-permissions__status')
+  const statuses = pane.locator('[data-permissions-status]')
   await expect(statuses.first()).toBeVisible()
   expect(await statuses.count()).toBeGreaterThan(1)
   await expect(pane.getByText('Cannot check').first()).toBeVisible()

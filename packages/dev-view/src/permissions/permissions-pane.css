@@ -99,36 +99,6 @@
   font-weight: 500;
 }
 
-.dev-permissions__status {
-  padding: 0.05rem 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 999px;
-  font-size: calc(0.6875rem * var(--font-ui-scale, 1));
-  font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-  background: color-mix(in srgb, var(--muted) 55%, transparent);
-}
-
-.dev-permissions__status[data-tone='ready'] {
-  border-color: color-mix(in srgb, var(--success) 35%, transparent);
-  background: color-mix(in srgb, var(--success) 12%, transparent);
-  color: var(--success);
-}
-
-.dev-permissions__status[data-tone='blocked'] {
-  border-color: color-mix(in srgb, var(--destructive) 35%, transparent);
-  background: color-mix(in srgb, var(--destructive) 10%, transparent);
-  color: var(--destructive);
-}
-
-.dev-permissions__status[data-tone='attention'] {
-  border-color: color-mix(in srgb, var(--foreground) 25%, transparent);
-  background: color-mix(in srgb, var(--accent) 70%, transparent);
-  color: var(--accent-foreground);
-}
-
 .dev-permissions__purpose,
 .dev-permissions__hint,
 .dev-permissions__consequence {
