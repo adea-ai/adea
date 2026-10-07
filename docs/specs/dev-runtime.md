@@ -3099,6 +3099,21 @@ supplies the id of the cloud project being bound; a host without a cloud
 project list falls back to a client UUID (the register never mints one). A
 successful import records the cloud project's `sourceKind` as `repository`.
 
+The repository step offers a source choice: **On this Mac** (the authorize →
+scan → import flow above) and **From GitHub** — the authenticated GitHub
+selection. The GitHub source lists the authenticated `gh` account's
+repositories through `dev.github.repositories`, renders a bounded,
+client-filtered pick list, and binds each pick with a **managed**
+`dev.project.clone`: the body carries only redacted remote parts
+(`provider: 'github'`, host, owner, repository — never a raw URL and never
+credential material), and the host re-proves every admission at clone time
+exactly as the clone contract below requires. The picked row shows a busy
+state for the duration of the clone, typed failures surface as inline error
+text, and a successful clone closes the dialog and refreshes the sidebar like
+the folder path's import. A dialog without a cloud project id (a host without
+a cloud project list) falls back to the same client-UUID `mintProjectId` seam
+the folder path uses.
+
 Scanner defaults:
 
 - parse declared workspaces/config rather than every `package.json`;
