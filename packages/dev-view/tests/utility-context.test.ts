@@ -358,7 +358,9 @@ describe('Dev utility request context', () => {
     expect(owner.rightUtilityOpen()).toBe(true)
     owner.toggleRightUtility(null)
     expect(owner.rightUtilityOpen()).toBe(false)
-    expect(owner.utilityPreferences().find((item) => item.pane === 'files')?.visible).toBe(true)
+    // The right toggle must not disturb the left slot, which sits at its
+    // fresh-install default (collapsed) here.
+    expect(owner.utilityPreferences().find((item) => item.pane === 'files')?.visible).toBe(false)
     owner.toggleRightUtility(null)
     expect(values.size).toBe(0)
     testOwner.dispose()

@@ -78,6 +78,7 @@ const terminals = [
   terminal(splitTerminalId, primarySessionId, 8),
   terminal(otherTerminalId, otherSessionId, 9),
 ]
+let createdTerminalCount = 0
 
 function success(command: DevCommand, value: unknown): DevReply {
   return {
@@ -87,6 +88,20 @@ function success(command: DevCommand, value: unknown): DevReply {
     ok: true,
     value,
     observedAt: new Date().toISOString(),
+  } as DevReply
+}
+
+function failure(command: DevCommand, code: string): DevReply {
+  return {
+    schemaVersion: 1,
+    operation: command.operation,
+    requestId: command.requestId,
+    ok: false,
+    error: {
+      code,
+      retryable: false,
+      message: 'The deterministic runtime refused this command.',
+    },
   } as DevReply
 }
 
@@ -223,6 +238,31 @@ const runtime: DevRuntimeService = {
         command,
         terminals.find((item) => item.id === command.resource?.id)
       )
+    if (command.operation === 'dev.terminal.terminate') {
+      const index = terminals.findIndex((item) => item.id === command.resource?.id)
+      const ended = terminals[index]
+      if (!ended || command.resource?.generation !== ended.generation)
+        return failure(command, 'not_found')
+      // A deterministic host honours the terminate: the record ends, so a
+      // later list or resolve of the same id fails the way a real runtime
+      // reports an ended terminal.
+      const endedRecord: TerminalRecord = { ...ended, state: 'exited' }
+      terminals[index] = endedRecord
+      return success(command, endedRecord)
+    }
+    if (command.operation === 'dev.terminal.create') {
+      createdTerminalCount += 1
+      const created: TerminalRecord = {
+        ...terminal(
+          `99999999-9994-4999-8999-${String(createdTerminalCount).padStart(12, '0')}`,
+          String(body.runtimeSessionId),
+          20 + createdTerminalCount
+        ),
+        worktreeId: String(body.worktreeId),
+      }
+      terminals.push(created)
+      return success(command, created)
+    }
     return {
       schemaVersion: 1,
       operation: command.operation,
