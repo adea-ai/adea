@@ -747,7 +747,7 @@
 /* The conversation composer's outer margins track the transcript gutter; the
    shared thread panel already wraps its composer in a padded footer, so those
    40px gutters would double up inside the narrow thread column. */
-.conventional-thread .conventional-composer {
+[data-conventional-thread] .conventional-composer {
   margin: 0;
 }
 

@@ -1592,7 +1592,7 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
   // must not also carry the conversation transcript's 40px outer gutters.
   const threadComposerGutters = await page.evaluate(() => {
     const composer = document.querySelector<HTMLElement>(
-      '.conventional-thread .conventional-composer'
+      '[data-conventional-thread] .conventional-composer'
     )
     if (!composer) return null
     const style = getComputedStyle(composer)
