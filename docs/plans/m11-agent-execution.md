@@ -107,6 +107,15 @@ native metadata. Product UI integration and direct Local discovery remain.
 Contracts 1.14.0 do not report discovery transport: retain `unreported`, then
 consume actual execution-resolution transport rather than inventing a value.
 
+The [inventory product increment](../evidence/m11-runtime-inventory.md) exposes
+the cloud discovery projection in Workspace details › Connections. It retains
+separate node/connection health, aging/failure states, grants and compatibility,
+and uses cancellable scoped queries without background network polling. This
+is read-only inspection; direct-local discovery, execution selection/admission
+and pinned live certification remain required. The evidence also records the
+current encrypted host-envelope interoperability gap without introducing a
+second execution authority or changing the acceptance ledger.
+
 ## Explicit Agent profile pinning increment
 
 The public Agent create/change APIs adopt only an exact public profile/version

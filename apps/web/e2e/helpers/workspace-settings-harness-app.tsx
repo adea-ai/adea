@@ -1,5 +1,5 @@
 import '../../src/start/globals.css'
-import { createSignal, Show } from 'solid-js'
+import { createSignal, Show, onCleanup, onMount } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { render } from 'solid-js/web'
 import { WorkspaceSettingsDialog } from '@adea-ai/workspace-ui/workspace-settings'
@@ -94,10 +94,22 @@ function Harness() {
   const controlPlaneMode = document
     .querySelector('#harness-root')
     ?.getAttribute('data-control-plane')
-  const client =
+  const [client, setClient] = createSignal(
     controlPlaneMode === 'scoped' || controlPlaneMode === 'unavailable'
       ? controlPlaneSettingsClient(controlPlaneMode)
       : undefined
+  )
+  const switchScope = (event: Event) => {
+    const detail = (event as CustomEvent<{ workspaceId?: string; replaceClient?: boolean }>).detail
+    if (detail.workspaceId)
+      setWorkspace({ ...workspace(), id: detail.workspaceId, name: 'Other workspace' })
+    if (detail.replaceClient) setClient(controlPlaneSettingsClient('scoped'))
+  }
+  onMount(() => {
+    if (!document.querySelector('#harness-root')?.hasAttribute('data-runtime-inventory')) return
+    window.addEventListener('runtime-fixture-switch-scope', switchScope)
+    onCleanup(() => window.removeEventListener('runtime-fixture-switch-scope', switchScope))
+  })
   return (
     <>
       <Button onClick={() => setOpen(true)}>Open settings fixture</Button>
@@ -109,7 +121,7 @@ function Harness() {
         fallback={
           <WorkspaceDetailsDialog
             open={open()}
-            client={client}
+            client={client()}
             onClose={() => setOpen(false)}
             {...(document.querySelector('#harness-root')?.hasAttribute('data-read-only')
               ? {}

@@ -207,6 +207,9 @@ desktop sessions share one path, and the cursor travels explicitly.
   chunk, so a burst of events costs one refetch per group, not one per event.
 - A sequence gap or `resync_required` refetches authoritative current state
   while still advancing the cursor. The client never invents missing events.
+- `runtime_node` events refresh the registered-host and connection-discovery
+  group under `['workspaces', workspaceId, 'runtime-nodes']`. They do not imply
+  execution acceptance or change canonical Message/history availability.
 - Reconnects back off 1s→30s with jitter, reset after a stable connection, and
   never faster than the server asks.
 - One subscription is mounted in the workspace navigation shell — above view

@@ -126,3 +126,13 @@ The roster preserves exact profile/version IDs while showing specific remediatio
 for missing, deprecated, revoked, unapproved or incompatible pins. A failed
 availability check has its own unknown state and keeps the selected version.
 Catalog availability does not imply runtime health or execution activity.
+
+## Execution host inventory
+
+Workspace details › Connections lazily loads a read-only execution-host
+inspector. Registration/proof, reported Control Plane node health, individual
+connection health, freshness, grants, entitlement, compatibility and capabilities
+stay separate. Observations age without network polling; refresh and committed
+node events reconcile them. Inspecting a host changes no execution selection or
+history authority. Scope changes/close cancel unused queries and discard pages;
+failed refreshes do not retain a previous eligible presentation.

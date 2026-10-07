@@ -56,6 +56,37 @@ describe('test suite boundaries', () => {
     expect(packageJson.scripts['native:smoke']).toBeUndefined()
   })
 
+  test('executes inventory and settings product coverage in the normal E2E shard', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    for (const [index, total] of [
+      [1, 1],
+      [2, 2],
+    ]) {
+      const calls: { command: string; args: string[] }[] = []
+      runInNewContext(runner, {
+        spawnSync: (command: string, args: string[]) => {
+          calls.push({ command, args })
+          return { status: 0 }
+        },
+        process: { env: { E2E_SHARD_INDEX: String(index), E2E_TOTAL_SHARDS: String(total) } },
+        console,
+      })
+      const product = calls.find(
+        ({ command, args }) =>
+          command === 'playwright' && args.includes('apps/web/e2e/runtime-inventory.spec.ts')
+      )
+      expect(product).toBeDefined()
+      expect(product!.args).toContain('apps/web/e2e/workspace-settings.spec.ts')
+      if (total! > 1) {
+        expect(product!.args).toContain('--shard')
+        expect(product!.args).toContain(`${index}/${total}`)
+      }
+    }
+  })
+
   test('pins the named M12 evidence lanes (#426) to durable harnesses', () => {
     // #426 requires named packaged/perf/security/soak evidence commands; the
     // release report cites these exact entry points, so package.json cannot
