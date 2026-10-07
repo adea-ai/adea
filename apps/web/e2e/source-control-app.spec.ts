@@ -452,6 +452,12 @@ test.describe('source control app', () => {
     await expect(
       sidebar.getByText(/5 projects are not listed because their repositories are not registered/)
     ).toBeVisible()
+    // The notice renders as soon as the catalog flips `catalogLoaded`, which
+    // happens mid-sync; `sync()` sets `syncedAt` only at the very end, and a
+    // focus dispatched meanwhile is swallowed by the in-flight guard. Wait
+    // for the first sync to fully settle so the re-sync below is guaranteed
+    // to run.
+    await settled(page)
     // Adoption completes host-side: advance the clock past the focus
     // re-sync gate and re-focus; no adopt command exists in the log.
     await page.evaluate(() => {
@@ -471,6 +477,9 @@ test.describe('source control app', () => {
     page,
   }) => {
     await openHarness(page)
+    // Assert against the settled tree, never a mid-sync rebuild (the same
+    // discipline the drag tests below follow).
+    await settled(page)
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
     const row = sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
     await expect(row).toBeVisible()
@@ -494,6 +503,7 @@ test.describe('source control app', () => {
 
   test('the hidden set survives a reload', async ({ page }) => {
     await openHarness(page)
+    await settled(page)
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
     await page.getByRole('button', { name: 'Hide ui below the show-more line' }).click()
     await expect(
@@ -505,6 +515,10 @@ test.describe('source control app', () => {
     await expect
       .poll(() => page.evaluate(() => Boolean(window.sourceControlHarness)), { timeout: 90_000 })
       .toBe(true)
+    // The reloaded page boots its own app instance and its own first sync:
+    // settle it too, so the absence assertion below measures the restored
+    // preference rather than a tree that has not rendered yet.
+    await settled(page)
     const reloaded = page.getByRole('complementary', { name: 'Accounts and projects' })
     await expect(
       reloaded.locator('[data-repo-id="00000000-0000-4000-8000-000000000102"]')
