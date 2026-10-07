@@ -431,7 +431,10 @@ function DesktopWorkspace(props: {
   )
 }
 
-function DesktopStartSurface(props: {
+/** The pre-workspace surface the desktop entry shows while no workspace is
+ * active: loading, offline, or failed. Exported for the start-surface
+ * presentation harness; the runtime entry keeps owning when it mounts. */
+export function DesktopStartSurface(props: {
   busy: boolean
   message: string
   onRetry(): void
