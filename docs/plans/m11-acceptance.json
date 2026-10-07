@@ -444,7 +444,14 @@
           "requirement": "Missing/deprecated/revoked/incompatible versions have explicit blocked or remediation states. \u2014 PARTIAL 2026-09-25: `agent_profile_state` models `available`, `deprecated` and `missing` (`packages/db/src/schema/agents.ts`). It has no `revoked` or `incompatible` member, and no read model turns any of the three states into a blocked or remediation message, so the states exist as data without a product consequence.",
           "sourceChecked": false,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-agent-profile-availability.md",
+              "implementationCandidate": "c940fa19cdad36e6d46488f67fc2b9097da17af1",
+              "result": "Exact-pin read and remediation fixtures passed; final-head CI and connected-candidate certification remain separate gates."
+            }
+          ]
         },
         {
           "id": "41.5",

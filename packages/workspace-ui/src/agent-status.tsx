@@ -2,6 +2,7 @@ import { createMemo } from 'solid-js'
 import type { AgentSummary } from '@adea-ai/types'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import type { StatusTone } from '@adea-ai/ui/components/ui/status-chip'
+import { agentProfileStateNotice } from './agent-profile-state'
 
 const TONES: Record<string, StatusTone> = {
   ready: 'success',
@@ -14,18 +15,28 @@ export function agentStatusModel(agent: AgentSummary) {
   const configuration =
     agent.lifecycleState === 'archived'
       ? { label: 'Archived', tone: 'muted' as const }
-      : agent.lifecycleState === 'configuration_error' || agent.profile.state !== 'available'
-        ? { label: 'Needs configuration', tone: 'warning' as const }
-        : { label: 'Configured', tone: 'ready' as const }
+      : agent.profile.state === 'unavailable'
+        ? { label: 'Profile unavailable', tone: 'unknown' as const }
+        : agent.lifecycleState === 'configuration_error' || agent.profile.state !== 'available'
+          ? { label: 'Needs configuration', tone: 'warning' as const }
+          : { label: 'Configured', tone: 'ready' as const }
   return Object.freeze({
-    configuration,
+    configuration: Object.freeze({
+      ...configuration,
+      detail:
+        agent.lifecycleState === 'archived'
+          ? 'Archived Agent.'
+          : agent.lifecycleState === 'configuration_error'
+            ? 'Review configuration.'
+            : agentProfileStateNotice(agent.profile.state),
+    }),
     execution: Object.freeze({
-      detail: 'Execution activity becomes authoritative with M6 execution events.',
+      detail: 'Execution activity has not been reported.',
       label: 'Activity unknown',
       tone: 'unknown' as const,
     }),
     runtime: Object.freeze({
-      detail: 'Runtime availability becomes authoritative with M5 RuntimeConnection data.',
+      detail: 'Runtime availability has not been reported.',
       label: 'Runtime unknown',
       tone: 'unknown' as const,
     }),
@@ -36,7 +47,7 @@ export function AgentStatusBadge(props: { agent: AgentSummary }) {
   const status = createMemo(() => agentStatusModel(props.agent))
   return (
     <StatusChip
-      detail="Persisted Agent lifecycle and AgentProfile configuration"
+      detail={status().configuration.detail}
       label={status().configuration.label}
       tone={TONES[status().configuration.tone]}
     />
@@ -50,7 +61,7 @@ export function AgentStatus(props: { agent: AgentSummary; compact?: boolean }) {
       class={`conventional-agent-status${props.compact ? ' conventional-agent-status--compact' : ''}`}
     >
       <StatusChip
-        detail="Persisted Agent lifecycle and AgentProfile configuration"
+        detail={status().configuration.detail}
         label={status().configuration.label}
         tone={TONES[status().configuration.tone]}
       />

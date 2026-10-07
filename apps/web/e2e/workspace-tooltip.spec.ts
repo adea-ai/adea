@@ -23,7 +23,7 @@ test('production status tooltip uses shared content without intercepting pointer
     .getByText('Configured', { exact: true })
     .hover()
   const tooltip = page.getByRole('tooltip')
-  await expect(tooltip).toHaveText('Persisted Agent lifecycle and AgentProfile configuration')
+  await expect(tooltip).toHaveText('The selected profile version is configured.')
   await expect(tooltip.locator('svg')).toHaveCount(0)
   expect(await tooltip.evaluate((node) => getComputedStyle(node).pointerEvents)).toBe('none')
   expect(
