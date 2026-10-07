@@ -2965,10 +2965,8 @@ test.describe('touch workspace sidebar actions', () => {
 
   test('keeps a navigation opened during boot open when the sidebar mounts', async ({ page }) => {
     await mockConnectedWorkspace(page)
-    // Hold the bootstrap response so the workspace shell stays on the loading
-    // skeleton: on loaded runners the sidebar tests press the toggle while
-    // the shell is still mounting, and the press below can then only arm the
-    // store's open flag before the sidebar (and its Sheet) exists.
+    // Hold the bootstrap response: the shell must not resolve its workspace
+    // until after the press below arms the store's open flag.
     let releaseBootstrap: (() => void) | undefined
     const bootGate = new Promise<void>((resolve) => {
       releaseBootstrap = resolve
@@ -2979,16 +2977,37 @@ test.describe('touch workspace sidebar actions', () => {
       await bootGate
       return route.fallback()
     })
+    // Hold the chat entry chunk as well. While it loads, the frame renders
+    // its own fallback — top bar and toggle present, sidebar absent — which
+    // is the window in which a boot-time press can arm the open flag. Once
+    // the chunk lands, the shell takes over and, with bootstrap still held,
+    // hides the toggle (its bootstrap fallback renders no contextual
+    // sidebar), so the press has to happen before this gate releases.
+    let releaseEntry: (() => void) | undefined
+    const entryGate = new Promise<void>((resolve) => {
+      releaseEntry = resolve
+    })
+    await page.route('**/components/conventional-workspace-entry*', async (route) => {
+      await entryGate
+      return route.fallback()
+    })
 
     await page.goto('/?view=chat')
     const toolbar = page.getByLabel('Workspace toolbar')
     const navigationToggle = toolbar.getByRole('button', {
       name: /^(Expand|Collapse) contextual sidebar$/,
     })
-    await expect(navigationToggle).toBeVisible()
     await expect(page.locator('.conventional-workspace--loading')).toBeVisible()
+    await expect(navigationToggle).toBeVisible()
 
     await navigationToggle.press('Enter')
+
+    // The entry chunk lands; the shell mounts and holds bootstrap on its own
+    // skeleton fallback, which hides the toggle. The armed flag has to
+    // survive that unmount.
+    releaseEntry!()
+    await expect(page.locator('.conventional-skeleton')).toBeVisible()
+    await expect(navigationToggle).toHaveCount(0)
 
     // Boot lands; the sidebar mounts with the open flag armed. The viewport
     // guard used to misread that mount as a desktop-to-narrow crossing and
