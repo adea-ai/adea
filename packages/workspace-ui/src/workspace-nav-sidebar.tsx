@@ -485,6 +485,15 @@ export function WorkspaceNavSidebar(props: Props) {
   }))
   const groupBy = useWorkspaceState((state) => state.sidebarGroupBy[workspaceId()] ?? 'project')
   const collapsedProjects = createMemo(() => new Set(props.collapsedProjectIds))
+  // The chat row highlight follows the current leaf only: it shows while the
+  // selected leaf's conversation is open and drops on every other chat surface
+  // (Agents, Task board), which would otherwise keep the last leaf's rung.
+  // The selection itself stays live for breadcrumbs and drafts; Virtual owns
+  // its own room-highlight contract and is untouched.
+  const chatSurface = useWorkspaceState((state) => state.activeSurface)
+  const highlightedChannelId = createMemo(() =>
+    props.view !== 'chat' || chatSurface() === 'conversation' ? props.selectedChannelId : null
+  )
 
   // The top bar's path follows the sidebar's own tree and selection. An
   // earlier crumb opens its default leaf exactly as clicking that row does.
@@ -657,7 +666,7 @@ export function WorkspaceNavSidebar(props: Props) {
         onGroupByChange={(mode) => {
           if (workspaceId()) workspaceStore.getState().setSidebarGroupBy(workspaceId(), mode)
         }}
-        selectedLeafId={props.selectedChannelId}
+        selectedLeafId={highlightedChannelId()}
         onSelectLeaf={selectLeaf}
         onLeafIntent={leafIntent}
         onSelectWorkspace={switchWorkspace}
@@ -711,7 +720,7 @@ export function WorkspaceNavSidebar(props: Props) {
             directChannels={props.navigation.directAgentChannels}
             groupChannels={props.navigation.groupChannels}
             readState={props.readState}
-            selectedChannelId={props.selectedChannelId}
+            selectedChannelId={highlightedChannelId()}
             onArchive={archiveChannel}
             onCopyLink={copyChannelLink}
             onCreateGroup={() => props.onCreateGroup()}

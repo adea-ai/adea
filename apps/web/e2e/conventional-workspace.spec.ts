@@ -788,6 +788,59 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
     formAssociated: true,
     insideComposerForm: true,
   })
+  // A mention row carries the shared Button's primary text, so the menu owns
+  // the rung pairing: the row's own text at rest, and the accent rung with
+  // its contrast text on hover — never primary-foreground on transparent.
+  const readMentionRowPaint = () =>
+    page.evaluate(() => {
+      const row = document.querySelector<HTMLButtonElement>('.conventional-mention-menu button')
+      const frame = row?.closest('.conventional-workspace')
+      if (!row || !frame) return null
+      const token = (name: string) => getComputedStyle(frame).getPropertyValue(name).trim()
+      const style = getComputedStyle(row)
+      return {
+        color: style.color,
+        background: style.backgroundColor,
+        text: token('--cw-text'),
+        accent: token('--cw-accent'),
+        accentContrast: token('--cw-accent-contrast'),
+      }
+    })
+  const restingMentionRow = await readMentionRowPaint()
+  expect(parseColor(restingMentionRow!.color)).toEqual(parseColor(restingMentionRow!.text))
+  expect(restingMentionRow!.background).toBe('rgba(0, 0, 0, 0)')
+  await mentionOption.hover()
+  const hoveredMentionRow = await readMentionRowPaint()
+  expect(parseColor(hoveredMentionRow!.background)).toEqual(parseColor(hoveredMentionRow!.accent))
+  expect(parseColor(hoveredMentionRow!.color)).toEqual(
+    parseColor(hoveredMentionRow!.accentContrast)
+  )
+  // Composer status copy is progress, not failure: plain paragraphs take the
+  // muted rung and only an alert earns the destructive colour ("Listening…"
+  // is progress; the desktop transcription provider cannot run in this lane,
+  // so the contract is pinned on the shipped stylesheet instead).
+  const statusRungs = await page.evaluate(() => {
+    const status = document.querySelector('.conventional-composer__status')
+    const frame = status?.closest('.conventional-workspace')
+    if (!status || !frame) return null
+    const token = (name: string) => getComputedStyle(frame).getPropertyValue(name).trim()
+    const probe = (role?: string) => {
+      const paragraph = document.createElement('p')
+      if (role) paragraph.setAttribute('role', role)
+      status.appendChild(paragraph)
+      const color = getComputedStyle(paragraph).color
+      paragraph.remove()
+      return color
+    }
+    return {
+      plain: probe(),
+      alert: probe('alert'),
+      muted: token('--cw-muted'),
+      danger: token('--cw-danger'),
+    }
+  })
+  expect(parseColor(statusRungs!.plain)).toEqual(parseColor(statusRungs!.muted))
+  expect(parseColor(statusRungs!.alert)).toEqual(parseColor(statusRungs!.danger))
   await mentionOption.click()
   expect(await composerForm.getAttribute('data-submit-event-count')).toBe('0')
   expect(submissions).toHaveLength(0)
@@ -1271,8 +1324,19 @@ test('connects newly created Projects and group conversations to their canonical
   await expect(
     page.locator('#workspace-main').getByRole('heading', { name: 'Connected review', exact: true })
   ).toBeVisible()
+  // The open conversation's row carries the sidebar rung.
+  const connectedReviewRow = page
+    .getByRole('complementary', { name: 'Workspace navigation' })
+    .getByRole('button', { name: 'Connected review', exact: true })
+  await expect(connectedReviewRow).toHaveAttribute('data-active', '')
 
   await page.getByRole('button', { name: 'Agents', exact: true }).click()
+  // The Agents surface keeps no stale leaf rung: the highlight follows the
+  // current leaf only, while the selection itself stays live for breadcrumbs.
+  await expect(
+    page.locator('#workspace-main').getByRole('heading', { name: 'Agents', exact: true })
+  ).toBeVisible()
+  await expect(connectedReviewRow).not.toHaveAttribute('data-active', '')
   await page.getByRole('button', { name: 'Open conversation' }).first().click()
   await expect(
     page.locator('#workspace-main').getByRole('heading', { name: 'Research Agent', exact: true })
@@ -1524,6 +1588,17 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
     page.getByRole('complementary', { name: 'Thread: Focused discussion' })
   ).toBeVisible()
   await expect(page.getByText('I will add competitor evidence here.')).toBeVisible()
+  // The shared thread panel pads its own composer footer, so the composer
+  // must not also carry the conversation transcript's 40px outer gutters.
+  const threadComposerGutters = await page.evaluate(() => {
+    const composer = document.querySelector<HTMLElement>(
+      '.conventional-thread .conventional-composer'
+    )
+    if (!composer) return null
+    const style = getComputedStyle(composer)
+    return { left: style.marginLeft, right: style.marginRight }
+  })
+  expect(threadComposerGutters).toEqual({ left: '0px', right: '0px' })
   await expect
     .poll(() =>
       page.evaluate(() => ({
@@ -2118,6 +2193,21 @@ test('workspace search keeps duplicate destination labels tied to their domain i
   await channelPrefetch
   await expect(channel).toHaveAttribute('aria-selected', 'true')
   await expect(project).toHaveAttribute('aria-selected', 'false')
+  // The result label's emphasis draws the dialog's real foreground token;
+  // an undefined custom property would silently fall back to inheritance.
+  const emphasisPaint = await page.evaluate(() => {
+    const option = document.querySelector<HTMLElement>(
+      '.conventional-search-results [cmdk-item][aria-selected="true"]'
+    )
+    const emphasis = option?.querySelector('strong')
+    const searchDialog = emphasis?.closest('.conventional-dialog')
+    if (!emphasis || !searchDialog) return null
+    return {
+      emphasis: getComputedStyle(emphasis).color,
+      text: getComputedStyle(searchDialog).getPropertyValue('--cw-text').trim(),
+    }
+  })
+  expect(parseColor(emphasisPaint!.emphasis)).toEqual(parseColor(emphasisPaint!.text))
   expect(await input.getAttribute('aria-activedescendant')).toBe(await channel.getAttribute('id'))
 })
 
@@ -2375,6 +2465,23 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
 
   await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
   const form = page.locator('form.conventional-agent-customization')
+  // The bold label is the grid's field header; the controls themselves keep
+  // the normal weight, and the native select fills its grid column so its
+  // chevron sits at the select's edge instead of the column's end.
+  const fieldPaint = await form.evaluate((formElement) => {
+    const input = formElement.querySelector<HTMLInputElement>('input[name="name"]')
+    const select = formElement.querySelector<HTMLSelectElement>('select[name="projectId"]')
+    const selectWrapper = select?.parentElement
+    if (!input || !select || !selectWrapper) return null
+    return {
+      inputWeight: getComputedStyle(input).fontWeight,
+      selectWidth: getComputedStyle(select).width,
+      wrapperWidth: getComputedStyle(selectWrapper).width,
+    }
+  })
+  expect(fieldPaint).not.toBeNull()
+  expect(fieldPaint!.inputWeight).toBe('400')
+  expect(fieldPaint!.selectWidth).toBe(fieldPaint!.wrapperWidth)
   await form.getByLabel('Name').fill('Research Lead')
   await form.getByLabel('Role or persona').fill('Market evidence and customer research')
   await form.getByLabel('Project').selectOption('project-support')

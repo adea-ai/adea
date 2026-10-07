@@ -277,7 +277,7 @@ export function MessageComposer(props: {
           {(message) => <p role="alert">{message}</p>}
         </Show>
         <Show when={!transcriptionError() && sending()}>
-          <p class="conventional-composer__status--muted">Sending message…</p>
+          <p>Sending message…</p>
         </Show>
         <Show when={!transcriptionError() && !sending() && transcriptionState() === 'listening'}>
           <p>Listening… Select the microphone again to cancel.</p>
