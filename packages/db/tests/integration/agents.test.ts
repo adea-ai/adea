@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
@@ -20,6 +20,7 @@ import {
   temporaryUserSessions,
   users,
   workspaceMemberships,
+  workspaceEvents,
   workspaces,
 } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
@@ -63,6 +64,7 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
     expect(created.profile).toEqual({
       id: 'software-engineer',
       state: 'available',
+      revision: 0,
       version: '1.0.0',
     })
     expect(
@@ -95,6 +97,7 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
       created.id,
       owner.principal,
       {
+        expectedRevision: 0,
         profileId: 'software-engineer',
         profileState: 'deprecated',
         profileVersion: '1.1.0',
@@ -106,9 +109,91 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
     expect(changed.profile).toEqual({
       id: 'software-engineer',
       state: 'deprecated',
+      revision: 1,
       version: '1.1.0',
     })
     expect(await listAgentsForUser(connection.db, workspace.id, owner.principal)).toEqual([changed])
+
+    await connection.db.insert(workspaceMemberships).values({
+      workspaceId: workspace.id,
+      userId: outsider.principal.userId,
+      role: 'member',
+    })
+    await expect(
+      changeAgentProfile(connection.db, workspace.id, created.id, outsider.principal, {
+        expectedRevision: 1,
+        profileId: 'software-engineer',
+        profileVersion: '9.0.0',
+      })
+    ).rejects.toThrow('Agent unavailable')
+    const rollback = await changeAgentProfile(
+      connection.db,
+      workspace.id,
+      created.id,
+      owner.principal,
+      {
+        expectedRevision: 1,
+        profileId: 'software-engineer',
+        profileVersion: '1.0.0',
+      }
+    )
+    expect(rollback.profile).toMatchObject({ version: '1.0.0', revision: 2 })
+    const race = await Promise.allSettled(
+      ['1.2.0', '1.3.0'].map((profileVersion) =>
+        changeAgentProfile(connection.db, workspace.id, created.id, owner.principal, {
+          expectedRevision: 2,
+          profileId: 'software-engineer',
+          profileVersion,
+        })
+      )
+    )
+    expect(race.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(race.filter((result) => result.status === 'rejected')).toHaveLength(1)
+    const winner = race.find((result) => result.status === 'fulfilled')!
+    if (winner.status !== 'fulfilled') throw new Error('No successful profile edit')
+    expect(winner.value.profile.revision).toBe(3)
+    // A failed row constraint rolls back both reference and revision/event effects.
+    await expect(
+      changeAgentProfile(connection.db, workspace.id, created.id, owner.principal, {
+        expectedRevision: 3,
+        profileId: 'software-engineer',
+        profileVersion: '',
+      })
+    ).rejects.toThrow()
+    expect(
+      (await getAgentForUser(connection.db, workspace.id, created.id, owner.principal))?.profile
+    ).toEqual(winner.value.profile)
+    const audit = await connection.db
+      .select({ payload: workspaceEvents.payload, schemaVersion: workspaceEvents.schemaVersion })
+      .from(workspaceEvents)
+      .where(
+        and(
+          eq(workspaceEvents.workspaceId, workspace.id),
+          eq(workspaceEvents.eventType, 'agent.profile_changed')
+        )
+      )
+      .orderBy(workspaceEvents.workspaceSequence)
+    expect(audit).toHaveLength(3)
+    expect(audit[0]).toMatchObject({
+      schemaVersion: 2,
+      payload: {
+        actorUserId: owner.principal.userId,
+        agentId: created.id,
+        previousProfileVersion: '1.0.0',
+        profileVersion: '1.1.0',
+        profileRevision: 1,
+      },
+    })
+    expect(audit[1]?.payload).toMatchObject({
+      previousProfileVersion: '1.1.0',
+      profileVersion: '1.0.0',
+      profileRevision: 2,
+    })
+    expect(audit[2]?.payload).toMatchObject({
+      previousProfileVersion: '1.0.0',
+      profileVersion: winner.value.profile.version,
+      profileRevision: 3,
+    })
 
     await archiveAgent(connection.db, workspace.id, created.id, owner.principal)
     expect(await listAgentsForUser(connection.db, workspace.id, owner.principal)).toEqual([])

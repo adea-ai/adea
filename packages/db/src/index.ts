@@ -186,6 +186,7 @@ export {
   archiveAgent,
   assignAgentToProject,
   changeAgentProfile,
+  AgentProfileConflictError,
   createAgent,
   getAgentForUser,
   listAgentsForUser,

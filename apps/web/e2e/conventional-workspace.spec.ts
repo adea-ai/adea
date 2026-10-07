@@ -2394,8 +2394,28 @@ test('overlay bands paint the muted rung on sheets and the settings dialog', asy
 
 test('deep-links settings and customizes an Agent without fabricating runtime status', async ({
   page,
-}) => {
+}, testInfo) => {
   await mockWorkspace(page)
+  const profileId = 'prf_01JABCDEF0123456789ABCDEFG'
+  const profileVersion = 'pfv_01JABCDEF0123456789ABCDEFH'
+  await page.route('**/api/v1/workspaces/*/agents', (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    return route.fulfill({
+      contentType: 'application/json',
+      json: [
+        {
+          ...agents[0],
+          profile: {
+            ...agents[0]!.profile,
+            id: profileId,
+            version: 'pfv_01JABCDEF0123456789ABCDEFG',
+            revision: 0,
+          },
+        },
+        ...agents.slice(1),
+      ],
+    })
+  })
   await page.goto('/#settings/privacy-data')
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
@@ -2488,7 +2508,7 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   await form.getByLabel('Name').fill('Research Lead')
   await form.getByLabel('Role or persona').fill('Market evidence and customer research')
   await form.getByLabel('Project').selectOption('project-support')
-  await form.getByLabel('AgentProfile version').fill('2')
+  await form.getByLabel('Profile version ID').fill(profileVersion)
   const presentation = page.waitForRequest((request) => request.url().endsWith('/presentation'))
   const project = page.waitForRequest((request) => request.url().endsWith('/project'))
   const profile = page.waitForRequest((request) => request.url().endsWith('/profile'))
@@ -2496,8 +2516,9 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   expect((await presentation).postDataJSON()).toMatchObject({ name: 'Research Lead' })
   expect((await project).postDataJSON()).toEqual({ projectId: 'project-support' })
   expect((await profile).postDataJSON()).toMatchObject({
-    profileId: 'profile-research',
-    profileVersion: '2',
+    profileId,
+    profileVersion,
+    expectedRevision: 0,
   })
 
   await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
@@ -2507,6 +2528,48 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   await expect(page).toHaveScreenshot('workspace-agent-customization.png', {
     animations: 'disabled',
   })
+  await page
+    .getByRole('alertdialog', { name: 'Archive Research Agent' })
+    .getByRole('button', { name: 'Cancel' })
+    .click()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  for (const mode of ['light', 'dark']) {
+    await page.evaluate((theme) => {
+      document.documentElement.classList.remove('light', 'dark')
+      document.documentElement.classList.add(theme)
+    }, mode)
+    for (const width of [320, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      const version = form.getByLabel('Profile version ID')
+      await version.focus()
+      await page.keyboard.press('Tab')
+      await expect(form.getByRole('button', { name: 'Save changes' })).toBeFocused()
+      const bounds = await version.boundingBox()
+      expect(bounds).not.toBeNull()
+      expect(bounds!.x).toBeGreaterThanOrEqual(0)
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+      ).toBe(true)
+      await page.screenshot({ path: testInfo.outputPath(`agent-profile-${mode}-${width}.png`) })
+      if (width === 320) {
+        await form.getByLabel('Profile ID', { exact: true }).scrollIntoViewIfNeeded()
+        await page.screenshot({ path: testInfo.outputPath(`agent-profile-${mode}-320-fields.png`) })
+      }
+    }
+  }
+  // The production client surfaces the opening-revision conflict, with no provider text.
+  await page.route('**/agents/agent-research/profile', (route) =>
+    route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      json: { code: 'AGENT_PROFILE_CONFLICT', message: 'private-provider-canary' },
+    })
+  )
+  await form.getByLabel('Profile version ID').fill(profileVersion)
+  await form.getByRole('button', { name: 'Save changes' }).click()
+  await expect(form.getByRole('alert')).toContainText('review the current version')
+  await expect(form).not.toContainText('private-provider-canary')
 })
 
 test('the settings dialog survives re-selecting its active tab and keeps its dismissal contract', async ({

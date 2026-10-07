@@ -80,3 +80,16 @@ freshness on read, and projects bounded capabilities/grants/eligibility without
 native metadata. Product UI integration and direct Local discovery remain.
 Contracts 1.14.0 do not report discovery transport: retain `unreported`, then
 consume actual execution-resolution transport rather than inventing a value.
+
+## Explicit Agent profile pinning increment
+
+The public Agent create/change APIs adopt only an exact public profile/version
+reference. Catalog lifecycle and immutable resolution are checked through the
+pinned SDK before persistence; callers cannot assert availability. Revision
+fencing and schema-versioned previous/new reference events make upgrades and
+rollbacks explicit and auditable. Existing Agents do not follow a newer version
+automatically. Submission-time pin snapshots, ExecutionPlan/Skill manifest
+provenance and authoritative read-time remediation remain required for #41.
+
+[Profile adoption evidence](../evidence/m11-agent-profile-pins.md) records the
+SDK, concurrency, database and product checks and the remaining acceptance gates.

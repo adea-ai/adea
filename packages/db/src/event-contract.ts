@@ -48,7 +48,7 @@ export const WORKSPACE_EVENT_CONTRACTS = {
     aggregateType: 'agent',
     aggregateIdKey: 'agentId',
   },
-  'agent.profile_changed': { schemaVersion: 1, aggregateType: 'agent', aggregateIdKey: 'agentId' },
+  'agent.profile_changed': { schemaVersion: 2, aggregateType: 'agent', aggregateIdKey: 'agentId' },
   'agent.project_assigned': {
     schemaVersion: 1,
     aggregateType: 'agent',

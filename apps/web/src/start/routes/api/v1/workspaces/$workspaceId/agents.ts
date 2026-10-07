@@ -3,6 +3,13 @@ import { withRequestScope } from '../../../../../../server/request-scope'
 import type { ApiAgentCreateInput, ApiAgentResponse } from '@adea-ai/api-client'
 import { createAgent, listAgentsForUser } from '@adea-ai/db'
 import { applicationDatabase } from '../../../../../../server/database'
+import { isAgentProfilePin } from '../../../../../../server/agent-profile-request'
+import { resolveAgentProfilePin } from '../../../../../../server/agent-profile-pin'
+import {
+  adminCorrelation,
+  ControlPlaneProxyError,
+} from '../../../../../../server/control-plane-client'
+import { controlPlaneScopeResolver } from '../../../../../../server/control-plane-scope'
 import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
@@ -42,7 +49,11 @@ async function post(request: Request, { params }: Context) {
     return workspaceUnavailableResponse(request)
   let input: ApiAgentCreateInput
   try {
-    input = (await request.json()) as ApiAgentCreateInput
+    if (Number(request.headers.get('content-length') ?? 0) > 65_536)
+      return workspaceInvalidRequestResponse(request)
+    const body = await request.text()
+    if (body.length > 65_536) return workspaceInvalidRequestResponse(request)
+    input = JSON.parse(body) as ApiAgentCreateInput
   } catch {
     return workspaceInvalidRequestResponse(request)
   }
@@ -50,16 +61,40 @@ async function post(request: Request, { params }: Context) {
     !input ||
     typeof input.name !== 'string' ||
     !input.name.trim() ||
-    typeof input.profileId !== 'string' ||
-    !input.profileId.trim() ||
-    typeof input.profileVersion !== 'string' ||
-    !input.profileVersion.trim()
+    !isAgentProfilePin(input) ||
+    Object.keys(input).some(
+      (key) =>
+        ![
+          'name',
+          'profileId',
+          'profileVersion',
+          'avatarRef',
+          'characterRef',
+          'presentationMetadata',
+          'roleSummary',
+          'projectId',
+        ].includes(key)
+    )
   )
     return workspaceInvalidRequestResponse(request)
-  const payload: ApiAgentResponse = {
-    agent: await createAgent(applicationDatabase(), workspaceId, resolution.principal, input),
+  try {
+    await resolveAgentProfilePin(input, adminCorrelation(request), {
+      resolveControlPlaneScope: controlPlaneScopeResolver(workspaceId),
+    })
+    const payload: ApiAgentResponse = {
+      agent: await createAgent(applicationDatabase(), workspaceId, resolution.principal, input),
+    }
+    return workspaceJsonResponse(payload, resolution, request, { status: 201 })
+  } catch (error) {
+    if (error instanceof ControlPlaneProxyError)
+      return workspaceJsonResponse(
+        { code: error.code, message: error.message },
+        resolution,
+        request,
+        { status: error.status, headers: { 'cache-control': 'private, no-store' } }
+      )
+    return workspaceUnavailableResponse(request)
   }
-  return workspaceJsonResponse(payload, resolution, request, { status: 201 })
 }
 export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/agents')({
   server: {

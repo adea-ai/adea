@@ -31,6 +31,7 @@ describe('Agent API client', () => {
     await client.assignAgentToProject('workspace-1', 'agent-1', 'project-1')
     await client.updateAgentPresentation('workspace-1', 'agent-1', { avatarRef: 'avatar:ada' })
     await client.changeAgentProfile('workspace-1', 'agent-1', {
+      expectedRevision: 0,
       profileId: 'engineer',
       profileVersion: '2',
     })

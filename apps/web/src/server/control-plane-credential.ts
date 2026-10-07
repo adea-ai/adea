@@ -39,6 +39,7 @@ export type ControlPlaneServiceScope =
   | 'marketplace:uninstall'
   | 'project-state:initialize'
   | 'runtime:read'
+  | 'profile:resolve'
   | 'system:authenticate'
 
 export type ControlPlaneScopeIds = Readonly<{ workspaceId: string; projectId?: string }>

@@ -38,7 +38,7 @@ export function lifecycleTone(item: ApiCatalogItem): StatusTone {
 export function catalogItemDetail(item: ApiCatalogItem): string {
   const owner = item.owner === 'system' ? 'System' : 'This workspace'
   const version = item.latestVersion
-    ? `${item.kind === 'profile' ? 'v' : ''}${item.latestVersion.version} · revision ${item.latestVersion.revision}`
+    ? `${item.kind === 'profile' ? 'v' : ''}${item.latestVersion.version} · revision ${item.latestVersion.revision}${item.kind === 'profile' ? ` · ${item.id} · ${item.latestVersion.versionId}` : ''}`
     : 'No published version'
   return `${owner} · ${version}`
 }
