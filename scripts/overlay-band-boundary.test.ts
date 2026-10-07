@@ -124,8 +124,9 @@ describe('conventional dialog surface contract', () => {
     const source = withoutComments(themeCss)
     // The frosted policy is the sanctioned background painter: it resolves the
     // user's chosen surface, and both reduced-transparency paths clamp it back
-    // to opaque.
-    expect(source).toContain("[data-surface='frosted'] .conventional-dialog")
+    // to opaque. (#1115 re-keyed the policy from the retiring
+    // .conventional-dialog class onto the role hook.)
+    expect(source).toContain("[data-surface='frosted'] [role='dialog']:not([data-variant])")
     expect(source).toContain('backdrop-filter')
   })
 })
