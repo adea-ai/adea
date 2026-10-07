@@ -323,6 +323,19 @@ export type GitHubRepository = Readonly<{
   defaultBranchHead?: Readonly<{ sha: string; checks: GitHubCheckRollupState }>
 }>
 
+/** One repository of the authenticated gh account: the bounded import-source
+ *  list behind `dev.github.repositories`. A host-neutral summary decoded from
+ *  the `gh repo list` JSON — it names a remote to clone, never a local
+ *  registration, and carries no credential material. */
+export type GitHubRepositorySummary = Readonly<{
+  nameWithOwner: string
+  url: string
+  visibility: 'public' | 'private' | 'internal'
+  updatedAt: string
+  isFork: boolean
+  observedAt: string
+}>
+
 export type GitHubAheadBehind = Readonly<{
   ahead: number
   behind: number
@@ -3295,6 +3308,22 @@ function namedType(name: string, value: unknown, path: string): unknown {
     }
     return value
   }
+  if (name === 'GitHubRepositorySummary') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['nameWithOwner', 'url', 'visibility', 'updatedAt', 'isFork', 'observedAt'],
+      [],
+      path
+    )
+    stringValue(item.nameWithOwner, `${path}.nameWithOwner`, 1, 201)
+    stringValue(item.url, `${path}.url`, 1, 512)
+    literal(item.visibility, ['public', 'private', 'internal'], `${path}.visibility`)
+    timestamp(item.updatedAt, `${path}.updatedAt`)
+    if (typeof item.isFork !== 'boolean') fail(`${path}.isFork`, 'expected boolean')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
   if (name === 'GitHubAheadBehind') {
     const item = record(value, path)
     exactKeys(item, ['ahead', 'behind'], [], path)
@@ -4410,6 +4439,8 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   // GitHub remote slice (#423): host-neutral DTOs decoded strictly from the
   // `gh`/git transport; mutations reply with re-read server truth.
   'dev.github.account': (value) => namedType('GitHubAccount', value, 'reply.value'),
+  'dev.github.repositories': (value) =>
+    validateType('GitHubRepositorySummary[]<=200', value, 'reply.value'),
   'dev.github.checks': (value) =>
     decodeDevRuntimePage(
       (item, path) => namedType('GitHubCheck', item, path),
