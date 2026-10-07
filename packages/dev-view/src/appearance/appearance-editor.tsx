@@ -886,12 +886,6 @@ export function AdeaAppearanceEditor(props: AppearanceEditorProps) {
  * trigger is this composition's own: when the host swaps its lazy fallback for
  * this popover, the trigger here is the persistent control focus returns to
  * after dismissal. */
-/** The editor in an inset Sheet docked beside the main view: the body scrolls and
- * Reset/Cancel/Save sit in the panel's full-width footer, always reachable.
- * Dismissal (Escape, the close button, an outside click) is `onDismiss`. The
- * trigger is this composition's own: when the host swaps its lazy fallback for
- * this popover, the trigger here is the persistent control focus returns to
- * after dismissal. */
 export function AdeaAppearancePopover(props: AppearancePopoverProps) {
   const [menuPortalMount, setMenuPortalMount] = createSignal<HTMLElement>()
 
