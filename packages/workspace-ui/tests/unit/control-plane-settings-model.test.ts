@@ -51,7 +51,7 @@ describe('skills presentation', () => {
     expect(catalogItemDetail(item)).toBe('This workspace · 1.0.0 · revision 2')
     expect(
       catalogItemDetail({ ...item, kind: 'profile', latestVersion: { ...version, version: '3' } })
-    ).toBe('This workspace · v3 · revision 2')
+    ).toBe('This workspace · v3 · revision 2 · skl_1 · skv_1')
     expect(lifecycleLabel({ ...item, latestVersion: undefined })).toBe('No versions')
     expect(lifecycleTone({ ...item, latestVersion: undefined })).toBe('outline')
     expect(catalogItemDetail({ ...item, latestVersion: undefined, owner: 'system' })).toBe(

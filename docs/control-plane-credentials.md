@@ -48,6 +48,8 @@ against the environment you mean to change.
   | Marketplace installation uninstall      | `marketplace:uninstall`    | `[]`         |
   | Project-state initialization            | `project-state:initialize` | `[<prj_>]`   |
   | Workspace skills and profiles: list     | `catalog:read`             | `[]`         |
+  | Exact Agent profile/version inspection  | `catalog:read`             | `[]`         |
+  | Agent profile approval/resolution       | `profile:resolve`          | `[]`         |
   | Workspace skill publish                 | `catalog:publish`          | `[]`         |
   | Skill/profile deprecate, revoke         | `catalog:manage`           | `[]`         |
   | Cloud connections: list                 | `credential:read`          | `[]`         |

@@ -92,7 +92,7 @@ export type AgentSummary = {
   lifecycleState: AgentLifecycleState
   name: string
   presentationMetadata: Readonly<Record<string, string>>
-  profile: Readonly<{ id: string; state: AgentProfileState; version: string }>
+  profile: Readonly<{ id: string; state: AgentProfileState; version: string; revision?: number }>
   roleSummary?: string
   projectId?: string
   updatedAt: string

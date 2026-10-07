@@ -1,7 +1,7 @@
 import type { AgentProfileState, AgentSummary, UserPrincipalRef } from '@adea-ai/types'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, isNull } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { agents, projects, workspaceMemberships } from './schema'
+import { agents, projects, workspaceMemberships, workspaces } from './schema'
 import { appendWorkspaceEvent } from './transactions'
 
 type AgentCreateInput = Readonly<{
@@ -36,6 +36,7 @@ function summary(row: typeof agents.$inferSelect): AgentSummary {
       id: row.profileId,
       state: row.profileState,
       version: row.profileVersion,
+      revision: row.profileRevision,
     }),
     ...(row.roleSummary ? { roleSummary: row.roleSummary } : {}),
     ...(row.projectId ? { projectId: row.projectId } : {}),
@@ -81,6 +82,28 @@ async function requireActiveProject(
   if (!project) throw new Error('Project unavailable')
 }
 
+async function requireProfileManager(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  principal: UserPrincipalRef
+) {
+  // Hold membership and workspace identity through commit, including role/archive races.
+  const [membership] = await transaction
+    .select({ role: workspaceMemberships.role })
+    .from(workspaceMemberships)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMemberships.workspaceId))
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, principal.userId),
+        isNull(workspaces.deletedAt)
+      )
+    )
+    .for('share')
+  if (!membership || !['owner', 'admin'].includes(membership.role))
+    throw new Error('Agent unavailable')
+}
+
 export async function createAgent(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -88,7 +111,7 @@ export async function createAgent(
   input: AgentCreateInput
 ): Promise<AgentSummary> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    await requireProfileManager(transaction, workspaceId, principal)
     if (input.projectId) await requireActiveProject(transaction, workspaceId, input.projectId)
     const [created] = await transaction
       .insert(agents)
@@ -241,16 +264,37 @@ export async function changeAgentProfile(
   workspaceId: string,
   agentId: string,
   principal: UserPrincipalRef,
-  input: Readonly<{ profileId: string; profileState?: AgentProfileState; profileVersion: string }>
+  input: Readonly<{
+    expectedRevision: number
+    profileId: string
+    profileState?: AgentProfileState
+    profileVersion: string
+  }>
 ): Promise<AgentSummary> {
+  if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0)
+    throw new AgentProfileConflictError()
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    await requireProfileManager(transaction, workspaceId, principal)
+    const [previous] = await transaction
+      .select()
+      .from(agents)
+      .where(
+        and(
+          eq(agents.id, agentId),
+          eq(agents.workspaceId, workspaceId),
+          eq(agents.lifecycleState, 'active')
+        )
+      )
+      .for('update')
+    if (!previous) throw new Error('Agent unavailable')
+    if (previous.profileRevision !== input.expectedRevision) throw new AgentProfileConflictError()
     const [updated] = await transaction
       .update(agents)
       .set({
         profileId: input.profileId.trim(),
         profileState: input.profileState ?? 'available',
         profileVersion: input.profileVersion.trim(),
+        profileRevision: previous.profileRevision + 1,
         updatedAt: new Date(),
       })
       .where(
@@ -267,13 +311,23 @@ export async function changeAgentProfile(
       payload: {
         actorUserId: principal.userId,
         agentId,
-        profileId: input.profileId,
-        profileVersion: input.profileVersion,
+        profileId: updated.profileId,
+        profileVersion: updated.profileVersion,
+        previousProfileId: previous.profileId,
+        previousProfileVersion: previous.profileVersion,
+        profileRevision: updated.profileRevision,
       },
       workspaceId,
     })
     return summary(updated)
   })
+}
+
+export class AgentProfileConflictError extends Error {
+  constructor() {
+    super('Agent profile changed; refresh and retry')
+    this.name = 'AgentProfileConflictError'
+  }
 }
 
 export async function archiveAgent(

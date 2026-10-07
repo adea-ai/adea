@@ -67,6 +67,28 @@ streams, and it is bounded in size. Events also record the aggregate, the acting
 principal (derived from the payload's `actorUserId`/`ownerUserId`), and an
 optional correlation id.
 
+### Explicit Agent profile changes
+
+`agent.profile_changed` schema version 2 records `actorUserId`, `agentId`,
+`previousProfileId`, `previousProfileVersion`, `profileId`, `profileVersion`
+and the new `profileRevision`. The reference change, revision increment and
+publication record commit atomically. Profile definitions, instructions and
+credential material stay out of the log. Version 1 events remain historical
+records; the client invalidates the Agent query for either version.
+
+Public profile adoption resolves an exact `prf_`/`pfv_` pair through the pinned
+SDK catalog and `profile.resolve` APIs before the mutation. Adea does not pick
+latest versions or compile profile/Skill policy. The database rechecks an
+owner/admin membership while holding its row, and serializes Agent changes
+with a row lock and expected revision. The opening form snapshot survives
+refetches: stale edits return a conflict instead of replacing another pin.
+The additive `profile_revision` column starts existing rows at zero.
+
+This increment establishes explicit pin adoption only. Submission must still
+snapshot the pin in its own transaction and record the immutable ExecutionPlan
+and Skill manifest actually used; changing an Agent is never proof of a running
+execution's configuration or current compatibility.
+
 ## The stream
 
 `GET /api/v1/workspaces/:workspaceId/events` returns `text/event-stream`.

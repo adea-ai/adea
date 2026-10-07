@@ -3,6 +3,7 @@ import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from 'lucide-solid'
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { AgentStatus } from './agent-status'
+import { agentProfileActionNotice } from './agent-profile-notice'
 import { keyedRows } from './keyed-rows'
 import { WorkspaceEmpty } from './workspace-states'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -50,12 +51,12 @@ type Props = Readonly<{
 
 export function AgentRoster(props: Props) {
   const [creating, setCreating] = createSignal(false)
-  const [editingAgentId, setEditingAgentId] = createSignal<string | null>(null)
+  // Keep the opening revision through refetches; a concurrent edit must conflict.
+  const [editingAgent, setEditingAgent] = createSignal<AgentSummary | null>(null)
   const [error, setError] = createSignal<string | null>(null)
   const projectById = createMemo(
     () => new Map(props.projects.map((project) => [project.id, project]))
   )
-  const editingAgent = createMemo(() => props.agents.find(({ id }) => id === editingAgentId()))
   // Keyed by agent id: an agents refetch updates cards in place instead of
   // remounting the grid on every new object identity.
   const agentRows = keyedRows(
@@ -88,35 +89,35 @@ export function AgentRoster(props: Props) {
             try {
               await props.onCreate(input)
               setCreating(false)
-            } catch {
-              setError('Agent could not be created. Check the fields and retry.')
+            } catch (cause) {
+              setError(agentProfileActionNotice(cause))
             }
           }}
         />
       </Show>
-      <Show when={editingAgent()}>
+      <Show when={editingAgent()} keyed>
         {(agent) => (
           <AgentCustomizationForm
-            agent={agent()}
+            agent={agent}
             busy={props.busy}
             error={error()}
             onArchive={async (target) => {
               setError(null)
               try {
                 await props.onArchive(target.id)
-                setEditingAgentId(null)
+                setEditingAgent(null)
               } catch {
                 setError('Agent could not be archived. Resolve linked constraints and retry.')
               }
             }}
-            onCancel={() => setEditingAgentId(null)}
+            onCancel={() => setEditingAgent(null)}
             onSubmit={async (target, input) => {
               setError(null)
               try {
                 await props.onUpdate(target, input)
-                setEditingAgentId(null)
-              } catch {
-                setError('Agent changes could not be saved. Review the fields and retry.')
+                setEditingAgent(null)
+              } catch (cause) {
+                setError(agentProfileActionNotice(cause))
               }
             }}
             projects={props.projects}
@@ -143,7 +144,7 @@ export function AgentRoster(props: Props) {
                     <PropertyList>
                       <PropertyTerm>Profile</PropertyTerm>
                       <PropertyValue>
-                        {entry.item().profile.id} · v{entry.item().profile.version}
+                        {entry.item().profile.id} · {entry.item().profile.version}
                       </PropertyValue>
                       <PropertyTerm>Project</PropertyTerm>
                       <PropertyValue>
@@ -170,7 +171,7 @@ export function AgentRoster(props: Props) {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setEditingAgentId(entry.item().id)}
+                      onClick={() => setEditingAgent(entry.item())}
                     >
                       <Pencil aria-hidden="true" />
                       Customize
@@ -279,24 +280,8 @@ function AgentCustomizationForm(props: {
             placeholder="Optional M4 character reference"
           />
         </Label>
-        <Label>
-          AgentProfile ID
-          <Input name="profileId" required maxLength={120} value={props.agent.profile.id} />
-        </Label>
-        <Label>
-          AgentProfile version
-          <Input
-            name="profileVersion"
-            required
-            maxLength={64}
-            value={props.agent.profile.version}
-          />
-        </Label>
+        <AgentProfileFields profile={props.agent.profile} />
       </div>
-      <p class="conventional-settings-note">
-        Profile changes are explicit and create auditable Adea events. Model, runtime, tool policy,
-        and credentials remain Control Plane-owned.
-      </p>
       <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
       <div class="conventional-agent-customization__actions">
         <Button type="submit" disabled={props.busy}>
@@ -387,18 +372,31 @@ function AgentCreateForm(props: {
         Role or persona
         <Textarea name="roleSummary" rows={2} maxLength={500} />
       </Label>
-      <Label>
-        Profile ID
-        <Input name="profileId" required value="general" maxLength={120} />
-      </Label>
-      <Label>
-        Profile version
-        <Input name="profileVersion" required value="1" maxLength={64} />
-      </Label>
+      <AgentProfileFields />
       <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
       <Button type="submit" disabled={props.busy}>
         {props.busy ? 'Creating…' : 'Create Agent'}
       </Button>
     </form>
+  )
+}
+
+function AgentProfileFields(props: { profile?: AgentSummary['profile'] }) {
+  const id = props.profile?.id ?? ''
+  const version = props.profile?.version ?? ''
+  return (
+    <>
+      <Label>
+        Profile ID
+        <Input name="profileId" required placeholder="prf_…" maxLength={30} value={id} />
+      </Label>
+      <Label>
+        Profile version ID
+        <Input name="profileVersion" required placeholder="pfv_…" maxLength={30} value={version} />
+      </Label>
+      <p class="conventional-settings-note col-span-full">
+        Published, approved IDs: Workspace settings › Skills. Future submissions.
+      </p>
+    </>
   )
 }

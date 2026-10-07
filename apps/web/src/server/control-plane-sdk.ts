@@ -12,6 +12,12 @@ export function callControlPlaneOperation(
       return client.listRuntimeConnections(
         ControlApiOperations.listRuntimeConnections.requestSchema.parse(body)
       )
+    case ControlApiOperations.getWorkspaceProfile.path:
+      return client.getWorkspaceProfile(
+        ControlApiOperations.getWorkspaceProfile.requestSchema.parse(body)
+      )
+    case ControlApiOperations.resolveProfile.path:
+      return client.resolveProfile(ControlApiOperations.resolveProfile.requestSchema.parse(body))
     case ControlApiOperations.listWorkspaceSkills.path:
       return client.listWorkspaceSkills(
         ControlApiOperations.listWorkspaceSkills.requestSchema.parse(body)

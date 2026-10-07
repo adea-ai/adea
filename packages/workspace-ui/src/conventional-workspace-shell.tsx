@@ -584,6 +584,7 @@ export function ConventionalWorkspaceShell(props: {
                                 input.profileVersion.trim() !== agent.profile.version
                               )
                                 await controller.agentActions.profile(agent.id, {
+                                  expectedRevision: agent.profile.revision ?? 0,
                                   profileId: input.profileId,
                                   profileVersion: input.profileVersion,
                                 })

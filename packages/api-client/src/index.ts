@@ -46,8 +46,8 @@ export type ApiAgentPresentationInput = Readonly<{
   roleSummary?: string | null
 }>
 export type ApiAgentProfileInput = Readonly<{
+  expectedRevision: number
   profileId: string
-  profileState?: 'available' | 'deprecated' | 'missing'
   profileVersion: string
 }>
 export type ApiAgentResponse = Readonly<{ agent: AgentSummary }>

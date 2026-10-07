@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, jsonb, text, uuid } from 'drizzle-orm/pg-core'
+import { check, index, integer, jsonb, text, uuid } from 'drizzle-orm/pg-core'
 import { appSchema } from './schema'
 import { entityId, timestampColumns, type JsonObject } from './conventions'
 import { projects } from './projects'
@@ -33,12 +33,14 @@ export const agents = appSchema.table(
     profileId: text('profile_id').notNull(),
     profileVersion: text('profile_version').notNull(),
     profileState: agentProfileState('profile_state').default('available').notNull(),
+    profileRevision: integer('profile_revision').default(0).notNull(),
     ...timestampColumns(),
   },
   (table) => [
     check('agents_name_nonempty', sql`length(btrim(${table.name})) > 0`),
     check('agents_profile_id_nonempty', sql`length(btrim(${table.profileId})) > 0`),
     check('agents_profile_version_nonempty', sql`length(btrim(${table.profileVersion})) > 0`),
+    check('agents_profile_revision_nonnegative', sql`${table.profileRevision} >= 0`),
     index('agents_workspace_lifecycle_idx').on(
       table.workspaceId,
       table.lifecycleState,

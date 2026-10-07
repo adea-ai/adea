@@ -65,6 +65,28 @@ test('guest cookies, durable writes and tenant isolation survive the host', asyn
     expect(hostile.status()).toBe(403)
     expect(hostile.headers()['access-control-allow-origin']).toBeUndefined()
     expect(own.headers()['cache-control']).toBe('private, no-store')
+    const agentPath = `/api/v1/workspaces/${bootstrap.activeWorkspace.id}/agents`
+    const beforeAgents = await first.get(agentPath)
+    const before = await beforeAgents.json()
+    const suffix = '01JABCDEF0123456789ABCDEFG'
+    const pin = {
+      name: 'Pinned engineer',
+      profileId: `prf_${suffix}`,
+      profileVersion: `pfv_${suffix}`,
+    }
+    expect(
+      (await first.post(agentPath, { data: { ...pin, profileVersion: 'latest' } })).status()
+    ).toBe(400)
+    expect(
+      (await first.post(agentPath, { data: { ...pin, profileState: 'available' } })).status()
+    ).toBe(400)
+    // This isolated compiled Worker deliberately has no service signer. It
+    // cannot create an apparently available Agent without approval evidence.
+    const unavailablePin = await first.post(agentPath, { data: pin })
+    expect(unavailablePin.status()).toBe(503)
+    expect((await unavailablePin.json()).code).toBe('CONTROL_PLANE_UNAVAILABLE')
+    expect(await (await first.get(agentPath)).json()).toEqual(before)
+    expect((await second.post(agentPath, { data: pin })).status()).toBe(404)
   } finally {
     await first.dispose()
     await second.dispose()
