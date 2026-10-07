@@ -2,12 +2,14 @@
  * Left sidebar: the two cross-project shortcuts, then GitHub owners with the
  * Adea projects whose repository lives there, each with its default-branch
  * CI state and open pull request count. Registered repositories the viewer
- * does not want listed sit collapsed below a show-more line (a persistent
+ * does not want listed sit collapsed below the show-more bar (a persistent
  * display preference — hiding is never an unlink, and auto-adopted
- * repositories land above the line); archived projects collapse at the
- * bottom; Connect account stays in the footer. It shares the Dev view's
- * contextual sidebar frame, so the top bar's toggle and the drawer behave
- * the same.
+ * repositories land above the bar); the bar itself is the pointer fast path —
+ * dragging a row across it moves the row between the list and the group,
+ * while the per-row hide/show controls remain the keyboard path. Archived
+ * projects collapse at the bottom; Connect account stays in the footer. It
+ * shares the Dev view's contextual sidebar frame, so the top bar's toggle
+ * and the drawer behave the same.
  */
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
@@ -24,10 +26,17 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
+import { Separator } from '@adea-ai/ui/components/ui/separator'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
-import { Eye, EyeOff, GitMerge, Inbox, Plus } from 'lucide-solid'
-import { For, Show, createSignal, type JSX } from 'solid-js'
+import { ChevronsUpDown, Eye, EyeOff, GitMerge, Inbox, Plus } from 'lucide-solid'
+import { For, Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
 
+import {
+  reduceDragBar,
+  type DragBarEvent,
+  type DragBarGesture,
+  type DragBarZone,
+} from '../model/drag-bar'
 import { monogram, unregisteredNotice, type TreeProject } from '../model/tree'
 import type { Tone } from '../model/types'
 import type { SourceControlState } from '../state'
@@ -45,16 +54,31 @@ const ciWord: Record<string, string> = {
   none: 'has no checks',
 }
 
+/** Pointer wiring the sidebar gives each row that sits on one side of the bar. */
+type DragRowControls = {
+  /** True when the row's just-finished drag consumed its click. */
+  takeConsumedClick(): boolean
+  /** True while this row is the one being dragged. */
+  dragged(): boolean
+  onPointerDown(event: PointerEvent): void
+  onPointerMove(event: PointerEvent): void
+  onPointerUp(event: PointerEvent): void
+  onPointerCancel(event: PointerEvent): void
+  onLostPointerCapture(event: PointerEvent): void
+}
+
 function ProjectRow(props: {
   row: TreeProject
   state: SourceControlState
   /**
-   * The row's place relative to the show-more line: `false` above (the
+   * The row's place relative to the show-more bar: `false` above (the
    * control hides it), `true` below in the collapsed group (the control
    * restores it), `undefined` where hiding does not apply (the archived
-   * section is already collapsed).
+   * section is already collapsed, and its rows never drag).
    */
   hidden?: boolean
+  /** Pointer drag wiring; absent for rows the bar does not move. */
+  drag?: DragRowControls
 }): JSX.Element {
   const selected = () => {
     const current = props.state.selection()
@@ -105,13 +129,28 @@ function ProjectRow(props: {
         title={
           props.row.projectName === props.row.name ? undefined : `Project ${props.row.projectName}`
         }
-        onClick={() =>
+        class={cn('dev-scm-drag-row', {
+          'dev-scm-drag-row--dragging': props.drag?.dragged() === true,
+        })}
+        {...(props.drag
+          ? {
+              onPointerDown: props.drag.onPointerDown,
+              onPointerMove: props.drag.onPointerMove,
+              onPointerUp: props.drag.onPointerUp,
+              onPointerCancel: props.drag.onPointerCancel,
+              onLostPointerCapture: props.drag.onLostPointerCapture,
+            }
+          : {})}
+        onClick={() => {
+          // A drag (or an aborted press) consumed the pointer: the row's
+          // click must not also move the selection.
+          if (props.drag?.takeConsumedClick() === true) return
           props.state.select({
             kind: 'project',
             repoId: props.row.repoId,
             projectId: props.row.projectId,
           })
-        }
+        }}
         data-repo-id={props.row.repoId}
       >
         <StatusChip
@@ -151,7 +190,7 @@ export function SourceControlSidebar(props: {
       else next.add(key)
       return next
     })
-  /** Active rows below the show-more line, across every owner. */
+  /** Active rows below the show-more bar, across every owner. */
   const hiddenRows = () =>
     props.state
       .tree()
@@ -161,6 +200,75 @@ export function SourceControlSidebar(props: {
     const current = props.state.selection()
     return current?.kind === 'shortcut' && current.id === id
   }
+
+  // ── The show-more bar's pointer drag ──────────────────────────────────
+  // Mechanics mirror the published resize handle: capture on press, decide
+  // on move, commit or abort on release — Escape, pointer cancellation and
+  // lost capture abort without a drop, and a drag never ends in a click.
+  const [gesture, setGesture] = createSignal<DragBarGesture>()
+  const [consumedClick, setConsumedClick] = createSignal(false)
+  let barElement: HTMLDivElement | undefined
+  const dragging = () => gesture()?.phase === 'drag'
+  const dropArmed = () => {
+    const current = gesture()
+    return current !== undefined && current.phase === 'drag' && current.zone !== current.origin
+  }
+  const handleDragEvent = (event: DragBarEvent) => {
+    const outcome = reduceDragBar(gesture(), event)
+    setGesture(outcome.gesture)
+    if (outcome.consumed) setConsumedClick(true)
+    if (outcome.drop) props.state.setRepoHidden(outcome.drop.repoId, outcome.drop.hidden)
+  }
+  /** One row's drag wiring; only rows on one side of the bar get one. */
+  const dragControls = (repoId: string, origin: DragBarZone): DragRowControls => ({
+    takeConsumedClick: () => {
+      if (!consumedClick()) return false
+      setConsumedClick(false)
+      return true
+    },
+    dragged: () => gesture()?.repoId === repoId && dragging(),
+    onPointerDown: (event) => {
+      if (event.button !== 0 || !event.isPrimary) return
+      const bar = barElement
+      if (!bar) return
+      // A fresh press always starts a new gesture: a leftover consumed flag
+      // from an earlier drag must not eat this row's click.
+      setConsumedClick(false)
+      const barRect = bar.getBoundingClientRect()
+      handleDragEvent({
+        type: 'press',
+        repoId,
+        pointerId: event.pointerId,
+        origin,
+        y: event.clientY,
+        barY: barRect.top + barRect.height / 2,
+      })
+      const row = event.currentTarget
+      if (row instanceof HTMLElement) row.setPointerCapture(event.pointerId)
+    },
+    onPointerMove: (event) => {
+      handleDragEvent({ type: 'move', pointerId: event.pointerId, y: event.clientY })
+    },
+    onPointerUp: (event) => {
+      handleDragEvent({ type: 'release', pointerId: event.pointerId })
+    },
+    onPointerCancel: () => {
+      handleDragEvent({ type: 'cancel' })
+    },
+    onLostPointerCapture: () => {
+      handleDragEvent({ type: 'cancel' })
+    },
+  })
+  // Escape aborts an active drag from wherever focus sits; capture phase so
+  // nothing else consumes it first.
+  const onDragKey = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') handleDragEvent({ type: 'escape' })
+  }
+  createEffect(() => {
+    if (!gesture()) return
+    window.addEventListener('keydown', onDragKey, true)
+    onCleanup(() => window.removeEventListener('keydown', onDragKey, true))
+  })
 
   return (
     <div class={cn('dev-sidebar', { 'dev-sidebar--open': props.open })}>
@@ -230,47 +338,87 @@ export function SourceControlSidebar(props: {
                 </Show>
               }
             >
-              <For each={props.state.tree().owners}>
-                {(owner) => (
-                  <Show when={owner.projects.some((row) => !props.state.isRepoHidden(row.repoId))}>
-                    <SidebarNavSection
-                      label={owner.owner}
-                      headingAs="h3"
-                      collapsible
-                      open={!collapsed().has(owner.key)}
-                      onOpenChange={() => toggle(owner.key)}
-                      action={
-                        <span class="dev-scm-tree__owner" aria-hidden="true">
-                          <span class="dev-scm-mark">{monogram(owner.owner)}</span>
-                          <span class="dev-scm-provider">{owner.providerName}</span>
-                        </span>
-                      }
+              <>
+                <For each={props.state.tree().owners}>
+                  {(owner) => (
+                    <Show
+                      when={owner.projects.some((row) => !props.state.isRepoHidden(row.repoId))}
                     >
-                      <For each={owner.projects}>
-                        {(row) => (
-                          <Show when={!props.state.isRepoHidden(row.repoId)}>
-                            <ProjectRow row={row} state={props.state} hidden={false} />
-                          </Show>
-                        )}
-                      </For>
-                    </SidebarNavSection>
-                  </Show>
-                )}
-              </For>
-            </Show>
-            <Show when={hiddenRows().length > 0}>
-              <SidebarNavSection
-                label="Hidden repositories"
-                headingAs="h3"
-                collapsible
-                open={hiddenOpen()}
-                onOpenChange={setHiddenOpen}
-                count={hiddenRows().length}
-              >
-                <For each={hiddenRows()}>
-                  {(row) => <ProjectRow row={row} state={props.state} hidden />}
+                      <SidebarNavSection
+                        label={owner.owner}
+                        headingAs="h3"
+                        collapsible
+                        open={!collapsed().has(owner.key)}
+                        onOpenChange={() => toggle(owner.key)}
+                        action={
+                          <span class="dev-scm-tree__owner" aria-hidden="true">
+                            <span class="dev-scm-mark">{monogram(owner.owner)}</span>
+                            <span class="dev-scm-provider">{owner.providerName}</span>
+                          </span>
+                        }
+                      >
+                        <For each={owner.projects}>
+                          {(row) => (
+                            <Show when={!props.state.isRepoHidden(row.repoId)}>
+                              <ProjectRow
+                                row={row}
+                                state={props.state}
+                                hidden={false}
+                                drag={dragControls(row.repoId, 'above')}
+                              />
+                            </Show>
+                          )}
+                        </For>
+                      </SidebarNavSection>
+                    </Show>
+                  )}
                 </For>
-              </SidebarNavSection>
+                <div
+                  ref={(element) => (barElement = element)}
+                  class="dev-scm-dragbar"
+                  data-dragging={dragging() ? '' : undefined}
+                  data-armed={dropArmed() ? '' : undefined}
+                >
+                  <Separator orientation="horizontal" class="dev-scm-dragbar__line" />
+                  <Show when={hiddenRows().length > 0}>
+                    <ActionButton
+                      variant="ghost"
+                      size="icon-2xs"
+                      class="dev-scm-dragbar__grip"
+                      tooltip={
+                        hiddenOpen() ? 'Collapse the show-more group' : 'Expand the show-more group'
+                      }
+                      aria-label={
+                        hiddenOpen() ? 'Collapse the show-more group' : 'Expand the show-more group'
+                      }
+                      onClick={() => setHiddenOpen((open) => !open)}
+                    >
+                      <ChevronsUpDown aria-hidden="true" />
+                    </ActionButton>
+                  </Show>
+                </div>
+                <Show when={hiddenRows().length > 0}>
+                  <SidebarNavSection
+                    label="Hidden repositories"
+                    headingAs="h3"
+                    collapsible
+                    open={hiddenOpen()}
+                    onOpenChange={setHiddenOpen}
+                    count={hiddenRows().length}
+                  >
+                    <For each={hiddenRows()}>
+                      {(row) => (
+                        <ProjectRow
+                          row={row}
+                          state={props.state}
+                          hidden
+                          drag={dragControls(row.repoId, 'below')}
+                        />
+                      )}
+                    </For>
+                  </SidebarNavSection>
+                </Show>
+              </>
             </Show>
             <Show when={props.state.tree().archived.length > 0}>
               <SidebarNavSection
