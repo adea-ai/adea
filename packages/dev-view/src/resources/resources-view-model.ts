@@ -128,7 +128,78 @@ export type LeakState = Readonly<{
   kind: 'normal' | 'over_limit' | 'growing'
   /** Growth over the configured window when `growing`. */
   growthBytes?: number
+  /** The configured growth window the growth was measured over, when `growing`. */
+  windowSeconds?: number
 }>
+
+/** A whole-unit duration such as `10 min`, `2 h`, or `90 s`. */
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—'
+  if (seconds < 120) return `${Math.round(seconds)} s`
+  const minutes = seconds / 60
+  if (minutes < 120) return `${Math.round(minutes)} min`
+  const hours = minutes / 60
+  if (hours < 48) return `${Math.round(hours)} h`
+  return `${Math.round(hours / 24)} d`
+}
+
+/** The leak line for a row: the growth names the window it happened in. */
+export function leakText(leak: LeakState): string | undefined {
+  if (leak.kind === 'growing') {
+    const window =
+      leak.windowSeconds !== undefined ? ` in ${formatDuration(leak.windowSeconds)}` : ''
+    return `Leaking · +${formatSize(leak.growthBytes)}${window}`
+  }
+  if (leak.kind === 'over_limit') return 'Over your memory limit'
+  return undefined
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** Parses a `ps -o lstart=` start identity (`Tue Oct  6 09:14:03 2026`, local
+ * time) into epoch milliseconds; anything else is unknown. */
+export function parseStartIdentity(text: string): number | undefined {
+  const match =
+    /^[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})$/.exec(
+      text.trim()
+    )
+  if (!match) return undefined
+  const month = MONTHS.indexOf(match[1] as string)
+  if (month < 0) return undefined
+  const at = new Date(
+    Number(match[6]),
+    month,
+    Number(match[2]),
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5])
+  ).getTime()
+  return Number.isFinite(at) ? at : undefined
+}
+
+/** `2h ago · Oct 6, 2026, 9:14 AM` in the viewer's locale; the raw identity
+ * when it cannot be read. */
+export function startedLabel(startIdentity: string, now: number): string {
+  const at = parseStartIdentity(startIdentity)
+  if (at === undefined) return startIdentity
+  const age = formatAge(now - at)
+  const when = new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(at))
+  return `${age === 'now' || age === '—' ? 'just now' : `${age} ago`} · ${when}`
+}
+
+/** `up 2h`, or `just started` under a minute. */
+export function uptimeLabel(startedAt: number, now: number): string {
+  const age = formatAge(now - startedAt)
+  if (age === '—') return 'Running'
+  return age === 'now' ? 'just started' : `up ${age}`
+}
+
+function basename(path: string): string {
+  return path.split('/').filter(Boolean).at(-1) ?? path
+}
 
 export type BytePoint = Readonly<{ at: number; bytes: number }>
 
@@ -145,7 +216,7 @@ export function leakState(
   const growth = latest.bytes - lowest
   const growthLimit = Number(alerts.growthBytes)
   if (inWindow.length >= 2 && Number.isFinite(growthLimit) && growth >= growthLimit)
-    return { kind: 'growing', growthBytes: growth }
+    return { kind: 'growing', growthBytes: growth, windowSeconds: alerts.growthWindowSeconds }
   const limit = Number(alerts.residentBytesAbove)
   if (Number.isFinite(limit) && latest.bytes >= limit) return { kind: 'over_limit' }
   return { kind: 'normal' }
@@ -167,17 +238,83 @@ export function sparklinePoints(values: readonly number[], width: number, height
     .join(' ')
 }
 
+export type TrendPoint = Readonly<{ at: number; value: number }>
+
+export type TrendGeometry = Readonly<{
+  /** Polyline points in a `width`×`height` box; empty without samples. */
+  points: string
+  /** The threshold's y coordinate, when it falls inside the drawn range. */
+  thresholdY?: number
+  /** Time-axis labels: how long ago the first sample was, and the last. */
+  startLabel: string
+  endLabel: string
+}>
+
+/** A history chart with a time axis and an optional threshold line. The value
+ * axis starts at zero and stretches to the threshold when the threshold is
+ * within twice the highest sample, so a nearby limit is drawn to scale and a
+ * far-away one does not flatten the trend. */
+export function trendGeometry(
+  samples: readonly TrendPoint[],
+  options: { width: number; height: number; threshold?: number; now?: number }
+): TrendGeometry {
+  const { width, height } = options
+  const first = samples[0]
+  const last = samples.at(-1)
+  if (!first || !last) return { points: '', startLabel: '', endLabel: '' }
+  const highest = Math.max(...samples.map((sample) => sample.value))
+  const threshold =
+    options.threshold !== undefined &&
+    Number.isFinite(options.threshold) &&
+    options.threshold > 0 &&
+    options.threshold <= highest * 2
+      ? options.threshold
+      : undefined
+  const top = Math.max(highest, threshold ?? 0) * 1.05 || 1
+  const span = last.at - first.at
+  const y = (value: number) => height - 1 - (value / top) * (height - 2)
+  const series = samples.length === 1 ? [first, { ...first, at: first.at + 1 }] : samples
+  const seriesSpan = (series.at(-1) as TrendPoint).at - (series[0] as TrendPoint).at || 1
+  const points = series
+    .map((sample) => {
+      const x = ((sample.at - (series[0] as TrendPoint).at) / seriesSpan) * width
+      return `${x.toFixed(1)},${y(sample.value).toFixed(1)}`
+    })
+    .join(' ')
+  const now = options.now ?? last.at
+  const ago = (at: number) => {
+    const seconds = Math.max(0, (now - at) / 1000)
+    return seconds < 1 ? 'now' : `${formatDuration(seconds)} ago`
+  }
+  return {
+    points,
+    ...(threshold !== undefined ? { thresholdY: Number(y(threshold).toFixed(1)) } : {}),
+    startLabel: span > 0 ? ago(first.at) : ago(last.at),
+    endLabel: ago(last.at),
+  }
+}
+
 export type OwnedServerRow = Readonly<{
   kind: 'owned'
   id: string
   record: ProcessRecord
   title: string
   detail: string
+  /** The executable the launch runs (its basename). */
+  command: string
+  /** Epoch milliseconds the process started, when the start identity reads. */
+  startedAt?: number
+  /** Short label for the runtime session that owns it, when it has one. */
+  sessionLabel?: string
+  /** The project of its worktree, when the worktree is registered. */
+  projectId?: string
   ports: readonly PortRecord[]
   residentBytes?: number
   cpuPercent?: number
   history: readonly BytePoint[]
   cpuHistory: readonly number[]
+  /** CPU samples with their observation times, for the detail chart. */
+  cpuPoints: readonly TrendPoint[]
   leak: LeakState
   worktreeId?: string
   stoppable: boolean
@@ -260,16 +397,19 @@ function metricPoints(metrics: readonly ResourceMetric[], record: ProcessRecord)
     .toSorted((left, right) => left.observedAt.localeCompare(right.observedAt))
   const history: BytePoint[] = []
   const cpuHistory: number[] = []
+  const cpuPoints: TrendPoint[] = []
   let cpuPercent: number | undefined
   for (const point of points) {
+    const at = Date.parse(point.observedAt)
     const resident = bytes(point.residentBytes)
-    if (resident !== undefined) history.push({ at: Date.parse(point.observedAt), bytes: resident })
+    if (resident !== undefined) history.push({ at, bytes: resident })
     if (point.cpuPercent !== undefined) {
       cpuPercent = point.cpuPercent
       cpuHistory.push(point.cpuPercent)
+      cpuPoints.push({ at, value: point.cpuPercent })
     }
   }
-  return { history, cpuHistory, cpuPercent }
+  return { history, cpuHistory, cpuPoints, cpuPercent }
 }
 
 /** Foreign resident history is evenly spaced over the host's 10-minute window. */
@@ -295,13 +435,26 @@ function sum(values: readonly (number | undefined)[]): number | undefined {
   return any ? total : undefined
 }
 
+/** `this session` for the session the sheet is scoped to, else a short id. */
+export function sessionLabel(runtimeSessionId: string, currentSessionId?: string): string {
+  if (runtimeSessionId === currentSessionId) return 'this session'
+  return `session ${runtimeSessionId.slice(0, 8)}`
+}
+
 export function serverGroups(input: {
   snapshot: ResourceSnapshot | undefined
   worktrees: readonly Worktree[]
   alerts: ResourcePreferencesInput['alerts']
+  /** Clock for uptime; defaults to the snapshot's observation time. */
+  now?: number
+  /** The session the sheet is scoped to, named `this session` on its rows. */
+  currentSessionId?: string
+  /** Titles of worktrees seen earlier, so a deleted worktree keeps its branch. */
+  rememberedWorktreeTitles?: ReadonlyMap<string, string>
 }): ServerGroup[] {
   const snapshot = input.snapshot
   if (!snapshot) return []
+  const now = input.now ?? Date.parse(snapshot.observedAt)
   const worktreesById = new Map(input.worktrees.map((worktree) => [worktree.id, worktree]))
   const groups = new Map<
     string,
@@ -318,11 +471,14 @@ export function serverGroups(input: {
   const worktreeGroup = (worktreeId: string) => {
     const worktree = worktreesById.get(worktreeId)
     if (!worktree) {
+      const remembered = input.rememberedWorktreeTitles?.get(worktreeId)
       return groupFor(`missing:${worktreeId}`, () => ({
         id: `missing:${worktreeId}`,
         kind: 'missing_worktree',
-        title: 'Worktree deleted',
-        subtitle: 'Its servers are orphaned',
+        title: remembered ?? 'Worktree deleted',
+        subtitle: remembered
+          ? 'Worktree deleted · its servers are orphaned'
+          : 'Its servers are orphaned',
       }))
     }
     return groupFor(`worktree:${worktree.id}`, () => ({
@@ -345,19 +501,41 @@ export function serverGroups(input: {
             port.runtimeSessionId === record.runtimeSessionId))
     )
     for (const port of ports) claimedPorts.add(port.id)
-    const { history, cpuHistory, cpuPercent } = metricPoints(snapshot.metrics, record)
+    const { history, cpuHistory, cpuPoints, cpuPercent } = metricPoints(snapshot.metrics, record)
     const previewUrl = ports.find((port) => port.preview !== undefined)?.preview?.url
+    const command = basename(record.executableIdentity)
+    const startedAt = parseStartIdentity(record.startIdentity)
+    const session =
+      record.runtimeSessionId !== undefined
+        ? sessionLabel(record.runtimeSessionId, input.currentSessionId)
+        : undefined
+    const projectId =
+      record.worktreeId !== undefined ? worktreesById.get(record.worktreeId)?.projectId : undefined
     const row: OwnedServerRow = {
       kind: 'owned',
       id: record.id,
       record,
       title: `${OWNER_LABELS[record.ownerKind]} · ${record.ownerId}`,
-      detail: `PID ${record.pid} · ${STATE_LABELS[record.state]}`,
+      detail: [
+        command,
+        `PID ${record.pid}`,
+        record.state === 'running' && startedAt !== undefined
+          ? uptimeLabel(startedAt, now)
+          : STATE_LABELS[record.state],
+        session,
+      ]
+        .filter((part) => part !== undefined && part !== '')
+        .join(' · '),
+      command,
+      ...(startedAt !== undefined ? { startedAt } : {}),
+      ...(session !== undefined ? { sessionLabel: session } : {}),
+      ...(projectId !== undefined ? { projectId } : {}),
       ports,
       ...(history.length > 0 ? { residentBytes: (history.at(-1) as BytePoint).bytes } : {}),
       ...(cpuPercent !== undefined ? { cpuPercent } : {}),
       history,
       cpuHistory,
+      cpuPoints,
       leak: leakState(history, input.alerts),
       ...(record.worktreeId !== undefined ? { worktreeId: record.worktreeId } : {}),
       stoppable: record.state === 'running',
@@ -690,4 +868,42 @@ export function attentionSummary(
     leaking,
     foreignCount: candidates.filter((candidate) => candidate.kind === 'foreign').length,
   }
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`
+}
+
+/** Every kind of issue the banner names, most urgent first: leaking and
+ * over-limit rows (Adea's or not), then the clean-up candidates by reason. A
+ * foreign row that is a candidate because of its memory is already counted
+ * as leaking or over the limit. */
+export function attentionIssues(
+  candidates: readonly CleanupCandidate[],
+  groups: readonly ServerGroup[]
+): string[] {
+  const rows = groups.flatMap((group) => group.rows)
+  const growing = rows.filter((row) => row.leak.kind === 'growing').length
+  const overLimit = rows.filter((row) => row.leak.kind === 'over_limit').length
+  const count = (test: (candidate: CleanupCandidate) => boolean) => candidates.filter(test).length
+  const orphaned = count(
+    (candidate) => candidate.kind === 'server' && candidate.reason === 'Its worktree was deleted'
+  )
+  const idle = count((candidate) => candidate.kind === 'server' && candidate.reason === 'Idle')
+  const archived = count((candidate) => candidate.kind === 'worktree')
+  const holdingPorts = count(
+    (candidate) => candidate.kind === 'foreign' && candidate.reason === 'Holding a port'
+  )
+  const issues: string[] = []
+  if (growing > 0) issues.push(`${plural(growing, 'server', 'servers')} leaking memory`)
+  if (overLimit > 0) issues.push(`${plural(overLimit, 'server', 'servers')} over your memory limit`)
+  if (orphaned > 0)
+    issues.push(`${plural(orphaned, 'server', 'servers')} whose worktree was deleted`)
+  if (idle > 0) issues.push(plural(idle, 'idle server', 'idle servers'))
+  if (archived > 0) issues.push(plural(archived, 'archived worktree', 'archived worktrees'))
+  if (holdingPorts > 0)
+    issues.push(
+      `${plural(holdingPorts, 'process', 'processes')} not started by Adea holding ${holdingPorts === 1 ? 'a port' : 'ports'}`
+    )
+  return issues
 }

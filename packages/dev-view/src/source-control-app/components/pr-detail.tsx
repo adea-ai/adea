@@ -114,6 +114,14 @@ export function PullRequestDetail(props: {
     async (source) => client.files(source.id)
   )
 
+  const headCommit = createMemo(() => {
+    const head = pr()?.headSha
+    const commit = (timeline() ?? []).find(
+      (item): item is Extract<GitHubTimelineItem, { kind: 'commit' }> =>
+        item.kind === 'commit' && item.sha === head
+    )
+    return commit ? { sha: commit.sha, committedAt: commit.createdAt } : undefined
+  })
   const threads = createMemo(() =>
     (timeline() ?? []).filter((item): item is Thread => item.kind === 'thread')
   )
@@ -174,6 +182,32 @@ export function PullRequestDetail(props: {
     }
   }
 
+  const stateChip = () => {
+    const current = pr()
+    if (!current) return null
+    const badge = stateBadge[current.state === 'open' && current.draft ? 'draft' : current.state]!
+    return (
+      <Badge size="sm" variant={badge.variant}>
+        {badge.label}
+      </Badge>
+    )
+  }
+  const detailsToggle = () => (
+    <ActionButton
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      tooltip={detailsOpen() ? 'Hide details panel' : 'Show details panel'}
+      aria-label={detailsOpen() ? 'Hide details panel' : 'Show details panel'}
+      aria-pressed={detailsOpen()}
+      onClick={() => setDetailsOpen(!detailsOpen())}
+    >
+      <Show when={detailsOpen()} fallback={<PanelRightOpen aria-hidden="true" />}>
+        <PanelRightClose aria-hidden="true" />
+      </Show>
+    </ActionButton>
+  )
+
   return (
     <Show
       when={pr()}
@@ -190,67 +224,59 @@ export function PullRequestDetail(props: {
         <div class="dev-scm__body flex-1">
           <div class="dev-scm__main">
             <div class="dev-scm-header">
-              <div class="dev-scm-pr__crumbs">
-                <Button
-                  type="button"
-                  variant="link"
-                  size="sm"
-                  class="h-auto"
-                  onClick={() => props.state.setRoute({ view: 'inbox' })}
-                >
-                  {current().id.slice(3, current().id.indexOf('#'))}
-                </Button>
-                <span aria-hidden="true">/</span>
-                <span>{prRef(current())}</span>
-              </div>
-              <div class="dev-scm-header__row">
-                <h1 class="dev-scm-pr__title">
-                  {current().title} <span class="dev-scm-pr__number">{prRef(current())}</span>
-                </h1>
-              </div>
-              <div class="dev-scm-header__row">
-                <Badge
-                  size="sm"
-                  variant={
-                    stateBadge[
-                      current().state === 'open' && current().draft ? 'draft' : current().state
-                    ]!.variant
-                  }
-                >
-                  {
-                    stateBadge[
-                      current().state === 'open' && current().draft ? 'draft' : current().state
-                    ]!.label
-                  }
-                </Badge>
-                <Person actor={current().author} agent={current().authorIsAgent} />
-                <span class="dev-scm-caption">
-                  wants to merge{' '}
-                  {current().commitCount === 1 ? '1 commit' : `${current().commitCount} commits`}{' '}
-                  into
-                </span>
-                <Badge size="sm" variant="outline">
-                  <span class="dev-scm-mono">{current().baseRef}</span>
-                </Badge>
-                <span class="dev-scm-caption">from</span>
-                <Badge size="sm" variant="outline">
-                  <span class="dev-scm-mono">{current().headRef}</span>
-                </Badge>
-                <span class="dev-scm-spacer" />
-                <ActionButton
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  tooltip={detailsOpen() ? 'Hide details panel' : 'Show details panel'}
-                  aria-label={detailsOpen() ? 'Hide details panel' : 'Show details panel'}
-                  aria-pressed={detailsOpen()}
-                  onClick={() => setDetailsOpen(!detailsOpen())}
-                >
-                  <Show when={detailsOpen()} fallback={<PanelRightOpen aria-hidden="true" />}>
-                    <PanelRightClose aria-hidden="true" />
-                  </Show>
-                </ActionButton>
-              </div>
+              <Show
+                when={props.tab === 'conversation'}
+                fallback={
+                  <div class="dev-scm-header__row dev-scm-header__row--compact">
+                    {stateChip()}
+                    <h1 class="dev-scm-pr__title dev-scm-pr__title--compact dev-scm-truncate">
+                      {current().title} <span class="dev-scm-pr__number">{prRef(current())}</span>
+                    </h1>
+                    <Badge size="sm" variant="outline">
+                      <span class="dev-scm-mono">{current().headRef}</span>
+                    </Badge>
+                    <span class="dev-scm-spacer" />
+                    {detailsToggle()}
+                  </div>
+                }
+              >
+                <div class="dev-scm-pr__crumbs">
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    class="h-auto"
+                    onClick={() => props.state.setRoute({ view: 'inbox' })}
+                  >
+                    {current().id.slice(3, current().id.indexOf('#'))}
+                  </Button>
+                  <span aria-hidden="true">/</span>
+                  <span>{prRef(current())}</span>
+                </div>
+                <div class="dev-scm-header__row">
+                  <h1 class="dev-scm-pr__title">
+                    {current().title} <span class="dev-scm-pr__number">{prRef(current())}</span>
+                  </h1>
+                </div>
+                <div class="dev-scm-header__row">
+                  {stateChip()}
+                  <Person actor={current().author} agent={current().authorIsAgent} />
+                  <span class="dev-scm-caption">
+                    wants to merge{' '}
+                    {current().commitCount === 1 ? '1 commit' : `${current().commitCount} commits`}{' '}
+                    into
+                  </span>
+                  <Badge size="sm" variant="outline">
+                    <span class="dev-scm-mono">{current().baseRef}</span>
+                  </Badge>
+                  <span class="dev-scm-caption">from</span>
+                  <Badge size="sm" variant="outline">
+                    <span class="dev-scm-mono">{current().headRef}</span>
+                  </Badge>
+                  <span class="dev-scm-spacer" />
+                  {detailsToggle()}
+                </div>
+              </Show>
               <div class="dev-scm-pr__tabs">
                 <Tabs value={props.tab} onChange={(value) => props.onTab(value as PrTab)}>
                   <TabsList aria-label="Pull request sections">
@@ -282,7 +308,10 @@ export function PullRequestDetail(props: {
                   </TabsList>
                 </Tabs>
                 <span class="dev-scm-spacer" />
-                <ChangeCounts additions={current().additions} deletions={current().deletions} />
+                {/* Files changed carries its own totals in its toolbar. */}
+                <Show when={props.tab !== 'files'}>
+                  <ChangeCounts additions={current().additions} deletions={current().deletions} />
+                </Show>
               </div>
             </div>
 
@@ -405,6 +434,8 @@ export function PullRequestDetail(props: {
               client={client}
               actions={props.actions}
               deleteBranch={props.state.preferences().deleteBranch}
+              {...(headCommit() ? { headCommit: headCommit()! } : {})}
+              now={props.state.tick()}
               onDeleteBranch={(deleteBranch) =>
                 props.state.setPreferences((prefs) => ({ ...prefs, deleteBranch }))
               }

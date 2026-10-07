@@ -12,7 +12,8 @@ import { Switch } from '@adea-ai/ui/components/ui/switch'
 import { For, Show, createSignal, type JSX } from 'solid-js'
 
 import { errorText, type ScmClient } from '../client'
-import { displayLogin } from '../model/format'
+import { displayLogin, relativeTime, shortSha } from '../model/format'
+import { sessionLifecycleLabel } from '../model/sessions'
 import { hostNameOf, type PullRequestView, type Tone } from '../model/types'
 import type { AppActions } from './actions'
 import { Person } from './bits'
@@ -46,6 +47,9 @@ export function DetailsPanel(props: {
   client: ScmClient
   actions: AppActions
   deleteBranch: boolean
+  /** The head commit as the timeline reports it, for the session card. */
+  headCommit?: Readonly<{ sha: string; committedAt: string }>
+  now: number
   onDeleteBranch(value: boolean): void
   onUpdated(summary: GitHubPullRequestSummary): void
 }): JSX.Element {
@@ -193,10 +197,25 @@ export function DetailsPanel(props: {
                   <span class="dev-scm-spacer" />
                   <StatusChip
                     tone={lifecycleTone[session().lifecycle] ?? 'unknown'}
-                    label={session().lifecycle}
+                    label={sessionLifecycleLabel(session().lifecycle)}
                   />
                 </div>
-                <span class="dev-scm-mono dev-scm-muted dev-scm-truncate">{props.pr.headRef}</span>
+                <span
+                  class="dev-scm-mono dev-scm-muted dev-scm-truncate"
+                  title={session().worktreePath ?? props.pr.headRef}
+                >
+                  {session().worktreePath ?? props.pr.headRef}
+                </span>
+                <span class="dev-scm-caption">
+                  <Show when={props.headCommit} fallback={<>Head {shortSha(props.pr.headSha)}</>}>
+                    {(head) => (
+                      <>
+                        Last commit {shortSha(head().sha)}{' '}
+                        {relativeTime(head().committedAt, props.now)}
+                      </>
+                    )}
+                  </Show>
+                </span>
                 <Button
                   type="button"
                   variant="outline"

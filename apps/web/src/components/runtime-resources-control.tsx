@@ -15,7 +15,13 @@ const ResourcesSheet = lazyComponent(
   { loading: () => null }
 )
 
-export function RuntimeResourcesControl(props: { runtime?: DevRuntimeService }) {
+export function RuntimeResourcesControl(props: {
+  runtime?: DevRuntimeService
+  /** The desktop shell's external-link hand-off; the web opens a tab. */
+  openExternal?: (url: string) => Promise<void>
+  /** Focuses a runtime session in the Dev view, for a server's "Go to session". */
+  onOpenSession?: (target: { runtimeSessionId: string; projectId?: string }) => void
+}) {
   const [open, setOpen] = createSignal(false)
   // The selected session is presentation state shared across views, so the
   // sheet scopes to the same session the Dev surfaces show.
@@ -38,6 +44,8 @@ export function RuntimeResourcesControl(props: { runtime?: DevRuntimeService }) 
         <ResourcesSheet
           runtime={props.runtime}
           runtimeSessionId={runtimeSessionId() || undefined}
+          openExternal={props.openExternal}
+          onOpenSession={props.onOpenSession}
           onClose={() => setOpen(false)}
         />
       </Show>

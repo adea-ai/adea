@@ -96,7 +96,16 @@ const navigation = projectWorkspaceNavigation(
   [project('ops', 2), project('web', 1)],
   [
     channel('web-main', { isPrimaryProjectChannel: true, projectId: 'web' }),
-    channel('web-design', { projectId: 'web', sortOrder: 1, updatedAt: at(5) }),
+    channel('web-design', {
+      projectId: 'web',
+      sortOrder: 1,
+      updatedAt: at(5),
+      participants: [
+        { kind: 'agent', agentId: 'agent-1' },
+        { kind: 'agent', agentId: 'agent-2' },
+        { kind: 'user', userId: 'user-1' },
+      ],
+    }),
     channel('web-bug', { projectId: 'web', sortOrder: 2, taskId: 'linked', updatedAt: at(3) }),
     channel('ops-main', { isPrimaryProjectChannel: true, projectId: 'ops' }),
     channel('dm', { kind: 'direct_agent', agentId: 'agent-1' }),
@@ -205,6 +214,14 @@ describe('buildWorkspaceNavSource', () => {
       count: 0,
       marked: true,
     })
+  })
+
+  test('channel leaves count their agent participants; channel-less tasks do not know', () => {
+    const web = source().tree.workspaces[1]!.projects![0]!
+    const leaf = (id: string) => web.leaves.find((candidate) => candidate.id === id)!
+    expect(leaf('web-design').agentCount).toBe(2)
+    expect(leaf('web-main').agentCount).toBe(0)
+    expect(leaf('open').agentCount).toBeUndefined()
   })
 
   test('the active workspace is listed even when the member list lacks it', () => {

@@ -984,6 +984,29 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       replace,
     })
   }
+  // Focus a runtime session in Dev (the resources sheet's "Go to session").
+  // One navigation carries the app switch and the Dev deep-link params, so
+  // the request wins over whatever selection the URL held; Dev View resolves
+  // it and reports back through `applyDevSelection` like any deep link.
+  const openDevSession = (target: { runtimeSessionId: string; projectId?: string }) => {
+    const destination = resolveWorkspaceApp(railPreferences(), 'dev')
+    if (destination?.id !== 'dev') return
+    workspaceStore.getState().setGlobalPanel(null)
+    setRoomDesignerEnabled(false)
+    setCharacterDesignerEnabled(false)
+    void navigate({
+      search: {
+        ...currentSearch(),
+        view: destination.view,
+        roomDesigner: undefined,
+        characterDesigner: undefined,
+        app: undefined,
+        ...(target.projectId !== undefined ? { devProject: target.projectId } : {}),
+        devSession: target.runtimeSessionId,
+      } as never,
+      hash: '',
+    })
+  }
   // Tasks are listed on the Kanban app only. A search result or link to a Task
   // opens it there; with Kanban turned off the board opens inside Chat instead.
   const openTaskBoard = () =>
@@ -1063,6 +1086,17 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     workspaceStore.getState().setGlobalPanel('workspace-settings')
   }
   const openSearch = () => {
+    // Source control puts its own search in the title slot and advertises
+    // ⌘K on it, so the search command focuses that field while it shows.
+    const scmSearch =
+      activeAppId() === 'source-control' && !libraryOpen()
+        ? scmSearchMount()?.querySelector('input')
+        : undefined
+    if (scmSearch) {
+      scmSearch.focus()
+      scmSearch.select()
+      return
+    }
     if (resolveWorkspaceApp(railPreferences(), 'chat')?.id !== 'chat') {
       setLibrarySearchRequest((request) => request + 1)
       openAppLibrary()
@@ -1099,7 +1133,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         onOpenNotifications={() => openSettings('input-notifications')}
         actionsMount={setToolbarMount}
         showDevActions={activeAppId() === 'dev'}
-        resources={<RuntimeResourcesControl runtime={props.services.devRuntime} />}
+        resources={
+          <RuntimeResourcesControl
+            runtime={props.services.devRuntime}
+            openExternal={openExternal}
+            onOpenSession={openDevSession}
+          />
+        }
         titleMount={setScmSearchMount}
         showTitleControls={activeAppId() === 'source-control'}
         sidebarMount={setSidebarActionMount}
@@ -1112,7 +1152,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             <ActionButton
               ref={setUtilityOpener}
               type="button"
-              variant="outline"
+              variant="ghost"
               size="icon-sm"
               tooltip={
                 utilityOwner.rightUtilityOpen()

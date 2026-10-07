@@ -122,4 +122,35 @@ describe('chat and virtual adapters', () => {
     ])
     expect(ids(virtual.leafMenu(checkout))).toEqual(['share'])
   })
+
+  test('Virtual rooms use their own name, with the project as a hint', () => {
+    const room: NavProject = { ...repo, roomName: 'Engineering' }
+    expect(virtual.projectLabel(room)).toEqual({ text: 'Engineering', hint: 'adea' })
+    expect(virtual.projectLabel(repo)).toEqual({ text: 'adea' })
+    // A room named like its project needs no hint.
+    expect(virtual.projectLabel({ ...repo, roomName: 'adea' })).toEqual({ text: 'adea' })
+    // Chat ignores room names.
+    expect(chat.projectLabel(room)).toEqual({ text: 'adea' })
+    // The default desk is named after the room.
+    expect(virtual.leafLabel(checkout, room)).toEqual({ text: 'Engineering', mono: false })
+  })
+
+  test('leaf nouns and meta are per view', () => {
+    expect(chat.leafNoun(worktree)).toBe('Task')
+    expect(virtual.leafNoun(checkout)).toBe('Desk')
+    expect(chat.leafMeta).toBe('activity')
+    expect(virtual.leafMeta).toBe('agents')
+  })
+})
+
+describe('dev leaf nouns and meta', () => {
+  const dev = createViewAdapter('dev')
+
+  test('worktrees and checkouts are worktrees; a cloud task stays a task', () => {
+    expect(dev.leafNoun(worktree)).toBe('Worktree')
+    expect(dev.leafNoun(checkout)).toBe('Worktree')
+    expect(dev.leafNoun(titleOnly)).toBe('Task')
+    expect(dev.leafMeta).toBe('changes')
+    expect(dev.projectLabel({ ...repo, roomName: 'Engineering' })).toEqual({ text: 'adea' })
+  })
 })

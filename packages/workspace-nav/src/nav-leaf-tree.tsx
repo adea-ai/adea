@@ -3,11 +3,13 @@ import { Tree, TreeRow, type TreeItemDescriptor } from '@adea-ai/ui/components/c
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Text } from '@adea-ai/ui/components/ui/typography'
 import { CircleAlert, House, Plus } from 'lucide-solid'
-import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
+import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 
-import type { NavMenuItemId, ViewAdapter } from './adapters'
+import type { NavLeafMetaKind, NavMenuItemId, ViewAdapter } from './adapters'
 import {
   groupTree,
+  navAgentCountLabel,
+  navTimeAgo,
   projectCollapsedSummary,
   type LeafStatus,
   type NavGroupMode,
@@ -42,6 +44,12 @@ const projectKey = (id: string) => `project:${id}`
 const leafKey = (id: string) => `leaf:${id}`
 const groupKey = (status: LeafStatus) => `group:${status}`
 
+/** Where a leaf row sits: under its project, or in a flat Status or Recent list. */
+type LeafPlacement = 'project' | 'status' | 'recent'
+
+/** Relative times re-read the clock once a minute; "4m" never needs finer. */
+const CLOCK_TICK_MS = 60_000
+
 /**
  * The active workspace's projects and leaves as one keyboard tree. Grouping by
  * project keeps the hierarchy (checkout, "Worktrees" divider, worktrees and
@@ -51,6 +59,11 @@ const groupKey = (status: LeafStatus) => `group:${status}`
 export function NavLeafTree(props: NavLeafTreeProps) {
   const [ownCollapsed, setOwnCollapsed] = createSignal<ReadonlySet<string>>(new Set())
   const [activeId, setActiveId] = createSignal<string | null>(null)
+  const [now, setNow] = createSignal(Date.now())
+  onMount(() => {
+    const timer = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS)
+    onCleanup(() => clearInterval(timer))
+  })
 
   const isProjectExpanded = (id: string) =>
     props.collapsedProjectIds
@@ -158,13 +171,23 @@ export function NavLeafTree(props: NavLeafTreeProps) {
     if (item?.expandable) expand(id, !item.expanded)
   }
 
-  const leafRow = (leaf: NavLeaf, project: NavProject, showProject: boolean): JSX.Element => {
+  const leafRow = (leaf: NavLeaf, project: NavProject, placement: LeafPlacement): JSX.Element => {
     const label = () => props.adapter.leafLabel(leaf, project)
+    const showProject = placement !== 'project'
     // Flat groupings lead every row with its status; only the project
     // hierarchy gives the checkout its own house row.
     const isCheckoutRow = () =>
       !showProject && leaf.kind === 'checkout' && props.adapter.showCheckoutRow
-    const menuLabel = () => `Options for ${label().text}`
+    // Recent rows carry the time beside the project name, so a view whose
+    // meta is the time does not repeat it at the row's end.
+    const metaKind = (): NavLeafMetaKind | undefined =>
+      placement === 'recent' && props.adapter.leafMeta === 'activity'
+        ? undefined
+        : props.adapter.leafMeta
+    const recentTime = () =>
+      placement === 'recent' ? navTimeAgo(leaf.lastActivityAt, now()) : undefined
+    // Named for the noun, like the project menu: "Worktree options for main".
+    const menuLabel = () => `${props.adapter.leafNoun(leaf)} options for ${label().text}`
     return (
       <TreeRow
         item={descriptor(leafKey(leaf.id))}
@@ -183,10 +206,8 @@ export function NavLeafTree(props: NavLeafTreeProps) {
             <Show
               when={isCheckoutRow()}
               fallback={
-                <Show when={leaf.diff || leaf.pullRequest}>
-                  <span class="workspace-nav-row-meta">
-                    <LeafMeta leaf={leaf} />
-                  </span>
+                <Show when={metaKind()}>
+                  {(kind) => <LeafMeta kind={kind()} leaf={leaf} now={now()} />}
                 </Show>
               }
             >
@@ -215,7 +236,15 @@ export function NavLeafTree(props: NavLeafTreeProps) {
         <Text variant={label().mono ? 'code' : 'label'}>{label().text}</Text>
         <Show when={showProject}>
           <Text variant="caption" tone="muted" class="ms-1.5">
-            {project.name}
+            {props.adapter.projectLabel(project).text}
+            <Show when={recentTime()}>
+              {(time) => (
+                <>
+                  <span aria-hidden="true"> · {time().text}</span>
+                  <span class="visually-hidden">, {time().label}</span>
+                </>
+              )}
+            </Show>
           </Text>
         </Show>
       </TreeRow>
@@ -246,6 +275,7 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                 : group.leaves
             const createLabel = () => props.adapter.createLeafLabel(group.project)
             const summary = () => projectCollapsedSummary(group.project)
+            const projectLabel = () => props.adapter.projectLabel(group.project)
             return (
               <>
                 <TreeRow
@@ -271,7 +301,7 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                             variant="ghost"
                             size="icon-xs"
                             tooltip={props.tooltips === false ? undefined : createLabel()}
-                            aria-label={`${createLabel()} in ${group.project.name}`}
+                            aria-label={`${createLabel()} in ${projectLabel().text}`}
                             onClick={() => props.onCreateLeaf?.(group.project)}
                           >
                             <Plus aria-hidden="true" />
@@ -282,7 +312,7 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                             // Named for the noun: in Chat and Virtual the default
                             // leaf carries the project's name, so its own
                             // "Options for …" menu must not share this name.
-                            label={`${props.adapter.nouns.project} options for ${group.project.name}`}
+                            label={`${props.adapter.nouns.project} options for ${projectLabel().text}`}
                             items={props.adapter.projectMenu(group.project)}
                             portalMount={props.portalMount}
                             tooltips={props.tooltips}
@@ -293,10 +323,19 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                     </>
                   }
                 >
-                  <Text variant="label">{group.project.name}</Text>
+                  <Text variant="label">{projectLabel().text}</Text>
+                  <Show when={projectLabel().hint}>
+                    {(hint) => (
+                      <Text variant="caption" tone="muted" class="ms-1.5">
+                        {hint()}
+                      </Text>
+                    )}
+                  </Show>
                 </TreeRow>
                 <Show when={expanded()}>
-                  <Show when={checkout()}>{(leaf) => leafRow(leaf(), group.project, false)}</Show>
+                  <Show when={checkout()}>
+                    {(leaf) => leafRow(leaf(), group.project, 'project')}
+                  </Show>
                   <Show when={checkout() && others().length > 0}>
                     <div aria-hidden="true" class="workspace-nav-divider">
                       <span class="text-2xs font-medium tracking-wide text-sidebar-muted-foreground/60 uppercase">
@@ -305,7 +344,7 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                       <span class="h-px flex-1 bg-sidebar-border" />
                     </div>
                   </Show>
-                  <For each={others()}>{(leaf) => leafRow(leaf, group.project, false)}</For>
+                  <For each={others()}>{(leaf) => leafRow(leaf, group.project, 'project')}</For>
                 </Show>
               </>
             )
@@ -332,7 +371,7 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                 <For each={group.items}>
                   {(entry) => (
                     <Show when={projectsById().get(entry.projectId)}>
-                      {(project) => leafRow(entry.leaf, project(), true)}
+                      {(project) => leafRow(entry.leaf, project(), 'status')}
                     </Show>
                   )}
                 </For>
@@ -345,7 +384,7 @@ export function NavLeafTree(props: NavLeafTreeProps) {
         <For each={recentItems()}>
           {(entry) => (
             <Show when={projectsById().get(entry.projectId)}>
-              {(project) => leafRow(entry.leaf, project(), true)}
+              {(project) => leafRow(entry.leaf, project(), 'recent')}
             </Show>
           )}
         </For>
@@ -390,8 +429,49 @@ function LeafUnread(props: { leaf: NavLeaf }) {
   )
 }
 
+/**
+ * The leaf's meta column, per view: diff counts or the pull request number
+ * (Dev), how long ago it was active (Chat), or its agent count (Virtual).
+ * Glyphs and abbreviations are hidden; assistive technology reads words.
+ * A Virtual leaf with no known agent count falls back to its changes.
+ */
+function LeafMeta(props: { kind: NavLeafMetaKind; leaf: NavLeaf; now: number }) {
+  const time = () =>
+    props.kind === 'activity' ? navTimeAgo(props.leaf.lastActivityAt, props.now) : undefined
+  const agents = () => (props.kind === 'agents' ? props.leaf.agentCount : undefined)
+  const changes = () =>
+    (props.kind === 'changes' || (props.kind === 'agents' && agents() === undefined)) &&
+    Boolean(props.leaf.diff || props.leaf.pullRequest)
+  return (
+    <>
+      <Show when={time()}>
+        {(value) => (
+          <span class="workspace-nav-row-meta" data-meta="activity">
+            <Text variant="caption" tone="muted" numeric>
+              <span aria-hidden="true">{value().text}</span>
+              <span class="visually-hidden">{value().label}</span>
+            </Text>
+          </span>
+        )}
+      </Show>
+      <Show when={agents() !== undefined}>
+        <span class="workspace-nav-row-meta" data-meta="agents">
+          <Text variant="caption" tone="muted">
+            {navAgentCountLabel(agents() ?? 0)}
+          </Text>
+        </span>
+      </Show>
+      <Show when={changes()}>
+        <span class="workspace-nav-row-meta" data-meta="changes">
+          <LeafChanges leaf={props.leaf} />
+        </span>
+      </Show>
+    </>
+  )
+}
+
 /** Diff counts or the pull request number; words for assistive technology. */
-function LeafMeta(props: { leaf: NavLeaf }) {
+function LeafChanges(props: { leaf: NavLeaf }) {
   return (
     <Show
       when={props.leaf.diff}

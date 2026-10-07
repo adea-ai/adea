@@ -112,7 +112,14 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // `#workspace-settings/<section>` link handling. Total gzip moves to
   // 870 KiB (~1.3% headroom), files to 155, startup gzip to 233 KiB (~1.0%);
   // raw caps hold.
-  total: { rawBytes: 2_905_000, gzipBytes: 870 * 1024, fileCount: 155 },
+  // Design-consolidation app changes (2026-10-07): 2,930,192 raw / 891,219
+  // gzip across 154 files against the same build of main's 2,904,523 /
+  // 883,498 / 154. Source control (required approvals, review and checks
+  // context, file-type icons, timeline marks), Runtime Resources (trend
+  // charts, detail actions, attention issues), per-view nav meta and the
+  // @adea-ai/ui 0.113 → 0.115 bump. Raw ratchets to 2,960,000 (~1%
+  // headroom; main had 477 bytes); gzip to 880 KiB (~1.1%).
+  total: { rawBytes: 2_960_000, gzipBytes: 880 * 1024, fileCount: 155 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 233 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -145,7 +152,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // sidebar's Conversations and quick actions become shared exports the
     // Dev sidebar's lazy hosts reuse, and the Workspace details link helpers
     // add one small shared chunk. Raw holds; gzip moves to 37.5 KiB (~1.2%).
-    virtual: { rawBytes: 111 * 1024, gzipBytes: 38_400 },
+    // Design-consolidation app changes (2026-10-07): 115,213 raw / 38,663
+    // gzip across 16 files against the same build of main's 112,957 / 37,894
+    // / 15. The nav tree's per-view leaf meta (time ago, agent counts, room
+    // names), the draft-row hint, the group-by mode label and the
+    // @adea-ai/ui 0.115 sidebar options. Raw ratchets to 114 KiB (~1.3%
+    // headroom); gzip to 39,200 (~1.4%).
+    virtual: { rawBytes: 114 * 1024, gzipBytes: 39_200 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and
@@ -187,7 +200,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // same build of main's 297,244 / 97,895. Chat's own entry still imports the
     // shared Input, so only the workspace-create row itself leaves the route.
     // Raw ratchets down to 294 KiB (~1.6% headroom); gzip to 97 KiB (~1.7%).
-    chat: { rawBytes: 294 * 1024, gzipBytes: 97 * 1024 },
+    // Design-consolidation app changes (2026-10-07): 300,345 raw / 99,426
+    // gzip against the same build of main's 298,056 / 98,800; the same
+    // workspace-nav delta Virtual carries. Raw holds; gzip ratchets to
+    // 98 KiB (~0.9% headroom).
+    chat: { rawBytes: 294 * 1024, gzipBytes: 98 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the

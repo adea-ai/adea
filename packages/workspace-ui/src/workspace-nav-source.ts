@@ -33,6 +33,9 @@ import type { ProjectNavigationItem, WorkspaceNavigation } from './workspace-mod
  * - Leaf status is honest about what the cloud knows: a task in progress is
  *   running, a task in review is in review, everything else is idle. Unread
  *   conversation activity is a count on the leaf, not a status.
+ * - Channel leaves carry their agent participant count (the Virtual desk
+ *   meta). Projects carry no room name yet: the cloud has no field for one,
+ *   so Virtual labels rooms with the project name.
  * - Collapsed workspaces read the cloud account summary (unread channels and
  *   mentions). The desktop Dev summary arrives through `devSummary` once that
  *   source ships; until then running and needs-input counts are zero.
@@ -98,6 +101,11 @@ function unreadFor(
   return { count, marked: Boolean(state.manuallyUnread) }
 }
 
+/** Agents taking part in a channel: the Virtual desk's occupancy. */
+function agentCountFor(channel: ChannelSummary): number {
+  return channel.participants.filter((participant) => participant.kind === 'agent').length
+}
+
 function laterOf(left: string, right: string): string {
   return Date.parse(right) > Date.parse(left) ? right : left
 }
@@ -130,6 +138,7 @@ function projectLeaves(
       projectId: project.id,
       status: 'idle',
       ...(unread ? { unread } : {}),
+      agentCount: agentCountFor(checkoutChannel),
       lastActivityAt: checkoutChannel.updatedAt,
     })
   }
@@ -147,6 +156,7 @@ function projectLeaves(
       title: task?.title ?? channel.title,
       status: task ? taskLeafStatus(task.lifecycleState) : 'idle',
       ...(unread ? { unread } : {}),
+      agentCount: agentCountFor(channel),
       lastActivityAt: task ? laterOf(channel.updatedAt, task.updatedAt) : channel.updatedAt,
     })
   }

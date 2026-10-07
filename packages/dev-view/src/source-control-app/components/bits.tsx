@@ -2,16 +2,48 @@
  * loading/empty/error states every region needs. Provider text renders as
  * Solid text nodes only. */
 import type { GitHubActor, GitHubCheckRollupState } from '@adea-ai/types/dev-runtime'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Avatar, AvatarFallback } from '@adea-ai/ui/components/ui/avatar'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@adea-ai/ui/components/ui/empty'
+import { EntityIcon } from '@adea-ai/ui/components/ui/entity-icon'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
-import { For, Show, type JSX } from 'solid-js'
+import { Bot } from 'lucide-solid'
+import { For, Show, type Component, type JSX } from 'solid-js'
 
 import { changeCounts, displayLogin, initial } from '../model/format'
 import type { Facet } from '../model/status'
 import type { Tone } from '../model/types'
+
+/** A person's monogram, or for an agent a tinted bot mark, so an agent
+ *  reads as one at a glance even where no badge fits. Decorative: the
+ *  login beside it is the accessible name. */
+export function PersonAvatar(props: {
+  login: string
+  agent?: boolean
+  size?: 'xs' | 'sm' | 'md'
+}): JSX.Element {
+  return (
+    <Show
+      when={props.agent}
+      fallback={
+        <Avatar size={props.size ?? 'xs'} aria-hidden="true">
+          <AvatarFallback content={initial(props.login)} />
+        </Avatar>
+      }
+    >
+      <EntityIcon
+        name={displayLogin(props.login)}
+        shape="circle"
+        tone="primary"
+        size={props.size ?? 'xs'}
+        icon={Bot}
+        aria-hidden="true"
+      />
+    </Show>
+  )
+}
 
 export function Person(props: {
   actor?: GitHubActor
@@ -20,20 +52,38 @@ export function Person(props: {
   showName?: boolean
 }): JSX.Element {
   const login = () => props.actor?.login ?? 'ghost'
+  const agent = () => Boolean(props.agent || props.actor?.kind === 'bot')
   return (
     <span class="dev-scm-person">
-      <Avatar size={props.size ?? 'xs'} aria-hidden="true">
-        <AvatarFallback content={initial(login())} />
-      </Avatar>
+      <PersonAvatar login={login()} agent={agent()} {...(props.size ? { size: props.size } : {})} />
       <Show when={props.showName !== false}>
         <span class="dev-scm-truncate">{displayLogin(login())}</span>
       </Show>
-      <Show when={props.agent || props.actor?.kind === 'bot'}>
+      <Show when={agent()}>
         <Badge size="sm" variant="info">
           Agent
         </Badge>
       </Show>
     </span>
+  )
+}
+
+/** The small tinted mark leading a timeline event: what happened, as an
+ *  icon, with the tone of its outcome. Decorative; the sentence carries it. */
+export function EventMark(props: {
+  icon: Component
+  tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info'
+  label: string
+}): JSX.Element {
+  return (
+    <EntityIcon
+      name={props.label}
+      shape="circle"
+      size="sm"
+      tone={props.tone ?? 'neutral'}
+      icon={props.icon}
+      aria-hidden="true"
+    />
   )
 }
 
@@ -51,11 +101,11 @@ export function FacetChip(props: { facet: Facet; compact?: boolean }): JSX.Eleme
 const rollupTone: Record<GitHubCheckRollupState, Tone> = {
   success: 'success',
   failure: 'danger',
-  pending: 'info',
+  pending: 'pending',
   none: 'unknown',
 }
 
-const rollupLabel: Record<GitHubCheckRollupState, string> = {
+export const rollupLabel: Record<GitHubCheckRollupState, string> = {
   success: 'Passing',
   failure: 'Failing',
   pending: 'Running',
@@ -83,12 +133,13 @@ export function RollupChip(props: {
 export function ChangeCounts(props: {
   additions: number
   deletions: number
-  class?: string
+  /** Drop the add/delete colours, for a file the reviewer has viewed. */
+  muted?: boolean
 }): JSX.Element {
   const counts = () => changeCounts(props.additions, props.deletions)
   return (
     <span
-      class="dev-scm-numbers"
+      class={cn('dev-scm-numbers', { 'dev-scm-numbers--muted': props.muted })}
       aria-label={`${props.additions} additions, ${props.deletions} deletions`}
     >
       <span class="dev-scm-add">{counts().add}</span>{' '}

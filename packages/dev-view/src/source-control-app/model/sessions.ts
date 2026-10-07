@@ -13,6 +13,7 @@ export type WorktreeFact = Readonly<{
   id: string
   repoId?: string
   headRef?: string
+  path?: string
   archived: boolean
 }>
 
@@ -63,11 +64,30 @@ export function indexSessions(
       runtimeSessionId: session.id,
       projectId: session.projectId,
       worktreeId: worktree.id,
+      ...(worktree.path ? { worktreePath: worktree.path } : {}),
       title: session.displayName ?? branch,
       lifecycle: session.lifecycle,
     })
   }
   return index
+}
+
+const lifecycleLabels: Readonly<Record<string, string>> = {
+  preparing: 'Preparing',
+  ready: 'Idle',
+  active: 'Active',
+  disconnected: 'Disconnected',
+  completed: 'Completed',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+}
+
+/** A session lifecycle as the UI says it: "Idle", never the raw `ready`. */
+export function sessionLifecycleLabel(lifecycle: string): string {
+  const known = lifecycleLabels[lifecycle]
+  if (known) return known
+  const words = lifecycle.replace(/[_-]+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Unknown'
 }
 
 export function linkPullRequest(

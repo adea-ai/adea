@@ -25,6 +25,7 @@ import { For, Show, createEffect, createResource, createSignal, on, type JSX } f
 
 import { errorText, type ScmClient } from '../client'
 import { plural } from '../model/format'
+import { mergeWhenReadyCopy } from '../model/merge-dock'
 import { providerLabel, type ScmProvider } from '../model/types'
 import type { AccountState } from '../state'
 import { ChangeCounts } from './bits'
@@ -318,7 +319,7 @@ export function NewPullRequestDialog(props: {
           description={
             draft()
               ? 'Available once the pull request is not a draft.'
-              : 'Merges once approvals and checks are in.'
+              : mergeWhenReadyCopy(props.mergeMethod)
           }
         />
         <Show when={failure()}>

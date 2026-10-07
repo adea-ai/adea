@@ -438,6 +438,9 @@ export type GitHubPullRequestSummary = Readonly<{
   headRef: string
   headSha: string
   baseRef: string
+  /** The base branch commit the provider compares against (GitHub's base
+   *  ref oid, GitLab's diff start sha), when reported. */
+  baseSha?: string
   /** True when the head branch lives in a fork, not the base repository. */
   crossRepository: boolean
   additions: number
@@ -464,6 +467,10 @@ export type GitHubPullRequestSummary = Readonly<{
   autoMerge?: Readonly<{ method: GitHubMergeMethod; enabledBy?: string }>
   /** Commits the head is behind its base; only on a single-PR read. */
   behindBy?: number
+  /** Approving reviews the base branch requires, when the provider exposes
+   *  it to the viewer (GitHub rulesets or branch protection, GitLab approval
+   *  rules). Absent when unknown; never guessed. */
+  requiredApprovals?: number
   /** Merge methods the repository allows, in GitHub's order. */
   mergeMethods: readonly GitHubMergeMethod[]
   autoMergeAllowed: boolean

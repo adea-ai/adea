@@ -323,6 +323,7 @@ export function ConversationsSection(props: {
       headingAs="h2"
       role="region"
       aria-label="Conversations"
+      actionVisibility="always"
       action={
         <ActionButton
           type="button"
@@ -799,6 +800,7 @@ export function WorkspaceNavSidebar(props: Props) {
           'conventional-sidebar--open': props.mobileOpen,
         })}
         sheetClass="conventional-sidebar-sheet"
+        titleVisibility="mobile"
         contentClass="conventional-sidebar__content"
         footerClass="conventional-sidebar__footer-action"
         content={renderSidebarContent}

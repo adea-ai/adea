@@ -71,6 +71,21 @@ export function statusLabel(code: string): string {
   }
 }
 
+/** The commit box placeholder, counting each staged path once: an entry
+ *  with both staged and unstaged edits is still one staged file. */
+export function commitPlaceholder(grouped: Pick<GroupedStatus, 'staged'>): string {
+  const count = grouped.staged.length
+  if (count === 0) return 'Commit message (nothing staged)'
+  return `Commit message (${count.toLocaleString('en-US')} staged ${count === 1 ? 'file' : 'files'})`
+}
+
+/** A pane notice in sentence case: provider and runtime messages arrive as
+ *  lowercase fragments ("the worktree is dirty"). */
+export function sentenceCase(message: string): string {
+  const text = message.trim()
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text
+}
+
 /** Branch/upstream read-model line: `main`, `main…origin/main`, detached. */
 export function branchLabel(status: Pick<GitStatus, 'headRef' | 'headSha'>): string {
   return (

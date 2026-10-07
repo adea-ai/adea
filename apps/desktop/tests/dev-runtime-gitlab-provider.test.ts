@@ -96,6 +96,7 @@ function mrNode(overrides: Record<string, unknown> = {}) {
     sourceBranch: 'agent/juno/widgets',
     targetBranch: 'main',
     diffHeadSha: HEAD,
+    diffRefs: { startSha: 'c'.repeat(40) },
     sourceProjectId: 11,
     targetProjectId: 11,
     labels: { nodes: [{ title: 'area::frontend' }] },
@@ -401,6 +402,8 @@ describe('merge request read models', () => {
     expect(summary.draft).toBe(true)
     expect(summary.mergeState).toBe('blocked')
     expect(summary.reviewDecision).toBe('changes_requested')
+    expect(summary.requiredApprovals).toBe(2)
+    expect(summary.baseSha).toBe('c'.repeat(40))
     expect(summary.requestedReviewers).toEqual([{ login: 'octocat', kind: 'user' }])
     expect(summary.reviews).toEqual([
       { actor: { login: 'mika', kind: 'user', name: 'Mika' }, state: 'approved' },

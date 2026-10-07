@@ -664,7 +664,7 @@ test('leaves show their harness status and the checkout keeps its house row', as
   await expect(devLeaf(sidebar, 'docs/runtime-notes')).toContainText('Idle')
   // The checkout row never offers archive or delete.
   await checkout.hover()
-  await checkout.getByRole('button', { name: 'Options for feature/runtime' }).click()
+  await checkout.getByRole('button', { name: 'Worktree options for feature/runtime' }).click()
   const menu = page.getByRole('menu')
   await expect(menu.getByRole('menuitem', { name: 'Copy path' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Open in Finder' })).toBeVisible()
@@ -674,7 +674,7 @@ test('leaves show their harness status and the checkout keeps its house row', as
   await page.keyboard.press('Escape')
   // A worktree row renames, links, reveals, archives and deletes.
   await working.hover()
-  await working.getByRole('button', { name: 'Options for feature/example' }).click()
+  await working.getByRole('button', { name: 'Worktree options for feature/example' }).click()
   await expect(
     page
       .getByRole('menu')

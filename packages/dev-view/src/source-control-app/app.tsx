@@ -20,12 +20,13 @@ import {
   AlertDialogTitle,
 } from '@adea-ai/ui/components/ui/alert-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { Input } from '@adea-ai/ui/components/ui/input'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
+import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
 import { Popover, PopoverAnchor, PopoverContent } from '@adea-ai/ui/components/ui/popover'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import { Switch as Toggle } from '@adea-ai/ui/components/ui/switch'
 import { Toaster, toast } from '@adea-ai/ui/components/ui/toast'
-import { RefreshCw } from 'lucide-solid'
+import { RefreshCw, Search } from 'lucide-solid'
 import {
   For,
   Match,
@@ -134,22 +135,29 @@ function TopBarSearch(props: { state: SourceControlState; actions: AppActions })
   return (
     <Popover open={matches().length > 0} placement="bottom-start" gutter={4}>
       <PopoverAnchor>
-        <Input
-          type="search"
-          class="w-full min-w-0"
-          data-scm-search=""
-          placeholder="Search pull requests and branches"
-          aria-label="Search pull requests and branches"
-          value={query()}
-          onInput={(event) => setQuery(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') setQuery('')
-            if (event.key === 'Enter' && matches()[0]) {
-              props.actions.openPullRequest(matches()[0]!.pr)
-              setQuery('')
-            }
-          }}
-        />
+        <InputGroup class="w-full min-w-0" data-scm-search="">
+          <InputGroupAddon>
+            <Search aria-hidden="true" />
+          </InputGroupAddon>
+          <InputGroupInput
+            type="search"
+            placeholder="Search pull requests and branches"
+            aria-label="Search pull requests and branches"
+            aria-keyshortcuts="Meta+K"
+            value={query()}
+            onInput={(event) => setQuery(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setQuery('')
+              if (event.key === 'Enter' && matches()[0]) {
+                props.actions.openPullRequest(matches()[0]!.pr)
+                setQuery('')
+              }
+            }}
+          />
+          <InputGroupAddon align="end">
+            <KbdChord keys="⌘K" size="compact" />
+          </InputGroupAddon>
+        </InputGroup>
       </PopoverAnchor>
       <PopoverContent hideArrow aria-label="Search results">
         <div class="dev-scm-picker">
@@ -507,9 +515,13 @@ function ConnectedApp(
         <StatusBarSpacer />
         <Show when={statusPr()}>
           {(pr) => (
-            <StatusBarItem>
-              Head {shortSha(pr().headSha)} · base {pr().baseRef}
-            </StatusBarItem>
+            <>
+              <StatusBarItem>Head {shortSha(pr().headSha)}</StatusBarItem>
+              <StatusBarItem>
+                Base {pr().baseRef}
+                {pr().baseSha ? ` ${shortSha(pr().baseSha!)}` : ''}
+              </StatusBarItem>
+            </>
           )}
         </Show>
         <Show when={!statusPr() && statusProject()}>

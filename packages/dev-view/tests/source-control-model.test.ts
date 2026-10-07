@@ -6,9 +6,12 @@ import { describe, expect, test } from 'bun:test'
 
 import type { DiffHunk, GitStatus } from '@adea-ai/types/dev-runtime'
 
+import { checkStateLabel } from '../src/source-control/remote-model'
 import {
   branchLabel,
+  commitPlaceholder,
   groupStatus,
+  sentenceCase,
   hunkHeader,
   renderUnifiedDiff,
   splitFileHunks,
@@ -73,6 +76,25 @@ describe('source control model', () => {
       'conflict1.ts',
       'conflict2.ts',
     ])
+  })
+
+  test('the commit placeholder counts a path staged and modified once', () => {
+    const one = groupStatus({ entries: [entry('a.ts', 'M', 'M')] })
+    expect(commitPlaceholder(one)).toBe('Commit message (1 staged file)')
+    const two = groupStatus({ entries: [entry('a.ts', 'M', 'M'), entry('b.ts', 'A', '.')] })
+    expect(commitPlaceholder(two)).toBe('Commit message (2 staged files)')
+    expect(commitPlaceholder(groupStatus({ entries: [entry('c.ts', '.', 'M')] }))).toBe(
+      'Commit message (nothing staged)'
+    )
+  })
+
+  test('pane notices and check states read as words', () => {
+    expect(sentenceCase('  the worktree is dirty')).toBe('The worktree is dirty')
+    expect(sentenceCase('')).toBe('')
+    expect(checkStateLabel({ status: 'in_progress' })).toBe('Running')
+    expect(checkStateLabel({ status: 'queued' })).toBe('Queued')
+    expect(checkStateLabel({ status: 'completed', conclusion: 'timed_out' })).toBe('Timed out')
+    expect(checkStateLabel({ status: 'completed' })).toBe('Completed')
   })
 
   test('labels codes and branches', () => {
