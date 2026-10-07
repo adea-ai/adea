@@ -35,7 +35,7 @@ import type { SourceControlState } from '../state'
 const ciTone: Record<string, Tone> = {
   success: 'success',
   failure: 'danger',
-  pending: 'info',
+  pending: 'pending',
   none: 'unknown',
 }
 const ciWord: Record<string, string> = {

@@ -32,7 +32,7 @@ import { RollupChip, StateMessage, rollupLabel } from './bits'
 
 function checkTone(check: GitHubCheck): { tone: StatusTone; label: string } {
   if (check.status !== 'completed')
-    return { tone: 'info', label: check.status === 'queued' ? 'Queued' : 'Running' }
+    return { tone: 'pending', label: check.status === 'queued' ? 'Queued' : 'Running' }
   switch (check.conclusion) {
     case 'success':
       return { tone: 'success', label: 'Passed' }

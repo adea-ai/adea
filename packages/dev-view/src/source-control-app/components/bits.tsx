@@ -101,7 +101,7 @@ export function FacetChip(props: { facet: Facet; compact?: boolean }): JSX.Eleme
 const rollupTone: Record<GitHubCheckRollupState, Tone> = {
   success: 'success',
   failure: 'danger',
-  pending: 'info',
+  pending: 'pending',
   none: 'unknown',
 }
 

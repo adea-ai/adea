@@ -79,7 +79,7 @@ export function checksFacet(checks: GitHubCheckRollup): Facet {
     }
   if (checks.running > 0 || checks.state === 'pending')
     return {
-      tone: 'info',
+      tone: 'pending',
       label:
         checks.running > 0
           ? `${checks.passing.toLocaleString('en-US')} passing, ${checks.running.toLocaleString('en-US')} running`
