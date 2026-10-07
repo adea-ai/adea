@@ -19,6 +19,7 @@ import {
   type CookieSource,
 } from './cookie-import-model'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 import { isDevUtilityContextChanged } from '../utility-context'
 
 export type CookieImportPanelProps = Readonly<{
@@ -120,7 +121,9 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
   return (
     <div class="dev-browser__cookies">
       <div class="dev-browser__row">
-        <p class="dev-browser__section-title">Import cookies</p>
+        <Text variant="overline" class="mt-1.5 mx-2 block">
+          Import cookies
+        </Text>
         <div class="dev-browser__actions">
           <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
             Reload sources

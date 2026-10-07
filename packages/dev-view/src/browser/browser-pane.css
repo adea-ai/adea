@@ -80,15 +80,6 @@
   padding: 0.25rem;
 }
 
-.dev-browser__section-title {
-  padding: 0.35rem 0.5rem 0.15rem;
-  color: var(--muted-foreground);
-  font-size: calc(0.65rem * var(--font-ui-scale, 1));
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
 .dev-browser__row {
   display: flex;
   width: 100%;

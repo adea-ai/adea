@@ -7,6 +7,7 @@ import {
   type TerminalStreamSocket,
 } from './transport'
 import type { ShellObservation } from './blocks'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { ScrollArea } from '@adea-ai/ui/components/ui/scroll-area'
@@ -107,14 +108,16 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
       <div class="dev-terminal-pane-status" data-state={connection()}>
         {connection() === 'reconnecting' ? 'reconnecting' : connection()}
       </div>
-      <div
-        class="dev-terminal-pane-integration"
+      <Badge
+        size="sm"
+        variant={observations().length ? 'secondary' : 'outline'}
+        data-terminal-integration=""
         data-status={observations().length ? 'active' : 'pending'}
       >
         {observations().length
           ? 'Authenticated shell integration'
           : 'Waiting for shell integration'}
-      </div>
+      </Badge>
       <div class="dev-terminal-pane-cwd" data-cwd-source={cwd() ? 'authenticated' : 'pending'}>
         {cwd() ?? 'Awaiting authenticated cwd'}
       </div>
