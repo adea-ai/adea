@@ -281,6 +281,20 @@
       "when": 1791408928582,
       "tag": "0039_task-submission-ciphertext-retention",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791413646807,
+      "tag": "0040_workspace-deletions",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791413647328,
+      "tag": "0041_personal-workspaces",
+      "breakpoints": true
     }
   ]
 }

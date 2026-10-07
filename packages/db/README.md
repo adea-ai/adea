@@ -58,3 +58,5 @@ the column; parallel main-push migration and Worker jobs do not establish order.
 Production rollback is forward-only: deploy an application rollback while the expanded schema is
 compatible, then add a reviewed corrective migration. Point-in-time restore is for data-loss
 recovery, not routine schema rollback.
+
+Workspace migrations 0040/0041 are the [workspace schema expansion phase](../../docs/evidence/workspace-schema-expansion.md). They precede application use of personal identity/deletion metadata. Their snapshots preserve retention0039's expansion; runtime declarations remain staged ahead of activation. Do not generate migrations from an older declaration that would remove these columns or constraints. Verify production migration history/catalog before landing the matching application.
