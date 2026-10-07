@@ -101,8 +101,6 @@ function errorFields(error: unknown): ErrorLike {
 /** Text for a list that could not load; never echoes server text. */
 export function controlPlaneLoadNotice(subject: string, error: unknown): string {
   const { code, status } = errorFields(error)
-  if (code === 'CONTROL_PLANE_UNSCOPED')
-    return `${subject} need per-workspace Control Plane credentials, which this deployment has not enabled yet.`
   if (code === 'CONTROL_PLANE_UNAVAILABLE' || status === 503)
     return 'The Control Plane is unavailable right now. Try again later.'
   if (status === 404 && code !== 'workspace_unavailable')
@@ -115,8 +113,6 @@ export function controlPlaneLoadNotice(subject: string, error: unknown): string 
 export function controlPlaneActionNotice(action: string, error: unknown): string {
   const { code, status } = errorFields(error)
   switch (code) {
-    case 'CONTROL_PLANE_UNSCOPED':
-      return `${action} needs per-workspace Control Plane credentials, which this deployment has not enabled yet.`
     case 'CATALOG_ITEM_READ_ONLY':
       return 'System items are read-only for workspaces.'
     case 'CATALOG_CONTENT_INVALID':

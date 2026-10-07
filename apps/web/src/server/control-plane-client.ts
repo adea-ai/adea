@@ -5,10 +5,6 @@
  * exactly one envelope workspace, so a request may only ever run under a
  * per-request signed credential minted for the caller's own mapped `wsp_`.
  *
- * The static-token fallback is refused here: it authorizes one shared
- * Control Plane workspace for every Adea workspace, so a skill or a cloud
- * connection written through it would be visible to every other workspace.
- *
  * Nothing here logs a request or response body. Failures log one structured
  * line of operation, status and a sanitized code.
  *
@@ -20,7 +16,6 @@ import { createHash } from 'node:crypto'
 import {
   CONTROL_PLANE_SERVICE_PRINCIPAL_ID,
   controlPlaneCredential,
-  controlPlaneCredentialMode,
   type ControlPlaneCredential,
   type ControlPlaneScopeIds,
   type ControlPlaneServiceScope,
@@ -35,7 +30,6 @@ const CONTROL_PLANE_CODE_PATTERN = /^[A-Z][A-Z0-9_]{2,63}$/u
 
 export type ControlPlaneProxyErrorCode =
   | 'CONTROL_PLANE_UNAVAILABLE'
-  | 'CONTROL_PLANE_UNSCOPED'
   | 'CONTROL_PLANE_REQUEST_REJECTED'
   | (string & {})
 
@@ -99,41 +93,20 @@ export function adminCorrelation(request: Request | undefined, now = Date.now())
   }
 }
 
-/**
- * The signed credential for one administration hop, or a refusal. The
- * unscoped fallback is never used for these routes (see the module comment).
- */
+/** The signed credential for one administration hop, or a refusal. */
 export async function scopedAdminCredential(
   scopes: readonly ControlPlaneServiceScope[],
   dependencies: ControlPlaneHopDependencies
 ): Promise<ControlPlaneCredential> {
-  const environment = dependencies.environment ?? process.env
-  const mode = controlPlaneCredentialMode(environment)
-  if (mode === 'unscoped') throw unscopedError()
-  if (mode === 'unconfigured')
-    throw new ControlPlaneProxyError('CONTROL_PLANE_UNAVAILABLE', 'Control Plane is not configured')
-  let credential: ControlPlaneCredential
   try {
-    credential = await controlPlaneCredential(
+    return await controlPlaneCredential(
       { resolveScope: dependencies.resolveControlPlaneScope, scopes },
-      environment,
+      dependencies.environment ?? process.env,
       dependencies.now?.() ?? Date.now()
     )
   } catch {
     throw new ControlPlaneProxyError('CONTROL_PLANE_UNAVAILABLE', 'Control Plane is not configured')
   }
-  // Defence in depth: whatever the signer decided, an unscoped token never
-  // carries a workspace administration request.
-  if (credential.mode !== 'scoped') throw unscopedError()
-  return credential
-}
-
-function unscopedError() {
-  return new ControlPlaneProxyError(
-    'CONTROL_PLANE_UNSCOPED',
-    'Workspace skills and cloud connections need per-workspace Control Plane credentials, which this deployment has not enabled',
-    503
-  )
 }
 
 /** The read envelope context every list/get request carries. */

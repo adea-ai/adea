@@ -54,10 +54,6 @@
   "vars": {
     // Production Control Plane public origin (Railway), per CLOUDFLARE.md.
     "CONTROL_PLANE_ORIGIN": "https://control-planecontrol-api-production.up.railway.app",
-    // Server-side service scope shared with the Control Plane service
-    // credential's `workspaceIds` claim (credential adea-web-worker-v2).
-    // Unscoped fallback only, unused while the signer below is bound.
-    "CONTROL_PLANE_SCOPE_WORKSPACE_ID": "wsp_59RJWZSA7TXWDN0KN3KSV8478W",
     // Per-request signer (ADR 0013, docs/control-plane-credentials.md). The
     // issuer must equal the Control Plane's CONTROL_PLANE_SERVICE_AUTH_ISSUER.
     "CONTROL_PLANE_SIGNING_KEY_ID": "adea-web-signer-2026-10",
@@ -68,11 +64,6 @@
       "binding": "CONTROL_PLANE_SIGNING_KEY",
       "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
       "secret_name": "ADEA_CONTROL_PLANE_SIGNING_KEY",
-    },
-    {
-      "binding": "CONTROL_PLANE_SERVICE_TOKEN",
-      "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
-      "secret_name": "AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN",
     },
     {
       "binding": "DATABASE_URL",

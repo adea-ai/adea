@@ -101,12 +101,9 @@ export async function proxyMarketplaceInstallPlan(
       workspaceId: credential.workspaceId,
     },
   }
-  // Scoped: the key hashes the payload, which names the workspace's own
-  // `wsp_` scope, so each workspace has its own plan namespace. Unscoped
-  // keeps the original derivation unchanged.
-  const idempotencyKey = `marketplace-plan:${sha256(
-    canonicalJson(credential.mode === 'scoped' ? payload : input)
-  )}`
+  // The key hashes the payload, which names the workspace's own `wsp_`
+  // scope, so each workspace has its own plan namespace.
+  const idempotencyKey = `marketplace-plan:${sha256(canonicalJson(payload))}`
   return proxyControlPlane(
     credential,
     '/v1/marketplace/install-plan',
@@ -286,8 +283,7 @@ export async function proxyMarketplaceUninstall(
 
 /**
  * The credential for one marketplace hop: a per-request signed JWT for the
- * active workspace's mapped scope, or — until the signing key is provisioned
- * — the static token and its single configured workspace, unchanged.
+ * active workspace's mapped scope. Without one the hop fails closed.
  */
 async function marketplaceCredential(
   scope: ControlPlaneServiceScope,

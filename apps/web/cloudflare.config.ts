@@ -33,13 +33,10 @@ export default defineConfig({
     env: {
       ASSETS: bindings.assets(),
       HYPERDRIVE: bindings.hyperdrive({ id: '5faad934a0a14a29bbb4780ca2f53fa6' }),
-      // Marketplace proxy: production Control Plane (Railway) and the
-      // server-side service scope shared with the adea-web-worker-v2
-      // credential's `workspaceIds` claim.
+      // Marketplace proxy: production Control Plane (Railway).
       CONTROL_PLANE_ORIGIN: bindings.text(
         'https://control-planecontrol-api-production.up.railway.app'
       ),
-      CONTROL_PLANE_SCOPE_WORKSPACE_ID: bindings.text('wsp_59RJWZSA7TXWDN0KN3KSV8478W'),
       // Per-request signer (ADR 0013, docs/control-plane-credentials.md).
       // The issuer must equal the Control Plane's
       // CONTROL_PLANE_SERVICE_AUTH_ISSUER. Mirrored in wrangler.jsonc.
@@ -49,13 +46,6 @@ export default defineConfig({
       }),
       CONTROL_PLANE_SIGNING_KEY_ID: bindings.text('adea-web-signer-2026-10'),
       CONTROL_PLANE_SIGNING_ISSUER: bindings.text('https://m9-certification.control-plane.invalid'),
-      // Unscoped fallback bearer credential (Ed25519 service JWT,
-      // adea-web-worker-v2, expires 2027-10-01), unused while the signer is
-      // bound; removed in step 6 of the runbook.
-      CONTROL_PLANE_SERVICE_TOKEN: bindings.secretsStoreSecret({
-        storeId: controlPlaneStore,
-        secretName: 'AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN',
-      }),
       // Neon production branch, pooled owner role (Worker fallback for the
       // Hyperdrive connection) and the Neon Auth endpoint it pairs with.
       DATABASE_URL: bindings.secretsStoreSecret({

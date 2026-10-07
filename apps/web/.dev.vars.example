@@ -6,11 +6,9 @@ NEON_AUTH_BASE_URL=https://replace-with-development-branch.neonauth.example/neon
 NEON_AUTH_COOKIE_SECRET=replace-with-at-least-32-random-characters
 AUTH_TRUSTED_ORIGINS=http://localhost:3000
 CONTROL_PLANE_ORIGIN=https://control-plane.example
-CONTROL_PLANE_SERVICE_TOKEN=replace-with-service-token
-CONTROL_PLANE_SCOPE_WORKSPACE_ID=replace-with-workspace-id
 # Per-request signed Control Plane credentials (ADR 0013,
-# docs/control-plane-credentials.md). Leave CONTROL_PLANE_SIGNING_KEY empty to
-# use the static token above (the deployment then reports `unscoped`).
+# docs/control-plane-credentials.md). With CONTROL_PLANE_SIGNING_KEY empty,
+# every Control Plane request fails closed with CONTROL_PLANE_UNAVAILABLE.
 CONTROL_PLANE_SIGNING_KEY=
 CONTROL_PLANE_SIGNING_KEY_ID=
 CONTROL_PLANE_SIGNING_ISSUER=

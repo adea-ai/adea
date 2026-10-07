@@ -7,8 +7,10 @@ project) the request is for. This is the Adea half of
 how the mapping and signer work, and the owner runbook for provisioning,
 verifying, rotating and finally removing the static-token fallback.
 
-None of the commands below have been run against production. Run them only
-as the owner, against the environment you mean to change.
+The production signer was provisioned on 2026-10-06 with key id
+`adea-web-signer-2026-10`, and the static-token fallback has since been
+removed from the code (step 6). Run the commands below only as the owner,
+against the environment you mean to change.
 
 ## How it works
 
@@ -77,10 +79,9 @@ as the owner, against the environment you mean to change.
 - **Workspace Skills and cloud connections.** The catalog and credential
   vault routes (Workspace settings › Skills and › Connections › Cloud) speak
   contract major 3
-  (`/v1/catalog/{skills,profiles}/*`, `/v1/credentials/*`) and run only under a signed credential: in the
-  static-token fallback they answer `503 CONTROL_PLANE_UNSCOPED` without
-  calling the Control Plane, because that token's single shared workspace
-  would leak every skill and connection across Adea workspaces. Any member
+  (`/v1/catalog/{skills,profiles}/*`, `/v1/credentials/*`) and, like every
+  Control Plane route, run only under a signed credential for the caller's
+  own mapped workspace. Any member
   may read; publish, deprecate, revoke and every credential write need
   `workspace.update` (owners and admins). The cloud connection secret is
   write-only: Adea accepts it on create and rotate, forwards it once in the
@@ -96,19 +97,16 @@ as the owner, against the environment you mean to change.
   `wsp_`. Each workspace therefore has its own installations and idempotency
   namespace. The Control Plane keys installs by (workspace, key), and the
   install-plan key hashes the scoped payload.
-- **Fallback.** While `CONTROL_PLANE_SIGNING_KEY` is unset, the proxy keeps
-  using `CONTROL_PLANE_SERVICE_TOKEN` and the single
-  `CONTROL_PLANE_SCOPE_WORKSPACE_ID` exactly as before. Each Worker isolate
-  logs one `control_plane.credential.unscoped` warning so the deployment
-  reports that it is unscoped. The fallback credential names no project, so
+- **No fallback.** There is no static-token path. A deployment without
+  `CONTROL_PLANE_SIGNING_KEY` has no Control Plane credential: marketplace,
+  Skills and cloud connection requests fail closed with
+  `503 CONTROL_PLANE_UNAVAILABLE` without calling the Control Plane, and
   project-state initialization is skipped with a
-  `control_plane.project_state.initialize_skipped` debug line; projects
-  created before the signer is provisioned are initialized lazily later.
-  Uninstall works in the fallback only if the static credential was minted
-  with `marketplace:uninstall`; otherwise the Control Plane answers `403` and
-  Adea reports `MARKETPLACE_REQUEST_REJECTED`. If the key is set but the key id, issuer,
-  key format or workspace mapping is invalid, requests fail closed with
-  `CONTROL_PLANE_UNAVAILABLE`. They do not silently fall back.
+  `control_plane.project_state.initialize_skipped` debug line (the lazy path
+  initializes the project once a key is bound). If the key is set but the key
+  id, issuer, key format or workspace mapping is invalid, requests fail
+  closed the same way. `CONTROL_PLANE_SERVICE_TOKEN` and
+  `CONTROL_PLANE_SCOPE_WORKSPACE_ID` are no longer read.
 
 | Name                           | Kind                   | Value                                                              |
 | ------------------------------ | ---------------------- | ------------------------------------------------------------------ |
@@ -150,8 +148,8 @@ key id for a different key.
 
 On the Control Plane `control-api` service, append the public key to
 `CONTROL_PLANE_SERVICE_AUTH_TRUSTED_KEYS`. That variable is a JSON array of
-1–32 entries with unique key ids. Keep the existing entry for the current
-static token:
+1–32 entries with unique key ids. Keep the existing entry for the static
+token until step 6 retires it:
 
 ```json
 [
@@ -229,8 +227,7 @@ Common rejections:
   you minted for.
 
 Then open Plugins in two different workspaces on the deployed host. Each
-should list its own installations, and the Worker logs should no longer show
-`control_plane.credential.unscoped`. Create a project and check that the
+should list its own installations. Create a project and check that the
 Worker logs show no `control_plane.project_state.initialize_failed` line for
 it.
 
@@ -249,14 +246,24 @@ For an emergency, add the offending `credentialId` values (`adea-web:<uuid>`)
 to `CONTROL_PLANE_SERVICE_AUTH_REVOKED_CREDENTIAL_IDS`. To revoke a leaked
 key, remove its public key from the trusted keys.
 
-### 6. Remove the static-token fallback (separate change)
+### 6. Remove the static-token fallback
 
-After step 4 passes in production:
+Code side done: the signer was provisioned in production on 2026-10-06
+(`adea-web-signer-2026-10`), and this repository no longer has the fallback.
 
-1. Delete `CONTROL_PLANE_SERVICE_TOKEN` and `CONTROL_PLANE_SCOPE_WORKSPACE_ID`
-   from both deploy configs, the env examples and the client denylist.
-2. Delete `fallbackCredential` from the signer.
-3. Revoke the static credential (`adea-web-worker-v2`, per CLOUDFLARE.md).
-   Add its `credentialId` to `CONTROL_PLANE_SERVICE_AUTH_REVOKED_CREDENTIAL_IDS`
-   and drop its key (`adea-web-2026-10`) from the trusted keys.
-4. Delete the `AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN` store record.
+1. Done: `CONTROL_PLANE_SERVICE_TOKEN` and `CONTROL_PLANE_SCOPE_WORKSPACE_ID`
+   are gone from both deploy configs, the env examples and the client
+   denylist.
+2. Done: `fallbackCredential` and the `unscoped` mode are gone from the
+   signer, together with the `CONTROL_PLANE_UNSCOPED` refusal. Without a
+   signing key every request fails closed with `CONTROL_PLANE_UNAVAILABLE`.
+
+Remaining owner actions, after the change above is deployed:
+
+3. Revoke the static credential (`adea-web-worker-v2`). On the Control Plane
+   `control-api` service, add its `credentialId` to
+   `CONTROL_PLANE_SERVICE_AUTH_REVOKED_CREDENTIAL_IDS`, drop its trusted key
+   (`adea-web-2026-10`) from `CONTROL_PLANE_SERVICE_AUTH_TRUSTED_KEYS`, and
+   redeploy `control-api`.
+4. Delete the `AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN` record from
+   the `control-plane-neon` Secrets Store. No binding references it any more.

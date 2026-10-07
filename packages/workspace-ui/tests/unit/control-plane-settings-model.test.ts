@@ -123,8 +123,8 @@ describe('cloud connections presentation', () => {
   })
 
   test('maps failures to fixed text that never echoes the server', () => {
-    const unscoped = { code: 'CONTROL_PLANE_UNSCOPED', status: 503 }
-    expect(controlPlaneLoadNotice('Skills', unscoped)).toContain('per-workspace')
+    const unavailable = { code: 'CONTROL_PLANE_UNAVAILABLE', status: 503 }
+    expect(controlPlaneLoadNotice('Skills', unavailable)).toContain('unavailable')
     expect(controlPlaneLoadNotice('Skills', { status: 503 })).toContain('unavailable')
     expect(controlPlaneLoadNotice('Cloud connections', { code: 'NOT_FOUND', status: 404 })).toBe(
       'This Control Plane does not offer cloud connections yet.'
@@ -133,7 +133,6 @@ describe('cloud connections presentation', () => {
     expect(controlPlaneLoadNotice('Skills', new Error('boom'))).toBe(
       'Skills could not be loaded. Try again.'
     )
-    expect(controlPlaneActionNotice('Revoking x', unscoped)).toContain('per-workspace')
     expect(controlPlaneActionNotice('Revoking x', { code: 'CATALOG_ITEM_READ_ONLY' })).toContain(
       'read-only'
     )

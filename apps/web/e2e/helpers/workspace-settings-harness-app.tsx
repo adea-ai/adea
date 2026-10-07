@@ -95,7 +95,7 @@ function Harness() {
     .querySelector('#harness-root')
     ?.getAttribute('data-control-plane')
   const client =
-    controlPlaneMode === 'scoped' || controlPlaneMode === 'unscoped'
+    controlPlaneMode === 'scoped' || controlPlaneMode === 'unavailable'
       ? controlPlaneSettingsClient(controlPlaneMode)
       : undefined
   return (

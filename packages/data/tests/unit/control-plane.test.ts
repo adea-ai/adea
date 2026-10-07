@@ -61,7 +61,7 @@ describe('control plane query contracts', () => {
     ])
     expect(controlPlaneQueryOptions.skills(api, undefined).enabled).toBe(false)
     expect(controlPlaneQueryOptions.cloudConnections(api, 'w', false).enabled).toBe(false)
-    // A refusal (unscoped deployment, missing route) is a state, not a retry loop.
+    // A refusal (unconfigured deployment, missing route) is a state, not a retry loop.
     expect(controlPlaneQueryOptions.skills(api, 'w').retry).toBe(false)
     await controlPlaneQueryOptions.skills(api, 'w').queryFn()
     await controlPlaneQueryOptions.agentProfiles(api, 'w').queryFn()

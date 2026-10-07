@@ -7,9 +7,9 @@
  * only the scopes the route needs. The private key is a Worker secret that
  * never reaches the client bundle (see start/client-policy.mjs).
  *
- * Until the signing key is provisioned, the static service token and its one
- * configured workspace remain the fallback and the deployment reports that it
- * runs unscoped. The runbook is docs/control-plane-credentials.md.
+ * There is no static-token fallback: a deployment without the signing key
+ * has no Control Plane credential and every request fails closed. The
+ * runbook is docs/control-plane-credentials.md.
  *
  * No `server-only` marker: Bun-run unit tests import this module directly,
  * and the compiled client-boundary guard keeps `src/server` out of browsers.
@@ -43,8 +43,6 @@ export type ControlPlaneServiceScope =
 export type ControlPlaneScopeIds = Readonly<{ workspaceId: string; projectId?: string }>
 
 export type ControlPlaneCredential = Readonly<{
-  /** `scoped`: signed per request; `unscoped`: the static fallback token. */
-  mode: 'scoped' | 'unscoped'
   /** The bearer value for the `Authorization` header. */
   token: string
   /** The Control Plane workspace the envelope must name. */
@@ -52,14 +50,11 @@ export type ControlPlaneCredential = Readonly<{
   projectId?: string
 }>
 
-export type ControlPlaneCredentialMode = 'scoped' | 'unconfigured' | 'unscoped'
+export type ControlPlaneCredentialMode = 'scoped' | 'unconfigured'
 
 export type ControlPlaneCredentialRequest = Readonly<{
   scopes: readonly ControlPlaneServiceScope[]
-  /**
-   * Resolves the request's mapped Control Plane scope. Only consulted when
-   * signing; the unscoped fallback always uses its one configured workspace.
-   */
+  /** Resolves the request's mapped Control Plane scope. */
   resolveScope?: () => Promise<ControlPlaneScopeIds | null>
 }>
 
@@ -74,43 +69,19 @@ export class ControlPlaneCredentialError extends Error {
 }
 
 /**
- * Which credential path this deployment uses. `unscoped` means the static
- * fallback token is in use (ADR 0013 requires the deployment to report it).
+ * Whether this deployment can sign Control Plane credentials. `unconfigured`
+ * means no signing key is bound, so every Control Plane request fails closed.
  */
 export function controlPlaneCredentialMode(
   environment: Environment = process.env
 ): ControlPlaneCredentialMode {
-  if (environment.CONTROL_PLANE_SIGNING_KEY?.trim()) return 'scoped'
-  if (environment.CONTROL_PLANE_SERVICE_TOKEN?.trim()) return 'unscoped'
-  return 'unconfigured'
-}
-
-let reportedUnscoped = false
-
-function reportUnscopedOnce(): void {
-  if (reportedUnscoped) return
-  reportedUnscoped = true
-  // One structured line per isolate: Workers observability picks it up, and
-  // it names the missing secret without echoing any value.
-  console.warn(
-    JSON.stringify({
-      event: 'control_plane.credential.unscoped',
-      message:
-        'CONTROL_PLANE_SIGNING_KEY is not set; using the static service token and its single configured workspace (ADR 0013 fallback)',
-    })
-  )
-}
-
-/** Test seam: lets a suite observe the once-per-isolate report again. */
-export function resetUnscopedReportForTests(): void {
-  reportedUnscoped = false
+  return environment.CONTROL_PLANE_SIGNING_KEY?.trim() ? 'scoped' : 'unconfigured'
 }
 
 /**
- * The credential for one Control Plane request. Signs when the signing key is
- * configured; otherwise falls back to the static token exactly as before.
- * A partially configured signer fails closed rather than silently falling
- * back, so a broken rollout is visible instead of quietly unscoped.
+ * The signed credential for one Control Plane request. Without a signing key
+ * it throws `unconfigured`; a partially configured signer or an unmapped
+ * workspace throws too, so every caller fails closed.
  */
 export async function controlPlaneCredential(
   request: ControlPlaneCredentialRequest,
@@ -118,7 +89,7 @@ export async function controlPlaneCredential(
   now: number = Date.now()
 ): Promise<ControlPlaneCredential> {
   const signingKey = environment.CONTROL_PLANE_SIGNING_KEY?.trim()
-  if (!signingKey) return fallbackCredential(environment)
+  if (!signingKey) throw new ControlPlaneCredentialError('unconfigured')
 
   const keyId = environment.CONTROL_PLANE_SIGNING_KEY_ID?.trim() ?? ''
   const issuer = environment.CONTROL_PLANE_SIGNING_ISSUER?.trim() ?? ''
@@ -148,20 +119,10 @@ export async function controlPlaneCredential(
     workspaceIds: [scope.workspaceId],
   })
   return Object.freeze({
-    mode: 'scoped',
     token,
     workspaceId: scope.workspaceId,
     ...(scope.projectId ? { projectId: scope.projectId } : {}),
   })
-}
-
-function fallbackCredential(environment: Environment): ControlPlaneCredential {
-  const token = environment.CONTROL_PLANE_SERVICE_TOKEN?.trim()
-  const workspaceId = environment.CONTROL_PLANE_SCOPE_WORKSPACE_ID?.trim()
-  if (!workspaceId || !WORKSPACE_ID_PATTERN.test(workspaceId) || !token)
-    throw new ControlPlaneCredentialError('unconfigured')
-  reportUnscopedOnce()
-  return Object.freeze({ mode: 'unscoped', token, workspaceId })
 }
 
 function isIssuer(value: string, environment: Environment): boolean {

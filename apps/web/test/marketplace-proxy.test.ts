@@ -25,8 +25,8 @@ const previousEnvironment = Object.fromEntries(
 )
 const previousFetch = globalThis.fetch
 
-// The suite exercises the static-token fallback unless a test opts into
-// signing, whatever the developer's shell exports.
+// Every test configures signing itself, whatever the developer's shell
+// exports (including a leftover static token from the retired fallback).
 for (const key of environmentKeys) delete process.env[key]
 
 afterEach(() => {
@@ -38,26 +38,46 @@ afterEach(() => {
   }
 })
 
+async function configureSigning() {
+  const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
+    'sign',
+    'verify',
+  ])) as CryptoKeyPair
+  process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
+  process.env.CONTROL_PLANE_SIGNING_KEY = JSON.stringify(
+    await crypto.subtle.exportKey('jwk', pair.privateKey)
+  )
+  process.env.CONTROL_PLANE_SIGNING_KEY_ID = 'adea-web-test'
+  process.env.CONTROL_PLANE_SIGNING_ISSUER = 'https://adea.example/control-plane'
+  return pair.publicKey
+}
+
+/** The mapped Control Plane scope the first suite's workspace resolves to. */
+const SCOPE = 'wsp_01JABCDEF0123456789ABCDEFG'
+const mapped = { resolveControlPlaneScope: async () => ({ workspaceId: SCOPE }) }
+
 describe('marketplace Control Plane proxy', () => {
   test('emits canonical opaque identifiers in service envelopes', async () => {
-    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
-    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
-    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
+    await configureSigning()
     const requests: Record<string, unknown>[] = []
     globalThis.fetch = async (_input, init) => {
       requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
       return Response.json({ data: { ok: true } })
     }
 
-    await proxyMarketplaceCatalog({ userId: 'user-1', workspaceId: 'workspace-1' })
-    await proxyMarketplaceInstall({
-      canonicalContentDigest: `sha256:${'a'.repeat(64)}`,
-      idempotencyKey: 'marketplace-install-1',
-      pluginId: 'plugin:openai-official:gmail',
-      releaseId: `release:${'b'.repeat(64)}`,
-      requestedHarness: 'codex',
-      workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
-    })
+    await proxyMarketplaceCatalog({ userId: 'user-1', workspaceId: 'workspace-1' }, {}, mapped)
+    await proxyMarketplaceInstall(
+      {
+        canonicalContentDigest: `sha256:${'a'.repeat(64)}`,
+        idempotencyKey: 'marketplace-install-1',
+        pluginId: 'plugin:openai-official:gmail',
+        releaseId: `release:${'b'.repeat(64)}`,
+        requestedHarness: 'codex',
+        workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
+      },
+      {},
+      mapped
+    )
 
     expect(requests).toHaveLength(2)
     expect(requests[0]?.requestId).toMatch(/^req_[0-9A-HJKMNP-TV-Z]{26}$/u)
@@ -75,32 +95,38 @@ describe('marketplace Control Plane proxy', () => {
     // Control Plane rejects identities outside the envelope workspace (the
     // tenant is the service scope), and installations are tracked under that
     // scope — so the caller's Agent HQ workspace id never crosses the hop.
-    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
-    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
-    const scope = 'wsp_01JABCDEF0123456789ABCDEFG'
-    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = scope
+    await configureSigning()
+    const scope = SCOPE
     const requests: Record<string, unknown>[] = []
     globalThis.fetch = async (_input, init) => {
       requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
       return Response.json({ data: { ok: true } })
     }
 
-    await proxyMarketplaceCatalog({ userId: 'user-1', workspaceId: 'workspace-1' })
-    await proxyMarketplaceInstallPlan({
-      instanceId: 'instance-1',
-      pluginId: 'plugin:openai-official:gmail',
-      releaseId: `release:${'b'.repeat(64)}`,
-      requestedHarness: 'codex',
-      workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
-    })
-    await proxyMarketplaceInstall({
-      canonicalContentDigest: `sha256:${'a'.repeat(64)}`,
-      idempotencyKey: 'marketplace-install-2',
-      pluginId: 'plugin:openai-official:gmail',
-      releaseId: `release:${'b'.repeat(64)}`,
-      requestedHarness: 'codex',
-      workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
-    })
+    await proxyMarketplaceCatalog({ userId: 'user-1', workspaceId: 'workspace-1' }, {}, mapped)
+    await proxyMarketplaceInstallPlan(
+      {
+        instanceId: 'instance-1',
+        pluginId: 'plugin:openai-official:gmail',
+        releaseId: `release:${'b'.repeat(64)}`,
+        requestedHarness: 'codex',
+        workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
+      },
+      {},
+      mapped
+    )
+    await proxyMarketplaceInstall(
+      {
+        canonicalContentDigest: `sha256:${'a'.repeat(64)}`,
+        idempotencyKey: 'marketplace-install-2',
+        pluginId: 'plugin:openai-official:gmail',
+        releaseId: `release:${'b'.repeat(64)}`,
+        requestedHarness: 'codex',
+        workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
+      },
+      {},
+      mapped
+    )
 
     expect(requests).toHaveLength(3)
     for (const request of requests) {
@@ -120,9 +146,7 @@ describe('marketplace Control Plane proxy', () => {
     // has ids, the hop reuses them instead of starting a new chain at the
     // proxy boundary — and a malformed or unbounded value is discarded
     // rather than forwarded, so a propagated id is never trusted, only carried.
-    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
-    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
-    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
+    await configureSigning()
     const sent: Array<{ body: Record<string, unknown>; headers: HeadersInit | undefined }> = []
     globalThis.fetch = async (_input, init) => {
       sent.push({
@@ -137,7 +161,7 @@ describe('marketplace Control Plane proxy', () => {
         headers: { 'x-request-id': 'edge-req-42', 'x-correlation-id': 'edge-trace-7' },
       })
     )
-    await proxyMarketplaceCatalog({ userId: 'user-1', workspaceId: 'workspace-1' }, inbound)
+    await proxyMarketplaceCatalog({ userId: 'user-1', workspaceId: 'workspace-1' }, inbound, mapped)
 
     expect(sent[0]?.body.requestId).toBe('edge-req-42')
     expect(sent[0]?.body.correlation).toMatchObject({ traceId: 'edge-trace-7' })
@@ -154,7 +178,8 @@ describe('marketplace Control Plane proxy', () => {
       const request = new Request('https://app.example/api/marketplace/catalog', { headers: bad })
       await proxyMarketplaceCatalog(
         { userId: 'user-1', workspaceId: 'workspace-1' },
-        inboundCorrelation(request)
+        inboundCorrelation(request),
+        mapped
       )
     }
     for (const hop of sent.slice(1))
@@ -162,15 +187,14 @@ describe('marketplace Control Plane proxy', () => {
   })
 
   test('returns the request id on the streaming catalog response', async () => {
-    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
-    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
-    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
+    await configureSigning()
     globalThis.fetch = async () =>
       new Response('{"data":[]}', { headers: { 'content-type': 'application/json' } })
 
     const response = await proxyMarketplaceCatalog(
       { userId: 'user-1', workspaceId: 'workspace-1' },
-      { requestId: 'edge-req-99' }
+      { requestId: 'edge-req-99' },
+      mapped
     )
     expect(response.headers.get('x-request-id')).toBe('edge-req-99')
   })
@@ -179,21 +203,24 @@ describe('marketplace Control Plane proxy', () => {
     // Buffering + re-serializing the multi-megabyte catalog in the worker
     // exceeds Cloudflare's resource limits, so the catalog read must pass
     // the Control Plane response through verbatim.
-    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
-    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
-    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
+    await configureSigning()
     const envelope = JSON.stringify({
       data: { catalogId: 'catalog-1', artifacts: { 'catalog.v1.json': '{}'.repeat(64) } },
       meta: {},
     })
     let sawCredential = false
     globalThis.fetch = (async (_input, init) => {
-      sawCredential =
-        String(new Headers(init?.headers).get('Authorization')) === 'Bearer test-token'
+      sawCredential = /^Bearer [\w-]+\.[\w-]+\.[\w-]+$/u.test(
+        String(new Headers(init?.headers).get('Authorization'))
+      )
       return new Response(envelope, { headers: { 'content-type': 'application/json' } })
     }) as typeof fetch
 
-    const response = await proxyMarketplaceCatalog({ userId: 'user-1', workspaceId: 'workspace-1' })
+    const response = await proxyMarketplaceCatalog(
+      { userId: 'user-1', workspaceId: 'workspace-1' },
+      {},
+      mapped
+    )
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('application/json')
     // Verbatim passthrough: the envelope reaches the caller unparsed.
@@ -202,37 +229,19 @@ describe('marketplace Control Plane proxy', () => {
   })
 
   test('preserves the upstream status when the Control Plane rejects a read', async () => {
-    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
-    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
-    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
+    await configureSigning()
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ error: { code: 'NOPE' } }), { status: 404 })) as typeof fetch
 
-    const failure = await proxyMarketplaceCatalog({
-      userId: 'user-1',
-      workspaceId: 'workspace-1',
-    }).catch((error: unknown) => error as { status?: number })
+    const failure = await proxyMarketplaceCatalog(
+      { userId: 'user-1', workspaceId: 'workspace-1' },
+      {},
+      mapped
+    ).catch((error: unknown) => error as { status?: number })
 
     expect(failure?.status).toBe(404)
   })
 })
-
-async function configureSigning() {
-  const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
-    'sign',
-    'verify',
-  ])) as CryptoKeyPair
-  process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
-  process.env.CONTROL_PLANE_SIGNING_KEY = JSON.stringify(
-    await crypto.subtle.exportKey('jwk', pair.privateKey)
-  )
-  process.env.CONTROL_PLANE_SIGNING_KEY_ID = 'adea-web-test'
-  process.env.CONTROL_PLANE_SIGNING_ISSUER = 'https://adea.example/control-plane'
-  // The static fallback stays configured: signing must take precedence.
-  process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
-  process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
-  return pair.publicKey
-}
 
 describe('per-workspace Control Plane scopes (ADR 0013)', () => {
   const homeScope = 'wsp_01JABCDEF0123456789ABCDEF0'
@@ -338,41 +347,41 @@ describe('per-workspace Control Plane scopes (ADR 0013)', () => {
     expect(sent).toHaveLength(0)
   })
 
-  test('without the signing key, keeps the static token and single scope', async () => {
+  test('without the signing key, fails closed before any hop', async () => {
     process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
+    // A leftover static token from the retired fallback is never used.
     process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
     process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
     const sent: Sent[] = []
     captureRequests(sent)
     let resolved = false
-    await proxyMarketplaceCatalog(
-      { userId: 'user-1', workspaceId: 'workspace-home' },
-      {},
-      {
-        resolveControlPlaneScope: async () => {
-          resolved = true
-          return { workspaceId: homeScope }
-        },
-      }
-    )
-    expect(resolved).toBeFalse()
-    expect(sent[0]?.token).toBe('test-token')
-    expect(sent[0]?.body.workspaceId).toBe('wsp_01JABCDEF0123456789ABCDEFG')
-
-    // The plan idempotency key keeps its original derivation (the caller's
-    // input, Adea workspace id included), so in-flight retries still replay.
-    const input = {
-      instanceId: 'instance-1',
-      pluginId: 'plugin:openai-official:gmail',
-      releaseId: `release:${'b'.repeat(64)}`,
-      requestedHarness: 'codex',
-      workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-home' },
+    const dependencies = {
+      resolveControlPlaneScope: async () => {
+        resolved = true
+        return { workspaceId: homeScope }
+      },
     }
-    await proxyMarketplaceInstallPlan(input)
-    const canonical = `{"instanceId":"instance-1","pluginId":"plugin:openai-official:gmail","releaseId":"release:${'b'.repeat(64)}","requestedHarness":"codex","workspaceIdentity":{"userId":"user-1","workspaceId":"workspace-home"}}`
-    expect(sent[1]?.body.idempotencyKey).toBe(
-      `marketplace-plan:${createHash('sha256').update(canonical).digest('hex')}`
-    )
+    for (const call of [
+      () =>
+        proxyMarketplaceCatalog(
+          { userId: 'user-1', workspaceId: 'workspace-home' },
+          {},
+          dependencies
+        ),
+      () =>
+        proxyMarketplaceUninstall(
+          { installationId: 'ins_0123456789abcdef0123456789', userId: 'user-1' },
+          {},
+          dependencies
+        ),
+    ]) {
+      const failure = await call().catch(
+        (error: unknown) => error as { code?: string; status?: number }
+      )
+      expect(failure).toMatchObject({ code: 'CONTROL_PLANE_UNAVAILABLE', status: 503 })
+    }
+    expect(resolved).toBeFalse()
+    expect(sent).toHaveLength(0)
   })
 })
 
@@ -447,31 +456,6 @@ describe('marketplace installation get and uninstall', () => {
     expect(uninstall.idempotencyKey).toBe(`marketplace-uninstall:${uninstall.payloadHash}`)
     expect(String(uninstall.idempotencyKey).length).toBeLessThanOrEqual(128)
     expect(hops[3]?.body.idempotencyKey).not.toBe(uninstall.idempotencyKey)
-  })
-
-  test('fallback: uses the static token and its single scope', async () => {
-    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
-    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
-    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
-    const hops: Hop[] = []
-    capture(hops, () =>
-      Response.json({ data: { installation: { installationId }, replayed: true } })
-    )
-    let resolved = false
-    const response = await proxyMarketplaceUninstall(
-      { installationId, userId: 'user-1' },
-      {},
-      {
-        resolveControlPlaneScope: async () => {
-          resolved = true
-          return { workspaceId: homeScope }
-        },
-      }
-    )
-    expect(await response.json()).toEqual({ installation: { installationId }, replayed: true })
-    expect(resolved).toBeFalse()
-    expect(hops[0]?.token).toBe('test-token')
-    expect(hops[0]?.body.workspaceId).toBe('wsp_01JABCDEF0123456789ABCDEFG')
   })
 
   test('rejects a malformed installation id before any hop', async () => {

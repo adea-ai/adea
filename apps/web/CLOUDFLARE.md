@@ -89,9 +89,10 @@ also writes a `.wrangler/deploy/config.json` redirect. The legacy
    that exists only as a dashboard secret disappears on the next deploy (this
    is how the 2026-10-01 migration took the marketplace proxy and Neon Auth
    down until the bindings were restored), so:
-   - `CONTROL_PLANE_ORIGIN` and `CONTROL_PLANE_SCOPE_WORKSPACE_ID` are plain
-     `text` bindings (identifiers, not secrets);
-   - `CONTROL_PLANE_SERVICE_TOKEN`, `DATABASE_URL`, `NEON_AUTH_BASE_URL`,
+   - `CONTROL_PLANE_ORIGIN`, `CONTROL_PLANE_SIGNING_KEY_ID` and
+     `CONTROL_PLANE_SIGNING_ISSUER` are plain `text` bindings (identifiers,
+     not secrets);
+   - `CONTROL_PLANE_SIGNING_KEY`, `DATABASE_URL`, `NEON_AUTH_BASE_URL`,
      `NEON_AUTH_COOKIE_SECRET`, and `AUTH_TRUSTED_ORIGINS` are
      `secrets-store-secret` bindings referencing the account Secrets Store
      (`control-plane-neon`). Secrets Store bindings resolve lazily, so the
@@ -99,17 +100,15 @@ also writes a `.wrangler/deploy/config.json` redirect. The legacy
      (`src/server/worker-bindings.ts`).
    - `wrangler.jsonc` carries the same set for the legacy wrangler deploy
      path; keep the two files in sync.
-     The Control Plane service credential (`adea-web-worker-v2`, Ed25519 key
-     `adea-web-2026-10`) expires 2027-10-01; rotate it in the store record
-     `AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN` and register the next
-     public key in the Control Plane's `CONTROL_PLANE_SERVICE_AUTH_TRUSTED_KEYS`
-     before then. That static token is the unscoped fallback: once the
-     per-request signing key (`CONTROL_PLANE_SIGNING_KEY`, with
-     `CONTROL_PLANE_SIGNING_KEY_ID` and `CONTROL_PLANE_SIGNING_ISSUER`) is
-     provisioned, the Worker signs a five-minute credential per request scoped
-     to the active workspace instead. Until then it logs
-     `control_plane.credential.unscoped` once per isolate. Provision, verify,
-     rotate and retire the fallback with the
+     The Worker signs a five-minute Control Plane credential per request,
+     scoped to the active workspace, with the Ed25519 key in the store record
+     `ADEA_CONTROL_PLANE_SIGNING_KEY` (key id `adea-web-signer-2026-10`,
+     provisioned 2026-10-06). Without that key every Control Plane request
+     fails closed; there is no static-token fallback any more. The retired
+     static credential (`adea-web-worker-v2`, key `adea-web-2026-10`) still
+     has to be revoked on the Control Plane and its store record
+     `AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN` deleted. Provision,
+     verify and rotate the signer with the
      [Control Plane credentials runbook](../../docs/control-plane-credentials.md). Rotating `NEON_AUTH_COOKIE_SECRET` invalidates every Worker
      session. To add a hosted value: create the store record, add the binding to
      BOTH config files, and deploy.

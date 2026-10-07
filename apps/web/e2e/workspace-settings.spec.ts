@@ -384,7 +384,7 @@ const CLOUD_SECRET_CANARY = 'canary-cloud-secret-0b7e'
 
 async function openControlPlaneHarness(
   page: Page,
-  mode: 'scoped' | 'unscoped',
+  mode: 'scoped' | 'unavailable',
   section: 'connections' | 'skills'
 ): Promise<Error[]> {
   const path = '/__workspace-settings'
@@ -498,18 +498,18 @@ test('Cloud connections adds a connection with a write-only secret, rotates and 
   expect(errors).toEqual([])
 })
 
-test('an unscoped deployment explains why Skills and cloud connections are unavailable', async ({
+test('an unconfigured deployment explains why Skills and cloud connections are unavailable', async ({
   page,
 }) => {
-  const errors = await openControlPlaneHarness(page, 'unscoped', 'connections')
+  const errors = await openControlPlaneHarness(page, 'unavailable', 'connections')
   const connections = page.locator('#workspace-settings-panel-connections')
-  await expect(connections.getByText(/need per-workspace Control Plane credentials/u)).toBeVisible()
+  await expect(connections.getByText(/The Control Plane is unavailable right now/u)).toBeVisible()
   await expect(connections.getByRole('button', { name: 'Add cloud connection…' })).toHaveCount(0)
   await page.getByRole('tab', { name: 'Skills', exact: true }).click()
   await expect(
     page
       .locator('#workspace-settings-panel-skills')
-      .getByText(/need per-workspace Control Plane credentials/u)
+      .getByText(/The Control Plane is unavailable right now/u)
   ).toHaveCount(2)
   expect(errors).toEqual([])
 })
