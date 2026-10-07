@@ -33,6 +33,14 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: '1.4.0'
+      # The browser download (network + apt) never touches the workspace the
+      # builds write to, so it runs concurrently with the install and builds
+      # instead of serializing in front of the browser suite. Failure still
+      # surfaces at the wait below, before the suite starts.
+      - name: Install Playwright Chromium in the background
+        id: playwright-install
+        run: bunx playwright install --with-deps chromium
+        background: true
       - run: bun install --frozen-lockfile
       - run: bunx turbo run build --filter=@adea-ai/web^...
       - run: bun run --cwd apps/web start:verify
@@ -41,7 +49,8 @@ jobs:
       # (`start:check-routes` boots the built Worker on its own).
       - name: Route surface check
         run: bun run --cwd apps/web start:check-routes
-      - run: bunx playwright install --with-deps chromium
+      - name: Wait for the Playwright install
+        wait: [playwright-install]
       - name: Isolated Worker and browser suite
         run: bun run --cwd apps/web start:test:local
       - name: Upload validation evidence

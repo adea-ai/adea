@@ -126,10 +126,15 @@ jobs:
       # workspace…"). The server is started once, warmed with a real browser
       # load, and then reused through PERF_BASE_URL, so the lane never races
       # the cold start. Assertions and retries are untouched.
-      - name: Start and warm the dev server
+      - name: Start the dev server
+        id: dev-server
+        working-directory: apps/web
+        run: bun run dev
+        background: true
+
+      - name: Wait for the dev server and warm the spec graph
         run: |
           set -euo pipefail
-          (cd apps/web && exec bun run dev) >/tmp/visual-lane-dev.log 2>&1 &
           for _ in $(seq 1 120); do
             if node -e "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
               break
@@ -138,7 +143,7 @@ jobs:
           done
           if ! node -e "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
             echo "::error::the dev server did not answer on 127.0.0.1:3000"
-            cat /tmp/visual-lane-dev.log
+            echo "::error::the server's own output is in the 'Start the dev server' step log above"
             exit 1
           fi
           node - <<'NODE'
@@ -280,6 +285,9 @@ jobs:
             apps/web/e2e/chat-view-visual.spec.ts-snapshots/*-linux.png
           if-no-files-found: error
           retention-days: 14
+
+      - name: Stop the dev server
+        cancel: dev-server
 
       - name: Upload failure evidence
         if: failure()
