@@ -172,7 +172,7 @@ async function expectPointerHitsButton(page: Page, button: Locator, name: string
         point: { x, y },
         viewport: { width: innerWidth, height: innerHeight },
         frame: describe(document.querySelector('.workspace-frame')),
-        topbar: describe(document.querySelector('.workspace-topbar')),
+        topbar: describe(document.querySelector('[data-workspace-topbar]')),
         surface: describe(document.querySelector('.workspace-frame__surface')),
         workspace: describe(document.querySelector('.dev-workspace')),
         devToolbar: describe(document.querySelector('.dev-toolbar')),
@@ -260,7 +260,7 @@ test('Dev mobile sidebar closes after leaf selection and restores the global ope
     { timeout: 20_000 }
   )
 
-  const rail = page.locator('.global-rail')
+  const rail = page.locator('[data-global-rail]')
   const opener = page
     .getByLabel('Workspace toolbar')
     .getByRole('button', { name: 'Expand contextual sidebar', exact: true })
@@ -330,12 +330,12 @@ test('the global shell owns exactly one right utility host across Dev, Chat, and
 })
 
 async function expectDevTopbarBoundary(page: Page, width: number) {
-  const navigation = page.locator('.workspace-topbar__navigation')
-  const divider = navigation.locator('.workspace-topbar__view-divider')
+  const navigation = page.locator('[data-topbar-navigation]')
+  const divider = navigation.locator('[data-topbar-view-divider]')
   const actionGroup = devToolbarControl(page, 'Split pane').locator('..').locator('..')
   const rightUtilityToggle = devSidebarControl(page, 'Expand utility sidebar')
   const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
-  const rail = page.locator('.global-rail')
+  const rail = page.locator('[data-global-rail]')
 
   const assertBoundary = async (boundary: Locator) => {
     const leadingControls = [
@@ -373,7 +373,7 @@ async function expectDevTopbarBoundary(page: Page, width: number) {
     }
   }
 
-  const title = page.locator('.workspace-topbar__title')
+  const title = page.locator('[data-topbar-title]')
   await title.evaluate((element) => {
     // The slot shows Workspace › Project › branch breadcrumbs when Dev has a
     // selection; lengthen the current crumb so clipping is exercised inside
@@ -411,9 +411,7 @@ test('Dev title slot shows Workspace › Project › branch with the branch in m
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved')
   await expectDevToolbarHost(page, 1280)
-  const crumbs = page
-    .locator('.workspace-topbar__title')
-    .getByRole('navigation', { name: 'Breadcrumb' })
+  const crumbs = page.locator('[data-topbar-title]').getByRole('navigation', { name: 'Breadcrumb' })
   await expect(crumbs.getByRole('listitem')).toHaveCount(3)
   await expect(crumbs.getByRole('listitem').nth(1)).toHaveText('Project: Example project')
   const branch = crumbs.locator('[aria-current="page"]')

@@ -119,7 +119,7 @@
   z-index: var(--z-menu);
 }
 
-.global-rail {
+[data-global-rail] {
   position: relative;
   z-index: var(--z-sticky);
   min-width: 0;
@@ -163,11 +163,11 @@
  * mark with the same top gap the App Library divider uses, and the content
  * starts one item gap below it, so every row sits on the same 2px rhythm.
  */
-.global-rail[data-collapsed='true'] .global-rail__header {
+[data-global-rail][data-collapsed='true'] [data-global-rail-header] {
   height: auto;
   padding: 0.25rem 0 0;
 }
-.global-rail[data-collapsed='true'] .global-rail__content {
+[data-global-rail][data-collapsed='true'] [data-global-rail-content] {
   padding-block-start: 0.125rem;
 }
 /* The static product mark keeps the former switcher row's height. */
@@ -188,7 +188,7 @@
   flex-direction: column;
   gap: 0.125rem;
 }
-.global-rail__search-keys {
+[data-global-rail-search-keys] {
   justify-content: center;
   padding-block-end: 0.25rem;
 }
@@ -306,7 +306,7 @@
 .workspace-skip-link:focus {
   transform: none;
 }
-.conventional-sidebar {
+[data-conventional-sidebar] {
   --sidebar-width: var(--conventional-sidebar-width, 17rem);
   position: relative;
   flex: none;
@@ -321,20 +321,20 @@
    grabbable, and give it the pointer cursor every workspace drag affordance
    shows — the ruler is pointer-events-none except for its handle, so the
    cursor inherits (#1023's splitter parity). */
-.conventional-sidebar > [data-corvu-resizable-root] {
+[data-conventional-sidebar] > [data-corvu-resizable-root] {
   z-index: var(--z-docked);
   cursor: pointer;
 }
 /* WCAG 2.5.8 (24px minimum target): the navigation drag strip accepts the
    pointer through its ::after extension, and the published 12px area is below
    the minimum. Widen the extension on the drag axis; the 1px line stays put. */
-.conventional-sidebar
+[data-conventional-sidebar]
   > [data-corvu-resizable-root]
   [role='separator'][aria-orientation='vertical']::after {
   width: 1.5rem;
   inset-inline: -0.75rem;
 }
-.conventional-sidebar
+[data-conventional-sidebar]
   > [data-corvu-resizable-root]
   [role='separator'][aria-orientation='horizontal']::after {
   height: 1.5rem;
@@ -344,7 +344,7 @@
    wrapper, so the disclosure button — the row's only pointer target —
    measures ~16px. Stretch the button across that padding instead; the row's
    rendered height does not change. */
-.conventional-sidebar [data-slot='sidebar-nav-section-header'] button[aria-expanded] {
+[data-conventional-sidebar] [data-slot='sidebar-nav-section-header'] button[aria-expanded] {
   margin-block: -0.375rem;
   padding-block: 0.375rem;
 }
@@ -353,7 +353,7 @@
 }
 /* The mark-all-read chord rides the shared KbdChord caps; the button
    keeps its accessible name and aria-keyshortcuts. */
-.conventional-sidebar__content {
+[data-conventional-sidebar] [data-slot='sidebar-nav-content'] {
   scrollbar-gutter: stable;
 }
 .conventional-sidebar__quick-actions {
@@ -361,7 +361,7 @@
   flex-direction: column;
   gap: 0.125rem;
 }
-.conventional-sidebar__nav-item {
+[data-conventional-nav-item] {
   min-width: 0;
   flex: 1;
 }
@@ -383,9 +383,6 @@
   flex-direction: column;
   gap: 0.125rem;
 }
-.conventional-sidebar__footer-action {
-  width: 100%;
-}
 /* The fixed opener's host: it pins the outline button over the view and
    gives it the card surface to sit on. */
 .conventional-mobile-menu {
@@ -398,7 +395,8 @@
   background: var(--cw-surface, var(--card));
   pointer-events: auto;
 }
-.conventional-workspace:has(> .conventional-sidebar--open) .conventional-mobile-menu {
+.conventional-workspace:has(> [data-conventional-sidebar][data-open='true'])
+  .conventional-mobile-menu {
   display: none;
 }
 
@@ -574,12 +572,13 @@
   border-radius: 999px;
   background: var(--cw-accent);
 }
-.conventional-transcript {
+/* The surface's root is the grid item; its scroller carries the data hook. */
+.conventional-conversation > [data-slot='conversation-surface'] {
   grid-column: 1;
   min-height: 0;
   min-width: 0;
 }
-.conventional-transcript > div:first-child {
+[data-conventional-transcript] {
   overflow-y: auto;
   padding: 1.35rem clamp(0.8rem, 3vw, 2.5rem) 1.1rem;
   scrollbar-gutter: stable;
@@ -736,13 +735,13 @@
   color: var(--cw-danger);
 }
 
-.conventional-thread {
+[data-conventional-thread] {
   grid-column: 2;
   grid-row: 1 / -1;
   min-width: 0;
   width: auto;
 }
-.conventional-thread > [role='region'] {
+[data-conventional-thread] > [role='region'] {
   padding: 0.75rem clamp(0.5rem, 2vw, 1rem);
 }
 /* The conversation composer's outer margins track the transcript gutter; the
@@ -1422,14 +1421,14 @@
   .conventional-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
-  .conventional-sidebar--inline[data-contextual-sidebar='desktop'] {
+  [data-conventional-sidebar][data-contextual-sidebar='desktop'] {
     display: none;
   }
   .conventional-sidebar-sheet {
     width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
     max-width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
   }
-  .conventional-sidebar[data-contextual-sidebar='mobile'] {
+  [data-conventional-sidebar][data-contextual-sidebar='mobile'] {
     --sidebar-width: min(19rem, max(9rem, calc(100vw - var(--rail-width, 4rem))));
     width: 100%;
     max-width: 100%;
@@ -1444,11 +1443,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .conventional-conversation--thread-open > .conventional-conversation__header,
-  .conventional-conversation--thread-open > .conventional-transcript,
+  .conventional-conversation--thread-open > [data-slot='conversation-surface'],
   .conventional-conversation--thread-open > .conventional-composer {
     visibility: hidden;
   }
-  .conventional-thread {
+  [data-conventional-thread] {
     position: absolute;
     z-index: 15;
     inset: 0;
@@ -1461,7 +1460,7 @@
 }
 
 @media (max-width: 30rem) {
-  .conventional-transcript > div:first-child {
+  [data-conventional-transcript] {
     padding-inline: 0.4rem;
   }
   .conventional-composer {
@@ -1483,18 +1482,16 @@
 /* Sidebar collapse works at every width: a closed navigation aside collapses
    its grid column instead of only sliding off-canvas on small screens. */
 .conventional-workspace:has(
-  > .conventional-sidebar--inline[data-contextual-sidebar='desktop']:not(
-      .conventional-sidebar--open
-    )
+  > [data-conventional-sidebar][data-contextual-sidebar='desktop']:not([data-open='true'])
 ) {
   grid-template-columns: 0 minmax(0, 1fr);
 }
-.conventional-sidebar--inline[data-contextual-sidebar='desktop']:not(.conventional-sidebar--open) {
+[data-conventional-sidebar][data-contextual-sidebar='desktop']:not([data-open='true']) {
   visibility: hidden;
 }
 
 /* The common header is above every view and its collapsed outer rail. */
-.workspace-topbar {
+[data-workspace-topbar] {
   /* A full rem of inline padding keeps the bar's first and last controls
      clear of the window edges (and reads as breathing room next to the
      macOS traffic lights). The padding restate keeps the Dev section's
@@ -1515,7 +1512,7 @@
   background: var(--card);
   color: var(--card-foreground);
 }
-.workspace-topbar[data-dev-actions] {
+[data-workspace-topbar][data-dev-actions] {
   grid-template-columns: max-content minmax(0, 1fr) max-content;
 }
 .workspace-topbar__navigation-controls {
@@ -1524,7 +1521,7 @@
   align-items: center;
   gap: 0.5rem;
 }
-.workspace-topbar__navigation[data-dev-actions] {
+[data-topbar-navigation][data-dev-actions] {
   display: grid;
   grid-template-columns: max-content max-content;
   gap: 0.5rem;
@@ -1535,7 +1532,7 @@
   align-items: center;
   gap: 0.5rem;
 }
-.workspace-topbar__title {
+[data-topbar-title] {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1564,12 +1561,12 @@
  * column collapsed and the back/forward controls rendered behind the macOS
  * window buttons. Unlayered host CSS wins that contest for good.
  */
-.workspace-topbar.window-inset-macos {
+[data-workspace-topbar].window-inset-macos {
   /* Clears the traffic-light column (lights end ≈76px) with a little air. */
   --workspace-topbar-inline-start-inset: 88px;
   padding-inline-start: 88px;
 }
-.workspace-frame > .global-rail {
+.workspace-frame > [data-global-rail] {
   grid-column: 1;
   grid-row: 2;
 }
@@ -1582,7 +1579,7 @@
   align-items: center;
   gap: 0.35rem;
 }
-.workspace-topbar__view-divider[data-orientation='vertical'] {
+[data-topbar-view-divider][data-orientation='vertical'] {
   height: 1.25rem;
 }
 @media (min-width: 48.001rem) {
@@ -1592,13 +1589,13 @@
         )
         .dev-sidebar.dev-sidebar--open
     )
-    .workspace-topbar__navigation,
-  .workspace-frame:has(.conventional-sidebar--open) .workspace-topbar__navigation,
+    [data-topbar-navigation],
+  .workspace-frame:has([data-conventional-sidebar][data-open='true']) [data-topbar-navigation],
   /* Source control shares the Dev sidebar frame inside its own .dev-scm root,
      so its branch names the view root directly: the divider must land on the
      same sidebar edge, with the sync status, sync control and title-slot
      search strictly right of it. No focus/full-width modes exist there. */
-  .workspace-frame:has(.dev-scm .dev-sidebar.dev-sidebar--open) .workspace-topbar__navigation {
+  .workspace-frame:has(.dev-scm .dev-sidebar.dev-sidebar--open) [data-topbar-navigation] {
     display: grid;
     grid-template-columns: calc(
         var(--workspace-rail-width) + var(--dev-context-sidebar-width) -
@@ -1607,7 +1604,7 @@
     column-gap: 0;
   }
 }
-.workspace-topbar__title {
+[data-topbar-title] {
   text-align: center;
 }
 /* A view-owned title-slot control (source control's pull-request search)
@@ -1630,7 +1627,7 @@
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
-.workspace-topbar__sidebar-divider[data-orientation='vertical'] {
+[data-topbar-sidebar-divider][data-orientation='vertical'] {
   height: 1.25rem;
 }
 .workspace-frame .conventional-mobile-menu {
@@ -1821,26 +1818,26 @@
   }
 }
 @media (max-width: 48rem) {
-  .workspace-topbar {
+  [data-workspace-topbar] {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
-  .workspace-topbar[data-dev-actions] {
+  [data-workspace-topbar][data-dev-actions] {
     grid-template-columns: minmax(0, 1fr) 0 auto;
   }
-  .workspace-topbar__title {
+  [data-topbar-title] {
     display: none;
   }
-  .workspace-topbar__actions {
+  [data-topbar-actions] {
     grid-column: 3;
   }
-  .workspace-topbar {
+  [data-workspace-topbar] {
     gap: 0.25rem;
   }
-  .workspace-topbar__navigation,
-  .workspace-topbar__actions {
+  [data-topbar-navigation],
+  [data-topbar-actions] {
     gap: 0.25rem;
   }
-  .workspace-topbar__navigation[data-dev-actions] {
+  [data-topbar-navigation][data-dev-actions] {
     display: flex;
     overflow-x: auto;
     overflow-y: hidden;
@@ -1866,7 +1863,7 @@
      controls' content, so Back/Forward and the context toggle overlap: size
      both ends to their content and let only the middle give. The Dev bar's
      own `[data-dev-actions]` columns are more specific and stay in force. */
-  .workspace-topbar {
+  [data-workspace-topbar] {
     grid-template-columns: max-content minmax(0, 1fr) max-content;
   }
 }

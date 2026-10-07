@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 test('workspace sidebar is resizable and persists its width', async ({ page }) => {
   await page.goto('/?view=chat')
-  const sidebar = page.locator('.conventional-sidebar')
+  const sidebar = page.locator('[data-conventional-sidebar]')
   await expect(sidebar).toBeVisible({ timeout: 30_000 })
   const handle = page.getByRole('separator', { name: 'Resize workspace navigation' })
   await expect(handle).toBeAttached()

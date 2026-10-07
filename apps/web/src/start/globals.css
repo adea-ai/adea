@@ -167,7 +167,7 @@ html {
   transition: background 200ms ease;
 }
 
-.workspace-topbar,
+[data-workspace-topbar],
 .workspace-scene-caption {
   pointer-events: auto;
 }
@@ -215,11 +215,11 @@ html {
   display: flex;
   height: 100%;
 }
-.workspace-shell--contextual > .conventional-sidebar {
+.workspace-shell--contextual > [data-conventional-sidebar] {
   flex-basis: var(--conventional-sidebar-width, 17rem);
 }
-.workspace-shell--contextual:has(> .conventional-sidebar:not(.conventional-sidebar--open))
-  > .conventional-sidebar {
+.workspace-shell--contextual:has(> [data-conventional-sidebar]:not([data-open='true']))
+  > [data-conventional-sidebar] {
   flex-basis: 0;
 }
 .workspace-shell--contextual > .workspace-scene-viewport {

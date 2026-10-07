@@ -47,7 +47,6 @@ import {
   ContextualSidebar,
   type ContextualSidebarRenderContext,
 } from '@adea-ai/ui/components/layout/contextual-sidebar'
-import { cn } from '@adea-ai/app-ui/lib/utils'
 import { useWorkspaceState, wideViewportAtLoad, workspaceStore } from '@adea-ai/state'
 import {
   createViewAdapter,
@@ -200,7 +199,7 @@ export function ConversationChannelRow(props: {
         type="button"
         active={props.selected}
         trailing={props.unread}
-        class="conventional-sidebar__nav-item"
+        data-conventional-nav-item=""
         onClick={() => props.onSelect()}
         onPointerEnter={() => props.onIntent?.()}
         onFocus={() => props.onIntent?.()}
@@ -804,14 +803,15 @@ export function WorkspaceNavSidebar(props: Props) {
         wideViewportAtLoad={wideViewportAtLoad}
         resizeLabel="Resize workspace navigation"
         restoreFocusRef={props.restoreFocusRef}
-        onSidebarElement={sidebarWidth.onSidebarElement}
-        sidebarClass={cn('conventional-sidebar conventional-sidebar--inline', {
-          'conventional-sidebar--open': props.mobileOpen,
-        })}
+        onSidebarElement={(element, mobile) => {
+          // The workspace shell's layout rules find both asides by this hook;
+          // the desktop aside's open state is the shared `data-open`.
+          element?.setAttribute('data-conventional-sidebar', '')
+          sidebarWidth.onSidebarElement(element, mobile)
+        }}
         sheetClass="conventional-sidebar-sheet"
         titleVisibility="mobile"
-        contentClass="conventional-sidebar__content"
-        footerClass="conventional-sidebar__footer-action"
+        footerClass="w-full"
         content={renderSidebarContent}
         footer={props.archiveAction ? () => props.archiveAction : undefined}
         onWidthChange={sidebarWidth.onWidthChange}

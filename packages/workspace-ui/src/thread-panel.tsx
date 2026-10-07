@@ -150,7 +150,7 @@ export function ThreadPanel(props: {
   return (
     <SharedThreadPanel
       ref={setPanel}
-      class="conventional-thread"
+      data-conventional-thread=""
       count={replyList().length}
       headerActions={headerActions}
       label="Focused discussion"
