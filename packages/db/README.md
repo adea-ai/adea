@@ -59,11 +59,15 @@ Production rollback is forward-only: deploy an application rollback while the ex
 compatible, then add a reviewed corrective migration. Point-in-time restore is for data-loss
 recovery, not routine schema rollback.
 
+Workspace migrations 0040/0041 are the [workspace schema expansion phase](../../docs/evidence/workspace-schema-expansion.md). They precede application use of personal identity/deletion metadata. Their snapshots preserve retention0039's expansion. Do not generate migrations from an older declaration that would remove these columns or constraints. Verify production migration history/catalog before landing the matching application.
+
 ## Permanent workspace deletion
 
-`deleteWorkspace()` is owner-only and checks the current workspace name and
-version inside its transaction. It removes memberships and authorization audit
-rows explicitly; root foreign-key cascades prune workspace-owned data, encrypted
+Active permanent deletion is unavailable until server-owned cleanup completion
+can be verified. `deleteWorkspace()` is owner-only and checks the current workspace
+name and version inside its transaction before refusing completion. Dormant
+final-deletion logic would remove memberships and authorization audit
+rows explicitly; root foreign-key cascades would prune workspace-owned data, encrypted
 replicas, events/outbox records, runtime node registrations and their credentials.
 A minimal `workspace_deletions` receipt keeps owner/id/creation-key/deletion time
 for safe retries and to prevent old creation keys from being
