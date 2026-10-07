@@ -965,13 +965,6 @@
   background: transparent;
 }
 
-.conventional-settings-logo {
-  display: block;
-  flex: 0 0 auto;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 0.75rem;
-}
 /* The workspace settings dialog leads its title with the workspace's own mark
    where the app Settings dialog shows the Adea logo. */
 .workspace-details-dialog__mark {
@@ -1179,15 +1172,10 @@
   height: 1.65rem;
   object-fit: contain;
 }
-.conventional-settings-shell {
-  display: grid;
-  height: 100%;
-  min-height: 0;
-  grid-template-columns: 13rem minmax(0, 1fr);
-  width: 100%;
-  min-width: 0;
-}
 .conventional-settings-panel {
+  /* The panel, not its tab content, scrolls: sticky footers (the appearance
+     editor's save bar) pin against the padded scrollport as before. */
+  height: 100%;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
@@ -1343,20 +1331,6 @@
     width: 2.5rem;
     height: 2.5rem;
     flex-basis: 2.5rem;
-  }
-  .conventional-settings-shell {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-  .conventional-settings-nav {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-  .conventional-settings-nav [data-slot='settings-navigation-group'] {
-    flex: none;
-    width: max-content;
-    max-width: 100%;
   }
   .conventional-form-grid {
     grid-template-columns: 1fr;

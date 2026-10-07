@@ -158,9 +158,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
   await expect(page).toHaveURL(/view=virtual/)
-  await expect(
-    settings.locator('[data-slot="dialog-header"] .conventional-settings-logo')
-  ).toBeVisible()
+  await expect(settings.locator('[data-slot="dialog-header"] svg[aria-label="Adea"]')).toBeVisible()
   const signInButton = settings.getByRole('button', { name: 'Sign in', exact: true })
   await expect(signInButton).toBeVisible()
 

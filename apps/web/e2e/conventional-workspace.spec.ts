@@ -2279,13 +2279,12 @@ test('overlay bands paint the muted rung on sheets and the settings dialog', asy
   expect(parseColor(sheet.sheetFooter!)).toEqual(muted)
   expect(parseColor(sheet.sheetBody!)).not.toEqual(muted)
 
-  // The settings dialog band scopes by the conventional hook instead of the
-  // published data-variant marker, so it is probed on its own surface.
+  // The settings dialog's band is the published ModalDialog settings header,
+  // so it is probed on its own surface.
   await page.goto('/#settings/privacy-data')
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
-  const dialogBands = await page.evaluate(() => {
-    const dialog = document.querySelector('.conventional-settings-dialog')
+  const dialogBands = await settings.evaluate((dialog) => {
     const header = dialog?.querySelector("[data-slot='dialog-header']")
     return {
       mutedToken: getComputedStyle(document.documentElement).getPropertyValue('--muted').trim(),

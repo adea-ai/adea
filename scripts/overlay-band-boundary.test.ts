@@ -12,7 +12,6 @@ const workspaceCss = readFileSync(workspaceCssPath, 'utf8')
 const bandSelectors = [
   "[role='dialog'][data-variant] [data-slot='sheet-header']",
   "[role='dialog'][data-variant] [data-slot='sheet-footer']",
-  ".conventional-settings-dialog [data-slot='dialog-header']",
 ]
 
 /** Removes comment blocks so brace scanning sees only real CSS. */
@@ -81,7 +80,6 @@ describe('overlay band contract', () => {
     const ruleEnd = source.indexOf('}', ruleStart)
     const rule = source.slice(ruleStart, ruleEnd + 1)
     expect(rule).toContain(bandSelectors[1])
-    expect(rule).toContain(bandSelectors[2])
     expect(rule).toContain('background-color: var(--muted)')
   })
 

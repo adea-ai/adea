@@ -96,7 +96,6 @@ export function WorkspaceDetailsDialog(props: {
     <ModalDialog
       modal={false}
       size="settings"
-      class="conventional-settings-dialog workspace-details-dialog"
       open={props.open}
       onClose={close}
       restoreFocusRef={props.restoreFocusRef}
@@ -114,13 +113,13 @@ export function WorkspaceDetailsDialog(props: {
     >
       <Tabs
         id="workspace-settings-tabs"
-        class="conventional-settings-shell"
+        class="h-full w-full max-md:data-[orientation=vertical]:flex-col"
         orientation="vertical"
         value={section()}
         onChange={(value) => selectSection(value as WorkspaceSettingsSection)}
       >
         <SettingsNavigation
-          class="conventional-settings-nav w-full"
+          class="w-52 max-md:w-full max-md:data-[orientation=vertical]:flex-row max-md:overflow-x-auto max-md:overflow-y-hidden max-md:*:w-max max-md:*:max-w-full max-md:*:flex-none"
           aria-label="Workspace settings sections"
           value={section()}
           onReselect={(value) => selectSection(value as WorkspaceSettingsSection)}
@@ -138,81 +137,77 @@ export function WorkspaceDetailsDialog(props: {
             },
           ]}
         />
-        <TabsContent
-          value="general"
-          id="workspace-settings-panel-general"
-          class="conventional-settings-panel"
-        >
-          <header>
-            <Settings2 aria-hidden="true" />
-            <div>
-              <h3>{workspaceSettingsSectionLabels.general}</h3>
-              <p>How this workspace looks and where it opens.</p>
-            </div>
-          </header>
-          <WorkspaceIdentitySettings
-            workspace={props.workspace}
-            {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
-          />
+        <TabsContent value="general" id="workspace-settings-panel-general" class="min-h-0 min-w-0">
+          <div class="conventional-settings-panel">
+            <header>
+              <Settings2 aria-hidden="true" />
+              <div>
+                <h3>{workspaceSettingsSectionLabels.general}</h3>
+                <p>How this workspace looks and where it opens.</p>
+              </div>
+            </header>
+            <WorkspaceIdentitySettings
+              workspace={props.workspace}
+              {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
+            />
+          </div>
         </TabsContent>
-        <TabsContent
-          value="memory"
-          id="workspace-settings-panel-memory"
-          class="conventional-settings-panel"
-        >
-          <header>
-            <Brain aria-hidden="true" />
-            <div>
-              <h3>{workspaceSettingsSectionLabels.memory}</h3>
-              <p>
-                Notes for agents working in {props.workspace.name}. Agents can propose notes; they
-                become memory only when you accept them.
-              </p>
-            </div>
-          </header>
-          <Show when={section() === 'memory'}>
-            <MemoryPane service={props.services?.memory} workspaceId={props.workspace.id} />
-          </Show>
+        <TabsContent value="memory" id="workspace-settings-panel-memory" class="min-h-0 min-w-0">
+          <div class="conventional-settings-panel">
+            <header>
+              <Brain aria-hidden="true" />
+              <div>
+                <h3>{workspaceSettingsSectionLabels.memory}</h3>
+                <p>
+                  Notes for agents working in {props.workspace.name}. Agents can propose notes; they
+                  become memory only when you accept them.
+                </p>
+              </div>
+            </header>
+            <Show when={section() === 'memory'}>
+              <MemoryPane service={props.services?.memory} workspaceId={props.workspace.id} />
+            </Show>
+          </div>
         </TabsContent>
-        <TabsContent
-          value="skills"
-          id="workspace-settings-panel-skills"
-          class="conventional-settings-panel"
-        >
-          <header>
-            <Sparkles aria-hidden="true" />
-            <div>
-              <h3>{workspaceSettingsSectionLabels.skills}</h3>
-              <p>
-                Skills and agent profiles {props.workspace.name} uses for cloud runs, from the
-                Control Plane catalog.
-              </p>
-            </div>
-          </header>
-          <Show when={section() === 'skills'}>
-            <SkillsPane client={apiClient()} workspaceId={props.workspace.id} />
-          </Show>
+        <TabsContent value="skills" id="workspace-settings-panel-skills" class="min-h-0 min-w-0">
+          <div class="conventional-settings-panel">
+            <header>
+              <Sparkles aria-hidden="true" />
+              <div>
+                <h3>{workspaceSettingsSectionLabels.skills}</h3>
+                <p>
+                  Skills and agent profiles {props.workspace.name} uses for cloud runs, from the
+                  Control Plane catalog.
+                </p>
+              </div>
+            </header>
+            <Show when={section() === 'skills'}>
+              <SkillsPane client={apiClient()} workspaceId={props.workspace.id} />
+            </Show>
+          </div>
         </TabsContent>
         <TabsContent
           value="connections"
           id="workspace-settings-panel-connections"
-          class="conventional-settings-panel"
+          class="min-h-0 min-w-0"
         >
-          <header>
-            <LockKeyhole aria-hidden="true" />
-            <div>
-              <h3>{workspaceSettingsSectionLabels.connections}</h3>
-              <p>
-                Which git hosting credentials and harness accounts this workspace uses on this
-                device, and the connector credentials its cloud agents use. Device secrets stay in
-                the device vault.
-              </p>
-            </div>
-          </header>
-          <Show when={section() === 'connections'}>
-            <ConnectionsPane service={props.services?.connections} />
-            <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />
-          </Show>
+          <div class="conventional-settings-panel">
+            <header>
+              <LockKeyhole aria-hidden="true" />
+              <div>
+                <h3>{workspaceSettingsSectionLabels.connections}</h3>
+                <p>
+                  Which git hosting credentials and harness accounts this workspace uses on this
+                  device, and the connector credentials its cloud agents use. Device secrets stay in
+                  the device vault.
+                </p>
+              </div>
+            </header>
+            <Show when={section() === 'connections'}>
+              <ConnectionsPane service={props.services?.connections} />
+              <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />
+            </Show>
+          </div>
         </TabsContent>
       </Tabs>
     </ModalDialog>

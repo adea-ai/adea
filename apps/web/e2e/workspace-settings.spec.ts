@@ -537,7 +537,7 @@ test('settings headers and notes keep the shared palette and sized marks', async
   await expect(noteLocator).toBeVisible()
   const probe = await page.evaluate(() => {
     const panel = document.querySelector('#settings-panel-input-notifications')
-    const header = panel?.querySelector(':scope > header')
+    const header = panel?.querySelector('.conventional-settings-panel > header')
     const headerIcon = header?.querySelector('svg')
     const note = panel?.querySelector('.conventional-settings-note')
     const noteIcon = note?.querySelector('svg')

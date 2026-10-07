@@ -196,7 +196,7 @@ jobs:
                 // compare with the quotes stripped rather than on raw text.
                 const normalize = (text) => text.replaceAll(`"`, '').replaceAll(`'`, '')
                 const needle = normalize(
-                  ".conventional-settings-dialog [data-slot='dialog-header']"
+                  "[role='dialog'][data-variant] [data-slot='sheet-header']"
                 )
                 for (const sheet of document.styleSheets) {
                   let rules
@@ -269,6 +269,16 @@ jobs:
           bunx playwright test --config=playwright.config.ts \
             apps/web/e2e/conventional-workspace.spec.ts \
             apps/web/e2e/chat-view-visual.spec.ts --update-snapshots || true
+
+      - name: Print changed baselines (temporary)
+        if: github.event_name == 'workflow_dispatch' && inputs['update-snapshots']
+        run: |
+          git status --porcelain -- '*-linux.png'
+          for f in $(git status --porcelain -- '*-linux.png' | awk '{print $2}'); do
+            echo "BEGIN64 $f"
+            base64 -w 2000 "$f" | sed 's/^/B64 /'
+            echo "END64 $f"
+          done
 
       - name: Upload regenerated baselines
         if: github.event_name == 'workflow_dispatch' && inputs['update-snapshots']
