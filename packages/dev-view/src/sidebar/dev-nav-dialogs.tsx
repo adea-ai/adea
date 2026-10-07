@@ -180,6 +180,11 @@ export type DevRepositoryFlowProps = Readonly<{
   execute(command: DevCommand): Promise<DevReply>
   knownProjectNames: readonly string[]
   announce(message: string): void
+  /**
+   * The host's native folder picker for the authorize step, when the host has
+   * one; the form's typed path input remains the fallback.
+   */
+  pickFolder?: () => Promise<string | null | undefined>
 }>
 
 /**
@@ -207,6 +212,7 @@ export function DevAddRepositoryDialog(
           execute={props.execute}
           knownProjectNames={props.knownProjectNames}
           announce={props.announce}
+          {...(props.pickFolder ? { pickFolder: props.pickFolder } : {})}
           mintProjectId={() => props.projectId}
           onImported={() => {
             props.onImported()
@@ -257,16 +263,6 @@ export function DevNewProjectDialog(
         when={naming()}
         fallback={
           <div class="flex flex-col gap-3">
-            <Tabs value={source()} onChange={(value) => setSource(value as 'local' | 'github')}>
-              <TabsList appearance="segmented" aria-label="Repository source">
-                <TabsTrigger appearance="segmented" value="local">
-                  On this Mac
-                </TabsTrigger>
-                <TabsTrigger appearance="segmented" value="github">
-                  From GitHub
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
             <Show
               when={source() === 'github'}
               fallback={
@@ -275,6 +271,7 @@ export function DevNewProjectDialog(
                   execute={props.execute}
                   knownProjectNames={props.knownProjectNames}
                   announce={props.announce}
+                  {...(props.pickFolder ? { pickFolder: props.pickFolder } : {})}
                   {...(projectId() ? { mintProjectId: () => projectId()! } : {})}
                   onImported={() => {
                     props.onImported(projectId())

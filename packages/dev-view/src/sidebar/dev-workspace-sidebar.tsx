@@ -177,6 +177,11 @@ export type DevWorkspaceSidebarProps = Readonly<{
     leaf: Readonly<{ projectId: string; projectName: string; branch?: string }> | undefined
   ) => void
   announce: (message: string) => void
+  /**
+   * The host's native folder picker for the add surface's authorize step,
+   * when the host has one; the typed path input remains the fallback.
+   */
+  pickFolder?: () => Promise<string | null | undefined>
   /** Registers an opener so center-pane empty states can start "New project". */
   registerAddProject?: (open: () => void) => void
 }>
@@ -652,6 +657,7 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
       props.runtime.execute(command),
     knownProjectNames: props.bindings.map((binding) => binding.name),
     announce: props.announce,
+    ...(props.pickFolder ? { pickFolder: props.pickFolder } : {}),
   })
 
   const onRepositoryImported = async (projectId: string | undefined) => {

@@ -13,7 +13,7 @@ import type {
 } from '@adea-ai/workspace-ui/platform'
 import { noteUpdatePhase } from '@adea-ai/workspace-ui/update-pending'
 import type { WorkspaceSummary } from '@adea-ai/types'
-import { invoke, listen } from '../lib/desktop-bridge'
+import { invoke, listen, pickDesktopFolder } from '../lib/desktop-bridge'
 import { createDesktopDevRuntimeService } from '../lib/desktop-dev-runtime'
 import { createDesktopWorkspaceConnectionsService } from '../lib/desktop-workspace-connections'
 import {
@@ -413,6 +413,7 @@ function DesktopWorkspace(props: {
             utilityOwner.handoffCanonicalChatConversation(binding)
           }
           onSignIn={props.onBeginSignIn}
+          pickFolder={() => pickDesktopFolder()}
           temporary={!signedIn()}
           workspaceId={props.activeWorkspace.id}
         />
