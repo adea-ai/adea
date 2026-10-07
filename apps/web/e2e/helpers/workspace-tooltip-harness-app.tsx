@@ -9,7 +9,6 @@ import {
   TooltipTrigger,
 } from '@adea-ai/ui/components/ui/tooltip'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
-import { installTooltipFocusGate } from '../../../../packages/ui/src/lib/tooltip-focus-gate'
 import { AgentStatus, AgentStatusBadge } from '../../../../packages/workspace-ui/src/agent-status'
 import type { AgentSummary } from '@adea-ai/types'
 import { Button } from '@adea-ai/ui/components/ui/button'
@@ -51,8 +50,6 @@ function MockResourcesSheet(props: { onClose(): void }) {
     </div>
   )
 }
-
-installTooltipFocusGate()
 
 render(
   () => (
