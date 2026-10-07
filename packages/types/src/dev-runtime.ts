@@ -1697,6 +1697,78 @@ export type WorktreeStorageRecord = Readonly<{
   measuredAt?: string
 }>
 
+/**
+ * Machine-wide janitor (#424 follow-up): junk discovery and user-confirmed
+ * cleanup regardless of origin. The scan universe is closed over the
+ * well-known junk roots and proven git worktrees; every deletion is an
+ * explicit plan/commit, and the default disposal is the platform Trash.
+ */
+export type JanitorSection = 'derived_data' | 'cache' | 'logs' | 'trash' | 'worktree'
+
+export type JanitorItemState = 'discovered' | 'measuring' | 'measured' | 'stale' | 'unreadable'
+
+export type JanitorDisposal = 'trash' | 'trash_empty' | 'prune'
+
+export type JanitorItem = Readonly<{
+  /** Host-minted, stable, path-derived id; carries no authority. */
+  id: string
+  section: JanitorSection
+  /** Entry display name (basename, or the worktree's branch label). */
+  label: string
+  /** Home-abbreviated display path; the absolute path never leaves the host. */
+  pathLabel: string
+  /** Measured total bytes (uint64-string); absent until measured — never zero. */
+  bytes?: string
+  state: JanitorItemState
+  /** Last content modification when provable. */
+  modifiedAt?: string
+  /** How an explicit cleanup disposes of this item. */
+  disposal: JanitorDisposal
+  /** Worktree facts when the section is `worktree`. */
+  worktree?: Readonly<{
+    branchLabel?: string
+    /** Git's own prunable reason when the admin entry is stale. */
+    prunableReason?: string
+    /** Always false in v1: registered worktrees are never janitor items. */
+    registered: false
+  }>
+  observedAt: string
+}>
+
+export type JanitorScanReport = Readonly<{
+  items: readonly JanitorItem[]
+  /** Bumped on every scan; a cleanup plan binds it. */
+  observationGeneration: number
+  observedAt: string
+}>
+
+export type JanitorMeasurePage = Readonly<{
+  /** The requested ids that finished measuring in this pass. */
+  items: readonly JanitorItem[]
+  observedAt: string
+}>
+
+export type JanitorPlan = Readonly<{
+  plan: MutationPlan
+  /** The proven items the plan names, in plan order. */
+  items: readonly JanitorItem[]
+  /** Sum of the planned items' measured bytes; absent when any is unmeasured. */
+  totalBytes?: string
+  observedAt: string
+}>
+
+export type JanitorCommitOutcome = Readonly<{
+  itemId: string
+  outcome: 'trashed' | 'emptied' | 'pruned' | 'skipped' | 'failed'
+  /** The trash display path, or the reason the item was skipped or failed. */
+  detail?: string
+}>
+
+export type JanitorCommitResult = Readonly<{
+  outcomes: readonly JanitorCommitOutcome[]
+  observedAt: string
+}>
+
 export type ResourceCoverage = 'adea' | 'machine'
 export type ResourceCleanupMode = 'off' | 'ask' | 'automatic'
 
@@ -2765,6 +2837,98 @@ function namedType(name: string, value: unknown, path: string): unknown {
     if (item.sourceBytes !== undefined) decimalBytes(item.sourceBytes, `${path}.sourceBytes`)
     if (item.buildBytes !== undefined) decimalBytes(item.buildBytes, `${path}.buildBytes`)
     if (item.measuredAt !== undefined) timestamp(item.measuredAt, `${path}.measuredAt`)
+    return value
+  }
+  if (name === 'JanitorItem') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'section', 'label', 'pathLabel', 'state', 'disposal', 'observedAt'],
+      ['bytes', 'modifiedAt', 'worktree'],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 128)
+    literal(item.section, ['derived_data', 'cache', 'logs', 'trash', 'worktree'], `${path}.section`)
+    stringValue(item.label, `${path}.label`, 1, 256)
+    stringValue(item.pathLabel, `${path}.pathLabel`, 1, 512)
+    if (item.bytes !== undefined) decimalBytes(item.bytes, `${path}.bytes`)
+    literal(
+      item.state,
+      ['discovered', 'measuring', 'measured', 'stale', 'unreadable'],
+      `${path}.state`
+    )
+    if (item.modifiedAt !== undefined) timestamp(item.modifiedAt, `${path}.modifiedAt`)
+    literal(item.disposal, ['trash', 'trash_empty', 'prune'], `${path}.disposal`)
+    if (item.worktree !== undefined) {
+      const worktree = record(item.worktree, `${path}.worktree`)
+      exactKeys(worktree, ['registered'], ['branchLabel', 'prunableReason'], `${path}.worktree`)
+      if (worktree.registered !== false)
+        fail(`${path}.worktree.registered`, 'janitor worktree items are never registered')
+      if (worktree.branchLabel !== undefined)
+        stringValue(worktree.branchLabel, `${path}.worktree.branchLabel`, 1, 256)
+      if (worktree.prunableReason !== undefined)
+        stringValue(worktree.prunableReason, `${path}.worktree.prunableReason`, 1, 256)
+    }
+    if (item.section === 'worktree' && item.worktree === undefined)
+      fail(`${path}.worktree`, 'a worktree item carries its worktree facts')
+    if (item.section !== 'worktree' && item.worktree !== undefined)
+      fail(`${path}.worktree`, 'only a worktree item carries worktree facts')
+    if (item.disposal === 'trash_empty' && item.section !== 'trash')
+      fail(`${path}.disposal`, 'only a Trash item is emptied')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'JanitorScanReport') {
+    const item = record(value, path)
+    exactKeys(item, ['items', 'observationGeneration', 'observedAt'], [], path)
+    if (!Array.isArray(item.items)) fail(`${path}.items`, 'expected array')
+    if (item.items.length > 2048) fail(`${path}.items`, 'expected at most 2048 items')
+    for (const [index, entry] of item.items.entries())
+      namedType('JanitorItem', entry, `${path}.items[${index}]`)
+    integerValue(item.observationGeneration, `${path}.observationGeneration`, 1)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'JanitorMeasurePage') {
+    const item = record(value, path)
+    exactKeys(item, ['items', 'observedAt'], [], path)
+    if (!Array.isArray(item.items)) fail(`${path}.items`, 'expected array')
+    if (item.items.length > 64) fail(`${path}.items`, 'expected at most 64 items')
+    for (const [index, entry] of item.items.entries())
+      namedType('JanitorItem', entry, `${path}.items[${index}]`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'JanitorPlan') {
+    const item = record(value, path)
+    exactKeys(item, ['plan', 'items', 'observedAt'], ['totalBytes'], path)
+    namedType('MutationPlan', item.plan, `${path}.plan`)
+    if (!Array.isArray(item.items)) fail(`${path}.items`, 'expected array')
+    if (item.items.length > 100) fail(`${path}.items`, 'expected at most 100 items')
+    for (const [index, entry] of item.items.entries())
+      namedType('JanitorItem', entry, `${path}.items[${index}]`)
+    if (item.totalBytes !== undefined) decimalBytes(item.totalBytes, `${path}.totalBytes`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'JanitorCommitResult') {
+    const item = record(value, path)
+    exactKeys(item, ['outcomes', 'observedAt'], [], path)
+    if (!Array.isArray(item.outcomes)) fail(`${path}.outcomes`, 'expected array')
+    if (item.outcomes.length > 100) fail(`${path}.outcomes`, 'expected at most 100 outcomes')
+    for (const [index, entry] of item.outcomes.entries()) {
+      const outcome = record(entry, `${path}.outcomes[${index}]`)
+      exactKeys(outcome, ['itemId', 'outcome'], ['detail'], `${path}.outcomes[${index}]`)
+      stringValue(outcome.itemId, `${path}.outcomes[${index}].itemId`, 1, 128)
+      literal(
+        outcome.outcome,
+        ['trashed', 'emptied', 'pruned', 'skipped', 'failed'],
+        `${path}.outcomes[${index}].outcome`
+      )
+      if (outcome.detail !== undefined)
+        stringValue(outcome.detail, `${path}.outcomes[${index}].detail`, 1, 512)
+    }
+    timestamp(item.observedAt, `${path}.observedAt`)
     return value
   }
   if (name === 'ResourcePreferencesInput') {
@@ -4477,6 +4641,12 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
       value,
       'reply.value'
     ),
+  // Machine-wide janitor: the scan/measure reads, then the explicit plan/
+  // commit cleanup pair under the janitor capability.
+  'dev.resources.janitorScan': (value) => namedType('JanitorScanReport', value, 'reply.value'),
+  'dev.resources.janitorMeasure': (value) => namedType('JanitorMeasurePage', value, 'reply.value'),
+  'dev.resources.janitorPlan': (value) => namedType('JanitorPlan', value, 'reply.value'),
+  'dev.resources.janitorCommit': (value) => namedType('JanitorCommitResult', value, 'reply.value'),
   'dev.resources.preferences': (value) => namedType('ResourcePreferences', value, 'reply.value'),
   'dev.resources.preferencesUpdate': (value) =>
     namedType('ResourcePreferences', value, 'reply.value'),

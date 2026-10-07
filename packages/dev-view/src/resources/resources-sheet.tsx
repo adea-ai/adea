@@ -7,16 +7,28 @@
  * click, and focus restoration are the primitive's, the geometry rides the
  * dialog scale, and the pane keeps every row and action it had in the old
  * fixed popover.
+ *
+ * The pinned title/action bands and the scrolling body are the pane's
+ * (published SheetHeader/SheetBody/SheetFooter parts, #1082's two-toned
+ * bands), and the pane rides its own lazy chunk — so while it loads this
+ * composition renders the same SheetContent shape with a loading body, and
+ * the loaded pane swaps in its full chrome.
  */
 import { Suspense, lazy } from 'solid-js'
-import { Sheet, SheetBody, SheetContent } from '@adea-ai/ui/components/ui/sheet'
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@adea-ai/ui/components/ui/sheet'
 
 import { createUnavailableDevRuntimeService, type DevRuntimeService } from '../platform'
 import './resources-pane.css'
 
 // The pane rides its own lazy chunk inside the Dev boundary: mounting code
 // this heavy on the entry chunk would blow the client budget the bundle check
-// enforces. It renders only while the sheet is open.
+// enforces. It renders the whole sheet content while the sheet is open.
 const ResourcesPane = lazy(() =>
   import('./resources-pane').then((module) => ({ default: module.ResourcesPane }))
 )
@@ -39,6 +51,22 @@ export type ResourcesSheetProps = {
   onClose(): void
 }
 
+/** The same panel shape as the loaded pane, without its state: the sheet is
+ * visible (and dismissible) from the first frame, the title band never jumps,
+ * and the body explains the wait. */
+function ResourcesSheetPending() {
+  return (
+    <SheetContent side="end" class="dev-resources-sheet" closeLabel="Close runtime resources">
+      <SheetHeader>
+        <SheetTitle class="dev-resources__title">Runtime resources</SheetTitle>
+      </SheetHeader>
+      <SheetBody>
+        <p class="dev-resources__note">Loading…</p>
+      </SheetBody>
+    </SheetContent>
+  )
+}
+
 export function ResourcesSheet(props: ResourcesSheetProps) {
   return (
     // `open` is always true here: the host conditionally mounts the sheet, so
@@ -50,35 +78,21 @@ export function ResourcesSheet(props: ResourcesSheetProps) {
         if (!open) props.onClose()
       }}
     >
-      {/* The pane header carries the visible "Runtime resources" title and the
-          refresh action, so the sheet only names the dialog and reserves the
-          corner where its close button sits (the dev-resources-sheet wrapper). */}
-      <SheetContent
-        side="end"
-        class="w-150"
-        aria-label="Runtime resources"
-        closeLabel="Close runtime resources"
-      >
-        <SheetBody>
-          <Suspense fallback={<p class="dev-resources__note">Loading…</p>}>
-            <div class="dev-resources-sheet">
-              <ResourcesPane
-                runtime={props.runtime ?? unavailableRuntime}
-                runtimeSessionId={props.runtimeSessionId}
-                openExternal={props.openExternal}
-                {...(props.onOpenSession
-                  ? {
-                      onOpenSession: (target: { runtimeSessionId: string; projectId?: string }) => {
-                        props.onClose()
-                        props.onOpenSession?.(target)
-                      },
-                    }
-                  : {})}
-              />
-            </div>
-          </Suspense>
-        </SheetBody>
-      </SheetContent>
+      <Suspense fallback={<ResourcesSheetPending />}>
+        <ResourcesPane
+          runtime={props.runtime ?? unavailableRuntime}
+          runtimeSessionId={props.runtimeSessionId}
+          openExternal={props.openExternal}
+          {...(props.onOpenSession
+            ? {
+                onOpenSession: (target: { runtimeSessionId: string; projectId?: string }) => {
+                  props.onClose()
+                  props.onOpenSession?.(target)
+                },
+              }
+            : {})}
+        />
+      </Suspense>
     </Sheet>
   )
 }

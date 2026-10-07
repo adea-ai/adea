@@ -1130,6 +1130,30 @@
       "body": "{ foreignProcessId: string; expectedGeneration: integer; force?: boolean; reason: string(1..512) }",
       "reply": "MutationPlan"
     },
+    "dev.resources.janitorCommit": {
+      "capabilities": ["dev.resources.janitor"],
+      "resource": "janitor_plan:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "JanitorCommitResult"
+    },
+    "dev.resources.janitorMeasure": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{ ids: string[]<=64 }",
+      "reply": "JanitorMeasurePage"
+    },
+    "dev.resources.janitorPlan": {
+      "capabilities": ["dev.resources.janitor"],
+      "resource": null,
+      "body": "{ itemIds: string[]<=100; expectedGeneration: integer }",
+      "reply": "JanitorPlan"
+    },
+    "dev.resources.janitorScan": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{}",
+      "reply": "JanitorScanReport"
+    },
     "dev.resources.metrics": {
       "capabilities": ["dev.resources.read"],
       "resource": null,

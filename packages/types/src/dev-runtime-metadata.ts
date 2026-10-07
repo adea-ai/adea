@@ -465,6 +465,18 @@ export const devOperationMetadata = {
   'dev.resources.foreignStopPlan': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_foreignStopPlan
   ),
+  'dev.resources.janitorCommit': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_janitorCommit
+  ),
+  'dev.resources.janitorMeasure': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_janitorMeasure
+  ),
+  'dev.resources.janitorPlan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_janitorPlan
+  ),
+  'dev.resources.janitorScan': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_resources_janitorScan
+  ),
   'dev.resources.metrics': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_resources_metrics
   ),

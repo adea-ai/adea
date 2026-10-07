@@ -119,7 +119,9 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // charts, detail actions, attention issues), per-view nav meta and the
   // @adea-ai/ui 0.113 → 0.115 bump. Raw ratchets to 2,960,000 (~1%
   // headroom; main had 477 bytes); gzip to 880 KiB (~1.1%).
-  total: { rawBytes: 2_960_000, gzipBytes: 880 * 1024, fileCount: 155 },
+  // The machine-wide janitor (2026-10-07) adds its lazy tab chunk:
+  // fileCount ratchets to 156; raw and gzip stay under their caps.
+  total: { rawBytes: 2_960_000, gzipBytes: 880 * 1024, fileCount: 156 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 233 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -204,7 +206,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // gzip against the same build of main's 298,056 / 98,800; the same
     // workspace-nav delta Virtual carries. Raw holds; gzip ratchets to
     // 98 KiB (~0.9% headroom).
-    chat: { rawBytes: 294 * 1024, gzipBytes: 98 * 1024 },
+    // The machine-wide janitor (2026-10-07) shares the registry/decoder
+    // chunks this route pulls: 301,071 raw. Raw ratchets to 296 KiB
+    // (~0.7% headroom); gzip holds at 98 KiB.
+    chat: { rawBytes: 296 * 1024, gzipBytes: 98 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
@@ -327,7 +332,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // (2026-10-06) brings the route to 904,867 / 238,237 with the Dev-shell
     // savings above (the terminal pane keeps its own Input import). Both caps
     // hold.
-    devTerminal: { rawBytes: 888 * 1024, gzipBytes: 234 * 1024 },
+    // The machine-wide janitor command surface (2026-10-06, four registry
+    // operations with their strict DTO decoders) lands the route at
+    // 910,550 raw / 239,370 gzip; raw ratchets to 896 KiB (~0.8% headroom),
+    // gzip still holds at 234 KiB.
+    devTerminal: { rawBytes: 896 * 1024, gzipBytes: 234 * 1024 },
     // Same delta on the editor route (2026-10-06, ADR 0011 PR 10b): 541,499
     // raw / 171,081 gzip against its base build's 490,226 / 154,545. Raw
     // ratchets to 532 KiB (~0.6% headroom); gzip to 168 KiB (~0.6%).
@@ -335,7 +344,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the same build of main's 542,417 / 171,160 — the Dev-shell savings.
     // Raw ratchets down to 525 KiB (~0.9% headroom, the terminal route's
     // ratio); gzip to 166 KiB (~1.3%).
-    devEditor: { rawBytes: 525 * 1024, gzipBytes: 166 * 1024 },
+    // The machine-wide janitor (2026-10-07) shares the registry/decoder
+    // chunks this route pulls: 538,169 raw. Raw ratchets to 530 KiB
+    // (~0.9% headroom); gzip holds at 166 KiB.
+    devEditor: { rawBytes: 530 * 1024, gzipBytes: 166 * 1024 },
   },
 }
 

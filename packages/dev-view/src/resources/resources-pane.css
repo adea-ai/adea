@@ -6,36 +6,40 @@
  * Content family, and ports, paths, and codes use the Code family.
  */
 
-/* The panel geometry — edge docking, overlay z-order — belongs to the shared
-   Sheet. This hook widens the end-docked panel so the server table fits, and
-   reserves the corner where the sheet's close button sits. */
-
-.dev-resources-sheet .dev-resources__header {
-  padding-inline-end: 2.75rem;
+/* The panel geometry — edge docking, overlay z-order, the pinned bands —
+   belongs to the shared Sheet. This hook widens the end-docked panel so the
+   server table fits. The title band's published `pe-12` already reserves the
+   corner where the sheet's close button sits. */
+.dev-resources-sheet.dev-resources-sheet {
+  width: min(37.5rem, calc(100vw - 1rem));
 }
 
+/* The pane body fills the scrolling region between the pinned bands; the
+   SheetBody owns the scroll and the panel padding. */
 .dev-resources {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 0.75rem;
-  height: 100%;
-  overflow-y: auto;
-  padding: 0.5rem;
   font-family: var(--font-ui, var(--font-sans));
   font-size: var(--text-base, 1rem);
 }
 
-/* Sections keep their natural height; the pane itself scrolls. */
+/* Sections keep their natural height; the sheet body scrolls. */
 .dev-resources > * {
   flex: none;
 }
 
+/* The pinned title band carries the pane's font roles (the shared appearance
+   settings scale --text-base and name --font-ui), so the title and its
+   actions read exactly like the scrolling body they pin. */
 .dev-resources__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
+  font-family: var(--font-ui, var(--font-sans));
+  font-size: var(--text-base, 1rem);
 }
 
 /* The refresh action belongs beside the title, vertically centered with it,
@@ -51,8 +55,11 @@
   gap: 0.125rem;
 }
 
-.dev-resources__title {
-  font-weight: 600;
+/* The settings action toggles the drill-in view, so it reads pressed while
+   that view is open (same treatment as the workspace bar's toggles). */
+.dev-resources__header-toggle[aria-pressed='true'] {
+  color: var(--primary);
+  background-color: var(--primary-subtle);
 }
 
 .dev-resources__spacer {
@@ -539,6 +546,20 @@
   gap: 0.625rem;
   padding-block-start: 0.625rem;
   border-top: 1px solid var(--border);
+}
+
+.dev-resources__janitor-meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* The pinned clean-up band is the published SheetFooter (border, padding,
+   hairline and the #1082 muted step are its); layout only here — the note
+   sits at the start edge, the action at the end edge. */
+.dev-resources__sheet-footer {
+  justify-content: space-between;
 }
 
 .dev-resources__settings-group {

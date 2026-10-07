@@ -12,6 +12,7 @@ import { DevicesPane } from '../../../../packages/dev-view/src/devices/devices-p
 import { DevLayoutView } from '../../../../packages/dev-view/src/layout/layout-view'
 import { createLayoutState } from '../../../../packages/dev-view/src/layout/operations'
 import { ResourcesPane } from '../../../../packages/dev-view/src/resources/resources-pane'
+import { Sheet } from '@adea-ai/ui/components/ui/sheet'
 import type { DevRuntimeService } from '../../../../packages/dev-view/src/platform'
 import {
   browserPaneFixtureScope,
@@ -37,6 +38,108 @@ import type { BrowserPaneHarnessReport } from './dev-browser-pane-harness'
 import type { DevUtilityContextReader } from '../../../../packages/dev-view/src/utility-context'
 
 const scope = browserPaneFixtureScope
+
+const JANITOR_EPOCH = new Date(0).toISOString()
+
+/** `?janitor=fixture` turns the janitor tab into a deterministic fixture:
+ * two Derived Data entries, ten cache entries (past the show-more window),
+ * and one Trash entry. */
+const janitorFixtureItems = [
+  {
+    id: 'jn-fix-derived',
+    section: 'derived_data',
+    label: 'MyApp-abc123',
+    pathLabel: '~/Library/Developer/Xcode/DerivedData/MyApp-abc123',
+    state: 'discovered',
+    disposal: 'trash',
+    observedAt: JANITOR_EPOCH,
+  },
+  ...Array.from({ length: 10 }, (_, index) => ({
+    id: `jn-fix-cache-${index}`,
+    section: 'cache',
+    label: `com.fixture.cache-${index}`,
+    pathLabel: `~/Library/Caches/com.fixture.cache-${index}`,
+    state: 'discovered',
+    disposal: 'trash',
+    observedAt: JANITOR_EPOCH,
+  })),
+  {
+    id: 'jn-fix-trash',
+    section: 'trash',
+    label: 'old-download.zip',
+    pathLabel: '~/.Trash/old-download.zip',
+    state: 'discovered',
+    disposal: 'trash_empty',
+    observedAt: JANITOR_EPOCH,
+  },
+] as const
+
+const janitorFixtureBytes: Record<string, string> = {
+  'jn-fix-derived': String(52_428_800),
+  'jn-fix-trash': String(90_000),
+  ...Object.fromEntries(
+    Array.from({ length: 10 }, (_, index) => [`jn-fix-cache-${index}`, String(1_000 + index)])
+  ),
+}
+
+function janitorFixtureReport() {
+  return {
+    items: janitorFixtureItems.map((item) => ({ ...item })),
+    observationGeneration: 4,
+    observedAt: JANITOR_EPOCH,
+  }
+}
+
+function janitorFixturePlan(itemIds: readonly string[]) {
+  const items = janitorFixtureItems
+    .filter((item) => itemIds.includes(item.id))
+    .map((item) => ({ ...item }))
+  const total = itemIds.reduce((sum, id) => sum + Number(janitorFixtureBytes[id] ?? 0), 0)
+  return {
+    plan: {
+      id: '00000000-0000-4000-8000-0000000000f1',
+      operation: 'dev.resources.janitorCommit',
+      scope,
+      resource: { kind: 'janitor_plan', id: '00000000-0000-4000-8000-0000000000f1', generation: 4 },
+      factVersions: { itemsDigest: 'f'.repeat(64) },
+      steps: items.map((item, index) => ({
+        id: `item-${index}`,
+        kind: item.disposal,
+        targetId: item.id,
+        dependsOn: [],
+      })),
+      blockers: [],
+      requiredApprovalIds: [],
+      digest: 'e'.repeat(64),
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    },
+    items,
+    totalBytes: String(total),
+    observedAt: JANITOR_EPOCH,
+  }
+}
+
+/** A listener row Adea did not start, for the collapsed-section fixture. */
+function foreignRow(index: number): import('@adea-ai/types/dev-runtime').ForeignProcessRecord {
+  return {
+    id: `browser-pane-fixture-foreign-${index}`,
+    observationGeneration: 1,
+    pid: 5000 + index,
+    startIdentity: `browser-pane-fixture-foreign-start-${index}`,
+    executableIdentity: `fixture-helper-${index}`,
+    label: `fixture-helper-${index}`,
+    cwdLabel: `~/Fixture/helper-${index}`,
+    attribution: { kind: 'unknown' },
+    listeningPorts: [7000 + index],
+    childCount: 0,
+    residentBytes: String(40_000_000 + index * 1_000_000),
+    residentHistory: [],
+    protection: 'none',
+    stoppable: true,
+    observedAt: new Date(0).toISOString(),
+  }
+}
+
 let lane: BrowserLane = {
   id: 'browser-pane-fixture-lane',
   scope,
@@ -326,7 +429,12 @@ const runtime = {
       }
       case 'dev.resources.ports':
         return reply(command, { items: [port] })
-      case 'dev.resources.snapshot':
+      case 'dev.resources.snapshot': {
+        // `resources=many-foreign` pads the "Elsewhere on this machine"
+        // section past the show-more window so the collapsed-list assertions
+        // have a section to measure.
+        const manyForeign =
+          new URLSearchParams(window.location.search).get('resources') === 'many-foreign'
         return reply(command, {
           processes: [
             {
@@ -343,10 +451,48 @@ const runtime = {
             },
           ],
           ports: [port],
+          ...(manyForeign
+            ? {
+                foreign: Array.from({ length: 12 }, (_, index) => foreignRow(index)),
+              }
+            : {}),
           metrics: [],
           retainedData: [],
           observedAt: new Date(0).toISOString(),
         } satisfies ResourceSnapshot)
+      }
+      case 'dev.resources.janitorScan':
+        return reply(command, janitorFixtureReport())
+      case 'dev.resources.janitorMeasure':
+        return reply(command, {
+          items: ((command.body as { ids?: string[] }).ids ?? [])
+            .map((id) => janitorFixtureItems.find((item) => item.id === id))
+            .filter((item): item is (typeof janitorFixtureItems)[number] => item !== undefined)
+            .map((item) => ({
+              ...item,
+              state: 'measured',
+              bytes: janitorFixtureBytes[item.id],
+              modifiedAt: JANITOR_EPOCH,
+            })),
+          observedAt: JANITOR_EPOCH,
+        })
+      case 'dev.resources.janitorPlan':
+        return reply(
+          command,
+          janitorFixturePlan((command.body as { itemIds?: string[] }).itemIds ?? [])
+        )
+      case 'dev.resources.janitorCommit':
+        return reply(command, {
+          outcomes:
+            ((command.body as { planId?: string }).planId ?? '')
+              ? janitorFixtureItems.slice(0, 1).map((item) => ({
+                  itemId: item.id,
+                  outcome: 'trashed',
+                  detail: '~/.Trash/' + item.label,
+                }))
+              : [],
+          observedAt: JANITOR_EPOCH,
+        })
       case 'dev.resources.usage':
         return reply(command, { items: [] })
       case 'dev.device.list':
@@ -633,7 +779,12 @@ dispose = render(() => {
       {pane === 'devices' ? (
         <DevicesPane context={utilityContext} />
       ) : pane === 'resources' ? (
-        <ResourcesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+        // ResourcesPane renders the sheet content itself (pinned bands +
+        // scrolling body), so the harness mounts the same Sheet root the real
+        // host uses.
+        <Sheet open onOpenChange={() => {}}>
+          <ResourcesPane runtime={runtime} runtimeSessionId={lane.runtimeSessionId} />
+        </Sheet>
       ) : (
         <BrowserPane context={utilityContext} />
       )}

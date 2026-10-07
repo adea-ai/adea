@@ -46,7 +46,11 @@ export function UsageTab(props: { cards: readonly UsageCard[] }) {
                   <span class="dev-resources__usage-value">
                     {card.quantityIsUnknown ? 'unknown' : `${card.quantity} ${card.unit}`}
                     <Show when={card.stale}>
-                      <StatusChip tone="warning" label="Stale" compact />
+                      <StatusChip
+                        tone="warning"
+                        label="Stale"
+                        detail="The last observation is older than its retention window"
+                      />
                     </Show>
                   </span>
                 </li>

@@ -71,9 +71,12 @@ test.beforeEach(async ({ page }) => {
 
 test('the unavailable resources refresh action explains its disabled state', async ({ page }) => {
   await page.getByRole('button', { name: 'Runtime resources', exact: true }).click()
-  const resources = page.getByRole('region', { name: 'Runtime resources' })
+  // The refresh action lives in the sheet's pinned title band, outside the
+  // scrolling body region.
+  const sheet = page.locator('[role="dialog"][data-variant]')
+  const resources = sheet.getByRole('region', { name: 'Runtime resources' })
   await expect(resources.getByText('Runtime unavailable', { exact: true })).toBeVisible()
-  const refresh = resources.getByRole('button', { name: 'Refresh resources', exact: true })
+  const refresh = sheet.getByRole('button', { name: 'Refresh resources', exact: true })
   await expect(refresh).toBeDisabled()
   await refresh.hover()
   await expect(page.getByRole('tooltip')).toHaveText('Connect a runtime to refresh resources')
@@ -130,9 +133,12 @@ test('appearance font roles change computed typography in Resources and Permissi
   await setAppearanceFontRoles(page)
 
   await page.getByRole('button', { name: 'Runtime resources', exact: true }).click()
-  const resources = page.getByRole('region', { name: 'Runtime resources' })
+  // The title lives in the sheet's pinned title band; the body region scrolls
+  // beneath it.
+  const sheet = page.locator('[role="dialog"][data-variant]')
+  const resources = sheet.getByRole('region', { name: 'Runtime resources' })
   await expect(resources).toBeVisible()
-  const resourceUi = resources.locator('.dev-resources__title')
+  const resourceUi = sheet.locator('.dev-resources__title')
   const resourceContent = resources
     .locator('.dev-resources__note, .dev-resources__unavailable')
     .first()

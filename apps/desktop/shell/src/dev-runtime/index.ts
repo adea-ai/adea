@@ -64,6 +64,7 @@ import {
 } from './resources/foreign-stop'
 import { createMachineInventory, type MachineStats } from './resources/machine-inventory'
 import { createResourcePreferenceStore } from './resources/preferences'
+import { createJanitorAuthority } from './resources/janitor'
 import { createWorktreeStorage } from './resources/worktree-storage'
 import { createRetainedDataProjection } from './resources/retained-data'
 import { createCleanupWorktreeFacts, type OwnedResourceRef } from './resources/cleanup-facts'
@@ -82,6 +83,7 @@ import {
   type WorktreeService,
 } from './worktrees/service'
 import { WorktreeError } from './worktrees/errors'
+import { runGitChecked } from './worktrees/git-run'
 import { registerProjectScanRuntime } from './projects/register'
 import { createManagedCloneAuthority } from './projects/clone'
 import { autoAdoptBindings } from './repos/auto-adopt'
@@ -255,6 +257,11 @@ export type CreateDevRuntimeHostInput = {
   runResourceCommand?: CappedCommandRunner
   /** Machine-wide resources: overrides the signal sender for foreign stop. */
   foreignSignal?: ForeignSignal
+  /** Machine-wide janitor: a scripted authority overrides the whole seam. */
+  janitor?: ReturnType<typeof createJanitorAuthority>
+  /** Machine-wide janitor: overrides the default scan roots (the register's
+   * authorized repository roots). */
+  janitorScanRoots?: () => readonly string[]
   /** Machine-wide resources: overrides the machine memory/CPU/disk reader. */
   machineStats?: () => MachineStats
   /** #424: live worktree facts for cleanup-policy evaluation; absence fails
@@ -912,6 +919,34 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
               .map((worktree) => ({ id: worktree.id, root: worktree.canonicalRoot })),
         })
       : undefined
+    // Machine-wide janitor (owner follow-up): macOS-only cleanup of
+    // well-known junk and unregistered worktrees. Scan roots default to the
+    // register's authorized repository roots (the user's configured project
+    // roots); a scripted authority overrides the whole seam in tests. Off
+    // darwin nothing is composed and the handlers fail closed.
+    const janitor =
+      process.platform === 'darwin'
+        ? (input.janitor ??
+          createJanitorAuthority({
+            scope: input.scope,
+            gitWorktreeList: (root) =>
+              runGitChecked(['worktree', 'list', '--porcelain'], { cwd: root }).then(
+                (result) => result.stdout
+              ),
+            gitWorktreePrune: (root) =>
+              runGitChecked(['worktree', 'prune'], { cwd: root }).then(() => undefined),
+            registeredRoots: () =>
+              worktreeService
+                ?.listWorktrees({ scope: input.scope! })
+                .map((worktree) => worktree.canonicalRoot) ?? [],
+            scanRoots:
+              input.janitorScanRoots ??
+              (() =>
+                roots
+                  .list({ scope: input.scope!, kind: 'repository' })
+                  .items.map((bookmark) => bookmark.canonicalRoot)),
+          }))
+        : undefined
     resources = registerResourcesRuntime({
       authority: input.authority,
       scope: input.scope,
@@ -925,6 +960,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       ...(machine ? { machine } : {}),
       ...(foreignStop ? { foreignStop } : {}),
       ...(worktreeStorage ? { worktreeStorage } : {}),
+      ...(janitor ? { janitor } : {}),
     })
     ownedPids = resources.ownedPids
   }

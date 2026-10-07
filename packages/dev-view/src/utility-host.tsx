@@ -10,7 +10,7 @@ import {
   SideRailItem,
   SideRailSection,
 } from '@adea-ai/ui/components/layout/side-rail'
-import { Maximize2, X } from 'lucide-solid'
+import { Maximize2, Minimize2, X } from 'lucide-solid'
 import { For, Show, Suspense, createResource, lazy, onCleanup } from 'solid-js'
 
 import {
@@ -255,7 +255,9 @@ export function SharedDevUtilityHost(props: {
               )
             }
           >
-            <Maximize2 aria-hidden="true" />
+            <Show when={visiblePane()?.fullWidth} fallback={<Maximize2 aria-hidden="true" />}>
+              <Minimize2 aria-hidden="true" />
+            </Show>
           </ActionButton>
           <ActionButton
             type="button"

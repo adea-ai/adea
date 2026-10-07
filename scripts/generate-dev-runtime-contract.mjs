@@ -52,6 +52,7 @@ const targetIdFields = {
   device_inventory: 'inventoryId',
   device_session: 'deviceSessionId',
   foreign_process: 'foreignProcessId',
+  janitor_plan: 'planId',
   process: 'processRecordId',
   project: 'projectId',
   pull_request: 'pullRequestId',
