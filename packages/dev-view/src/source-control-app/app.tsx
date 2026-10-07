@@ -92,22 +92,20 @@ function defaultStorage(): KeyValueStorage | undefined {
 const TOAST_REGION = 'source-control'
 
 /**
- * Error toasts leave on their own. The published `toast.error` helper
- * hard-codes `persistent` (dismiss-only) and the caller cannot override it, so
- * the error path goes through `toast.show` with a longer timer than the
- * region's 5 s default — long enough to read, short enough that a failed
- * "check again" does not sit on screen until it is dismissed. Upstream
- * follow-up: make the persistent default overridable so callers can pass
- * `duration` to `toast.error` directly.
+ * Error toasts leave on their own: a failed "check again" is one of a stream
+ * of retries, so the toast takes a timer above the region's 5 s default —
+ * long enough to read, short enough that it does not sit on screen until it
+ * is dismissed. Published `toast.error` defaults to persistent (an error the
+ * user missed is a failure unreported) and takes the override since
+ * @adea-ai/ui 0.113.1, so the funnel states its timer right on the call.
  */
 const ERROR_TOAST_DURATION_MS = 7000
 
 function notifyOf(message: string, tone: 'success' | 'error', region: string): number {
   if (tone === 'error')
-    return toast.show({
-      title: message,
-      tone: 'destructive',
+    return toast.error(message, {
       region,
+      persistent: false,
       duration: ERROR_TOAST_DURATION_MS,
     })
   return toast.success(message, { region })
