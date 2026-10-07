@@ -265,8 +265,8 @@ function AppActivationSection(props: { activation: WorkspaceAppActivation }) {
         }
       >
         <p>
-          <Check aria-hidden="true" class="mr-0.5 inline size-4 align-middle" /> Bundled
-          first-party app entry <code>{activationEntryId(props.activation)}</code> can activate.
+          <Check aria-hidden="true" class="mr-0.5 inline size-4 align-middle" /> Bundled first-party
+          app entry <code>{activationEntryId(props.activation)}</code> can activate.
         </p>
       </Show>
     </CatalogDetailSection>

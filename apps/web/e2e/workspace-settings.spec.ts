@@ -553,9 +553,10 @@ test('settings headers and notes keep the shared palette and sized marks', async
       noteIconHeight: noteIcon ? getComputedStyle(noteIcon).height : null,
     }
   })
-  // The dialog portals beside the workspace frame, so its palette must come
-  // from the token block binding `.conventional-settings-dialog`; an unbound
-  // token leaves the header mark foreground-toned and the note unpainted.
+  // The settings dialogs portal beside the workspace frame, so the palette
+  // must resolve where the portaled content can see it: the shared --cw-*
+  // aliases resolve at :root (#1115). An alias that resolves empty leaves the
+  // header mark foreground-toned and the note unpainted.
   expect(parseColor(probe.headerIconColor!)).toEqual(parseColor(probe.primaryToken))
   expect(parseColor(probe.noteColor!)).toEqual(parseColor(probe.mutedForegroundToken))
   expect(parseColor(probe.noteBackground!)).toEqual(parseColor(probe.mutedToken))
