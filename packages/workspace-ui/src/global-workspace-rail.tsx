@@ -8,7 +8,7 @@ import {
   SideRailItem,
   SideRailSection,
 } from '@adea-ai/ui/components/layout/side-rail'
-import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
+import { Kbd, KbdGroup } from '@adea-ai/ui/components/ui/kbd'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import {
   Code2,
@@ -24,6 +24,7 @@ import {
 import { createEffect, createSignal, For, onCleanup } from 'solid-js'
 
 import { AccountMenu } from './account-menu'
+import { platformModifierKey, searchShortcutLabel } from './keyboard-shortcuts'
 import type { WorkspaceView } from './workspace-view-toggle'
 import type { WorkspaceAppId } from './workspace-apps'
 
@@ -117,6 +118,11 @@ export function GlobalWorkspaceRail(props: {
   const [dropPosition, setDropPosition] = createSignal<'after' | 'before'>()
   const [announcement, setAnnouncement] = createSignal('')
   const reorderable = () => Boolean(props.reorder) && props.views.length > 1
+  // The search chord's advertised modifier follows the running OS, the same
+  // helper the account menu and the Help Center draw from; the binding itself
+  // accepts Meta and Ctrl alike (`keyshortcuts` below declares both).
+  const searchModifier = platformModifierKey()
+  const searchShortcut = searchShortcutLabel()
 
   createEffect(() => {
     // Captures props.onOpenSearch from the component scope.
@@ -186,13 +192,19 @@ export function GlobalWorkspaceRail(props: {
               type="button"
               label="Search workspace"
               aria-label="Search workspace"
-              shortcut="⌘K"
+              shortcut={searchShortcut}
               keyshortcuts="Meta+K Control+K"
               onClick={props.onOpenSearch}
             >
               <Search aria-hidden="true" />
             </SideRailItem>
-            <KbdChord keys="⌘K" size="compact" data-global-rail-search-keys="" />
+            {/* KbdChord draws one cap per character, so a spelled-out Ctrl
+                cannot ride it; the shared group draws one cap per entry, and
+                `platformModifierKey` picks the glyph ("⌘" or "Ctrl"). */}
+            <KbdGroup size="compact" data-global-rail-search-keys="">
+              <Kbd size="compact">{searchModifier}</Kbd>
+              <Kbd size="compact">K</Kbd>
+            </KbdGroup>
           </div>
         </SideRailSection>
 
