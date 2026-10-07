@@ -398,7 +398,7 @@ test.describe('source control app', () => {
     // The Commits tab headline sits at the row-title scale (the 12px text-xs
     // the sidebar's commit rows inherit from Button sm), not the app's 16px
     // base towering over every other row title.
-    await page.getByRole('tab', { name: 'Commits', exact: true }).click()
+    await page.getByRole('tab', { name: 'Commits' }).click()
     const headline = page.locator('.dev-scm-commit-line .dev-scm-truncate').first()
     await expect(headline).toBeVisible()
     await expect(headline).toHaveCSS('font-size', '12px')
