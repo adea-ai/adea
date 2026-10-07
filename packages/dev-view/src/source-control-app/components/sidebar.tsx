@@ -129,9 +129,8 @@ function ProjectRow(props: {
         title={
           props.row.projectName === props.row.name ? undefined : `Project ${props.row.projectName}`
         }
-        class={cn('dev-scm-drag-row', {
-          'dev-scm-drag-row--dragging': props.drag?.dragged() === true,
-        })}
+        data-scm-drag-row=""
+        data-dragging={props.drag?.dragged() === true ? '' : undefined}
         {...(props.drag
           ? {
               onPointerDown: props.drag.onPointerDown,
@@ -379,12 +378,12 @@ export function SourceControlSidebar(props: {
                   data-dragging={dragging() ? '' : undefined}
                   data-armed={dropArmed() ? '' : undefined}
                 >
-                  <Separator orientation="horizontal" class="dev-scm-dragbar__line" />
+                  <Separator orientation="horizontal" data-scm-dragbar-line="" />
                   <Show when={hiddenRows().length > 0}>
                     <ActionButton
                       variant="ghost"
                       size="icon-2xs"
-                      class="dev-scm-dragbar__grip"
+                      class="relative"
                       tooltip={
                         hiddenOpen() ? 'Collapse the show-more group' : 'Expand the show-more group'
                       }

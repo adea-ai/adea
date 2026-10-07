@@ -476,7 +476,9 @@ test('DevicesPane keeps a simulator action on its row content line at utility-do
         root.style.maxWidth = `${width}px`
       }
     }, dockWidth)
-    const row = pane.locator('.dev-devices__row', { hasText: 'iPhone 16 Pro (iOS 18.2)' })
+    const row = pane.locator('[data-stack-trailing="never"]', {
+      hasText: 'iPhone 16 Pro (iOS 18.2)',
+    })
     await expect(row).toBeVisible()
     const geometry = await row.evaluate((element) => {
       const label = element.querySelector<HTMLElement>("[data-slot='list-row-label']")

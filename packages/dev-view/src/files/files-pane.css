@@ -5,9 +5,6 @@
  */
 
 .dev-files {
-  /* The shared TreeRow keeps main's 28px row density; rem-based so the 200%
-     root-text reveal scenario still grows the rows and exercises measurement. */
-  --dev-files-row-height: 1.75rem;
   position: relative;
   display: flex;
   min-width: 0;
@@ -38,23 +35,6 @@
   border-block-end: 1px solid var(--border);
 }
 
-.dev-files__filter {
-  min-width: 0;
-  flex: 1;
-  height: 1.75rem;
-  padding: 0 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 0.35rem;
-  background: var(--background);
-  color: var(--foreground);
-  font-size: calc(0.8rem * var(--font-ui-scale, 1));
-}
-
-.dev-files__filter:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
-  outline-offset: 1px;
-}
-
 .dev-files__actions {
   display: flex;
   align-items: center;
@@ -62,7 +42,8 @@
   padding: 0.25rem 0.5rem;
 }
 
-.dev-files__tree {
+.dev-files__tree,
+[data-files-tree] {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
@@ -100,24 +81,6 @@
   color: var(--foreground);
   font-family: var(--font-code, var(--font-mono));
   font-size: var(--text-code);
-}
-
-.dev-files__delete {
-  flex-shrink: 0;
-  opacity: 0;
-}
-
-.dev-files__tree-row {
-  height: var(--dev-files-row-height);
-}
-
-.dev-files__tree-row:hover .dev-files__delete,
-.dev-files__delete:focus-visible {
-  opacity: 1;
-}
-
-.dev-files__delete[aria-label^='Confirm delete'] {
-  opacity: 1;
 }
 
 /* Source control */

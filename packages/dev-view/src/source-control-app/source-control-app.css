@@ -143,7 +143,7 @@
   justify-content: center;
 }
 
-.dev-scm-dragbar__line {
+[data-scm-dragbar-line] {
   position: absolute;
   inset-inline: 0.25rem;
   inset-block-start: calc(50% - 0.5px);
@@ -153,31 +153,25 @@
     height 120ms ease-out;
 }
 
-.dev-scm-dragbar[data-dragging] .dev-scm-dragbar__line {
+.dev-scm-dragbar[data-dragging] [data-scm-dragbar-line] {
   background: var(--primary);
 }
 
-.dev-scm-dragbar[data-armed] .dev-scm-dragbar__line {
+.dev-scm-dragbar[data-armed] [data-scm-dragbar-line] {
   height: 2px;
   inset-block-start: calc(50% - 1px);
-}
-
-/* The grip paints above the absolutely positioned line, so the line never
-   intercepts the button's pointer. */
-.dev-scm-dragbar__grip {
-  position: relative;
 }
 
 /* A row the bar can move. Grabbing is the only rest-state affordance: the
    drag itself starts on pointer capture, exactly like the resize handles.
    Touch keeps its scroll — a scroll that wins fires pointercancel, which
    aborts the drag cleanly, and the per-row controls stay the touch path. */
-.dev-scm-drag-row {
+[data-scm-drag-row] {
   cursor: grab;
   touch-action: pan-y;
 }
 
-.dev-scm-drag-row--dragging {
+[data-scm-drag-row][data-dragging] {
   cursor: grabbing;
   opacity: 0.7;
 }

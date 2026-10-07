@@ -55,7 +55,12 @@ import './files-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Input } from '@adea-ai/ui/components/ui/input'
-import { Tree, TreeRow, type TreeItemDescriptor } from '@adea-ai/ui/components/composites/tree'
+import {
+  Tree,
+  TreeRow,
+  TreeRowActions,
+  type TreeItemDescriptor,
+} from '@adea-ai/ui/components/composites/tree'
 import {
   CommandDialog,
   CommandInput,
@@ -986,7 +991,8 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
       <div class="dev-files__toolbar">
         <Input
           type="search"
-          class="dev-files__filter"
+          size="sm"
+          class="min-w-0 flex-1"
           placeholder="Filter files"
           aria-label="Filter files"
           value={filter()}
@@ -1085,7 +1091,8 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
               }
             >
               <Input
-                class="dev-files__filter"
+                size="sm"
+                class="min-w-0 flex-1"
                 placeholder="new-file-name.txt"
                 aria-label="New file name"
                 value={newName()}
@@ -1139,7 +1146,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           >
             <Tree
               ref={attachTree}
-              class="dev-files__tree"
+              data-files-tree=""
               aria-label="Worktree files"
               visibleItems={treeItems()}
               activeId={activeRowId()}
@@ -1158,7 +1165,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                 <For each={windowedRows()}>
                   {(row) => (
                     <TreeRow
-                      class="dev-files__tree-row"
+                      class="h-7"
                       item={treeItemById().get(row.node.relativePath)!}
                       selected={
                         props.openPath !== undefined && row.node.relativePath === props.openPath
@@ -1175,104 +1182,109 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                           <Show when={markerBadge(markers().get(row.node.relativePath))}>
                             {(badge) => <span class="dev-files__badge">{badge()}</span>}
                           </Show>
-                          <Show when={renaming() === row.node.relativePath}>
-                            <Input
-                              class="dev-files__filter"
-                              aria-label={`Rename ${row.node.relativePath}`}
-                              value={renameValue()}
-                              onInput={(event) => setRenameValue(event.currentTarget.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                  if (overwriteTarget()) void commitOverwriteRename()
-                                  else void submitRename()
-                                }
-                                if (event.key === 'Escape') {
-                                  setRenaming(undefined)
-                                  setOverwriteTarget(undefined)
-                                }
-                              }}
-                            />
-                          </Show>
-                          <Show when={renaming() !== row.node.relativePath}>
-                            <ActionButton
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              class="dev-files__delete"
-                              tooltip={`Rename ${row.node.relativePath}`}
-                              aria-label={`Rename ${row.node.relativePath}`}
-                              onClick={() => beginRename(row.node)}
-                            >
-                              <Pencil aria-hidden="true" />
-                            </ActionButton>
-                          </Show>
-                          <Show when={row.hasChildren && renaming() !== row.node.relativePath}>
-                            <ActionButton
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              class="dev-files__delete"
-                              tooltip={
-                                pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
-                                pendingTree()?.summary ===
-                                  `${row.node.relativePath} → ${row.node.relativePath}-copy`
-                                  ? `Confirm copy ${row.node.relativePath}`
-                                  : `Copy ${row.node.relativePath}`
-                              }
-                              aria-label={
-                                pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
-                                pendingTree()?.summary ===
-                                  `${row.node.relativePath} → ${row.node.relativePath}-copy`
-                                  ? `Confirm copy ${row.node.relativePath}`
-                                  : `Copy ${row.node.relativePath}`
-                              }
-                              onClick={() => void planTreeCopy(row.node)}
-                            >
-                              <Copy aria-hidden="true" />
-                            </ActionButton>
-                          </Show>
-                          <Show
-                            when={
-                              renaming() === row.node.relativePath &&
-                              overwriteTarget() !== undefined
-                            }
-                            fallback={
-                              <Show when={renaming() !== row.node.relativePath}>
-                                <Button
-                                  type="button"
-                                  class="dev-files__delete"
-                                  variant="destructive"
-                                  size="xs"
-                                  aria-label={
-                                    confirmDelete() === row.node.relativePath ||
-                                    pendingTree()?.summary === row.node.relativePath
-                                      ? `Confirm delete ${row.node.relativePath}`
-                                      : `Delete ${row.node.relativePath}`
-                                  }
-                                  onClick={() => void deleteFile(row.node)}
-                                >
-                                  {row.hasChildren
-                                    ? pendingTree()?.summary === row.node.relativePath
-                                      ? 'Confirm'
-                                      : 'Delete'
-                                    : confirmDelete() === row.node.relativePath
-                                      ? 'Confirm'
-                                      : 'Delete'}
-                                </Button>
-                              </Show>
+                          <TreeRowActions
+                            pinned={
+                              renaming() === row.node.relativePath ||
+                              confirmDelete() === row.node.relativePath ||
+                              pendingTree()?.summary === row.node.relativePath
                             }
                           >
-                            <Button
-                              type="button"
-                              class="dev-files__delete"
-                              variant="destructive"
-                              size="xs"
-                              aria-label={`Confirm overwrite ${overwriteTarget()}`}
-                              onClick={() => void commitOverwriteRename()}
+                            <Show when={renaming() === row.node.relativePath}>
+                              <Input
+                                size="sm"
+                                class="min-w-0 flex-1"
+                                aria-label={`Rename ${row.node.relativePath}`}
+                                value={renameValue()}
+                                onInput={(event) => setRenameValue(event.currentTarget.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    if (overwriteTarget()) void commitOverwriteRename()
+                                    else void submitRename()
+                                  }
+                                  if (event.key === 'Escape') {
+                                    setRenaming(undefined)
+                                    setOverwriteTarget(undefined)
+                                  }
+                                }}
+                              />
+                            </Show>
+                            <Show when={renaming() !== row.node.relativePath}>
+                              <ActionButton
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                tooltip={`Rename ${row.node.relativePath}`}
+                                aria-label={`Rename ${row.node.relativePath}`}
+                                onClick={() => beginRename(row.node)}
+                              >
+                                <Pencil aria-hidden="true" />
+                              </ActionButton>
+                            </Show>
+                            <Show when={row.hasChildren && renaming() !== row.node.relativePath}>
+                              <ActionButton
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                tooltip={
+                                  pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
+                                  pendingTree()?.summary ===
+                                    `${row.node.relativePath} → ${row.node.relativePath}-copy`
+                                    ? `Confirm copy ${row.node.relativePath}`
+                                    : `Copy ${row.node.relativePath}`
+                                }
+                                aria-label={
+                                  pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
+                                  pendingTree()?.summary ===
+                                    `${row.node.relativePath} → ${row.node.relativePath}-copy`
+                                    ? `Confirm copy ${row.node.relativePath}`
+                                    : `Copy ${row.node.relativePath}`
+                                }
+                                onClick={() => void planTreeCopy(row.node)}
+                              >
+                                <Copy aria-hidden="true" />
+                              </ActionButton>
+                            </Show>
+                            <Show
+                              when={
+                                renaming() === row.node.relativePath &&
+                                overwriteTarget() !== undefined
+                              }
+                              fallback={
+                                <Show when={renaming() !== row.node.relativePath}>
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="xs"
+                                    aria-label={
+                                      confirmDelete() === row.node.relativePath ||
+                                      pendingTree()?.summary === row.node.relativePath
+                                        ? `Confirm delete ${row.node.relativePath}`
+                                        : `Delete ${row.node.relativePath}`
+                                    }
+                                    onClick={() => void deleteFile(row.node)}
+                                  >
+                                    {row.hasChildren
+                                      ? pendingTree()?.summary === row.node.relativePath
+                                        ? 'Confirm'
+                                        : 'Delete'
+                                      : confirmDelete() === row.node.relativePath
+                                        ? 'Confirm'
+                                        : 'Delete'}
+                                  </Button>
+                                </Show>
+                              }
                             >
-                              Overwrite
-                            </Button>
-                          </Show>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="xs"
+                                aria-label={`Confirm overwrite ${overwriteTarget()}`}
+                                onClick={() => void commitOverwriteRename()}
+                              >
+                                Overwrite
+                              </Button>
+                            </Show>
+                          </TreeRowActions>
                         </>
                       }
                     >
