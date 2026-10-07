@@ -88,9 +88,9 @@ import { observeTerminalTheme, createTerminalFontBinding } from './theme-binding
 import { withTerminalSelectionPreserved } from './selection-preserver'
 import './terminal-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
+import { Toggle } from '@adea-ai/ui/components/ui/toggle'
 
 export type TerminalPaneProps = {
   /** Opens one authenticated terminal-bytes-v1 stream (new grant per call). */
@@ -626,7 +626,9 @@ export function TerminalPane(props: TerminalPaneProps) {
         </Show>
         <Button
           type="button"
-          class="dev-terminal-copy-button"
+          variant="outline"
+          size="xs"
+          data-terminal-copy=""
           data-degraded={clipboardPresent().degraded ? 'true' : undefined}
           disabled={!hasSelection()}
           onClick={() => void copySelection()}
@@ -661,7 +663,9 @@ export function TerminalPane(props: TerminalPaneProps) {
                 {(text) => (
                   <Button
                     type="button"
-                    class="dev-terminal-copy-button"
+                    variant="outline"
+                    size="xs"
+                    data-terminal-copy=""
                     onClick={() =>
                       void copyThroughSeam(text()).then((outcome) => {
                         setClipboard(applyCopyOutcome(clipboard(), outcome))
@@ -724,12 +728,14 @@ export function TerminalPane(props: TerminalPaneProps) {
             <span class="dev-terminal-search-count" aria-live="polite">
               {searchPresent().count}
             </span>
-            <Checkbox
-              class="dev-terminal-search-case"
-              label="Aa"
-              checked={search().caseSensitive}
+            <Toggle
+              size="sm"
+              title="Match case"
+              pressed={search().caseSensitive}
               onChange={() => setSearch(searchToggleCaseSensitive(search()))}
-            />
+            >
+              Aa
+            </Toggle>
           </div>
         </Show>
         <Show when={surfacePaste !== undefined}>

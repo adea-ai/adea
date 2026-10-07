@@ -357,16 +357,6 @@
 .conventional-sidebar__quick-actions button {
   width: 100%;
 }
-/* WCAG 2.5.8 (24px minimum target): the published icon-sm control measures
-   under 24px tall, which only the narrow-viewport audit catches. The
-   published size prop stays authoritative for the icon box; this hook lifts
-   the hit target to the minimum without moving the bar's layout. */
-.workspace-topbar__context-toggle {
-  min-block-size: 1.5rem;
-  /* At 320px the auto start column can squeeze the toggle narrower than its
-     24px target; hold the inline minimum too. */
-  min-inline-size: 1.5rem;
-}
 /* The mark-all-read chord rides the shared KbdChord caps; the button
    keeps its accessible name and aria-keyshortcuts. */
 .conventional-sidebar__content {
@@ -1746,7 +1736,6 @@
   grid-column: 1;
   grid-row: 2;
 }
-.workspace-topbar__control,
 .workspace-topbar__view-actions {
   -webkit-app-region: no-drag;
   app-region: no-drag;

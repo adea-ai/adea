@@ -61,7 +61,7 @@ async function expectBoundary(page: Page, width: number) {
     page.locator('.dev-scm-topbar__synced'),
     page.getByRole('button', { name: 'Sync now' }),
   ]
-  const search = page.locator('.dev-scm-topbar__search')
+  const search = page.locator('[data-scm-search]')
 
   const [dividerBounds, railBounds, ...controlBounds] = await Promise.all([
     bounds(divider, 'Source control divider'),

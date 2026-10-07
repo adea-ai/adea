@@ -168,7 +168,7 @@ export function ThreadCard(props: {
         <Show when={props.pr.state === 'open'}>
           <div class="dev-scm-thread__reply">
             <Input
-              class="dev-scm-thread__reply-input"
+              class="min-w-48 flex-1"
               placeholder="Reply"
               aria-label={`Reply to the thread on ${props.thread.path}`}
               value={reply()}

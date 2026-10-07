@@ -266,7 +266,7 @@ export function ProjectInbox(props: {
         </Tabs>
         <Input
           type="search"
-          class="dev-scm-toolbar__filter"
+          class="w-full max-w-70"
           placeholder="Filter by title, branch or number"
           aria-label="Filter pull requests"
           value={filter().text}

@@ -198,18 +198,20 @@ export function AddProjectForm(props: AddProjectFormProps) {
         <p class="dev-tree-empty">
           Authorize a folder on this machine, then import the projects found inside it.
         </p>
-        <Label class="dev-tree-row dev-tree-row--project">
-          <span class="sr-only">Folder path to authorize</span>
-          <Input
-            type="text"
-            value={folderPath()}
-            placeholder="/absolute/path/to/project"
-            onInput={(event) => setFolderPath(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void authorizeFolder()
-            }}
-          />
-        </Label>
+        <div class="dev-tree-row dev-tree-row--project">
+          <Label class="w-full">
+            <span class="sr-only">Folder path to authorize</span>
+            <Input
+              type="text"
+              value={folderPath()}
+              placeholder="/absolute/path/to/project"
+              onInput={(event) => setFolderPath(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void authorizeFolder()
+              }}
+            />
+          </Label>
+        </div>
         <Show when={authorizeError()}>
           <p class="dev-tree-empty" role="alert">
             {authorizeError()}
@@ -217,7 +219,7 @@ export function AddProjectForm(props: AddProjectFormProps) {
         </Show>
         <Button
           type="button"
-          class="dev-button dev-button--secondary"
+          variant="outline"
           disabled={authorizing() || folderPath().trim() === ''}
           onClick={() => void authorizeFolder()}
         >
@@ -279,28 +281,33 @@ export function AddProjectForm(props: AddProjectFormProps) {
             </Show>
             <For each={readyScan()?.rows}>
               {(row) => (
-                <Checkbox
-                  class="dev-tree-row dev-tree-row--project"
-                  disabled={row.duplicate}
-                  checked={confirmed().has(row.entry.relativeDir)}
-                  label={
-                    <>
-                      <span>{row.entry.name}</span>
-                      <span class="dev-tree-row__count">{row.entry.packageManager}</span>
-                      <Show when={row.duplicate}>
-                        <span class="dev-row-badge" title="A project with this name already exists">
-                          dup
-                        </span>
-                      </Show>
-                    </>
-                  }
-                  onChange={(checked: boolean) => toggleConfirmed(row.entry.relativeDir, checked)}
-                />
+                <div class="dev-tree-row dev-tree-row--project">
+                  <Checkbox
+                    class="w-full"
+                    disabled={row.duplicate}
+                    checked={confirmed().has(row.entry.relativeDir)}
+                    label={
+                      <>
+                        <span>{row.entry.name}</span>
+                        <span class="dev-tree-row__count">{row.entry.packageManager}</span>
+                        <Show when={row.duplicate}>
+                          <span
+                            class="dev-row-badge"
+                            title="A project with this name already exists"
+                          >
+                            dup
+                          </span>
+                        </Show>
+                      </>
+                    }
+                    onChange={(checked: boolean) => toggleConfirmed(row.entry.relativeDir, checked)}
+                  />
+                </div>
               )}
             </For>
             <Button
               type="button"
-              class="dev-button dev-button--secondary"
+              variant="outline"
               disabled={importing()}
               onClick={() => void importConfirmed()}
             >

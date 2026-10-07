@@ -9,9 +9,6 @@
 /* The panel geometry — edge docking, overlay z-order — belongs to the shared
    Sheet. This hook widens the end-docked panel so the server table fits, and
    reserves the corner where the sheet's close button sits. */
-.dev-resources-sheet.dev-resources-sheet {
-  width: min(37.5rem, calc(100vw - 1rem));
-}
 
 .dev-resources-sheet .dev-resources__header {
   padding-inline-end: 2.75rem;

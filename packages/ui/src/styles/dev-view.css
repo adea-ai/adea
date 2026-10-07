@@ -41,16 +41,6 @@
   margin-inline-start: auto;
 }
 
-/* The narrow shell has no room for a fourth pane action: below the shared
-   48rem breakpoint the close-all convenience hides, and the per-pane close
-   carries the work. */
-@media (max-width: 48rem) {
-  .dev-toolbar__close-all {
-    display: none;
-  }
-}
-
-.dev-button,
 .dev-tree-row {
   min-height: 2rem;
   border: 1px solid transparent;
@@ -59,34 +49,21 @@
   background: transparent;
 }
 
-.dev-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0 0.65rem;
-  border-color: var(--dev-border);
-  font-size: calc(0.78rem * var(--font-ui-scale, 1));
-}
-
-.dev-button svg,
 .dev-tree-row svg {
   width: 1rem;
   height: 1rem;
   flex: none;
 }
 
-.dev-button:not(:disabled):hover,
 .dev-tree-row:hover {
   background: color-mix(in srgb, var(--foreground) 8%, transparent);
 }
 
-.dev-button:focus-visible,
 .dev-tree-row:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
-.dev-button:disabled,
 .dev-tree-row:disabled {
   opacity: 0.48;
 }
@@ -430,12 +407,6 @@
   border-block-start: 1px solid var(--dev-border);
 }
 
-.dev-utility__file-source-selector > button {
-  min-width: 0;
-  flex: 1 1 0;
-  justify-content: center;
-}
-
 @media (max-width: 24rem) {
   .dev-utility__selector-label {
     display: none;
@@ -530,9 +501,7 @@
 }
 
 @media (pointer: coarse) {
-  .dev-button,
-  .dev-tree-row,
-  .dev-utility__file-source-selector > button {
+  .dev-tree-row {
     min-width: 2.75rem;
     min-height: 2.75rem;
   }
@@ -569,25 +538,6 @@
   gap: 0.375rem;
   font-size: calc(0.75rem * var(--font-ui-scale, 1));
   color: var(--dev-muted);
-}
-
-.dev-archive-action {
-  border: 1px solid var(--dev-border);
-  border-radius: 0.375rem;
-  background: transparent;
-  color: inherit;
-  padding: 0.125rem 0.5rem;
-  font-size: calc(0.75rem * var(--font-ui-scale, 1));
-  cursor: pointer;
-}
-
-.dev-archive-action:hover {
-  background: color-mix(in srgb, var(--foreground) 8%, transparent);
-}
-
-.dev-archive-action--destructive {
-  color: var(--destructive);
-  border-color: color-mix(in srgb, var(--destructive) 40%, transparent);
 }
 
 /* Truthful per-pane provider states inside the utility slots. */

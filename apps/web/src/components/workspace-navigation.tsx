@@ -1114,7 +1114,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
               type="button"
               variant="outline"
               size="icon-sm"
-              class="workspace-topbar__control"
               tooltip={
                 utilityOwner.rightUtilityOpen()
                   ? 'Collapse utility sidebar'

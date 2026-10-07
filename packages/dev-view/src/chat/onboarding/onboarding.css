@@ -51,23 +51,6 @@
   font-size: calc(0.85rem * var(--font-ui-scale, 1));
 }
 
-.dev-onboarding__prompt {
-  width: 100%;
-  min-height: 7rem;
-  padding: 0.7rem;
-  border: 1px solid var(--dev-border, var(--border));
-  border-radius: var(--radius-md);
-  color: inherit;
-  background: var(--background);
-  resize: vertical;
-}
-
-.dev-onboarding__prompt:focus-visible,
-.dev-onboarding__actions .dev-button:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
 .dev-onboarding__actions {
   display: flex;
   flex-wrap: wrap;

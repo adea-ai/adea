@@ -136,7 +136,6 @@ export function WorkspaceTopBar(props: {
             size="icon-sm"
             tooltip="Back"
             tooltipIcon={<ArrowLeft aria-hidden="true" />}
-            class="workspace-topbar__control"
             aria-label="Back"
             disabled={!position().canGoBack}
             onClick={() => router.history.back()}
@@ -148,7 +147,6 @@ export function WorkspaceTopBar(props: {
             size="icon-sm"
             tooltip="Forward"
             tooltipIcon={<ArrowRight aria-hidden="true" />}
-            class="workspace-topbar__control"
             aria-label="Forward"
             disabled={!position().canGoForward}
             onClick={() => router.history.forward()}
@@ -166,7 +164,8 @@ export function WorkspaceTopBar(props: {
                   <PanelLeftClose aria-hidden="true" />
                 </Show>
               }
-              class="workspace-topbar__control workspace-topbar__context-toggle"
+              class="min-h-6 min-w-6"
+              data-context-toggle=""
               aria-label={
                 sidebarOpen() ? 'Collapse contextual sidebar' : 'Expand contextual sidebar'
               }
@@ -216,7 +215,6 @@ export function WorkspaceTopBar(props: {
           size="icon-sm"
           tooltip="Notifications are not available yet."
           tooltipIcon={<Bell aria-hidden="true" />}
-          class="workspace-topbar__control"
           aria-label="Notifications"
           aria-description="Notifications are not available yet."
           disabled

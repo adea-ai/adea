@@ -28,7 +28,6 @@ export function RuntimeResourcesControl(props: { runtime?: DevRuntimeService }) 
         size="icon-sm"
         tooltip={open() ? 'Close runtime resources' : 'Open runtime resources'}
         tooltipIcon={<Gauge aria-hidden="true" />}
-        class="workspace-topbar__control"
         aria-label="Runtime resources"
         aria-pressed={open()}
         onClick={() => setOpen(!open())}

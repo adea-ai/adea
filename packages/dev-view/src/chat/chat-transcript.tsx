@@ -87,7 +87,7 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
 
   return (
     <ConversationSurface
-      class="dev-chat__stream"
+      class="row-start-3"
       aria-label="Conversation transcript"
       aria-live="polite"
       initialReadingPosition={props.readingPosition}
@@ -131,7 +131,6 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
           fallback={<p class="dev-chat__empty">No runtime events yet.</p>}
         >
           <TranscriptComposition
-            class="dev-chat__composition"
             rows={rows()}
             resetKey={props.resetKey}
             renderRow={(rowProps) => (

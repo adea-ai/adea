@@ -923,7 +923,8 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
             </span>
             <Button
               type="button"
-              class="dev-files__search-clear"
+              variant="ghost"
+              size="xs"
               onClick={() => {
                 setFilter('')
                 void searchContents('')
@@ -936,7 +937,9 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
             {(row) => (
               <Button
                 type="button"
-                class="dev-files__search-row"
+                variant="ghost"
+                size="xs"
+                class="h-auto w-full justify-start"
                 title={matchLabel(row)}
                 onClick={() =>
                   props.onOpenFile?.({
@@ -948,15 +951,17 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                   })
                 }
               >
-                <span class="dev-files__search-path">{matchLabel(row)}</span>
-                <span class="dev-files__search-preview">
-                  <For each={previewSegments(row)}>
-                    {(segment) => (
-                      <span class={cn({ 'dev-files__search-hit': segment.match })}>
-                        {segment.text}
-                      </span>
-                    )}
-                  </For>
+                <span class="dev-files__search-row">
+                  <span class="dev-files__search-path">{matchLabel(row)}</span>
+                  <span class="dev-files__search-preview">
+                    <For each={previewSegments(row)}>
+                      {(segment) => (
+                        <span class={cn({ 'dev-files__search-hit': segment.match })}>
+                          {segment.text}
+                        </span>
+                      )}
+                    </For>
+                  </span>
                 </span>
               </Button>
             )}
@@ -1019,16 +1024,16 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         loop
         vimBindings={false}
         overlayClassName="hidden"
-        class="dev-files__quickopen absolute left-2 right-2 top-10 z-(--z-menu) w-auto max-w-none translate-x-0 translate-y-0"
+        class="absolute left-2 right-2 top-10 z-(--z-menu) flex max-h-3/5 w-auto max-w-none translate-x-0 translate-y-0 flex-col"
       >
         <CommandInput
-          class="dev-files__quickopen-input"
+          class="min-w-0 flex-1"
           placeholder="Jump to a file…"
           value={quickOpenQuery()}
           autofocus
           onValueChange={(query) => setQuickOpenQuery(query)}
         />
-        <CommandList class="dev-files__quickopen-list" label="Matching files">
+        <CommandList class="min-h-0 overflow-y-auto" label="Matching files">
           <For each={quickOpenResults()}>
             {(path) => (
               <CommandItem value={path} onSelect={() => openQuickOpenResult(path)}>
@@ -1109,7 +1114,9 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                   {(path) => (
                     <Button
                       type="button"
-                      class="dev-files__quickopen-result"
+                      variant="ghost"
+                      size="sm"
+                      class="w-full justify-start"
                       onClick={() => {
                         const node = findNode(nodes(), path)
                         if (node) void openFile(node)
@@ -1140,7 +1147,6 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                 class="shrink-0"
                 totalSize={rowSlice().totalSize}
                 offset={rowSlice().offset}
-                contentClass="dev-files__window-content"
               >
                 <For each={windowedRows()}>
                   {(row) => (
