@@ -1,7 +1,8 @@
 // Source control app: the production SourceControlApp over a deterministic
-// runtime. Covers the sidebar tree and shortcuts, inbox grouping and row
-// actions, filters, the pull request conversation with thread resolution and
-// commenting, the merge dock's plan/commit merge with confirmation, update
+// runtime. Covers the sidebar tree and shortcuts, the show-more bar (per-row
+// hide/show controls plus the pointer drag across the bar), inbox grouping and
+// row actions, filters, the pull request conversation with thread resolution
+// and commenting, the merge dock's plan/commit merge with confirmation, update
 // branch, the review flow with a pending inline comment, checks with the
 // failing log, the new pull request dialog, a GitLab project through the same
 // screens (rebase-only updates, no change requests), the disconnected states,
@@ -35,6 +36,13 @@ async function openHarness(page: Page, query = '') {
 }
 
 type Violation = { id: string; impact: string; targets: string[][] }
+
+/** The first sync rewrites the sidebar tree; measure geometry only after it. */
+async function settled(page: Page) {
+  await expect(
+    page.getByRole('toolbar', { name: 'Workspace toolbar' }).getByText(/Synced/)
+  ).toBeVisible()
+}
 
 async function audit(page: Page): Promise<Violation[]> {
   await page.addScriptTag({ content: axe.source })
@@ -450,7 +458,9 @@ test.describe('source control app', () => {
       window.sourceControlHarness.advanceClock(11_000)
       window.dispatchEvent(new Event('focus'))
     })
-    await expect(sidebar.locator('[data-repo-id="repo-adea"]')).toBeVisible()
+    await expect(
+      sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
+    ).toBeVisible()
     await expect(
       sidebar.getByText(/projects are not listed because their repositories are not registered/)
     ).toHaveCount(0)
@@ -462,18 +472,20 @@ test.describe('source control app', () => {
   }) => {
     await openHarness(page)
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
-    const row = sidebar.locator('[data-repo-id="repo-adea"]')
+    const row = sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
     await expect(row).toBeVisible()
     await expect(sidebar.getByRole('button', { name: 'Hidden repositories' })).toHaveCount(0)
     await page.getByRole('button', { name: 'Hide adea below the show-more line' }).click()
     // The row left the owner section for the collapsed group; hiding is a
     // display preference — the row stays in the registry and remains
     // selectable inside the group.
-    await expect(sidebar.locator('[data-repo-id="repo-adea"]')).toHaveCount(0)
+    await expect(
+      sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
+    ).toHaveCount(0)
     const hiddenToggle = sidebar.getByRole('button', { name: 'Hidden repositories' })
     await expect(hiddenToggle).toBeVisible()
     await hiddenToggle.click()
-    const restored = sidebar.locator('[data-repo-id="repo-adea"]')
+    const restored = sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
     await expect(restored).toBeVisible()
     await page.getByRole('button', { name: 'Show adea in the sidebar' }).click()
     await expect(row).toBeVisible()
@@ -484,7 +496,9 @@ test.describe('source control app', () => {
     await openHarness(page)
     const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
     await page.getByRole('button', { name: 'Hide ui below the show-more line' }).click()
-    await expect(sidebar.locator('[data-repo-id="repo-ui"]')).toHaveCount(0)
+    await expect(
+      sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000102"]')
+    ).toHaveCount(0)
     // A reload that keeps storage must keep the display preference.
     await page.goto(`${SOURCE_CONTROL_HARNESS_PATH}?reset=keep`)
     await page.addScriptTag({ type: 'module', content: sourceControlHarnessModuleSource() })
@@ -492,13 +506,140 @@ test.describe('source control app', () => {
       .poll(() => page.evaluate(() => Boolean(window.sourceControlHarness)), { timeout: 90_000 })
       .toBe(true)
     const reloaded = page.getByRole('complementary', { name: 'Accounts and projects' })
-    await expect(reloaded.locator('[data-repo-id="repo-ui"]')).toHaveCount(0)
+    await expect(
+      reloaded.locator('[data-repo-id="00000000-0000-4000-8000-000000000102"]')
+    ).toHaveCount(0)
     const hiddenToggle = reloaded.getByRole('button', { name: 'Hidden repositories' })
     await expect(hiddenToggle).toBeVisible()
     await hiddenToggle.click()
-    await expect(reloaded.locator('[data-repo-id="repo-ui"]')).toBeVisible()
+    await expect(
+      reloaded.locator('[data-repo-id="00000000-0000-4000-8000-000000000102"]')
+    ).toBeVisible()
     // Restore for the shared fixture page state.
     await page.getByRole('button', { name: 'Show ui in the sidebar' }).click()
+  })
+
+  test('dragging a repository across the show-more bar hides it and drags it back out', async ({
+    page,
+  }) => {
+    await openHarness(page)
+    await settled(page)
+    const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
+    const adea = sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
+    const bar = sidebar.locator('.dev-scm-dragbar')
+    await expect(adea).toBeVisible()
+    // Nothing is hidden yet: the bar is a bare seam with no group grip.
+    await expect(bar).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Hidden repositories' })).toHaveCount(0)
+
+    // Press the row, drag it below the line, and release: it joins the group.
+    const rowBox = (await adea.boundingBox())!
+    const barBox = (await bar.boundingBox())!
+    await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(rowBox.x + rowBox.width / 2, barBox.y + barBox.height / 2 + 24, {
+      steps: 8,
+    })
+    // Crossing arms the drop-target line while the button is still held.
+    await expect(bar).toHaveAttribute('data-armed', '')
+    await page.mouse.up()
+    await expect(adea).toHaveCount(0)
+    const hiddenToggle = sidebar.getByRole('button', { name: 'Hidden repositories' })
+    await expect(hiddenToggle).toHaveCount(1)
+
+    // The row is physically below the bar inside the collapsed group.
+    await hiddenToggle.click()
+    const hiddenRow = sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
+    await expect(hiddenRow).toBeVisible()
+    const hiddenBox = (await hiddenRow.boundingBox())!
+    const barAfter = (await bar.boundingBox())!
+    expect(hiddenBox.y).toBeGreaterThan(barAfter.y + barAfter.height)
+
+    // Drag it back above the line: it returns to the owner section and the
+    // empty group disappears again.
+    const barBox2 = (await bar.boundingBox())!
+    await page.mouse.move(hiddenBox.x + hiddenBox.width / 2, hiddenBox.y + hiddenBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(barBox2.x + barBox2.width / 2, barBox2.y - 24, { steps: 8 })
+    await expect(bar).toHaveAttribute('data-armed', '')
+    await page.mouse.up()
+    await expect(adea).toBeVisible()
+    const restoredBox = (await adea.boundingBox())!
+    expect(restoredBox.y).toBeLessThan(barBox2.y)
+    await expect(sidebar.getByRole('button', { name: 'Hidden repositories' })).toHaveCount(0)
+  })
+
+  test('a drag that stays on its own side is a no-op and never selects', async ({ page }) => {
+    await openHarness(page)
+    await settled(page)
+    const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
+    const ui = sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000102"]')
+    await expect(ui).toBeVisible()
+    // The default selection is the first visible row, adea.
+    await expect(page.getByRole('heading', { name: 'adea-ai / adea' })).toBeVisible()
+
+    // Drag the ui row downwards but release above the bar: no reorder (the
+    // bar is not a sort), the row stays visible, and the consumed gesture
+    // does not fall through to the row's click.
+    const rowBox = (await ui.boundingBox())!
+    const barBox = (await sidebar.locator('.dev-scm-dragbar').boundingBox())!
+    await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(rowBox.x + rowBox.width / 2, (rowBox.y + barBox.y) / 2, { steps: 6 })
+    await page.mouse.up()
+    await expect(ui).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'adea-ai / adea' })).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Hidden repositories' })).toHaveCount(0)
+
+    // A plain click on the same row still selects: hysteresis belongs to the
+    // drag, not to the row.
+    await ui.click()
+    await expect(page.getByRole('heading', { name: 'adea-ai / ui' })).toBeVisible()
+  })
+
+  test('Escape cancels a drag past the bar without hiding anything', async ({ page }) => {
+    await openHarness(page)
+    await settled(page)
+    const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
+    const adea = sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
+    const rowBox = (await adea.boundingBox())!
+    const barBox = (await sidebar.locator('.dev-scm-dragbar').boundingBox())!
+    await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(rowBox.x + rowBox.width / 2, barBox.y + barBox.height / 2 + 24, {
+      steps: 8,
+    })
+    await expect(sidebar.locator('.dev-scm-dragbar')).toHaveAttribute('data-armed', '')
+    await page.keyboard.press('Escape')
+    await page.mouse.up()
+    // Aborted: the row never left the visible list and nothing was hidden.
+    await expect(adea).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Hidden repositories' })).toHaveCount(0)
+    // The consumed gesture must not select the pressed row either.
+    await expect(page.getByRole('heading', { name: 'adea-ai / adea' })).toBeVisible()
+  })
+
+  test('the bar grip toggles the group and the keyboard controls still hide', async ({ page }) => {
+    await openHarness(page)
+    const sidebar = page.getByRole('complementary', { name: 'Accounts and projects' })
+    const adea = sidebar.locator('[data-repo-id="00000000-0000-4000-8000-000000000101"]')
+    // The explicit per-row control remains the keyboard path.
+    await page.getByRole('button', { name: 'Hide adea below the show-more line' }).click()
+    await expect(adea).toHaveCount(0)
+    const grip = sidebar.getByRole('button', { name: 'Expand the show-more group' })
+    await expect(grip).toBeVisible()
+    // The grip is the bar's keyboard representation: it toggles the group.
+    await grip.click()
+    await expect(adea).toBeVisible()
+    await sidebar.getByRole('button', { name: 'Collapse the show-more group' }).click()
+    await expect(adea).toHaveCount(0)
+    await expect(sidebar.getByRole('button', { name: 'Hidden repositories' })).toBeVisible()
+    // Restore for the shared fixture page state: expand the group again, then
+    // the row's own control — the keyboard path — puts it back.
+    await sidebar.getByRole('button', { name: 'Expand the show-more group' }).click()
+    await page.getByRole('button', { name: 'Show adea in the sidebar' }).click()
+    await expect(adea).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Hidden repositories' })).toHaveCount(0)
   })
 
   test('a GitLab project runs through the same screens', async ({ page }) => {
