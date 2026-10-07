@@ -286,8 +286,11 @@ Sequence and count metadata must remain safe integers; timestamps are bounded.
 The caller supplies an independently resolved workspace/project/Task/Agent/
 execution scope. Every corresponding public identifier must match. The source
 payload SHA-256 is verified using the public canonical JSON serializer before
-private fields are removed; a separate projection hash identifies the retained
-metadata. Both hashes are metadata, not authorization or execution acceptance.
+private fields are removed; `projectionHash` covers only the retained `data`,
+not the envelope headers. Neither data hash identifies a complete event. Future
+inbox deduplication must also compare the qualified event identity and its
+coordination headers. Both hashes are metadata, not authorization or execution
+acceptance.
 
 The accepted `data` fields form Adea's bounded cloud projection inside the
 public envelope's otherwise unrestricted JSON data:

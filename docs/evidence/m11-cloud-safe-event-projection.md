@@ -39,6 +39,30 @@ claimed completed state. Matching all state-bearing execution/attempt names
 against any provided state made that regression pass without applying a Task
 transition.
 
+Ordinary `constructor`/`prototype` provider keys are safely stripped; only the
+prototype-mutating `__proto__` key is refused during structural preflight. A
+failing regression pinned that distinction before the correction.
+
+## Validation after main integration
+
+The candidate integrates main `25264860b403f5f400ab9b4c933f06a15524cba3`
+without changing dependencies, schema or UI behavior relative to that base.
+
+- Focused web regression: `bun test --conditions=browser test/control-plane-events.test.ts`
+  from `apps/web`: 11 passed, 53 assertions.
+- `bun run test:unit`: 30 successful Turbo tasks; web 320 passed with 1,403
+  assertions; root coverage suite 302 passed with 7,134 assertions.
+- `bun run typecheck`: 31 successful Turbo tasks.
+- `bun run lint`: 17 successful Turbo tasks and root Oxlint with no findings.
+- `bun run build`: 15 successful Turbo tasks, reused from the tested dependency
+  builds; shared UI Tailwind source validation passed.
+- `bun run format:check`: all 1,805 matched files passed before this evidence
+  update; the final changed documents receive a separate formatting check.
+
+No database integration, delivery endpoint, live host interoperability, browser
+or packaged-runtime acceptance is claimed for this pure decoder. Those checks
+remain required when its authenticated caller and durable effects are added.
+
 ## Remaining acceptance
 
 The caller's expected scope must come from authenticated delivery and retained
