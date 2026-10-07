@@ -1210,6 +1210,14 @@
   border-radius: 0.45rem;
   background: var(--cw-surface-muted);
 }
+/* The note's leading mark rides inline with the copy at the shared small-icon
+   rung instead of lucide's 24px block default. */
+.conventional-settings-note > svg {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.15rem;
+}
 /* Workspace settings › Memory (ADR 0012). */
 .workspace-memory,
 .workspace-memory-compose {

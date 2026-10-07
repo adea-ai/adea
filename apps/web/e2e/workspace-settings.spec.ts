@@ -513,3 +513,90 @@ test('an unconfigured deployment explains why Skills and cloud connections are u
   ).toHaveCount(2)
   expect(errors).toEqual([])
 })
+
+// Token values arrive as `#rrggbb`; computed colors as `rgb(r, g, b)`.
+// Normalize both to an [r, g, b] tuple before comparing.
+function parseColor(value: string): number[] {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim())
+  if (hex) {
+    const digits = hex[1]
+    const full = digits.length === 3 ? [...digits].map((d) => d + d).join('') : digits
+    return [0, 2, 4].map((offset) => Number.parseInt(full.slice(offset, offset + 2), 16))
+  }
+  return (value.match(/\d+(\.\d+)?/g) ?? []).map(Number).slice(0, 3)
+}
+
+test('settings headers and notes keep the shared palette and sized marks', async ({ page }) => {
+  await openSettingsHarness(page)
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await expect(dialog).toBeVisible()
+  // The Input & notifications section ships a note with a leading mark.
+  const noteLocator = page.locator(
+    '#settings-panel-input-notifications .conventional-settings-note'
+  )
+  await expect(noteLocator).toBeVisible()
+  const probe = await page.evaluate(() => {
+    const panel = document.querySelector('#settings-panel-input-notifications')
+    const header = panel?.querySelector(':scope > header')
+    const headerIcon = header?.querySelector('svg')
+    const note = panel?.querySelector('.conventional-settings-note')
+    const noteIcon = note?.querySelector('svg')
+    const root = getComputedStyle(document.documentElement)
+    return {
+      primaryToken: root.getPropertyValue('--primary').trim(),
+      mutedToken: root.getPropertyValue('--muted').trim(),
+      mutedForegroundToken: root.getPropertyValue('--muted-foreground').trim(),
+      headerIconColor: headerIcon ? getComputedStyle(headerIcon).color : null,
+      noteColor: note ? getComputedStyle(note).color : null,
+      noteBackground: note ? getComputedStyle(note).backgroundColor : null,
+      noteIconWidth: noteIcon ? getComputedStyle(noteIcon).width : null,
+      noteIconHeight: noteIcon ? getComputedStyle(noteIcon).height : null,
+    }
+  })
+  // The dialog portals beside the workspace frame, so its palette must come
+  // from the token block binding `.conventional-settings-dialog`; an unbound
+  // token leaves the header mark foreground-toned and the note unpainted.
+  expect(parseColor(probe.headerIconColor!)).toEqual(parseColor(probe.primaryToken))
+  expect(parseColor(probe.noteColor!)).toEqual(parseColor(probe.mutedForegroundToken))
+  expect(parseColor(probe.noteBackground!)).toEqual(parseColor(probe.mutedToken))
+  // The note's mark rides at the 1.1rem rung, not lucide's 24px default.
+  expect(Number.parseFloat(probe.noteIconWidth!)).toBeCloseTo(17.6, 1)
+  expect(Number.parseFloat(probe.noteIconHeight!)).toBeCloseTo(17.6, 1)
+})
+
+test('publish form textareas honor their rows contract', async ({ page }) => {
+  const errors = await openControlPlaneHarness(page, 'scoped', 'skills')
+  const panel = page.locator('#workspace-settings-panel-skills')
+  await expect(panel.getByRole('button', { name: 'Publish a skill…' })).toBeVisible()
+  await panel.getByRole('button', { name: 'Publish a skill…' }).click()
+  const manifestLocator = panel.locator('#skills-publish-manifest')
+  await expect(manifestLocator).toBeVisible()
+  const probe = await page.evaluate(() => {
+    const manifest = document.querySelector<HTMLTextAreaElement>('#skills-publish-manifest')
+    const content = document.querySelector<HTMLTextAreaElement>('#skills-publish-content')
+    return {
+      manifest: manifest
+        ? {
+            fieldSizing: getComputedStyle(manifest).fieldSizing,
+            rows: manifest.getAttribute('rows'),
+            height: getComputedStyle(manifest).height,
+          }
+        : null,
+      content: content
+        ? {
+            fieldSizing: getComputedStyle(content).fieldSizing,
+            rows: content.getAttribute('rows'),
+            height: getComputedStyle(content).height,
+          }
+        : null,
+    }
+  })
+  // The shared Textarea sizes to its content by default; a caller that passes
+  // `rows` contracts for that many visible lines, so the composition pins the
+  // fixed sizing the rows attribute needs to win.
+  expect(probe.manifest).toMatchObject({ fieldSizing: 'fixed', rows: '8' })
+  expect(probe.content).toMatchObject({ fieldSizing: 'fixed', rows: '5' })
+  expect(Number.parseFloat(probe.manifest!.height)).toBeGreaterThan(140)
+  expect(Number.parseFloat(probe.content!.height)).toBeGreaterThan(90)
+  expect(errors).toEqual([])
+})

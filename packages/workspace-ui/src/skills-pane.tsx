@@ -219,6 +219,7 @@ function SkillsContent(props: { client: AgentHqApiClient; workspaceId: string })
               <Textarea
                 id="skills-publish-manifest"
                 rows={8}
+                class="field-sizing-fixed"
                 spellcheck={false}
                 placeholder={MANIFEST_PLACEHOLDER}
                 value={draftManifest()}
@@ -233,6 +234,7 @@ function SkillsContent(props: { client: AgentHqApiClient; workspaceId: string })
               <Textarea
                 id="skills-publish-content"
                 rows={5}
+                class="field-sizing-fixed"
                 spellcheck={false}
                 placeholder={CONTENT_PLACEHOLDER}
                 value={draftContent()}
