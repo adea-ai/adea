@@ -196,7 +196,7 @@ jobs:
                 // compare with the quotes stripped rather than on raw text.
                 const normalize = (text) => text.replaceAll(`"`, '').replaceAll(`'`, '')
                 const needle = normalize(
-                  ".conventional-settings-dialog [data-slot='dialog-header']"
+                  "[role='dialog'][data-variant] [data-slot='sheet-header']"
                 )
                 for (const sheet of document.styleSheets) {
                   let rules

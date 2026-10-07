@@ -291,24 +291,23 @@ export function WorkspaceSettingsDialog(props: {
     <ModalDialog
       modal={false}
       size="settings"
-      class="conventional-settings-dialog"
       open={props.open}
       onClose={close}
       restoreFocusRef={props.restoreFocusRef}
       headerLeading={
-        <WorkspaceLogo aria-hidden="true" class="conventional-settings-logo" role="presentation" />
+        <WorkspaceLogo aria-hidden="true" class="block size-10 shrink-0" role="presentation" />
       }
       title="Settings"
     >
       <Tabs
         id="settings-tabs"
-        class="conventional-settings-shell"
+        class="h-full w-full max-md:data-[orientation=vertical]:flex-col"
         orientation="vertical"
         value={section()}
         onChange={(value) => selectSection(value as SettingsSection)}
       >
         <SettingsNavigation
-          class="conventional-settings-nav w-full"
+          class="w-52 max-md:w-full max-md:flex-row max-md:overflow-x-auto max-md:overflow-y-hidden max-md:*:w-max max-md:*:max-w-full max-md:*:flex-none"
           aria-label="Settings sections"
           value={section()}
           onReselect={(value) => selectSection(value as SettingsSection)}
@@ -327,290 +326,308 @@ export function WorkspaceSettingsDialog(props: {
         <TabsContent
           value="account"
           id="settings-panel-account"
-          class="conventional-settings-panel"
+          class="min-h-0 min-w-0 overflow-y-auto"
         >
-          <header>
-            <UserRound aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels.account}</h3>
-              <p>Session and installed product information.</p>
-            </div>
-          </header>
-          <SettingsRow
-            title={props.accountAuthenticated ? props.accountLabel : 'Guest workspace'}
-            detail={
-              props.accountAuthenticated
-                ? 'This workspace is saved to your account.'
-                : 'Sign in when you want to keep this workspace across devices.'
-            }
-          >
-            <Button
-              type="button"
-              disabled={props.busy}
-              onClick={props.accountAuthenticated ? props.onSignOut : props.onSignIn}
+          <div class="conventional-settings-panel">
+            <header>
+              <UserRound aria-hidden="true" />
+              <div>
+                <h3>{settingsSectionLabels.account}</h3>
+                <p>Session and installed product information.</p>
+              </div>
+            </header>
+            <SettingsRow
+              title={props.accountAuthenticated ? props.accountLabel : 'Guest workspace'}
+              detail={
+                props.accountAuthenticated
+                  ? 'This workspace is saved to your account.'
+                  : 'Sign in when you want to keep this workspace across devices.'
+              }
             >
-              {props.accountAuthenticated ? 'Sign out' : 'Sign in'}
-            </Button>
-          </SettingsRow>
-          <SettingsRow
-            title={props.services?.app?.name ?? 'Adea'}
-            detail={`${props.services?.app?.platform === 'desktop' ? 'Desktop application' : 'Web application'}${props.services?.app?.version ? ` · v${props.services.app.version}` : ''}`}
-          />
-          <SettingsRow
-            title="Virtual preview"
-            detail="The Three.js representation is retained for M4 and does not define conventional workspace state."
-          >
-            <a href="/?view=virtual">Open preview</a>
-          </SettingsRow>
+              <Button
+                type="button"
+                disabled={props.busy}
+                onClick={props.accountAuthenticated ? props.onSignOut : props.onSignIn}
+              >
+                {props.accountAuthenticated ? 'Sign out' : 'Sign in'}
+              </Button>
+            </SettingsRow>
+            <SettingsRow
+              title={props.services?.app?.name ?? 'Adea'}
+              detail={`${props.services?.app?.platform === 'desktop' ? 'Desktop application' : 'Web application'}${props.services?.app?.version ? ` · v${props.services.app.version}` : ''}`}
+            />
+            <SettingsRow
+              title="Virtual preview"
+              detail="The Three.js representation is retained for M4 and does not define conventional workspace state."
+            >
+              <a href="/?view=virtual">Open preview</a>
+            </SettingsRow>
+          </div>
         </TabsContent>
         <TabsContent
           value="appearance"
           id="settings-panel-appearance"
-          class="conventional-settings-panel"
+          class="min-h-0 min-w-0 overflow-y-auto"
         >
-          <Show
-            when={props.appearancePanel}
-            fallback={
-              <>
-                <header>
-                  <MonitorCog aria-hidden="true" />
-                  <div>
-                    <h3>{settingsSectionLabels.appearance}</h3>
-                    <p>Shared presentation preferences.</p>
-                  </div>
-                </header>
-                <SettingsRow
-                  title="Color theme"
-                  detail="Follow the system or explicitly choose light or dark."
-                >
-                  <Show
-                    when={themeContext}
-                    fallback={
-                      <EmptyDescription role="status">
-                        Appearance settings are unavailable in this view.
-                      </EmptyDescription>
-                    }
+          <div class="conventional-settings-panel">
+            <Show
+              when={props.appearancePanel}
+              fallback={
+                <>
+                  <header>
+                    <MonitorCog aria-hidden="true" />
+                    <div>
+                      <h3>{settingsSectionLabels.appearance}</h3>
+                      <p>Shared presentation preferences.</p>
+                    </div>
+                  </header>
+                  <SettingsRow
+                    title="Color theme"
+                    detail="Follow the system or explicitly choose light or dark."
                   >
-                    <ThemeToggle />
-                  </Show>
-                </SettingsRow>
-              </>
-            }
-          >
-            {props.appearancePanel?.()}
-          </Show>
+                    <Show
+                      when={themeContext}
+                      fallback={
+                        <EmptyDescription role="status">
+                          Appearance settings are unavailable in this view.
+                        </EmptyDescription>
+                      }
+                    >
+                      <ThemeToggle />
+                    </Show>
+                  </SettingsRow>
+                </>
+              }
+            >
+              {props.appearancePanel?.()}
+            </Show>
+          </div>
         </TabsContent>
-        <TabsContent value="agents" id="settings-panel-agents" class="conventional-settings-panel">
-          <header>
-            <Bot aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels.agents}</h3>
-              <p>Durable identity and explicit profile references.</p>
-            </div>
-          </header>
-          <For each={topAgentRows()}>
-            {(entry) => (
-              <SettingsRow
-                title={entry.item().name}
-                detail={`${entry.item().profile.id} · v${entry.item().profile.version} · ${entry.item().lifecycleState.replace('_', ' ')}`}
-              />
-            )}
-          </For>
-          <Button
-            type="button"
+        <TabsContent
+          value="agents"
+          id="settings-panel-agents"
+          class="min-h-0 min-w-0 overflow-y-auto"
+        >
+          <div class="conventional-settings-panel">
+            <header>
+              <Bot aria-hidden="true" />
+              <div>
+                <h3>{settingsSectionLabels.agents}</h3>
+                <p>Durable identity and explicit profile references.</p>
+              </div>
+            </header>
+            <For each={topAgentRows()}>
+              {(entry) => (
+                <SettingsRow
+                  title={entry.item().name}
+                  detail={`${entry.item().profile.id} · v${entry.item().profile.version} · ${entry.item().lifecycleState.replace('_', ' ')}`}
+                />
+              )}
+            </For>
+            <Button
+              type="button"
 
-            onClick={() => {
-              close()
-              props.onOpenAgents()
-            }}
-          >
-            Customize Agents
-          </Button>
+              onClick={() => {
+                close()
+                props.onOpenAgents()
+              }}
+            >
+              Customize Agents
+            </Button>
+          </div>
         </TabsContent>
         <TabsContent
           value="input-notifications"
           id="settings-panel-input-notifications"
-          class="conventional-settings-panel"
+          class="min-h-0 min-w-0 overflow-y-auto"
         >
-          <header>
-            <Mic aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels['input-notifications']}</h3>
-              <p>Desktop dictation and bounded notification preferences.</p>
-            </div>
-          </header>
-          <SettingsRow
-            title="Composer dictation"
-            detail={
-              props.services?.transcription
-                ? `Uses ${props.services.transcription.label}; text stays editable and is never auto-sent.`
-                : 'Install Adea Desktop to use system dictation.'
-            }
-          >
-            <Button
-              type="button"
-              disabled={!props.services?.transcription || permissionBusy()}
-              aria-busy={permissionBusy()}
-              onClick={() => void checkMicrophone()}
-            >
-              {permissionState() === 'idle' ? 'Check microphone' : permissionState()}
-            </Button>
-          </SettingsRow>
-          <Show when={permissionError()}>
-            <p class="conventional-settings-note" role="alert">
-              {permissionError()}
-            </p>
-          </Show>
-          <SettingsRow
-            title="Dictation language"
-            detail="Leave blank to follow the operating-system language."
-          >
-            <Input
-              aria-label="Dictation language"
-              value={preferences().dictationLocale}
-              placeholder="System default"
-              maxLength={35}
-              onInput={(event) =>
-                setPreferences({
-                  ...preferences(),
-                  dictationLocale: event.currentTarget.value,
-                })
+          <div class="conventional-settings-panel">
+            <header>
+              <Mic aria-hidden="true" />
+              <div>
+                <h3>{settingsSectionLabels['input-notifications']}</h3>
+                <p>Desktop dictation and bounded notification preferences.</p>
+              </div>
+            </header>
+            <SettingsRow
+              title="Composer dictation"
+              detail={
+                props.services?.transcription
+                  ? `Uses ${props.services.transcription.label}; text stays editable and is never auto-sent.`
+                  : 'Install Adea Desktop to use system dictation.'
               }
-              onBlur={() => void save(preferences())}
-            />
-          </SettingsRow>
-          <SettingsRow
-            title="Workspace soundtrack"
-            detail="Optional local audio. It sits with input and notifications, not appearance."
-          >
-            <MusicToggle />
-          </SettingsRow>
-          <SettingsRow
-            title="Mention notifications"
-            detail="Save the preference now; live event delivery arrives with M3."
-          >
-            <Switch
-              checked={preferences().notifyMentions}
-              onChange={() => toggle('notifyMentions')}
-              aria-label="Mention notifications"
-              children={false}
-            />
-          </SettingsRow>
-          <SettingsRow
-            title="Task notifications"
-            detail="Save the preference now; live event delivery arrives with M3."
-          >
-            <Switch
-              checked={preferences().notifyTasks}
-              onChange={() => toggle('notifyTasks')}
-              aria-label="Task notifications"
-              children={false}
-            />
-          </SettingsRow>
-          <p class="conventional-settings-note">
-            <Bell aria-hidden="true" /> Notification clicks will use canonical Project, Channel,
-            Message, and Task identities when live events are wired in M3.
-          </p>
+            >
+              <Button
+                type="button"
+                disabled={!props.services?.transcription || permissionBusy()}
+                aria-busy={permissionBusy()}
+                onClick={() => void checkMicrophone()}
+              >
+                {permissionState() === 'idle' ? 'Check microphone' : permissionState()}
+              </Button>
+            </SettingsRow>
+            <Show when={permissionError()}>
+              <p class="conventional-settings-note" role="alert">
+                {permissionError()}
+              </p>
+            </Show>
+            <SettingsRow
+              title="Dictation language"
+              detail="Leave blank to follow the operating-system language."
+            >
+              <Input
+                aria-label="Dictation language"
+                value={preferences().dictationLocale}
+                placeholder="System default"
+                maxLength={35}
+                onInput={(event) =>
+                  setPreferences({
+                    ...preferences(),
+                    dictationLocale: event.currentTarget.value,
+                  })
+                }
+                onBlur={() => void save(preferences())}
+              />
+            </SettingsRow>
+            <SettingsRow
+              title="Workspace soundtrack"
+              detail="Optional local audio. It sits with input and notifications, not appearance."
+            >
+              <MusicToggle />
+            </SettingsRow>
+            <SettingsRow
+              title="Mention notifications"
+              detail="Save the preference now; live event delivery arrives with M3."
+            >
+              <Switch
+                checked={preferences().notifyMentions}
+                onChange={() => toggle('notifyMentions')}
+                aria-label="Mention notifications"
+                children={false}
+              />
+            </SettingsRow>
+            <SettingsRow
+              title="Task notifications"
+              detail="Save the preference now; live event delivery arrives with M3."
+            >
+              <Switch
+                checked={preferences().notifyTasks}
+                onChange={() => toggle('notifyTasks')}
+                aria-label="Task notifications"
+                children={false}
+              />
+            </SettingsRow>
+            <p class="conventional-settings-note">
+              <Bell aria-hidden="true" /> Notification clicks will use canonical Project, Channel,
+              Message, and Task identities when live events are wired in M3.
+            </p>
+          </div>
         </TabsContent>
         <TabsContent
           value="privacy-data"
           id="settings-panel-privacy-data"
-          class="conventional-settings-panel"
+          class="min-h-0 min-w-0 overflow-y-auto"
         >
-          <header>
-            <Database aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels['privacy-data']}</h3>
-              <p>
-                Understand what this device can access without exposing cryptographic internals.
-              </p>
-            </div>
-          </header>
-          <SettingsRow
-            title="Local/private content"
-            detail={
-              privateHealth() === 'checking'
-                ? 'Checking this device…'
-                : privateHealth() === 'available'
-                  ? 'Available on this authorized desktop device.'
-                  : 'Unavailable in this app or on this device.'
-            }
-          />
-          <SettingsRow
-            title="Private notification previews"
-            detail="Off by default. Enabling is explicit authorization to show private plaintext in desktop notification previews once M3 delivery exists."
-          >
-            <Switch
-              checked={preferences().privateNotificationPreviews}
-              onChange={() => toggle('privateNotificationPreviews')}
-              aria-label="Private notification previews"
-              children={false}
+          <div class="conventional-settings-panel">
+            <header>
+              <Database aria-hidden="true" />
+              <div>
+                <h3>{settingsSectionLabels['privacy-data']}</h3>
+                <p>
+                  Understand what this device can access without exposing cryptographic internals.
+                </p>
+              </div>
+            </header>
+            <SettingsRow
+              title="Local/private content"
+              detail={
+                privateHealth() === 'checking'
+                  ? 'Checking this device…'
+                  : privateHealth() === 'available'
+                    ? 'Available on this authorized desktop device.'
+                    : 'Unavailable in this app or on this device.'
+              }
             />
-          </SettingsRow>
-          <p class="conventional-settings-note">
-            <EyeOff aria-hidden="true" /> Private bodies are never sent to cloud search, logs,
-            telemetry, or WorkspaceEvents.
-          </p>
+            <SettingsRow
+              title="Private notification previews"
+              detail="Off by default. Enabling is explicit authorization to show private plaintext in desktop notification previews once M3 delivery exists."
+            >
+              <Switch
+                checked={preferences().privateNotificationPreviews}
+                onChange={() => toggle('privateNotificationPreviews')}
+                aria-label="Private notification previews"
+                children={false}
+              />
+            </SettingsRow>
+            <p class="conventional-settings-note">
+              <EyeOff aria-hidden="true" /> Private bodies are never sent to cloud search, logs,
+              telemetry, or WorkspaceEvents.
+            </p>
+          </div>
         </TabsContent>
         <TabsContent
           value="integrations"
           id="settings-panel-integrations"
-          class="conventional-settings-panel"
+          class="min-h-0 min-w-0 overflow-y-auto"
         >
-          <header>
-            <Link2 aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels.integrations}</h3>
-              <p>Control Plane-owned descriptors, not a second plugin system.</p>
-            </div>
-          </header>
-          <Show
-            when={props.agents.length}
-            fallback={
-              <SettingsRow
-                title="No AgentProfile descriptors"
-                detail="Create an Agent to establish an authoritative profile reference."
-              />
-            }
-          >
-            <For each={topAgentRows()}>
-              {(entry) => (
+          <div class="conventional-settings-panel">
+            <header>
+              <Link2 aria-hidden="true" />
+              <div>
+                <h3>{settingsSectionLabels.integrations}</h3>
+                <p>Control Plane-owned descriptors, not a second plugin system.</p>
+              </div>
+            </header>
+            <Show
+              when={props.agents.length}
+              fallback={
                 <SettingsRow
-                  title={`${entry.item().profile.id} v${entry.item().profile.version}`}
-                  detail={`AgentProfile reference for ${entry.item().name}; execution availability is not implied.`}
+                  title="No AgentProfile descriptors"
+                  detail="Create an Agent to establish an authoritative profile reference."
+                />
+              }
+            >
+              <For each={topAgentRows()}>
+                {(entry) => (
+                  <SettingsRow
+                    title={`${entry.item().profile.id} v${entry.item().profile.version}`}
+                    detail={`AgentProfile reference for ${entry.item().name}; execution availability is not implied.`}
+                  />
+                )}
+              </For>
+            </Show>
+            <Show when={capabilities()}>
+              {(snapshot) => (
+                <CapabilityList
+                  busy={capabilitiesBusy()}
+                  onRefresh={() => void refreshCapabilities(true)}
+                  snapshot={snapshot()}
                 />
               )}
-            </For>
-          </Show>
-          <Show when={capabilities()}>
-            {(snapshot) => (
-              <CapabilityList
-                busy={capabilitiesBusy()}
-                onRefresh={() => void refreshCapabilities(true)}
-                snapshot={snapshot()}
-              />
-            )}
-          </Show>
-          <SettingsRow
-            title="Plugin runtime connections"
-            detail="Manage enabled plugins from the global Plugins menu. Runtime credentials and execution remain unavailable until an authoritative Control Plane provider is connected."
-          />
+            </Show>
+            <SettingsRow
+              title="Plugin runtime connections"
+              detail="Manage enabled plugins from the global Plugins menu. Runtime credentials and execution remain unavailable until an authoritative Control Plane provider is connected."
+            />
+          </div>
         </TabsContent>
         <TabsContent
           value="permissions"
           id="settings-panel-permissions"
-          class="conventional-settings-panel"
+          class="min-h-0 min-w-0 overflow-y-auto"
         >
-          <header>
-            <ShieldCheck aria-hidden="true" />
-            <div>
-              <h3>{settingsSectionLabels.permissions}</h3>
-              <p>
-                macOS capabilities this app is granted, with the system panes that control them.
-              </p>
-            </div>
-          </header>
-          <PermissionsPane service={props.permissionsService} />
+          <div class="conventional-settings-panel">
+            <header>
+              <ShieldCheck aria-hidden="true" />
+              <div>
+                <h3>{settingsSectionLabels.permissions}</h3>
+                <p>
+                  macOS capabilities this app is granted, with the system panes that control them.
+                </p>
+              </div>
+            </header>
+            <PermissionsPane service={props.permissionsService} />
+          </div>
         </TabsContent>
         <div class="visually-hidden" aria-live="polite">
           {saveState() === 'saving'
