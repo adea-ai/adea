@@ -135,6 +135,13 @@ export function createCommandSurface(
      * memory command fails closed.
      */
     authorizedWorkspaceId?: () => string | undefined
+    /**
+     * The native folder picker behind `desktop_folder_pick`; production wires
+     * Electrobun's `Utils.openFileDialog` (directory-only, single selection).
+     * Absent, the command refuses with `folder_picker_unavailable` — the
+     * renderer's typed path input stays the fallback.
+     */
+    pickFolder?: (request: Readonly<{ startingFolder?: string }>) => Promise<readonly string[]>
   }
 ) {
   const stateDir = join(dataDir, 'desktop-state')
@@ -270,6 +277,18 @@ export function createCommandSurface(
       if (!isExternalOpenableUrl(url)) throw new Error('untrusted external url')
       openInSystemBrowser(url)
       return null
+    },
+    // The add-project surface's native folder picker. The shell only opens
+    // the OS open panel and returns the picked absolute path; authorization
+    // of that path stays with the Dev Runtime's `dev.project.authorizeRoot`,
+    // so the picker never widens what the renderer can read.
+    desktop_folder_pick: (args) => {
+      if (!options?.pickFolder) return Promise.reject(new Error('folder_picker_unavailable'))
+      const request: { startingFolder?: string } = {}
+      const startingFolder = args?.startingFolder
+      if (typeof startingFolder === 'string' && startingFolder.trim() !== '')
+        request.startingFolder = startingFolder
+      return options.pickFolder(request).then((paths) => ({ paths }))
     },
     desktop_auth_take_callback: () => {
       const callback = readJson('auth-callback.json') as string | null
