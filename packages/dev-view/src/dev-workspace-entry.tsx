@@ -807,7 +807,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         type="button"
         variant="outline"
         size="icon-sm"
-        class="workspace-topbar__control"
         tooltip={open() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
         aria-label={open() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
         aria-expanded={open()}
@@ -829,7 +828,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         type="button"
         variant="outline"
         size="icon-sm"
-        class="workspace-topbar__control"
         tooltip={open() ? 'Collapse left utility sidebar' : 'Expand left utility sidebar'}
         aria-label={open() ? 'Collapse left utility sidebar' : 'Expand left utility sidebar'}
         aria-expanded={open()}
@@ -847,7 +845,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         type="button"
         variant="ghost"
         size="icon-sm"
-        class="workspace-topbar__control"
         tooltip="Split pane"
         aria-label="Split pane"
         disabled={splitPaneDisabled(countLeaves(layout().center), selectedProject())}
@@ -877,7 +874,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         type="button"
         variant="ghost"
         size="icon-sm"
-        class="workspace-topbar__control dev-toolbar__close-all"
+        data-close-all=""
         tooltip="Close all panes"
         aria-label="Close all panes"
         disabled={countLeaves(layout().center) <= 1}
@@ -902,7 +899,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         type="button"
         variant="ghost"
         size="icon-sm"
-        class="workspace-topbar__control"
         tooltip="Reopen the last closed pane in this window"
         aria-label="Reopen closed pane"
         disabled={layout().closed.length === 0}
@@ -1319,33 +1315,36 @@ function FileSourceControlSlot(props: {
           </Suspense>
         </div>
         <Show when={isFileSourceControlSlot()}>
-          <ButtonGroup
-            class="dev-utility__file-source-selector w-full"
-            label="Files and Source Control"
-          >
-            <Button
-              type="button"
-              variant={props.visiblePane?.pane === 'files' ? 'default' : 'outline'}
-              size="sm"
-              aria-label="Files"
-              aria-pressed={props.visiblePane?.pane === 'files'}
-              onClick={() => props.onShow('files')}
-            >
-              <FolderTree aria-hidden="true" />
-              <span class="dev-utility__selector-label">Files</span>
-            </Button>
-            <Button
-              type="button"
-              variant={props.visiblePane?.pane === 'source_control' ? 'default' : 'outline'}
-              size="sm"
-              aria-label="Source control"
-              aria-pressed={props.visiblePane?.pane === 'source_control'}
-              onClick={() => props.onShow('source_control')}
-            >
-              <GitBranch aria-hidden="true" />
-              <span class="dev-utility__selector-label">Source control</span>
-            </Button>
-          </ButtonGroup>
+          <div class="dev-utility__file-source-selector">
+            <ButtonGroup class="w-full" label="Files and Source Control">
+              <Button
+                type="button"
+                variant={props.visiblePane?.pane === 'files' ? 'default' : 'outline'}
+                size="sm"
+                touchTarget="comfortable"
+                class="min-w-0 flex-1"
+                aria-label="Files"
+                aria-pressed={props.visiblePane?.pane === 'files'}
+                onClick={() => props.onShow('files')}
+              >
+                <FolderTree aria-hidden="true" />
+                <span class="dev-utility__selector-label">Files</span>
+              </Button>
+              <Button
+                type="button"
+                variant={props.visiblePane?.pane === 'source_control' ? 'default' : 'outline'}
+                size="sm"
+                touchTarget="comfortable"
+                class="min-w-0 flex-1"
+                aria-label="Source control"
+                aria-pressed={props.visiblePane?.pane === 'source_control'}
+                onClick={() => props.onShow('source_control')}
+              >
+                <GitBranch aria-hidden="true" />
+                <span class="dev-utility__selector-label">Source control</span>
+              </Button>
+            </ButtonGroup>
+          </div>
         </Show>
       </section>
       <Show when={Boolean(resizablePane())}>

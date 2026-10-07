@@ -87,33 +87,6 @@
   color: var(--muted-foreground);
 }
 
-.dev-terminal-copy-button {
-  padding: 0.1rem 0.45rem;
-  border: 1px solid var(--border);
-  border-radius: 0.3rem;
-  background: transparent;
-  color: var(--foreground);
-}
-
-.dev-terminal-copy-button:hover:not(:disabled),
-.dev-terminal-copy-button:focus-visible {
-  background: color-mix(in srgb, var(--accent) 55%, transparent);
-}
-
-.dev-terminal-copy-button:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -1px;
-}
-
-.dev-terminal-copy-button:disabled {
-  color: var(--muted-foreground);
-  border-style: dashed;
-}
-
-.dev-terminal-copy-button[data-degraded='true'] {
-  color: var(--destructive);
-}
-
 .dev-terminal-hint {
   flex-basis: 100%;
   color: var(--muted-foreground);
@@ -182,6 +155,13 @@
   outline-offset: -2px;
 }
 
+/* The DOM fixture renderer prints into a shared ScrollArea. */
+.dev-terminal-surface__output {
+  margin: 0;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
+}
+
 /* Search bar: pane-local overlay anchored over the surface, stacked on the
  * named menu scale. */
 .dev-terminal-search {
@@ -228,15 +208,6 @@
 
 .dev-terminal-search-count {
   flex: none;
-  color: var(--muted-foreground);
-  font-size: calc(0.72rem * var(--font-ui-scale, 1));
-}
-
-.dev-terminal-search-case {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 0.2rem;
   color: var(--muted-foreground);
   font-size: calc(0.72rem * var(--font-ui-scale, 1));
 }

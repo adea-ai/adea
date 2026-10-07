@@ -98,12 +98,10 @@ export function FirstRunOnboarding(props: FirstRunOnboardingProps): JSX.Element 
           {state().installStatus}
         </p>
         <Show when={state().stage === 'compose'}>
-          <Label class="dev-onboarding__label" for="dev-onboarding-prompt">
-            Your first message
-          </Label>
+          <Label for="dev-onboarding-prompt">Your first message</Label>
           <Textarea
             id="dev-onboarding-prompt"
-            class="dev-onboarding__prompt"
+            class="min-h-28 w-full"
             value={prompt()}
             onInput={(event) => setPrompt(event.currentTarget.value)}
             placeholder="What would you like help with?"

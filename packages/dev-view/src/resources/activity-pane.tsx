@@ -169,7 +169,8 @@ export function ActivityPane(props: ActivityPaneProps) {
                     <Show when={row.attention || row.running}>
                       <Button
                         type="button"
-                        class="dev-resources__cancel"
+                        variant="outline"
+                        size="xs"
                         disabled={busy() || generationFor(row.runtimeSessionId) === undefined}
                         title={
                           generationFor(row.runtimeSessionId) === undefined

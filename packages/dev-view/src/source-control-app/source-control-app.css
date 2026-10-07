@@ -60,10 +60,6 @@
   }
 }
 
-.dev-scm__status {
-  border-block-start: 1px solid var(--dev-border);
-}
-
 /* ── Top bar portal ─────────────────────────────────────────────────────── */
 
 .dev-scm-topbar {
@@ -73,20 +69,12 @@
   min-width: 0;
 }
 
-.dev-scm-topbar__search {
-  width: min(22rem, 32vw);
-}
-
 /* Centered in the top bar's title slot, the search fills the slot instead of
    its fixed leading-group width, so the field sits at the bar's centre where
    the plain workspace-name title would be. */
-.workspace-topbar__title-mount .dev-scm-topbar__search {
-  width: 100%;
-  min-width: 0;
-}
 
 @media (max-width: 48rem) {
-  .dev-scm-topbar__search,
+  [data-scm-search],
   .dev-scm-topbar__synced {
     display: none;
   }
@@ -275,10 +263,6 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.25rem;
-}
-
-.dev-scm-toolbar__filter {
-  width: min(17.5rem, 100%);
 }
 
 .dev-scm-inbox {
@@ -495,11 +479,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-}
-
-.dev-scm-thread__reply-input {
-  flex: 1;
-  min-width: 12rem;
 }
 
 .dev-scm-composer {

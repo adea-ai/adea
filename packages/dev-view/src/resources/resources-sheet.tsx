@@ -52,28 +52,30 @@ export function ResourcesSheet(props: ResourcesSheetProps) {
     >
       {/* The pane header carries the visible "Runtime resources" title and the
           refresh action, so the sheet only names the dialog and reserves the
-          corner where its close button sits (the dev-resources-sheet hook). */}
+          corner where its close button sits (the dev-resources-sheet wrapper). */}
       <SheetContent
         side="end"
-        class="dev-resources-sheet"
+        class="w-150"
         aria-label="Runtime resources"
         closeLabel="Close runtime resources"
       >
         <SheetBody>
           <Suspense fallback={<p class="dev-resources__note">Loading…</p>}>
-            <ResourcesPane
-              runtime={props.runtime ?? unavailableRuntime}
-              runtimeSessionId={props.runtimeSessionId}
-              openExternal={props.openExternal}
-              {...(props.onOpenSession
-                ? {
-                    onOpenSession: (target: { runtimeSessionId: string; projectId?: string }) => {
-                      props.onClose()
-                      props.onOpenSession?.(target)
-                    },
-                  }
-                : {})}
-            />
+            <div class="dev-resources-sheet">
+              <ResourcesPane
+                runtime={props.runtime ?? unavailableRuntime}
+                runtimeSessionId={props.runtimeSessionId}
+                openExternal={props.openExternal}
+                {...(props.onOpenSession
+                  ? {
+                      onOpenSession: (target: { runtimeSessionId: string; projectId?: string }) => {
+                        props.onClose()
+                        props.onOpenSession?.(target)
+                      },
+                    }
+                  : {})}
+              />
+            </div>
           </Suspense>
         </SheetBody>
       </SheetContent>

@@ -135,7 +135,7 @@ test.describe('terminal pane (real xterm surface)', () => {
       await expect(marker).toBeVisible()
       const box = (await marker.boundingBox())!
       await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2)
-      const copy = pane.locator('.dev-terminal-copy-button').first()
+      const copy = pane.locator('[data-terminal-copy]').first()
       await expect(copy).toBeEnabled()
       const originalTerminal = (await pane.locator('.xterm-helper-textarea').elementHandle())!
       const beforeCodeFont = await report(page)
@@ -226,7 +226,7 @@ test.describe('terminal pane (real xterm surface)', () => {
       selectionBox.x + selectionBox.width / 2,
       selectionBox.y + selectionBox.height / 2
     )
-    const copy = pane.locator('.dev-terminal-copy-button').first()
+    const copy = pane.locator('[data-terminal-copy]').first()
     // xterm >= 6 paints the theme background on its `.xterm-scrollable-element`
     // (the propagation boundary for `terminal.options.theme`); the legacy
     // `.xterm-viewport` backdrop follows the palette through the pane's own
@@ -393,7 +393,7 @@ test.describe('terminal pane (real xterm surface)', () => {
 
   test('selection enables the copy affordance and copy goes through the seam', async ({ page }) => {
     const pane = await openHarness(page)
-    const copyButton = pane.locator('.dev-terminal-copy-button').first()
+    const copyButton = pane.locator('[data-terminal-copy]').first()
     await expect(copyButton).toBeDisabled()
     await page.evaluate(() => {
       window.__adeaTerminalPaneHarness.write('selectable-marker-word\r\n')

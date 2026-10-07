@@ -415,7 +415,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                                   <>
                                     <Button
                                       type="button"
-                                      class="dev-archive-action"
+                                      variant="outline"
+                                      size="sm"
                                       disabled={busy() !== ''}
                                       onClick={() => void inspect(row)}
                                     >
@@ -423,7 +424,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                                     </Button>
                                     <Button
                                       type="button"
-                                      class="dev-archive-action"
+                                      variant="outline"
+                                      size="sm"
                                       disabled={busy() !== ''}
                                       onClick={() => void refresh(row)}
                                     >
@@ -432,7 +434,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                                     <Show when={host() !== undefined}>
                                       <Button
                                         type="button"
-                                        class="dev-archive-action"
+                                        variant="outline"
+                                        size="sm"
                                         disabled={busy() !== ''}
                                         onClick={() => openAuthorizePicker(row)}
                                       >
@@ -442,7 +445,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                                     <Show when={removable(row)}>
                                       <Button
                                         type="button"
-                                        class="dev-archive-action dev-archive-action--destructive"
+                                        variant="outline"
+                                        size="sm"
                                         disabled={busy() !== ''}
                                         onClick={() => setState(requestRemove(state(), row.repoId))}
                                       >
@@ -454,7 +458,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                               >
                                 <Button
                                   type="button"
-                                  class="dev-archive-action"
+                                  variant="outline"
+                                  size="sm"
                                   disabled={busy() !== ''}
                                   onClick={() => openAdoptPicker(row)}
                                 >
@@ -472,7 +477,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                             {removeConfirmLine(row.canonicalRoot)}
                             <Button
                               type="button"
-                              class="dev-archive-action dev-archive-action--destructive"
+                              variant="destructive"
+                              size="sm"
                               disabled={busy() !== ''}
                               onClick={() => {
                                 const commit = confirmPendingRemove(state())
@@ -484,7 +490,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                             </Button>
                             <Button
                               type="button"
-                              class="dev-archive-action"
+                              variant="outline"
+                              size="sm"
                               onClick={() => setState(cancelPendingRemove(state()))}
                             >
                               Keep
@@ -516,7 +523,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                         </Label>
                         <Button
                           type="button"
-                          class="dev-archive-action"
+                          variant="outline"
+                          size="sm"
                           disabled={busy() !== ''}
                           onClick={() => void adopt(row)}
                         >
@@ -524,7 +532,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                         </Button>
                         <Button
                           type="button"
-                          class="dev-archive-action"
+                          variant="outline"
+                          size="sm"
                           onClick={() => setAdoptPickerRepo('')}
                         >
                           Cancel
@@ -552,7 +561,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                         </Label>
                         <Button
                           type="button"
-                          class="dev-archive-action"
+                          variant="outline"
+                          size="sm"
                           disabled={busy() !== '' || authorizeCredentialId() === ''}
                           onClick={() => void authorize(row)}
                         >
@@ -560,7 +570,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                         </Button>
                         <Button
                           type="button"
-                          class="dev-archive-action"
+                          variant="outline"
+                          size="sm"
                           onClick={() => setAuthorizePickerRepo('')}
                         >
                           Cancel
@@ -597,7 +608,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                           Archive this project?
                           <Button
                             type="button"
-                            class="dev-archive-action dev-archive-action--destructive"
+                            variant={archived() ? 'outline' : 'destructive'}
+                            size="sm"
                             disabled={busy() !== ''}
                             onClick={() => confirmArchive(project.id)}
                           >
@@ -605,7 +617,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                           </Button>
                           <Button
                             type="button"
-                            class="dev-archive-action"
+                            variant="outline"
+                            size="sm"
                             onClick={() => setState(cancelPendingArchive(state()))}
                           >
                             Keep
@@ -616,10 +629,8 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
                       <span class="dev-archive-shelf__actions">
                         <Button
                           type="button"
-                          class={cn(
-                            'dev-archive-action',
-                            !archived() && 'dev-archive-action--destructive'
-                          )}
+                          variant="outline"
+                          size="sm"
                           disabled={busy() !== ''}
                           onClick={() => setState(requestArchive(state(), project.id))}
                         >

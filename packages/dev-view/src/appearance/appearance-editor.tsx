@@ -541,7 +541,7 @@ export function ModeChoices(props: AppearanceEditorProps) {
                   class={cn(
                     'flex w-full cursor-pointer flex-col gap-2 rounded-lg border p-2 text-center text-xs',
                     {
-                      'border-primary ring-1 ring-primary': props.draft.mode === option.value,
+                      'border-primary': props.draft.mode === option.value,
                     }
                   )}
                 >
@@ -591,7 +591,7 @@ export function AccentChoices(props: AppearanceEditorProps) {
       value={accentSelection()}
       disabled={props.saving}
       aria-label="Accent"
-      class="grid grid-cols-2 sm:grid-cols-3"
+      class="grid sm:grid-cols-3"
       onChange={(accent) =>
         props.onChange({
           accent: accent === 'custom' ? (props.customAccentValue ?? '') : accent,

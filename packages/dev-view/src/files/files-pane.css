@@ -18,18 +18,6 @@
 
 /* Quick-open picker (#399 residue): a pane-local overlay anchored under the
  * toolbar, stacked on the named menu scale. */
-.dev-files__quickopen {
-  display: flex;
-  max-height: 60%;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.25rem;
-}
-
-.dev-files__quickopen-list {
-  min-height: 0;
-  overflow-y: auto;
-}
 
 .dev-files__quickopen-empty {
   padding: 0.35rem 0.5rem;
@@ -67,15 +55,6 @@
   outline-offset: 1px;
 }
 
-.dev-files__quickopen [data-slot='command-input-wrapper'] {
-  height: 1.75rem;
-}
-
-.dev-files__quickopen-input {
-  min-width: 0;
-  flex: 1;
-}
-
 .dev-files__actions {
   display: flex;
   align-items: center;
@@ -94,25 +73,6 @@
    * the content edge, while the reveal math aligns with the padding edge —
    * the two disagree by the padding and leave the last row half-clipped. */
   padding: 0.25rem 0 0;
-}
-
-.dev-files__quickopen-result {
-  min-height: 2rem;
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 0.25rem;
-  width: 100%;
-  padding: 0.125rem 0.5rem;
-  border: 0;
-  background: transparent;
-  color: var(--foreground);
-  font-size: calc(0.8rem * var(--font-ui-scale, 1));
-  text-align: start;
-}
-
-.dev-files__quickopen-result:hover {
-  background: color-mix(in srgb, var(--secondary) 55%, transparent);
 }
 
 .dev-files__icon {
@@ -346,22 +306,15 @@
   color: var(--dev-muted);
 }
 
+/* The row's label inside a ghost Button: path over preview. */
 .dev-files__search-row {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 0.1rem;
-  padding: 0.2rem 0.5rem;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
+  padding-block: 0.2rem;
+  font-weight: 400;
   text-align: start;
-  cursor: pointer;
-}
-
-.dev-files__search-row:hover,
-.dev-files__search-row:focus-visible {
-  background: color-mix(in srgb, var(--secondary) 55%, transparent);
 }
 
 .dev-files__search-path {

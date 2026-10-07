@@ -135,7 +135,7 @@ function TopBarSearch(props: { state: SourceControlState; actions: AppActions })
   return (
     <Popover open={matches().length > 0} placement="bottom-start" gutter={4}>
       <PopoverAnchor>
-        <InputGroup class="dev-scm-topbar__search">
+        <InputGroup class="w-full min-w-0" data-scm-search="">
           <InputGroupAddon>
             <Search aria-hidden="true" />
           </InputGroupAddon>
@@ -225,7 +225,6 @@ function TopBarControls(props: {
         type="button"
         variant="ghost"
         size="icon-sm"
-        class="workspace-topbar__control"
         tooltip="Sync pull requests now"
         aria-label="Sync now"
         busy={props.state.syncing()}
@@ -501,7 +500,7 @@ function ConnectedApp(
           </Switch>
         </div>
       </div>
-      <StatusBar class="dev-scm__status">
+      <StatusBar>
         <StatusBarItem dot tone={connection().tone}>
           {connection().text}
         </StatusBarItem>

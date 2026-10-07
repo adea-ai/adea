@@ -13,10 +13,11 @@
 @import '@adea-ai/app-ui/conventional-workspace.css';
 @import '../../node_modules/.cache/adea-ui-tailwind-sources.css';
 
-/* Shared workspace components live outside Vite's automatic scan root. Must
+/* Shared workspace and Dev View components live outside Vite's automatic scan root. Must
    stay after all @imports — CSS drops imports that follow other rules. */
 @source '../../../../packages/workspace-ui/src';
 @source '../../../../packages/workspace-nav/src';
+@source '../../../../packages/dev-view/src';
 
 /* Adea's shell spacing is authored in rem against the historical 16px root.
    The published UI structural base intentionally defaults the document to

@@ -156,7 +156,7 @@ test('cert 2.5.8: narrow-viewport controls keep 24px targets without overlap', a
   // Close the sheet and measure the topbar context toggle in the base state.
   await page.keyboard.press('Escape')
   await expect(sidebar).toBeHidden()
-  const toggle = page.locator('.workspace-topbar__context-toggle')
+  const toggle = page.locator('[data-context-toggle]')
   await expect(toggle).toBeVisible()
   const box = await toggle.boundingBox()
   expect(box, 'topbar context toggle should render').not.toBeNull()

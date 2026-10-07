@@ -95,7 +95,7 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
   onCleanup(() => transport.dispose())
 
   return (
-    <ScrollArea
+    <section
       aria-label={
         props.worktreeLabel ? `Integrated terminal — ${props.worktreeLabel}` : 'Integrated terminal'
       }
@@ -103,8 +103,6 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
       data-attach-from={props.fromSequence}
       data-renderer="dom"
       onKeyDown={onKeyDown}
-      role="region"
-      orientation="both"
     >
       <div class="dev-terminal-pane-status" data-state={connection()}>
         {connection() === 'reconnecting' ? 'reconnecting' : connection()}
@@ -123,11 +121,12 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
       <ScrollArea
         aria-label="Terminal output"
         role="region"
-        class="dev-terminal-surface"
+        class="min-h-0 flex-1"
+        data-terminal-surface=""
         orientation="both"
         ref={setSurface}
       >
-        <pre>{output()}</pre>
+        <pre class="dev-terminal-surface__output">{output()}</pre>
       </ScrollArea>
       <ul aria-label="Command blocks">
         <For each={observations().filter((observation) => observation.kind === 'precmd')}>
@@ -168,6 +167,6 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
         }}
         type="text"
       />
-    </ScrollArea>
+    </section>
   )
 }
