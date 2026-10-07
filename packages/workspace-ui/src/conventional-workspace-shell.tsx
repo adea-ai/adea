@@ -9,6 +9,7 @@ import { AgentRoster } from './agent-roster'
 import { ArtifactDetail } from './artifact-detail'
 import { ConversationSurface } from './conversation-surface'
 import { TaskBoard } from './task-board'
+import type { DevProjectFlow } from './create-project-flow'
 import { useWorkspaceController } from './use-workspace-controller'
 import { WorkspaceNavSidebar, type WorkspaceNavHost } from './workspace-nav-sidebar'
 import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
@@ -26,6 +27,11 @@ const CreateGroupDialog = lazy(() =>
 )
 const CreateProjectDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateProjectDialog }))
+)
+const DevNewProjectDialog = lazy(() =>
+  import('./dev-create-project-dialog').then((module) => ({
+    default: module.DevNewProjectDialog,
+  }))
 )
 const ModalDialog = lazy(() =>
   import('@adea-ai/ui/components/ui/modal-dialog').then((module) => ({
@@ -97,6 +103,13 @@ export function ConventionalWorkspaceShell(props: {
   services?: WorkspacePlatformServices
   view?: WorkspaceView
   /**
+   * The host's detailed create-project flow, sampled when "Add project"
+   * opens: present, the Dev dialog runs (name the project, optionally bind a
+   * repository); absent, the basic create dialog stays. Hosts without a Dev
+   * Runtime simply omit it.
+   */
+  createProjectFlow?: () => DevProjectFlow | undefined
+  /**
    * The integrated frame's workspace switching. Without it the sidebar lists
    * the bootstrap workspaces and switches through the workspace store.
    */
@@ -111,6 +124,16 @@ export function ConventionalWorkspaceShell(props: {
   const [dialog, setDialog] = createSignal<DialogId>(null)
   const [accountBusy, setAccountBusy] = createSignal(false)
   const [online, setOnline] = createSignal(true)
+  // The Dev dialog's live-region announcements (authorized roots, import
+  // results), captured from the flow when "Add project" opens.
+  const [devAnnouncement, setDevAnnouncement] = createSignal('')
+  // The flow is sampled once per open so a reactive rebuild (fresh project
+  // names) cannot remount an open dialog and drop its typed state.
+  const [openProjectFlow, setOpenProjectFlow] = createSignal<DevProjectFlow>()
+  const openCreateProject = () => {
+    setOpenProjectFlow(props.createProjectFlow?.())
+    setDialog('create-project')
+  }
   const [searchTargetMessageId, setSearchTargetMessageId] = createSignal<string | null>(null)
   const [selectedArtifactId, setSelectedArtifactId] = createSignal<string | null>(null)
   const [sessionNoticeDismissed, setSessionNoticeDismissed] = createSignal(false)
@@ -443,7 +466,7 @@ export function ConventionalWorkspaceShell(props: {
                 onArchiveChannel={controller.channelActions.archive}
                 onArchiveTask={controller.taskActions.archive}
                 onCreateGroup={() => setDialog('create-group')}
-                onCreateProject={() => setDialog('create-project')}
+                onCreateProject={() => openCreateProject()}
                 onRenameChannel={controller.channelActions.rename}
                 onRenameTask={(task, title) => controller.taskActions.update(task, { title })}
                 onOpenAgents={() => {
@@ -684,13 +707,38 @@ export function ConventionalWorkspaceShell(props: {
                   primitives already mount only while open, so opening and
                   closing behaves exactly as before. */}
               <Show when={dialog() === 'create-project'}>
-                <CreateProjectDialog
-                  busy={controller.createProjectBusy}
-                  onClose={() => setDialog(null)}
-                  onCreate={controller.createProject}
-                  open
-                  template={controller.activeWorkspace!.scene}
-                />
+                <Show
+                  when={openProjectFlow()}
+                  fallback={
+                    <CreateProjectDialog
+                      busy={controller.createProjectBusy}
+                      onClose={() => setDialog(null)}
+                      onCreate={controller.createProject}
+                      open
+                      template={controller.activeWorkspace!.scene}
+                    />
+                  }
+                >
+                  {(flow) => (
+                    <DevNewProjectDialog
+                      scope={flow().scope}
+                      execute={flow().execute}
+                      knownProjectNames={flow().knownProjectNames}
+                      announce={setDevAnnouncement}
+                      {...(flow().pickFolder ? { pickFolder: flow().pickFolder } : {})}
+                      workspaceName={controller.activeWorkspace?.name ?? 'this workspace'}
+                      onCreateProject={(name) => flow().onCreateProject(name)}
+                      onImported={() => void controller.refreshAfterProjectCreate()}
+                      onClose={() => {
+                        setDialog(null)
+                        // The Dev flow's cloud create invalidates the project
+                        // list through the shared query cache; the new
+                        // project's primary channel needs this refetch.
+                        void controller.refreshAfterProjectCreate()
+                      }}
+                    />
+                  )}
+                </Show>
               </Show>
               <Show when={dialog() === 'create-group'}>
                 <CreateGroupDialog
@@ -779,6 +827,11 @@ export function ConventionalWorkspaceShell(props: {
             <div class="visually-hidden" aria-live="polite">
               {online() ? 'Workspace online' : 'Workspace offline. Drafts remain on this device.'}
             </div>
+            <Show when={devAnnouncement()}>
+              <p class="sr-only" aria-live="polite">
+                {devAnnouncement()}
+              </p>
+            </Show>
             <Show when={selectedAgentId()}>
               <span class="visually-hidden">Selected Agent {selectedAgentId()}</span>
             </Show>

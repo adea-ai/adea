@@ -25,6 +25,7 @@ import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { createEffect, createMemo, createSignal, lazy, Show, Suspense, type JSX } from 'solid-js'
 
 import { createClientRequestId } from './request-id'
+import type { DevProjectFlow } from './create-project-flow'
 import { useWorkspacePersistence } from './use-workspace-persistence'
 import { projectWorkspaceNavigation, reconcileWorkspaceChannelSelection } from './workspace-model'
 import { WorkspaceNavSidebar, type WorkspaceNavHost } from './workspace-nav-sidebar'
@@ -34,6 +35,11 @@ const CreateGroupDialog = lazy(() =>
 )
 const CreateProjectDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateProjectDialog }))
+)
+const DevNewProjectDialog = lazy(() =>
+  import('./dev-create-project-dialog').then((module) => ({
+    default: module.DevNewProjectDialog,
+  }))
 )
 
 type SidebarDialog = 'create-group' | 'create-project' | null
@@ -52,6 +58,13 @@ function taskCommand(task: TaskSummary, prefix: string) {
 export function VirtualRoomControls(props: {
   archiveAction?: JSX.Element
   client?: AgentHqApiClient
+  /**
+   * The host's detailed create-project flow, sampled when "Add project"
+   * opens: present, the Dev dialog runs (name the project, optionally bind a
+   * repository); absent, the basic create dialog stays. Hosts without a Dev
+   * Runtime simply omit it.
+   */
+  createProjectFlow?: () => DevProjectFlow | undefined
   openChat: () => void
   restoreFocusRef?: () => HTMLElement | undefined
   /** The integrated frame's workspace switching; see `WorkspaceNavHost`. */
@@ -87,6 +100,16 @@ export function VirtualRoomControls(props: {
   const markAllReadMutation = useMarkAllReadMutation(client(), () => workspaceId() ?? '')
   const prefetchChannelMessages = usePrefetchChannelMessages(client(), workspaceId)
   const [dialog, setDialog] = createSignal<SidebarDialog>(null)
+  // The Dev dialog's live-region announcements, captured from the flow when
+  // "Add project" opens.
+  const [devAnnouncement, setDevAnnouncement] = createSignal('')
+  // The flow is sampled once per open so a reactive rebuild (fresh project
+  // names) cannot remount an open dialog and drop its typed state.
+  const [openProjectFlow, setOpenProjectFlow] = createSignal<DevProjectFlow>()
+  const openCreateProject = () => {
+    setOpenProjectFlow(props.createProjectFlow?.())
+    setDialog('create-project')
+  }
   const navigation = createMemo(() =>
     projectWorkspaceNavigation(settledData(projects) ?? [], settledData(channels) ?? [])
   )
@@ -265,7 +288,7 @@ export function VirtualRoomControls(props: {
         onArchiveTask={archiveTask}
         onChannelIntent={prefetchChannelMessages}
         onCreateGroup={() => setDialog('create-group')}
-        onCreateProject={() => setDialog('create-project')}
+        onCreateProject={() => openCreateProject()}
         onMarkAllRead={() => markAllReadMutation.mutateAsync().then(() => undefined)}
         onOpenAgents={() => routeToChat('agents')}
         onOpenTask={(task) => {
@@ -295,16 +318,46 @@ export function VirtualRoomControls(props: {
         status={sidebarStatus()}
         workspaceReady={Boolean(activeWorkspace())}
       />
+      <Show when={devAnnouncement()}>
+        <p class="sr-only" aria-live="polite">
+          {devAnnouncement()}
+        </p>
+      </Show>
       <Suspense fallback={null}>
         <Show when={dialog() === 'create-project' && activeWorkspace()}>
           {(workspace) => (
-            <CreateProjectDialog
-              busy={createProjectMutation.isPending}
-              onClose={() => setDialog(null)}
-              onCreate={createProject}
-              open
-              template={workspace().scene}
-            />
+            <Show
+              when={openProjectFlow()}
+              fallback={
+                <CreateProjectDialog
+                  busy={createProjectMutation.isPending}
+                  onClose={() => setDialog(null)}
+                  onCreate={createProject}
+                  open
+                  template={workspace().scene}
+                />
+              }
+            >
+              {(flow) => (
+                <DevNewProjectDialog
+                  scope={flow().scope}
+                  execute={flow().execute}
+                  knownProjectNames={flow().knownProjectNames}
+                  announce={setDevAnnouncement}
+                  {...(flow().pickFolder ? { pickFolder: flow().pickFolder } : {})}
+                  workspaceName={workspace().name}
+                  onCreateProject={(name) => flow().onCreateProject(name)}
+                  onImported={() => void channels.refetch()}
+                  onClose={() => {
+                    setDialog(null)
+                    // The Dev flow's cloud create invalidates the project
+                    // list through the shared query cache; the new project's
+                    // primary channel needs this refetch.
+                    void channels.refetch()
+                  }}
+                />
+              )}
+            </Show>
           )}
         </Show>
         <Show when={dialog() === 'create-group'}>

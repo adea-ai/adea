@@ -108,6 +108,12 @@
       "development": "./src/chat/index.ts",
       "import": "./dist/chat/index.js"
     },
+    "./sidebar/dev-nav-dialogs": {
+      "types": "./dist/sidebar/dev-nav-dialogs.d.ts",
+      "solid": "./src/sidebar/dev-nav-dialogs.tsx",
+      "development": "./src/sidebar/dev-nav-dialogs.tsx",
+      "import": "./dist/sidebar/dev-nav-dialogs.js"
+    },
     "./chat/model": {
       "types": "./dist/chat/model/index.d.ts",
       "solid": "./src/chat/model/index.ts",

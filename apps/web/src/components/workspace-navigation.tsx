@@ -18,6 +18,7 @@ import type {
   WorkspacePlatformServices,
   WorkspacePluginsProvider,
 } from '@adea-ai/workspace-ui/platform'
+import { devProjectFlow, type DevProjectFlow } from '@adea-ai/workspace-ui/create-project-flow'
 import type { RegistryPluginsProviderOptions } from '@adea-ai/workspace-ui/plugins'
 import type { RailPreferencesV1 } from '@adea-ai/workspace-ui/rail-preferences'
 import {
@@ -72,7 +73,7 @@ import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
-import { isDesktopRuntime, openExternalUrl } from '../lib/desktop-bridge'
+import { isDesktopRuntime, openExternalUrl, pickDesktopFolder } from '../lib/desktop-bridge'
 import { adeaFeedbackUrl } from '../lib/feedback'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -896,6 +897,22 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     devSummary: () => props.devSummary?.(),
   })
 
+  // One create-project flow everywhere a runtime can back it: when this host
+  // carries a ready Dev Runtime, the Chat/Virtual sidebars' "Add project" runs
+  // the detailed Dev dialog (name the project, optionally bind a repository)
+  // with the shell's native folder picker; without one (the web lane) the
+  // accessor resolves undefined and those sidebars keep the basic dialog.
+  const devProjectFlowHost = (): DevProjectFlow | undefined => {
+    const runtime = props.services.devRuntime
+    if (!runtime) return undefined
+    return devProjectFlow({
+      runtime,
+      knownProjectNames: (devNavHost.projects ?? []).map(({ name }) => name),
+      onCreateProject: (name) => devNavHost.onCreateProject!(name),
+      ...(isDesktopRuntime() ? { pickFolder: () => pickDesktopFolder() } : {}),
+    })
+  }
+
   // The active workspace's accent themes the whole app while it is active
   // (ADR 0011): it overrides the appearance accent, and a workspace without
   // one (null) keeps the appearance accent. It is painted on <body>, below
@@ -1022,6 +1039,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       embedded={embedded}
       taskBoardOnly={activeAppId() === 'kanban'}
       client={props.client}
+      createProjectFlow={devProjectFlowHost}
       deepLink={deepLink}
       manageSettings={false}
       onConsumeDeepLink={consumeDeepLink}
@@ -1363,6 +1381,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                         archiveAction={archiveAction}
                         restoreFocusRef={sidebarOpener}
                         apiClient={props.client}
+                        createProjectFlow={devProjectFlowHost}
                         initialScene={scene()}
                         onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
                         onWorkspaceViewChange={changeView}

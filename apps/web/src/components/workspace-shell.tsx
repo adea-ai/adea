@@ -10,6 +10,7 @@ import { hqHomeManifest, hqWorkManifest, type SceneStartPosition } from '@adea-a
 import { VirtualRoomControls } from '@adea-ai/workspace-ui/virtual-room-controls'
 import { VirtualUnavailable } from '@adea-ai/workspace-ui/virtual-unavailable'
 import { VirtualView } from '@adea-ai/workspace-ui/virtual-view'
+import type { DevProjectFlow } from '@adea-ai/workspace-ui/create-project-flow'
 import type { WorkspaceNavHost } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
@@ -36,6 +37,8 @@ export type WorkspaceShellProps = {
   archiveAction?: JSX.Element
   apiClient?: AgentHqApiClient
   restoreFocusRef?: () => HTMLElement | undefined
+  /** The host's detailed create-project flow; absent keeps the basic dialog. */
+  createProjectFlow?: () => DevProjectFlow | undefined
   initialScene: HqSceneId
   initialCharacter: string
   startPosition?: SceneStartPosition
@@ -70,6 +73,7 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
       <VirtualRoomControls
         archiveAction={props.archiveAction}
         client={apiClient()}
+        createProjectFlow={props.createProjectFlow}
         restoreFocusRef={props.restoreFocusRef}
         openChat={() => props.onWorkspaceViewChange?.('chat')}
         workspaceHost={props.workspaceHost}
