@@ -25,8 +25,16 @@ import type {
   WorkspaceSearchPage,
 } from '@adea-ai/types'
 
-import type { ApiRuntimeNodeConnectionsResponse } from './runtime-connections'
-export type { ApiRuntimeConnection, ApiRuntimeNodeConnectionsResponse } from './runtime-connections'
+import type {
+  ApiRuntimeNodeConnectionsResponse,
+  ApiRuntimeNodesResponse,
+} from './runtime-connections'
+export type {
+  ApiRuntimeConnection,
+  ApiRuntimeNode,
+  ApiRuntimeNodeConnectionsResponse,
+  ApiRuntimeNodesResponse,
+} from './runtime-connections'
 
 export type ApiAgentCreateInput = Readonly<{
   avatarRef?: string
@@ -667,15 +675,56 @@ export class AgentHqApiClient {
     )
   }
 
+  /** Display/proof projection of the workspace's registered execution hosts. */
+  async listRuntimeNodes(
+    workspaceId: string,
+    signal?: AbortSignal
+  ): Promise<ApiRuntimeNodesResponse> {
+    const result = await this.request<ApiRuntimeNodesResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/runtime-nodes`,
+      { signal }
+    )
+    // Public keys and trust metadata from the identity API do not enter the inventory cache.
+    return {
+      nodes: result.nodes.map(
+        ({
+          id,
+          controlPlaneRuntimeNodeRefId,
+          kind,
+          displayName,
+          health,
+          pairingState,
+          lastProofAt,
+          lastSeenAt,
+          platform,
+          softwareVersion,
+        }) => ({
+          id,
+          controlPlaneRuntimeNodeRefId,
+          kind,
+          displayName,
+          health,
+          pairingState,
+          lastProofAt,
+          lastSeenAt,
+          platform,
+          softwareVersion,
+        })
+      ),
+    }
+  }
+
   /** Normalized discovery for exactly one registered execution host (M11 #37). */
   async listRuntimeNodeConnections(
     workspaceId: string,
     runtimeNodeId: string,
-    cursor?: string
+    cursor?: string,
+    signal?: AbortSignal
   ): Promise<ApiRuntimeNodeConnectionsResponse> {
     const query = cursor ? `?${new URLSearchParams({ cursor })}` : ''
     return this.request(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/runtime-nodes/${encodeURIComponent(runtimeNodeId)}/connections${query}`
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/runtime-nodes/${encodeURIComponent(runtimeNodeId)}/connections${query}`,
+      { signal }
     )
   }
 
