@@ -1261,7 +1261,7 @@ function FileSourceControlSlot(props: {
         />
       ) : (
         <PaneProviderState
-          title="Source Control"
+          title="Source control"
           capability={PANE_CAPABILITY[pane]}
           state={props.capabilityOf(pane)}
         />
