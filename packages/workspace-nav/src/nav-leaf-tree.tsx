@@ -192,7 +192,6 @@ export function NavLeafTree(props: NavLeafTreeProps) {
       <TreeRow
         item={descriptor(leafKey(leaf.id))}
         selected={props.selectedLeafId === leaf.id}
-        class="workspace-nav-row"
         data-leaf-id={leaf.id}
         data-leaf-kind={leaf.kind}
         title={props.adapter.leafSecondary(leaf)}
@@ -280,7 +279,6 @@ export function NavLeafTree(props: NavLeafTreeProps) {
               <>
                 <TreeRow
                   item={descriptor(projectKey(group.project.id))}
-                  class="workspace-nav-row"
                   data-project-id={group.project.id}
                   leading={<ProjectIcon icon={props.adapter.projectIcon(group.project)} />}
                   trailing={
@@ -357,7 +355,6 @@ export function NavLeafTree(props: NavLeafTreeProps) {
             <>
               <TreeRow
                 item={descriptor(groupKey(group.status))}
-                class="workspace-nav-row workspace-nav-group-header"
                 data-status-group={group.status}
                 trailing={
                   <Text variant="micro" numeric>
@@ -365,7 +362,7 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                   </Text>
                 }
               >
-                {group.label}
+                <span class="workspace-nav-group-header">{group.label}</span>
               </TreeRow>
               <Show when={isGroupExpanded(group.status)}>
                 <For each={group.items}>

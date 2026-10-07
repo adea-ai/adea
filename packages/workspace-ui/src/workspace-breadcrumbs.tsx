@@ -106,15 +106,18 @@ function CrumbLabel(props: { crumb: WorkspaceBreadcrumb }) {
  */
 export function WorkspaceBreadcrumbs(props: { crumbs: readonly WorkspaceBreadcrumb[] }) {
   return (
-    <Breadcrumb class="workspace-topbar__crumbs">
-      <BreadcrumbList class="workspace-topbar__crumb-list">
+    <Breadcrumb class="min-w-0">
+      <BreadcrumbList class="min-w-0 flex-nowrap justify-center overflow-hidden">
         <For each={props.crumbs}>
           {(crumb, index) => (
             <>
               <Show when={index() > 0}>
-                <BreadcrumbSeparator class="workspace-topbar__crumb-separator" />
+                <BreadcrumbSeparator class="inline-flex shrink-0" />
               </Show>
-              <BreadcrumbItem class="workspace-topbar__crumb" data-crumb={crumb.kind}>
+              <BreadcrumbItem
+                class="min-w-0 shrink-3 data-[crumb=leaf]:shrink"
+                data-crumb={crumb.kind}
+              >
                 <Show when={crumb.workspace}>
                   {(identity) => (
                     <span class="workspace-topbar__crumb-mark" aria-hidden="true">
@@ -131,11 +134,13 @@ export function WorkspaceBreadcrumbs(props: { crumbs: readonly WorkspaceBreadcru
                   when={crumb.current || !crumb.onSelect}
                   fallback={
                     <BreadcrumbLink
-                      class="workspace-topbar__crumb-label workspace-topbar__crumb-link"
+                      class="min-w-0 overflow-hidden"
                       href={crumb.href}
                       onClick={(event) => openCrumb(event, crumb)}
                     >
-                      <CrumbLabel crumb={crumb} />
+                      <span class="workspace-topbar__crumb-label">
+                        <CrumbLabel crumb={crumb} />
+                      </span>
                     </BreadcrumbLink>
                   }
                 >
@@ -147,8 +152,10 @@ export function WorkspaceBreadcrumbs(props: { crumbs: readonly WorkspaceBreadcru
                       </span>
                     }
                   >
-                    <BreadcrumbLink current class="workspace-topbar__crumb-label">
-                      <CrumbLabel crumb={crumb} />
+                    <BreadcrumbLink current class="min-w-0 overflow-hidden">
+                      <span class="workspace-topbar__crumb-label">
+                        <CrumbLabel crumb={crumb} />
+                      </span>
                     </BreadcrumbLink>
                   </Show>
                 </Show>
