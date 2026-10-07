@@ -103,17 +103,8 @@
   font-size: calc(0.78rem * var(--font-ui-scale, 1));
 }
 
-.dev-sc__section-title {
-  padding: 0.25rem 0.5rem 0;
-  color: var(--muted-foreground);
-  font-size: calc(0.68rem * var(--font-ui-scale, 1));
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-/* A sentence-case status or error line in the git pane; section titles keep
-   the small uppercase style above. */
+/* A sentence-case status or error line in the git pane; section titles draw
+   through the shared overline rung. */
 .dev-sc__notice {
   margin: 0;
   padding: 0.25rem 0.5rem;

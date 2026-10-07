@@ -87,6 +87,7 @@ import { terminalConnectionErrorMessage } from './connection-errors'
 import { observeTerminalTheme, createTerminalFontBinding } from './theme-binding'
 import { withTerminalSelectionPreserved } from './selection-preserver'
 import './terminal-pane.css'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
@@ -604,15 +605,19 @@ export function TerminalPane(props: TerminalPaneProps) {
           {connectionError()?.message ?? connection()}
         </span>
         <Show when={props.worktreeLabel}>
-          <span class="dev-terminal-pane-worktree">{props.worktreeLabel}</span>
+          <Badge size="sm" variant="outline">
+            {props.worktreeLabel}
+          </Badge>
         </Show>
-        <span
-          class="dev-terminal-pane-integration"
+        <Badge
+          size="sm"
+          variant={integrationPresent().status === 'active' ? 'secondary' : 'outline'}
+          data-terminal-integration=""
           data-status={integrationPresent().status}
           title={integrationPresent().detail}
         >
           {integrationPresent().label}
-        </span>
+        </Badge>
         <Show when={cwd()}>
           {(current) => (
             <span

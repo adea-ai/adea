@@ -20,6 +20,7 @@ import {
 } from './computeruse-model'
 import '../browser/browser-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 export type ComputerUseLanesPage = { items: readonly ComputerUseLane[] }
 
@@ -134,7 +135,9 @@ export function ComputerUsePane(props: { runtime: DevRuntimeService; runtimeSess
             )}
           </Show>
 
-          <p class="dev-browser__section-title">Capabilities on this host</p>
+          <Text variant="overline" class="mt-1.5 mx-2 block">
+            Capabilities on this host
+          </Text>
           <For each={capabilityRows(report())}>
             {(row) => (
               <div class="dev-browser__row">
@@ -149,7 +152,9 @@ export function ComputerUsePane(props: { runtime: DevRuntimeService; runtimeSess
             )}
           </For>
 
-          <p class="dev-browser__section-title">Lanes for this session</p>
+          <Text variant="overline" class="mt-1.5 mx-2 block">
+            Lanes for this session
+          </Text>
           <Show
             when={props.runtimeSessionId}
             fallback={

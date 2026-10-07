@@ -53,30 +53,6 @@
   color: var(--destructive);
 }
 
-.dev-terminal-pane-worktree {
-  padding: 0.05rem 0.4rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-weight: 550;
-}
-
-.dev-terminal-pane-integration {
-  padding: 0.05rem 0.4rem;
-  border-radius: 999px;
-  color: var(--muted-foreground);
-  background: color-mix(in srgb, var(--muted) 72%, transparent);
-}
-
-.dev-terminal-pane-integration[data-status='active'] {
-  color: var(--foreground);
-}
-
-.dev-terminal-pane-integration[data-status='unavailable'] {
-  color: var(--muted-foreground);
-  background: transparent;
-  border: 1px dashed var(--border);
-}
-
 .dev-terminal-pane-cwd {
   min-width: 0;
   overflow: hidden;

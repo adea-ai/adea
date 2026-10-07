@@ -175,7 +175,7 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/themes": "0.9.10",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.120.0",
+    "@adea-ai/ui": "0.121.0",
     "@adea-ai/workspace-nav": "workspace:*",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/language": "^6.12.4",
