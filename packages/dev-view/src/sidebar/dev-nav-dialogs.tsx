@@ -335,7 +335,10 @@ export function DevProjectSettingsDialog(
       title={`${props.projectName} settings`}
       description="The project's name and the local repositories bound to it on this device."
     >
-      <div class="flex flex-col gap-6">
+      {/* The settings-size shell zeroes the content padding and pads only its
+          header band; the body carries the shared settings-panel padding the
+          workspace settings dialogs use. */}
+      <div class="conventional-settings-panel flex flex-col gap-6">
         <Show when={props.onRename}>
           <form
             class="flex flex-col gap-3"
