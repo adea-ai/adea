@@ -73,7 +73,7 @@ export function HarnessStatusPane(props: {
   )
 
   return (
-    <section aria-label="Harness status">
+    <section aria-label="Harness status" class="dev-harness-status">
       <p class="flex flex-wrap items-center gap-2">
         <StatusChip label={status().label} tone={SHARED_STATUS_TONES[status().tone]} />
         <Show when={status().run}>
