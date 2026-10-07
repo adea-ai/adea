@@ -1,0 +1,3 @@
+ALTER TABLE "app"."task_submissions" ADD COLUMN "ciphertext_purged_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "task_submissions_ciphertext_expiry_idx" ON "app"."task_submissions" USING btree ("workspace_id","expires_at","id") WHERE "app"."task_submissions"."ciphertext_purged_at" is null;--> statement-breakpoint
+ALTER TABLE "app"."task_submissions" ADD CONSTRAINT "task_submissions_purge_after_expiry" CHECK ("app"."task_submissions"."ciphertext_purged_at" is null or "app"."task_submissions"."ciphertext_purged_at" >= "app"."task_submissions"."expires_at");
