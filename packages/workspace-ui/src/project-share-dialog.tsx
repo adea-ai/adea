@@ -31,7 +31,13 @@ import {
   AlertDialogTrigger,
 } from '@adea-ai/ui/components/ui/alert-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { ValueCombobox } from '@adea-ai/ui/components/ui/combobox'
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxControl,
+  ComboboxInput,
+  ComboboxItem,
+} from '@adea-ai/ui/components/ui/combobox'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
@@ -256,14 +262,28 @@ export function ProjectShareDialog(props: ProjectShareDialogProps) {
             <div class="flex flex-col gap-2">
               <Label for="project-share-add-member">Add a workspace member</Label>
               <div class="flex items-center gap-2">
-                <ValueCombobox
-                  id="project-share-add-member"
-                  class="min-w-0 flex-1"
-                  placeholder="Search members"
-                  value={candidate()}
-                  choices={candidates()}
-                  onValueChange={setCandidate}
-                />
+                {/* The published combobox paints its field chrome on
+                   ComboboxControl; composing the input bare (ValueCombobox
+                   without a control) rendered the search with no border or
+                   fill next to the row's other fields. */}
+                <Combobox
+                  options={candidates()}
+                  optionValue="value"
+                  optionTextValue={(choice) => String(choice.label)}
+                  optionLabel={(choice) => choice.label}
+                  value={candidates().find((choice) => choice.value === candidate()) ?? null}
+                  onChange={(option) => option && setCandidate(String(option.value))}
+                  itemComponent={(itemProps) => (
+                    <ComboboxItem item={itemProps.item}>
+                      {itemProps.item.rawValue.label}
+                    </ComboboxItem>
+                  )}
+                >
+                  <ComboboxControl class="min-w-0 flex-1">
+                    <ComboboxInput id="project-share-add-member" placeholder="Search members" />
+                  </ComboboxControl>
+                  <ComboboxContent />
+                </Combobox>
                 <NativeSelect
                   aria-label="Role for the new member"
                   value={candidateRole()}

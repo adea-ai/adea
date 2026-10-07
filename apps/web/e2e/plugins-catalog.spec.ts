@@ -256,6 +256,32 @@ test.describe('desktop detail layout', () => {
     expect(layout!.cardOutlined).toBe(true)
     expect(layout!.noOverflow).toBe(true)
     expect(layout!.columnsFillRow).toBe(true)
+
+    // The detail's Check/ShieldCheck marks ride inline with their copy at the
+    // 1rem rung; unclassed lucide defaults to a 24px block, which stacked each
+    // mark on its own line above its text.
+    const marks = await page.evaluate(() => {
+      const panel = document.querySelector('[role="dialog"]')
+      return [...(panel?.querySelectorAll('p > svg, li > svg') ?? [])].map((svg) => {
+        const owner = svg.parentElement!
+        const ownerRect = owner.getBoundingClientRect()
+        const rect = svg.getBoundingClientRect()
+        return {
+          display: getComputedStyle(svg).display,
+          width: getComputedStyle(svg).width,
+          onFirstLineWithText:
+            rect.top >= ownerRect.top - 1 &&
+            rect.top < ownerRect.top + 30 &&
+            (owner.textContent?.trim().length ?? 0) > 0,
+        }
+      })
+    })
+    expect(marks.length).toBeGreaterThanOrEqual(3)
+    for (const mark of marks) {
+      expect(mark.display).toBe('inline')
+      expect(mark.width).toBe('16px')
+      expect(mark.onFirstLineWithText).toBe(true)
+    }
   })
 })
 

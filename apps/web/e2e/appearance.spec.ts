@@ -479,6 +479,20 @@ test.describe('App Library navigation', () => {
     await expect(rail.getByRole('button', { name: 'Dev view', exact: true })).toBeVisible()
   })
 
+  test('the library heading carries the semibold role', async ({ page }) => {
+    const rail = page.getByRole('navigation', { name: 'Global navigation' })
+    await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+    const library = page.getByRole('main', { name: 'App Library' })
+    await expect(library).toBeVisible()
+    // The h1 keeps the published semibold heading role instead of preflight's
+    // inherited 400.
+    expect(
+      await library
+        .locator('#workspace-app-library-title')
+        .evaluate((heading) => getComputedStyle(heading).fontWeight)
+    ).toBe('600')
+  })
+
   test('a disabled requested view selects an enabled destination', async ({ page }) => {
     const rail = page.getByRole('navigation', { name: 'Global navigation' })
     await rail.getByRole('button', { name: 'App Library', exact: true }).click()
