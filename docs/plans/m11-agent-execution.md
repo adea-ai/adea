@@ -49,6 +49,32 @@ packaged/deployed behavior and required independent/manual acceptance. Attach
 the exact command, candidate and result to evidence before marking it verified.
 The ledger preserves upstream checkbox state solely as source metadata.
 
+## Recorded synchronization scope decision
+
+The owner's [2026-09-23 decision](https://github.com/adea-ai/adea/issues/193#issuecomment-5801234815)
+moved #193 out of M10 to a future slice, retaining the dependent checkboxes as
+linked, unticked work. The [2026-10-06 follow-up](https://github.com/adea-ai/adea/issues/193#issuecomment-6022416180)
+explicitly leaves it open and unscheduled outside M11/M13/M14/M17. Both records
+were rechecked on 2026-10-07. This is an owner scope disposition, not acceptance
+evidence or a claim that synchronization works.
+
+The landed encrypted-replica substrate remains in place. The deferred slice owns
+ContentSyncDevice identities, ContentKeyEpoch lifecycle, per-device HPKE key
+envelopes, provisioning/revocation, authorized decrypt-on-read, and cross-device
+history/offline-authority product journeys. The ledger's `scopeDecisions` records
+the affected clauses without changing their source text, checkbox state,
+verification state or evidence.
+
+Requirements that can be met independently remain in M11: canonical
+Channel/Message metadata, explicit unavailable local-only bodies, separate
+runtime signing and remote-command keys, ciphertext-only command/result relay,
+relay versus history store/identity/retention boundaries, and no claim that
+RuntimeNode revocation grants or revokes future ContentSyncDevice authority.
+The synchronization portions of mixed criteria stay linked to #193; their
+remaining execution/privacy portions still need evidence. No entire remote
+control, encryption, registration or certification issue is waived by this
+decision. Live certification and the #475 owner journey remain separate gates.
+
 ## First SDK increment
 
 The web administration hop consumes `@adea-ai/sdk` 1.11.0 and

@@ -1199,5 +1199,122 @@
         }
       ]
     }
+  ],
+  "scopeDecisions": [
+    {
+      "id": "193-cross-device-sync-owner-deferral",
+      "issue": "https://github.com/adea-ai/adea/issues/193",
+      "disposition": "owner-deferred-follow-up",
+      "owner": "0xPlayerOne",
+      "decidedAt": "2026-09-23",
+      "reaffirmedAt": "2026-10-06",
+      "recheckedAt": "2026-10-07",
+      "sources": [
+        "https://github.com/adea-ai/adea/issues/193#issuecomment-5801234815",
+        "https://github.com/adea-ai/adea/issues/193#issuecomment-6022416180"
+      ],
+      "sourceStatus": "open, unscheduled, outside M11/M13/M14/M17",
+      "deferredWork": [
+        "ContentSyncDevice user_client/content_authority identities and provisioning/revocation",
+        "ContentKeyEpoch creation, rotation and revocation-driven advance",
+        "Per-device ContentKeyEnvelope issuance and authorized decrypt-on-read",
+        "Cross-device synchronized history and offline-authority product journeys"
+      ],
+      "ownerExplicitDependentLinks": [
+        "https://github.com/adea-ai/adea/issues/34",
+        "https://github.com/adea-ai/adea/issues/186",
+        "https://github.com/adea-ai/adea/issues/187",
+        "https://github.com/adea-ai/adea/issues/189"
+      ],
+      "interpretation": "The owner defers the synchronization feature. Affected clause mapping below applies that decision without waiving the independent execution/privacy requirements in mixed criteria or changing source acceptance.",
+      "affectedClauses": [
+        {
+          "criterionId": "37.6",
+          "deferredClause": "Authorized synchronized history reads while the host is offline.",
+          "retainedRequirement": "Classify local-only bodies as unavailable independently of execution and metadata availability."
+        },
+        {
+          "criterionId": "37.9",
+          "deferredClause": "Synchronized-history-available/host-offline product fixture.",
+          "retainedRequirement": "All runtime inventory, health, freshness, grant, capability, local-content and cloud-gating fixtures remain required."
+        },
+        {
+          "criterionId": "186.8",
+          "deferredClause": "Authorized agent_hq_e2ee_sync history reads.",
+          "retainedRequirement": "Local-only bodies must be unavailable when their authority is offline."
+        },
+        {
+          "criterionId": "186.9",
+          "deferredClause": "Product enforcement against ContentSyncDevice/content-key authority.",
+          "retainedRequirement": "RuntimeNode availability must never imply history or content authorization."
+        },
+        {
+          "criterionId": "186.10",
+          "deferredClause": "Synchronized-history-available/host-offline product fixture.",
+          "retainedRequirement": "Location selection, retries, explicit rerouting, local-content unavailability and cloud gating remain required."
+        },
+        {
+          "criterionId": "187.10",
+          "deferredClause": "The optional independently synchronized Message/ContentRef/#193 history path.",
+          "retainedRequirement": "Local-only results still require bounded E2E transfer or explicit R2 promotion for cloud preview/download."
+        },
+        {
+          "criterionId": "187.12",
+          "deferredClause": "ContentSyncDevice/member revocation and synchronized-history authorization product flows.",
+          "retainedRequirement": "RuntimeNode remote-command revocation must not claim to revoke history-decryption authority."
+        },
+        {
+          "criterionId": "188.6",
+          "deferredClause": "ContentSyncDevice/history-decryption revocation product enforcement.",
+          "retainedRequirement": "RuntimeNode revocation must make no claim about independent history-decryption authority."
+        },
+        {
+          "criterionId": "188.7",
+          "deferredClause": "Self-hosted ContentSyncDevice content_authority provisioning and private revision synchronization.",
+          "retainedRequirement": "Preserve the landed encrypted-replica substrate; do not fabricate a configured content_authority."
+        },
+        {
+          "criterionId": "188.10",
+          "deferredClause": "Synchronized Message history reads.",
+          "retainedRequirement": "Execution-host liveness must not stand in for canonical metadata availability or future history authorization."
+        },
+        {
+          "criterionId": "188.11",
+          "deferredClause": "ContentSyncDevice provisioning and synchronization-key substitution product fixtures.",
+          "retainedRequirement": "All host pairing, scope, compatibility, connection, revocation and runtime signing/command-key separation fixtures remain required."
+        },
+        {
+          "criterionId": "189.5",
+          "deferredClause": "Non-substitution against future ContentSyncDevice synchronization keys.",
+          "retainedRequirement": "Runtime signing/authentication and remote-command encryption keys must remain distinct and non-substitutable."
+        },
+        {
+          "criterionId": "42.5",
+          "deferredClause": "Web/mobile synchronized Message/Task history reads while the execution host is offline.",
+          "retainedRequirement": "Canonical metadata and local-only-content unavailability remain required under the other certification criteria."
+        },
+        {
+          "criterionId": "42.8",
+          "deferredClause": "Product synchronization key lifecycle and retention flows.",
+          "retainedRequirement": "Execution relay and the landed replica substrate must retain separate identities, stores and retention; no relay-as-history substitution."
+        },
+        {
+          "criterionId": "42.11",
+          "deferredClause": "Cross-device Message history synchronization policy product flow.",
+          "retainedRequirement": "Content stays Local/Self-hosted by default; cloud Artifact storage still requires explicit R2 promotion, and no implicit history synchronization is permitted."
+        },
+        {
+          "criterionId": "42.14",
+          "deferredClause": "Cross-device synchronization attempts and device/history revisions.",
+          "retainedRequirement": "Execution, event, landed ContentReplica storage, Artifact, memory and usage deduplication remain required."
+        },
+        {
+          "criterionId": "42.16",
+          "deferredClause": "A deployed conversation/content-sync schema version for the deferred device/key product.",
+          "retainedRequirement": "Record exact versions of every exercised app, SDK, execution, profile, storage, node and protocol component; record deferred sync as unimplemented, never as certified."
+        }
+      ],
+      "acceptanceEffect": "No source criterion, checkbox, verification state or evidence changes; deferred work remains linked and unverified."
+    }
   ]
 }
