@@ -22,7 +22,6 @@ import type {
   ScreenshotRef,
 } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/app-ui/dev-view.css'
-import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Camera, Cookie, PictureInPicture2, RotateCw, SquarePen, X } from 'lucide-solid'
 import { For, Show, createEffect, createResource, createSignal, onCleanup } from 'solid-js'
 
@@ -73,10 +72,13 @@ import {
 } from './responsive-presets'
 import { AnnotationSurface } from '@adea-ai/ui/components/ui/annotation-surface'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ListRowControl } from '@adea-ai/ui/components/composites/list-row'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
+import { statusDotVariants } from '@adea-ai/ui/components/ui/status-chip'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 export type BrowserPaneProps = {
   context: DevUtilityContextReader
@@ -1104,8 +1106,8 @@ export function BrowserPane(props: BrowserPaneProps) {
               <span>owner {lane().automationOwner}</span>
               <span>gen {lane().generation}</span>
               <span
-                class={cn('dev-status-dot', {
-                  'dev-status-dot--active': lane().automationOwner !== 'none',
+                class={statusDotVariants({
+                  tone: lane().automationOwner !== 'none' ? 'success' : 'neutral',
                 })}
                 aria-hidden="true"
               />
@@ -1117,7 +1119,9 @@ export function BrowserPane(props: BrowserPaneProps) {
       <Show when={annotateMode() && activeLane() && activePageTarget()}>
         {(target) => (
           <section class="dev-browser__annotate" aria-label="Annotate frame">
-            <p class="dev-browser__section-title">Annotate frame</p>
+            <Text variant="overline" class="mt-1.5 mx-2 block">
+              Annotate frame
+            </Text>
             <p class="dev-browser__row-meta">
               The frame is viewport geometry, not page pixels: the host captures the screenshot when
               the annotation is submitted.
@@ -1323,7 +1327,9 @@ export function BrowserPane(props: BrowserPaneProps) {
               )}
             </Show>
 
-            <p class="dev-browser__section-title">Lanes</p>
+            <Text variant="overline" class="mt-1.5 mx-2 block">
+              Lanes
+            </Text>
             <div role="group" aria-label="Browser lanes">
               <For each={laneItems()}>
                 {(lane) => (
@@ -1376,7 +1382,9 @@ export function BrowserPane(props: BrowserPaneProps) {
               </Button>
             </div>
 
-            <p class="dev-browser__section-title">Ports</p>
+            <Text variant="overline" class="mt-1.5 mx-2 block">
+              Ports
+            </Text>
             <For each={portRows()}>
               {(row) => (
                 <Button
@@ -1400,19 +1408,25 @@ export function BrowserPane(props: BrowserPaneProps) {
                       {row.health === 'stale' ? ' · stale' : ''}
                     </span>
                   </span>
-                  <span
-                    class={cn('dev-row-badge', {
-                      'dev-row-badge--success': isPreviewableRow(row),
-                      'dev-row-badge--failure': row.health === 'stale',
-                    })}
+                  <Badge
+                    size="sm"
+                    variant={
+                      isPreviewableRow(row)
+                        ? 'success'
+                        : row.health === 'stale'
+                          ? 'destructive'
+                          : 'outline'
+                    }
                   >
                     {row.owner === 'adea' ? 'preview' : 'external'}
-                  </span>
+                  </Badge>
                 </Button>
               )}
             </For>
 
-            <p class="dev-browser__section-title">Targets</p>
+            <Text variant="overline" class="mt-1.5 mx-2 block">
+              Targets
+            </Text>
             <For each={targetItems()}>
               {(target) => (
                 <div class="dev-browser__row">
@@ -1426,7 +1440,9 @@ export function BrowserPane(props: BrowserPaneProps) {
               )}
             </For>
 
-            <p class="dev-browser__section-title">Inspect</p>
+            <Text variant="overline" class="mt-1.5 mx-2 block">
+              Inspect
+            </Text>
             <form class="dev-browser__inspect" onSubmit={inspectSelector}>
               <Label for="dev-browser-inspection-selector">CSS selector</Label>
               <Input
@@ -1498,7 +1514,9 @@ export function BrowserPane(props: BrowserPaneProps) {
               )}
             </Show>
 
-            <p class="dev-browser__section-title">Responsive</p>
+            <Text variant="overline" class="mt-1.5 mx-2 block">
+              Responsive
+            </Text>
             <div class="dev-browser__actions">
               <For each={RESPONSIVE_PRESETS}>
                 {(preset) => (
@@ -1589,7 +1607,9 @@ export function BrowserPane(props: BrowserPaneProps) {
               </Show>
             </div>
 
-            <p class="dev-browser__section-title">Diagnostics</p>
+            <Text variant="overline" class="mt-1.5 mx-2 block">
+              Diagnostics
+            </Text>
             <div class="dev-browser__diagnostics" aria-label="Console and network diagnostics">
               <For each={diagnosticItems()}>
                 {(entry) => (

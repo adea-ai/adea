@@ -32,6 +32,7 @@ import {
   type ScanBookmarkRow,
   type ScanPreviewRow,
 } from './scan-preview-model'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
 import { Input } from '@adea-ai/ui/components/ui/input'
@@ -291,12 +292,13 @@ export function AddProjectForm(props: AddProjectFormProps) {
                         <span>{row.entry.name}</span>
                         <span class="dev-tree-row__count">{row.entry.packageManager}</span>
                         <Show when={row.duplicate}>
-                          <span
-                            class="dev-row-badge"
+                          <Badge
+                            size="sm"
+                            variant="warning"
                             title="A project with this name already exists"
                           >
                             dup
-                          </span>
+                          </Badge>
                         </Show>
                       </>
                     }

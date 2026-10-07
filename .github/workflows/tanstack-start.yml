@@ -33,15 +33,17 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: '1.4.0'
+      - run: bun install --frozen-lockfile
+      # Resolve Playwright from the frozen workspace before downloading its
+      # browsers. Running bunx first fetches a different release and revision.
       # The browser download (network + apt) never touches the workspace the
-      # builds write to, so it runs concurrently with the install and builds
+      # builds write to, so it runs concurrently with the builds
       # instead of serializing in front of the browser suite. Failure still
       # surfaces at the wait below, before the suite starts.
       - name: Install Playwright Chromium in the background
         id: playwright-install
         run: bunx playwright install --with-deps chromium
         background: true
-      - run: bun install --frozen-lockfile
       - run: bunx turbo run build --filter=@adea-ai/web^...
       - run: bun run --cwd apps/web start:verify
       - run: bun run build:cloudflare

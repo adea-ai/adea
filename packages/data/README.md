@@ -8,3 +8,8 @@ cards to update concurrently. They roll back only their own unchanged row, retai
 and defer list reconciliation until the latest pending card writes settle. Successful
 creates enter the cached list before the create panel closes; older responses cannot
 replace a newer server version in either the list or detail cache.
+
+`@adea-ai/data/runtime-nodes` supplies cancellable, client/workspace/node/page
+scoped inspection queries. They retain no inactive pages and do not retry or
+refetch on window focus. Node events invalidate the runtime-node group; normal
+workspace release and resynchronization still cover it.

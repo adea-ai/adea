@@ -5488,10 +5488,11 @@ Safety contract (non-negotiable, enforced by the provider design):
   the user's `~/.Trash` (recoverable, destination names deduplicate without
   overwriting, and a cross-volume rename fails the item instead of deleting).
   Only entries discovered inside the Trash offer `trash_empty` (the OS already
-  classified them deleted), and only a provably stale git worktree admin entry
-  (`git worktree list` `prunable` reason, directory still gone at commit time)
-  offers `prune` (fixed-argv `git worktree prune` scoped to the reporting
-  repository).
+  classified them deleted). Git worktrees dispose two ways: a provably stale
+  admin entry (`git worktree list` `prunable` reason, directory still gone at
+  commit time) offers `prune` (fixed-argv `git worktree prune` scoped to the
+  reporting repository), and a healthy unregistered worktree — any worktree the
+  user created outside Adea included — offers `trash` like the junk roots.
 - Discovery and sizing are read-only: `readdir`/`lstat` at the item roots,
   never symlink-following, and fixed-argv git. The scan universe is closed
   over first-level entries of the well-known roots plus worktrees under the
@@ -5505,9 +5506,12 @@ Safety contract (non-negotiable, enforced by the provider design):
 - Worktree discovery runs `git worktree list --porcelain` per configured scan
   root (default: the register's authorized repository roots — the user's
   configured project roots; the composition's `janitorScanRoots` seam
-  overrides). The primary checkout and every Adea-registered root are never
-  candidates; an unregistered worktree is a candidate only when Git itself
-  marks it prunable.
+  overrides). The primary checkout, every Adea-registered root, and a locked
+  worktree are never candidates. Every other unregistered worktree is a
+  candidate: Git's `prunable` reason (a registry entry whose directory is
+  gone) offers `prune`, and a healthy directory offers `trash`, listed only
+  when `lstat` proves the directory at scan time and disposed through the
+  same identity-re-proved move to Trash as the junk roots.
 - The whole authority composes on macOS only; elsewhere every janitor command
   fails closed with `capability_unavailable`.
 
@@ -5668,6 +5672,15 @@ type AppearancePreferencesV2 = {
   }
 }
 ```
+
+The `surface` also drives the native window on the desktop shell: the web
+mirrors the user-facing glass choice into the persisted workspace preferences
+(`windowSurface`, normalized to `theme`/`frosted`/`opaque`), and the shell
+reads that file when it creates the window — `frosted` creates the window
+see-through on macOS so the alpha-mixed background composites over the
+desktop. Electrobun 2.0.1 sets transparency at window creation only, so a
+change applies on relaunch; `theme` and `opaque` (and reduced transparency)
+stay fully opaque, and a missing or unreadable preference stays opaque.
 
 Font choices are device-local and use the shared UI's supported family IDs and
 normalizer, with System defaults at 14px for UI/content and 12px for code. The

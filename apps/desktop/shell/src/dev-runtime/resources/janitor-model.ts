@@ -110,25 +110,34 @@ export type JanitorWorktreeCandidate = Readonly<{
 
 /** The worktree half of the closed scan universe: unregistered worktrees of
  * one repository root. The primary checkout and every Adea-registered root
- * are never candidates; a prunable entry (Git says the directory is gone) is
- * a prune candidate, a real directory is a move-to-Trash candidate. */
+ * are never candidates, and a locked worktree never is — the lock is the
+ * user's own pin, and Git itself would refuse to prune it. A prunable entry
+ * (Git says the directory is gone) is a prune candidate; a real directory is
+ * a move-to-Trash candidate, with the host proving existence (and capturing
+ * the identity the commit re-proves) before the item is listed. */
 export function janitorWorktreeCandidates(
   input: JanitorWorktreeFilterInput
 ): readonly JanitorWorktreeCandidate[] {
   const registered = new Set(input.registeredRoots)
   const candidates: JanitorWorktreeCandidate[] = []
   for (const [index, entry] of input.entries.entries()) {
-    if (entry.bare) continue
+    if (entry.bare || entry.locked) continue
     const primary = index === 0
     if (primary || registered.has(entry.path)) continue
-    const prunable = entry.prunable !== undefined
-    if (!prunable) {
-      // A real directory (Git lists it without a prunable reason): the dir
-      // must exist to be a Trash candidate. Missing-and-not-prunable proves
-      // nothing — Git's own prunable reason is what marks it stale.
+    const branchLabel = branchLabelOf(entry)
+    if (entry.prunable === undefined) {
+      // Git lists the worktree as healthy: a real directory the user may want
+      // to reclaim. The host lists it only after lstat proves the directory,
+      // so a stale registry race never surfaces a nonexistent path.
+      candidates.push({
+        canonicalPath: entry.path,
+        label: branchLabel ?? basenameOf(entry.path),
+        ...(branchLabel !== undefined ? { branchLabel } : {}),
+        disposal: 'trash',
+        pathLabel: janitorPathLabel(input.home, entry.path),
+      })
       continue
     }
-    const branchLabel = branchLabelOf(entry)
     candidates.push({
       canonicalPath: entry.path,
       label: branchLabel ?? basenameOf(entry.path),

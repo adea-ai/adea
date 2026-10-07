@@ -66,6 +66,7 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 export type SourceControlPaneProps = Readonly<{
   runtime: DevRuntimeService
@@ -504,12 +505,16 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           </Button>
         </div>
         <Show when={grouped().conflicted.length > 0}>
-          <p class="dev-sc__section-title">Conflicts</p>
+          <Text variant="overline" class="mt-1.5 mx-2 block">
+            Conflicts
+          </Text>
           <For each={grouped().conflicted}>
             {(entry) => <StatusRow entry={entry} kind="conflicted" onDiff={showDiff} />}
           </For>
         </Show>
-        <p class="dev-sc__section-title">Staged</p>
+        <Text variant="overline" class="mt-1.5 mx-2 block">
+          Staged
+        </Text>
         <div class="dev-sc__list">
           <For each={grouped().staged}>
             {(entry) => (
@@ -522,7 +527,9 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
             )}
           </For>
         </div>
-        <p class="dev-sc__section-title">Changes</p>
+        <Text variant="overline" class="mt-1.5 mx-2 block">
+          Changes
+        </Text>
         <div class="dev-sc__list">
           <For each={[...grouped().unstaged, ...grouped().untracked]}>
             {(entry) => (
@@ -537,7 +544,9 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
             )}
           </For>
         </div>
-        <p class="dev-sc__section-title">History</p>
+        <Text variant="overline" class="mt-1.5 mx-2 block">
+          History
+        </Text>
         <div class="dev-sc__list">
           <For each={history()}>
             {(commit) => (
@@ -555,9 +564,9 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           </div>
         </div>
         <Show when={diffTarget()}>
-          <p class="dev-sc__section-title">
+          <Text variant="overline" class="mt-1.5 mx-2 block">
             Diff — {diffTarget()} ({diffMode() === 'staged' ? 'staged' : 'worktree'})
-          </p>
+          </Text>
           <Show
             when={diffRendered()}
             fallback={<div class="dev-sc__diff-line--meta">Rendering diff…</div>}
@@ -929,7 +938,9 @@ function RemoteSection(props: {
 
   return (
     <Show when={remoteAvailable()}>
-      <p class="dev-sc__section-title">Remote</p>
+      <Text variant="overline" class="mt-1.5 mx-2 block">
+        Remote
+      </Text>
       <Show when={remoteNotice()}>
         {(shown) => (
           <p class="dev-sc__notice" role="alert">

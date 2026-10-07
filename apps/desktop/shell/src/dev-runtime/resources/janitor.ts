@@ -228,6 +228,10 @@ export function createJanitorAuthority(input: CreateJanitorAuthorityInput): {
       })
       for (const candidate of candidates) {
         const presented = fs.lstat(candidate.canonicalPath)
+        // A healthy unregistered worktree is a move-to-Trash candidate: the
+        // directory must exist for the list to show it. Git's prunable
+        // entries are the opposite — their registry line is the junk.
+        if (candidate.disposal === 'trash' && (!presented || presented.isSymbolicLink)) continue
         const entry: JanitorScanEntry = {
           id: janitorItemId(candidate.canonicalPath),
           section: 'worktree',
