@@ -155,7 +155,7 @@
       "dependencies": {
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/state": "workspace:*",
-        "@adea-ai/themes": "0.9.7",
+        "@adea-ai/themes": "0.9.10",
         "@adea-ai/types": "workspace:*",
         "@adea-ai/ui": "0.120.0",
         "@adea-ai/workspace-nav": "workspace:*",
@@ -206,7 +206,7 @@
       "name": "@adea-ai/app-ui",
       "version": "0.84.0",
       "dependencies": {
-        "@adea-ai/themes": "0.9.7",
+        "@adea-ai/themes": "0.9.10",
         "@adea-ai/ui": "0.120.0",
         "lucide-solid": "^1.51.0",
         "solid-js": "^1.9.15",
@@ -300,7 +300,7 @@
 
     "@adea-ai/state": ["@adea-ai/state@workspace:packages/state"],
 
-    "@adea-ai/themes": ["@adea-ai/themes@0.9.7", "", {}, "sha512-NY5Q7UxtBL+rp6WldvlotEmQkeGJ84IHZsgd2Zm2LKx3d7+JiccQuSHXDvkI/G/SK2NUBfW+4sMPSVJNpaA0Ng=="],
+    "@adea-ai/themes": ["@adea-ai/themes@0.9.10", "", {}, "sha512-GupC7WbuUanQf3l4DxbMvdumgNDU3DTUJyBqDM9Ic2sGnbX1k4ir8MlHWSV6qhDzxX/uH3wdJufYQtD2MrPVrQ=="],
 
     "@adea-ai/types": ["@adea-ai/types@workspace:packages/types"],
 
@@ -1979,8 +1979,6 @@
     "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
     "@adea-ai/contracts/zod": ["zod@4.6.5", "", {}, "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="],
-
-    "@adea-ai/ui/@adea-ai/themes": ["@adea-ai/themes@0.9.10", "", {}, "sha512-GupC7WbuUanQf3l4DxbMvdumgNDU3DTUJyBqDM9Ic2sGnbX1k4ir8MlHWSV6qhDzxX/uH3wdJufYQtD2MrPVrQ=="],
 
     "@babel/core/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
