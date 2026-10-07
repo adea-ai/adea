@@ -804,7 +804,7 @@ test('the utility selector reveals its pane and the sidebar fills the workspace 
   await expect(sourceControlButton).toBeVisible()
   await sourceControlButton.click()
   await expect(sourceControlButton).toHaveAttribute('aria-pressed', 'true')
-  await expect(leftUtilities.getByRole('heading', { name: 'Source Control' })).toBeVisible()
+  await expect(leftUtilities.getByRole('heading', { name: 'Source control' })).toBeVisible()
 
   await devSidebarControl(page, 'Expand utility sidebar').click()
   await expect(rightUtilities).toBeVisible()

@@ -10,7 +10,7 @@ export const utilityPaneDefinitions = [
     pane: 'source_control',
     side: 'left',
     label: 'Source control',
-    title: 'Source Control',
+    title: 'Source control',
   },
   { pane: 'browser', side: 'right', label: 'Browser', title: 'Browser' },
   {
