@@ -54,3 +54,10 @@ separate #42/#130 gates. Linux visual baselines/CI and manual assistive-technolo
 acceptance are not established by Darwin screenshots or keyboard checks. No
 production migration, deployment, resource provisioning or secret change was
 performed for this increment.
+
+Linux visual run [37649031333](https://github.com/adea-ai/adea/actions/runs/37649031333)
+at source head `e5f15ad12` passed 71 cases and failed only the expected Agent
+customization golden change. The actual image and its retry were byte-identical
+(SHA-256 `88506dfe240478218d4cb84494ee186408fd7089432435a6e4800c34d07eb404`).
+After inspecting the runner image, the single Linux golden was adopted from that
+artifact. No tolerance or test was changed; final-head visual CI must still pass.
