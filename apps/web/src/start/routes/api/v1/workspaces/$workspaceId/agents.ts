@@ -5,6 +5,7 @@ import { createAgent, listAgentsForUser } from '@adea-ai/db'
 import { applicationDatabase } from '../../../../../../server/database'
 import { isAgentProfilePin } from '../../../../../../server/agent-profile-request'
 import { resolveAgentProfilePin } from '../../../../../../server/agent-profile-pin'
+import { withAgentProfileAvailability } from '../../../../../../server/agent-profile-availability'
 import {
   adminCorrelation,
   ControlPlaneProxyError,
@@ -32,7 +33,12 @@ async function get(request: Request, { params }: Context) {
   if (!(await authorizeWorkspace(resolution.principal, 'workspace.read', workspaceId)).allowed)
     return workspaceUnavailableResponse(request)
   return workspaceJsonResponse(
-    await listAgentsForUser(applicationDatabase(), workspaceId, resolution.principal),
+    await withAgentProfileAvailability(
+      await listAgentsForUser(applicationDatabase(), workspaceId, resolution.principal),
+      adminCorrelation(request),
+      { resolveControlPlaneScope: controlPlaneScopeResolver(workspaceId) },
+      request.signal
+    ),
     resolution,
     request,
     { headers: { 'cache-control': 'private, no-store' } }

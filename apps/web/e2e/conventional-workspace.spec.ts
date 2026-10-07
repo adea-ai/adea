@@ -2572,6 +2572,79 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   await expect(form).not.toContainText('private-provider-canary')
 })
 
+test('Agent profile remediation preserves the exact pin across blocked states and catalog outages', async ({
+  page,
+}, testInfo) => {
+  await mockWorkspace(page)
+  const states = [
+    'deprecated',
+    'revoked',
+    'missing',
+    'incompatible',
+    'unapproved',
+    'unavailable',
+  ] as const
+  const profileId = 'prf_01JABCDEF0123456789ABCDEFG'
+  const profileVersion = 'pfv_01JABCDEF0123456789ABCDEFG'
+  await page.route('**/api/v1/workspaces/*/agents', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      json: states.map((state) => ({
+        ...agents[0],
+        id: `agent-${state}`,
+        name: `${state} Agent`,
+        profile: {
+          id: profileId,
+          version: profileVersion,
+          revision: 7,
+          state,
+          checkedAt: timestamp,
+        },
+      })),
+    })
+  )
+  await page.goto('/#settings/agents')
+  await page
+    .getByRole('dialog', { name: 'Settings' })
+    .getByRole('button', { name: 'Customize Agents' })
+    .click()
+  for (const state of states) {
+    const card = page
+      .locator('article')
+      .filter({ has: page.getByRole('heading', { name: `${state} Agent`, exact: true }) })
+    await expect(card).toContainText(profileId)
+    await expect(card).toContainText(profileVersion)
+    await expect(card).not.toContainText('Configured')
+    await expect(card).toContainText(
+      state === 'unavailable' ? 'selected version is unchanged' : 'Customize'
+    )
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => {
+      document.documentElement.classList.remove('light', 'dark')
+      document.documentElement.classList.add(value)
+    }, theme)
+    for (const width of [320, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+      ).toBe(true)
+      await page.screenshot({
+        path: testInfo.outputPath(`profile-remediation-${theme}-${width}.png`),
+      })
+    }
+  }
+  const revoked = page
+    .locator('article')
+    .filter({ has: page.getByRole('heading', { name: 'revoked Agent', exact: true }) })
+  await revoked.getByRole('button', { name: 'Customize', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  const form = page.locator('form.conventional-agent-customization')
+  await expect(form.getByLabel('Profile ID', { exact: true })).toHaveValue(profileId)
+  await expect(form.getByLabel('Profile version ID')).toHaveValue(profileVersion)
+})
+
 test('the settings dialog survives re-selecting its active tab and keeps its dismissal contract', async ({
   page,
 }) => {

@@ -119,3 +119,10 @@ Workspace containers do not reset descendant controls’ typography, focus outli
 The local/private content health check treats synchronous host bridge failures
 and asynchronous provider refusals as unavailable. A late result from a closed
 dialog cannot change the reopened dialog's health state.
+
+## Agent profile remediation
+
+The roster preserves exact profile/version IDs while showing specific remediation
+for missing, deprecated, revoked, unapproved or incompatible pins. A failed
+availability check has its own unknown state and keeps the selected version.
+Catalog availability does not imply runtime health or execution activity.

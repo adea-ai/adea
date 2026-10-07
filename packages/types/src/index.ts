@@ -35,7 +35,15 @@ export const workspacePermissions = [
 export type WorkspacePermission = (typeof workspacePermissions)[number]
 
 export type AgentLifecycleState = 'active' | 'archived' | 'configuration_error'
-export type AgentProfileState = 'available' | 'deprecated' | 'missing'
+/** Read-time availability; only the exact saved pin is checked, never a newer version. */
+export type AgentProfileState =
+  | 'available'
+  | 'deprecated'
+  | 'missing'
+  | 'revoked'
+  | 'incompatible'
+  | 'unapproved'
+  | 'unavailable'
 
 export type UserPrincipalRef = Readonly<{ kind: 'user'; userId: string }>
 export type ServicePrincipalRef = Readonly<{ kind: 'service'; serviceId: string }>
@@ -92,7 +100,14 @@ export type AgentSummary = {
   lifecycleState: AgentLifecycleState
   name: string
   presentationMetadata: Readonly<Record<string, string>>
-  profile: Readonly<{ id: string; state: AgentProfileState; version: string; revision?: number }>
+  profile: Readonly<{
+    id: string
+    state: AgentProfileState
+    version: string
+    revision?: number
+    /** Timestamp of this response's check attempt, including unavailable results. */
+    checkedAt?: string
+  }>
   roleSummary?: string
   projectId?: string
   updatedAt: string

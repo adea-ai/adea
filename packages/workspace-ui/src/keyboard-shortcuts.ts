@@ -20,3 +20,9 @@ export function platformModifierKey(platform?: string): '⌘' | 'Ctrl' {
 export function settingsShortcutLabel(platform?: string): string {
   return `${platformModifierKey(platform)},`
 }
+
+/** The workspace search chord label as the rail's hover text draws it: the
+ *  platform modifier plus K (`⌘K`, or `Ctrl+K` where ⌘ does not exist). */
+export function searchShortcutLabel(platform?: string): string {
+  return platformModifierKey(platform) === '⌘' ? '⌘K' : 'Ctrl+K'
+}

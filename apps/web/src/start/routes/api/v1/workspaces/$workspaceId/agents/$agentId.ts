@@ -3,6 +3,9 @@ import { withRequestScope } from '../../../../../../../server/request-scope'
 import type { ApiAgentResponse } from '@adea-ai/api-client'
 import { archiveAgent, getAgentForUser } from '@adea-ai/db'
 import { applicationDatabase } from '../../../../../../../server/database'
+import { withAgentProfileAvailability } from '../../../../../../../server/agent-profile-availability'
+import { adminCorrelation } from '../../../../../../../server/control-plane-client'
+import { controlPlaneScopeResolver } from '../../../../../../../server/control-plane-scope'
 import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
@@ -30,7 +33,13 @@ async function get(request: Request, { params }: Context) {
     resolution.principal
   )
   if (!agent) return workspaceUnavailableResponse(request)
-  const payload: ApiAgentResponse = { agent }
+  const [checked] = await withAgentProfileAvailability(
+    [agent],
+    adminCorrelation(request),
+    { resolveControlPlaneScope: controlPlaneScopeResolver(workspaceId) },
+    request.signal
+  )
+  const payload: ApiAgentResponse = { agent: checked! }
   return workspaceJsonResponse(payload, resolution, request, {
     headers: { 'cache-control': 'private, no-store' },
   })
