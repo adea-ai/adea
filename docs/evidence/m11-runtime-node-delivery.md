@@ -1,6 +1,7 @@
 # M11 authenticated outbound runtime-node delivery
 
-Recorded 2026-10-07. This increment supplies the cloud side of outbound command
+Recorded 2026-10-07 against implementation candidate
+`492ca8eee666e9d78b7d147fbf9888e8293f4f94`. This increment supplies the cloud side of outbound command
 pull for #38/#187/#188/#189. Host execution acceptance and whole-milestone
 certification remain unverified.
 

@@ -7,7 +7,7 @@
     {
       "number": 36,
       "url": "https://github.com/adea-ai/adea/issues/36",
-      "title": "M6.1 \u2014 Adopt portable Control Plane SDK/contracts and service-auth integration",
+      "title": "M6.1 — Adopt portable Control Plane SDK/contracts and service-auth integration",
       "sourceState": "closed",
       "sourceUpdatedAt": "2026-09-26T01:45:13Z",
       "sourceBodySha256": "da68e050457aef4615dfda325fecbc4f8cf7faeb65495c6705801b48067dfc31",
@@ -74,7 +74,7 @@
     {
       "number": 37,
       "url": "https://github.com/adea-ai/adea/issues/37",
-      "title": "M6.2 \u2014 Consume location-aware Control Plane runtime and host read models",
+      "title": "M6.2 — Consume location-aware Control Plane runtime and host read models",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:28:47Z",
       "sourceBodySha256": "0e2bc05d8cfa3e1091792930bc8d36488c09625c3f93e4024f750614fcfad2a1",
@@ -82,21 +82,21 @@
       "criteria": [
         {
           "id": "37.1",
-          "requirement": "Agent HQ displays both `local_device` and `remote_host` execution locations from deterministic fixtures. *(Landed in #633: the composer's Customize controls list the registered runtimes the host knows, and a resolved-location chip renders `Running on Local device \u00b7 direct local` / `Self-hosted host \u00b7 remote gateway` \u2014 labelled from the runtime the **resolution** selected, so a request that asked for one place and got another reports what actually ran.)*",
+          "requirement": "Agent HQ displays both `local_device` and `remote_host` execution locations from deterministic fixtures. *(Landed in #633: the composer's Customize controls list the registered runtimes the host knows, and a resolved-location chip renders `Running on Local device · direct local` / `Self-hosted host · remote gateway` — labelled from the runtime the **resolution** selected, so a request that asked for one place and got another reports what actually ran.)*",
           "sourceChecked": true,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "37.2",
-          "requirement": "Node/host state and individual RuntimeConnection health are explicit and not conflated. \u2014 NOT VERIFIED 2026-09-25: the only node read model is `RuntimeNodeExecutionReadModel`, which carries a single `availability` field (`packages/types/src/execution-location.ts`); there is no separate RuntimeConnection inventory and no connection-health dimension in `packages/types`, `packages/data` or the app. The RuntimeConnection inventory the M12 sidebar was to project is the same missing piece, so there is nothing to keep distinct yet.",
+          "requirement": "Node/host state and individual RuntimeConnection health are explicit and not conflated. — NOT VERIFIED 2026-09-25: the only node read model is `RuntimeNodeExecutionReadModel`, which carries a single `availability` field (`packages/types/src/execution-location.ts`); there is no separate RuntimeConnection inventory and no connection-health dimension in `packages/types`, `packages/data` or the app. The RuntimeConnection inventory the M12 sidebar was to project is the same missing piece, so there is nothing to keep distinct yet.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "37.3",
-          "requirement": "Direct-local and remote transport variants are represented without changing Agent/RuntimeConnection identity. \u2014 NOT VERIFIED 2026-09-25: no transport variant is represented. The read model carries no transport field, and the \"direct local\" / \"remote gateway\" labels the UI renders come from the resolved runtime definition rather than from a modelled transport, so this cannot hold or fail yet.",
+          "requirement": "Direct-local and remote transport variants are represented without changing Agent/RuntimeConnection identity. — NOT VERIFIED 2026-09-25: no transport variant is represented. The read model carries no transport field, and the \"direct local\" / \"remote gateway\" labels the UI renders come from the resolved runtime definition rather than from a modelled transport, so this cannot hold or fail yet.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
@@ -131,14 +131,14 @@
         },
         {
           "id": "37.8",
-          "requirement": "Sensitive native/runtime/provider metadata is absent from Agent HQ persistence/client payloads. \u2014 NOT VERIFIED 2026-09-25: the policy read model is deliberately free of transport and credential fields, but nothing persists runtime metadata yet at all (#671), and no test asserts absence from persistence or client payloads. The property is unexercised rather than proven.",
+          "requirement": "Sensitive native/runtime/provider metadata is absent from Agent HQ persistence/client payloads. — NOT VERIFIED 2026-09-25: the policy read model is deliberately free of transport and credential fields, but nothing persists runtime metadata yet at all (#671), and no test asserts absence from persistence or client payloads. The property is unexercised rather than proven.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "37.9",
-          "requirement": "Tests cover Local healthy/unhealthy runtime, Self-hosted online/offline, stale inventory, revoked host, missing grant, capability mismatch, synchronized-history-available/host-offline, local-only-history-unavailable/host-offline, and future cloud feature gating. \u2014 PARTIAL 2026-09-25: `packages/types/tests/execution-location.test.ts` covers Local default, explicit self-hosted selection, several self-hosted nodes at once (added 2026-09-25), offline/stale/revoked/incompatible/unknown admission, capability mismatch with remediation, the history-vs-execution independence pair, and the cloud gate. NOT COVERED: \"missing grant\" (no grant case exists in the blocker set), \"stale inventory\" as distinct from observation/proof freshness, and the fixture-*inventory* half of the box \u2014 because the inventory read model above does not exist.",
+          "requirement": "Tests cover Local healthy/unhealthy runtime, Self-hosted online/offline, stale inventory, revoked host, missing grant, capability mismatch, synchronized-history-available/host-offline, local-only-history-unavailable/host-offline, and future cloud feature gating. — PARTIAL 2026-09-25: `packages/types/tests/execution-location.test.ts` covers Local default, explicit self-hosted selection, several self-hosted nodes at once (added 2026-09-25), offline/stale/revoked/incompatible/unknown admission, capability mismatch with remediation, the history-vs-execution independence pair, and the cloud gate. NOT COVERED: \"missing grant\" (no grant case exists in the blocker set), \"stale inventory\" as distinct from observation/proof freshness, and the fixture-*inventory* half of the box — because the inventory read model above does not exist.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
@@ -155,7 +155,7 @@
     {
       "number": 38,
       "url": "https://github.com/adea-ai/adea/issues/38",
-      "title": "M6.3 \u2014 Implement location-aware Task submission and durable command relay",
+      "title": "M6.3 — Implement location-aware Task submission and durable command relay",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:29:17Z",
       "sourceBodySha256": "dd0146cc68f989a99b964a033a3336d82ab0a1a69fb2017c14d596c812d72d3b",
@@ -187,7 +187,14 @@
           "requirement": "A web/mobile-origin Task can be durably relayed to an online Local or Self-hosted Control Plane.",
           "sourceChecked": false,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "38.4",
@@ -214,6 +221,12 @@
               "document": "docs/evidence/m11-task-submission-intent.md",
               "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
               "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            },
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
             }
           ]
         },
@@ -235,6 +248,12 @@
               "document": "docs/evidence/m11-task-submission-intent.md",
               "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
               "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            },
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
             }
           ]
         },
@@ -270,6 +289,12 @@
               "document": "docs/evidence/m11-task-submission-intent.md",
               "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
               "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            },
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
             }
           ]
         },
@@ -284,6 +309,12 @@
               "document": "docs/evidence/m11-task-submission-intent.md",
               "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
               "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            },
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
             }
           ]
         }
@@ -292,7 +323,7 @@
     {
       "number": 39,
       "url": "https://github.com/adea-ai/adea/issues/39",
-      "title": "M6.4 \u2014 Implement cloud-safe ControlPlaneEventInbox and WorkspaceEvent mapping",
+      "title": "M6.4 — Implement cloud-safe ControlPlaneEventInbox and WorkspaceEvent mapping",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:29:18Z",
       "sourceBodySha256": "be7f5e0013876ff7a69b066884fa1e0aaecac9e87b4c98d93e8b8bc8ae152906",
@@ -380,7 +411,7 @@
     {
       "number": 40,
       "url": "https://github.com/adea-ai/adea/issues/40",
-      "title": "M6.5 \u2014 Implement cancellation, resume, approval, and awaiting-input product flows",
+      "title": "M6.5 — Implement cancellation, resume, approval, and awaiting-input product flows",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:29:19Z",
       "sourceBodySha256": "a6e7978e7d64b8e96279245d5beb611aaa98787af9326a63d7296de46f06a873",
@@ -461,7 +492,7 @@
     {
       "number": 41,
       "url": "https://github.com/adea-ai/adea/issues/41",
-      "title": "M6.6 \u2014 Implement AgentProfile reference and version synchronization",
+      "title": "M6.6 — Implement AgentProfile reference and version synchronization",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:28:48Z",
       "sourceBodySha256": "45499bff0bc6c20d80ade7c6dc31211c73d85be87a544a1e0634e6f5c9bb56bb",
@@ -476,21 +507,21 @@
         },
         {
           "id": "41.2",
-          "requirement": "Profile changes are explicit, authorized, and auditable. \u2014 NOT VERIFIED 2026-09-25: a profile-version change is an explicit column write (`agents.profile_id`/`profile_version`, `packages/db/src/schema/agents.ts`) and \"preserves identity while room, presentation, and explicit profile version change\" pins the identity half (`packages/db/tests/integration/agents.test.ts`), but nothing authorizes the change against the Control Plane and no audit record is written. The clause needs both before it holds.",
+          "requirement": "Profile changes are explicit, authorized, and auditable. — NOT VERIFIED 2026-09-25: a profile-version change is an explicit column write (`agents.profile_id`/`profile_version`, `packages/db/src/schema/agents.ts`) and \"preserves identity while room, presentation, and explicit profile version change\" pins the identity half (`packages/db/tests/integration/agents.test.ts`), but nothing authorizes the change against the Control Plane and no audit record is written. The clause needs both before it holds.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "41.3",
-          "requirement": "New executions reference the selected profile version; the fixture records the exact immutable ExecutionPlan and Skill manifest used. \u2014 PARTIAL 2026-09-25: the reference half holds \u2014 `profile_id`, `profile_version` and `profile_state` are required non-empty columns on the Agent row and the integration test above proves a version change leaves identity stable. The fixture half does not exist: nothing records the immutable ExecutionPlan or Skill manifest an execution used, because the compiled plan is Control Plane-owned (control-plane#558) and #400 binds harness runs to a runtime definition, not to a recorded plan.",
+          "requirement": "New executions reference the selected profile version; the fixture records the exact immutable ExecutionPlan and Skill manifest used. — PARTIAL 2026-09-25: the reference half holds — `profile_id`, `profile_version` and `profile_state` are required non-empty columns on the Agent row and the integration test above proves a version change leaves identity stable. The fixture half does not exist: nothing records the immutable ExecutionPlan or Skill manifest an execution used, because the compiled plan is Control Plane-owned (control-plane#558) and #400 binds harness runs to a runtime definition, not to a recorded plan.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "41.4",
-          "requirement": "Missing/deprecated/revoked/incompatible versions have explicit blocked or remediation states. \u2014 PARTIAL 2026-09-25: `agent_profile_state` models `available`, `deprecated` and `missing` (`packages/db/src/schema/agents.ts`). It has no `revoked` or `incompatible` member, and no read model turns any of the three states into a blocked or remediation message, so the states exist as data without a product consequence.",
+          "requirement": "Missing/deprecated/revoked/incompatible versions have explicit blocked or remediation states. — PARTIAL 2026-09-25: `agent_profile_state` models `available`, `deprecated` and `missing` (`packages/db/src/schema/agents.ts`). It has no `revoked` or `incompatible` member, and no read model turns any of the three states into a blocked or remediation message, so the states exist as data without a product consequence.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": [
@@ -504,14 +535,14 @@
         },
         {
           "id": "41.5",
-          "requirement": "Agent HQ does not duplicate full profile/runtime configuration. \u2014 verified 2026-09-25: the Agent row stores the reference and nothing else \u2014 `profile_id`, `profile_version` and `profile_state` alongside identity and presentation columns (`packages/db/src/schema/agents.ts`); there is no profile body, tool set, model configuration or runtime configuration column anywhere in the schema, and `packages/types/src/dev-runtime.ts` carries no profile payload. The profile itself stays Control Plane-owned (control-plane#558).",
+          "requirement": "Agent HQ does not duplicate full profile/runtime configuration. — verified 2026-09-25: the Agent row stores the reference and nothing else — `profile_id`, `profile_version` and `profile_state` alongside identity and presentation columns (`packages/db/src/schema/agents.ts`); there is no profile body, tool set, model configuration or runtime configuration column anywhere in the schema, and `packages/types/src/dev-runtime.ts` carries no profile payload. The profile itself stays Control Plane-owned (control-plane#558).",
           "sourceChecked": true,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "41.6",
-          "requirement": "Tests cover upgrade, rollback, missing/revoked version, permission denial, and concurrent profile change versus submission. \u2014 PARTIAL 2026-09-25: only the reference and identity-stability case exists (\"preserves identity while room, presentation, and explicit profile version change\", `packages/db/tests/integration/agents.test.ts`). Upgrade, rollback, missing/revoked version, permission denial and concurrent change-versus-submission are uncovered, and the last two need the authorization and submission paths that do not exist yet.",
+          "requirement": "Tests cover upgrade, rollback, missing/revoked version, permission denial, and concurrent profile change versus submission. — PARTIAL 2026-09-25: only the reference and identity-stability case exists (\"preserves identity while room, presentation, and explicit profile version change\", `packages/db/tests/integration/agents.test.ts`). Upgrade, rollback, missing/revoked version, permission denial and concurrent change-versus-submission are uncovered, and the last two need the authorization and submission paths that do not exist yet.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": [
@@ -535,7 +566,7 @@
     {
       "number": 43,
       "url": "https://github.com/adea-ai/adea/issues/43",
-      "title": "M6.7 \u2014 Implement location-aware external harness session listing, reference, and resume UI",
+      "title": "M6.7 — Implement location-aware external harness session listing, reference, and resume UI",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:29:20Z",
       "sourceBodySha256": "035098e42f81936f8431d27b7c7953d21d4e7a368bdc7aaf9321e978c3d23b1c",
@@ -609,7 +640,7 @@
     {
       "number": 86,
       "url": "https://github.com/adea-ai/adea/issues/86",
-      "title": "M6.8 \u2014 Configure Agent HQ R2 and implement Artifact promotion, scanning, and access lifecycle",
+      "title": "M6.8 — Configure Agent HQ R2 and implement Artifact promotion, scanning, and access lifecycle",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:29:21Z",
       "sourceBodySha256": "f8bf7ced15364d86265718ac176d3527cbd4a14e1cfbe0bce504533883d1e059",
@@ -746,7 +777,7 @@
     {
       "number": 186,
       "url": "https://github.com/adea-ai/adea/issues/186",
-      "title": "M6.12 \u2014 Implement execution-location selection and no-silent-failover policy",
+      "title": "M6.12 — Implement execution-location selection and no-silent-failover policy",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:25:52Z",
       "sourceBodySha256": "c82d2bc63c7a35f77af3ee5f8f0fff3c354cd591d23e8a30546fbb615ede10b0",
@@ -754,7 +785,7 @@
       "criteria": [
         {
           "id": "186.1",
-          "requirement": "A user can explicitly choose Local or one registered Self-hosted location before execution. *(Landed in #633: the composer's Customize controls carry a **Location** picker over the registered runtimes, the choice travels as `runtime: { runtimeDefinitionId }` in the explicit pins, and \u2014 like every other explicit selection \u2014 it is refused in Auto mode, whose contract is that the Control Plane decides. The resolved location is then shown back to the user.)*",
+          "requirement": "A user can explicitly choose Local or one registered Self-hosted location before execution. *(Landed in #633: the composer's Customize controls carry a **Location** picker over the registered runtimes, the choice travels as `runtime: { runtimeDefinitionId }` in the explicit pins, and — like every other explicit selection — it is refused in Auto mode, whose contract is that the Control Plane decides. The resolved location is then shown back to the user.)*",
           "sourceChecked": true,
           "verification": "unverified",
           "evidence": []
@@ -782,14 +813,14 @@
         },
         {
           "id": "186.5",
-          "requirement": "Retries preserve the selected location unless an explicit authorized location change is recorded. \u2014 verified 2026-09-25: \"preserves the selected location when retrying\", \"requires explicit authorization before changing location\", \"rejects a raw authorization boolean and does not treat it as proof\", \"rejects a proof bound to another attempt, scope, or target\", \"an empty scoped authorization proof is rejected\", \"a valid proof cannot bypass missing, capability, or cloud admission\", and \"records an authorized reroute as a new attempt location\" in `packages/types/tests/execution-location.test.ts`.",
+          "requirement": "Retries preserve the selected location unless an explicit authorized location change is recorded. — verified 2026-09-25: \"preserves the selected location when retrying\", \"requires explicit authorization before changing location\", \"rejects a raw authorization boolean and does not treat it as proof\", \"rejects a proof bound to another attempt, scope, or target\", \"an empty scoped authorization proof is rejected\", \"a valid proof cannot bypass missing, capability, or cloud admission\", and \"records an authorized reroute as a new attempt location\" in `packages/types/tests/execution-location.test.ts`.",
           "sourceChecked": true,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "186.6",
-          "requirement": "UI and persisted Task/execution history identify the actual execution location and relevant RuntimeNode. \u2014 NOT VERIFIED 2026-09-25: no implementation exists. The policy layer models the resolved location and node (`RuntimeNodeExecutionReadModel`, `ExecutionLocationDecision`) and the retry family records a reroute as a new attempt, but nothing persists that per attempt and no surface renders it \u2014 a task cannot answer \"where did this run, and on which node\" after the fact. Filed as #671 with the exact acceptance (read model + persisted per-attempt history + a surface + the cross-checks); the box closes with it.",
+          "requirement": "UI and persisted Task/execution history identify the actual execution location and relevant RuntimeNode. — NOT VERIFIED 2026-09-25: no implementation exists. The policy layer models the resolved location and node (`RuntimeNodeExecutionReadModel`, `ExecutionLocationDecision`) and the retry family records a reroute as a new attempt, but nothing persists that per attempt and no surface renders it — a task cannot answer \"where did this run, and on which node\" after the fact. Filed as #671 with the exact acceptance (read model + persisted per-attempt history + a surface + the cross-checks); the box closes with it.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
@@ -803,21 +834,21 @@
         },
         {
           "id": "186.8",
-          "requirement": "Authorized `agent_hq_e2ee_sync` history can remain readable while execution is unavailable; local-only bodies remain explicitly unavailable when their authority is offline. \u2014 verified 2026-09-25: \"keeps history and content dimensions independent from execution availability\" in `packages/types/tests/execution-location.test.ts` asserts this pair against an offline host: synchronized history stays available while local-only content reports unavailable.",
+          "requirement": "Authorized `agent_hq_e2ee_sync` history can remain readable while execution is unavailable; local-only bodies remain explicitly unavailable when their authority is offline. — verified 2026-09-25: \"keeps history and content dimensions independent from execution availability\" in `packages/types/tests/execution-location.test.ts` asserts this pair against an offline host: synchronized history stays available while local-only content reports unavailable.",
           "sourceChecked": true,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "186.9",
-          "requirement": "RuntimeNode availability is never used as a substitute for ContentSyncDevice/content-key authorization. \u2014 verified 2026-09-25: the same test keeps the content dimension independent of node availability (an offline node changes neither field), and `ExecutionDataAvailability` models the two as separate dimensions rather than one.",
+          "requirement": "RuntimeNode availability is never used as a substitute for ContentSyncDevice/content-key authorization. — verified 2026-09-25: the same test keeps the content dimension independent of node availability (an offline node changes neither field), and `ExecutionDataAvailability` models the two as separate dimensions rather than one.",
           "sourceChecked": true,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "186.10",
-          "requirement": "Tests cover Local default, multiple self-hosted nodes, offline node, capability mismatch, explicit location change, retry, synchronized-history-available/host-offline, local-only-body-unavailable/host-offline, and future cloud feature gating. \u2014 verified 2026-09-25: `packages/types/tests/execution-location.test.ts` covers the list by name except one clause: \"defaults to the local device and does not consider self-hosted nodes\", \"honors an explicit self-hosted selection\", \"does not silently relocate an unavailable local default to self-hosted\", \"blocks a missing capability and reports deterministic remediation data\", \"keeps history and content dimensions independent from execution availability\" (with the offline host), the retry/authorization family, and \"gates the future cloud location explicitly without falling back to it\". The multi-host clause was closed 2026-09-25 by \"selects among several self-hosted nodes by identity and never substitutes another host\", which drives two self-hosted nodes at once.",
+          "requirement": "Tests cover Local default, multiple self-hosted nodes, offline node, capability mismatch, explicit location change, retry, synchronized-history-available/host-offline, local-only-body-unavailable/host-offline, and future cloud feature gating. — verified 2026-09-25: `packages/types/tests/execution-location.test.ts` covers the list by name except one clause: \"defaults to the local device and does not consider self-hosted nodes\", \"honors an explicit self-hosted selection\", \"does not silently relocate an unavailable local default to self-hosted\", \"blocks a missing capability and reports deterministic remediation data\", \"keeps history and content dimensions independent from execution availability\" (with the offline host), the retry/authorization family, and \"gates the future cloud location explicitly without falling back to it\". The multi-host clause was closed 2026-09-25 by \"selects among several self-hosted nodes by identity and never substitutes another host\", which drives two self-hosted nodes at once.",
           "sourceChecked": true,
           "verification": "unverified",
           "evidence": []
@@ -827,7 +858,7 @@
     {
       "number": 187,
       "url": "https://github.com/adea-ai/adea/issues/187",
-      "title": "M6.13 \u2014 Implement web/mobile durable remote control for Local and Self-hosted execution",
+      "title": "M6.13 — Implement web/mobile durable remote control for Local and Self-hosted execution",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:29:22Z",
       "sourceBodySha256": "1cc5d707a199be73f7b683cf38ebae0038c479dbb0a11cf29ae8721d1df08d32",
@@ -865,6 +896,12 @@
               "document": "docs/evidence/m11-task-submission-intent.md",
               "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
               "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            },
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
             }
           ]
         },
@@ -887,7 +924,14 @@
           "requirement": "Node/host disconnect and reconnect preserve durable encrypted commands and reconcile outcomes safely.",
           "sourceChecked": false,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "187.8",
@@ -907,6 +951,12 @@
               "document": "docs/evidence/m11-task-submission-intent.md",
               "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
               "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            },
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
             }
           ]
         },
@@ -922,7 +972,14 @@
           "requirement": "Revoked nodes, rotated remote-command keys, invalid envelopes, expired commands, or revoked workspace permissions immediately block invalid/new remote execution operations.",
           "sourceChecked": false,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "187.12",
@@ -943,7 +1000,7 @@
     {
       "number": 188,
       "url": "https://github.com/adea-ai/adea/issues/188",
-      "title": "M6.14 \u2014 Implement Self-hosted Control Plane registration, setup, and connection UX",
+      "title": "M6.14 — Implement Self-hosted Control Plane registration, setup, and connection UX",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:29:23Z",
       "sourceBodySha256": "1cb48b7dd81db09920bc24c0e32ebf06102f2bfc680dfd6d9f789a836f5f9d78",
@@ -982,7 +1039,14 @@
           "requirement": "Revocation prevents new Agent HQ remote execution commands while leaving user-owned server data intact.",
           "sourceChecked": true,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "188.6",
@@ -1031,7 +1095,7 @@
     {
       "number": 189,
       "url": "https://github.com/adea-ai/adea/issues/189",
-      "title": "M6.15 \u2014 Implement E2E remote-content encryption and key lifecycle",
+      "title": "M6.15 — Implement E2E remote-content encryption and key lifecycle",
       "sourceState": "open",
       "sourceUpdatedAt": "2026-09-25T01:28:49Z",
       "sourceBodySha256": "26724897dcb6ff7a46694353c3a094dc0b1e1aef793d78df8fa53b544e4a4021",
@@ -1046,14 +1110,14 @@
         },
         {
           "id": "189.2",
-          "requirement": "Host -> browser/mobile-compatible return envelopes decrypt only with the requesting client's private return key. \u2014 NOT VERIFIED 2026-09-25: the return direction does not exist. `packages/remote-content` models the command envelope only (its exported surface is `generateRemoteCommandKeyPair`, `deriveRemoteCommandKeyPair`, `createRemoteContentAad`, `parseRemoteContentEnvelope`, `createRemoteContentReplayGuard`); a search for a return-key or result-envelope surface across `packages/remote-content`, `packages/types`, `apps/web` and `packages/db` finds none, so there is no return key for a client to hold.",
+          "requirement": "Host -> browser/mobile-compatible return envelopes decrypt only with the requesting client's private return key. — NOT VERIFIED 2026-09-25: the return direction does not exist. `packages/remote-content` models the command envelope only (its exported surface is `generateRemoteCommandKeyPair`, `deriveRemoteCommandKeyPair`, `createRemoteContentAad`, `parseRemoteContentEnvelope`, `createRemoteContentReplayGuard`); a search for a return-key or result-envelope surface across `packages/remote-content`, `packages/types`, `apps/web` and `packages/db` finds none, so there is no return key for a client to hold.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "189.3",
-          "requirement": "Relay/Neon fixtures containing only public keys and ciphertext cannot recover plaintext fixture content. \u2014 NOT VERIFIED 2026-09-25: there is no relay and no Neon-side envelope fixture to attack. The envelope module refuses plaintext-bearing errors and retagged key ids in unit vectors (`packages/remote-content/tests/unit/remote-content.test.ts`), which is the closest existing evidence, but the box needs the relay path that #38 owns.",
+          "requirement": "Relay/Neon fixtures containing only public keys and ciphertext cannot recover plaintext fixture content. — NOT VERIFIED 2026-09-25: there is no relay and no Neon-side envelope fixture to attack. The envelope module refuses plaintext-bearing errors and retagged key ids in unit vectors (`packages/remote-content/tests/unit/remote-content.test.ts`), which is the closest existing evidence, but the box needs the relay path that #38 owns.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
@@ -1063,25 +1127,39 @@
           "requirement": "Wrong recipient, wrong key version, tamper, replay, expiry, downgrade, malformed AAD, and unsupported suite/version fail closed.",
           "sourceChecked": true,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "189.5",
-          "requirement": "Signing/authentication keys, RuntimeNode remote-command encryption keys, and ContentSyncDevice synchronization keys cannot be substituted for one another. \u2014 PARTIAL 2026-09-25: two of the three classes are explicitly separated. The runtime-node key role enum admits exactly `signing` and `command_encryption` and the repository refuses a shared key (\"Signing and encryption keys must be distinct\", `packages/db/src/runtime-nodes.ts`, covered by `packages/db/tests/integration/runtime-nodes.test.ts`); the proof layer refuses a mismatched class with `key_mismatch` \u2014 \"Runtime node key class does not match its role\" (`apps/web/src/server/runtime-node-proof.ts`), and the refusal-message test keeps that reason distinct. The third class does not exist: there is no ContentSyncDevice key material in this repository (#193 was moved out of M10/M11 by the owner decision of 2026-09-23), so it cannot yet be proven non-substitutable.",
+          "requirement": "Signing/authentication keys, RuntimeNode remote-command encryption keys, and ContentSyncDevice synchronization keys cannot be substituted for one another. — PARTIAL 2026-09-25: two of the three classes are explicitly separated. The runtime-node key role enum admits exactly `signing` and `command_encryption` and the repository refuses a shared key (\"Signing and encryption keys must be distinct\", `packages/db/src/runtime-nodes.ts`, covered by `packages/db/tests/integration/runtime-nodes.test.ts`); the proof layer refuses a mismatched class with `key_mismatch` — \"Runtime node key class does not match its role\" (`apps/web/src/server/runtime-node-proof.ts`), and the refusal-message test keeps that reason distinct. The third class does not exist: there is no ContentSyncDevice key material in this repository (#193 was moved out of M10/M11 by the owner decision of 2026-09-23), so it cannot yet be proven non-substitutable.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
         },
         {
           "id": "189.6",
-          "requirement": "Rotation/revocation handles queued RemoteContentEnvelopes deterministically without cloud plaintext access. \u2014 NOT VERIFIED 2026-09-25: no envelope is queued anywhere, so there is nothing for rotation to drain. There is no rotation surface for remote-command keys (the only `rotateKey` in the tree belongs to the desktop local-content store), and the replay guard the module does ship binds claims to workspace and node scope rather than to a key generation.",
+          "requirement": "Rotation/revocation handles queued RemoteContentEnvelopes deterministically without cloud plaintext access. — NOT VERIFIED 2026-09-25: no envelope is queued anywhere, so there is nothing for rotation to drain. There is no rotation surface for remote-command keys (the only `rotateKey` in the tree belongs to the desktop local-content store), and the replay guard the module does ship binds claims to workspace and node scope rather than to a key generation.",
           "sourceChecked": false,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-runtime-node-delivery.md",
+              "implementationCandidate": "492ca8eee666e9d78b7d147fbf9888e8293f4f94",
+              "result": "Partial outbound delivery evidence: active node proof, original submitter/pin/Task reauthorization, durable nonce/rate accounting, same ciphertext identity after reconnect, and bounded queued-key grace. Host inbox, execution authorization/acceptance, duplicate-effect fencing, receipts/reconciliation and deployed product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "189.7",
-          "requirement": "RemoteContentEnvelope persistence cannot be mistaken for durable synchronized Message history. \u2014 PARTIAL 2026-09-25: nothing persists an envelope yet, so the confusion cannot occur \u2014 but that is absence, not proof. The type separation is real (`RemoteContentEnvelope` is not a `Message`, and #187/#189 both state that relay records are not canonical history), yet no test asserts that a stored envelope is unqueryable as conversation history because no store exists. The box closes with the persistence path in #38/#187.",
+          "requirement": "RemoteContentEnvelope persistence cannot be mistaken for durable synchronized Message history. — PARTIAL 2026-09-25: nothing persists an envelope yet, so the confusion cannot occur — but that is absence, not proof. The type separation is real (`RemoteContentEnvelope` is not a `Message`, and #187/#189 both state that relay records are not canonical history), yet no test asserts that a stored envelope is unqueryable as conversation history because no store exists. The box closes with the persistence path in #38/#187.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
@@ -1107,7 +1185,7 @@
     {
       "number": 42,
       "url": "https://github.com/adea-ai/adea/issues/42",
-      "title": "M6.9 \u2014 Final pre-release: certify Local and Self-hosted Agent HQ + Control Plane execution",
+      "title": "M6.9 — Final pre-release: certify Local and Self-hosted Agent HQ + Control Plane execution",
       "sourceState": "open",
       "sourceBodySha256": "77186a812e3974c62ae073c6e10c6d9b1d5b06c16126dcd526104ca9bfca18c9",
       "criteria": [
@@ -1228,7 +1306,7 @@
     {
       "number": 130,
       "url": "https://github.com/adea-ai/adea/issues/130",
-      "title": "M6.11 \u2014 Final pre-release: certify Agent HQ and Control Plane across Local and Self-hosted profiles",
+      "title": "M6.11 — Final pre-release: certify Agent HQ and Control Plane across Local and Self-hosted profiles",
       "sourceState": "open",
       "sourceBodySha256": "d6aa69ec25ede92f1f0b6192034616c2e362da400bdd3b7541d03961cf228e03",
       "criteria": [
