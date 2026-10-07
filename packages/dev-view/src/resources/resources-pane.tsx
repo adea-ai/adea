@@ -28,7 +28,6 @@ import {
   createMemo,
   createResource,
   createSignal,
-  For,
   Match,
   onCleanup,
   Show,
@@ -51,6 +50,7 @@ import { StorageTab } from './resources-storage'
 import { commandError, StopDialog, type StopIntent } from './resources-stop-dialog'
 import { UsageTab } from './resources-usage'
 import {
+  attentionIssues,
   attentionSummary,
   cleanupCandidates,
   FALLBACK_PREFERENCES,
@@ -62,14 +62,28 @@ import {
   serverGroups,
   storageRows,
   storageTotals,
+  type OwnedServerRow,
   type ServerRow,
+  worktreeTitle,
 } from './resources-view-model'
 import './resources-pane.css'
 
 export type ResourcesPaneProps = {
   runtime: DevRuntimeService
   runtimeSessionId?: string
+  /** Opens a link outside the app (the desktop shell's external-link
+   * handoff); without it the browser opens a new tab. */
+  openExternal?: (url: string) => Promise<void> | void
+  /** Focuses a runtime session in the Dev view; with it, server details
+   * offer "Go to session". `projectId` is absent when the server's worktree
+   * is not registered, and the Dev view then looks in the active project. */
+  onOpenSession?: (target: { runtimeSessionId: string; projectId?: string }) => void
 }
+
+// Titles of every worktree this page has listed, so a server whose worktree
+// was since deleted still names its branch. Bounded by the worktrees a
+// runtime lists; it lives as long as the page.
+const rememberedWorktreeTitles = new Map<string, string>()
 
 type View =
   | { kind: 'main' }
@@ -131,7 +145,9 @@ export function ResourcesPane(props: ResourcesPaneProps) {
     if (!ready) return [] as readonly Worktree[]
     try {
       const page = await execute<Page<Worktree>>('dev.worktree.list', { limit: 500 })
-      return Array.isArray(page?.items) ? page.items : []
+      const items = Array.isArray(page?.items) ? page.items : []
+      for (const item of items) rememberedWorktreeTitles.set(item.id, worktreeTitle(item))
+      return items
     } catch {
       return [] as readonly Worktree[]
     }
@@ -190,6 +206,8 @@ export function ResourcesPane(props: ResourcesPaneProps) {
       snapshot: current(),
       worktrees: worktrees.latest ?? [],
       alerts: preferences().alerts,
+      ...(props.runtimeSessionId ? { currentSessionId: props.runtimeSessionId } : {}),
+      rememberedWorktreeTitles,
     })
   )
   const machine = () => current()?.machine
@@ -207,12 +225,15 @@ export function ResourcesPane(props: ResourcesPaneProps) {
         })
   )
   const attention = createMemo(() => attentionSummary(candidates(), groups()))
+  const issues = createMemo(() => attentionIssues(candidates(), groups()))
   const rows = createMemo(() => groups().flatMap((group) => group.rows))
+  const adeaPortCount = () => current()?.ports.filter((port) => port.owner === 'adea').length ?? 0
   const listenerCount = () =>
     (current()?.ports.filter((port) => port.state === 'observed').length ?? 0) +
     (current()
       ?.foreign?.filter((record) => record.listeningPorts.length > 0)
       .reduce((sum, record) => sum + record.listeningPorts.length, 0) ?? 0)
+  const otherPortCount = () => Math.max(0, listenerCount() - adeaPortCount())
   const adeaCpu = createMemo(() => {
     const values = rows()
       .filter((row) => row.kind === 'owned' || row.record.attribution.kind === 'adea_terminal')
@@ -242,6 +263,28 @@ export function ResourcesPane(props: ResourcesPaneProps) {
   }
 
   // ── Actions ───────────────────────────────────────────────────────────
+  const openPreview = (url: string) => {
+    if (props.openExternal) {
+      void Promise.resolve(props.openExternal(url)).catch((caught: unknown) =>
+        setActionError(
+          caught instanceof Error
+            ? `Could not open the preview: ${caught.message}`
+            : 'Could not open the preview.'
+        )
+      )
+      return
+    }
+    if (typeof window !== 'undefined') window.open(url, '_blank', 'noopener,noreferrer')
+  }
+  const openSession = (row: OwnedServerRow) => {
+    const runtimeSessionId = row.record.runtimeSessionId
+    if (!runtimeSessionId) return
+    props.onOpenSession?.({
+      runtimeSessionId,
+      ...(row.projectId !== undefined ? { projectId: row.projectId } : {}),
+    })
+  }
+
   const openStop = (row: ServerRow) => {
     setActionError(undefined)
     setStopIntent({ mode: 'stop', row })
@@ -410,9 +453,13 @@ export function ResourcesPane(props: ResourcesPaneProps) {
                 <ServerDetail
                   row={row()}
                   busy={stopIntent() !== undefined}
+                  alerts={preferences().alerts}
+                  now={Date.parse(current()?.observedAt ?? '') || Date.now()}
                   onBack={() => setView({ kind: 'main' })}
                   onStop={openStop}
                   onRestart={openRestart}
+                  onOpenPreview={openPreview}
+                  {...(props.onOpenSession ? { onOpenSession: openSession } : {})}
                 />
               )}
             </Match>
@@ -487,7 +534,7 @@ export function ResourcesPane(props: ResourcesPaneProps) {
                   <span class="dev-resources__row-detail">Ports</span>
                   <span class="dev-resources__tile-value">{listenerCount()}</span>
                   <span class="dev-resources__row-detail">
-                    {current()?.ports.filter((port) => port.owner === 'adea').length ?? 0} Adea
+                    {adeaPortCount()} Adea · {otherPortCount()} other
                   </span>
                 </div>
                 <div class="dev-resources__tile">
@@ -528,22 +575,9 @@ export function ResourcesPane(props: ResourcesPaneProps) {
                       </Show>
                     </span>
                     <span class="dev-resources__row-detail">
-                      <For each={attention().leaking.slice(0, 2)}>
-                        {(row, index) => (
-                          <>
-                            {index() > 0 ? ' · ' : ''}
-                            {row.title} is{' '}
-                            {row.leak.kind === 'growing'
-                              ? 'leaking memory'
-                              : 'over your memory limit'}
-                          </>
-                        )}
-                      </For>
-                      <Show when={attention().leaking.length === 0}>
-                        {attention().foreignCount > 0
-                          ? `${attention().foreignCount} ${attention().foreignCount === 1 ? 'process' : 'processes'} not started by Adea ${attention().foreignCount === 1 ? 'is' : 'are'} holding ports`
-                          : 'Review before anything is stopped or deleted'}
-                      </Show>
+                      {issues().length > 0
+                        ? issues().join(' · ')
+                        : 'Review before anything is stopped or deleted'}
                     </span>
                   </span>
                   <Button
@@ -568,7 +602,21 @@ export function ResourcesPane(props: ResourcesPaneProps) {
                       {rows().length}
                     </Badge>
                   </TabsTrigger>
-                  <TabsTrigger value="storage">Storage</TabsTrigger>
+                  <TabsTrigger value="storage">
+                    Storage
+                    <Show
+                      when={totals().totalBytes !== undefined}
+                      fallback={
+                        <Badge variant="outline" size="sm">
+                          {storageList().length}
+                        </Badge>
+                      }
+                    >
+                      <Badge variant="outline" size="sm">
+                        {formatSize(totals().totalBytes)}
+                      </Badge>
+                    </Show>
+                  </TabsTrigger>
                   <TabsTrigger value="usage">Agents &amp; usage</TabsTrigger>
                 </TabsList>
                 <TabsContent value="servers">
