@@ -591,7 +591,7 @@ export function AccentChoices(props: AppearanceEditorProps) {
       value={accentSelection()}
       disabled={props.saving}
       aria-label="Accent"
-      class="grid"
+      class="grid sm:grid-cols-3"
       onChange={(accent) =>
         props.onChange({
           accent: accent === 'custom' ? (props.customAccentValue ?? '') : accent,
