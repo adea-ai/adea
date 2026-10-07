@@ -27,8 +27,8 @@ export type AppPreferences = Readonly<{
    * display preference, never an unlink: hidden repositories stay adopted
    * and registered, remain reachable from the collapsed group, and every
    * newly adopted repository is visible by default (auto-adopt lands above
-   * the line). The row order of the drag-bar this models is an upstream
-   * shared-UI seam; v1 ships explicit hide/show controls.
+   * the line). The bar is a display ordering only: rows keep their owner
+   * grouping, and drag or controls both write this one set.
    */
   hiddenRepoIds: readonly string[]
 }>
