@@ -135,6 +135,16 @@ host: validated node transport/receipts, durable relay/inbox delivery, reconnect
 key recovery, queued key lifecycle and product integration remain required.
 Result envelopes are transient execution transport, never synchronized history.
 
+## Initial durable submission intent
+
+The cloud producer now admits an immutable selected-node/profile Task intent,
+one bounded ciphertext outbox command and one metadata event in the same
+transaction. Exact retries reuse that identity; offline policy is explicit and
+does not select another node. [Queue evidence](../evidence/m11-task-submission-intent.md)
+records independent validation and the remaining host-delivery, SDK acceptance,
+reconciliation, expiry cleanup and product gates. Pending delivery is not runtime
+acceptance or a Task lifecycle transition.
+
 ## Authoritative profile availability on reads
 
 The authorized Agent list and single-Agent reads check the exact saved public

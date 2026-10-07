@@ -104,7 +104,6 @@ export type ApiTaskUpdateInput = Readonly<{
   title?: string
 }>
 export type ApiTaskResponse = Readonly<{ task: TaskSummary }>
-
 export type ApiContentRefCreateInput = Readonly<{
   availability: Exclude<ContentRefSummary['availability'], 'deleted'>
   contentType: ContentRefSummary['contentType']
@@ -166,7 +165,7 @@ export type ApiMessageCreateInput = Readonly<{
   threadRootMessageId?: string
 }>
 
-function taskCommandHeaders(command: ApiTaskCommand): Record<string, string> {
+export function taskCommandHeaders(command: ApiTaskCommand): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     'Idempotency-Key': command.idempotencyKey,
@@ -1452,7 +1451,7 @@ export class AgentHqApiClient {
     })
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  protected async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers)
     headers.set('Accept', 'application/json')
     if (this.client === 'desktop') headers.set('X-Adea-Client', 'desktop')

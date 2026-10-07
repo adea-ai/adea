@@ -161,7 +161,8 @@ export const commandOutbox = appSchema.table(
     ...timestampColumns(),
   },
   (table) => [
-    uniqueIndex('command_outbox_idempotency_uidx').on(table.idempotencyKey),
+    uniqueIndex('command_outbox_idempotency_uidx').on(table.workspaceId, table.idempotencyKey),
+    uniqueIndex('command_outbox_workspace_id_uidx').on(table.workspaceId, table.id),
     check('command_outbox_attempts_nonnegative', sql`${table.attempts} >= 0`),
     index('command_outbox_delivery_idx').on(table.status, table.availableAt),
     index('command_outbox_workspace_idx').on(table.workspaceId, table.createdAt),

@@ -28,7 +28,10 @@ export function softDeleteColumns() {
  * 0033) mints one for any other insert path and backfilled existing rows, so
  * a Worker that predates the column keeps inserting.
  */
-export function controlPlaneIdentifierColumn(name: string, prefix: 'prj' | 'rnr' | 'wsp') {
+export function controlPlaneIdentifierColumn(
+  name: string,
+  prefix: 'agt' | 'prj' | 'rnr' | 'tsk' | 'wsp'
+) {
   return text(name)
     .default(sql.raw(`app.control_plane_identifier('${prefix}')`))
     .notNull()

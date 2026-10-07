@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "development": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./task-submission": {
+      "types": "./dist/task-submission.d.ts",
+      "development": "./src/task-submission.ts",
+      "import": "./dist/task-submission.js"
     }
   },
   "scripts": {

@@ -589,6 +589,7 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
       expect(Object.keys(key).toSorted()).toEqual([
         'algorithm',
         'fingerprint',
+        'keyId',
         'keyVersion',
         'publicKey',
         'retiredAt',

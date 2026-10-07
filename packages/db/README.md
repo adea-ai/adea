@@ -38,6 +38,10 @@ user IDs or workspace foreign keys.
 5. Against an isolated database, run `bun run --cwd packages/db db:verify` and
    `bun run --cwd packages/db test:integration`.
 
+The root and package integration runners build the public `remote-content`
+entry before running the database producer tests, so a fresh checkout needs no
+previous workspace build.
+
 Production rollback is forward-only: deploy an application rollback while the expanded schema is
 compatible, then add a reviewed corrective migration. Point-in-time restore is for data-loss
 recovery, not routine schema rollback.

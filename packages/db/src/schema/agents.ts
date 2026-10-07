@@ -1,7 +1,12 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, jsonb, text, uuid } from 'drizzle-orm/pg-core'
+import { check, index, integer, jsonb, text, unique, uuid } from 'drizzle-orm/pg-core'
 import { appSchema } from './schema'
-import { entityId, timestampColumns, type JsonObject } from './conventions'
+import {
+  controlPlaneIdentifierColumn,
+  entityId,
+  timestampColumns,
+  type JsonObject,
+} from './conventions'
 import { projects } from './projects'
 import { workspaces } from './workspaces'
 
@@ -20,6 +25,7 @@ export const agents = appSchema.table(
   'agents',
   {
     id: entityId(),
+    controlPlaneAgentId: controlPlaneIdentifierColumn('control_plane_agent_id', 'agt'),
     workspaceId: uuid('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
@@ -37,6 +43,12 @@ export const agents = appSchema.table(
     ...timestampColumns(),
   },
   (table) => [
+    unique('agents_control_plane_id_unique').on(table.controlPlaneAgentId),
+    unique('agents_workspace_id_unique').on(table.workspaceId, table.id),
+    check(
+      'agents_control_plane_id_valid',
+      sql`${table.controlPlaneAgentId} ~ '^agt_[0-9A-HJKMNP-TV-Z]{26}$'`
+    ),
     check('agents_name_nonempty', sql`length(btrim(${table.name})) > 0`),
     check('agents_profile_id_nonempty', sql`length(btrim(${table.profileId})) > 0`),
     check('agents_profile_version_nonempty', sql`length(btrim(${table.profileVersion})) > 0`),

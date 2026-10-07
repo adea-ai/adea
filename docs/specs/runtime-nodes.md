@@ -269,6 +269,18 @@ scheduled job calls; nothing runs it automatically, so the local database and CI
 never depend on a timer and a missing scheduler cannot silently shorten a
 challenge's life.
 
+## Task queue admission
+
+Task queue admission (`packages/db/src/task-submissions.ts`) holds a shared
+node lock and verified active signing/encryption-key locks through its commit.
+Rotation, revocation and liveness mutation lock the node first, keeping lock
+order consistent with admission. Public key read models expose each key row's
+UUID as `keyId`; command envelopes address that exact verified encryption key.
+Queue admission records intent only. Delivery must recheck revocation, retired
+keys, task/profile authorization and expiry before releasing a command.
+`packages/db/tests/integration/task-submissions.test.ts` pins admission/key-change
+races and rejection after revocation.
+
 ## What pins this
 
 - `packages/db/tests/integration/runtime-nodes.test.ts` — pairing and resume,

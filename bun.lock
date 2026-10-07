@@ -140,6 +140,7 @@
       "name": "@adea-ai/db",
       "version": "0.84.0",
       "dependencies": {
+        "@adea-ai/remote-content": "workspace:*",
         "@adea-ai/types": "workspace:*",
         "drizzle-orm": "^0.45.3",
         "postgres": "^3.4.9",

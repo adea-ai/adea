@@ -183,7 +183,7 @@ describe('persistence schema', () => {
     // shell's own bookmark store and must never enter cloud state — a synced
     // path is one machine's filesystem leaking into another's workspace. The
     // allowance below is exhaustive: an Artifact's opaque location (a type plus
-    // a reference, not a path) and an OAuth redirect URI. A fourth appearing
+    // a reference, not a path) and an OAuth redirect URI. Another appearing
     // fails this test rather than shipping.
     const allowed = [
       'artifacts.location_ref',
@@ -194,6 +194,9 @@ describe('persistence schema', () => {
       // location and not an address. The node it ran on travels as an opaque
       // uuid reference in the column beside it.
       'task_execution_attempts.location_kind',
+      // Queue admission keeps the selected local_device/remote_host enum;
+      // it contains no endpoint, address or filesystem path.
+      'task_submissions.location_kind',
     ]
     const pathish = /(path|dir|directory|absolute|bookmark|mount|volume|location)/i
     const found: string[] = []

@@ -142,6 +142,28 @@ language-neutral envelope bytes; standalone-host, native secure-storage,
 rotation, revocation, queued-envelope grace, and #187 command integration still
 require their owning lanes.
 
+## Initial cloud queue producer
+
+The initial cloud queue producer (`packages/db/src/task-submissions.ts`) parses
+the exact v1 envelope, requires `command.input`, and binds workspace, selected
+node, request UUID and active verified encryption-key UUID. Admission rejects
+expired, oversized, future-issued or excessive-lifetime envelopes and stores
+the normalized ciphertext only in `command_outbox`, with immutable Task/profile
+and public scope metadata. The separate `task_submissions` row and durable
+`task.submission_queued` event carry coordination metadata without ciphertext.
+An identical retry reuses the original intent; another key or changed envelope
+cannot silently create a second logical submission for that Task. Expired
+intent reads report `expired` and retain the identity rather than resubmitting.
+The outbox foreign key refuses deletion while its intent survives; future expiry
+cleanup must remove ciphertext without erasing that identity. Initial admission
+checks conversation and objective-reference workspace ownership and refuses a
+Task with an existing execution reference. Duplicate reads retain their original
+snapshot rather than adopting newer Task/profile/conversation metadata.
+This producer neither authenticates ciphertext nor accepts execution. Authenticated
+host pull/receipt handling, local inbox/decrypt, fresh host authorization, expiry
+purging, key grace, SDK validation/acceptance and reconciliation remain required
+before the delivery path can run work.
+
 ## Pinned by
 
 - `packages/remote-content/tests/unit/remote-content.test.ts` — deterministic

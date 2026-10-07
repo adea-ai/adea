@@ -133,6 +133,7 @@ export const WORKSPACE_EVENT_CONTRACTS = {
   'task.in_progress': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'task.in_review': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'task.queued': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
+  'task.submission_queued': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'task.project_changed': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'task.created': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },
   'task.updated': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },

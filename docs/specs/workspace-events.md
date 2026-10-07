@@ -256,6 +256,15 @@ unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
   invalidate it, so the active workspace is current immediately and the others
   within a minute.
 
+## Task delivery intent events
+
+`task.submission_queued` is a version-1 Task event. Its payload names the Task,
+submission, request, selected node, actor and delivery-intent state. Admission
+appends it in the same transaction as the intent row and command outbox record;
+it contains neither ciphertext nor prompt/context bodies, and grants no runtime
+acceptance or Task lifecycle transition. The rollback and duplicate-admission
+cases in `packages/db/tests/integration/task-submissions.test.ts` pin this boundary.
+
 ## Pinned by
 
 - `packages/db/tests/integration/workspace-events.test.ts`: atomicity with the
