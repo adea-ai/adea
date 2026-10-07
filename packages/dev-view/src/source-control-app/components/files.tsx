@@ -22,7 +22,7 @@ import {
   FileCode,
   FileCog,
   FileImage,
-  FileJson,
+  FileBraces,
   FileText,
   MessageSquarePlus,
   Trash2,
@@ -62,7 +62,7 @@ function fileId(path: string): string {
 
 const kindIcon: Record<FileKind, typeof File> = {
   code: FileCode,
-  data: FileJson,
+  data: FileBraces,
   doc: FileText,
   image: FileImage,
   config: FileCog,
