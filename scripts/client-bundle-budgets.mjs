@@ -274,7 +274,9 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // among them), and the workspace-create row and its Input/form-field
     // chunks leave the route. Raw ratchets down to 173 KiB (~1.9% headroom);
     // gzip to 59 KiB (~2.4%).
-    devShell: { rawBytes: 173 * 1024, gzipBytes: 59 * 1024 },
+    // The entry audit's dev-view fixes grow the shell chunk (2026-10-07):
+    // CI measures 177,280 raw (local builds measure ~2.7 KB lighter).
+    devShell: { rawBytes: 174 * 1024, gzipBytes: 59 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested
