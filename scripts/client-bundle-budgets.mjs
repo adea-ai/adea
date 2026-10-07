@@ -225,7 +225,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // 0.118-0.119 theme fixes land 303,431 raw / 100,845 gzip in CI, 327 and
     // 493 bytes over the 296 KiB / 98 KiB caps. Both ratchet to the next
     // whole KiB.
-    chat: { rawBytes: 297 * 1024, gzipBytes: 99 * 1024 },
+    // Agent profile availability copy (#1138) and the themes 0.9.10
+    // provenance strings (#1139) land 304,158 raw in CI and 304,194 on a
+    // workstation build of the same tree — over the exact-pinned 297 KiB cap
+    // by 30–66 bytes. The same lesson this route documented on 2026-10-01:
+    // a cap pinned to the last build leaves zero headroom. Raw ratchets to
+    // the next whole KiB; gzip holds at 99 KiB.
+    chat: { rawBytes: 298 * 1024, gzipBytes: 99 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
