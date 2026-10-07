@@ -31,6 +31,7 @@ const specs = [
   'apps/web/e2e/workspace-menu.spec.ts',
   'apps/web/e2e/workspace-loading.spec.ts',
   'apps/web/e2e/private-message.spec.ts',
+  'apps/web/e2e/remote-result-crypto.spec.ts',
   'apps/web/e2e/desktop-chat-presentation.spec.ts',
   'apps/web/e2e/workspace-navigation-presentation.spec.ts',
   'apps/web/e2e/source-control-app.spec.ts',

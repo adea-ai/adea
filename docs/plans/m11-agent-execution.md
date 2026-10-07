@@ -115,10 +115,25 @@ pinned SDK before persistence; callers cannot assert availability. Revision
 fencing and schema-versioned previous/new reference events make upgrades and
 rollbacks explicit and auditable. Existing Agents do not follow a newer version
 automatically. Submission-time pin snapshots, ExecutionPlan/Skill manifest
-provenance and authoritative read-time remediation remain required for #41.
+provenance remain required for #41. Read-time remediation is described below.
 
 [Profile adoption evidence](../evidence/m11-agent-profile-pins.md) records the
 SDK, concurrency, database and product checks and the remaining acceptance gates.
+
+## Encrypted return-result increment
+
+The remote-content package now supplies a fresh, nonextractable client return
+key for one workspace/node/request. The host seals a bounded result to that
+public recipient, and the original client receiver checks direction, scope,
+window and atomic replay before a single plaintext release. Cancellation during
+an awaited replay claim cannot release the result. Browser interoperability is
+exercised against both Node and Bun using the production module.
+
+[Return-result evidence](../evidence/m11-encrypted-results.md) records this
+confidentiality increment for #189. HPKE base mode does not authenticate the
+host: validated node transport/receipts, durable relay/inbox delivery, reconnect
+key recovery, queued key lifecycle and product integration remain required.
+Result envelopes are transient execution transport, never synchronized history.
 
 ## Authoritative profile availability on reads
 
