@@ -1,5 +1,78 @@
 # Changelog
 
+## [0.85.0](https://github.com/adea-ai/adea/compare/v0.84.0...v0.85.0) (2026-10-07)
+
+
+### Features
+
+* add request-bound encrypted execution results ([#1137](https://github.com/adea-ai/adea/issues/1137)) ([1b252fd](https://github.com/adea-ai/adea/commit/1b252fdb52a5391a9f82df74e1dc9bcebcf22bb3))
+* add scoped public runtime discovery and stable node references ([#1130](https://github.com/adea-ai/adea/issues/1130)) ([b964f51](https://github.com/adea-ai/adea/commit/b964f51ab64cd8f8c681e3d62e7ab854da89eb06))
+* adopt pinned Control Plane SDK for administration ([#1128](https://github.com/adea-ai/adea/issues/1128)) ([d452f30](https://github.com/adea-ai/adea/commit/d452f30eddca38ac603c752bd5d43016676399a1))
+* approved design-consolidation app changes (nav, runtime resources, source control) ([#1108](https://github.com/adea-ai/adea/issues/1108)) ([d210af4](https://github.com/adea-ai/adea/commit/d210af4e4fccc25ef56268f5e9885505f469956f))
+* authorize explicit Agent profile version changes ([#1134](https://github.com/adea-ai/adea/issues/1134)) ([245ef74](https://github.com/adea-ai/adea/commit/245ef74b5e4c1ddeeaea1f4438d1efda2107bd74))
+* **desktop:** auto-adopt repositories on import/create, with removal and a sidebar show-more line ([#1097](https://github.com/adea-ai/adea/issues/1097)) ([1208a49](https://github.com/adea-ai/adea/commit/1208a49466077de293752d902c47934b19c244cc))
+* **dev-view:** drag repositories across the sidebar show-more bar ([#1106](https://github.com/adea-ai/adea/issues/1106)) ([8d464ea](https://github.com/adea-ai/adea/commit/8d464eac76d3ccb4f284c287e62666572d8c55fd))
+* **dev:** resources sheet pinned bands, section show-more, machine-wide janitor ([#1099](https://github.com/adea-ai/adea/issues/1099)) ([9292a43](https://github.com/adea-ai/adea/commit/9292a43627e66ef1063d370106c395cb89c5fc4e))
+* report exact-pin Agent profile availability ([#1138](https://github.com/adea-ai/adea/issues/1138)) ([d0032ee](https://github.com/adea-ai/adea/commit/d0032eebc1882093c64b3ad34b9b02dea83cce3b))
+
+
+### Bug Fixes
+
+* **chat:** the owner audit's chat-section fixes ([#1109](https://github.com/adea-ai/adea/issues/1109)) ([ba3d06e](https://github.com/adea-ai/adea/commit/ba3d06e179940f0ebf1850c58618e061a08e0df5))
+* **desktop:** managed agent install, global sidebar sections, Workspace details dialog ([#1102](https://github.com/adea-ai/adea/issues/1102)) ([516c841](https://github.com/adea-ai/adea/commit/516c8413305293fbd5c3dcf31d0bfc2c16739ec0))
+* **dev-view:** add a 600px utility step and default the right sidebar to it ([#1094](https://github.com/adea-ai/adea/issues/1094)) ([beb3816](https://github.com/adea-ai/adea/commit/beb38164b1f3d67865fea5956bc59eaa262ea524))
+* **dev-view:** appearance trigger tooltip icon, terminal empty-state title, accent swatch grid and theme previews ([#1098](https://github.com/adea-ai/adea/issues/1098)) ([8cda83d](https://github.com/adea-ai/adea/commit/8cda83de1adba60a591d17aaf6264429d64b08c0))
+* **dev-view:** dev-section audit fixes (editor theme, files selection, mini preview, harness/history/settings polish) ([#1112](https://github.com/adea-ai/adea/issues/1112)) ([a7efbf9](https://github.com/adea-ai/adea/commit/a7efbf999c02cd8d94fc1172ca017186763e57cf))
+* **settings,tasks:** owner audit lane H — settings surface and tasks/plugins dialogs (set + tkvr) ([#1111](https://github.com/adea-ai/adea/issues/1111)) ([583be6f](https://github.com/adea-ai/adea/commit/583be6fe761534c989954a8cec04264a97463d0f))
+* **source-control:** sc audit fixes — inline people, state marks, glyph sizing, select mechanics, row layout ([#1113](https://github.com/adea-ai/adea/issues/1113)) ([6d54a31](https://github.com/adea-ai/adea/commit/6d54a311ad96a0b89f3476c5f2a4f72af14b5203))
+* **source-control:** top bar boundary alignment and stable provider menus ([#1096](https://github.com/adea-ai/adea/issues/1096)) ([3546ceb](https://github.com/adea-ai/adea/commit/3546ceb5995e0277e3aad35231d2e6b6454ab6ad))
+* **theme:** generate canonical theme data from @adea-ai/themes 0.9.10 ([#1139](https://github.com/adea-ai/adea/issues/1139)) ([104307d](https://github.com/adea-ai/adea/commit/104307d4f49e0243d4a348b750e2c457d5143503))
+* **ui:** pin the overlay bands' cascade placement; guard the visual lane against partial-stylesheet renders ([#1100](https://github.com/adea-ai/adea/issues/1100)) ([a326366](https://github.com/adea-ai/adea/commit/a32636615b9252a95127fdcca2dcf5ef4e90062f))
+* **web,ui:** owner audit lane D — entry and shell surfaces (entry + shell) ([#1122](https://github.com/adea-ai/adea/issues/1122)) ([67c5e29](https://github.com/adea-ai/adea/commit/67c5e29ff96ec560ef38006d90839b6928ffc9d0))
+* **workspace-ui:** show agent names on direct conversation rows; refresh settings baselines ([#1103](https://github.com/adea-ai/adea/issues/1103)) ([e464c43](https://github.com/adea-ai/adea/commit/e464c43c48ae118548f281346c9648c5570875d5))
+* **workspace:** advertise the platform modifier on shortcut chords ([#1140](https://github.com/adea-ai/adea/issues/1140)) ([1a2650f](https://github.com/adea-ai/adea/commit/1a2650f6a79df1a91e56868e6b75fa90c8dff1c8))
+
+
+### Documentation
+
+* record M11 synchronization scope disposition ([#1135](https://github.com/adea-ai/adea/issues/1135)) ([43223c4](https://github.com/adea-ai/adea/commit/43223c4c1cb600927f64f5ad67336078a2a70a47))
+
+
+### Tests
+
+* e2e:dev-view-terminal locally. ([4a8ba26](https://github.com/adea-ai/adea/commit/4a8ba26869cecb2045615ee3fdbea801eb80fce5))
+* **e2e:** fix main's red workspace visual suite after [#1109](https://github.com/adea-ai/adea/issues/1109) and [#1111](https://github.com/adea-ai/adea/issues/1111) ([#1124](https://github.com/adea-ai/adea/issues/1124)) ([6b4f0e6](https://github.com/adea-ai/adea/commit/6b4f0e6938981c16255c9a85955e785f87dc61a7))
+* **e2e:** point the source-control panel specs at the UUID fixture ids ([#1110](https://github.com/adea-ai/adea/issues/1110)) ([7657e62](https://github.com/adea-ai/adea/commit/7657e62700db7a54c77dee25d617b94a49644327))
+* **e2e:** refresh linux visual baselines after [#1108](https://github.com/adea-ai/adea/issues/1108) ([#1114](https://github.com/adea-ai/adea/issues/1114)) ([17b8143](https://github.com/adea-ai/adea/commit/17b814332c994c11075b151168789657fe546c6e))
+* **e2e:** refresh the darwin workspace baselines after the owner-audit lanes ([#1129](https://github.com/adea-ai/adea/issues/1129)) ([b63531c](https://github.com/adea-ai/adea/commit/b63531c8a3398648d6555b2123541e89ec2980d0))
+* **e2e:** repair the three pre-existing red gates (terminal splits, terminal reopen, SCM session link) ([#1095](https://github.com/adea-ai/adea/issues/1095)) ([9982b72](https://github.com/adea-ai/adea/commit/9982b725853c170a101835aeba3f96fff5271a3f))
+* **e2e:** repair the three pre-existing red gates (terminal splits, terminal reopen, SCM session link) ([#1095](https://github.com/adea-ai/adea/issues/1095)) ([e39ecb0](https://github.com/adea-ai/adea/commit/e39ecb0475d2250cc9e1396c64945f6472462dc8))
+* **e2e:** settle the first sync before the source-control re-sync and hide assertions ([#1118](https://github.com/adea-ai/adea/issues/1118)) ([9ffb257](https://github.com/adea-ai/adea/commit/9ffb257b30ca7aee92d5db18a6a7ab4d0c8872eb))
+* **e2e:** wire the three dev-view terminal specs into the CI lane ([#1101](https://github.com/adea-ai/adea/issues/1101)) ([4a8ba26](https://github.com/adea-ai/adea/commit/4a8ba26869cecb2045615ee3fdbea801eb80fce5))
+
+
+### CI
+
+* use native step parallelism for browser installs and the visual dev server ([#1133](https://github.com/adea-ai/adea/issues/1133)) ([9aabdf6](https://github.com/adea-ai/adea/commit/9aabdf6bece397c7cf908c6ab42b8c41fcc44814))
+* **visual:** drop the temporary baseline print step ([#1123](https://github.com/adea-ai/adea/issues/1123)) ([e1740fa](https://github.com/adea-ai/adea/commit/e1740fae6b5323c673aed18bbc8789ac63e55efc))
+
+
+### Maintenance
+
+* **ci:** sample the visual lane's two pixel suites by PR parity ([#1105](https://github.com/adea-ai/adea/issues/1105)) ([567747c](https://github.com/adea-ai/adea/commit/567747c9f09a3f62f9980e1e8021c829ad5ed94a))
+* **dev-view:** compose Dev View controls from shared variants instead of local restyles ([#1107](https://github.com/adea-ai/adea/issues/1107)) ([3dc48e8](https://github.com/adea-ai/adea/commit/3dc48e899be61083d26a389e48c2640e3a8eb382))
+* **dev-view:** compose the files pane, device rows and drag rows from shared parts ([#1119](https://github.com/adea-ai/adea/issues/1119)) ([f0c2090](https://github.com/adea-ai/adea/commit/f0c2090e2d0f6dbef1e633e392f64a122de04b3b))
+* **dev-view:** funnel source-control error toasts through toast.error ([#1125](https://github.com/adea-ai/adea/issues/1125)) ([4ebfc57](https://github.com/adea-ai/adea/commit/4ebfc5775a53dba3c2a4776b40e6de3b8473e2f8))
+* **dev:** adopt @adea-ai/ui 0.117 for grips, sheets and chat density ([#1127](https://github.com/adea-ai/adea/issues/1127)) ([32d4ad5](https://github.com/adea-ai/adea/commit/32d4ad5ffc62caf5ffb21e18b03c2ebada10e066))
+* **lint:** adopt @adea-ai/ui 0.120 and drop dev-* from the no-restyle allow list ([#1136](https://github.com/adea-ai/adea/issues/1136)) ([80b7630](https://github.com/adea-ai/adea/commit/80b763003424e5404c8423ffd650136a2907a32b))
+* **lint:** drop the named-hook families from the no-restyle allow list ([#1131](https://github.com/adea-ai/adea/issues/1131)) ([af1f8a3](https://github.com/adea-ai/adea/commit/af1f8a3bf704e6dd483937931cb37c6c6b6d1bc7))
+* **nav:** key workspace nav rows and breadcrumbs on shared parts instead of local restyles ([#1117](https://github.com/adea-ai/adea/issues/1117)) ([7f600a9](https://github.com/adea-ai/adea/commit/7f600a91175717190663f281ba3f20c702618049))
+* **settings:** lay out the settings dialogs with shared tabs utilities and the published banded header ([#1121](https://github.com/adea-ai/adea/issues/1121)) ([05098fc](https://github.com/adea-ai/adea/commit/05098fc09517bcfdf2dca87f83400a590625f33e))
+* **ui:** adopt @adea-ai/ui 0.116.0 and retire the consumer tooltip focus gate ([#1120](https://github.com/adea-ai/adea/issues/1120)) ([68cb301](https://github.com/adea-ai/adea/commit/68cb3018920f5a537ed53cd587f4c283cbcc410b))
+* **web:** remove the Control Plane static-token fallback ([#1116](https://github.com/adea-ai/adea/issues/1116)) ([41df1cc](https://github.com/adea-ai/adea/commit/41df1cc447d908d39c854971b86e1efa2c2725be))
+* **workspace:** compose workspace dialogs, board, rail and menus from shared components instead of local restyles ([#1115](https://github.com/adea-ai/adea/issues/1115)) ([7012e5e](https://github.com/adea-ai/adea/commit/7012e5eb4e6805bc2a4d08deecb3f6051517b172))
+* **workspace:** key the shell layout on data hooks instead of restyling shared parts ([#1126](https://github.com/adea-ai/adea/issues/1126)) ([0c57d1f](https://github.com/adea-ai/adea/commit/0c57d1f7dd56ffd453aab4bd392d61a06db8a347))
+
 ## [0.84.0](https://github.com/adea-ai/adea/compare/v0.83.0...v0.84.0) (2026-10-06)
 
 
