@@ -828,7 +828,7 @@
   --secondary-foreground: #5c6166;
   --muted: #ededee;
   --muted-foreground: #626669;
-  --accent: #d7d8d9;
+  --accent: #e0e1e2;
   --accent-foreground: #5c6166;
   --destructive: #c4494d;
   --destructive-action: #ac343b;
@@ -838,7 +838,7 @@
   --input: #c7c8c9;
   --ring: #8961b1;
   --primary-hover: #7b52a1;
-  --primary-subtle: color-mix(in oklch, var(--primary) 10%, transparent);
+  --primary-subtle: color-mix(in oklch, var(--primary) 4%, transparent);
   --destructive-foreground: #f8f9fa;
   --destructive-subtle: #dfe6f6;
   --success-foreground: #f8f9fa;
@@ -851,14 +851,14 @@
   --info-subtle: #dae7ef;
   --sidebar: #ededee;
   --sidebar-foreground: #5c6166;
-  --sidebar-accent: #d7d8d9;
+  --sidebar-accent: #e0e1e2;
   --sidebar-border: #c7c8c9;
   --sidebar-primary: #8961b1;
   --sidebar-primary-foreground: #f8f9fa;
   --sidebar-ring: #8961b1;
   --sidebar-muted-foreground: #626669;
   --surface-sunken: #ededee;
-  --surface-hover: #d7d8d9;
+  --surface-hover: #e0e1e2;
   --surface-active: #c7c8c9;
   --chrome: #f8f9fa;
   --terminal-background: #f8f9fa;
@@ -1018,7 +1018,7 @@
   --input: #585c6e;
   --ring: #8caaee;
   --primary-hover: #9cbafe;
-  --primary-subtle: color-mix(in oklch, var(--primary) 16%, transparent);
+  --primary-subtle: color-mix(in oklch, var(--primary) 9%, transparent);
   --destructive-foreground: #303446;
   --destructive-subtle: #423f5a;
   --success-foreground: #303446;
@@ -1108,7 +1108,7 @@
   --input: #bec0c4;
   --ring: #1b63f2;
   --primary-hover: #0753e1;
-  --primary-subtle: color-mix(in oklch, var(--primary) 10%, transparent);
+  --primary-subtle: color-mix(in oklch, var(--primary) 9%, transparent);
   --destructive-foreground: #eff1f5;
   --destructive-subtle: #d9dcf6;
   --success-foreground: #eff1f5;
@@ -1468,7 +1468,7 @@
   --input: #4a5155;
   --ring: #a7c080;
   --primary-hover: #b9cf98;
-  --primary-subtle: color-mix(in oklch, var(--primary) 16%, transparent);
+  --primary-subtle: color-mix(in oklch, var(--primary) 13%, transparent);
   --destructive-foreground: #232a2e;
   --destructive-subtle: #2e3947;
   --success-foreground: #232a2e;
@@ -2178,7 +2178,7 @@
   --secondary-foreground: #abb2bf;
   --muted: #30353f;
   --muted-foreground: #a0a7b3;
-  --accent: #3f4654;
+  --accent: #3a404e;
   --accent-foreground: #abb2bf;
   --destructive: #e36e77;
   --destructive-action: #fb848c;
@@ -2188,7 +2188,7 @@
   --input: #4f535b;
   --ring: #61afef;
   --primary-hover: #72bfff;
-  --primary-subtle: color-mix(in oklch, var(--primary) 16%, transparent);
+  --primary-subtle: color-mix(in oklch, var(--primary) 4%, transparent);
   --destructive-foreground: #282c34;
   --destructive-subtle: #36384b;
   --success-foreground: #282c34;
@@ -2201,14 +2201,14 @@
   --info-subtle: #323c49;
   --sidebar: #30353f;
   --sidebar-foreground: #abb2bf;
-  --sidebar-accent: #3f4654;
+  --sidebar-accent: #3a404e;
   --sidebar-border: #4f535b;
   --sidebar-primary: #61afef;
   --sidebar-primary-foreground: #282c34;
   --sidebar-ring: #61afef;
   --sidebar-muted-foreground: #a0a7b3;
   --surface-sunken: #30353f;
-  --surface-hover: #3f4654;
+  --surface-hover: #3a404e;
   --surface-active: #4f535b;
   --chrome: #282c34;
   --terminal-background: #282c34;
@@ -2368,7 +2368,7 @@
   --input: #c8c3bd;
   --ring: #7d6795;
   --primary-hover: #6e5986;
-  --primary-subtle: color-mix(in oklch, var(--primary) 10%, transparent);
+  --primary-subtle: color-mix(in oklch, var(--primary) 5%, transparent);
   --destructive-foreground: #faf4ed;
   --destructive-subtle: #efdfd2;
   --success-foreground: #faf4ed;
@@ -2548,7 +2548,7 @@
   --input: #30525d;
   --ring: #2aa198;
   --primary-hover: #3fb1a7;
-  --primary-subtle: color-mix(in oklch, var(--primary) 16%, transparent);
+  --primary-subtle: color-mix(in oklch, var(--primary) 8%, transparent);
   --destructive-foreground: #002b36;
   --destructive-subtle: #0a3755;
   --success-foreground: #002b36;
@@ -2908,7 +2908,7 @@
   --input: #4b4f62;
   --ring: #7aa2f7;
   --primary-hover: #8eb3ff;
-  --primary-subtle: color-mix(in oklch, var(--primary) 16%, transparent);
+  --primary-subtle: color-mix(in oklch, var(--primary) 15%, transparent);
   --destructive-foreground: #24283b;
   --destructive-subtle: #373453;
   --success-foreground: #24283b;

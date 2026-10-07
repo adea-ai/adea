@@ -301,11 +301,10 @@ source comments so an inline disable cannot silently bypass these checks.
 - The project's named CSS hooks (`conventional-*`, `dev-*`, `global-*`,
   `plugin-*`, `plugins-*`, `virtual-*`, `workspace-*`, `visually-hidden`,
   defined in `packages/ui/src/styles/`) belong on plain host elements, not on
-  design-system components: `shadcn/no-restyle` rejects them there (only
-  `dev-*` is still allowed while its last restyle moves to a published
-  variant). When a component needs a look it lacks, add the variant to
-  `@adea-ai/ui`; when host layout needs to find it, give it a `data-*` hook
-  and key the layout rule on that.
+  design-system components: `shadcn/no-restyle` rejects them there. When a
+  component needs a look it lacks, add the variant to `@adea-ai/ui`; when host
+  layout needs to find it, give it a `data-*` hook and key the layout rule on
+  that.
   Do not add frame-wide descendant resets for controls, focus rings, or SVG
   dimensions. Shared components own typography, colors, disabled states, focus,
   and icon sizing; a named host container is not permission to override them.

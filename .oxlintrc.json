@@ -16,7 +16,7 @@
     "shadcn/no-restyle": [
       "error",
       {
-        "allow": ["layout", "dev-*"]
+        "allow": ["layout"]
       }
     ],
     "shadcn/no-raw-colors": [

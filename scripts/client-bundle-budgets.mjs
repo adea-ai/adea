@@ -126,7 +126,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // chat changes measure 901,316 gzip against the 880 KiB cap and split one
   // more lazy chunk (157 files; total raw and every per-route cap hold).
   // Gzip takes its established 10 KiB step, 880 → 890 KiB (~1.1% headroom).
-  total: { rawBytes: 2_960_000, gzipBytes: 890 * 1024, fileCount: 157 },
+  // Shared UI 0.120 (2026-10-07): the toolbar Button variant and the
+  // 0.118-0.119 theme fixes measure 2,963,219 raw / 903,176 gzip across 157
+  // files. Raw ratchets to 2,990,000 (~0.9% headroom); gzip and files hold.
+  total: { rawBytes: 2_990_000, gzipBytes: 890 * 1024, fileCount: 157 },
   startup: { rawBytes: 720 * 1024, gzipBytes: 233 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
@@ -215,7 +218,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // pulls, and the owner audit's entry fixes touch the same workspace shell
     // (2026-10-07): 301,071 → 301,621 raw. Raw ratchets to 296 KiB (~0.7%
     // headroom); gzip holds at 98 KiB.
-    chat: { rawBytes: 296 * 1024, gzipBytes: 98 * 1024 },
+    // Shared UI 0.120 (2026-10-07): the toolbar Button variant and the
+    // 0.118-0.119 theme fixes land 303,431 raw / 100,845 gzip in CI, 327 and
+    // 493 bytes over the 296 KiB / 98 KiB caps. Both ratchet to the next
+    // whole KiB.
+    chat: { rawBytes: 297 * 1024, gzipBytes: 99 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
