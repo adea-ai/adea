@@ -1125,6 +1125,43 @@ test('the project menu opens the lazy Share dialog from the accordion', async ({
   expect(chrome!.controlBorderColor).not.toBe('rgba(0, 0, 0, 0)')
 })
 
+test('the artifact detail keeps the surface header composition', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.goto('/?view=chat')
+  const composer = page.locator('textarea[id^="composer-"]')
+  await expect(composer).toBeVisible()
+  await page.getByRole('button', { name: 'Search this conversation' }).click()
+  const search = page.getByRole('dialog', { name: /Search/i })
+  await search.getByPlaceholder('Find a Project, conversation, Agent, or Task').fill('brief')
+  await search.getByText('launch-brief.md').click()
+  const detail = page.locator('.conventional-artifact-detail')
+  await expect(detail).toBeVisible()
+  const composition = await page.evaluate(() => {
+    const section = document.querySelector('.conventional-artifact-detail')
+    const header = section?.querySelector('.conventional-surface-header')
+    const h1 = section?.querySelector('h1')
+    if (!section || !header || !h1) return null
+    const sectionStyle = getComputedStyle(section)
+    const sectionRect = section.getBoundingClientRect()
+    const headerRect = header.getBoundingClientRect()
+    return {
+      sectionPaddingTop: sectionStyle.paddingTop,
+      headerFullWidth:
+        headerRect.left - sectionRect.left >= Number.parseFloat(sectionStyle.paddingLeft) - 2 &&
+        headerRect.width > sectionRect.width * 0.6,
+      h1Weight: getComputedStyle(h1).fontWeight,
+    }
+  })
+  expect(composition).not.toBeNull()
+  // The header keeps the standard surface inset and spans the view instead of
+  // shrink-wrapping to its copy and centring the wrap.
+  expect(Number.parseFloat(composition!.sectionPaddingTop)).toBeGreaterThan(0)
+  expect(composition!.headerFullWidth).toBe(true)
+  // The surface heading carries the published semibold role, not preflight's
+  // inherited 400.
+  expect(composition!.h1Weight).toBe('600')
+})
+
 test('the top-bar title slot shows Workspace › Project › Leaf without adding a row', async ({
   page,
 }) => {

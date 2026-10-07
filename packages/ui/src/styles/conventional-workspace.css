@@ -908,6 +908,7 @@
 }
 .conventional-surface-header h1 {
   font-size: calc(clamp(1.5rem, 3vw, 2.1rem) * var(--font-ui-scale, 1));
+  font-weight: 600;
 }
 .conventional-surface-header p {
   margin-top: 0.3rem;
@@ -1025,8 +1026,24 @@
 }
 .conventional-artifact-detail {
   display: grid;
+  /* The single implicit column track is content-sized, which shrink-wrapped
+     the surface header to its copy and centred the wrap; stretch one column
+     so the header spans the surface like every other main view. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr;
   height: 100%;
+  overflow-y: auto;
+  /* The directory's surface padding; the header previously sat flush to the
+     top edge because this view owned no inset of its own. */
+  padding: clamp(1rem, 3vw, 2.5rem);
+}
+/* The shared header centres a 78rem cap with auto margins — correct in the
+   block-flow directory, but auto margins on a grid item beat stretch and
+   shrink-wrap the header to its copy. This surface spans instead; the card
+   below keeps its own centred cap. */
+.conventional-artifact-detail .conventional-surface-header {
+  max-width: none;
+  margin-inline: 0;
 }
 .conventional-search-hint {
   padding: 0 1rem 0.35rem;
