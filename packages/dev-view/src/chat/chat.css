@@ -15,6 +15,10 @@
   background: var(--background);
 }
 
+.dev-chat > .dev-chat__stream {
+  grid-row: 3;
+}
+
 .dev-chat > .dev-chat__composer {
   grid-row: 4;
 }
@@ -76,6 +80,15 @@
   padding: 1rem;
 }
 
+.dev-chat__composition [data-slot='transcript-rows'] {
+  gap: 0.75rem;
+}
+
+.dev-chat__composition [data-slot='transcript-row-content'] {
+  display: flex;
+  flex-direction: column;
+}
+
 .dev-chat__row {
   display: grid;
   max-width: min(48rem, 100%);
@@ -84,13 +97,10 @@
   border: 1px solid var(--dev-border, var(--border));
   border-radius: 0.6rem;
   background: var(--dev-panel, var(--background));
-  /* With the shared transcript's row gap, keeps rows 0.75rem apart. */
-  margin-block: 0.25rem;
 }
 
 .dev-chat__row--user {
-  width: fit-content;
-  margin-inline-start: auto;
+  align-self: flex-end;
   background: color-mix(in srgb, var(--primary) 11%, var(--background));
 }
 
