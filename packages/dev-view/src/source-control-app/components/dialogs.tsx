@@ -196,7 +196,7 @@ export function NewPullRequestDialog(props: {
               onChange={(event) => setBase(event.currentTarget.value)}
             />
           </FormField>
-          <ArrowLeft class="mb-2" aria-hidden="true" />
+          <ArrowLeft class="mb-2 size-5" aria-hidden="true" />
           <FormField label="From" controlId="dev-scm-new-head">
             <NativeSelect
               id="dev-scm-new-head"

@@ -438,7 +438,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
   return (
     <section class="dev-sc" aria-label="Source control">
       <div class="dev-sc__header">
-        <GitCommitHorizontal aria-hidden="true" />
+        <GitCommitHorizontal class="size-4" aria-hidden="true" />
         <strong>
           <Show when={status()} fallback={'no repository state'}>
             {(current) => branchLabel(current())}
