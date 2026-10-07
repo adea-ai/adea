@@ -266,6 +266,9 @@ export const devOperationMetadata = {
   'dev.github.pushPlan': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_github_pushPlan
   ),
+  'dev.github.repositories': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_github_repositories
+  ),
   'dev.github.repository': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_github_repository
   ),

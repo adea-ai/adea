@@ -4897,6 +4897,21 @@ Issue, PR, review, and check text/logs are untrusted display content. They are
 sanitized, bounded, and never automatically inserted into a privileged prompt
 or shell command.
 
+`dev.github.repositories` is the provider's one account-scoped read: it lists
+the authenticated `gh` account's repositories (the add surface's "From
+GitHub" import source) without a repository resource. The invocation is one
+fixed-argv `gh repo list --hostname github.com --limit <N> --json
+nameWithOwner,url,visibility,updatedAt,isFork` through the bounded runner
+(the workspace git-hosting binding resolves its token env exactly like every
+other `gh` child), `N` defaults to and caps at 200, and the reply is a strict
+`GitHubRepositorySummary[]<=200` — the DTO normalizes gh's upper-cased
+GraphQL visibility enum to `public`/`private`/`internal` before the literal
+guard. Reads cache with the provider's short TTL and every gh failure answers
+through the shared typed classification (unauthenticated, rate-limited,
+remote-unavailable), credential-redacted. It names remotes to clone; it never
+implies a local registration, and it feeds only the managed-clone binding
+described in the add-surface contract.
+
 ### Pull request collaboration (source control app)
 
 The source control app reads and acts on pull requests across every

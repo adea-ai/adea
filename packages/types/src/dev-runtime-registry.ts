@@ -750,6 +750,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'repository', idField: 'repoId' },
     stream: null,
   },
+  'dev.github.repositories': {
+    body: '{ limit?: integer(1..200) }',
+    capabilities: ['dev.github.read'],
+    reply: 'GitHubRepositorySummary[]<=200',
+    resource: null,
+    stream: null,
+  },
   'dev.github.repository': {
     body: '{ repoId: string; refresh?: boolean }',
     capabilities: ['dev.github.read'],

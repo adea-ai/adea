@@ -40,6 +40,7 @@ import type {
   GitHubMilestone,
   GitHubPullRequest,
   GitHubRepository,
+  GitHubRepositorySummary,
   GitPushResult,
   GitUpdateBranchResult,
   MutationPlan,
@@ -80,6 +81,8 @@ import {
 const PLAN_TTL_MS = 10 * 60_000
 const CACHE_TTL_MS = 30_000
 const PAGE_MAX = 100
+/** The `dev.github.repositories` ceiling: one bounded `gh repo list` page. */
+const REPO_LIST_MAX = 200
 const GH_READ_BUDGET = 2 * 1024 * 1024
 const TITLE_MAX = 256
 const BODY_MAX = 65_536
@@ -643,6 +646,24 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     }
   }
 
+  /** One `gh repo list` entry: gh's GraphQL `visibility` enum arrives
+   *  upper-cased, so the DTO normalizes it before the strict literal guard. */
+  function mapRepositorySummary(payload: unknown): GitHubRepositorySummary {
+    const item = obj(payload, 'repository')
+    return {
+      nameWithOwner: str(item.nameWithOwner, 'repository.nameWithOwner', 201),
+      url: str(item.url, 'repository.url', 512),
+      visibility: literal(
+        String(item.visibility ?? '').toLowerCase(),
+        ['public', 'private', 'internal'] as const,
+        'repository.visibility'
+      ),
+      updatedAt: requiredIsoTimestamp(item.updatedAt, 'repository.updatedAt'),
+      isFork: bool(item.isFork, 'repository.isFork'),
+      observedAt: iso(now()),
+    }
+  }
+
   function mapRepository(
     payload: unknown,
     repoId: string,
@@ -998,6 +1019,29 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       devOperationDecoders['dev.github.account'].request(command.body)
       const payload = await ghJson(apiArgs(DEFAULT_HOST, 'user'), { cacheKey: 'account' })
       return mapAccount(payload, DEFAULT_HOST)
+    },
+
+    // The authenticated account's repositories: the add-surface's "From
+    // GitHub" import source. One bounded, fixed-argv `gh repo list` read —
+    // no repository resource, no user text in argv.
+    'dev.github.repositories': async (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.github.repositories'].request(command.body)
+      const limit = Math.min(Number(body.limit ?? REPO_LIST_MAX), REPO_LIST_MAX)
+      const payload = await ghJson(
+        [
+          'repo',
+          'list',
+          '--hostname',
+          DEFAULT_HOST,
+          '--limit',
+          String(limit),
+          '--json',
+          'nameWithOwner,url,visibility,updatedAt,isFork',
+        ],
+        { cacheKey: `repo-list:${limit}` }
+      )
+      return decodeJsonList(payload, 'repositories').map((entry) => mapRepositorySummary(entry))
     },
 
     'dev.github.repository': async (command) => {
