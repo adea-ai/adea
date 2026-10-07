@@ -101,13 +101,13 @@ application diff now contains no migration SQL or snapshot change.
 - `mise exec -- bun run format:check`: 1,809 files passed before this evidence update.
 - `mise exec -- bun run --cwd packages/db db:check`: passed.
 
-Production migration/deployment verification, an authorized retention schedule,
-and independent operational evidence remain required. Current-row removal is
-not configured on production: the read-only role catalog found no `_app` role,
+Application deployment verification, an authorized retention schedule and
+independent operational evidence remain required. Current-row removal is not
+configured on production: the read-only role catalog found no `_app` role,
 so the supported operator's application-role credential and activation still
 require their own authorized setup. No role/password was created or changed.
-Current-row removal is
-not secure erasure from WAL, backups or replicas. Host inbox/replay, private-key
+Current-row removal is not secure erasure from WAL, backups or replicas.
+Host inbox/replay, private-key
 retention, supported Control Plane command/result interoperability, execution
 acceptance/reconciliation and packaged/live certification remain their owning
 lanes. No issue is closed or criterion marked verified by this increment.
