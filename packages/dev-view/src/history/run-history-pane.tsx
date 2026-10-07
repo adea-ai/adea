@@ -50,6 +50,7 @@ export function RunHistoryPane(props: {
               </Button>
             </Show>
             <Show when={!row.resumable}>
+              <span aria-hidden="true"> · </span>
               <span aria-label={`Run is not resumable: ${row.resumeReason}`}>
                 Not resumable ({row.resumeReason.replace('_', ' ')})
               </span>

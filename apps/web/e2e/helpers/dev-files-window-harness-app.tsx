@@ -8,6 +8,7 @@ import type {
   Scope,
 } from '@adea-ai/types/dev-runtime'
 import { render } from 'solid-js/web'
+import { createSignal } from 'solid-js'
 
 import { FilesPane } from '../../../../packages/dev-view/src/files/files-pane'
 import type { DevRuntimeService } from '../../../../packages/dev-view/src/platform'
@@ -65,6 +66,9 @@ type OpenedFile = Readonly<{
 
 const listPageCalls: ListPageCall[] = []
 let openedFile: OpenedFile | undefined
+// The open file's path mirrors the workspace entry's activeEditorFile so the
+// tree's selected-row affordance can be exercised deterministically.
+const [openPath, setOpenPath] = createSignal<string | undefined>(undefined)
 
 function reply(command: DevCommand, value: unknown): DevReply {
   return {
@@ -164,8 +168,10 @@ render(
     <FilesPane
       runtime={runtime}
       worktreeId={worktreeId}
+      openPath={openPath()}
       onOpenFile={(file) => {
         openedFile = file
+        setOpenPath(file.relativePath)
       }}
     />
   ),

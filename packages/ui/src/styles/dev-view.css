@@ -435,6 +435,19 @@
   font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 
+/* The Agents pane's status section keeps the same body rhythm as its
+   neighboring Activity section (.dev-activity): the utility panel content
+   area carries no padding of its own, so each section root pads itself.
+   The section stays content-sized because it shares the content area with
+   the Activity section below it. */
+.dev-harness-status {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+
 .dev-workspace--focus .dev-sidebar,
 .dev-workspace--focus .dev-utility,
 .dev-workspace--focus .dev-utility-splitter {

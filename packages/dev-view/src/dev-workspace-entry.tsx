@@ -672,6 +672,12 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     )
     focusPaneElement(`dev-editor-${suffix}`)
   }
+  /** The open editor file's path, when it belongs to the given worktree —
+   *  the Files tree marks that row with the shared selected affordance. */
+  const openEditorPathFor = (worktreeId: string | undefined): string | undefined => {
+    const file = activeEditorFile()
+    return file !== undefined && file.worktreeId === worktreeId ? file.relativePath : undefined
+  }
   const collapseSide = (side: 'left' | 'right', options: { focusCenter?: boolean } = {}) => {
     const expected = selectedCanonicalBinding() ?? null
     if (side === 'right') utilityOwner.collapseRightUtility(expected)
@@ -1007,6 +1013,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             runtime={props.runtime}
             runtimeSessionId={selectedSession() || undefined}
             sessionWorktreeId={selectedSessionWorktreeId()}
+            openPath={openEditorPathFor(selectedSessionWorktreeId())}
             capabilityOf={capabilityOf}
             onShow={showPane}
             onCollapse={() => collapseSide('left')}
@@ -1192,6 +1199,11 @@ function FileSourceControlSlot(props: {
    * ready one on the node.
    */
   sessionWorktreeId: string | undefined
+  /**
+   * The open editor file's relative path, when it belongs to the session's
+   * worktree — the Files tree marks that row as selected.
+   */
+  openPath: string | undefined
   capabilityOf(pane: DevUtilityPane): { granted: boolean; reason?: string } | undefined
   onShow(pane: DevUtilityPane): void
   onOpenFile(file: {
@@ -1229,6 +1241,7 @@ function FileSourceControlSlot(props: {
         <FilesPane
           runtime={props.runtime}
           worktreeId={props.sessionWorktreeId}
+          openPath={props.openPath}
           onOpenFile={props.onOpenFile}
         />
       ) : (

@@ -123,6 +123,35 @@ test('Files tree enters by Tab, supports tree navigation, and opens through its 
   ).toEqual([])
 })
 
+test('Files tree marks the opened file with the shared selected-row affordance', async ({
+  page,
+}) => {
+  const { tree } = await mountFilesTree(page, { rows: 20 })
+
+  // Nothing is selected until a file opens.
+  await expect(tree.locator('[role="treeitem"][aria-selected="true"]')).toHaveCount(0)
+
+  const row = tree.locator('[data-tree-id="file-0002.txt"]')
+  await row.click()
+
+  // The opened row carries the shared TreeRow selected state — the same
+  // affordance the browser lanes list uses — and it is the only one.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as FilesWindowHarness).devFilesWindowHarness.report().openedFile?.relativePath
+      )
+    )
+    .toBe('file-0002.txt')
+  await expect(row).toHaveAttribute('aria-selected', 'true')
+  await expect(row).toHaveClass(/bg-primary-subtle/)
+  await expect(tree.locator('[role="treeitem"][aria-selected="true"]')).toHaveCount(1)
+  await expect(tree.locator('[data-tree-id="file-0003.txt"]')).toHaveAttribute(
+    'aria-selected',
+    'false'
+  )
+})
+
 test('Files tree reveals offscreen focus with measured rows at narrow width and 200% root text size', async ({
   page,
 }) => {

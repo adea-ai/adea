@@ -235,6 +235,31 @@ test('synthetic BrowserPane preview exposes tooltips and supports pointer and ke
   await expect(preview).toHaveCount(0)
 })
 
+test('MiniPreview projects the designed lane label and its header contains the Move control', async ({
+  page,
+}) => {
+  // The harness's default fixture lane is `task_owned` on the wire; the
+  // summary must show the designed label, never the raw kind, and the
+  // published header band must contain its own Move control instead of the
+  // control overflowing the fixed-height band.
+  const pane = await mountBrowserPane(page)
+  await pane.getByRole('button', { name: 'Float preview' }).click()
+
+  const frame = page.locator('section[aria-label="Browser preview"]')
+  await expect(frame).toBeVisible()
+  await expect(frame).toContainText('Mirroring Task-owned agent · gen 7')
+  await expect(frame).not.toContainText('task_owned')
+
+  const header = frame.locator('> header')
+  const move = frame.getByRole('button', { name: 'Move Browser preview' })
+  const headerBox = await header.boundingBox()
+  const moveBox = await move.boundingBox()
+  expect(headerBox).not.toBeNull()
+  expect(moveBox).not.toBeNull()
+  expect(moveBox!.y).toBeGreaterThanOrEqual(headerBox!.y - 0.5)
+  expect(moveBox!.y + moveBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height + 0.5)
+})
+
 test('BrowserPane applies the viewport size it reports when zoom changes', async ({ page }) => {
   const pane = await mountBrowserPane(page)
   const viewportCommands = () =>
