@@ -29,4 +29,35 @@ describe('truthful Agent status model', () => {
         .label
     ).toBe('Needs configuration')
   })
+
+  test('a configured profile never masks an archived or invalid Agent lifecycle', () => {
+    expect(agentStatusModel({ ...agent, lifecycleState: 'archived' }).configuration.detail).toBe(
+      'Archived Agent.'
+    )
+    expect(
+      agentStatusModel({ ...agent, lifecycleState: 'configuration_error' }).configuration.detail
+    ).toBe('Review configuration.')
+  })
+
+  test('offers specific remediation and keeps catalog failure distinct from missing configuration', () => {
+    for (const state of [
+      'missing',
+      'deprecated',
+      'revoked',
+      'incompatible',
+      'unapproved',
+    ] as const) {
+      const status = agentStatusModel({ ...agent, profile: { ...agent.profile, state } })
+      expect(status.configuration.label).toBe('Needs configuration')
+      expect(status.configuration.detail).toContain('Customize')
+      expect(status.configuration.detail).toContain(state === 'unapproved' ? 'approved' : state)
+    }
+    const unavailable = agentStatusModel({
+      ...agent,
+      profile: { ...agent.profile, state: 'unavailable' },
+    })
+    expect(unavailable.configuration.label).toBe('Profile unavailable')
+    expect(unavailable.configuration.detail).toContain('selected version is unchanged')
+    expect(unavailable.runtime.label).toBe('Runtime unknown')
+  })
 })

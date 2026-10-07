@@ -119,3 +119,21 @@ provenance and authoritative read-time remediation remain required for #41.
 
 [Profile adoption evidence](../evidence/m11-agent-profile-pins.md) records the
 SDK, concurrency, database and product checks and the remaining acceptance gates.
+
+## Authoritative profile availability on reads
+
+The authorized Agent list and single-Agent reads check the exact saved public
+profile/version through the pinned SDK catalog and resolver. Approved published
+pins remain available; missing, deprecated, revoked, unapproved and incompatible
+versions have explicit remediation. Outages and malformed responses report
+unavailable instead of inheriting the database's previous available value.
+Neither read changes the stored pin, revision or audit history.
+
+Read work deduplicates shared pins, uses at most four concurrent checks and 32
+distinct pins, and has one five-second deadline including scope resolution.
+Unvisited or cancelled checks remain unavailable. A single-Agent read can check
+a pin beyond the list's bound; large inventories need paginated availability
+work before claiming full catalog coverage. The check timestamp records an
+attempt, including failures, rather than execution authorization. Submission
+must recheck policy and snapshot the pin atomically; this read model does not
+replace that remaining #41 requirement.
