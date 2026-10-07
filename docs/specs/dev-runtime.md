@@ -4904,23 +4904,37 @@ registered repository whose `origin` is a trusted GitHub remote. Its
 operations extend the provider above under the same credential rule: GitHub
 auth is the user's `gh` CLI context, and Adea stores no GitHub token.
 
-- **Sidebar tree and the show-more line.** The tree groups registered
+- **Sidebar tree and the show-more bar.** The tree groups registered
   repositories under their provider owners, counts active projects whose
   every binding has no registry record separately from archived ones (the
   empty state names auto-adoption, its failure fallback, and the panel's
   remove action, and always states unregistered archived projects
   separately — auto-adopt skips them), and collapses archived projects into
   their own section. Repositories the viewer does not want listed sit below
-  a show-more line: hiding is a per-repository display preference in the
+  the show-more bar: hiding is a per-repository display preference in the
   app's scope-scoped browser storage (`hiddenRepoIds`), never an unlink —
   hidden repositories stay adopted and registered, keep their rows inside
   the collapsed group, and are excluded from the shortcut counts and the
   default selection while every newly adopted repository is visible by
   default (membership is an explicit set, so auto-adopt lands above the
-  line). The divider's drag-to-reorder interaction is an upstream shared-UI
-  seam: no published sortable-list primitive exists yet, so the shipped
-  composition offers explicit hide/show controls per row instead of
-  hand-rolling drag-and-drop.
+  bar). The bar itself is a divider between the owner sections and the
+  collapsed group, present whenever any active project exists, and it is
+  the pointer fast path, not a second state model: dragging a repository
+  row across the line and releasing commits the same `hiddenRepoIds` write
+  the per-row hide/show controls make — below the line hides, above it
+  restores. It never reorders: owner grouping and within-section order are
+  fixed, so a drop on the row's own side is a no-op. The pointer mechanics
+  mirror the published resize handles — pointer capture on the row, a
+  6px travel threshold before a press becomes a drag, a 12px hysteresis
+  band around the line before the landing zone flips (a click never
+  toggles), and Escape, pointer cancellation, and lost capture abort
+  without a drop and without falling through to the row's click; the line
+  highlights while a drag is live and arms once the pointer crosses. Touch
+  keeps its scroll (`pan-y`): a scroll that wins fires pointercancel and
+  aborts the drag, so the explicit controls are also the touch path.
+  Keyboard parity stays with the per-row hide/show controls; the bar
+  exposes itself as a labelled separator plus a grip button that toggles
+  the collapsed group, mirroring how the resize grips are exposed.
 
 - **Read models.** `pullRequestSummaries` (one repository, newest update
   first, at most 50 a page) and `pullRequestSummary` (one PR, plus `body` and
