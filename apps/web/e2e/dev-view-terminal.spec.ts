@@ -20,7 +20,7 @@ test('terminal attach renders authenticated shell state and remains keyboard acc
   const pane = page.getByRole('region', { name: 'terminal pane' }).first()
 
   await expect(terminal.locator('.dev-terminal-pane-status')).toHaveAttribute('data-state', 'open')
-  await expect(terminal.locator('.dev-terminal-pane-integration')).toHaveAttribute(
+  await expect(terminal.locator('[data-terminal-integration]')).toHaveAttribute(
     'data-status',
     'active'
   )

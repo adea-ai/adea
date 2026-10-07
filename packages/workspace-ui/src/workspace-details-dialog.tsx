@@ -5,7 +5,7 @@ import { SettingsNavigation } from '@adea-ai/ui/components/composites/settings'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
 import { Brain, LockKeyhole, Settings2, Sparkles } from 'lucide-solid'
-import { createEffect, createSignal, lazy, Show, type Accessor } from 'solid-js'
+import { createEffect, createSignal, lazy, Show, Suspense, type Accessor } from 'solid-js'
 
 import type { WorkspacePlatformServices } from './platform'
 import {
@@ -38,6 +38,9 @@ const SkillsPane = lazy(() =>
 )
 const CloudConnectionsPane = lazy(() =>
   import('./control-plane-settings').then((module) => ({ default: module.CloudConnectionsPane }))
+)
+const RuntimeNodesPane = lazy(() =>
+  import('./control-plane-settings').then((module) => ({ default: module.RuntimeNodesPane }))
 )
 
 /**
@@ -197,15 +200,22 @@ export function WorkspaceDetailsDialog(props: {
               <div>
                 <h3>{workspaceSettingsSectionLabels.connections}</h3>
                 <p>
-                  Which git hosting credentials and harness accounts this workspace uses on this
-                  device, and the connector credentials its cloud agents use. Device secrets stay in
-                  the device vault.
+                  Devices and self-hosted runtimes registered to this workspace, git hosting and
+                  harness accounts on this device, and connector credentials for cloud agents.
+                  Device secrets stay in the device vault.
                 </p>
               </div>
             </header>
-            <Show when={section() === 'connections'}>
-              <ConnectionsPane service={props.services?.connections} />
-              <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />
+            <Show when={props.open && section() === 'connections'}>
+              <Suspense fallback={<p role="status">Loading device connections…</p>}>
+                <ConnectionsPane service={props.services?.connections} />
+              </Suspense>
+              <Suspense fallback={<p role="status">Loading execution hosts…</p>}>
+                <RuntimeNodesPane client={apiClient()} workspaceId={props.workspace.id} />
+              </Suspense>
+              <Suspense fallback={<p role="status">Loading cloud connections…</p>}>
+                <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />
+              </Suspense>
             </Show>
           </div>
         </TabsContent>

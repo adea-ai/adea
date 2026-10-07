@@ -26,6 +26,8 @@ const specs = [
   'apps/web/e2e/desktop-first-run-chat.spec.ts',
   'apps/web/e2e/plugins-loading.spec.ts',
   'apps/web/e2e/workspace-form.spec.ts',
+  'apps/web/e2e/workspace-settings.spec.ts',
+  'apps/web/e2e/runtime-inventory.spec.ts',
   'apps/web/e2e/dev-browser-pane.spec.ts',
   'apps/web/e2e/workspace-tooltip.spec.ts',
   'apps/web/e2e/workspace-menu.spec.ts',

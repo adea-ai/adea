@@ -221,6 +221,24 @@ nodes retain the generic workspace refusal. Consumers use the typed
 `listRuntimeNodeConnections` API client; native Dev Runtime discovery retains its
 existing host authority and cannot be replaced by this cloud projection.
 
+Workspace details › Connections › Execution hosts exposes this read model as a
+read-only inspector. Hosts are listed through the existing authorized identity
+route; the typed client keeps only display, version, registration and proof
+fields in its inventory projection, excluding keys and arbitrary trust metadata.
+Viewing a host is inspection, not execution selection. Its connection pages keep
+node health, connection health, compatibility, grants, entitlement, capabilities,
+limitations and reported eligibility distinct. Discovery never supplies an
+inferred transport or changes conversation/history availability.
+
+The lazy pane queries only while Connections is open. Query identities bind
+client, workspace, node and cursor; scope changes reset the inspector and abort
+unused reads. Pages are not retained after their last observer leaves. Pending
+refreshes and failed reads hide previous inventory, and successful empty results
+remain distinct from unavailable discovery. The displayed proof/inventory ages
+to stale, expired or unknown without background network polling. Explicit
+refresh and committed node events fetch current observations. Either node read
+can downgrade revoked/stale/unknown registration; discovery is never admission.
+
 ## Durable events
 
 Every state change is recorded through the one publication path
@@ -238,10 +256,10 @@ Payloads carry fingerprints and ids, never key material, and stay inside the
 fail-closed redaction rules of `docs/specs/workspace-events.md`.
 `aggregate_type` is `runtime_node` for all four, which is what lets a client
 refresh exactly one node's view from the stream. The realtime client's family
-map has no `runtime_node` entry yet, so these events currently refresh the
-workspace scope (`['workspaces', workspaceId]`) — correct but coarse. Adding the
-family means adding a runtime-node query-key group to `packages/data` first, so
-the mapping and the keys land together rather than pointing at nothing.
+map refreshes the runtime-node query group
+(`['workspaces', workspaceId, 'runtime-nodes']`), including observed connection
+pages. This group remains inside the workspace prefix for membership changes
+and complete resynchronization.
 
 ## Failure semantics
 

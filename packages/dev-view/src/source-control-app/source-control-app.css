@@ -60,18 +60,32 @@
   }
 }
 
-/* ── Top bar portal ─────────────────────────────────────────────────────── */
+/* ── Top bar group ──────────────────────────────────────────────────────── */
 
+/* Portaled into the title mount, the group fills the centre column: the
+   search takes every pixel the sync status and control leave it. The track
+   is a grid `minmax` (not a grown flex item) because portals and Show
+   branches interleave classless wrapper divs between the group and its
+   children — a grid track stretches whatever lands in it, wrapper or not. */
 .dev-scm-topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto auto;
   align-items: center;
   gap: 0.5rem;
+  width: 100%;
   min-width: 0;
 }
 
-/* Centered in the top bar's title slot, the search fills the slot instead of
-   its fixed leading-group width, so the field sits at the bar's centre where
-   the plain workspace-name title would be. */
+.workspace-topbar__title-mount > * {
+  width: 100%;
+  min-width: 0;
+}
+
+/* The search leads the group so it reads left of the sync status. */
+.dev-scm-topbar [data-scm-search] {
+  width: 100%;
+  min-width: 0;
+}
 
 @media (max-width: 48rem) {
   [data-scm-search],

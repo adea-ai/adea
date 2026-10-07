@@ -30,6 +30,12 @@
       "development": "./src/dev-runtime.ts",
       "import": "./dist/dev-runtime.js"
     },
+    "./runtime-nodes": {
+      "types": "./dist/runtime-nodes.d.ts",
+      "solid": "./src/runtime-nodes.ts",
+      "development": "./src/runtime-nodes.ts",
+      "import": "./dist/runtime-nodes.js"
+    },
     "./control-plane": {
       "types": "./dist/control-plane.d.ts",
       "solid": "./src/control-plane.ts",

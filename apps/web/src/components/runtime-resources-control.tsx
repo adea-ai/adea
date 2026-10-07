@@ -26,18 +26,33 @@ export function RuntimeResourcesControl(props: {
   // The selected session is presentation state shared across views, so the
   // sheet scopes to the same session the Dev surfaces show.
   const runtimeSessionId = useWorkspaceState((state) => state.selectedRuntimeSessionId)
+  // The sheet is a modal dialog: its overlay dismisses on the outside
+  // pointerdown before the click sequence reaches this trigger, so the very
+  // click that closes the sheet would land on the re-exposed trigger and
+  // instantly re-open it. Swallow clicks for a beat after a dismissal — the
+  // dismissing click already said "close".
+  let dismissedAtMs = 0
+  const close = () => {
+    dismissedAtMs = Date.now()
+    setOpen(false)
+  }
+  const toggle = () => {
+    if (!open() && Date.now() - dismissedAtMs < 300) return
+    setOpen(!open())
+  }
   return (
     <>
       <ActionButton
         type="button"
-        variant="ghost"
+        variant="toolbar"
         size="icon-sm"
+        data-expanded={open() ? '' : undefined}
         tooltip={open() ? 'Close runtime resources' : 'Open runtime resources'}
         tooltipIcon={<Gauge aria-hidden="true" />}
         aria-label="Runtime resources"
         aria-pressed={open()}
         aria-expanded={open()}
-        onClick={() => setOpen(!open())}
+        onClick={toggle}
       >
         <Gauge aria-hidden="true" />
       </ActionButton>
@@ -47,7 +62,7 @@ export function RuntimeResourcesControl(props: {
           runtimeSessionId={runtimeSessionId() || undefined}
           openExternal={props.openExternal}
           onOpenSession={props.onOpenSession}
-          onClose={() => setOpen(false)}
+          onClose={close}
         />
       </Show>
     </>

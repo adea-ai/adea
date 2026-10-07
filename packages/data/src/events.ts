@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/solid-query'
+import { runtimeNodeQueryKeys } from './runtime-nodes'
 
 import {
   accountQueryKeys,
@@ -87,6 +88,8 @@ export function queryKeysForEvent(
     return workspaceScopeKeys(workspaceId)
   const [family = ''] = eventType.split('.')
   switch (family) {
+    case 'runtime_node':
+      return [runtimeNodeQueryKeys.all(workspaceId)]
     case 'message':
       // A message can reopen its Task and change read state, so those refresh
       // with it; the message groups themselves cover every channel the client
