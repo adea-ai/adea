@@ -2196,15 +2196,18 @@ test('workspace search keeps duplicate destination labels tied to their domain i
   // The result label's emphasis draws the dialog's real foreground token;
   // an undefined custom property would silently fall back to inheritance.
   const emphasisPaint = await page.evaluate(() => {
-    const option = document.querySelector<HTMLElement>(
-      '.conventional-search-results [cmdk-item][aria-selected="true"]'
+    const searchField = document.querySelector<HTMLInputElement>(
+      'input[placeholder="Find a Project, conversation, Agent, or Task"]'
     )
+    const option = searchField
+      ?.closest('[role="dialog"]')
+      ?.querySelector<HTMLElement>('[cmdk-item][aria-selected="true"]')
     const emphasis = option?.querySelector('strong')
-    const searchDialog = emphasis?.closest('.conventional-dialog')
-    if (!emphasis || !searchDialog) return null
+    const frame = emphasis?.closest('.conventional-workspace')
+    if (!emphasis || !frame) return null
     return {
       emphasis: getComputedStyle(emphasis).color,
-      text: getComputedStyle(searchDialog).getPropertyValue('--cw-text').trim(),
+      text: getComputedStyle(frame).getPropertyValue('--cw-text').trim(),
     }
   })
   expect(parseColor(emphasisPaint!.emphasis)).toEqual(parseColor(emphasisPaint!.text))

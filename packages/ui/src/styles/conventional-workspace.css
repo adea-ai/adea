@@ -1034,40 +1034,6 @@
   color: var(--cw-muted);
   font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
-/* Search results are cmdk options (divs carrying [cmdk-item]), not buttons;
-   they carry the row-card treatment the workspace dialog always had. */
-.conventional-search-results [cmdk-item] {
-  display: flex;
-  min-height: 3.2rem;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--cw-border);
-  border-radius: 0.45rem;
-  background: var(--cw-surface);
-  text-align: left;
-  cursor: pointer;
-}
-.conventional-search-results [cmdk-item] svg {
-  width: 1.25rem;
-  height: 1.25rem;
-  flex: none;
-  color: var(--cw-muted);
-}
-.conventional-search-results [cmdk-item]:hover,
-.conventional-search-results [cmdk-item][aria-selected='true'] {
-  background: var(--cw-surface-muted);
-  outline: 2px solid var(--cw-focus);
-  outline-offset: -2px;
-}
-.conventional-search-results [cmdk-item] strong {
-  color: var(--cw-text);
-  font-weight: 600;
-}
-.conventional-search-results [cmdk-item] small {
-  color: var(--cw-muted);
-  font-size: calc(0.75rem * var(--font-ui-scale, 1));
-}
 .conventional-dialog-empty {
   padding: 1rem;
   color: var(--cw-muted);
