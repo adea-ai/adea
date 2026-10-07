@@ -3957,3 +3957,47 @@ test('workspace navigation captures full-height pointer resizing and persists th
     .poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().width))
     .toBe(resized)
 })
+
+test('the contextual sidebar toggle hides while the chat shell renders its bootstrap fallback', async ({
+  page,
+}) => {
+  // Mirror of the trailing-slot rule: a control with nothing to control is
+  // noise. While the shell's bootstrap is pending or failed, the frame keeps
+  // its top bar but mounts no contextual sidebar, so the toggle hides instead
+  // of advertising a collapse that cannot happen.
+  const toggle = () =>
+    page
+      .getByRole('button', { name: 'Collapse contextual sidebar' })
+      .or(page.getByRole('button', { name: 'Expand contextual sidebar' }))
+
+  let releaseBootstrap!: (response: { status: number; body?: string }) => void
+  const bootstrapHeld = new Promise<{ status: number; body?: string }>((resolve) => {
+    releaseBootstrap = resolve
+  })
+  await page.route('**/api/workspaces/bootstrap', async (route) => {
+    const response = await bootstrapHeld
+    await route.fulfill({
+      contentType: 'application/json',
+      status: response.status,
+      ...(response.body ? { body: response.body } : {}),
+    })
+  })
+  await page.goto('/?view=chat')
+
+  // Pending bootstrap: the skeleton renders, no sidebar, no toggle.
+  await expect(page.locator('.conventional-skeleton')).toBeVisible()
+  await expect(toggle()).toHaveCount(0)
+
+  // Failed bootstrap: the error state renders, still no sidebar, no toggle.
+  releaseBootstrap({ status: 500, body: 'bootstrap refused' })
+  await expect(page.getByRole('alert')).toContainText('Something interrupted the workspace')
+  await expect(toggle()).toHaveCount(0)
+
+  // Released bootstrap: the workspace mounts with its sidebar, and exactly
+  // one contextual control returns.
+  await page.unroute('**/api/workspaces/bootstrap')
+  await mockWorkspace(page)
+  await page.reload()
+  await expect(workspaceNav(page)).toBeVisible()
+  await expect(toggle()).toHaveCount(1)
+})

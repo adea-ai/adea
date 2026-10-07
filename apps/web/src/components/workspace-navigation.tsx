@@ -572,6 +572,11 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // slot so the field replaces the plain workspace-name title, center aligned.
   const [scmSearchMount, setScmSearchMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
+  // The chat shell reports its bootstrap fallback: while it renders the
+  // skeleton or the error state, no contextual sidebar is mounted, so the top
+  // bar's contextual toggle has nothing to control and hides (mirroring the
+  // trailing slot, which hides when no view supplies it).
+  const [chatShellBootstrapFallback, setChatShellBootstrapFallback] = createSignal(false)
   const [utilityOpener, setUtilityOpener] = createSignal<HTMLButtonElement>()
   // The Help Center closes imperatively (its panel mounts through a Show, not
   // a trigger), so Kobalte's own focus restoration never runs — without the
@@ -1026,6 +1031,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       manageSettings={false}
       onConsumeDeepLink={consumeDeepLink}
       onOpenTaskBoard={activeAppId() === 'kanban' ? undefined : openTaskBoard()}
+      onBootstrapFallbackChange={setChatShellBootstrapFallback}
       onViewChange={changeView}
       services={props.services}
       workspaceHost={workspaceHost}
@@ -1126,7 +1132,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         Skip to workspace content
       </a>
       <WorkspaceTopBar
-        hideSidebarToggle={designerActive()}
+        hideSidebarToggle={designerActive() || chatShellBootstrapFallback()}
         platform={props.platform}
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
         breadcrumbs={topBarBreadcrumbs()}
