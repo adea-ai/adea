@@ -25,17 +25,6 @@
   grid-template-rows: minmax(0, 1fr);
 }
 
-/* The appearance sheet's trigger carries the menubar's pressed rung while its
-   sheet is open: the published ActionButton has no expanded variant, and
-   Kobalte marks the trigger `data-expanded` for exactly this state. The rule
-   sits in the components layer so the shared control's own hover rung keeps
-   authority while the pointer rests on the open trigger. */
-@layer components {
-  .dev-appearance-trigger[data-expanded] {
-    background-color: var(--surface-active);
-  }
-}
-
 .dev-toolbar {
   display: flex;
   align-items: center;
