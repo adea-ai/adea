@@ -694,10 +694,17 @@
   border: 0;
   border-radius: 0.35rem;
   background: transparent;
+  /* The shared Button arrives as the primary variant, so its text is
+     primary-foreground; leaving that text on the menu's transparent row
+     paints it unreadably. The row owns its colour at rest and puts the
+     accent rung — the background that pairs with primary-foreground —
+     behind it on hover. */
+  color: var(--cw-text);
   text-align: left;
 }
 .conventional-mention-menu button:hover {
-  background: var(--cw-surface-muted);
+  background: var(--cw-accent);
+  color: var(--cw-accent-contrast);
 }
 .conventional-attachment-menu {
   bottom: calc(100% + 0.35rem);
@@ -720,11 +727,13 @@
 }
 .conventional-composer__status p {
   padding: 0.35rem 0.65rem;
-  color: var(--cw-danger);
+  /* Progress copy ("Sending message…", "Listening…") is not an error; only
+     an alert rung earns the destructive colour. */
+  color: var(--cw-muted);
   font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
-.conventional-composer__status p.conventional-composer__status--muted {
-  color: var(--cw-muted);
+.conventional-composer__status p[role='alert'] {
+  color: var(--cw-danger);
 }
 
 .conventional-thread {
@@ -735,6 +744,12 @@
 }
 .conventional-thread > [role='region'] {
   padding: 0.75rem clamp(0.5rem, 2vw, 1rem);
+}
+/* The conversation composer's outer margins track the transcript gutter; the
+   shared thread panel already wraps its composer in a padded footer, so those
+   40px gutters would double up inside the narrow thread column. */
+.conventional-thread .conventional-composer {
+  margin: 0;
 }
 
 .conventional-directory {
@@ -1291,6 +1306,10 @@
 .conventional-form-grid input,
 .conventional-form-grid select,
 .conventional-form-grid textarea {
+  /* The native select has no width of its own; without a fill it stays at
+     its intrinsic width while the wrapper stretches and strands the chevron
+     at the column end. Inputs arrive full-width from the shared Input. */
+  width: 100%;
   min-width: 0;
   min-height: 2.45rem;
   padding: 0.55rem 0.65rem;
@@ -1298,6 +1317,9 @@
   border-radius: 0.4rem;
   background: var(--cw-surface);
   color: var(--cw-text);
+  /* The bold label is the grid's field header; controls inherit it through
+     the shared base's `font: inherit`, so restore the normal weight. */
+  font-weight: 400;
 }
 .conventional-agent-customization__actions {
   display: flex;
