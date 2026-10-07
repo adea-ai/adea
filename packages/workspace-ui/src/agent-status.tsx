@@ -12,23 +12,24 @@ const TONES: Record<string, StatusTone> = {
 }
 
 export function agentStatusModel(agent: AgentSummary) {
-  const configuration =
-    agent.lifecycleState === 'archived'
-      ? { label: 'Archived', tone: 'muted' as const }
-      : agent.profile.state === 'unavailable'
-        ? { label: 'Profile unavailable', tone: 'unknown' as const }
-        : agent.lifecycleState === 'configuration_error' || agent.profile.state !== 'available'
-          ? { label: 'Needs configuration', tone: 'warning' as const }
-          : { label: 'Configured', tone: 'ready' as const }
+  const { lifecycleState, profile } = agent
+  const archived = lifecycleState === 'archived'
+  const configurationError = lifecycleState === 'configuration_error'
+  const configuration = archived
+    ? { label: 'Archived', tone: 'muted' as const }
+    : profile.state === 'unavailable'
+      ? { label: 'Profile unavailable', tone: 'unknown' as const }
+      : configurationError || profile.state !== 'available'
+        ? { label: 'Needs configuration', tone: 'warning' as const }
+        : { label: 'Configured', tone: 'ready' as const }
   return Object.freeze({
     configuration: Object.freeze({
       ...configuration,
-      detail:
-        agent.lifecycleState === 'archived'
-          ? 'Archived Agent.'
-          : agent.lifecycleState === 'configuration_error'
-            ? 'Review configuration.'
-            : agentProfileStateNotice(agent.profile.state),
+      detail: archived
+        ? 'Archived Agent.'
+        : configurationError
+          ? 'Review configuration.'
+          : agentProfileStateNotice(profile.state),
     }),
     execution: Object.freeze({
       detail: 'Execution activity has not been reported.',
@@ -44,14 +45,8 @@ export function agentStatusModel(agent: AgentSummary) {
 }
 
 export function AgentStatusBadge(props: { agent: AgentSummary }) {
-  const status = createMemo(() => agentStatusModel(props.agent))
-  return (
-    <StatusChip
-      detail={status().configuration.detail}
-      label={status().configuration.label}
-      tone={TONES[status().configuration.tone]}
-    />
-  )
+  const status = createMemo(() => agentStatusModel(props.agent).configuration)
+  return <StatusChip detail={status().detail} label={status().label} tone={TONES[status().tone]} />
 }
 
 export function AgentStatus(props: { agent: AgentSummary; compact?: boolean }) {

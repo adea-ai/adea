@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
-import { AgentHqApiClient, TaskSubmissionApiClient } from '../../src'
+import { AgentHqApiClient } from '../../src'
+import { TaskSubmissionApiClient } from '../../src/task-submission'
 
 describe('Task API client', () => {
   test('keeps encrypted submission admission distinct from lifecycle commands', async () => {

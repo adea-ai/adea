@@ -173,7 +173,14 @@
           "requirement": "A conversation-originated Task preserves its originating Agent HQ Message/Channel reference independently from runtime/session state.",
           "sourceChecked": true,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-task-submission-intent.md",
+              "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
+              "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "38.3",
@@ -187,14 +194,28 @@
           "requirement": "Offline selected nodes produce explicit queued/offline behavior according to policy and never silently fail over to Agent HQ Cloud.",
           "sourceChecked": true,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-task-submission-intent.md",
+              "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
+              "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "38.5",
           "requirement": "Duplicate direct or relayed submission converges on one logical execution and does not duplicate the originating Message/Task intent.",
           "sourceChecked": true,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-task-submission-intent.md",
+              "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
+              "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "38.6",
@@ -208,14 +229,28 @@
           "requirement": "Agent HQ Cloud does not require storage of prompt bodies, ContextPackages, repository content, credentials, or other sensitive execution payloads for developer-MVP remote control.",
           "sourceChecked": true,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-task-submission-intent.md",
+              "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
+              "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "38.8",
           "requirement": "Remote relay ciphertext is not treated as canonical Agent HQ conversation history.",
           "sourceChecked": false,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-task-submission-intent.md",
+              "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
+              "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "38.9",
@@ -229,14 +264,28 @@
           "requirement": "Tests cover transaction rollback, duplicate dispatch, node offline/reconnect, payload conflict, timeout, dead letter, unavailable runtime, stale context, process restart, and originating Message correlation.",
           "sourceChecked": false,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-task-submission-intent.md",
+              "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
+              "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "38.11",
           "requirement": "Tests run without cloning or starting the Control Plane repository.",
           "sourceChecked": true,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-task-submission-intent.md",
+              "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
+              "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            }
+          ]
         }
       ]
     },
@@ -465,7 +514,14 @@
           "requirement": "Tests cover upgrade, rollback, missing/revoked version, permission denial, and concurrent profile change versus submission. \u2014 PARTIAL 2026-09-25: only the reference and identity-stability case exists (\"preserves identity while room, presentation, and explicit profile version change\", `packages/db/tests/integration/agents.test.ts`). Upgrade, rollback, missing/revoked version, permission denial and concurrent change-versus-submission are uncovered, and the last two need the authorization and submission paths that do not exist yet.",
           "sourceChecked": false,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-task-submission-intent.md",
+              "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
+              "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "41.7",
@@ -803,7 +859,14 @@
           "requirement": "Content-bearing remote execution payloads use #189 and Agent HQ Cloud stores only RemoteContentEnvelope ciphertext plus bounded metadata.",
           "sourceChecked": false,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-task-submission-intent.md",
+              "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
+              "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "187.5",
@@ -838,7 +901,14 @@
           "requirement": "Remote control works without plaintext prompt/repository/ContextPackage/credential storage in Agent HQ Cloud.",
           "sourceChecked": false,
           "verification": "unverified",
-          "evidence": []
+          "evidence": [
+            {
+              "stage": "independent_local",
+              "document": "docs/evidence/m11-task-submission-intent.md",
+              "implementationCandidate": "b159fbd9262d27038435984c639290df777ff7db",
+              "result": "Partial cloud producer evidence only: immutable selected-node/profile intent, ciphertext admission, transaction rollback and duplicate convergence. Host delivery, SDK authorization/acceptance, ExecutionPlan provenance, reconciliation and connected product certification remain unverified."
+            }
+          ]
         },
         {
           "id": "187.10",
