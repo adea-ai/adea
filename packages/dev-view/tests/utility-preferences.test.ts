@@ -17,7 +17,7 @@ describe('utility size steps and defaults', () => {
     expect(utilitySizeSteps.right.at(-1)).toBe(defaultRightUtilitySize)
   })
 
-  test('default preferences seed six panes with the per-side defaults', () => {
+  test('default preferences seed six collapsed panes with the per-side defaults', () => {
     const preferences = defaultUtilityPreferences()
     expect(preferences.map((item) => item.pane)).toEqual([
       'files',
@@ -27,8 +27,10 @@ describe('utility size steps and defaults', () => {
       'agents',
       'history',
     ])
+    // First run opens on the center panes: every utility slot starts
+    // collapsed and the toolbar toggle opens one on demand.
     expect(preferences.map((item) => item.visible)).toEqual([
-      true,
+      false,
       false,
       false,
       false,
