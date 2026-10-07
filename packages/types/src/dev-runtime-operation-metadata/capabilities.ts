@@ -27,6 +27,7 @@ export const devOperationCapabilities = Object.freeze([
   'dev.repo.manage',
   'dev.repo.read',
   'dev.resources.configure',
+  'dev.resources.janitor',
   'dev.resources.read',
   'dev.resources.stop',
   'dev.resources.stopForeign',

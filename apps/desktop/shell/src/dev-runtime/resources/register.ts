@@ -25,6 +25,10 @@ import type {
   DevError,
   DevOperation,
   DevRuntimePage,
+  JanitorCommitResult,
+  JanitorMeasurePage,
+  JanitorPlan,
+  JanitorScanReport,
   MutationPlan,
   PortRecord,
   ProcessRecord,
@@ -112,6 +116,19 @@ export type RegisterResourcesRuntimeInput = {
   foreignStop?: ForeignStopAuthority
   /** Lazy per-worktree disk measurement; absent lists nothing. */
   worktreeStorage?: WorktreeStorage
+  /** Machine-wide janitor (scan, bounded sizing, explicit plan/commit
+   * cleanup); absent fails closed with `capability_unavailable`. */
+  janitor?: {
+    scan(): Promise<JanitorScanReport>
+    measure(ids: readonly string[]): Promise<JanitorMeasurePage>
+    plan(
+      body: Readonly<{ itemIds: readonly string[]; expectedGeneration: number }>
+    ): Promise<JanitorPlan>
+    commit(
+      body: Readonly<{ planId: string; planDigest: string }>,
+      resource: Readonly<{ kind: string; id: string; generation: number }>
+    ): Promise<JanitorCommitResult>
+  }
   /** Resource settings; absent keeps defaults and refuses updates. */
   preferences?: ResourcePreferenceStore
   now?: () => number
@@ -787,6 +804,63 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
         body.limit as number | undefined
       )
       return page(slice, nextCursor)
+    },
+
+    // Machine-wide janitor: the read-only scan/measure pair, then the
+    // explicit plan/commit cleanup under the janitor capability. Absent
+    // authority fails closed; the commit binds the single-use plan through
+    // the envelope resource `{kind:'janitor_plan', id: planId, generation}`.
+    'dev.resources.janitorScan': (command) => {
+      devOperationDecoders['dev.resources.janitorScan'].request(command.body)
+      if (!input.janitor) {
+        throw devError(
+          'capability_unavailable',
+          'the machine-wide janitor is not available on this runtime node'
+        )
+      }
+      return input.janitor.scan()
+    },
+
+    'dev.resources.janitorMeasure': (command) => {
+      const body = devOperationDecoders['dev.resources.janitorMeasure'].request(command.body)
+      if (!input.janitor) {
+        throw devError(
+          'capability_unavailable',
+          'the machine-wide janitor is not available on this runtime node'
+        )
+      }
+      return input.janitor.measure(body.ids as readonly string[])
+    },
+
+    'dev.resources.janitorPlan': (command) => {
+      const body = devOperationDecoders['dev.resources.janitorPlan'].request(command.body)
+      if (!input.janitor) {
+        throw devError(
+          'capability_unavailable',
+          'the machine-wide janitor is not available on this runtime node'
+        )
+      }
+      return input.janitor.plan({
+        itemIds: body.itemIds as readonly string[],
+        expectedGeneration: body.expectedGeneration as number,
+      })
+    },
+
+    'dev.resources.janitorCommit': (command) => {
+      const body = devOperationDecoders['dev.resources.janitorCommit'].request(command.body)
+      if (!input.janitor) {
+        throw devError(
+          'capability_unavailable',
+          'the machine-wide janitor is not available on this runtime node'
+        )
+      }
+      if (command.resource === undefined) {
+        throw devError('identity_mismatch', 'operation requires a janitor plan resource binding')
+      }
+      return input.janitor.commit(
+        { planId: body.planId as string, planDigest: body.planDigest as string },
+        command.resource
+      )
     },
 
     'dev.resources.preferences': (command) => {

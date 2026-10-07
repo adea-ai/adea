@@ -8,11 +8,20 @@
 import { ChevronRight, GitBranch, Lock, RotateCcw, Square } from 'lucide-solid'
 import { For, Show } from 'solid-js'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { cn } from '@adea-ai/ui/lib/utils'
 
 import { Sparkline } from './resources-charts'
-import { formatSize, leakText, type ServerGroup, type ServerRow } from './resources-view-model'
+import { sectionExpanded, toggleSection } from './resources-preview'
+import {
+  formatSize,
+  leakText,
+  listPreview,
+  LIST_PREVIEW_LIMIT,
+  type ServerGroup,
+  type ServerRow,
+} from './resources-view-model'
 
 export type ServerActions = Readonly<{
   onDetails(row: ServerRow): void
@@ -158,27 +167,52 @@ export function ServersTab(props: {
         fallback={<p class="dev-resources__note">Nothing is running right now.</p>}
       >
         <For each={props.groups}>
-          {(group) => (
-            <section class="dev-resources__group" aria-label={group.title}>
-              <h3 class="dev-resources__group-header">
-                <Show when={group.kind === 'worktree' || group.kind === 'missing_worktree'}>
-                  <GitBranch class="dev-resources__icon" aria-hidden="true" />
+          {(group) => {
+            // Massive sections collapse to the first 8 rows; expanding one is
+            // a per-session choice (resources-preview).
+            const preview = () => listPreview(group.rows, sectionExpanded(group.id))
+            return (
+              <section class="dev-resources__group" aria-label={group.title}>
+                <h3 class="dev-resources__group-header">
+                  <Show when={group.kind === 'worktree' || group.kind === 'missing_worktree'}>
+                    <GitBranch class="dev-resources__icon" aria-hidden="true" />
+                  </Show>
+                  <Show when={group.kind === 'protected'}>
+                    <Lock class="dev-resources__icon" aria-hidden="true" />
+                  </Show>
+                  <span class="dev-resources__group-title">{group.title}</span>
+                  <span class="dev-resources__row-detail">{group.subtitle}</span>
+                  <span class="dev-resources__spacer" />
+                  <span class="dev-resources__row-detail">{formatSize(group.totalBytes)}</span>
+                </h3>
+                <ul class="dev-resources__list">
+                  <For each={preview().visible}>
+                    {(row) => <ServerRowView row={row} actions={props.actions} />}
+                  </For>
+                </ul>
+                <Show when={preview().hidden > 0}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => toggleSection(group.id, true)}
+                  >
+                    Show {preview().hidden} more
+                  </Button>
                 </Show>
-                <Show when={group.kind === 'protected'}>
-                  <Lock class="dev-resources__icon" aria-hidden="true" />
+                <Show when={preview().expanded && group.rows.length > LIST_PREVIEW_LIMIT}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => toggleSection(group.id, false)}
+                  >
+                    Show less
+                  </Button>
                 </Show>
-                <span class="dev-resources__group-title">{group.title}</span>
-                <span class="dev-resources__row-detail">{group.subtitle}</span>
-                <span class="dev-resources__spacer" />
-                <span class="dev-resources__row-detail">{formatSize(group.totalBytes)}</span>
-              </h3>
-              <ul class="dev-resources__list">
-                <For each={group.rows}>
-                  {(row) => <ServerRowView row={row} actions={props.actions} />}
-                </For>
-              </ul>
-            </section>
-          )}
+              </section>
+            )
+          }}
         </For>
       </Show>
       <Show when={props.foreignNote}>{(note) => <p class="dev-resources__note">{note()}</p>}</Show>

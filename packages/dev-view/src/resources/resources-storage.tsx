@@ -162,7 +162,11 @@ export function StorageTab(props: {
                   </span>
                   <span class="dev-resources__badges">
                     <Show when={group.protectedBytes > 0}>
-                      <StatusChip tone="neutral" label="Protected" compact />
+                      <StatusChip
+                        tone="neutral"
+                        label="Protected"
+                        detail="Deletion follows the owning slice's own re-proved path"
+                      />
                     </Show>
                   </span>
                   <span class="dev-resources__server-memory">{formatSize(group.totalBytes)}</span>

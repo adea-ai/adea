@@ -327,7 +327,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // (2026-10-06) brings the route to 904,867 / 238,237 with the Dev-shell
     // savings above (the terminal pane keeps its own Input import). Both caps
     // hold.
-    devTerminal: { rawBytes: 888 * 1024, gzipBytes: 234 * 1024 },
+    // The machine-wide janitor command surface (2026-10-06, four registry
+    // operations with their strict DTO decoders) lands the route at
+    // 910,550 raw / 239,370 gzip; raw ratchets to 896 KiB (~0.8% headroom),
+    // gzip still holds at 234 KiB.
+    devTerminal: { rawBytes: 896 * 1024, gzipBytes: 234 * 1024 },
     // Same delta on the editor route (2026-10-06, ADR 0011 PR 10b): 541,499
     // raw / 171,081 gzip against its base build's 490,226 / 154,545. Raw
     // ratchets to 532 KiB (~0.6% headroom); gzip to 168 KiB (~0.6%).

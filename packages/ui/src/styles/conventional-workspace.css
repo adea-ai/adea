@@ -1581,6 +1581,13 @@
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
+/* A toggle control in the bar says so while its surface is open (the
+   runtime-resources trigger): the pressed state is the accent, matching the
+   plugins filter's pressed treatment. */
+.workspace-topbar__control[aria-pressed='true'] {
+  color: var(--cw-accent);
+  background-color: var(--cw-accent-soft);
+}
 .workspace-topbar__view-actions {
   display: flex;
   align-items: center;

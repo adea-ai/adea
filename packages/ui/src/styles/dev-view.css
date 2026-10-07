@@ -406,6 +406,18 @@
   border-block-end: 1px solid var(--dev-border);
 }
 
+/* The panel title carries the shared dev-pane title role (the same size and
+   weight as every other dev section title), not the heading default. */
+.dev-utility-panel__heading h2 {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-ui, var(--font-sans));
+  font-size: calc(0.8125rem * var(--font-ui-scale, 1));
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dev-utility-panel__content {
   min-height: 0;
   min-width: 0;

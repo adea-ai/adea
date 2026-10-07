@@ -36,6 +36,7 @@ export function RuntimeResourcesControl(props: {
         tooltipIcon={<Gauge aria-hidden="true" />}
         aria-label="Runtime resources"
         aria-pressed={open()}
+        aria-expanded={open()}
         onClick={() => setOpen(!open())}
       >
         <Gauge aria-hidden="true" />

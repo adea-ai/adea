@@ -201,6 +201,35 @@ function basename(path: string): string {
   return path.split('/').filter(Boolean).at(-1) ?? path
 }
 
+/** Sections with more rows than this collapse to the first 8 (owner
+ * follow-up: "the ports lists get massive — default to top 8 per section"). */
+export const LIST_PREVIEW_LIMIT = 8
+
+export type ListPreview<T> = Readonly<{
+  visible: readonly T[]
+  /** Rows the collapsed window hides; 0 when everything is shown. */
+  hidden: number
+  expanded: boolean
+}>
+
+/** The collapsed window of a section list: the first `limit` rows when
+ * collapsed, every row when expanded. A section at or under the limit never
+ * collapses and never shows a control. */
+export function listPreview<T>(
+  items: readonly T[],
+  expanded: boolean,
+  limit: number = LIST_PREVIEW_LIMIT
+): ListPreview<T> {
+  if (expanded || items.length <= limit) {
+    return { visible: items, hidden: 0, expanded: items.length > 0 }
+  }
+  return {
+    visible: items.slice(0, limit),
+    hidden: items.length - limit,
+    expanded: false,
+  }
+}
+
 export type BytePoint = Readonly<{ at: number; bytes: number }>
 
 /** Over the memory limit, or growing faster than the configured rate. */

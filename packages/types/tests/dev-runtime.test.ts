@@ -117,10 +117,11 @@ describe('Dev Runtime operation registry', () => {
     // connection operations (ADR 0012) and the machine-wide resources slice
     // (foreign stop, restart, worktree storage, and resource preferences),
     // 228 before dev.repo.remove (the owner's removal of one adopted
-    // registry record): the registry ratchet moves only when an operation is
-    // deliberately added, and the decoder-key check below is what keeps the
-    // list and the decoders in step.
-    expect(devOperations).toHaveLength(229)
+    // registry record), 229 before the machine-wide janitor slice (scan,
+    // measure, plan, commit): the registry ratchet moves only when an
+    // operation is deliberately added, and the decoder-key check below is
+    // what keeps the list and the decoders in step.
+    expect(devOperations).toHaveLength(233)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
@@ -447,8 +448,9 @@ describe('Dev Runtime command envelope', () => {
   test('accepts every paired commit whose immutable plan owns the target binding', () => {
     const pairedCommits = devOperations.filter((operation) => operation.endsWith('Commit'))
     // 14 before the auto-merge and server-side branch sync pairs; 16 before
-    // the GitLab mirrors of update, merge, auto-merge and branch sync.
-    expect(pairedCommits).toHaveLength(22)
+    // the GitLab mirrors of update, merge, auto-merge and branch sync; 22
+    // before the janitor cleanup pair.
+    expect(pairedCommits).toHaveLength(23)
     for (const operation of pairedCommits) {
       const value = command(operation, {
         planId: 'plan-1',
@@ -458,7 +460,14 @@ describe('Dev Runtime command envelope', () => {
       expect(definition.resource).not.toBeNull()
       const paired = {
         ...value,
-        resource: { kind: definition.resource!.kind, id: 'plan-target-1', generation: 7 },
+        resource: {
+          kind: definition.resource!.kind,
+          // A commit whose resource names the plan itself (the janitor pair)
+          // must echo the body's planId; every other pair names a target the
+          // body does not carry, which the paired-commit rule admits.
+          id: String(value.body[definition.resource!.idField] ?? 'plan-target-1'),
+          generation: 7,
+        },
       }
       expect(decodeDevCommand(paired)).toEqual(paired)
     }

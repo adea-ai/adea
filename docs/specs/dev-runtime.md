@@ -2093,7 +2093,7 @@ type DevOperation =
   | `dev.device.${'capabilities' | 'list' | 'sessions' | 'start' | 'attach' | 'input' | 'screenshot' | 'stop'}`
   | `dev.github.${'account' | 'repository' | 'issues' | 'milestones' | 'pullRequest' | 'pullRequests' | 'checks' | 'pushPlan' | 'pushCommit' | 'createPullRequest' | 'updatePlan' | 'updateCommit' | 'mergePlan' | 'mergeCommit'}`
   | `dev.github.${'pullRequestSummaries' | 'pullRequestSummary' | 'timeline' | 'commits' | 'files' | 'checkLog' | 'labels' | 'assignableUsers' | 'branches' | 'compare' | 'comment' | 'threadReply' | 'threadResolve' | 'metadataUpdate' | 'submitReview' | 'rerunFailedJobs' | 'autoMergePlan' | 'autoMergeCommit' | 'syncBranchPlan' | 'syncBranchCommit'}`
-  | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData' | 'restartPlan' | 'restartCommit' | 'foreignStopPlan' | 'foreignStopCommit' | 'worktreeStorage' | 'preferences' | 'preferencesUpdate'}`
+  | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData' | 'restartPlan' | 'restartCommit' | 'foreignStopPlan' | 'foreignStopCommit' | 'janitorScan' | 'janitorMeasure' | 'janitorPlan' | 'janitorCommit' | 'worktreeStorage' | 'preferences' | 'preferencesUpdate'}`
   | `dev.cleanupPolicy.${'list' | 'createDraft' | 'approve' | 'disable' | 'evaluate'}`
 
 type DevCommand<K extends DevOperation, T> = {
@@ -2153,7 +2153,7 @@ projection; `unavailable` is empty for the local owner. Scoped capability
 subsets arrive with remote callers (M14 runtime nodes), which authenticate as
 a different identity class than this trusted local channel. The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 221 operation names, exact body shapes, exact reply types, complete required
+all 232 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -5248,7 +5248,7 @@ desktop shell uses its bounded command runner on macOS, and a test or another
 host injects one (`runResourceCommand`). Without a runner, `foreign` and
 `machine` are absent, foreign stop fails closed with `capability_unavailable`,
 and external listeners keep the no-stop rendering above. The shell modules are
-`apps/desktop/shell/src/dev-runtime/resources/{capped-command,machine-inventory,foreign-stop,worktree-storage,preferences}.ts`.
+`apps/desktop/shell/src/dev-runtime/resources/{capped-command,machine-inventory,foreign-stop,worktree-storage,preferences,janitor,janitor-model}.ts`.
 
 Inventory (one bounded pull per snapshot read):
 
@@ -5434,6 +5434,60 @@ Clean-up review composes existing authorities and adds none:
   exists for it, so the review does not offer one.
 - `cleanup.mode = 'off'` hides the banner and disables the review.
 
+### Machine-wide janitor
+
+Junk exists regardless of origin: Xcode DerivedData entries, `~/Library/Caches`
+and `~/Library/Logs` entries, the Trash itself, and git worktrees no Adea
+register tracks. The janitor is an additional section of the resources sheet
+(the "Junk & leftovers" tab) beside the adea-created resource tracking, which
+stays as-is; the janitor never touches a registered worktree, a proven launch,
+or any retained data.
+
+Safety contract (non-negotiable, enforced by the provider design):
+
+- Nothing is ever deleted automatically and nothing is deleted in place.
+  Every deletion is an explicit user action — per item or a checked bulk
+  selection — and every run is a single-use `dev.resources.janitorPlan` →
+  `dev.resources.janitorCommit` pair under the dedicated `dev.resources.janitor`
+  capability: the plan binds the sheet's scan generation and digests each
+  named item's proven identity (device + inode); the commit re-proves the
+  identity immediately before each disposal and reports one typed outcome per
+  item (`trashed`, `emptied`, `pruned`, `skipped`, `failed`). A changed
+  identity is skipped, never disposed.
+- The default disposal is the platform Trash: a `trash` item is renamed into
+  the user's `~/.Trash` (recoverable, destination names deduplicate without
+  overwriting, and a cross-volume rename fails the item instead of deleting).
+  Only entries discovered inside the Trash offer `trash_empty` (the OS already
+  classified them deleted), and only a provably stale git worktree admin entry
+  (`git worktree list` `prunable` reason, directory still gone at commit time)
+  offers `prune` (fixed-argv `git worktree prune` scoped to the reporting
+  repository).
+- Discovery and sizing are read-only: `readdir`/`lstat` at the item roots,
+  never symlink-following, and fixed-argv git. The scan universe is closed
+  over first-level entries of the well-known roots plus worktrees under the
+  configured scan roots; only these discovered paths can ever be disposed,
+  and paths never leave the host (home-abbreviated labels only). Adea's own
+  quarantine trash (`.adea-worktree-trash`) is excluded.
+- Sizes and modified times are computed asynchronously with bounded budgets
+  (per-item deadline, bounded depth and entries, a per-command global budget);
+  an unmeasured item stays unknown rather than zero, and a budget that ran out
+  reports `stale`. The sheet asks for at most 64 ids per measure command.
+- Worktree discovery runs `git worktree list --porcelain` per configured scan
+  root (default: the register's authorized repository roots — the user's
+  configured project roots; the composition's `janitorScanRoots` seam
+  overrides). The primary checkout and every Adea-registered root are never
+  candidates; an unregistered worktree is a candidate only when Git itself
+  marks it prunable.
+- The whole authority composes on macOS only; elsewhere every janitor command
+  fails closed with `capability_unavailable`.
+
+The scan/measure pair rides `dev.resources.read`; the plan/commit pair rides
+`dev.resources.janitor`. The commit binds the envelope resource
+`{kind: 'janitor_plan', id: planId, generation: scanGeneration}`; a rescan
+between plan and commit fails the commit `stale_generation`, and the reply's
+strict decoders (`JanitorScanReport`, `JanitorMeasurePage`, `JanitorPlan`,
+`JanitorCommitResult`) fail closed like every other operation's.
+
 ### Runtime activity
 
 The Agents pane mounts the harness status surface above the Activity section:
@@ -5460,9 +5514,16 @@ host, widened to 37.5rem through its `dev-resources-sheet` hook. All resource
 management and all resource settings live in this one sheet
 (`packages/dev-view/src/resources/`):
 
-- **Header:** the title, the coverage (`This machine` or `Adea only`) with
-  the sampling interval (`sampled every N s`), and the refresh and settings
-  `ActionButton`s.
+- **Pinned title band:** the published `SheetHeader` part — the #1082
+  two-toned muted band — holds the title, the coverage (`This machine` or
+  `Adea only`), and the refresh and settings `ActionButton`s. The close
+  button stays the sheet's own corner action.
+- **Pinned action band:** the published `SheetFooter` part holds the clean-up
+  section (the clean-up button and its ask-first note) on the main view, so
+  the decision stays reachable while the body scrolls. The drill-in reviews
+  carry their own action rows; the band yields to them.
+- **Scrolling body:** the published `SheetBody` part scrolls the overview,
+  attention banner, tabs, and drill-in views between the bands.
 - **Overview:** the memory used by Adea (proven launches plus processes in
   Adea terminals) over a machine memory bar split into Adea, other listed
   processes, other apps, and free; then CPU, ports (`N Adea · M other`), and
@@ -5494,6 +5555,12 @@ management and all resource settings live in this one sheet
   retained data), the worktree list with state badges and sizes, and the
   read-only retained-data breakdown. The tab trigger carries a badge: the
   measured total once storage has been measured, the worktree count before.
+  read-only retained-data breakdown.
+- **Junk & leftovers tab:** the machine-wide janitor's sections (Derived
+  Data, Caches, Logs, Git worktrees, Trash) with per-item size and modified
+  time as the bounded measure lands, per-item selection, a plan confirmation
+  that names every path, its disposal, and the total size, and the same
+  section show-more window as the server lists.
 - **Agents & usage tab:** the provider usage cards.
 - **Drill-in views:** server details (memory and CPU history charts with a
   time axis, the memory chart with a dashed line at `alerts.residentBytesAbove`
@@ -5509,6 +5576,11 @@ management and all resource settings live in this one sheet
   workspace navigates to Dev with the `devProject` (from the launch's
   registered worktree) and `devSession` deep-link params, which Dev View
   resolves like any deep link.
+  and foreign-stop confirmation in the shared `AlertDialog`.
+- **Section lists:** a servers section with more than 8 rows collapses to its
+  first 8 behind a `Show n more` control, with `Show less` restoring the full
+  section; the expanded choice persists for the session. A section at or
+  under the limit never collapses and never shows a control.
 - While the sheet is open and the page is visible, it re-reads the snapshot
   every `sampling.visibleSeconds`.
 
