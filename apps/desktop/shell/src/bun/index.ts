@@ -9,13 +9,21 @@
 // request and enforced at the gate before any privileged dispatch.
 import { BrowserWindow, Utils } from 'electrobun/main'
 import { promises as dns } from 'node:dns'
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync, rmSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { agentSimResponse } from '../agent-sim-assets'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface, type BridgeResult } from '../commands'
 import { loadDeviceKey } from '../device-key'
 import { createMemoryStore } from '../memory/store'
+import { createWorkspaceCleanup, type WorkspaceCleanup } from '../workspace-cleanup'
+import { workspaceLocalData, assertWorkspaceDataPath } from '../workspace-local-data'
+import { browserLaneProfileDirectory } from '../dev-runtime/browser/engine'
+import { deriveLaneProfileId } from '../dev-runtime/browser/lane-registry'
+import {
+  devOperationDefinitions,
+  type DevCommand,
+} from '../../../../../packages/types/src/dev-runtime'
 import { createPresentedRuntimeSession } from '../notifications/presented-runtime-session'
 import {
   createCloudIdentityVerifier,
@@ -136,6 +144,7 @@ const credentialStore = await createBunSecretsVaultKeyStore({
 })
 
 let host: DevRuntimeHost | undefined
+let workspaceCleanup: WorkspaceCleanup | undefined
 let notificationPublisher: RunNotificationPublisher | undefined
 // Electrobun activates a BrowserWindow by default. Focus events keep this
 // presentation signal current without polling or querying the OS.
@@ -143,9 +152,13 @@ let desktopWindowFocused = true
 
 // The authenticated scope authority: the verified (account, workspace,
 // runtime node) binding plus bounded-TTL runtime-node eligibility.
+const identityVerifier = createCloudIdentityVerifier({
+  cloudOrigin: CLOUD_ORIGIN,
+  shellOrigin: SHELL_ORIGIN,
+})
 const identity = createDesktopIdentityAuthority({
   dataDir: DATA_DIR,
-  verifier: createCloudIdentityVerifier({ cloudOrigin: CLOUD_ORIGIN, shellOrigin: SHELL_ORIGIN }),
+  verifier: identityVerifier,
 })
 const presentedRuntimeSession = createPresentedRuntimeSession({
   currentScope: () => identity.currentScope(),
@@ -162,19 +175,29 @@ const baseInvoke = createCommandSurface(DATA_DIR, {
   onChatPresentation: (candidate) => presentedRuntimeSession.set(candidate),
   memory: memoryStore,
   authorizedWorkspaceId: () => identity.currentScope().workspaceId,
+  assertWorkspaceActive: (workspaceId) => {
+    if (workspaceCleanup?.isPaused({ ...identity.currentScope(), workspaceId }))
+      throw new Error('workspace_cleanup_pending')
+  },
 })
 // The M10 channel authority binds the trusted window and gates every command.
 // Scope admission runs before capability checks and provider dispatch: a
 // command whose scope differs from the verified identity binding is refused
 // as `channel_unauthorized` before the registry capability set is compared.
 const authority = createChannelAuthority({
+  assertCommandAllowed: (command) => {
+    identity.assertCommandScope(command.scope)
+    if (workspaceCleanup?.isPaused(command.scope)) throw new Error('workspace_cleanup_pending')
+  },
   shellHost: `127.0.0.1:${PORT}`,
   shellOrigin: SHELL_ORIGIN,
   authorizeCommand: async (command) => {
     identity.assertCommandScope(command.scope)
+    if (workspaceCleanup?.isPaused(command.scope)) throw new Error('workspace_cleanup_pending')
     // Eligibility is re-proven on a bounded TTL: a revoked or unpaired
     // runtime node fails every privileged operation, not just the first.
     await identity.ensureNodeEligible()
+    if (workspaceCleanup?.isPaused(command.scope)) throw new Error('workspace_cleanup_pending')
   },
 })
 
@@ -187,6 +210,10 @@ const authority = createChannelAuthority({
 const identityCommands = createIdentityCommandSurface({
   identity,
   issueRehandshake: () => gateway.bootstrapToken(),
+  workspaceCleanup: () => {
+    if (!workspaceCleanup) throw new Error('workspace_cleanup_unavailable')
+    return workspaceCleanup
+  },
 })
 async function invoke(cmd: string, args?: Record<string, unknown>): Promise<BridgeResult> {
   if (identityCommands.handles(cmd)) return identityCommands.invoke(cmd, args)
@@ -198,6 +225,14 @@ async function invoke(cmd: string, args?: Record<string, unknown>): Promise<Brid
       return { ok: false, error: 'stream relay command failed' }
     }
   }
+  const input = args?.input as { workspaceId?: string } | undefined
+  const workspaceId = input?.workspaceId ?? args?.workspaceId
+  if (
+    (cmd.startsWith('local_content_') || cmd.startsWith('memory_')) &&
+    typeof workspaceId === 'string' &&
+    workspaceCleanup?.isPaused({ ...identity.currentScope(), workspaceId })
+  )
+    return { ok: false, error: 'workspace_cleanup_pending' }
   return baseInvoke(cmd, args)
 }
 
@@ -260,7 +295,10 @@ const streamRelayCommands: Record<string, (args?: Record<string, unknown>) => un
 // The terminal lane's adopted sidecar client, when the boot adoption
 // succeeded; the composition binds it through the existing `sidecar` seam.
 let sidecarClient: SidecarClient | undefined
-function composeHost(): { host: DevRuntimeHost; notifications: RunNotificationPublisher } {
+function composeHost(scope = identity.currentScope()): {
+  host: DevRuntimeHost
+  notifications: RunNotificationPublisher
+} {
   let composedHost: DevRuntimeHost | undefined
   const notifications = createHarnessRunNotificationPublisher({
     readRuns: () => composedHost?.harness?.history.list() ?? [],
@@ -275,7 +313,7 @@ function composeHost(): { host: DevRuntimeHost; notifications: RunNotificationPu
     gateway: gatewayView,
     dataDir: DATA_DIR,
     credentialStore,
-    scope: identity.currentScope(),
+    scope,
     identity,
     approvalVerifier,
     memory: memoryStore,
@@ -292,7 +330,7 @@ function composeHost(): { host: DevRuntimeHost; notifications: RunNotificationPu
     // #31 consumer zero-config (the handoff the managed-Pi lane pinned): the
     // production boot opts into the managed Pi warm — fire-and-forget, every
     // failure a typed durable driver state, skipped for injected drivers.
-    managedPiAutoInstall: true,
+    managedPiAutoInstall: !workspaceCleanup?.isPaused(scope),
     runLsof: async () => {
       const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
         stdout: 'pipe',
@@ -343,15 +381,110 @@ function attachSupervisionEventSink(target: DevRuntimeHost | undefined): void {
     gateway.publish(SUPERVISION_EVENT_NAME, event)
   })
 }
-function recomposeHost(): void {
+function recomposeHost(scope = identity.currentScope()): void {
   notificationPublisher?.dispose()
-  const composition = composeHost()
+  const composition = composeHost(scope)
   host = composition.host
   notificationPublisher = composition.notifications
   presentedRuntimeSession.revalidateAfterComposition()
   attachSupervisionEventSink(host)
 }
 recomposeHost()
+
+async function assertWorkspaceIdle(scope: ReturnType<typeof identity.currentScope>) {
+  if (authority.inFlightCommands(scope)) throw new Error('workspace_cleanup_running_work')
+  if (host?.projectSession?.workspaceDeletionBlockers().length)
+    throw new Error('workspace_cleanup_running_work')
+  if (
+    host?.harness?.history
+      .list()
+      .some((run) => !['completed', 'failed', 'cancelled', 'disconnected'].includes(run.state))
+  )
+    throw new Error('workspace_cleanup_running_work')
+  if ((await host?.terminal?.census())?.some((entry) => entry.state !== 'exited'))
+    throw new Error('workspace_cleanup_running_work')
+  let cursor: string | undefined
+  do {
+    const page = host?.browserDevices.lanes.list(
+      { scope },
+      { limit: 500, ...(cursor ? { cursor } : {}) }
+    )
+    if (page?.items.some((lane) => !['closed', 'crashed'].includes(lane.state)))
+      throw new Error('workspace_cleanup_running_work')
+    cursor = page?.nextCursor
+  } while (cursor)
+  if (host?.browserDevices.deviceSessions.list().some((session) => session.state !== 'stopped'))
+    throw new Error('workspace_cleanup_running_work')
+  for (const project of host?.projectSession?.workspaceDeletionProjects() ?? []) {
+    for (const repo of project.repos ?? []) {
+      if (
+        repo.layout === 'bare_managed' &&
+        host?.worktreeService
+          ?.listWorktrees({ scope, repoId: repo.repoId })
+          .some((worktree) => worktree.lifecycle !== 'cleaned')
+      )
+        throw new Error('workspace_cleanup_managed_worktrees_pending')
+    }
+  }
+}
+
+workspaceCleanup = createWorkspaceCleanup({
+  dataDir: DATA_DIR,
+  currentScope: () => identity.currentScope(),
+  verify: (workspaceId, credential) =>
+    identityVerifier.workspaceDeletionState!({ workspaceId, credential }),
+  assertIdle: assertWorkspaceIdle,
+  async activateScope(scope) {
+    await assertWorkspaceIdle(identity.currentScope())
+    recomposeHost(scope)
+    return () => recomposeHost()
+  },
+  planData(scope) {
+    workspaceLocalData({ dataDir: DATA_DIR, scope, memory: memoryStore }).plan()
+  },
+  archiveSessions() {
+    host?.projectSession?.archiveWorkspaceForDeletion(false)
+  },
+  async purgeData(scope) {
+    const sessions = host?.projectSession?.workspaceDeletionSessions() ?? []
+    const localData = workspaceLocalData({ dataDir: DATA_DIR, scope, memory: memoryStore })
+    localData.plan()
+    for (const project of host?.projectSession?.workspaceDeletionProjects() ?? []) {
+      if (!project.repos?.some((repo) => repo.layout === 'bare_managed')) continue
+      const provider = host?.projectSession?.providers['dev.project.unbind']
+      if (!provider) throw new Error('workspace_cleanup_managed_repositories_pending')
+      const now = Date.now()
+      await provider({
+        schemaVersion: 1,
+        operation: 'dev.project.unbind',
+        scope,
+        requestId: crypto.randomUUID(),
+        nonce: crypto.randomUUID(),
+        issuedAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + 60_000).toISOString(),
+        capabilities: [...devOperationDefinitions['dev.project.unbind'].capabilities],
+        resource: { kind: 'project', id: project.id, generation: 1 },
+        body: { projectId: project.id, expectedVersion: project.version },
+      } as DevCommand)
+    }
+    host?.projectSession?.archiveWorkspaceForDeletion()
+    for (const session of sessions) {
+      host?.computerUse.closeForSession(session.id)
+      for (const kind of ['human_embedded', 'task_owned', 'user_context'] as const) {
+        const path = browserLaneProfileDirectory(
+          { profileDirectory: deriveLaneProfileId(scope, session.id, kind) },
+          DATA_DIR
+        )
+        assertWorkspaceDataPath(DATA_DIR, path)
+        const stat = lstatSync(path, { throwIfNoEntry: false })
+        if (stat?.isSymbolicLink()) throw new Error('workspace_cleanup_ambiguous_data')
+        if (stat) rmSync(path, { recursive: true, force: true })
+      }
+    }
+    localData.purge()
+  },
+  forgetWorkspace: (workspaceId) => identity.forgetWorkspace(workspaceId),
+})
 
 // Boot adoption steps (#185/#396), serialized across recompositions. After
 // the composition holds the engine, the persisted launch journal is

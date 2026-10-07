@@ -3,12 +3,13 @@
 // it from the cookie bootstrap. See
 // docs/decisions/0006-browser-lanes-and-desktop-shell.md.
 import { createApiClient } from '@adea-ai/api-client'
-import { settledData, useWorkspaceBootstrapQuery } from '@adea-ai/data'
-import { useWorkspaceState } from '@adea-ai/state'
+import { settledData, useCreateWorkspaceMutation, useWorkspaceBootstrapQuery } from '@adea-ai/data'
+import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import { createBrowserSettingsProvider } from '@adea-ai/workspace-ui/preferences'
 import { isDesktopRuntime } from '../lib/desktop-bridge'
-import { lazy } from 'solid-js'
+import { lazy, Show } from 'solid-js'
+import { useNavigate } from '@tanstack/solid-router'
 import { createDeferredPluginsProvider, WorkspaceNavigation } from './workspace-navigation'
 import type { WorkspaceShellProps } from './workspace-shell'
 import packageJson from '../../package.json'
@@ -16,6 +17,10 @@ import packageJson from '../../package.json'
 // Both lanes remain available in local development. The production web build
 // excludes the native bootstrap; the packaged desktop build retains it.
 declare const __ADEA_DESKTOP_COMPONENTS__: boolean
+
+const WorkspaceEmpty = lazy(() =>
+  import('./workspace-empty').then((module) => ({ default: module.WorkspaceEmpty }))
+)
 
 const appVersion = packageJson.version
 
@@ -63,12 +68,15 @@ function WebNavigationEntry(props: {
 }) {
   const client = createApiClient()
   const bootstrap = useWorkspaceBootstrapQuery(client)
+  const createWorkspace = useCreateWorkspaceMutation(client)
+  const navigate = useNavigate()
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
   const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
     bootstrapData()?.workspaces.find(({ scene }) => scene === requestedScene()) ??
-    bootstrapData()?.activeWorkspace
+    bootstrapData()?.activeWorkspace ??
+    undefined
   const principal = () => bootstrapData()?.principal
   const accountAuthenticated = () => Boolean(principal() && !principal()!.temporary)
   const accountLabel = () =>
@@ -95,23 +103,44 @@ function WebNavigationEntry(props: {
   }
 
   return (
-    <WorkspaceNavigation
-      account={{
-        authenticated: accountAuthenticated(),
-        busy: services.account?.busy ?? false,
-        label: accountLabel(),
-        onSignIn: () => services.account?.onSignIn(),
-        onSignOut: () => services.account?.onSignOut(),
-      }}
-      activeWorkspace={activeWorkspace()}
-      client={client}
-      platform="web"
-      characterDesigner={props.characterDesigner ?? false}
-      roomDesigner={props.roomDesigner ?? false}
-      services={services}
-      virtual={props.virtual}
-      virtualProps={props.virtualProps}
-      workspaces={bootstrapData()?.workspaces ?? []}
-    />
+    <Show
+      when={bootstrapData() && bootstrapData()!.workspaces.length === 0}
+      fallback={
+        <WorkspaceNavigation
+          account={{
+            authenticated: accountAuthenticated(),
+            busy: services.account?.busy ?? false,
+            label: accountLabel(),
+            onSignIn: () => services.account?.onSignIn(),
+            onSignOut: () => services.account?.onSignOut(),
+          }}
+          activeWorkspace={activeWorkspace()}
+          client={client}
+          platform="web"
+          characterDesigner={props.characterDesigner ?? false}
+          roomDesigner={props.roomDesigner ?? false}
+          services={services}
+          virtual={props.virtual}
+          virtualProps={props.virtualProps}
+          workspaces={bootstrapData()?.workspaces ?? []}
+        />
+      }
+    >
+      <WorkspaceEmpty
+        onCreate={async (name) => {
+          const result = await createWorkspace.mutateAsync({
+            idempotencyKey: crypto.randomUUID(),
+            name,
+            scene: 'home',
+          })
+          workspaceStore.getState().switchWorkspace(result.workspace.id)
+          await navigate({
+            search: { scene: result.workspace.scene } as never,
+            hash: '',
+            replace: true,
+          })
+        }}
+      />
+    </Show>
   )
 }

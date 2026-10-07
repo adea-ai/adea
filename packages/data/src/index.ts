@@ -742,7 +742,11 @@ export const workspaceMutationOptions = {
         workspaceQueryKeys.bootstrap,
         (current: Awaited<ReturnType<AgentHqApiClient['bootstrapWorkspace']>> | undefined) =>
           current && !current.workspaces.some(({ id }) => id === result.workspace.id)
-            ? { ...current, workspaces: [...current.workspaces, result.workspace] }
+            ? {
+                ...current,
+                activeWorkspace: current.activeWorkspace ?? result.workspace,
+                workspaces: [...current.workspaces, result.workspace],
+              }
             : current
       )
       await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.list })
@@ -769,7 +773,7 @@ export const workspaceMutationOptions = {
           current && {
             ...current,
             activeWorkspace:
-              current.activeWorkspace.id === result.workspace.id
+              current.activeWorkspace?.id === result.workspace.id
                 ? result.workspace
                 : current.activeWorkspace,
             workspaces: current.workspaces.map((workspace) =>
@@ -792,6 +796,75 @@ export const workspaceMutationOptions = {
       })
     },
   }),
+  reorder: (client: AgentHqApiClient, queryClient: QueryClient) => ({
+    mutationFn: (workspaceIds: readonly string[]) => client.reorderWorkspaces(workspaceIds),
+    onSuccess: async (workspaces: Awaited<ReturnType<AgentHqApiClient['reorderWorkspaces']>>) => {
+      queryClient.setQueryData(workspaceQueryKeys.list, workspaces)
+      queryClient.setQueryData(
+        workspaceQueryKeys.bootstrap,
+        (current: Awaited<ReturnType<AgentHqApiClient['bootstrapWorkspace']>> | undefined) =>
+          current && {
+            ...current,
+            workspaces,
+            activeWorkspace:
+              workspaces.find((workspace) => workspace.id === current.activeWorkspace?.id) ??
+              workspaces.find((workspace) => workspace.isPersonal) ??
+              workspaces[0] ??
+              null,
+          }
+      )
+    },
+  }),
+  delete: (client: AgentHqApiClient, queryClient: QueryClient) => ({
+    onError: async (_error: unknown, input: { workspaceId: string }) => {
+      // Recover the authoritative name/version after conflicts, and reconcile
+      // an uncertain network outcome before another confirmation attempt.
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.bootstrap })
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.list })
+      await queryClient.invalidateQueries({
+        queryKey: workspaceQueryKeys.detail(input.workspaceId),
+      })
+    },
+    mutationFn: (
+      input: Readonly<{
+        workspaceId: string
+        confirmation: Parameters<AgentHqApiClient['deleteWorkspace']>[1]
+      }>
+    ) => client.deleteWorkspace(input.workspaceId, input.confirmation),
+    onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['deleteWorkspace']>>) => {
+      // Cancel in-flight reads before removing data so a late response cannot
+      // repopulate the deleted workspace's private cache.
+      const deletedWorkspaceQueries = {
+        predicate: (query: { queryKey: readonly unknown[] }) =>
+          (query.queryKey[0] === 'workspaces' &&
+            (query.queryKey[1] === result.workspaceId ||
+              (query.queryKey[1] === 'detail' && query.queryKey[2] === result.workspaceId))) ||
+          (query.queryKey[0] === 'dev-runtime' && query.queryKey[2] === result.workspaceId),
+      }
+      await queryClient.cancelQueries({
+        predicate: (query) =>
+          deletedWorkspaceQueries.predicate(query) ||
+          (query.queryKey[0] === 'workspaces' &&
+            (query.queryKey[1] === 'bootstrap' || query.queryKey[1] === 'list')),
+      })
+      queryClient.removeQueries(deletedWorkspaceQueries)
+      queryClient.setQueryData(
+        workspaceQueryKeys.bootstrap,
+        (current: Awaited<ReturnType<AgentHqApiClient['bootstrapWorkspace']>> | undefined) =>
+          current && {
+            ...current,
+            workspaces: result.workspaces,
+            activeWorkspace:
+              result.workspaces.find(({ id }) => id === current.activeWorkspace?.id) ??
+              result.workspaces.find((workspace) => workspace.isPersonal) ??
+              result.workspaces[0] ??
+              null,
+          }
+      )
+      queryClient.setQueryData(workspaceQueryKeys.list, result.workspaces)
+      await queryClient.invalidateQueries({ queryKey: ['account'] })
+    },
+  }),
 }
 
 export const workspaceQueryOptions = {
@@ -811,6 +884,10 @@ export const workspaceQueryOptions = {
   }),
 }
 
+export function useWorkspaceListQuery(client: AgentHqApiClient) {
+  return useQuery(() => workspaceQueryOptions.list(client))
+}
+
 export function useWorkspaceBootstrapQuery(client: AgentHqApiClient) {
   return useQuery(() => workspaceQueryOptions.bootstrap(client))
 }
@@ -818,6 +895,16 @@ export function useWorkspaceBootstrapQuery(client: AgentHqApiClient) {
 export function useCreateWorkspaceMutation(client: AgentHqApiClient) {
   const queryClient = useQueryClient()
   return useMutation(() => workspaceMutationOptions.create(client, queryClient))
+}
+
+export function useDeleteWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.delete(client, queryClient))
+}
+
+export function useReorderWorkspacesMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.reorder(client, queryClient))
 }
 
 export function useUpdateWorkspaceMutation(client: AgentHqApiClient) {

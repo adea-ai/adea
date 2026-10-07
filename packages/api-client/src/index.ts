@@ -25,8 +25,16 @@ import type {
   WorkspaceSearchPage,
 } from '@adea-ai/types'
 
-import type { ApiRuntimeNodeConnectionsResponse } from './runtime-connections'
-export type { ApiRuntimeConnection, ApiRuntimeNodeConnectionsResponse } from './runtime-connections'
+import type {
+  ApiRuntimeNodeConnectionsResponse,
+  ApiRuntimeNodesResponse,
+} from './runtime-connections'
+export type {
+  ApiRuntimeConnection,
+  ApiRuntimeNode,
+  ApiRuntimeNodeConnectionsResponse,
+  ApiRuntimeNodesResponse,
+} from './runtime-connections'
 
 export type ApiAgentCreateInput = Readonly<{
   avatarRef?: string
@@ -228,7 +236,7 @@ export type ApiWorkspaceResponse = {
 }
 
 export type ApiWorkspaceBootstrapResponse = {
-  activeWorkspace: WorkspaceSummary
+  activeWorkspace: WorkspaceSummary | null
   principal: Readonly<{ displayName?: string; temporary: boolean; userId?: string }>
   sessionRotated: boolean
   temporaryCredential?: string
@@ -243,6 +251,11 @@ export type ApiWorkspaceCreateResponse = {
 export type ApiWorkspaceClaimResponse = Readonly<{ claimed: true }>
 
 export type ApiWorkspaceReopenResponse = Readonly<{ workspace: WorkspaceSummary }>
+export type ApiWorkspaceDeleteResponse = Readonly<{
+  deleted: true
+  workspaceId: string
+  workspaces: readonly WorkspaceSummary[]
+}>
 
 export type ApiWorkspaceUpdateResponse = Readonly<{ workspace: WorkspaceSummary }>
 
@@ -522,6 +535,13 @@ export class AgentHqApiClient {
     return this.request<readonly WorkspaceSummary[]>('/workspaces')
   }
 
+  async reorderWorkspaces(workspaceIds: readonly string[]): Promise<readonly WorkspaceSummary[]> {
+    return this.request<readonly WorkspaceSummary[]>('/workspaces/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ workspaceIds }),
+    })
+  }
+
   async createWorkspace(
     input: Readonly<{
       idempotencyKey: string
@@ -558,6 +578,31 @@ export class AgentHqApiClient {
     return this.request<ApiWorkspaceReopenResponse>(
       `/workspaces/${encodeURIComponent(workspaceId)}/reopen`,
       { method: 'POST' }
+    )
+  }
+
+  async prepareWorkspaceDeletion(
+    workspaceId: string,
+    confirmation: Readonly<{ confirmationName: string; expectedVersion: number }>
+  ): Promise<Readonly<{ workspaceId: string; cleanupPending: true }>> {
+    return this.request(`/workspaces/${encodeURIComponent(workspaceId)}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...confirmation, phase: 'prepare' }),
+    })
+  }
+
+  async deleteWorkspace(
+    workspaceId: string,
+    confirmation: Readonly<{ confirmationName: string; expectedVersion: number }>
+  ): Promise<ApiWorkspaceDeleteResponse> {
+    return this.request<ApiWorkspaceDeleteResponse>(
+      `/workspaces/${encodeURIComponent(workspaceId)}/delete`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(confirmation),
+      }
     )
   }
 
@@ -667,15 +712,56 @@ export class AgentHqApiClient {
     )
   }
 
+  /** Display/proof projection of the workspace's registered execution hosts. */
+  async listRuntimeNodes(
+    workspaceId: string,
+    signal?: AbortSignal
+  ): Promise<ApiRuntimeNodesResponse> {
+    const result = await this.request<ApiRuntimeNodesResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/runtime-nodes`,
+      { signal }
+    )
+    // Public keys and trust metadata from the identity API do not enter the inventory cache.
+    return {
+      nodes: result.nodes.map(
+        ({
+          id,
+          controlPlaneRuntimeNodeRefId,
+          kind,
+          displayName,
+          health,
+          pairingState,
+          lastProofAt,
+          lastSeenAt,
+          platform,
+          softwareVersion,
+        }) => ({
+          id,
+          controlPlaneRuntimeNodeRefId,
+          kind,
+          displayName,
+          health,
+          pairingState,
+          lastProofAt,
+          lastSeenAt,
+          platform,
+          softwareVersion,
+        })
+      ),
+    }
+  }
+
   /** Normalized discovery for exactly one registered execution host (M11 #37). */
   async listRuntimeNodeConnections(
     workspaceId: string,
     runtimeNodeId: string,
-    cursor?: string
+    cursor?: string,
+    signal?: AbortSignal
   ): Promise<ApiRuntimeNodeConnectionsResponse> {
     const query = cursor ? `?${new URLSearchParams({ cursor })}` : ''
     return this.request(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/runtime-nodes/${encodeURIComponent(runtimeNodeId)}/connections${query}`
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/runtime-nodes/${encodeURIComponent(runtimeNodeId)}/connections${query}`,
+      { signal }
     )
   }
 

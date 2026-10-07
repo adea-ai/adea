@@ -263,3 +263,41 @@ describe('without a signing key', () => {
     expect(controlPlaneCredentialMode({ CONTROL_PLANE_SIGNING_KEY: 'x' })).toBe('scoped')
   })
 })
+
+test('mutating credentials reserve external ownership before issuance; refused reservation issues no token', async () => {
+  const keys = await keyPair()
+  let reservations = 0
+  const resolveScope = async () => ({
+    workspaceId: WORKSPACE,
+    beforeMutation: async () => {
+      reservations += 1
+    },
+  })
+  await controlPlaneCredential(
+    { resolveScope, scopes: ['catalog:read'] },
+    signingEnvironment(keys.pem),
+    NOW
+  )
+  expect(reservations).toBe(0)
+  await controlPlaneCredential(
+    { resolveScope, scopes: ['credential:write'] },
+    signingEnvironment(keys.pem),
+    NOW
+  )
+  expect(reservations).toBe(1)
+  await expect(
+    controlPlaneCredential(
+      {
+        resolveScope: async () => ({
+          workspaceId: WORKSPACE,
+          beforeMutation: async () => {
+            throw new Error('workspace cleanup pending')
+          },
+        }),
+        scopes: ['marketplace:install'],
+      },
+      signingEnvironment(keys.pem),
+      NOW
+    )
+  ).rejects.toThrow('workspace cleanup pending')
+})

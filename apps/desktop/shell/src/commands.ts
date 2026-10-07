@@ -135,6 +135,8 @@ export function createCommandSurface(
      * memory command fails closed.
      */
     authorizedWorkspaceId?: () => string | undefined
+    /** Production deletion fence checks the stored content owner as well as renderer input. */
+    assertWorkspaceActive?: (workspaceId: string) => void
   }
 ) {
   const stateDir = join(dataDir, 'desktop-state')
@@ -293,6 +295,7 @@ export function createCommandSurface(
     local_content_authorize_workspace: () => null,
     local_content_create: (args) => {
       const input = (args?.input ?? {}) as Record<string, unknown>
+      options?.assertWorkspaceActive?.(String(input.workspaceId ?? ''))
       const id =
         input.contentId === undefined ? randomBytes(16).toString('hex') : contentId(input.contentId)
       const now = new Date().toISOString()
@@ -326,6 +329,7 @@ export function createCommandSurface(
       const id = contentId(input.contentId)
       const ref = contentIndex()[id]
       if (!ref) return null
+      options?.assertWorkspaceActive?.(String(ref.workspaceId))
       const plaintext = open(readFileSync(join(contentDir, `${id}.sealed`), 'utf8'))
       return { contentRef: ref, plaintext }
     },
@@ -335,6 +339,7 @@ export function createCommandSurface(
       const index = contentIndex()
       const ref = index[id]
       if (!ref) return null
+      options?.assertWorkspaceActive?.(String(ref.workspaceId))
       if (typeof input.plaintext === 'string') {
         writeFileSync(join(contentDir, `${id}.sealed`), seal(input.plaintext), { mode: 0o600 })
       }
@@ -347,6 +352,7 @@ export function createCommandSurface(
       const input = (args?.input ?? {}) as Record<string, unknown>
       const id = contentId(input.contentId)
       const index = contentIndex()
+      if (index[id]) options?.assertWorkspaceActive?.(String(index[id].workspaceId))
       delete index[id]
       writeContentIndex(index)
       rmSync(join(contentDir, `${id}.sealed`), { force: true })
@@ -358,6 +364,7 @@ export function createCommandSurface(
       const results: Array<Record<string, unknown>> = []
       for (const ref of Object.values(contentIndex())) {
         if (input.workspaceId && ref.workspaceId !== input.workspaceId) continue
+        options?.assertWorkspaceActive?.(String(ref.workspaceId))
         try {
           const plaintext = open(readFileSync(join(contentDir, `${ref.id}.sealed`), 'utf8'))
           if (!query || plaintext.toLowerCase().includes(query)) {

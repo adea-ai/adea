@@ -1,15 +1,17 @@
 import { EntityIcon } from '@adea-ai/ui/components/ui/entity-icon'
-import { createEffect, createSignal } from 'solid-js'
+import { createEffect, createSignal, Show } from 'solid-js'
+import { Box, House } from 'lucide-solid'
 
 import { useOptionalTheme } from './theme-provider'
 import { paintAppearanceAccent, paintWorkspaceAccent } from './workspace-accent'
 
 export type WorkspaceIdentityLogo =
   | Readonly<{ kind: 'monogram' }>
+  | Readonly<{ kind: 'home' | 'box' }>
   | Readonly<{ kind: 'emoji'; value: string }>
 
 /**
- * A workspace's mark: its emoji or name initials on a tile painted with the
+ * A workspace's mark: its chosen emoji or a box on a tile painted with the
  * workspace's own accent, so a collapsed workspace stays recognisable while
  * another workspace themes the app.
  */
@@ -37,15 +39,26 @@ export function WorkspaceIdentityMark(props: {
       if (props.accent === null) paintAppearanceAccent(element)
     })
   })
-  const emoji = () => (props.logo.kind === 'emoji' ? props.logo.value : undefined)
   return (
     <span ref={setHost} class="workspace-identity-mark">
-      <EntityIcon
-        name={props.name}
-        size={props.size ?? 'sm'}
-        tone="primary"
-        icon={emoji() ? <span aria-hidden="true">{emoji()}</span> : undefined}
-      />
+      <Show when={props.logo} keyed>
+        {(logo) => (
+          <EntityIcon
+            name={props.name}
+            size={props.size ?? 'sm'}
+            tone="primary"
+            icon={
+              logo.kind === 'emoji' ? (
+                <span aria-hidden="true">{logo.value}</span>
+              ) : logo.kind === 'home' ? (
+                <House aria-hidden="true" data-workspace-icon="home" />
+              ) : (
+                <Box aria-hidden="true" data-workspace-icon="box" />
+              )
+            }
+          />
+        )}
+      </Show>
     </span>
   )
 }

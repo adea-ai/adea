@@ -5,8 +5,15 @@
 import { createEffect, createSignal, onCleanup, Show, type Accessor, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
-import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { settledData, useAgentListQuery, useUpdateWorkspaceMutation } from '@adea-ai/data'
+import type { AgentHqApiClient, ApiWorkspaceDeleteResponse } from '@adea-ai/api-client'
+import {
+  settledData,
+  useAgentListQuery,
+  useUpdateWorkspaceMutation,
+  useDeleteWorkspaceMutation,
+  useReorderWorkspacesMutation,
+  useWorkspaceListQuery,
+} from '@adea-ai/data'
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
@@ -385,15 +392,30 @@ function WorkspaceSettingsOverlay(props: {
 function WorkspaceDetailsOverlay(props: {
   client: AgentHqApiClient
   onClose: () => void
+  onDeleted: (result: ApiWorkspaceDeleteResponse) => void
   open: boolean
   services: WorkspacePlatformServices
   workspace: WorkspaceSummary
+  workspaceOrder: readonly WorkspaceSummary[]
 }) {
+  const deleteWorkspace = useDeleteWorkspaceMutation(props.client)
+  const reorderWorkspaces = useReorderWorkspacesMutation(props.client)
   const updateWorkspace = useUpdateWorkspaceMutation(props.client)
   return (
     <WorkspaceDetailsDialog
+      workspaceOrder={props.workspaceOrder}
+      onReorderWorkspaces={async (workspaceIds) => {
+        await reorderWorkspaces.mutateAsync(workspaceIds)
+      }}
       client={props.client}
       onClose={props.onClose}
+      onDeleteWorkspace={async (confirmation) => {
+        const result = await deleteWorkspace.mutateAsync({
+          workspaceId: props.workspace.id,
+          confirmation,
+        })
+        props.onDeleted(result)
+      }}
       onUpdateWorkspace={async (update) => {
         await updateWorkspace.mutateAsync({ update, workspaceId: props.workspace.id })
       }}
@@ -468,6 +490,7 @@ export type WorkspaceNavigationProps = Readonly<{
   devSummary?: Accessor<readonly WorkspaceRunSummaryItem[] | undefined>
   /** Desktop authorizes local content per workspace before switching. */
   onAuthorizeWorkspace?(workspaceId: string): Promise<void>
+  onWorkspaceDeleted?(result: ApiWorkspaceDeleteResponse): void
   platform: 'desktop' | 'web'
   characterDesigner?: boolean
   roomDesigner?: boolean
@@ -517,6 +540,8 @@ function appLibraryMoveAnnouncementFor(
 // the preference (contributions from other builds) never reach the rail.
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
+  const workspaceList = useWorkspaceListQuery(props.client)
+  const orderedWorkspaces = () => settledData(workspaceList) ?? props.workspaces
   const unavailableRuntime = createUnavailableDevUtilityRuntime('channel_unauthenticated')
   const utilityRuntime = props.services.devRuntime ?? {
     ...unavailableRuntime,
@@ -756,7 +781,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // helper so the surface can show the in-flight affordance and an effect
   // re-run can't fire a second authorize for a switch already in progress.
   const [switchingWorkspaceId, setSwitchingWorkspaceId] = createSignal<string>()
-  const switchToWorkspace = (workspace: (typeof props.workspaces)[number]) => {
+  const switchToWorkspace = (workspace: WorkspaceSummary) => {
     if (workspace.id === props.activeWorkspace?.id) return Promise.resolve(false)
     if (switchingWorkspaceId()) return Promise.resolve(false)
     setSwitchingWorkspaceId(workspace.id)
@@ -791,7 +816,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       }
       return
     }
-    const workspace = props.workspaces.find(({ id }) => id === requestedWorkspace)
+    const workspace = orderedWorkspaces().find(({ id }) => id === requestedWorkspace)
     if (!workspace || switchingWorkspaceId()) return
     void switchToWorkspace(workspace).then((switched) => {
       if (!switched) return
@@ -825,7 +850,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // reset context identically.
   const workspaceHost: WorkspaceNavHost = {
     get workspaces() {
-      return props.workspaces
+      return orderedWorkspaces()
     },
     get devSummary() {
       return props.devSummary?.()
@@ -891,7 +916,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     globalNav,
     client: props.client,
     activeWorkspace: () => props.activeWorkspace,
-    workspaces: () => props.workspaces,
+    workspaces: () => orderedWorkspaces(),
     // Dev renders the sidebar; desktop Chat renders it outside the Kanban board.
     active: () =>
       view() === 'dev' ||
@@ -1429,7 +1454,32 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       </Show>
       <Show when={props.activeWorkspace && workspaceSettingsOpen()}>
         <WorkspaceDetailsOverlay
+          workspaceOrder={orderedWorkspaces()}
           client={props.client}
+          onDeleted={(result) => {
+            props.onWorkspaceDeleted?.(result)
+            const next =
+              result.workspaces.find((workspace) => workspace.isPersonal) ?? result.workspaces[0]
+            const state = workspaceStore.getState()
+            state.restoreConventionalState({
+              sidebarGroupBy: Object.fromEntries(
+                Object.entries(state.sidebarGroupBy).filter(([id]) => id !== result.workspaceId)
+              ),
+            })
+            state.switchWorkspace(next?.id ?? null)
+            try {
+              window.localStorage.removeItem(`adea:workspace-events-cursor:${result.workspaceId}`)
+              window.localStorage.removeItem(`adea:workspace-events-resume:${result.workspaceId}`)
+            } catch {
+              // Storage can be disabled; server deletion and navigation still complete.
+            }
+            setHashWorkspaceSettingsOpen(false)
+            void navigate({
+              search: { scene: next?.scene ?? 'home' } as never,
+              hash: '',
+              replace: true,
+            })
+          }}
           onClose={() => {
             setHashWorkspaceSettingsOpen(false)
             workspaceStore.getState().setGlobalPanel(null)

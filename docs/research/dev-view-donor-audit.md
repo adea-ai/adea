@@ -925,3 +925,24 @@ and port manager menus were reviewed as UX counterexamples only. Every
 mechanism (bounded observation, identity re-proof before each signal,
 protection classes, attribution, storage measurement) is an independent Adea
 implementation under the spec and threat TM-018.
+
+Workspace deletion local follow-up (2026-10-07): native signed-window
+prepare/commit/cancel receipts now fence work, archive Adea session projections,
+remove proven workspace-owned data and preserve retryable partial failures.
+The lifecycle contract is in `docs/specs/dev-runtime.md`,
+`docs/specs/local-content.md` and `docs/specs/desktop-auth.md`; regression coverage
+is in `workspace-cleanup.test.ts`, `workspace-local-data.test.ts` and
+`desktop-workspace-deletion.test.ts`. This is native Adea lifecycle ownership,
+with no donor code or new Dev registry operation. Control Plane purge and offline
+host acknowledgements are unresolved; those scopes preserve the workspace with
+`workspace_deletion_cleanup_required`; all active prepare/final requests remain blocked until the server can verify native cleanup completion. Pending intent alone authorizes no local purge; historical deleted-root recovery remains scoped and retryable. No packaged/deployed completion is claimed.
+
+Personal workspace follow-up (2026-10-07, local): bootstrap now creates only the
+stable personal Home root. Name/logo/world settings and ordering do not alter
+its server/UI deletion protection. Additional workspaces retain inline naming,
+box icons and empty bindings/data. Workspace General's Move up/Move down actions
+persist the caller's own complete list through `/api/workspaces/reorder`;
+shared membership ordering never changes another member's list. Historical
+seed markers are migrated without deleting Work or custom data; ambiguous claims
+are preserved and receive a separate root on bootstrap. This is Adea-owned
+lifecycle behavior, not donor integration or a new account authorization flow.

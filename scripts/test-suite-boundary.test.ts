@@ -13,6 +13,24 @@ const desktopPackageJson = JSON.parse(
 ) as { version: string }
 
 describe('test suite boundaries', () => {
+  test('installs locked Playwright before downloading browsers for the Start host', () => {
+    const workflow = Bun.YAML.parse(
+      readFileSync(resolve(root, '.github/workflows/tanstack-start.yml'), 'utf8')
+    ) as {
+      jobs: { verify: { steps: { run?: string; id?: string; wait?: string[] }[] } }
+    }
+    const steps = workflow.jobs.verify.steps
+    const dependencies = steps.findIndex((step) => step.run === 'bun install --frozen-lockfile')
+    const browser = steps.findIndex((step) => step.id === 'playwright-install')
+    const suite = steps.findIndex((step) => step.run?.includes('start:test:local'))
+    const join = steps.findIndex((step) => step.wait?.includes('playwright-install'))
+
+    expect(dependencies).toBeGreaterThanOrEqual(0)
+    expect(browser).toBeGreaterThan(dependencies)
+    expect(join).toBeGreaterThan(browser)
+    expect(suite).toBeGreaterThan(join)
+  })
+
   test('exposes Code Foundry entry points for every test category', () => {
     expect(packageJson.scripts.test).toBe('bun run test:unit')
     expect(packageJson.scripts['test:unit']).toContain('turbo run test')
@@ -54,6 +72,37 @@ describe('test suite boundaries', () => {
     expect(packageJson.scripts.release).toBeUndefined()
     expect(packageJson.scripts['test:smoke']).toBeUndefined()
     expect(packageJson.scripts['native:smoke']).toBeUndefined()
+  })
+
+  test('executes inventory and settings product coverage in the normal E2E shard', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    for (const [index, total] of [
+      [1, 1],
+      [2, 2],
+    ]) {
+      const calls: { command: string; args: string[] }[] = []
+      runInNewContext(runner, {
+        spawnSync: (command: string, args: string[]) => {
+          calls.push({ command, args })
+          return { status: 0 }
+        },
+        process: { env: { E2E_SHARD_INDEX: String(index), E2E_TOTAL_SHARDS: String(total) } },
+        console,
+      })
+      const product = calls.find(
+        ({ command, args }) =>
+          command === 'playwright' && args.includes('apps/web/e2e/runtime-inventory.spec.ts')
+      )
+      expect(product).toBeDefined()
+      expect(product!.args).toContain('apps/web/e2e/workspace-settings.spec.ts')
+      if (total! > 1) {
+        expect(product!.args).toContain('--shard')
+        expect(product!.args).toContain(`${index}/${total}`)
+      }
+    }
   })
 
   test('pins the named M12 evidence lanes (#426) to durable harnesses', () => {

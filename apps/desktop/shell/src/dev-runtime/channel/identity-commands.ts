@@ -13,6 +13,7 @@
 // the request was already proven with the revoked channel's secret from the
 // trusted origin.
 import type { BridgeResult } from '../../commands'
+import type { WorkspaceCleanup } from '../../workspace-cleanup'
 import { ChannelRejection } from './authority'
 import type {
   DesktopIdentityAuthority,
@@ -26,6 +27,10 @@ export const IDENTITY_COMMANDS = [
   'desktop_identity_scope',
   'desktop_identity_select_workspace',
   'desktop_identity_unbind',
+  'desktop_identity_workspace_cleanup_prepare',
+  'desktop_identity_workspace_cleanup_commit',
+  'desktop_identity_workspace_cleanup_cancel',
+  'desktop_identity_workspace_cleanup_pending',
 ] as const
 
 export type IdentityCommand = (typeof IDENTITY_COMMANDS)[number]
@@ -52,6 +57,7 @@ export function createIdentityCommandSurface(input: {
   identity: DesktopIdentityAuthority
   /** Mints the next single-use launch bootstrap (the gateway's). */
   issueRehandshake: () => string
+  workspaceCleanup?: () => WorkspaceCleanup
 }): IdentityCommandSurface {
   const { identity } = input
   // Bumped by every effective scope change; a call that observes a bump
@@ -62,6 +68,28 @@ export function createIdentityCommandSurface(input: {
   })
 
   const handlers: Record<IdentityCommand, (args?: Record<string, unknown>) => unknown> = {
+    desktop_identity_workspace_cleanup_prepare: (args) => {
+      if (!input.workspaceCleanup) throw new Error('workspace_cleanup_unavailable')
+      return input
+        .workspaceCleanup()
+        .prepare(args?.workspaceId as string, args?.credential as WorkspaceMembershipCredential)
+    },
+    desktop_identity_workspace_cleanup_commit: (args) => {
+      if (!input.workspaceCleanup) throw new Error('workspace_cleanup_unavailable')
+      return input
+        .workspaceCleanup()
+        .commit(args?.operationId as string, args?.credential as WorkspaceMembershipCredential)
+    },
+    desktop_identity_workspace_cleanup_cancel: (args) => {
+      if (!input.workspaceCleanup) throw new Error('workspace_cleanup_unavailable')
+      return input
+        .workspaceCleanup()
+        .cancel(args?.operationId as string, args?.credential as WorkspaceMembershipCredential)
+    },
+    desktop_identity_workspace_cleanup_pending: () => {
+      if (!input.workspaceCleanup) throw new Error('workspace_cleanup_unavailable')
+      return input.workspaceCleanup().pending()
+    },
     desktop_identity_bind: (args) => {
       const session = args?.session as DesktopSessionCredential | undefined
       const claimed = args?.claimed as Scope | undefined

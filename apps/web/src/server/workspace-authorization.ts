@@ -39,6 +39,10 @@ export async function authorizeConversationWrite(
   workspaceId: string,
   target: Readonly<{ channelId: string } | { messageId: string }>
 ): Promise<boolean> {
+  if (
+    (await findWorkspaceMembership(applicationDatabase(), workspaceId, principal))?.deletionPending
+  )
+    return false
   if ((await authorizeWorkspace(principal, 'workspace.update', workspaceId)).allowed) return true
   if (!(await authorizeWorkspace(principal, 'workspace.read', workspaceId)).allowed) return false
   return isMembersProjectEditorForConversation(
