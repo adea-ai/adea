@@ -253,25 +253,40 @@ describe('janitor worktree discovery', () => {
     'worktree /Users/dev/elsewhere/feature',
     'branch refs/heads/feature',
     '',
+    'worktree /Users/dev/elsewhere/scratch',
+    'branch refs/heads/scratch',
+    '',
+    'worktree /Users/dev/elsewhere/pinned',
+    'branch refs/heads/pinned',
+    'locked',
+    '',
     'worktree /Users/dev/elsewhere/stale',
     'branch refs/heads/stale',
     'prunable gitdir file points to non-existent location',
     '',
   ].join('\n')
 
-  test('only unregistered, provably stale worktrees are candidates', () => {
+  test('unregistered worktrees are candidates: stale prunes, healthy trashes, locked never', () => {
     const candidates = janitorWorktreeCandidates({
       entries: parseWorktreePorcelain(porcelain),
       root: '/Users/dev/projects/primary',
       registeredRoots: ['/Users/dev/elsewhere/feature'],
       home: HOME,
     })
-    expect(candidates).toHaveLength(1)
-    expect(candidates[0]?.canonicalPath).toBe('/Users/dev/elsewhere/stale')
-    expect(candidates[0]?.disposal).toBe('prune')
-    expect(candidates[0]?.branchLabel).toBe('stale')
-    expect(candidates[0]?.prunableReason).toContain('non-existent')
-    expect(candidates[0]?.pathLabel).toBe('~/elsewhere/stale')
+    // The registered root and the primary checkout never appear; the locked
+    // worktree is the user's own pin and never appears either.
+    expect(candidates.map((candidate) => candidate.canonicalPath).toSorted()).toEqual(
+      ['/Users/dev/elsewhere/stale', '/Users/dev/elsewhere/scratch'].toSorted()
+    )
+    const stale = candidates.find((candidate) => candidate.disposal === 'prune')
+    expect(stale?.canonicalPath).toBe('/Users/dev/elsewhere/stale')
+    expect(stale?.branchLabel).toBe('stale')
+    expect(stale?.prunableReason).toContain('non-existent')
+    expect(stale?.pathLabel).toBe('~/elsewhere/stale')
+    const healthy = candidates.find((candidate) => candidate.disposal === 'trash')
+    expect(healthy?.canonicalPath).toBe('/Users/dev/elsewhere/scratch')
+    expect(healthy?.branchLabel).toBe('scratch')
+    expect(healthy?.prunableReason).toBeUndefined()
   })
 
   test('porcelain parsing never mistakes path text for attributes', () => {
@@ -296,9 +311,28 @@ describe('janitor worktree discovery', () => {
       gitWorktreeList: (root: string) => (root === '/Users/dev/projects/primary' ? porcelain : ''),
     })
     const worktrees = report.items.filter((item) => item.section === 'worktree')
+    // Only the stale entry lists: the healthy scratch checkout has no
+    // directory on this machine, so the scan proves it away; a trash item is
+    // never a nonexistent path.
     expect(worktrees).toHaveLength(1)
     expect(worktrees[0]?.disposal).toBe('prune')
     expect(worktrees[0]?.worktree?.registered).toBe(false)
+  })
+
+  test('scan lists a healthy unregistered worktree as a Trash item', async () => {
+    const machine = junkMachine()
+    const elsewhere = machine.get('Users')!.children!.get('dev')!.children!
+    elsewhere.set('elsewhere', dir({ scratch: dir({ 'some-file': file(10) }) }))
+    const { report } = await scanned(machine, {
+      scanRoots: () => ['/Users/dev/projects/primary'],
+      gitWorktreeList: (root: string) => (root === '/Users/dev/projects/primary' ? porcelain : ''),
+    })
+    const worktrees = report.items.filter((item) => item.section === 'worktree')
+    expect(worktrees.map((item) => item.label).toSorted()).toEqual(['scratch', 'stale'])
+    const scratch = worktrees.find((item) => item.label === 'scratch')
+    expect(scratch?.disposal).toBe('trash')
+    expect(scratch?.worktree?.registered).toBe(false)
+    expect(scratch?.worktree?.prunableReason).toBeUndefined()
   })
 })
 

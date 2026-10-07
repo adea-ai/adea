@@ -1603,6 +1603,15 @@
 [data-topbar-title] {
   text-align: center;
 }
+
+/* Source control trades the plain title for its pull-request search + sync
+   row. The published title column clamps at 22vw, which leaves the search
+   too narrow for its placeholder, so the row's view widens the middle track
+   (layout-only, on the host's own hook; the leading and trailing tracks are
+   flexible and absorb the difference). */
+[data-workspace-topbar]:has([data-scm-search]) {
+  grid-template-columns: minmax(0, 1fr) clamp(280px, 36vw, 640px) minmax(0, 1fr);
+}
 /* A view-owned title-slot control (source control's pull-request search)
    fills the centred slot in place of the plain title, so the field itself is
    what sits at the bar's centre. */

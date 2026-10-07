@@ -80,7 +80,7 @@ export function RunHistoryPane(props: {
   )
 
   return (
-    <section aria-label="Run history">
+    <section aria-label="Run history" class="dev-run-history">
       <Show when={rows().length > 0} fallback={<p>No harness runs yet.</p>}>
         {body()}
       </Show>

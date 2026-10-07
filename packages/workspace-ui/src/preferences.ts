@@ -18,6 +18,10 @@ export function normalizeWorkspacePreferences(value: unknown): WorkspacePreferen
       typeof candidate.privateNotificationPreviews === 'boolean'
         ? candidate.privateNotificationPreviews
         : false,
+    windowSurface:
+      candidate.windowSurface === 'frosted' || candidate.windowSurface === 'opaque'
+        ? candidate.windowSurface
+        : 'theme',
     version: 1,
   })
 }

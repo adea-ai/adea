@@ -436,6 +436,14 @@
   padding: 0.5rem;
 }
 
+/* The History pane's section sits in the same unpadded utility content area;
+   it carries the identical self-padding so all right-sidebar tabs share one
+   edge rhythm. */
+.dev-run-history {
+  min-width: 0;
+  padding: 0.5rem;
+}
+
 .dev-workspace--focus .dev-sidebar,
 .dev-workspace--focus .dev-utility,
 .dev-workspace--focus .dev-utility-splitter {

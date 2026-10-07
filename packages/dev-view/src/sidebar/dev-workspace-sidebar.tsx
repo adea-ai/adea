@@ -715,7 +715,8 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                 }}
                 workspaceDraftError={workspaceDraftError()}
                 workspaceDraftPending={workspaceDraftPending()}
-                onCreateProject={production() ? () => openNewProject() : undefined}
+                onCreateProject={props.fixture ? undefined : () => openNewProject()}
+                createDisabled={!production()}
                 onOpenWorkspaceSettings={
                   props.host?.onOpenWorkspaceSettings
                     ? () => {

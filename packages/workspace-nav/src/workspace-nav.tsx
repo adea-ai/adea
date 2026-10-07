@@ -91,6 +91,12 @@ export type WorkspaceNavProps = {
   /** The controlled draft's create request is in flight. */
   workspaceDraftPending?: boolean
   onCreateProject?: (workspaceId: string) => void
+  /**
+   * The create affordance stays mounted while its action is unavailable (a
+   * runtime scope still resolving, a workspace still preparing) — a disabled
+   * control reads as "not yet", an absent one as "never".
+   */
+  createDisabled?: boolean
   onOpenWorkspaceSettings?: (workspaceId: string) => void
   onCreateLeaf?: (project: NavProject) => void
   onProjectMenuAction?: (id: NavMenuItemId, project: NavProject) => void
@@ -369,7 +375,10 @@ function ActiveWorkspace(
       data-workspace-id={props.workspace.id}
       data-active-workspace=""
     >
-      <div class="flex min-w-0 items-center gap-2 ps-2">
+      {/* The header lines up with the collapsed rows' leading edge
+          (SidebarNavButton's px-3 + gap-2.5) so selecting a workspace never
+          shifts its indentation. */}
+      <div class="flex min-w-0 items-center gap-2.5 ps-3">
         <span aria-hidden="true" class="flex shrink-0">
           <WorkspaceIdentityMark
             accent={props.workspace.accent}
@@ -388,6 +397,7 @@ function ActiveWorkspace(
             <ActionButton
               variant="ghost"
               size="icon-xs"
+              disabled={props.createDisabled}
               tooltip={props.tooltips === false ? undefined : props.adapter.createProjectLabel}
               aria-label={`${props.adapter.createProjectLabel} in ${props.workspace.name}`}
               onClick={() => props.onCreateProject?.(props.workspace.id)}
@@ -414,7 +424,7 @@ function ActiveWorkspace(
           <p class="ps-9 pe-2 py-1" data-slot="workspace-nav-empty">
             <Text variant="caption" tone="muted">
               {emptyWorkspaceHint(props.adapter.nouns.project, {
-                create: Boolean(props.onCreateProject),
+                create: Boolean(props.onCreateProject) && props.createDisabled !== true,
                 settings: Boolean(props.onOpenWorkspaceSettings),
               })}
             </Text>

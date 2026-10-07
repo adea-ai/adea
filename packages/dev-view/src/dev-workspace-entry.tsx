@@ -811,8 +811,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           rightUtilityOpener = element
         }}
         type="button"
-        variant="outline"
+        variant="toolbar"
         size="icon-sm"
+        data-expanded={open() ? '' : undefined}
         tooltip={open() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
         aria-label={open() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
         aria-expanded={open()}
@@ -832,8 +833,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     return (
       <ActionButton
         type="button"
-        variant="outline"
+        variant="toolbar"
         size="icon-sm"
+        data-expanded={open() ? '' : undefined}
         tooltip={open() ? 'Collapse left utility sidebar' : 'Expand left utility sidebar'}
         aria-label={open() ? 'Collapse left utility sidebar' : 'Expand left utility sidebar'}
         aria-expanded={open()}
