@@ -53,6 +53,16 @@ payload conflict, rejected extra plaintext fields, no-store, one ciphertext outb
 one metadata event and no false Task/attempt transition. Its node browser suite
 separately exercises real registration/proof APIs with Ed25519 fixtures.
 
+## Fresh-checkout integration runner
+
+The first CI integration job failed before loading the queue tests because the
+public `remote-content` compiled entry was absent. A fresh temporary worktree
+with no build output reproduced that exact import failure. The root and database
+package integration runners now build that dependency explicitly. The cold root
+run passed all 100 cases and 1,780 assertions against an isolated database; the
+package runner passed 93 cases and 1,761 assertions from the same artifact-free boundary. This changes test
+setup, not the producer, envelope protocol or acceptance state.
+
 ## Remaining acceptance
 
 Authenticated outbound node delivery, local durable inbox/decrypt, duplicate
