@@ -3099,6 +3099,25 @@ supplies the id of the cloud project being bound; a host without a cloud
 project list falls back to a client UUID (the register never mints one). A
 successful import records the cloud project's `sourceKind` as `repository`.
 
+One create-project flow everywhere a runtime can back it: a host that mounts
+the Chat/Virtual sidebars with a ready, scoped Dev Runtime injects the same
+detailed flow (`createProjectFlow` — scope, `dev.project.*` command channel,
+live project names, and the cloud create that resolves the binding id), so
+their "Add project" opens this exact dialog instead of the basic name-and-icon
+create. A host without a Dev Runtime (web-only, cloud-only contexts) injects
+nothing and keeps its basic dialog; which dialog opens is decided only by the
+injected flow, never by a second surface implementation. The host supplies
+its lazy detailed renderer and owns its live announcements; the shared
+Chat/Virtual dialog samples that flow once when it opens, so background
+project-list refreshes cannot discard a typed draft. The production web
+host keeps the basic renderer outside the desktop dependency graph. On desktop hosts the
+authorize step can fill its path input from the shell's native folder picker
+(`desktop_folder_pick`; directory-only, single selection, `[]`/refusal when
+the user cancels or the shell predates the command). The picker only fills
+the field: the chosen path is still proven by `dev.project.authorizeRoot`, so
+the picker never widens authorization, and the typed absolute path remains
+the fallback on hosts without a picker.
+
 The repository step offers a source choice: **On this Mac** (the authorize →
 scan → import flow above) and **From GitHub** — the authenticated GitHub
 selection. The GitHub source lists the authenticated `gh` account's

@@ -22,7 +22,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'so
 import { keyedRows } from './keyed-rows'
 
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
-import { fuzzySearchMatch } from './workspace-model'
+import { fuzzySearchMatch } from './workspace-text-match'
 import type { PrivateContentResolver } from './platform'
 import {
   Command,

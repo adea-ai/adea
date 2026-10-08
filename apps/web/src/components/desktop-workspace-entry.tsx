@@ -12,8 +12,9 @@ import type {
   UpdateChannelSetting,
 } from '@adea-ai/workspace-ui/platform'
 import { noteUpdatePhase } from '@adea-ai/workspace-ui/update-pending'
+import type { DevProjectFlow } from '@adea-ai/workspace-ui/create-project-flow'
 import type { WorkspaceSummary } from '@adea-ai/types'
-import { invoke, listen } from '../lib/desktop-bridge'
+import { invoke, listen, pickDesktopFolder } from '../lib/desktop-bridge'
 import { createDesktopDevRuntimeService } from '../lib/desktop-dev-runtime'
 import { createDesktopWorkspaceConnectionsService } from '../lib/desktop-workspace-connections'
 import {
@@ -397,6 +398,12 @@ export function DesktopWorkspaceEntry(props: {
   )
 }
 
+const DevNewProjectDialog = lazy(() =>
+  import('@adea-ai/dev-view/sidebar/dev-nav-dialogs').then((module) => ({
+    default: module.DevNewProjectDialog,
+  }))
+)
+
 function DesktopWorkspace(props: {
   accountLabel?: string
   activeWorkspace: WorkspaceSummary
@@ -424,6 +431,20 @@ function DesktopWorkspace(props: {
   // would also rebuild the dev runtime service on every busy/version update.
   // The scope is read only after this workspace's selection settles; a shell
   // scope for any other workspace keeps Dev unavailable (fail closed).
+  const [projectAnnouncement, setProjectAnnouncement] = createSignal('')
+  const renderProjectDialog: DevProjectFlow['renderDialog'] = (dialog) => (
+    <DevNewProjectDialog
+      scope={dialog.flow.scope}
+      execute={dialog.flow.execute}
+      knownProjectNames={dialog.flow.knownProjectNames}
+      announce={setProjectAnnouncement}
+      pickFolder={() => pickDesktopFolder()}
+      workspaceName={dialog.workspaceName}
+      onCreateProject={dialog.flow.onCreateProject}
+      onImported={dialog.onImported}
+      onClose={dialog.onClose}
+    />
+  )
   const devRuntime = createDesktopDevRuntimeService({
     scopeSelection: props.devScope.ensure(props.devScopeWorkspaceId),
     expectedWorkspaceId: props.devScopeWorkspaceId,
@@ -463,60 +484,67 @@ function DesktopWorkspace(props: {
   })
 
   return (
-    <WorkspaceNavigation
-      account={{
-        authenticated: signedIn(),
-        busy: props.busy,
-        label: accountLabel(),
-        onOpenUpdates: () => props.onUpdatesOpenChange(true),
-        onSignIn: () => void props.onBeginSignIn(),
-        onSignOut: () => void props.onSignOut(),
-      }}
-      activeWorkspace={props.activeWorkspace}
-      onWorkspaceDeleted={props.onWorkspaceDeleted}
-      devSummary={devSummary}
-      chatEntry={(fallback, archiveAction, sidebarOpener, workspaceNav, teamChat) => (
-        <DesktopFirstRunChat
-          workspaceNav={workspaceNav}
-          teamChat={teamChat}
-          sidebarOpener={sidebarOpener}
-          archiveAction={archiveAction}
-          client={props.client}
-          fallback={fallback}
-          onOpenDev={() => {
-            const nextUrl = new URL(window.location.href)
-            nextUrl.searchParams.set('view', 'dev')
-            window.history.replaceState(null, '', nextUrl)
-            window.dispatchEvent(new PopStateEvent('popstate'))
-          }}
-          runtime={devRuntime}
-          modelHost={chatModelHost}
-          utilityOwner={utilityOwner}
-          onCanonicalConversation={(binding) =>
-            utilityOwner.handoffCanonicalChatConversation(binding)
-          }
-          onSignIn={props.onBeginSignIn}
-          temporary={!signedIn()}
-          workspaceId={props.activeWorkspace.id}
-        />
-      )}
-      client={props.client}
-      onAuthorizeWorkspace={async (workspaceId) => {
-        await localContentAuthority.authorizeWorkspace(workspaceId)
-        // Switching workspaces switches the Dev scope before the store does;
-        // the selection result is awaited, never thrown.
-        await props.devScope.select(workspaceId)
-      }}
-      platform="desktop"
-      characterDesigner={props.characterDesigner}
-      roomDesigner={props.roomDesigner}
-      services={services()}
-      updates={{ open: props.updatesOpen, onOpenChange: props.onUpdatesOpenChange }}
-      utilityOwner={utilityOwner}
-      virtual={props.virtual}
-      virtualProps={props.virtualProps}
-      workspaces={props.workspaces}
-    />
+    <>
+      <WorkspaceNavigation
+        renderProjectDialog={renderProjectDialog}
+        account={{
+          authenticated: signedIn(),
+          busy: props.busy,
+          label: accountLabel(),
+          onOpenUpdates: () => props.onUpdatesOpenChange(true),
+          onSignIn: () => void props.onBeginSignIn(),
+          onSignOut: () => void props.onSignOut(),
+        }}
+        activeWorkspace={props.activeWorkspace}
+        onWorkspaceDeleted={props.onWorkspaceDeleted}
+        devSummary={devSummary}
+        chatEntry={(fallback, archiveAction, sidebarOpener, workspaceNav, teamChat) => (
+          <DesktopFirstRunChat
+            workspaceNav={workspaceNav}
+            teamChat={teamChat}
+            sidebarOpener={sidebarOpener}
+            archiveAction={archiveAction}
+            client={props.client}
+            fallback={fallback}
+            onOpenDev={() => {
+              const nextUrl = new URL(window.location.href)
+              nextUrl.searchParams.set('view', 'dev')
+              window.history.replaceState(null, '', nextUrl)
+              window.dispatchEvent(new PopStateEvent('popstate'))
+            }}
+            runtime={devRuntime}
+            modelHost={chatModelHost}
+            utilityOwner={utilityOwner}
+            onCanonicalConversation={(binding) =>
+              utilityOwner.handoffCanonicalChatConversation(binding)
+            }
+            onSignIn={props.onBeginSignIn}
+            pickFolder={() => pickDesktopFolder()}
+            temporary={!signedIn()}
+            workspaceId={props.activeWorkspace.id}
+          />
+        )}
+        client={props.client}
+        onAuthorizeWorkspace={async (workspaceId) => {
+          await localContentAuthority.authorizeWorkspace(workspaceId)
+          // Switching workspaces switches the Dev scope before the store does;
+          // the selection result is awaited, never thrown.
+          await props.devScope.select(workspaceId)
+        }}
+        platform="desktop"
+        characterDesigner={props.characterDesigner}
+        roomDesigner={props.roomDesigner}
+        services={services()}
+        updates={{ open: props.updatesOpen, onOpenChange: props.onUpdatesOpenChange }}
+        utilityOwner={utilityOwner}
+        virtual={props.virtual}
+        virtualProps={props.virtualProps}
+        workspaces={props.workspaces}
+      />
+      <p class="sr-only" aria-live="polite">
+        {projectAnnouncement()}
+      </p>
+    </>
   )
 }
 

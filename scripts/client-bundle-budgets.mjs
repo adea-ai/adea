@@ -175,6 +175,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // names), the draft-row hint, the group-by mode label and the
     // @adea-ai/ui 0.115 sidebar options. Raw ratchets to 114 KiB (~1.3%
     // headroom); gzip to 39,200 (~1.4%).
+    // Unified project creation (2026-10-08): splitting Chat text helpers from
+    // the navigation model measures 116,093 raw / 39,095 gzip on cold Linux.
+    // Retain the original limits rather than inheriting #1165's headroom
+    // increase; aggregate caps and route graph checks also remain unchanged.
     virtual: { rawBytes: 114 * 1024, gzipBytes: 39_200 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
@@ -240,7 +244,14 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // shared-UI bump fails before anyone can ratchet. Raw moves 298 → 303 KiB,
     // the whole-KiB step that restores the ~2% headroom the 2026-10-01
     // re-baseline documented instead of pinning to the build; gzip holds.
-    chat: { rawBytes: 303 * 1024, gzipBytes: 99 * 1024 },
+    // Conversation-stack rewire (#811 phase 2, 2026-10-07): the route's
+    // conversation pane, composer menus and status lines now compose the
+    // published @adea-ai/ui 0.121 ConversationPane/ComposerMenu/status slot;
+    // measured 305,264 raw / 101,405 gzip across 45 files. Raw fits inside
+    // the restored 303 KiB cap; gzip is 29 bytes over 99 KiB, so it ratchets
+    // to the next whole KiB — the deleted app-local families offset most of
+    // the shared panel's weight.
+    chat: { rawBytes: 303 * 1024, gzipBytes: 102 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the

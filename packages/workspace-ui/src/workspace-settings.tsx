@@ -263,18 +263,18 @@ export function WorkspaceSettingsDialog(props: {
     let stablePanel = 0
     const sample = () => {
       if (appearanceMenuOpen()) return
-      stableDialog = document.querySelector('.conventional-settings-dialog')?.scrollTop ?? 0
+      stableDialog = document.querySelector('[data-settings-dialog]')?.scrollTop ?? 0
       stablePanel = document.querySelector('#settings-panel-appearance')?.scrollTop ?? 0
     }
     const onScroll = (event: Event) => {
       const target = event.target
       if (!(target instanceof Element)) return
-      if (!target.closest('.conventional-settings-dialog')) return
+      if (!target.closest('[data-settings-dialog]')) return
       if (!appearanceMenuOpen()) {
         sample()
         return
       }
-      const dialog = document.querySelector('.conventional-settings-dialog')
+      const dialog = document.querySelector('[data-settings-dialog]')
       if (dialog && dialog.scrollTop !== stableDialog) dialog.scrollTop = stableDialog
       const panel = document.querySelector('#settings-panel-appearance')
       if (panel && panel.scrollTop !== stablePanel) panel.scrollTop = stablePanel
@@ -291,6 +291,7 @@ export function WorkspaceSettingsDialog(props: {
     <ModalDialog
       modal={false}
       size="settings"
+      data-settings-dialog=""
       open={props.open}
       onClose={close}
       restoreFocusRef={props.restoreFocusRef}

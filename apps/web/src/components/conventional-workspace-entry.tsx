@@ -4,6 +4,7 @@ import {
   type WorkspaceDeepLink,
   type WorkspaceNavHost,
 } from '@adea-ai/workspace-ui/conventional-workspace-shell'
+import type { DevProjectFlow } from '@adea-ai/workspace-ui/create-project-flow'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
@@ -13,6 +14,8 @@ export function ConventionalWorkspaceEntry(props: {
   client: AgentHqApiClient
   archiveAction?: JSX.Element
   restoreFocusRef?: () => HTMLElement | undefined
+  /** The host's detailed create-project flow; absent keeps the basic dialog. */
+  createProjectFlow?: () => DevProjectFlow | undefined
   deepLink?: () => WorkspaceDeepLink
   taskBoardOnly?: boolean
   /** Chat surfaces without the workspace sidebar; the host renders its own. */
@@ -33,6 +36,7 @@ export function ConventionalWorkspaceEntry(props: {
         embedded={props.embedded}
         archiveAction={props.archiveAction}
         restoreFocusRef={props.restoreFocusRef}
+        createProjectFlow={props.createProjectFlow}
         deepLink={props.deepLink}
         manageSettings={props.manageSettings ?? true}
         onBootstrapFallbackChange={props.onBootstrapFallbackChange}

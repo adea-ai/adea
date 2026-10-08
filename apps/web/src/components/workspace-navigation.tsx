@@ -24,6 +24,7 @@ import type {
   WorkspacePlatformServices,
   WorkspacePluginsProvider,
 } from '@adea-ai/workspace-ui/platform'
+import { devProjectFlow, type DevProjectFlow } from '@adea-ai/workspace-ui/create-project-flow'
 import type { RegistryPluginsProviderOptions } from '@adea-ai/workspace-ui/plugins'
 import type { RailPreferencesV1 } from '@adea-ai/workspace-ui/rail-preferences'
 import {
@@ -461,6 +462,7 @@ export type WorkspaceNavigationAccount = Readonly<{
 }>
 
 export type WorkspaceNavigationProps = Readonly<{
+  renderProjectDialog?: DevProjectFlow['renderDialog']
   account: WorkspaceNavigationAccount
   activeWorkspace?: WorkspaceSummary
   chatEntry?: (
@@ -911,6 +913,25 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     devSummary: () => props.devSummary?.(),
   })
 
+  // One create-project flow everywhere a runtime can back it: when this host
+  // carries a ready Dev Runtime, the Chat/Virtual sidebars' "Add project" runs
+  // the detailed Dev dialog (name the project, optionally bind a repository)
+  // with the shell's native folder picker; without one (the web lane) the
+  // accessor resolves undefined and those sidebars keep the basic dialog.
+  // The production web entry has no Dev Runtime composition root.
+  const devProjectFlowHost = __ADEA_DESKTOP_COMPONENTS__
+    ? (): DevProjectFlow | undefined => {
+        const runtime = props.services.devRuntime
+        if (!runtime || !props.renderProjectDialog) return undefined
+        return devProjectFlow({
+          runtime,
+          renderDialog: props.renderProjectDialog,
+          knownProjectNames: (devNavHost.projects ?? []).map(({ name }) => name),
+          onCreateProject: (name) => devNavHost.onCreateProject!(name),
+        })
+      }
+    : undefined
+
   // The active workspace's accent themes the whole app while it is active
   // (ADR 0011): it overrides the appearance accent, and a workspace without
   // one (null) keeps the appearance accent. It is painted on <body>, below
@@ -1037,6 +1058,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       embedded={embedded}
       taskBoardOnly={activeAppId() === 'kanban'}
       client={props.client}
+      createProjectFlow={devProjectFlowHost}
       deepLink={deepLink}
       manageSettings={false}
       onConsumeDeepLink={consumeDeepLink}
@@ -1378,6 +1400,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                         archiveAction={archiveAction}
                         restoreFocusRef={sidebarOpener}
                         apiClient={props.client}
+                        createProjectFlow={devProjectFlowHost}
                         initialScene={scene()}
                         onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
                         onWorkspaceViewChange={changeView}

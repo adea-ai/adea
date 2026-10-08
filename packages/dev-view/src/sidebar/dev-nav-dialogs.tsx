@@ -1,3 +1,5 @@
+import '@adea-ai/app-ui/dev-view.css'
+
 /*
  * The Dev sidebar's small dialogs (ADR 0011), loaded on first use: naming a
  * worktree, project or branch, confirming archive and delete with the exact
@@ -180,6 +182,11 @@ export type DevRepositoryFlowProps = Readonly<{
   execute(command: DevCommand): Promise<DevReply>
   knownProjectNames: readonly string[]
   announce(message: string): void
+  /**
+   * The host's native folder picker for the authorize step, when the host has
+   * one; the form's typed path input remains the fallback.
+   */
+  pickFolder?: () => Promise<string | null | undefined>
 }>
 
 /**
@@ -207,6 +214,7 @@ export function DevAddRepositoryDialog(
           execute={props.execute}
           knownProjectNames={props.knownProjectNames}
           announce={props.announce}
+          {...(props.pickFolder ? { pickFolder: props.pickFolder } : {})}
           mintProjectId={() => props.projectId}
           onImported={() => {
             props.onImported()
@@ -275,6 +283,7 @@ export function DevNewProjectDialog(
                   execute={props.execute}
                   knownProjectNames={props.knownProjectNames}
                   announce={props.announce}
+                  {...(props.pickFolder ? { pickFolder: props.pickFolder } : {})}
                   {...(projectId() ? { mintProjectId: () => projectId()! } : {})}
                   onImported={() => {
                     props.onImported(projectId())
@@ -294,6 +303,7 @@ export function DevNewProjectDialog(
                 }}
               />
             </Show>
+
             <Show when={projectId()}>
               <Button type="button" variant="outline" onClick={() => props.onClose()}>
                 Skip for now

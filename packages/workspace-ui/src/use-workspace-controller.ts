@@ -209,6 +209,15 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     get createProjectBusy() {
       return createProject.isPending
     },
+    /**
+     * Refetches the channel list after a create-project flow that bypassed
+     * this controller (the Dev Runtime's detailed dialog): the cloud create
+     * invalidates the project list through the shared query cache, but the
+     * new project's primary channel only appears through this refetch.
+     */
+    refreshAfterProjectCreate: async () => {
+      await channels.refetch()
+    },
     projectActions: {
       update: (projectId: string, update: Readonly<{ iconKey?: string; name?: string }>) =>
         updateProject.mutateAsync({ projectId, update }).then(() => undefined),

@@ -9,6 +9,7 @@ import { AgentRoster } from './agent-roster'
 import { ArtifactDetail } from './artifact-detail'
 import { ConversationSurface } from './conversation-surface'
 import { TaskBoard } from './task-board'
+import type { DevProjectFlow } from './create-project-flow'
 import { useWorkspaceController } from './use-workspace-controller'
 import { WorkspaceNavSidebar, type WorkspaceNavHost } from './workspace-nav-sidebar'
 import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
@@ -24,8 +25,8 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
 )
-const CreateProjectDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateProjectDialog }))
+const ProjectCreateDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({ default: module.ProjectCreateDialog }))
 )
 const ModalDialog = lazy(() =>
   import('@adea-ai/ui/components/ui/modal-dialog').then((module) => ({
@@ -96,6 +97,13 @@ export function ConventionalWorkspaceShell(props: {
   onViewChange?: (view: WorkspaceView) => void
   services?: WorkspacePlatformServices
   view?: WorkspaceView
+  /**
+   * The host's detailed create-project flow, sampled when "Add project"
+   * opens: present, the Dev dialog runs (name the project, optionally bind a
+   * repository); absent, the basic create dialog stays. Hosts without a Dev
+   * Runtime simply omit it.
+   */
+  createProjectFlow?: () => DevProjectFlow | undefined
   /**
    * The integrated frame's workspace switching. Without it the sidebar lists
    * the bootstrap workspaces and switches through the workspace store.
@@ -684,12 +692,13 @@ export function ConventionalWorkspaceShell(props: {
                   primitives already mount only while open, so opening and
                   closing behaves exactly as before. */}
               <Show when={dialog() === 'create-project'}>
-                <CreateProjectDialog
+                <ProjectCreateDialog
                   busy={controller.createProjectBusy}
+                  createProjectFlow={props.createProjectFlow}
+                  workspace={controller.activeWorkspace!}
+                  onImported={controller.refreshAfterProjectCreate}
                   onClose={() => setDialog(null)}
                   onCreate={controller.createProject}
-                  open
-                  template={controller.activeWorkspace!.scene}
                 />
               </Show>
               <Show when={dialog() === 'create-group'}>
@@ -755,21 +764,21 @@ export function ConventionalWorkspaceShell(props: {
                   title="Conversation details"
                   description="Canonical Adea identity and scope."
                 >
-                  <div class="conventional-conversation-details">
-                    <p>
-                      <span>Kind</span>
+                  <div class="grid gap-3">
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Kind</span>
                       <strong>{controller.selectedChannel?.kind.replace('_', ' ')}</strong>
                     </p>
-                    <p>
-                      <span>Visibility</span>
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Visibility</span>
                       <strong>{controller.selectedChannel?.visibility}</strong>
                     </p>
-                    <p>
-                      <span>Participants</span>
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Participants</span>
                       <strong>{controller.selectedChannel?.participants.length ?? 0}</strong>
                     </p>
-                    <p>
-                      <span>Task link</span>
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Task link</span>
                       <strong>{controller.selectedChannel?.taskId ? 'Linked' : 'None'}</strong>
                     </p>
                   </div>
