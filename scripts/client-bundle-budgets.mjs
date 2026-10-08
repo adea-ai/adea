@@ -572,6 +572,14 @@ function routeDelta(label, roots, startupFiles, chunksByFile, additionallyExclud
     }
   }
   const routeFiles = staticClosure(roots, chunksByFile)
+  if (process.env.DEBUG_ROUTE === label) {
+    const ranked = [...routeFiles]
+      .filter((file) => !startupFiles.has(file) && !additionallyExcluded.has(file))
+      .map((file) => `${chunksByFile.get(file)?.bytes ?? 0}\t${file}`)
+      .toSorted()
+      .toReversed()
+    console.error(ranked.slice(0, 25).join('\n'))
+  }
   return measure(
     new Set(
       [...routeFiles].filter((file) => !startupFiles.has(file) && !additionallyExcluded.has(file))
@@ -714,9 +722,24 @@ export function inspectClientBundle(input) {
   if (uniqueDevUtilityPaneRoots.length === 0) {
     throw new Error('Dev View has no dynamically attributed utility panes')
   }
+  // The terminal route's static closure contains the workspace shell chunk,
+  // which carries the workspace nav's own preload-on-hover loaders — the
+  // draft row and the ≤48rem contextual sidebar. Rollup attributes those to
+  // the terminal route's closure now that the terminal empty state rides the
+  // entry graph; both are long-standing nav affordances shared with the chat
+  // route, not terminal code, so wherever the closure holds a chunk loading
+  // them by their stable module-derived names, they are expected. Every
+  // other dynamic edge stays pinned exactly.
+  const devTerminalExpected = new Map([[runtimeTerminalPane.file, [terminalPane.file]]])
+  for (const file of staticClosure([runtimeTerminalPane, terminalPane], chunksByFile)) {
+    const navLoaderTargets = dynamicChunkTargets([file], chunksByFile)
+      .map(({ file: target }) => target)
+      .filter((target) => /workspace-draft-row|mobile-contextual-sidebar/.test(target))
+    if (navLoaderTargets.length > 0) devTerminalExpected.set(file, navLoaderTargets)
+  }
   assertDynamicRouteClosure(
     [runtimeTerminalPane, terminalPane],
-    new Map([[runtimeTerminalPane.file, [terminalPane.file]]]),
+    devTerminalExpected,
     new Set([...startupFiles, devEntry.file]),
     chunksByFile,
     'Dev terminal route'

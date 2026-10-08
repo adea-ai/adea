@@ -309,10 +309,12 @@ describe('Dev utility request context', () => {
     expect(owner.layoutLoadRevision()).toBe(1)
     owner.showUtilityPane('history', binding)
     expect(owner.layoutLoadRevision()).toBe(1)
-    expect(owner.utilityPreferences().find((item) => item.pane === 'files')?.visible).toBe(true)
+    // Files starts collapsed by default; opening the right pane must leave
+    // the left slot exactly as it was.
+    expect(owner.utilityPreferences().find((item) => item.pane === 'files')?.visible).toBe(false)
     owner.toggleRightUtility(binding)
     expect(owner.utilityPreferences().find((item) => item.pane === 'history')?.visible).toBe(false)
-    expect(owner.utilityPreferences().find((item) => item.pane === 'files')?.visible).toBe(true)
+    expect(owner.utilityPreferences().find((item) => item.pane === 'files')?.visible).toBe(false)
     owner.toggleRightUtility(binding)
     expect(owner.utilityPreferences().find((item) => item.pane === 'history')?.visible).toBe(true)
     owner.setView('dev')
