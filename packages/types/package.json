@@ -46,6 +46,11 @@
       "development": "./src/dev-runtime-registry-dto.ts",
       "import": "./dist/dev-runtime-registry-dto.js"
     },
+    "./account-directory": {
+      "types": "./dist/account-directory.d.ts",
+      "development": "./src/account-directory.ts",
+      "import": "./dist/account-directory.js"
+    },
     "./desktop-permissions": {
       "types": "./dist/desktop-permissions.d.ts",
       "development": "./src/desktop-permissions.ts",
