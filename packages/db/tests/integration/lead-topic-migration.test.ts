@@ -6,7 +6,7 @@ const connectionUrl = process.env.DATABASE_URL
 describe.skipIf(!connectionUrl)('lead/topic additive migration', () => {
   test('preserves legacy identities, archived bodies, original audiences and read frontiers', async () => {
     const client = postgres(connectionUrl!, { max: 1 })
-    const fixtureSchema = `lead_migration_${crypto.randomUUID().replaceAll('-', '')}`
+    const fixtureSchema = 'pg_temp'
     const namespace = client(fixtureSchema)
     const workspaceId = crypto.randomUUID()
     const agentId = crypto.randomUUID()
@@ -14,15 +14,16 @@ describe.skipIf(!connectionUrl)('lead/topic additive migration', () => {
     const archivedChannelId = crypto.randomUUID()
     const senderId = crypto.randomUUID()
     try {
-      await client`create schema ${namespace}`
-      await client`create table ${namespace}.agents (like app.agents including defaults)`
+      // The hosted runtime role has TEMP but deliberately lacks database CREATE.
+      // Session-local fixtures exercise the actual migration without schema grants.
+      await client`create temporary table agents (like app.agents including defaults)`
       await client`alter table ${namespace}.agents drop column is_workspace_lead`
-      await client`create table ${namespace}.channels (like app.channels including defaults)`
+      await client`create temporary table channels (like app.channels including defaults)`
       await client`alter table ${namespace}.channels drop column create_payload_hash`
       await client`create unique index channels_active_direct_agent_unique on ${namespace}.channels (workspace_id,agent_id) where kind='direct_agent' and lifecycle_state='active'`
-      await client`create table ${namespace}.messages (like app.messages including defaults including identity)`
-      await client`create table ${namespace}.channel_participants (like app.channel_participants including defaults)`
-      await client`create table ${namespace}.channel_read_states (like app.channel_read_states including defaults)`
+      await client`create temporary table messages (like app.messages including defaults including identity)`
+      await client`create temporary table channel_participants (like app.channel_participants including defaults)`
+      await client`create temporary table channel_read_states (like app.channel_read_states including defaults)`
       await client`insert into ${namespace}.agents (id,workspace_id,name,profile_id,profile_version) values (${agentId},${workspaceId},'Custom legacy Agent','legacy-profile','1')`
       await client`insert into ${namespace}.channels (id,workspace_id,kind,agent_id,title,visibility,lifecycle_state,idempotency_key) values (${channelId},${workspaceId},'direct_agent',${agentId},'Original private audience','participants','active',${`direct-agent:${agentId}`}), (${archivedChannelId},${workspaceId},'direct_agent',${agentId},'Archived history','participants','archived','old-direct-lane')`
       await client`insert into ${namespace}.channel_participants (workspace_id,channel_id,principal_kind,user_id) values (${workspaceId},${channelId},'user',${senderId}), (${workspaceId},${archivedChannelId},'user',${senderId})`
@@ -42,7 +43,6 @@ describe.skipIf(!connectionUrl)('lead/topic additive migration', () => {
         await client`select id from ${namespace}.channels where lifecycle_state='active'`
       ).toHaveLength(3)
     } finally {
-      await client`drop schema if exists ${namespace} cascade`
       await client.end()
     }
 

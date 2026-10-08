@@ -226,7 +226,18 @@ export const channelQueryOptions = {
   }),
   list: (client: AgentHqApiClient, workspaceId?: string) => ({
     queryKey: channelQueryKeys.list(workspaceId ?? ''),
-    queryFn: () => client.listChannels(workspaceId!),
+    queryFn: async () => {
+      const conversationAudienceEpoch =
+        workspaceStore.getState().conversationAudienceEpochs[workspaceId!] ?? 0
+      const channels = await client.listChannels(workspaceId!)
+      return Object.assign([...channels], {
+        conversationAudienceEpoch,
+        conversationWorkspaceId: workspaceId,
+      })
+    },
+    // Array structural sharing discards custom properties, including the
+    // authority generation needed while Solid retains the previous resource.
+    structuralSharing: false,
     enabled: Boolean(workspaceId),
   }),
 }

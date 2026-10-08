@@ -1,6 +1,7 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import {
   settledData,
+  settledConversationPage,
   useAgentListQuery,
   useArchiveChannelMutation,
   useChannelListQuery,
@@ -10,6 +11,7 @@ import {
   useReadStateQuery,
   useUpdateChannelMutation,
 } from '@adea-ai/data'
+import { useWorkspaceState } from '@adea-ai/state'
 import type { ChannelSummary } from '@adea-ai/types'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { createMemo, createSignal, lazy, Show, Suspense } from 'solid-js'
@@ -93,7 +95,16 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
   const createGroup = useCreateGroupChannelMutation(props.client, () => workspaceId() ?? '')
   const updateChannel = useUpdateChannelMutation(props.client, () => workspaceId() ?? '')
   const archiveChannel = useArchiveChannelMutation(props.client, () => workspaceId() ?? '')
-  const navigation = createMemo(() => projectWorkspaceNavigation([], settledData(channels) ?? []))
+  const audienceEpoch = useWorkspaceState(
+    (state) => state.conversationAudienceEpochs[workspaceId() ?? ''] ?? 0
+  )
+  const navigation = createMemo(() => {
+    const list = settledConversationPage(channels, audienceEpoch())
+    return projectWorkspaceNavigation(
+      [],
+      list && list.conversationWorkspaceId === workspaceId() ? list : []
+    )
+  })
   const [renaming, setRenaming] = createSignal<ChannelSummary | null>(null)
   const [creating, setCreating] = createSignal(false)
   const [error, setError] = createSignal<string>()
@@ -158,10 +169,17 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
             busy={createGroup.isPending}
             onClose={() => setCreating(false)}
             onCreate={async (title) => {
+              const submittedWorkspaceId = workspaceId()
+              const submittedAudienceEpoch = audienceEpoch()
               const result = await createGroup.mutateAsync({
                 idempotencyKey: createClientRequestId(),
                 title,
               })
+              if (
+                workspaceId() !== submittedWorkspaceId ||
+                audienceEpoch() !== submittedAudienceEpoch
+              )
+                return
               props.onOpenConversation(result.channel.id)
             }}
             open

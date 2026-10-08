@@ -141,3 +141,67 @@ provider or runtime qualification is claimed.
 Normal commit hooks and the final immutable PR head are recorded in the PR's
 qualification receipt. Required hosted checks and Task8's exact-head review
 remain the ready/merge boundary.
+
+## Post-publication F2 hold and focused repair
+
+Parent review of `60ee3cfa` found retained channel-list fallback reselection after
+an audience reset and unconditional selection of a late direct-conversation
+mutation response. Full F2 acceptance was withdrawn and PR1186 returned to draft.
+Mounted tests of the real controller, Solid resources and QueryClient reproduced
+three failures (both audience races plus the workspace-switch response race).
+
+The pending repair stamps channel-list fetches with their workspace and admission
+audience epoch, checks that authority before navigation/reconciliation, resets
+explicit selection authority on scope changes, and guards direct/group response
+selection. Settled empty lists clear stale selections; pending lists wait. The
+focused browser-condition lane passes 25 tests/73 assertions, including eight
+mounted controller cases and one direct fetch-epoch case. Normal discovery runs those cases through its browser
+Solid subprocess. Equivalent guards cover Virtual/global navigation, with source-composition checks only; their full browser mounting remains unverified. Focused formatting/lint and `git diff --check` pass.
+
+Old-head hosted Integration run `37736780043` also failed the migration preservation
+fixture with SQLSTATE42501 (database CREATE permission). The fixture now prepares
+session-local temporary tables and applies the same reviewed SQL in `pg_temp`,
+matching the existing runtime-role temporary-table pattern without schema grants.
+The fixture repair passed in the granted window under a synthetic local runtime
+role with database CREATE=false, app schema CREATE=false and TEMP=true: all six
+focused database files passed (17 tests/208 assertions). Fresh root typecheck
+passed 31 tasks after correcting a nullable-list compiler error; root format/lint
+passed (17 lint tasks, zero warnings/errors). Affected data tests passed 61/222
+and workspace-ui tests passed 167/577. Build/bundle/hooks and hosted exact-head
+qualification remain required. Prior passing results do not qualify this uncommitted repair;
+#1171 stays open and the PR body uses `Refs #1171` during the hold.
+
+Independent source review found no remaining actionable defect in these repairs. This is source review, not repaired-head PostgreSQL/browser/compiler qualification.
+
+### Current scoped F2 acceptance map
+
+- Explicit new-topic creation binds the existing workspace Agent and separates
+  caller-scoped retry identity from the optional legacy default lane.
+- Actual restricted-role PostgreSQL verifies independent topic search, channel
+  and thread frontiers, archive bodies/frontiers, legacy IDs/audiences and denied
+  participant/hidden-project paths (17 tests/208 assertions across six files).
+- Actual mounted controller regressions cover stale fallback, denied/empty
+  refresh, cross-workspace resident list, late direct/group results and valid
+  same-audience thread preservation. Virtual/nav composition is source evidence.
+- Migration/index and caller semantics remain coordinated. Lead structure is
+  additive, but automatic Home/optional-workspace provisioning remains F1 work.
+
+Old-head hosted Integration run37736780043 SQLSTATE42501 and the cancelled
+aggregate remain historical failures; the new local restricted-role proof does
+not retrospectively turn those checks green. #1171 remains open pending root's
+repaired exact-head review and hosted gates; no U1/U2/provider claim is added.
+
+### Clean-source qualification boundary
+
+Final review discovered that preserved, unowned ` 2` file copies participated in
+root compiler, package test discovery and the web build. TanStack generated an
+extra `/agents/lead 2` route from a copied file. The unstaged generated addition
+was preserved as external evidence and restored to intended tracked source.
+No copied file was deleted, moved or staged. Root format/lint/type/build and the
+package test counts above are raw passing results with this contamination and
+are provisional, not clean repaired-head qualification. The direct web build
+and bundle check also passed mechanically but are not accepted qualification.
+The explicitly selected canonical PostgreSQL suite (17/208) and focused runtime
+lane (25/73) are unaffected. Normal hooks/publication are held pending an explicit
+copied-file ownership/preservation decision and clean affected checks. PR1186
+remains draft; no merge or issue closure is authorized from these raw results.

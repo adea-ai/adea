@@ -136,6 +136,20 @@ describe('conventional workspace projection', () => {
     ).toEqual({ action: 'select', channelId: 'engineering-main', projectId: 'engineering' })
   })
 
+  test('distinguishes unavailable lists from settled empty lists', () => {
+    const input = {
+      explicitSelection: null,
+      navigation: projectWorkspaceNavigation([], []),
+      selectedChannelId: 'removed',
+    }
+    expect(reconcileWorkspaceChannelSelection({ ...input, channels: undefined })).toEqual({
+      action: 'wait',
+    })
+    expect(reconcileWorkspaceChannelSelection({ ...input, channels: [] })).toEqual({
+      action: 'clear',
+    })
+  })
+
   test('fuzzy-matches command palette destinations without changing navigation ownership', () => {
     expect(fuzzySearchMatch('Mark all conversations read', 'macr')).toBe(true)
     expect(fuzzySearchMatch('Workspace settings', 'wset')).toBe(true)
