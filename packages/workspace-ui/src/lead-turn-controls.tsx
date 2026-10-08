@@ -8,6 +8,7 @@ import {
   createLeadTurnViewController,
   leadFundingBinding,
   leadPreparationCurrent,
+  leadTurnCanCancel,
   type LeadTurnView,
 } from './lead-turn-state'
 import { projectModelFunding } from './lead-model-state'
@@ -176,7 +177,7 @@ export function LeadTurnControls(props: {
             Review model and payer
           </Button>
         </Show>
-        <Show when={controller.canCancel()}>
+        <Show when={leadTurnCanCancel(view())}>
           <Button
             size="sm"
             variant="outline"

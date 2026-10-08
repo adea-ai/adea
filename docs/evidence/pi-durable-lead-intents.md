@@ -190,3 +190,14 @@ fixtures in the source suite are mocked; mounted UI/browser evidence, fresh comb
 R1/R2 packed workspace execution and provider-backed activation remain pending. Earlier
 packed workspace rejection evidence is retained and is not upgraded by the newer source
 contracts. Installed unsupported SDK versions remain inactive. Partial issues stay open.
+
+## Mounted cancellation visibility repair
+
+The original controls evaluated cancellation visibility from the controller's plain
+closure state. A real mounted Solid regression observed the running badge but failed
+because the cancellation button remained absent. The controls now read the Solid view
+signal through the same cancellability predicate used by the action guard. The identical
+single-worker Playwright test passes: initial null state, observed running, exactly one
+cancellation request, busy disappearance, cancelling acknowledgement and terminal removal.
+Its product transport is scripted; this narrow mounted proof does not qualify the broader
+model/payer journey, connected runtime cancellation or any live provider.

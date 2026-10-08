@@ -52,6 +52,10 @@ const empty = (): LeadTurnView => ({
 const cancellable = new Set(['starting', 'running', 'awaiting_input', 'cancelling'])
 const terminal = new Set(['completed', 'failed', 'cancelled', 'timed_out'])
 
+export function leadTurnCanCancel(view: Pick<LeadTurnView, 'turn' | 'busy'>): boolean {
+  return Boolean(view.turn && cancellable.has(view.turn.state) && !view.busy)
+}
+
 export function leadPreparationCurrent(turn: ApiLeadTurnStatus | null, now: number): boolean {
   const expiry = turn?.preparationExpiresAt
   if (
@@ -275,7 +279,7 @@ export function createLeadTurnViewController(options: {
 
   async function cancel() {
     const turn = view.turn
-    if (!turn || view.busy || !cancellable.has(turn.state)) return
+    if (!turn || !leadTurnCanCancel(view)) return
     const scope = capture()
     update({ busy: true, notice: null })
     try {
@@ -301,7 +305,7 @@ export function createLeadTurnViewController(options: {
     prepare,
     start,
     cancel,
-    canCancel: () => Boolean(view.turn && cancellable.has(view.turn.state) && !view.busy),
+    canCancel: () => leadTurnCanCancel(view),
     reset: (turn: ApiLeadTurnStatus | null = null) => {
       generation += 1
       view = { ...empty(), turn }
