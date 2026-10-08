@@ -281,7 +281,7 @@ function AgentCustomizationForm(props: {
             name="characterRef"
             maxLength={500}
             value={props.agent.characterRef ?? ''}
-            placeholder="Optional M4 character reference"
+            placeholder="Optional character reference"
           />
         </Label>
         <AgentProfileFields profile={props.agent.profile} />

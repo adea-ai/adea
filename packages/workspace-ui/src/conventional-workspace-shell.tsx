@@ -762,7 +762,7 @@ export function ConventionalWorkspaceShell(props: {
                   open
                   onClose={() => setDialog(null)}
                   title="Conversation details"
-                  description="Canonical Adea identity and scope."
+                  description="This conversation's identity and scope."
                 >
                   <div class="grid gap-3">
                     <p class="border-border flex justify-between gap-4 border-b pb-3">

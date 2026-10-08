@@ -370,7 +370,7 @@ export function WorkspaceSettingsDialog(props: {
                   />
                   <SettingsRow
                     label="Virtual preview"
-                    description="The Three.js representation is retained for M4 and does not define conventional workspace state."
+                    description="The 3D preview is display-only; it does not change workspace state."
                   >
                     <a href="/?view=virtual">Open preview</a>
                   </SettingsRow>
