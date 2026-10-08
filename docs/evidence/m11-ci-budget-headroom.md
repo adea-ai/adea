@@ -71,7 +71,7 @@ not exercise the retention operator candidate's additional cases or establish
 M11 acceptance.
 
 Its [visual job](https://github.com/adea-ai/adea/actions/runs/37705244749/job/113077944201)
-passed the workspace cases, then failed all 12 Linux ChatView captures. Each
+selected ChatView by the lane's PR-parity policy and failed all 12 Linux captures. Each
 hosted diff contains the same 36 significant pixels at the neutral status dot
 introduced by #1155's shared `statusDotVariants`; the macOS ChatView baseline
 already includes that dot. The subsequent #1157 and #1166 platform captures
