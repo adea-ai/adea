@@ -175,7 +175,15 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // names), the draft-row hint, the group-by mode label and the
     // @adea-ai/ui 0.115 sidebar options. Raw ratchets to 114 KiB (~1.3%
     // headroom); gzip to 39,200 (~1.4%).
-    virtual: { rawBytes: 114 * 1024, gzipBytes: 39_200 },
+    // Linux/amd64 re-measurement (2026-10-07): main 25264860b and the
+    // server-only event candidate produce byte-identical client chunks:
+    // 116,479 raw / 39,202 gzip / 16 files. Before shared UI 0.121 (#1155),
+    // main 35ba2d7da was already 116,446 / 39,193 — only seven gzip bytes
+    // below the cap. The 33-raw / 9-gzip migration delta exhausts that
+    // headroom. Restore the same ~2% whole-KiB allowance as startup/Chat;
+    // aggregate caps and the route graph checks remain unchanged. A 5%
+    // regression in either measurement still fails its independent cap.
+    virtual: { rawBytes: 116 * 1024, gzipBytes: 39 * 1024 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and

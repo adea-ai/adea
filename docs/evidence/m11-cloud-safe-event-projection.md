@@ -63,6 +63,20 @@ No database integration, delivery endpoint, live host interoperability, browser
 or packaged-runtime acceptance is claimed for this pure decoder. Those checks
 remain required when its authenticated caller and durable effects are added.
 
+## Current validation preparation
+
+The candidate also integrates canonical main
+`45dcf8cc29d7cb9bba4624a470f31a9c731b608d`, including #1165's qualified CI
+capacity and fixture repair. Local lint passed all 17 tasks without findings,
+typecheck passed 31 tasks, and formatting passed 1,812 files.
+
+The full web suite run alongside lint/typecheck failed an existing summary-poll
+fixture: its third changed-count read overtook the assertion intended for its
+second read. The original isolated polling suite passed 4 tests / 18 assertions;
+the full standalone web command then passed 320 tests / 1,403 assertions.
+No polling source, assertion, interval or deadline changed. The initial aggregate
+remains a failed receipt; fresh hosted default-concurrency validation is required.
+
 ## Remaining acceptance
 
 The caller's expected scope must come from authenticated delivery and retained
