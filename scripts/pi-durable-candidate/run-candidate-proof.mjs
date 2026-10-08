@@ -5,6 +5,8 @@ import { writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { createAdeaIntentFixture } from '../../packages/db/tests/fixtures/pi-durable-candidate.ts'
 import { createPackedConsumerFixture } from './packed-consumer-fixture.mjs'
+import { createLeadTurnSdkAdapter } from '../../apps/web/src/server/lead-turn-sdk-adapter.ts'
+import { startCandidateLeadHostProcess } from './lead-host-process.mjs'
 
 const args = Object.fromEntries(
   Array.from({ length: (process.argv.length - 2) / 2 }, (_, i) => [
@@ -34,6 +36,22 @@ if (
   throw new Error('--workspace-cancel-in-flight must be true or false')
 if (args['--workspace-cancel-in-flight'] === 'true' && args['--workspace-positive'] !== 'true')
   throw new Error('--workspace-cancel-in-flight requires --workspace-positive true')
+if (
+  args['--workspace-prepare-funding'] !== undefined &&
+  !['true', 'false'].includes(args['--workspace-prepare-funding'])
+)
+  throw new Error('--workspace-prepare-funding must be true or false')
+if (args['--workspace-prepare-funding'] === 'true' && args['--workspace-positive'] !== 'true')
+  throw new Error('--workspace-prepare-funding requires --workspace-positive true')
+const prepareFunding = args['--workspace-prepare-funding'] === 'true'
+if (
+  args['--lead-host-process'] !== undefined &&
+  !['true', 'false'].includes(args['--lead-host-process'])
+)
+  throw new Error('--lead-host-process must be true or false')
+const hostProcess = args['--lead-host-process'] === 'true'
+if (hostProcess && args['--workspace-cancel-in-flight'] === 'true')
+  throw new Error('CANDIDATE_PROCESS_IN_FLIGHT_DRAIN_UNAVAILABLE')
 
 const admissionCountKeys = [
   'commands',
@@ -50,14 +68,25 @@ const admissionCountKeys = [
   'planResolutions',
 ]
 
-function admissionCounts(host) {
-  const counts = host.inspectAdmissionRecordCounts()
+async function admissionCounts(host) {
+  const counts = await host.inspectAdmissionRecordCounts()
   return Object.fromEntries(
     admissionCountKeys.map((key) => {
       assert.ok(Number.isSafeInteger(counts[key]) && counts[key] >= 0, `Invalid ${key} count`)
       return [key, counts[key]]
     })
   )
+}
+
+async function drainCandidate(host, consumer, dispatchId) {
+  if (host.drain) return host.drain()
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    const status = await consumer.status(dispatchId)
+    if (['completed', 'failed', 'cancelled'].includes(status.status.state)) return
+    await new Promise((done) => setTimeout(done, 50))
+  }
+  throw new Error('CANDIDATE_EXECUTION_COMPLETION_TIMEOUT')
 }
 
 function id(prefix) {
@@ -173,7 +202,13 @@ try {
   modelHost = undefined
 
   leadPack = await createPackedConsumerFixture(args['--lead-manifest'], 'lead')
-  const { startNodePiDurableCandidateHost } = await import(pathToFileURL(args['--lead-host']).href)
+  const startNodePiDurableCandidateHost = hostProcess
+    ? (hostSettings) =>
+        startCandidateLeadHostProcess(args['--lead-host'], {
+          ...hostSettings,
+          expectedHead: leadPack.source.head,
+        })
+    : (await import(pathToFileURL(args['--lead-host']).href)).startNodePiDurableCandidateHost
   leadHost = await startNodePiDurableCandidateHost({ workspaceId: adea.workspaceId })
   await adea.configureProfile({
     profileId: leadHost.profileId,
@@ -185,11 +220,11 @@ try {
   assert.equal(canonical.workspaceId, leadHost.workspaceId)
   await leadHost.registerIntent(canonical)
   const leads = leadPack.entry.createCandidateLeadDispatch(options(leadHost, leadHost.baseUrl))
-  const before = leadHost.inspectAdmissionRecordCounts()
+  const before = await leadHost.inspectAdmissionRecordCounts()
   await assert.rejects(leads.dispatch(first.leadTurn.intentId), {
     code: 'PI_LEAD_PROJECT_SCOPE_REQUIRED',
   })
-  const after = leadHost.inspectAdmissionRecordCounts()
+  const after = await leadHost.inspectAdmissionRecordCounts()
   for (const key of admissionCountKeys) assert.equal(after[key], before[key])
   const retry = await adea.retry()
   assert.equal(retry.message.id, first.message.id)
@@ -223,7 +258,7 @@ try {
   })
   const dispatch = await leads.dispatch(projectIntentId)
   assert.equal(dispatch.intentId, projectIntentId)
-  await leadHost.drain()
+  await drainCandidate(leadHost, leads, dispatch.dispatchId)
   const status = await leads.status(dispatch.dispatchId)
   assert.equal(status.status.state, 'completed')
   assert.deepEqual(status.status.result.output, { text: 'Candidate canonical answer' })
@@ -237,17 +272,22 @@ try {
   assert.equal(replay.dispatchId, dispatch.dispatchId)
   assert.equal(replay.runtimeSessionId, dispatch.runtimeSessionId)
   assert.equal(replay.replayed, true)
-  await leadHost.awaitInput(dispatch.dispatchId)
-  assert.equal((await leads.cancel(dispatch.dispatchId)).state, 'cancelled')
-  assert.equal(leadHost.metrics().providerRequests, 1)
+  const assistedCancellation = typeof leadHost.awaitInput === 'function'
+  if (assistedCancellation) {
+    await leadHost.awaitInput(dispatch.dispatchId)
+    assert.equal((await leads.cancel(dispatch.dispatchId)).state, 'cancelled')
+  }
+  assert.equal((await leadHost.metrics()).providerRequests, 1)
   proof.projectControl = {
     artifacts: leadPack.hashes,
     source: leadHost.sourceIdentity,
-    typedOperations: 4,
+    typedOperations: assistedCancellation ? 4 : 3,
     runtimeSessionId: dispatch.runtimeSessionId,
     replayAndProgressVerified: true,
-    cancelVerified: true,
-    cancellationScenario: 'fixture-assisted-awaiting-input-after-completion',
+    cancelVerified: assistedCancellation,
+    cancellationScenario: assistedCancellation
+      ? 'fixture-assisted-awaiting-input-after-completion'
+      : 'not-requested-process-fixture-has-no-await-input-control',
     naturalWaitingInputCancellationVerified: false,
     provider: 'scripted-loopback-http',
     adeaProjectMappingCreated: false,
@@ -262,6 +302,7 @@ try {
     workspaceLeadHost = await startNodePiDurableCandidateHost({
       workspaceId: positiveAdea.workspaceId,
       workspaceScope: true,
+      prepareFunding,
     })
     await positiveAdea.configureProfile({
       profileId: workspaceLeadHost.profileId,
@@ -285,16 +326,61 @@ try {
     const workspaceLeads = leadPack.entry.createCandidateLeadDispatch(
       options(workspaceLeadHost, workspaceLeadHost.baseUrl)
     )
-    const positiveBefore = admissionCounts(workspaceLeadHost)
-    const workspaceDispatch = await workspaceLeads.dispatch(accepted.leadTurn.intentId)
+    const positiveBefore = await admissionCounts(workspaceLeadHost)
+    const authority = {
+      intentId: accepted.leadTurn.intentId,
+      messageId: accepted.message.id,
+      workspaceId: positiveAdea.adeaWorkspaceId,
+      controlPlaneWorkspaceId: positiveAdea.workspaceId,
+      originalActorRef: evidence.canonicalActorPrincipalId,
+    }
+    const adapter = createLeadTurnSdkAdapter({
+      workspaceId: positiveAdea.workspaceId,
+      preparationSchema: leadPack.entry.candidatePreparationSchema,
+      lookupResponseSchema: leadPack.entry.candidateLookupResponseSchema,
+      prepare: async (intentId) => ({ data: await workspaceLeads.prepare(intentId) }),
+      lookup: (intentId) => workspaceLeads.lookup(intentId),
+      dispatch: (intentId, preparationRef) => workspaceLeads.dispatch(intentId, preparationRef),
+      status: (dispatchId) => workspaceLeads.status(dispatchId),
+      progress: (dispatchId, afterSequence) => workspaceLeads.progress(dispatchId, afterSequence),
+      cancel: (dispatchId) => workspaceLeads.cancel(dispatchId),
+    })
+    const preparation = prepareFunding ? await adapter.prepare(authority) : undefined
+    if (preparation) {
+      assert.equal(preparation.workspaceId, positiveAdea.workspaceId)
+      assert.equal(preparation.selectionRef, evidence.selectionRef)
+      assert.equal(preparation.selectionRevision, evidence.selectionRevision)
+      assert.equal((await workspaceLeadHost.metrics()).providerRequests, 0)
+      const afterPrepare = await admissionCounts(workspaceLeadHost)
+      for (const key of [
+        'runtimeAdmissions',
+        'runtimeSessions',
+        'dispatchReceipts',
+        'providerRequests',
+      ])
+        assert.equal(afterPrepare[key], positiveBefore[key])
+      assert.equal((await adapter.lookup(authority)).receipt, null)
+      assert.deepEqual(await admissionCounts(workspaceLeadHost), afterPrepare)
+    }
+    const workspaceDispatch = preparation
+      ? await adapter.dispatch(authority, accepted.leadTurn.dispatchKey, preparation)
+      : await workspaceLeads.dispatch(accepted.leadTurn.intentId)
     assert.equal(workspaceDispatch.intentId, accepted.leadTurn.intentId)
-    await workspaceLeadHost.drain()
+    if (preparation)
+      for (const key of ['executionId', 'attemptId'])
+        assert.equal(workspaceDispatch[key], preparation[key])
+    await drainCandidate(workspaceLeadHost, workspaceLeads, workspaceDispatch.dispatchId)
     const workspaceStatus = await workspaceLeads.status(workspaceDispatch.dispatchId)
     assert.equal(workspaceStatus.status.state, 'completed')
     assert.deepEqual(workspaceStatus.status.result.output, { text: 'Candidate canonical answer' })
-    const positiveCompleted = admissionCounts(workspaceLeadHost)
+    const workspaceEvidence = await workspaceLeadHost.evidence(accepted.leadTurn.intentId)
+    const modelUsageEntries = workspaceEvidence.usage.filter(
+      (entry) => entry.kind === 'model_usage'
+    )
+    assert.equal(modelUsageEntries.length, 1)
+    const positiveCompleted = await admissionCounts(workspaceLeadHost)
     assert.equal(positiveCompleted.runtimeSessions, 0)
-    assert.equal(workspaceLeadHost.metrics().providerRequests, 1)
+    assert.equal((await workspaceLeadHost.metrics()).providerRequests, 1)
 
     const workspaceProgress = await workspaceLeads.progress(workspaceDispatch.dispatchId)
     assert.ok(workspaceProgress.events.length > 1)
@@ -313,13 +399,21 @@ try {
     assert.equal(canonicalRetry.message.id, accepted.message.id)
     assert.equal(canonicalRetry.leadTurn.intentId, accepted.leadTurn.intentId)
     assert.equal(canonicalRetry.leadTurn.dispatchKey, accepted.leadTurn.dispatchKey)
-    const workspaceReplay = await workspaceLeads.dispatch(accepted.leadTurn.intentId)
+    const workspaceLookup = await adapter.lookup(authority)
+    assert.deepEqual(await admissionCounts(workspaceLeadHost), positiveCompleted)
+    assert.ok(workspaceLookup.receipt)
+    for (const key of ['dispatchId', 'executionId', 'attemptId', 'runtimeSessionId'])
+      assert.equal(workspaceLookup.receipt[key], workspaceDispatch[key])
+    const workspaceReplay = await workspaceLeads.dispatch(
+      accepted.leadTurn.intentId,
+      preparation?.preparationRef
+    )
     for (const key of ['intentId', 'dispatchId', 'executionId', 'attemptId', 'runtimeSessionId'])
       assert.equal(workspaceReplay[key], workspaceDispatch[key])
     assert.equal(workspaceReplay.replayed, true)
-    const positiveReplayed = admissionCounts(workspaceLeadHost)
+    const positiveReplayed = await admissionCounts(workspaceLeadHost)
     assert.deepEqual(positiveReplayed, positiveCompleted)
-    assert.equal(workspaceLeadHost.metrics().providerRequests, 1)
+    assert.equal((await workspaceLeadHost.metrics()).providerRequests, 1)
     assert.deepEqual(await positiveAdea.counts(), {
       messages: 1,
       intents: 1,
@@ -354,7 +448,12 @@ try {
       runtimeSessionId: workspaceDispatch.runtimeSessionId,
       canonicalRetryIdentityVerified: true,
       recordedProductActorSeparateFromTransportVerified: true,
+      typedOperations: preparation ? 5 : 4,
+      modelUsageEntries: modelUsageEntries.length,
       replayAndProgressVerified: true,
+      preparationFundingVerified: Boolean(preparation),
+      prepareBeforeProviderVerified: Boolean(preparation),
+      readOnlyLookupVerified: true,
       cancelVerified: false,
       cancellationQualification: 'separate-optional-in-flight-scenario',
       naturalWaitingInputCancellationVerified: false,
@@ -368,7 +467,7 @@ try {
         replayed: positiveReplayed,
       },
       databaseCounts: positiveDbCounts,
-      providerRequests: workspaceLeadHost.metrics().providerRequests,
+      providerRequests: (await workspaceLeadHost.metrics()).providerRequests,
     }
 
     if (args['--workspace-cancel-in-flight'] === 'true') {
@@ -379,6 +478,7 @@ try {
       cancellationHost = await startNodePiDurableCandidateHost({
         workspaceId: cancellationAdea.workspaceId,
         workspaceScope: true,
+        prepareFunding,
       })
       await cancellationAdea.configureProfile({
         profileId: cancellationHost.profileId,
@@ -409,28 +509,37 @@ try {
       const cancellationLeads = leadPack.entry.createCandidateLeadDispatch(
         options(cancellationHost, cancellationHost.baseUrl)
       )
-      const cancellationBefore = admissionCounts(cancellationHost)
+      const cancellationBefore = await admissionCounts(cancellationHost)
+      const cancellationPreparation = prepareFunding
+        ? await cancellationLeads.prepare(cancellationAccepted.leadTurn.intentId)
+        : undefined
+      if (cancellationPreparation)
+        assert.equal((await cancellationHost.metrics()).providerRequests, 0)
       cancellationHost.holdProviderResponse()
       const cancellationDispatch = await cancellationLeads.dispatch(
-        cancellationAccepted.leadTurn.intentId
+        cancellationAccepted.leadTurn.intentId,
+        cancellationPreparation?.preparationRef
       )
       assert.equal(cancellationDispatch.intentId, cancellationAccepted.leadTurn.intentId)
       const providerDeadline = Date.now() + 5_000
-      while (cancellationHost.metrics().providerRequests === 0 && Date.now() < providerDeadline)
+      while (
+        (await cancellationHost.metrics()).providerRequests === 0 &&
+        Date.now() < providerDeadline
+      )
         await new Promise((resolve) => setTimeout(resolve, 10))
-      assert.equal(cancellationHost.metrics().providerRequests, 1)
-      const cancellationInFlight = admissionCounts(cancellationHost)
+      assert.equal((await cancellationHost.metrics()).providerRequests, 1)
+      const cancellationInFlight = await admissionCounts(cancellationHost)
       const cancellation = await cancellationLeads.cancel(cancellationDispatch.dispatchId)
       assert.equal(cancellation.state, 'cancelling')
       assert.equal(cancellation.runtimeSessionId, cancellationDispatch.runtimeSessionId)
       cancellationHost.releaseProviderResponse()
       await cancellationHost.drain()
-      const cancellationDrained = admissionCounts(cancellationHost)
+      const cancellationDrained = await admissionCounts(cancellationHost)
       const cancellationReplay = await cancellationLeads.cancel(cancellationDispatch.dispatchId)
       assert.equal(cancellationReplay.state, 'cancelling')
       for (const key of ['intentId', 'dispatchId', 'executionId', 'attemptId', 'runtimeSessionId'])
         assert.equal(cancellationReplay[key], cancellationDispatch[key])
-      const cancellationReplayed = admissionCounts(cancellationHost)
+      const cancellationReplayed = await admissionCounts(cancellationHost)
       assert.deepEqual(cancellationReplayed, cancellationDrained)
       const cancellationRuntimeEvidence = await cancellationHost.evidence(
         cancellationAccepted.leadTurn.intentId

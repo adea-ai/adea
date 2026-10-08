@@ -168,6 +168,18 @@ describe.skipIf(!databaseUrl)('trusted lead runtime observation/publication', ()
         async () => {}
       )
     ).toBe(first)
+    // Publication identity includes exact answer bytes, including trailing whitespace.
+    await expect(
+      publishLeadTurnResult(
+        connection.db,
+        f.workspace.id,
+        f.pin.intentId,
+        f.owner.principal,
+        f.binding,
+        'Authorized answer\n',
+        async () => {}
+      )
+    ).rejects.toThrow('RUNTIME_RESPONSE_INVALID')
     await expect(
       publishLeadTurnResult(
         connection.db,
