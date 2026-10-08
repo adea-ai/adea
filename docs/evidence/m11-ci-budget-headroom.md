@@ -76,9 +76,10 @@ hosted diff contains the same 36 significant pixels at the neutral status dot
 introduced by #1155's shared `statusDotVariants`; the macOS ChatView baseline
 already includes that dot. The subsequent #1157 and #1166 platform captures
 landed on main. This candidate integrates main
-`b468b3571608b172ab8b8c20ca9720211fb03223`, including #1167's conversation
-composition and Chat budget, instead of duplicating or reversing their work;
-its owned diff remains the two finite budgets, fixture seam, and this evidence.
+`5ab5ce433248a7c39b2913514b7639038c669d5c`, including #1167's conversation
+composition and Chat budget, #1169's settings/CSS cleanup, and #1163's reviewed
+Darwin captures. Its owned diff remains the two finite budgets, isolated test
+fixtures, and this evidence.
 Fresh validation of the integrated head remains required. An additional local
 Linux diagnostic stopped at dev-server readiness and supplies no product test
 result.
@@ -92,3 +93,33 @@ Git fixture five-second deadlines. All four Git cases passed individually
 with their original deadlines. These isolated passes do not make the failed
 aggregate pass. Current-head hosted default-concurrency validation is still
 required; no timing assertion or deadline has been relaxed.
+
+## Global nonce-pruning fixture
+
+Candidate `4fddad36519d3482803d548b03d5f24fcb1fcef9` completed the
+[Neon preview job](https://github.com/adea-ai/adea/actions/runs/37712023080/job/113099884204)
+within the 35-minute window: 42 migrations verified and 111 integration cases
+completed in 1,182.21 seconds, with 110 passing and one failing. The failure
+was the expired target row remaining in the bounded nonce cleanup test. Its
+subsequent live-proof assertion was not reached; the log does not demonstrate
+deletion of a live proof.
+
+The production pruner selects the oldest eligible row globally with limit 1.
+Earlier fixtures retain request rows that can expire during cloud round trips;
+another older eligible row can consume the deletion. The fixture now seeds a
+competing expired row and gives its target a database-clock expiry older than
+every existing request. It checks the returned deletion count and surviving
+competitor, then removes only that fixture competitor before the original
+live-proof assertion. Production ordering, proof/rate windows, batch limits,
+test deadlines and original assertions remain unchanged.
+
+An isolated PostgreSQL 16.15 reproduction with the competing row and original
+timestamps failed the exact target-deletion assertion (0 passing / 1 failing).
+The corrected fixture passed (1 test / 5 assertions). This local PostgreSQL
+version also completed the root `bun run test:integration` command: database
+role health, 42 migration verification/replay, and 111 tests / 1,829 assertions
+passed. These local receipts are supplementary; fresh hosted Neon qualification
+remains required.
+Owned Docker fixtures stalled before database startup and ran no tests; their
+recorded containers, networks and volumes were removed. The native fixtures
+use separate clusters and ports, leaving the shared local database untouched.
