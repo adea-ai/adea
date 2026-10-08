@@ -177,109 +177,114 @@ export function WorkspaceDetailsDialog(props: {
             },
           ]}
         />
-        <TabsContent
-          value={section()}
-          id={`workspace-settings-panel-${section()}`}
-          class="min-h-0 min-w-0"
-        >
-          <div class="conventional-settings-panel">
-            <header>
-              <Dynamic component={sectionIcons[section()]} aria-hidden="true" />
-              <div>
-                <h3>{workspaceSettingsSectionLabels[section()]}</h3>
-                <p>{sectionDescription()}</p>
-              </div>
-            </header>
-            <Show when={section() === 'general'}>
-              <WorkspaceIdentitySettings
-                workspace={props.workspace}
-                {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
-              />
-              <Show when={props.onReorderWorkspaces && workspacePosition() >= 0}>
-                <SettingsRow label="Workspace order">
-                  <div class="flex flex-col gap-2">
-                    <p role="status" aria-label="Workspace order position">
-                      Position {workspacePosition() + 1} of {props.workspaceOrder?.length ?? 0}
-                    </p>
-                    <div class="flex items-center gap-2">
-                      <For each={[-1, 1] as const}>
-                        {(direction) => (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={
-                              moving() ||
-                              workspacePosition() + direction < 0 ||
-                              workspacePosition() + direction >= (props.workspaceOrder?.length ?? 0)
-                            }
-                            onClick={() => void moveWorkspace(direction)}
-                          >
-                            Move {direction === -1 ? 'up' : 'down'}
-                          </Button>
-                        )}
-                      </For>
-                    </div>
-                    <Show when={orderError()}>
-                      <Alert variant="destructive">
-                        <AlertDescription>{orderError()}</AlertDescription>
-                      </Alert>
-                    </Show>
+        <For each={workspaceSettingsSections}>
+          {(panelSection) => (
+            <TabsContent
+              value={panelSection}
+              id={`workspace-settings-panel-${panelSection}`}
+              class="min-h-0 min-w-0"
+            >
+              <div class="conventional-settings-panel">
+                <header>
+                  <Dynamic component={sectionIcons[panelSection]} aria-hidden="true" />
+                  <div>
+                    <h3>{workspaceSettingsSectionLabels[panelSection]}</h3>
+                    <p>{sectionDescription()}</p>
                   </div>
-                </SettingsRow>
-              </Show>
-              <Show when={props.workspace.isPersonal}>
-                <p class="conventional-settings-note">
-                  Your personal workspace stays with your account.
-                </p>
-              </Show>
-              <Show when={!props.workspace.isPersonal && props.workspace.canDelete}>
-                <SettingsRow
-                  label="Delete workspace"
-                  description={`${props.workspace.deletionPending ? 'Deletion is pending. ' : ''}Permanent deletion is currently unavailable until cleanup is verified. Your workspace and its data will be kept.`}
-                >
-                  <Button variant="destructive" disabled>
-                    Delete workspace
-                  </Button>
-                </SettingsRow>
-              </Show>
-            </Show>
-            <Show when={section() === 'memory'}>
-              <MemoryPane service={props.services?.memory} workspaceId={props.workspace.id} />
-            </Show>
-            <Show when={section() === 'skills'}>
-              <SkillsPane client={apiClient()} workspaceId={props.workspace.id} />
-            </Show>
-            <Show when={props.open && section() === 'connections'}>
-              <Suspense
-                fallback={
-                  <p role="status" aria-label="Workspace order position">
-                    Loading device connections…
-                  </p>
-                }
-              >
-                <ConnectionsPane service={props.services?.connections} />
-              </Suspense>
-              <Suspense
-                fallback={
-                  <p role="status" aria-label="Workspace order position">
-                    Loading execution hosts…
-                  </p>
-                }
-              >
-                <RuntimeNodesPane client={apiClient()} workspaceId={props.workspace.id} />
-              </Suspense>
-              <Suspense
-                fallback={
-                  <p role="status" aria-label="Workspace order position">
-                    Loading cloud connections…
-                  </p>
-                }
-              >
-                <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />
-              </Suspense>
-            </Show>
-          </div>
-        </TabsContent>
+                </header>
+                <Show when={panelSection === 'general'}>
+                  <WorkspaceIdentitySettings
+                    workspace={props.workspace}
+                    {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
+                  />
+                  <Show when={props.onReorderWorkspaces && workspacePosition() >= 0}>
+                    <SettingsRow label="Workspace order">
+                      <div class="flex flex-col gap-2">
+                        <p role="status" aria-label="Workspace order position">
+                          Position {workspacePosition() + 1} of {props.workspaceOrder?.length ?? 0}
+                        </p>
+                        <div class="flex items-center gap-2">
+                          <For each={[-1, 1] as const}>
+                            {(direction) => (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={
+                                  moving() ||
+                                  workspacePosition() + direction < 0 ||
+                                  workspacePosition() + direction >=
+                                    (props.workspaceOrder?.length ?? 0)
+                                }
+                                onClick={() => void moveWorkspace(direction)}
+                              >
+                                Move {direction === -1 ? 'up' : 'down'}
+                              </Button>
+                            )}
+                          </For>
+                        </div>
+                        <Show when={orderError()}>
+                          <Alert variant="destructive">
+                            <AlertDescription>{orderError()}</AlertDescription>
+                          </Alert>
+                        </Show>
+                      </div>
+                    </SettingsRow>
+                  </Show>
+                  <Show when={props.workspace.isPersonal}>
+                    <p class="conventional-settings-note">
+                      Your personal workspace stays with your account.
+                    </p>
+                  </Show>
+                  <Show when={!props.workspace.isPersonal && props.workspace.canDelete}>
+                    <SettingsRow
+                      label="Delete workspace"
+                      description={`${props.workspace.deletionPending ? 'Deletion is pending. ' : ''}Permanent deletion is currently unavailable until cleanup is verified. Your workspace and its data will be kept.`}
+                    >
+                      <Button variant="destructive" disabled>
+                        Delete workspace
+                      </Button>
+                    </SettingsRow>
+                  </Show>
+                </Show>
+                <Show when={panelSection === 'memory'}>
+                  <MemoryPane service={props.services?.memory} workspaceId={props.workspace.id} />
+                </Show>
+                <Show when={panelSection === 'skills'}>
+                  <SkillsPane client={apiClient()} workspaceId={props.workspace.id} />
+                </Show>
+                <Show when={props.open && panelSection === 'connections'}>
+                  <Suspense
+                    fallback={
+                      <p role="status" aria-label="Workspace order position">
+                        Loading device connections…
+                      </p>
+                    }
+                  >
+                    <ConnectionsPane service={props.services?.connections} />
+                  </Suspense>
+                  <Suspense
+                    fallback={
+                      <p role="status" aria-label="Workspace order position">
+                        Loading execution hosts…
+                      </p>
+                    }
+                  >
+                    <RuntimeNodesPane client={apiClient()} workspaceId={props.workspace.id} />
+                  </Suspense>
+                  <Suspense
+                    fallback={
+                      <p role="status" aria-label="Workspace order position">
+                        Loading cloud connections…
+                      </p>
+                    }
+                  >
+                    <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />
+                  </Suspense>
+                </Show>
+              </div>
+            </TabsContent>
+          )}
+        </For>
       </Tabs>
     </ModalDialog>
   )

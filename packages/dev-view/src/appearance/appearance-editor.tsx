@@ -534,7 +534,7 @@ function AppearanceChoice(props: {
   children: JSX.Element
 }) {
   return (
-    <div class={props.wrapperClass}>
+    <div class={cn(props.wrapperClass, 'focus-within:ring-3 focus-within:ring-ring/50')}>
       <RadioGroupItem
         id={props.id}
         value={props.value}
@@ -567,7 +567,7 @@ export function ModeChoices(props: AppearanceEditorProps) {
             <AppearanceChoice
               id={`appearance-mode-${option.value}`}
               value={option.value}
-              wrapperClass="rounded-lg focus-within:ring-3 focus-within:ring-ring/50"
+              wrapperClass="rounded-lg"
               class={cn(
                 'flex w-full cursor-pointer flex-col gap-2 rounded-lg border p-2 text-center text-xs',
                 { 'border-primary': props.draft.mode === option.value }
@@ -655,7 +655,7 @@ export function AccentChoices(props: AppearanceEditorProps) {
             <AppearanceChoice
               id={`appearance-accent-${option.id}`}
               value={option.id}
-              wrapperClass="flex justify-center rounded-full focus-within:ring-3 focus-within:ring-ring/50"
+              wrapperClass="flex justify-center rounded-full"
               class={cn('block size-6 cursor-pointer rounded-full border p-0.5', {
                 'border-primary ring-1 ring-primary': accentSelection() === option.id,
               })}
@@ -720,7 +720,7 @@ export function GlassChoices(props: AppearanceEditorProps) {
               id={`appearance-surface-${option.value}`}
               value={option.value}
               disabled={unavailable}
-              wrapperClass="rounded-md focus-within:ring-3 focus-within:ring-ring/50"
+              wrapperClass="rounded-md"
               class={cn(
                 'flex h-7 cursor-pointer items-center rounded-md border px-2 text-xs whitespace-nowrap',
                 {
