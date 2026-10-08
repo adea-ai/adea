@@ -337,7 +337,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Headroom restoration (2026-10-08): the same build of main measures
     // 178,074 raw / 60,202 gzip — 102 raw bytes of headroom. Raw ratchets to
     // 178 KiB, gzip to 60 KiB (~2% each).
-    devShell: { rawBytes: 329 * 1024, gzipBytes: 105 * 1024 },
+    // #1168 (2026-10-08, collapsed Files row + shared resize grips) re-splits
+    // the shell closure: 336,210 raw / 91,171 gzip across 27 files (+158 KB
+    // raw over the 178,074 above; the gzip side stays far under its cap).
+    // Its merge moved raw to 329 KiB without a comment — 0.2% headroom.
+    // Raw ratchets to 335 KiB (~2%); gzip holds at 105 KiB (~18% headroom,
+    // worth re-tightening on the next re-measure of this route).
+    devShell: { rawBytes: 335 * 1024, gzipBytes: 105 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested
@@ -403,7 +409,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Headroom restoration (2026-10-08): the same build of main measures
     // 907,410 raw / 237,523 gzip — gzip had 0.87% headroom. Raw ratchets to
     // 904 KiB, gzip to 237 KiB (~2% each).
-    devTerminal: { rawBytes: 904 * 1024, gzipBytes: 237 * 1024 },
+    // #1168 (2026-10-08) grows the route again to 912,088 raw / 239,283
+    // gzip, back under 1.5% headroom on both caps (1.49% / 1.42%). Raw
+    // ratchets to 909 KiB, gzip to 239 KiB (~2% each).
+    devTerminal: { rawBytes: 909 * 1024, gzipBytes: 239 * 1024 },
     // Same delta on the editor route (2026-10-06, ADR 0011 PR 10b): 541,499
     // raw / 171,081 gzip against its base build's 490,226 / 154,545. Raw
     // ratchets to 532 KiB (~0.6% headroom); gzip to 168 KiB (~0.6%).
@@ -417,7 +426,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Headroom restoration (2026-10-08): the same build of main measures
     // 539,348 raw / 169,496 gzip — gzip had 0.29% headroom. Raw ratchets to
     // 537 KiB, gzip to 169 KiB (~2% each).
-    devEditor: { rawBytes: 681 * 1024, gzipBytes: 210 * 1024 },
+    // #1168 (2026-10-08) carries the same shell-closure split onto this
+    // route: 697,197 raw / 200,446 gzip across 34 files (+158 KB raw over
+    // the 539,348 above). Its merge moved raw to 681 KiB without a comment —
+    // 147 bytes of headroom. Raw ratchets to 695 KiB (~2%); gzip holds at
+    // 210 KiB (~7% headroom, worth re-tightening on the next re-measure).
+    devEditor: { rawBytes: 695 * 1024, gzipBytes: 210 * 1024 },
   },
 }
 
