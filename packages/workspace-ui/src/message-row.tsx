@@ -4,10 +4,11 @@ import {
   MessageBody as SharedMessageBody,
   MessageRow as SharedMessageRow,
 } from '@adea-ai/ui/components/conversation'
-import { BotMessageSquare, CircleUserRound, File, LockKeyhole } from 'lucide-solid'
+import { File, LockKeyhole } from 'lucide-solid'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import type { PrivateContentResolver } from './platform'
+import { AvatarContent } from './conversation-avatar'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -88,17 +89,17 @@ function PrivateMessageBody(props: {
       when={!(props.message.bodyContentRefId && !props.message.bodyText && !resolvedBody())}
       fallback={
         <div
-          class="conventional-private-content"
+          class="border-border bg-background mt-2 flex items-center gap-2.5 rounded-lg border p-2.5"
           role={resolutionState() === 'unavailable' ? 'alert' : 'status'}
         >
           <LockKeyhole aria-hidden="true" />
-          <div>
+          <div class="grid min-w-0 gap-0.5">
             <strong>
               {resolutionState() === 'loading'
                 ? 'Opening private content…'
                 : 'Private content unavailable'}
             </strong>
-            <span>
+            <span class="text-muted-foreground text-xs">
               {props.privateContent
                 ? 'This device is not currently authorized for this content.'
                 : 'Open this conversation on its authorized desktop device.'}
@@ -108,39 +109,6 @@ function PrivateMessageBody(props: {
       }
     >
       <SharedMessageBody text={props.message.bodyText ?? resolvedBody() ?? ''} />
-    </Show>
-  )
-}
-
-function MessageAvatarContent(props: { avatarRef?: string; kind: 'agent' | 'system' | 'user' }) {
-  const [imageFailed, setImageFailed] = createSignal(false)
-
-  createEffect(() => {
-    void props.avatarRef
-    setImageFailed(false)
-  })
-
-  return (
-    <Show
-      when={props.avatarRef && !imageFailed()}
-      fallback={
-        props.kind === 'user' ? (
-          <CircleUserRound aria-hidden="true" />
-        ) : (
-          <BotMessageSquare aria-hidden="true" />
-        )
-      }
-    >
-      <img
-        src={props.avatarRef}
-        alt=""
-        class="size-full rounded-full object-cover"
-        loading="lazy"
-        decoding="async"
-        fetchpriority="low"
-        referrerpolicy="no-referrer"
-        onError={() => setImageFailed(true)}
-      />
     </Show>
   )
 }
@@ -229,10 +197,7 @@ export function MessageRow(props: {
       time={timeFormatter.format(new Date(props.message.createdAt))}
       deleted={props.message.deleted}
       avatar={
-        <MessageAvatarContent
-          kind={props.message.sender.kind}
-          avatarRef={senderAgent()?.avatarRef}
-        />
+        <AvatarContent kind={props.message.sender.kind} avatarRef={senderAgent()?.avatarRef} />
       }
       attachments={
         props.message.artifactIds.length ? (

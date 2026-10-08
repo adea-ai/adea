@@ -231,7 +231,14 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // by 30–66 bytes. The same lesson this route documented on 2026-10-01:
     // a cap pinned to the last build leaves zero headroom. Raw ratchets to
     // the next whole KiB; gzip holds at 99 KiB.
-    chat: { rawBytes: 298 * 1024, gzipBytes: 99 * 1024 },
+    // Conversation-stack rewire (#811 phase 2, 2026-10-07): the route's
+    // conversation pane, composer menus and status lines now compose the
+    // published @adea-ai/ui 0.121 ConversationPane/ComposerMenu/status slot;
+    // measured 305,264 raw / 101,405 gzip across 45 files — 112 bytes and 29
+    // bytes over the 298 KiB / 99 KiB caps. Both ratchet to the next whole
+    // KiB; the deleted app-local CSS and wrappers offset most of the shared
+    // panel's weight.
+    chat: { rawBytes: 299 * 1024, gzipBytes: 102 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
