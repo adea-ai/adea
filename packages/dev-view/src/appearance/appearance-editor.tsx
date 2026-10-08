@@ -524,6 +524,31 @@ const SURFACES = [
   { value: 'opaque', label: 'Opaque' },
 ] as const
 
+/** Shared published radio/label composition for mode cards, swatches and glass chips. */
+function AppearanceChoice(props: {
+  id: string
+  value: string
+  wrapperClass: string
+  class: string
+  disabled?: boolean
+  children: JSX.Element
+}) {
+  return (
+    <div class={props.wrapperClass}>
+      <RadioGroupItem
+        id={props.id}
+        value={props.value}
+        controlClass="sr-only"
+        disabled={props.disabled}
+      >
+        <Label for={`${props.id}-input`} class="w-full">
+          <span class={props.class}>{props.children}</span>
+        </Label>
+      </RadioGroupItem>
+    </div>
+  )
+}
+
 export function ModeChoices(props: AppearanceEditorProps) {
   return (
     <div class="px-4 py-4">
@@ -539,52 +564,35 @@ export function ModeChoices(props: AppearanceEditorProps) {
       >
         <For each={MODES}>
           {(option) => (
-            <div class="rounded-lg focus-within:ring-3 focus-within:ring-ring/50">
-              {/* The card is the control's published Label (associated by the
-                deterministic item/input id pair), so clicking anywhere on the
-                miniature selects the mode; the hidden radio control keeps the
-                group keyboard-driven and the wrapper carries its focus ring. */}
-              <RadioGroupItem
-                id={`appearance-mode-${option.value}`}
-                value={option.value}
-                controlClass="sr-only"
-              >
-                <Label for={`appearance-mode-${option.value}-input`} class="w-full">
-                  <span
-                    class={cn(
-                      'flex w-full cursor-pointer flex-col gap-2 rounded-lg border p-2 text-center text-xs',
-                      {
-                        'border-primary': props.draft.mode === option.value,
-                      }
-                    )}
-                  >
-                    <span class="block h-20 w-full">
-                      <Show
-                        when={option.value === 'system'}
-                        fallback={
-                          <ThemeMiniature
-                            theme={option.value === 'light' ? props.lightTheme : props.darkTheme}
-                          />
-                        }
-                      >
-                        <ThemeMiniatureSplit light={props.lightTheme} dark={props.darkTheme} />
-                      </Show>
-                    </span>
-                    {/* The sun/moon/monitor glyph names the axis beside the
+            <AppearanceChoice
+              id={`appearance-mode-${option.value}`}
+              value={option.value}
+              wrapperClass="rounded-lg focus-within:ring-3 focus-within:ring-ring/50"
+              class={cn(
+                'flex w-full cursor-pointer flex-col gap-2 rounded-lg border p-2 text-center text-xs',
+                { 'border-primary': props.draft.mode === option.value }
+              )}
+            >
+              <span class="block h-20 w-full">
+                <Show
+                  when={option.value === 'system'}
+                  fallback={
+                    <ThemeMiniature
+                      theme={option.value === 'light' ? props.lightTheme : props.darkTheme}
+                    />
+                  }
+                >
+                  <ThemeMiniatureSplit light={props.lightTheme} dark={props.darkTheme} />
+                </Show>
+              </span>
+              {/* The sun/moon/monitor glyph names the axis beside the
                         miniature, so the cards read like the published
                         ThemeModeToggle without losing the previews. */}
-                    <span class="flex items-center justify-center gap-1.5">
-                      <Dynamic
-                        component={MODE_ICONS[option.value]}
-                        aria-hidden="true"
-                        class="size-3.5"
-                      />
-                      {option.label}
-                    </span>
-                  </span>
-                </Label>
-              </RadioGroupItem>
-            </div>
+              <span class="flex items-center justify-center gap-1.5">
+                <Dynamic component={MODE_ICONS[option.value]} aria-hidden="true" class="size-3.5" />
+                {option.label}
+              </span>
+            </AppearanceChoice>
           )}
         </For>
       </RadioGroup>
@@ -644,39 +652,24 @@ export function AccentChoices(props: AppearanceEditorProps) {
       >
         <For each={accentEntries(props.accentOptions)}>
           {(option) => (
-            <div class="flex justify-center rounded-full focus-within:ring-3 focus-within:ring-ring/50">
-              {/* The card is the control's published Label (associated by the
-                deterministic item/input id pair), so clicking anywhere on the
-                swatch selects the accent; the hidden radio control keeps the
-                group keyboard-driven, the wrapper carries its focus ring, and
-                the checked ring rides the same conditional treatment the mode
-                cards use. The swatch paints the catalogue's light/dark pair
-                value as an SVG fill — a consumer can neither inline a style
-                nor author palette literals. */}
-              <RadioGroupItem
-                id={`appearance-accent-${option.id}`}
-                value={option.id}
-                controlClass="sr-only"
-              >
-                <Label for={`appearance-accent-${option.id}-input`} class="w-full">
-                  <span
-                    class={cn('block size-6 cursor-pointer rounded-full border p-0.5', {
-                      'border-primary ring-1 ring-primary': accentSelection() === option.id,
-                    })}
-                  >
-                    <svg class="size-full" viewBox="0 0 16 16" aria-hidden="true">
-                      <circle
-                        cx="8"
-                        cy="8"
-                        r="8"
-                        fill={resolvedAppearance() === 'light' ? option.light : option.dark}
-                      />
-                    </svg>
-                  </span>
-                  <span class="sr-only">{option.label}</span>
-                </Label>
-              </RadioGroupItem>
-            </div>
+            <AppearanceChoice
+              id={`appearance-accent-${option.id}`}
+              value={option.id}
+              wrapperClass="flex justify-center rounded-full focus-within:ring-3 focus-within:ring-ring/50"
+              class={cn('block size-6 cursor-pointer rounded-full border p-0.5', {
+                'border-primary ring-1 ring-primary': accentSelection() === option.id,
+              })}
+            >
+              <svg class="size-full" viewBox="0 0 16 16" aria-hidden="true">
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="8"
+                  fill={resolvedAppearance() === 'light' ? option.light : option.dark}
+                />
+              </svg>
+              <span class="sr-only">{option.label}</span>
+            </AppearanceChoice>
           )}
         </For>
       </RadioGroup>
@@ -723,32 +716,21 @@ export function GlassChoices(props: AppearanceEditorProps) {
         {(option) => {
           const unavailable = option.value === 'frosted' && !props.surfaceCapability.frosted
           return (
-            <div class="rounded-md focus-within:ring-3 focus-within:ring-ring/50">
-              {/* The chip is the control's published Label (associated by the
-                  deterministic item/input id pair); the chip treatment itself
-                  rides a plain span, mirroring the accent swatches and mode
-                  cards. */}
-              <RadioGroupItem
-                id={`appearance-surface-${option.value}`}
-                value={option.value}
-                controlClass="sr-only"
-                disabled={unavailable}
-              >
-                <Label for={`appearance-surface-${option.value}-input`} class="w-full">
-                  <span
-                    class={cn(
-                      'flex h-7 cursor-pointer items-center rounded-md border px-2 text-xs whitespace-nowrap',
-                      {
-                        'border-primary ring-1 ring-primary': props.draft.surface === option.value,
-                        'cursor-not-allowed opacity-50': unavailable,
-                      }
-                    )}
-                  >
-                    {option.label}
-                  </span>
-                </Label>
-              </RadioGroupItem>
-            </div>
+            <AppearanceChoice
+              id={`appearance-surface-${option.value}`}
+              value={option.value}
+              disabled={unavailable}
+              wrapperClass="rounded-md focus-within:ring-3 focus-within:ring-ring/50"
+              class={cn(
+                'flex h-7 cursor-pointer items-center rounded-md border px-2 text-xs whitespace-nowrap',
+                {
+                  'border-primary ring-1 ring-primary': props.draft.surface === option.value,
+                  'cursor-not-allowed opacity-50': unavailable,
+                }
+              )}
+            >
+              {option.label}
+            </AppearanceChoice>
           )
         }}
       </For>
@@ -799,22 +781,22 @@ export function AdeaAppearanceEditor(props: AppearanceEditorProps) {
       </Show>
       <ModeChoices {...props} />
       <div class="divide-y divide-border rounded-lg border">
-        <ThemeRow
-          appearance="light"
-          selectedId={props.draft.lightThemeId}
-          preview={props.lightTheme}
-          themes={props.themes}
-          disabled={props.saving}
-          onSelect={(lightThemeId) => props.onChange({ lightThemeId })}
-        />
-        <ThemeRow
-          appearance="dark"
-          selectedId={props.draft.darkThemeId}
-          preview={props.darkTheme}
-          themes={props.themes}
-          disabled={props.saving}
-          onSelect={(darkThemeId) => props.onChange({ darkThemeId })}
-        />
+        <For each={['light', 'dark'] as const}>
+          {(appearance) => (
+            <ThemeRow
+              appearance={appearance}
+              selectedId={
+                appearance === 'light' ? props.draft.lightThemeId : props.draft.darkThemeId
+              }
+              preview={appearance === 'light' ? props.lightTheme : props.darkTheme}
+              themes={props.themes}
+              disabled={props.saving}
+              onSelect={(id) =>
+                props.onChange(appearance === 'light' ? { lightThemeId: id } : { darkThemeId: id })
+              }
+            />
+          )}
+        </For>
         {/* The row exists only when the host carries a terminal preference:
             the draft field is the show/hide switch, so the editor can never
             render a terminal row that writes nothing. */}

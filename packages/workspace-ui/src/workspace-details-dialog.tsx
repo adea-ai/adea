@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
 import { Brain, LockKeyhole, Settings2, Sparkles } from 'lucide-solid'
 import { createEffect, createSignal, For, lazy, Show, Suspense, type Accessor } from 'solid-js'
+import { Dynamic } from 'solid-js/web'
 
 import type { WorkspacePlatformServices } from './platform'
 import {
@@ -79,6 +80,14 @@ export function WorkspaceDetailsDialog(props: {
 }) {
   const apiClient = () => props.client ?? props.services?.client
   const [section, setSection] = createSignal<WorkspaceSettingsSection>('general')
+  const sectionDescription = () =>
+    ({
+      general: 'How this workspace looks and where it opens.',
+      memory: `Notes for agents working in ${props.workspace.name}. Agents can propose notes; they become memory only when you accept them.`,
+      skills: `Skills and agent profiles ${props.workspace.name} uses for cloud runs, from the Control Plane catalog.`,
+      connections:
+        'Devices and self-hosted runtimes registered to this workspace, git hosting and harness accounts on this device, and connector credentials for cloud agents. Device secrets stay in the device vault.',
+    })[section()]
   const [moving, setMoving] = createSignal(false)
   const [orderError, setOrderError] = createSignal('')
   const workspacePosition = () =>
@@ -168,119 +177,78 @@ export function WorkspaceDetailsDialog(props: {
             },
           ]}
         />
-        <TabsContent value="general" id="workspace-settings-panel-general" class="min-h-0 min-w-0">
-          <div class="conventional-settings-panel">
-            <header>
-              <Settings2 aria-hidden="true" />
-              <div>
-                <h3>{workspaceSettingsSectionLabels.general}</h3>
-                <p>How this workspace looks and where it opens.</p>
-              </div>
-            </header>
-            <WorkspaceIdentitySettings
-              workspace={props.workspace}
-              {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
-            />
-            <Show when={props.onReorderWorkspaces && workspacePosition() >= 0}>
-              <SettingsRow label="Workspace order">
-                <div class="flex flex-col gap-2">
-                  <p role="status">
-                    Position {workspacePosition() + 1} of {props.workspaceOrder?.length ?? 0}
-                  </p>
-                  <div class="flex items-center gap-2">
-                    <For each={[-1, 1] as const}>
-                      {(direction) => (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={
-                            moving() ||
-                            workspacePosition() + direction < 0 ||
-                            workspacePosition() + direction >= (props.workspaceOrder?.length ?? 0)
-                          }
-                          onClick={() => void moveWorkspace(direction)}
-                        >
-                          Move {direction === -1 ? 'up' : 'down'}
-                        </Button>
-                      )}
-                    </For>
-                  </div>
-                  <Show when={orderError()}>
-                    <Alert variant="destructive">
-                      <AlertDescription>{orderError()}</AlertDescription>
-                    </Alert>
-                  </Show>
-                </div>
-              </SettingsRow>
-            </Show>
-            <Show when={props.workspace.isPersonal}>
-              <p class="conventional-settings-note">
-                Your personal workspace stays with your account.
-              </p>
-            </Show>
-            <Show when={!props.workspace.isPersonal && props.workspace.canDelete}>
-              <SettingsRow
-                label="Delete workspace"
-                description={`${props.workspace.deletionPending ? 'Deletion is pending. ' : ''}Permanent deletion is currently unavailable until cleanup is verified. Your workspace and its data will be kept.`}
-              >
-                <Button variant="destructive" disabled>
-                  Delete workspace
-                </Button>
-              </SettingsRow>
-            </Show>
-          </div>
-        </TabsContent>
-        <TabsContent value="memory" id="workspace-settings-panel-memory" class="min-h-0 min-w-0">
-          <div class="conventional-settings-panel">
-            <header>
-              <Brain aria-hidden="true" />
-              <div>
-                <h3>{workspaceSettingsSectionLabels.memory}</h3>
-                <p>
-                  Notes for agents working in {props.workspace.name}. Agents can propose notes; they
-                  become memory only when you accept them.
-                </p>
-              </div>
-            </header>
-            <Show when={section() === 'memory'}>
-              <MemoryPane service={props.services?.memory} workspaceId={props.workspace.id} />
-            </Show>
-          </div>
-        </TabsContent>
-        <TabsContent value="skills" id="workspace-settings-panel-skills" class="min-h-0 min-w-0">
-          <div class="conventional-settings-panel">
-            <header>
-              <Sparkles aria-hidden="true" />
-              <div>
-                <h3>{workspaceSettingsSectionLabels.skills}</h3>
-                <p>
-                  Skills and agent profiles {props.workspace.name} uses for cloud runs, from the
-                  Control Plane catalog.
-                </p>
-              </div>
-            </header>
-            <Show when={section() === 'skills'}>
-              <SkillsPane client={apiClient()} workspaceId={props.workspace.id} />
-            </Show>
-          </div>
-        </TabsContent>
         <TabsContent
-          value="connections"
-          id="workspace-settings-panel-connections"
+          value={section()}
+          id={`workspace-settings-panel-${section()}`}
           class="min-h-0 min-w-0"
         >
           <div class="conventional-settings-panel">
             <header>
-              <LockKeyhole aria-hidden="true" />
+              <Dynamic component={sectionIcons[section()]} aria-hidden="true" />
               <div>
-                <h3>{workspaceSettingsSectionLabels.connections}</h3>
-                <p>
-                  Devices and self-hosted runtimes registered to this workspace, git hosting and
-                  harness accounts on this device, and connector credentials for cloud agents.
-                  Device secrets stay in the device vault.
-                </p>
+                <h3>{workspaceSettingsSectionLabels[section()]}</h3>
+                <p>{sectionDescription()}</p>
               </div>
             </header>
+            <Show when={section() === 'general'}>
+              <WorkspaceIdentitySettings
+                workspace={props.workspace}
+                {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
+              />
+              <Show when={props.onReorderWorkspaces && workspacePosition() >= 0}>
+                <SettingsRow label="Workspace order">
+                  <div class="flex flex-col gap-2">
+                    <p role="status">
+                      Position {workspacePosition() + 1} of {props.workspaceOrder?.length ?? 0}
+                    </p>
+                    <div class="flex items-center gap-2">
+                      <For each={[-1, 1] as const}>
+                        {(direction) => (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              moving() ||
+                              workspacePosition() + direction < 0 ||
+                              workspacePosition() + direction >= (props.workspaceOrder?.length ?? 0)
+                            }
+                            onClick={() => void moveWorkspace(direction)}
+                          >
+                            Move {direction === -1 ? 'up' : 'down'}
+                          </Button>
+                        )}
+                      </For>
+                    </div>
+                    <Show when={orderError()}>
+                      <Alert variant="destructive">
+                        <AlertDescription>{orderError()}</AlertDescription>
+                      </Alert>
+                    </Show>
+                  </div>
+                </SettingsRow>
+              </Show>
+              <Show when={props.workspace.isPersonal}>
+                <p class="conventional-settings-note">
+                  Your personal workspace stays with your account.
+                </p>
+              </Show>
+              <Show when={!props.workspace.isPersonal && props.workspace.canDelete}>
+                <SettingsRow
+                  label="Delete workspace"
+                  description={`${props.workspace.deletionPending ? 'Deletion is pending. ' : ''}Permanent deletion is currently unavailable until cleanup is verified. Your workspace and its data will be kept.`}
+                >
+                  <Button variant="destructive" disabled>
+                    Delete workspace
+                  </Button>
+                </SettingsRow>
+              </Show>
+            </Show>
+            <Show when={section() === 'memory'}>
+              <MemoryPane service={props.services?.memory} workspaceId={props.workspace.id} />
+            </Show>
+            <Show when={section() === 'skills'}>
+              <SkillsPane client={apiClient()} workspaceId={props.workspace.id} />
+            </Show>
             <Show when={props.open && section() === 'connections'}>
               <Suspense fallback={<p role="status">Loading device connections…</p>}>
                 <ConnectionsPane service={props.services?.connections} />

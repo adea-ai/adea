@@ -1,5 +1,5 @@
 import { EntityIcon } from '@adea-ai/ui/components/ui/entity-icon'
-import { createEffect, createSignal, Show } from 'solid-js'
+import { createEffect, createSignal } from 'solid-js'
 import { Box, House } from 'lucide-solid'
 
 import { useOptionalTheme } from './theme-provider'
@@ -41,24 +41,23 @@ export function WorkspaceIdentityMark(props: {
   })
   return (
     <span ref={setHost} class="workspace-identity-mark">
-      <Show when={props.logo} keyed>
-        {(logo) => (
-          <EntityIcon
-            name={props.name}
-            size={props.size ?? 'sm'}
-            tone="primary"
-            icon={
-              logo.kind === 'emoji' ? (
-                <span aria-hidden="true">{logo.value}</span>
-              ) : logo.kind === 'home' ? (
-                <House aria-hidden="true" data-workspace-icon="home" />
-              ) : (
-                <Box aria-hidden="true" data-workspace-icon="box" />
-              )
-            }
-          />
-        )}
-      </Show>
+      <EntityIcon
+        name={props.name}
+        size={props.size ?? 'sm'}
+        tone="primary"
+        data-workspace-icon={
+          props.logo.kind === 'emoji' ? undefined : props.logo.kind === 'home' ? 'home' : 'box'
+        }
+        icon={
+          props.logo.kind === 'emoji' ? (
+            <span aria-hidden="true">{props.logo.value}</span>
+          ) : props.logo.kind === 'home' ? (
+            House
+          ) : (
+            Box
+          )
+        }
+      />
     </span>
   )
 }
