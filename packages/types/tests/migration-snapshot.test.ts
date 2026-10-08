@@ -3,6 +3,9 @@ import { describe, expect, test } from 'bun:test'
 import {
   isMigrationSnapshotFamily,
   MIGRATION_SNAPSHOT_FORMAT_VERSION,
+  MIGRATION_SNAPSHOT_MAX_ARRAY_WIDTH,
+  MIGRATION_SNAPSHOT_MAX_RECORD_BYTES,
+  MIGRATION_SNAPSHOT_MAX_RECORD_PROPERTIES,
   migrationAgentLifecycleStates,
   migrationChannelVisibilities,
   migrationContentAvailabilities,
@@ -390,5 +393,64 @@ describe('migration snapshot bounds and record structure', () => {
       field: 'record',
       kind: 'malformed',
     })
+  })
+})
+
+describe('migration snapshot record input bounds', () => {
+  test('the byte, property-count and array-width bounds are documented constants', () => {
+    expect(MIGRATION_SNAPSHOT_MAX_RECORD_BYTES).toBe(8_192)
+    expect(MIGRATION_SNAPSHOT_MAX_RECORD_PROPERTIES).toBe(64)
+    expect(MIGRATION_SNAPSHOT_MAX_ARRAY_WIDTH).toBe(64)
+  })
+
+  test('an oversized record byte size is a typed limit issue, decided before canonicalization', () => {
+    const marker = 'SECRET-BYTES-MARKER'
+    const issue = migrationSnapshotRecordIssue(
+      withField(validRecord('memberships'), 'host', marker.repeat(1_000))
+    )
+    expect(issue).toEqual({ field: 'record', kind: 'limit' })
+    // The issue names no supplied content.
+    expect(JSON.stringify(issue)).not.toContain(marker)
+    // Well within the bound, an extra property stays ignored as before.
+    expect(
+      migrationSnapshotRecordIssue(withField(validRecord('memberships'), 'host', 'small value'))
+    ).toBeNull()
+  })
+
+  test('an oversized property count is a typed limit issue, decided before canonicalization', () => {
+    const bloated: Record<string, unknown> = { ...validRecord('memberships') }
+    for (let index = 0; index < 100; index++) bloated[`host-${index}`] = 'x'
+    expect(migrationSnapshotRecordIssue(bloated as MigrationSnapshotRecord)).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+  })
+
+  test('an oversized array width inside a record is a typed limit issue', () => {
+    const over = withField(
+      validRecord('memberships'),
+      'host',
+      Array.from({ length: 65 }, () => 'x')
+    )
+    expect(migrationSnapshotRecordIssue(over)).toEqual({ field: 'record', kind: 'limit' })
+    // At the documented bound the array is just an ignored extra property.
+    // 4 contract fields + the host key + 59 elements = exactly 64 slots.
+    const atBound = withField(
+      validRecord('memberships'),
+      'host',
+      Array.from({ length: 59 }, () => 'x')
+    )
+    expect(migrationSnapshotRecordIssue(atBound)).toBeNull()
+  })
+
+  test('oversized content nested under an ignored extra property is still bounded', () => {
+    const marker = 'SECRET-NESTED-MARKER'
+    const nested = {
+      ...validRecord('memberships'),
+      host: { deep: { deeper: marker.repeat(500) } },
+    } as MigrationSnapshotRecord
+    const issue = migrationSnapshotRecordIssue(nested)
+    expect(issue).toEqual({ field: 'record', kind: 'limit' })
+    expect(JSON.stringify(issue)).not.toContain(marker)
   })
 })
