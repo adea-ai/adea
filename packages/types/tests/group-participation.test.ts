@@ -28,6 +28,7 @@ describe('group participation type contracts', () => {
       'grant_mismatched_participant',
       'grant_not_yet_issued',
       'grant_revoked',
+      'group_id_missing',
       'group_workspace_missing',
       'participant_cross_tenant',
       'participant_unqualified',
@@ -37,6 +38,7 @@ describe('group participation type contracts', () => {
   test('enumerates every publication hold reason', () => {
     expect(groupPublicationHoldReasons).toEqual([
       'publication_authority_mismatch',
+      'publication_binding_mismatch',
       'publication_participation_revoked',
       'publication_participation_stale',
       'publication_unauthorized_at_completion',

@@ -9,21 +9,28 @@
  *
  * Semantics:
  * - Creation is all-or-nothing; every invalid participant is enumerated with
- *   a typed reason and no partial roster is produced.
+ *   a typed reason and no partial roster is produced, and each admission
+ *   retains the binding to the exact authorizing group, grant and revision.
  * - Participants must belong to the group's owning workspace; workspace
  *   membership alone grants nothing — enlistment and audience membership
  *   require explicit grants, and private history requires explicit
  *   audience-aware sharing.
+ * - Every revocation timestamp is evaluated fail closed: an unparseable
+ *   `revokedAt` behaves as revoked, never as absent.
  * - Agents are identified by a stable workspace-qualified identity, never by
  *   display name, and a grant never transfers: publication stays bound to
  *   the participant the job's authority was issued to.
  * - Revocation denies future reads and turns immediately and holds a revoked
- *   participant's late results out of the group. A hold is a gate: the
- *   independently owned job is never cancelled or reassigned here.
+ *   participant's late results out of the group. Late publication also
+ *   compares the job's retained authorization binding with the participant's
+ *   current one, so a job admitted under a revoked grant stays blocked even
+ *   when an identical-looking replacement grant now exists. A hold is a gate:
+ *   the independently owned job is never cancelled or reassigned here.
  */
 import type {
   ConversationParticipantRef,
   GroupAdmission,
+  GroupAuthorizationBinding,
   GroupCreationInput,
   GroupCreationRejection,
   GroupCreationRejectionReason,
@@ -77,6 +84,34 @@ function sameParticipant(
   return false
 }
 
+/** A retained binding is usable only when every field is present and in range. */
+function wellFormedBinding(binding: GroupAuthorizationBinding): boolean {
+  return (
+    hasText(binding.groupId) &&
+    hasText(binding.grantId) &&
+    Number.isSafeInteger(binding.revision) &&
+    binding.revision >= 0
+  )
+}
+
+/**
+ * Whether a retained authorization binding still names the current one. A
+ * malformed binding on either side never matches: a job that cannot prove
+ * which grant authorized it is never published.
+ */
+function sameAuthorizationBinding(
+  retained: GroupAuthorizationBinding,
+  current: GroupAuthorizationBinding
+): boolean {
+  return (
+    wellFormedBinding(retained) &&
+    wellFormedBinding(current) &&
+    retained.groupId === current.groupId &&
+    retained.grantId === current.grantId &&
+    retained.revision === current.revision
+  )
+}
+
 function parseTimestamp(value: string): number | null {
   const timestamp = Date.parse(value)
   return Number.isFinite(timestamp) ? timestamp : null
@@ -89,14 +124,16 @@ function hasText(value: string): boolean {
 /**
  * Whether a grant window is in force at `now`, with a typed diagnosis. Every
  * non-effective state — expired, stale, not yet issued or revoked — behaves
- * as absent. Unreadable timestamps fail closed to `expired`.
+ * as absent. Unreadable timestamps fail closed: a malformed `revokedAt`
+ * behaves as revoked (the grant cannot be proven unrevoked), and any other
+ * unreadable field behaves as expired.
  */
 export function evaluateGroupGrantWindow(window: GroupGrantWindow, now: string): GroupGrantState {
   const nowMs = parseTimestamp(now)
   if (nowMs === null) return 'expired'
   if (window.revokedAt !== null) {
     const revokedAtMs = parseTimestamp(window.revokedAt)
-    if (revokedAtMs !== null && revokedAtMs <= nowMs) return 'revoked'
+    if (revokedAtMs === null || revokedAtMs <= nowMs) return 'revoked'
   }
   const issuedAtMs = parseTimestamp(window.issuedAt)
   if (issuedAtMs === null) return 'expired'
@@ -128,15 +165,18 @@ function joinPointAt(now: string) {
 }
 
 /**
- * Validates a whole group creation against its owning workspace and the
- * candidates' explicit grants. All-or-nothing: any rejection fails the whole
- * creation and enumerates every invalid participant; only a fully valid
- * roster is admitted, each member at the creation join point. At least one
- * human candidate is required as the founding audience.
+ * Validates a whole group creation against its owning group id, workspace and
+ * the candidates' explicit grants. All-or-nothing: any rejection fails the
+ * whole creation and enumerates every invalid participant; only a fully valid
+ * roster is admitted, each member at the creation join point with the
+ * authorizing group, grant identity and revision retained in their binding.
+ * At least one human candidate is required as the founding audience.
  */
 export function validateGroupCreation(input: GroupCreationInput): GroupCreationValidation {
   if (!hasText(input.workspaceId))
     return { ok: false, rejections: [{ reason: 'group_workspace_missing', scope: 'group' }] }
+  if (!hasText(input.groupId))
+    return { ok: false, rejections: [{ reason: 'group_id_missing', scope: 'group' }] }
   if (input.candidates.length === 0)
     return { ok: false, rejections: [{ reason: 'audience_empty', scope: 'group' }] }
 
@@ -164,6 +204,11 @@ export function validateGroupCreation(input: GroupCreationInput): GroupCreationV
         return reject(participant, 'duplicate_participant')
       seenParticipants.add(`user:${participant.userId}`)
       roster.push({
+        authorization: {
+          groupId: input.groupId,
+          grantId: audienceGrant.grantId,
+          revision: audienceGrant.revision,
+        },
         grant: grantWindow(audienceGrant),
         joinPoint: joinPointAt(input.now),
         participant,
@@ -185,6 +230,11 @@ export function validateGroupCreation(input: GroupCreationInput): GroupCreationV
     if (seenParticipants.has(key)) return reject(participant, 'duplicate_participant')
     seenParticipants.add(key)
     roster.push({
+      authorization: {
+        groupId: input.groupId,
+        grantId: enlistmentGrant.grantId,
+        revision: enlistmentGrant.revision,
+      },
       grant: grantWindow(enlistmentGrant),
       joinPoint: joinPointAt(input.now),
       participant,
@@ -284,10 +334,13 @@ export function decideGroupTurn(input: GroupTurnInput): GroupTurnDecision {
 
 /**
  * The publication gate for a completed job. The publisher must be the
- * participant the job's authority was bound to, must have been effective at
- * completion, and must still be effective now — a revoked participant's late
- * result is held with a typed reason. Holding never cancels the job and
- * never transfers its authority.
+ * participant the job's authority was bound to, the job's retained
+ * authorization binding must still name the participant's current group,
+ * grant and revision — so a job admitted under a revoked or superseded grant
+ * stays held even when an identical-looking replacement grant exists — and
+ * the participant must have been effective at completion and still be
+ * effective now. Holding never cancels the job and never transfers its
+ * authority.
  */
 export function decideGroupPublication(input: GroupPublicationInput): GroupPublicationDecision {
   const { job } = input
@@ -298,6 +351,11 @@ export function decideGroupPublication(input: GroupPublicationInput): GroupPubli
     return { action: 'hold', jobId: job.jobId, reason: 'publication_authority_mismatch' }
   if (!input.admission)
     return { action: 'hold', jobId: job.jobId, reason: 'publication_unauthorized_at_completion' }
+  if (
+    job.authorization === null ||
+    !sameAuthorizationBinding(job.authorization, input.admission.authorization)
+  )
+    return { action: 'hold', jobId: job.jobId, reason: 'publication_binding_mismatch' }
   const nowState = evaluateGroupGrantWindow(input.admission.grant, input.now)
   if (nowState === 'revoked')
     return { action: 'hold', jobId: job.jobId, reason: 'publication_participation_revoked' }

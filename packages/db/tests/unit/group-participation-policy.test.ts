@@ -20,12 +20,24 @@ import {
 
 const ISSUED = '2026-10-01T00:00:00.000Z'
 const CREATED = '2026-10-05T00:00:00.000Z'
+const COMPLETED = '2026-10-08T11:00:00.000Z'
 const NOW = '2026-10-08T12:00:00.000Z'
 const WORKSPACE = 'wsp_adea'
 const OTHER_WORKSPACE = 'wsp_elsewhere'
+const GROUP = 'grp_adea'
 
 const ALICE = { kind: 'user' as const, userId: 'usr_alice' }
 const BOB = { kind: 'user' as const, userId: 'usr_bob' }
+
+/** The binding creation retains for a participant admitted by their default grant. */
+const AUTHORIZATION = { groupId: GROUP, grantId: 'gra_alice', revision: 1 }
+
+const job = {
+  authorization: AUTHORIZATION,
+  completedAt: COMPLETED,
+  jobId: 'job_1',
+  participant: ALICE,
+}
 
 function audienceGrant(
   overrides: Partial<GroupAudienceGrant> = {},
@@ -36,6 +48,7 @@ function audienceGrant(
     grantId: 'gra_alice',
     issuedAt: ISSUED,
     participant,
+    revision: 1,
     revokedAt: null,
     ...overrides,
   }
@@ -50,6 +63,7 @@ function enlistmentGrant(
     expiresAt: null,
     grantId: `grn_${agentId}`,
     issuedAt: ISSUED,
+    revision: 1,
     revokedAt: null,
     ...overrides,
   }
@@ -57,6 +71,7 @@ function enlistmentGrant(
 
 function admission(overrides: Partial<GroupAdmission> = {}): GroupAdmission {
   return {
+    authorization: AUTHORIZATION,
     grant: { expiresAt: null, issuedAt: ISSUED, revokedAt: null },
     joinPoint: { joinedAt: CREATED, joinedSequence: 100 },
     participant: ALICE,
@@ -74,6 +89,7 @@ function sharingGrant(
     grantId: `grs_${scope}`,
     issuedAt: ISSUED,
     participant,
+    revision: 1,
     revokedAt: null,
     scope,
     ...overrides,
@@ -112,6 +128,113 @@ describe('group grant windows', () => {
     ).toBe('expired')
     expect(evaluateGroupGrantWindow(admission().grant, 'junk')).toBe('expired')
   })
+
+  test('fails closed on a malformed revokedAt: it behaves as revoked, never as absent', () => {
+    for (const revokedAt of ['junk', '', '   ', 'not-a-timestamp', '2026-13-45T99:99:99.999Z']) {
+      expect(evaluateGroupGrantWindow({ expiresAt: null, issuedAt: ISSUED, revokedAt }, NOW)).toBe(
+        'revoked'
+      )
+    }
+  })
+})
+
+describe('malformed revocation timestamps fail closed on every path', () => {
+  test('creation rejects candidates whose grants have a malformed revokedAt', () => {
+    const validation = validateGroupCreation({
+      candidates: [
+        {
+          audienceGrant: audienceGrant({ revokedAt: 'junk' }),
+          kind: 'human',
+          participant: ALICE,
+          workspaceId: WORKSPACE,
+        },
+        {
+          enlistmentGrant: enlistmentGrant({ revokedAt: '   ' }, 'agt_unreadable'),
+          agentId: 'agt_unreadable',
+          kind: 'agent',
+          workspaceId: WORKSPACE,
+        },
+      ],
+      groupId: GROUP,
+      now: CREATED,
+      workspaceId: WORKSPACE,
+    })
+
+    expect(validation.ok).toBeFalse()
+    if (validation.ok) return
+    expect(validation.rejections.map((rejection) => rejection.reason)).toEqual([
+      'grant_revoked',
+      'grant_revoked',
+    ])
+  })
+
+  test('history and summary reads deny a participant whose grant has a malformed revokedAt', () => {
+    const unreadable = admission({
+      grant: { expiresAt: null, issuedAt: ISSUED, revokedAt: 'junk' },
+    })
+    expect(
+      decideGroupHistoryRead({
+        admission: unreadable,
+        entry: { occurredAt: NOW, sequence: 140 },
+        now: NOW,
+        sharingGrants: [],
+      })
+    ).toEqual({
+      action: 'deny',
+      participationState: 'revoked',
+      reason: 'history_participation_revoked',
+    })
+    expect(
+      decideGroupSummaryRead({
+        admission: unreadable,
+        fromSequence: 100,
+        now: NOW,
+        sharingGrants: [],
+      })
+    ).toEqual({
+      action: 'deny',
+      participationState: 'revoked',
+      reason: 'summary_participation_revoked',
+    })
+  })
+
+  test('turns deny a participant whose grant has a malformed revokedAt', () => {
+    expect(
+      decideGroupTurn({
+        admission: admission({ grant: { expiresAt: null, issuedAt: ISSUED, revokedAt: 'junk' } }),
+        now: NOW,
+      })
+    ).toEqual({
+      action: 'deny',
+      participationState: 'revoked',
+      reason: 'turn_participation_revoked',
+    })
+  })
+
+  test('late publication holds a result whose grant has a malformed revokedAt', () => {
+    expect(
+      decideGroupPublication({
+        admission: admission({ grant: { expiresAt: null, issuedAt: ISSUED, revokedAt: 'junk' } }),
+        job,
+        now: NOW,
+        publisher: ALICE,
+      })
+    ).toEqual({
+      action: 'hold',
+      jobId: 'job_1',
+      reason: 'publication_participation_revoked',
+    })
+  })
+
+  test('a sharing grant with a malformed revokedAt authorizes nothing', () => {
+    const decision = decideGroupHistoryRead({
+      admission: admission(),
+      entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      now: NOW,
+      sharingGrants: [sharingGrant('earlier_history', { revokedAt: 'junk' })],
+    })
+    expect(decision).toMatchObject({ action: 'deny', reason: 'history_before_join_point' })
+  })
 })
 
 describe('group creation validation', () => {
@@ -131,6 +254,7 @@ describe('group creation validation', () => {
           workspaceId: WORKSPACE,
         },
       ],
+      groupId: GROUP,
       now: CREATED,
       workspaceId: WORKSPACE,
     })
@@ -172,6 +296,7 @@ describe('group creation validation', () => {
           workspaceId: WORKSPACE,
         },
       ],
+      groupId: GROUP,
       now: CREATED,
       workspaceId: WORKSPACE,
     })
@@ -214,6 +339,7 @@ describe('group creation validation', () => {
           workspaceId: OTHER_WORKSPACE,
         },
       ],
+      groupId: GROUP,
       now: CREATED,
       workspaceId: WORKSPACE,
     })
@@ -249,6 +375,7 @@ describe('group creation validation', () => {
           workspaceId: WORKSPACE,
         },
       ],
+      groupId: GROUP,
       now: CREATED,
       workspaceId: WORKSPACE,
     })
@@ -283,6 +410,7 @@ describe('group creation validation', () => {
           workspaceId: WORKSPACE,
         },
       ],
+      groupId: GROUP,
       now: NOW,
       workspaceId: WORKSPACE,
     })
@@ -306,6 +434,7 @@ describe('group creation validation', () => {
           workspaceId: WORKSPACE,
         },
       ],
+      groupId: GROUP,
       now: CREATED,
       workspaceId: WORKSPACE,
     })
@@ -350,6 +479,7 @@ describe('group creation validation', () => {
           workspaceId: WORKSPACE,
         },
       ],
+      groupId: GROUP,
       now: CREATED,
       workspaceId: WORKSPACE,
     })
@@ -363,7 +493,12 @@ describe('group creation validation', () => {
   })
 
   test('rejects an empty audience, an Agents-only roster and a missing owning workspace', () => {
-    const empty = validateGroupCreation({ candidates: [], now: CREATED, workspaceId: WORKSPACE })
+    const empty = validateGroupCreation({
+      candidates: [],
+      groupId: GROUP,
+      now: CREATED,
+      workspaceId: WORKSPACE,
+    })
     expect(empty).toEqual({ ok: false, rejections: [{ reason: 'audience_empty', scope: 'group' }] })
 
     const agentsOnly = validateGroupCreation({
@@ -375,6 +510,7 @@ describe('group creation validation', () => {
           workspaceId: WORKSPACE,
         },
       ],
+      groupId: GROUP,
       now: CREATED,
       workspaceId: WORKSPACE,
     })
@@ -392,6 +528,7 @@ describe('group creation validation', () => {
           workspaceId: WORKSPACE,
         },
       ],
+      groupId: GROUP,
       now: CREATED,
       workspaceId: '   ',
     })
@@ -437,10 +574,60 @@ describe('group creation validation', () => {
           workspaceId: WORKSPACE,
         },
       ],
+      groupId: GROUP,
       now: CREATED,
       workspaceId: WORKSPACE,
     })
     expect(validation.ok).toBeTrue()
+  })
+
+  test('retains the authorizing group, grant identity and revision in every admission', () => {
+    const validation = validateGroupCreation({
+      candidates: [
+        {
+          audienceGrant: audienceGrant({ revision: 3 }),
+          kind: 'human',
+          participant: ALICE,
+          workspaceId: WORKSPACE,
+        },
+        {
+          enlistmentGrant: enlistmentGrant({ revision: 4 }),
+          agentId: 'agt_scout',
+          kind: 'agent',
+          workspaceId: WORKSPACE,
+        },
+      ],
+      groupId: GROUP,
+      now: CREATED,
+      workspaceId: WORKSPACE,
+    })
+
+    expect(validation.ok).toBeTrue()
+    if (!validation.ok) return
+    expect(validation.roster.map((member) => member.authorization)).toEqual([
+      { groupId: GROUP, grantId: 'gra_alice', revision: 3 },
+      { groupId: GROUP, grantId: 'grn_agt_scout', revision: 4 },
+    ])
+  })
+
+  test('rejects a creation whose group id is missing', () => {
+    const validation = validateGroupCreation({
+      candidates: [
+        {
+          audienceGrant: audienceGrant(),
+          kind: 'human',
+          participant: ALICE,
+          workspaceId: WORKSPACE,
+        },
+      ],
+      groupId: '   ',
+      now: CREATED,
+      workspaceId: WORKSPACE,
+    })
+    expect(validation).toEqual({
+      ok: false,
+      rejections: [{ reason: 'group_id_missing', scope: 'group' }],
+    })
   })
 })
 
@@ -665,12 +852,6 @@ describe('turn policy', () => {
 })
 
 describe('revocation as a publication gate', () => {
-  const job = {
-    completedAt: '2026-10-08T11:00:00.000Z',
-    jobId: 'job_1',
-    participant: ALICE,
-  }
-
   test('publishes a result whose participant is still authorized', () => {
     expect(
       decideGroupPublication({ admission: admission(), job, now: NOW, publisher: ALICE })
@@ -781,6 +962,124 @@ describe('revocation as a publication gate', () => {
       action: 'hold',
       jobId: 'job_1',
       reason: 'publication_unauthorized_at_completion',
+    })
+  })
+
+  test('revocation gates the group result without touching the independently owned job', () => {
+    const revokedAdmission = admission({
+      grant: { expiresAt: null, issuedAt: ISSUED, revokedAt: '2026-10-08T10:00:00.000Z' },
+    })
+    expect(decideGroupTurn({ admission: revokedAdmission, now: NOW })).toEqual({
+      action: 'deny',
+      participationState: 'revoked',
+      reason: 'turn_participation_revoked',
+    })
+    const publication = decideGroupPublication({
+      admission: revokedAdmission,
+      job,
+      now: NOW,
+      publisher: ALICE,
+    })
+    expect(publication).toEqual({
+      action: 'hold',
+      jobId: 'job_1',
+      reason: 'publication_participation_revoked',
+    })
+    // Revocation's only effect on the job is holding one result out of the
+    // group: the decision carries no cancellation, reassignment or retry, and
+    // execution outside the group context is never cancelled or blocked here.
+    expect(Object.keys(publication).toSorted()).toEqual(['action', 'jobId', 'reason'])
+  })
+})
+
+describe('publication binds jobs to their authorizing grant', () => {
+  test('a revoked grant is never borrowed back via an identical-looking replacement', () => {
+    // Alice was admitted under gra_alice revision 1, which was revoked; the
+    // replacement revision 2 re-admitted her; the job still retains revision 1.
+    const decision = decideGroupPublication({
+      admission: admission({
+        authorization: { groupId: GROUP, grantId: 'gra_alice', revision: 2 },
+        grant: { expiresAt: null, issuedAt: '2026-10-08T10:30:00.000Z', revokedAt: null },
+      }),
+      job,
+      now: NOW,
+      publisher: ALICE,
+    })
+    expect(decision).toEqual({
+      action: 'hold',
+      jobId: 'job_1',
+      reason: 'publication_binding_mismatch',
+    })
+  })
+
+  test('a grant from another group never authorizes publication', () => {
+    const decision = decideGroupPublication({
+      admission: admission(),
+      job: {
+        ...job,
+        authorization: { groupId: 'grp_elsewhere', grantId: 'gra_alice', revision: 1 },
+      },
+      now: NOW,
+      publisher: ALICE,
+    })
+    expect(decision).toEqual({
+      action: 'hold',
+      jobId: 'job_1',
+      reason: 'publication_binding_mismatch',
+    })
+  })
+
+  test('an older revision of a still-live grant does not authorize publication', () => {
+    const decision = decideGroupPublication({
+      admission: admission({
+        authorization: { groupId: GROUP, grantId: 'gra_alice', revision: 2 },
+      }),
+      job: { ...job, authorization: { groupId: GROUP, grantId: 'gra_alice', revision: 1 } },
+      now: NOW,
+      publisher: ALICE,
+    })
+    expect(decision).toEqual({
+      action: 'hold',
+      jobId: 'job_1',
+      reason: 'publication_binding_mismatch',
+    })
+  })
+
+  test('a job with a malformed retained binding is held, never published', () => {
+    const decision = decideGroupPublication({
+      admission: admission(),
+      job: { ...job, authorization: { groupId: '   ', grantId: 'gra_alice', revision: 1 } },
+      now: NOW,
+      publisher: ALICE,
+    })
+    expect(decision).toEqual({
+      action: 'hold',
+      jobId: 'job_1',
+      reason: 'publication_binding_mismatch',
+    })
+  })
+
+  test('a job that retained no group authorization stays out of the group and stays independently owned', () => {
+    const outsideJob = { ...job, authorization: null, jobId: 'job_outside' }
+    const decision = decideGroupPublication({
+      admission: admission(),
+      job: outsideJob,
+      now: NOW,
+      publisher: ALICE,
+    })
+    expect(decision).toEqual({
+      action: 'hold',
+      jobId: 'job_outside',
+      reason: 'publication_binding_mismatch',
+    })
+    // The hold gates one result; it carries no cancellation, reassignment or
+    // retry semantics, and the job record passes through untouched.
+    expect(Object.keys(decision).toSorted()).toEqual(['action', 'jobId', 'reason'])
+    expect(outsideJob).toEqual({
+      authorization: null,
+      completedAt: COMPLETED,
+      jobId: 'job_outside',
+      participant: ALICE,
     })
   })
 })

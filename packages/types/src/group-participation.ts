@@ -3,11 +3,13 @@
  *
  * This module holds the identity, grant, decision and typed-rejection shapes
  * for tenant-bounded groups: explicit human audience grants, explicit Agent
- * enlistment grants, join-point history policy and revocation. It is consumed
- * by the pure policy functions in `@adea-ai/db`'s
- * `group-participation-policy` module and deliberately contains no I/O:
- * atomic group creation, live enlistment and publication are later
- * integration slices.
+ * enlistment grants, join-point history policy and revocation. Grants carry an
+ * identity and revision, admissions and completed jobs retain the binding to
+ * the exact authorizing group/grant/revision, and every revocation timestamp
+ * is evaluated fail closed. It is consumed by the pure policy functions in
+ * `@adea-ai/db`'s `group-participation-policy` module and deliberately
+ * contains no I/O: atomic group creation, live enlistment and publication are
+ * later integration slices.
  */
 import type { ConversationParticipantRef, UserPrincipalRef } from './index'
 
@@ -24,12 +26,34 @@ export type QualifiedAgentIdentity = Readonly<{ agentId: string; workspaceId: st
 /**
  * The lifetime every group grant shares. `issuedAt`/`expiresAt` are the
  * grant's validity window (an expired or not-yet-issued grant behaves as
- * absent) and `revokedAt` ends it immediately.
+ * absent) and `revokedAt` ends it immediately; an unparseable `revokedAt`
+ * fails closed and behaves as revoked.
  */
 export type GroupGrantWindow = Readonly<{
   expiresAt: string | null
   issuedAt: string
   revokedAt: string | null
+}>
+
+/**
+ * The stable identity of a grant: its `grantId` plus an issuance `revision`
+ * that increments on every re-issuance of the same grant. Authorizations
+ * retain both so a replacement or stale revision can never pass for the
+ * grant that actually authorized a participant or a job.
+ */
+export type GroupGrantIdentity = Readonly<{ grantId: string; revision: number }>
+
+/**
+ * The authorization an admission or a completed job retains: which group's
+ * grant, by identity and revision, authorized it. Late publication compares
+ * the job's retained binding against the participant's current one, so a job
+ * admitted under a revoked grant stays blocked even when an identical-looking
+ * replacement grant now exists.
+ */
+export type GroupAuthorizationBinding = Readonly<{
+  groupId: string
+  grantId: string
+  revision: number
 }>
 
 export type GroupGrantState = 'effective' | 'expired' | 'not_yet_issued' | 'revoked'
@@ -43,18 +67,18 @@ export const groupGrantStates = [
 
 /** Explicit admission of one human into a group's audience. */
 export type GroupAudienceGrant = GroupGrantWindow &
+  GroupGrantIdentity &
   Readonly<{
-    grantId: string
     /** The exact human this grant admits; it admits no one else. */
     participant: UserPrincipalRef
   }>
 
 /** Explicit enlistment of one Agent into a group, bound to its qualified identity. */
 export type GroupAgentEnlistmentGrant = GroupGrantWindow &
+  GroupGrantIdentity &
   Readonly<{
     /** The exact Agent enlisted; a same-named Agent elsewhere is a different identity. */
     agent: QualifiedAgentIdentity
-    grantId: string
   }>
 
 export const groupSharingScopes = ['earlier_history', 'earlier_summary'] as const
@@ -71,8 +95,8 @@ export function isGroupSharingScope(value: unknown): value is GroupSharingScope 
  * separately grantable — one scope never implies the other.
  */
 export type GroupSharingGrant = GroupGrantWindow &
+  GroupGrantIdentity &
   Readonly<{
-    grantId: string
     /** The exact participant the earlier material is shared with. */
     participant: ConversationParticipantRef
     scope: GroupSharingScope
@@ -91,9 +115,13 @@ export type GroupJoinPoint = Readonly<{
  * One participant's standing in a group. `grant` is the explicit
  * participation grant (audience or enlistment) that admitted them; its window
  * governs participation, so revoking it denies future reads and turns
- * immediately.
+ * immediately. `authorization` retains exactly which group, grant and
+ * revision authorized them, so late publication can compare it with the
+ * binding a job retained.
  */
 export type GroupAdmission = Readonly<{
+  /** The group, grant identity and revision that currently authorize this member. */
+  authorization: GroupAuthorizationBinding
   grant: GroupGrantWindow
   joinPoint: GroupJoinPoint
   participant: ConversationParticipantRef
@@ -120,6 +148,8 @@ export type GroupCreationCandidate = GroupCreationHumanCandidate | GroupCreation
 
 export type GroupCreationInput = Readonly<{
   candidates: readonly GroupCreationCandidate[]
+  /** The group being created; it is retained in every admission's binding. */
+  groupId: string
   /** Admission time used for deterministic grant-window checks. */
   now: string
   /** The owning workspace bounding the group; every participant must belong to it. */
@@ -135,6 +165,7 @@ export type GroupCreationRejectionReason =
   | 'grant_mismatched_participant'
   | 'grant_not_yet_issued'
   | 'grant_revoked'
+  | 'group_id_missing'
   | 'group_workspace_missing'
   | 'participant_cross_tenant'
   | 'participant_unqualified'
@@ -148,6 +179,7 @@ export const groupCreationRejectionReasons = [
   'grant_mismatched_participant',
   'grant_not_yet_issued',
   'grant_revoked',
+  'group_id_missing',
   'group_workspace_missing',
   'participant_cross_tenant',
   'participant_unqualified',
@@ -169,7 +201,11 @@ export type GroupCreationRejection =
       scope: 'candidate'
     }>
   | Readonly<{
-      reason: 'audience_empty' | 'audience_requires_human' | 'group_workspace_missing'
+      reason:
+        | 'audience_empty'
+        | 'audience_requires_human'
+        | 'group_id_missing'
+        | 'group_workspace_missing'
       scope: 'group'
     }>
 
@@ -253,8 +289,15 @@ export type GroupTurnDecision =
       reason: 'turn_not_participant' | 'turn_participation_revoked'
     }>
 
-/** A job that finished work on the group's behalf. Its lifecycle stays independently owned. */
+/**
+ * A job that finished work on the group's behalf. Its lifecycle stays
+ * independently owned. `authorization` is the binding retained when the job
+ * was admitted under a group grant — `null` when the job is not group-bound —
+ * and is compared against current authorization before late publication.
+ */
 export type GroupCompletedJob = Readonly<{
+  /** The retained authorizing group, grant identity and revision, or null when not group-bound. */
+  authorization: GroupAuthorizationBinding | null
   completedAt: string
   jobId: string
   /** The participant the job's authority is bound to; publication never transfers it. */
@@ -271,12 +314,14 @@ export type GroupPublicationInput = Readonly<{
 
 export type GroupPublicationHoldReason =
   | 'publication_authority_mismatch'
+  | 'publication_binding_mismatch'
   | 'publication_participation_revoked'
   | 'publication_participation_stale'
   | 'publication_unauthorized_at_completion'
 
 export const groupPublicationHoldReasons = [
   'publication_authority_mismatch',
+  'publication_binding_mismatch',
   'publication_participation_revoked',
   'publication_participation_stale',
   'publication_unauthorized_at_completion',
