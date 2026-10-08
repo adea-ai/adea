@@ -354,6 +354,27 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
   test('bounded nonce cleanup retains unexpired proof/rate records', async () => {
     const f = await fixture()
     await f.pull()
+    const competing = await connection.db
+      .insert(runtimeNodeDeliveryRequests)
+      .values({
+        workspaceId: f.workspace.id,
+        runtimeNodeId: f.node.id,
+        signingKeyId: f.node.keys.find((key) => key.role === 'signing')!.keyId,
+        nonce: crypto.randomUUID(),
+        createdAt: sql`statement_timestamp() - interval '10 minutes'`,
+        expiresAt: sql`statement_timestamp() - interval '5 minutes'`,
+      })
+      .returning()
+    // The pruner orders eligible requests globally. Earlier fixtures may
+    // already have expired, so make this target older than every existing row.
+    const staleExpiry = sql`least(
+      statement_timestamp() - interval '1 second',
+      coalesce(
+        (select min(${runtimeNodeDeliveryRequests.expiresAt}) - interval '1 second'
+         from ${runtimeNodeDeliveryRequests}),
+        statement_timestamp() - interval '1 second'
+      )
+    )`
     const stale = await connection.db
       .insert(runtimeNodeDeliveryRequests)
       .values({
@@ -361,17 +382,26 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
         runtimeNodeId: f.node.id,
         signingKeyId: f.node.keys.find((key) => key.role === 'signing')!.keyId,
         nonce: crypto.randomUUID(),
-        createdAt: new Date(Date.now() - 180_000),
-        expiresAt: new Date(Date.now() - 1),
+        createdAt: sql`${staleExpiry} - interval '3 minutes'`,
+        expiresAt: staleExpiry,
       })
       .returning()
-    await pruneRuntimeNodeDeliveryRequests(connection.db, 1)
+    expect(await pruneRuntimeNodeDeliveryRequests(connection.db, 1)).toBe(1)
     expect(
       await connection.db
         .select()
         .from(runtimeNodeDeliveryRequests)
         .where(eq(runtimeNodeDeliveryRequests.id, stale[0]!.id))
     ).toHaveLength(0)
+    expect(
+      await connection.db
+        .select()
+        .from(runtimeNodeDeliveryRequests)
+        .where(eq(runtimeNodeDeliveryRequests.id, competing[0]!.id))
+    ).toHaveLength(1)
+    await connection.db
+      .delete(runtimeNodeDeliveryRequests)
+      .where(eq(runtimeNodeDeliveryRequests.id, competing[0]!.id))
     expect(
       await connection.db
         .select()

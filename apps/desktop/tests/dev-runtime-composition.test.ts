@@ -204,6 +204,16 @@ async function boot(
     runtimeRoot: join(dataDir, 'dev-runtime', 'runtime'),
     runLsof: () => Promise.resolve(''),
     resolveDns: () => Promise.resolve([]),
+    // Composition exercises scoped resource wiring, not the developer's
+    // live machine. Its default macOS observer otherwise runs real ps/lsof
+    // during snapshot reads; dedicated resource tests cover those seams.
+    runResourceCommand: async () => ({
+      exitCode: 0,
+      stdout: '',
+      timedOut: false,
+      truncated: false,
+      spawnFailed: false,
+    }),
     ...(options.publish ? { publish: options.publish } : {}),
     ...(options.sidecar ? { sidecar: options.sidecar as never } : {}),
     ...(options.componentManifest ? { componentManifest: options.componentManifest } : {}),

@@ -72,6 +72,23 @@ There is no UI behavior change in this increment, so its local checks do not
 repeat the inventory browser audit. Hosted preview, packaged desktop, live host
 interop and manual product acceptance are not established by these results.
 
+## Current validation preparation
+
+The candidate integrates canonical main
+`45dcf8cc29d7cb9bba4624a470f31a9c731b608d`, including the qualified #1165
+cloud-integration window and deterministic nonce-pruning/composition fixtures.
+The runtime-node test merge preserves both the retention cases and that fixture
+repair; production pruning and proof/rate windows are unchanged.
+
+An owned isolated PostgreSQL 16.15 cluster passed role health, 42 migration
+verification/replay, and the complete `bun run test:integration`: 119 tests /
+1,887 assertions across 24 files. The database unit suite passed 30 tests /
+3,434 assertions, and root coverage passed 308 tests / 7,195 assertions.
+Lint passed 17 tasks without findings, typecheck passed 31 tasks, and formatting
+passed 1,816 files. Native clusters shut down, closed their allocated ports and
+removed their owned data directories; the shared local database was untouched.
+These local receipts do not replace fresh current-head hosted Neon qualification.
+
 ## Remaining acceptance
 
 The schema phase merged as main `25264860b403f5f400ab9b4c933f06a15524cba3`.
