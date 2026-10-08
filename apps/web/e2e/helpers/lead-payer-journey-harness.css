@@ -1,0 +1,6 @@
+/* Behavioral fixture: published tokens plus the actual controls, without app asset discovery. */
+@import 'tailwindcss' source(none);
+@import '@adea-ai/ui/base.css';
+@import '@adea-ai/ui/theme.css';
+@source './lead-payer-journey-harness-app.tsx';
+@source '../../../../packages/workspace-ui/src/lead-turn-controls.tsx';

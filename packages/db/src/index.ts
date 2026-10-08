@@ -1,5 +1,10 @@
 import 'server-only'
 export {
+  compareMigrationSnapshots,
+  MigrationSnapshotIdentityError,
+  MigrationSnapshotStructureError,
+} from './migration-snapshot-comparator'
+export {
   pullRuntimeNodeCommand,
   pruneRuntimeNodeDeliveryRequests,
   RuntimeNodeDeliveryError,
@@ -24,6 +29,11 @@ export {
   setArtifactAvailability,
   type ArtifactCreateInput,
 } from './artifacts'
+export {
+  authorizeArtifactReferencePublication,
+  authorizeArtifactReferenceRetrieval,
+  readArtifactReferenceEvidence,
+} from './artifact-reference-policy'
 export {
   createDatabase,
   type AgentHqDatabase,

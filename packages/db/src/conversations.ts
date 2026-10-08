@@ -922,26 +922,56 @@ async function retreatChannelLatestSequence(
     .where(and(eq(channels.id, channelId), eq(channels.latestMessageSequence, deletedSequence)))
 }
 
-export async function createMessage(
+type CreateMessageInput = Readonly<{
+  artifactIds?: readonly string[]
+  bodyContentRefId?: string
+  bodyText?: string
+  executionRef?: string
+  externalSessionRef?: string
+  idempotencyKey: string
+  /** Explicit admission mode participates in retry identity; legacy requests omit it. */
+  leadTurn?: true
+  mentions?: readonly ConversationParticipantRef[]
+  replyToMessageId?: string
+  sender: MessageSenderRef
+  taskId?: string
+  threadRootMessageId?: string
+}>
+
+export function createMessage(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  input: CreateMessageInput
+) {
+  return createMessageWithTextPolicy(database, workspaceId, channelId, principal, input, false)
+}
+
+/** Server-only terminal publication; never expose this text policy as a caller input. */
+export function createRuntimeResultMessage(
   database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
   input: Readonly<{
-    artifactIds?: readonly string[]
-    bodyContentRefId?: string
-    bodyText?: string
-    executionRef?: string
-    externalSessionRef?: string
+    bodyText: string
+    executionRef: string
+    externalSessionRef: string
     idempotencyKey: string
-    /** Explicit admission mode participates in retry identity; legacy requests omit it. */
-    leadTurn?: true
-    mentions?: readonly ConversationParticipantRef[]
-    replyToMessageId?: string
-    sender: MessageSenderRef
-    taskId?: string
-    threadRootMessageId?: string
+    sender: Extract<MessageSenderRef, { kind: 'agent' }>
   }>
+) {
+  return createMessageWithTextPolicy(database, workspaceId, channelId, principal, input, true)
+}
+
+async function createMessageWithTextPolicy(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  input: CreateMessageInput,
+  preserveText: boolean
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
@@ -981,10 +1011,11 @@ export async function createMessage(
         throw new Error('Message thread conflict')
     }
     if (input.taskId) await requireVisibleTask(transaction, workspaceId, input.taskId, principal)
+    const bodyText = preserveText ? input.bodyText : input.bodyText?.trim()
     const normalized = {
       ...input,
       artifactIds,
-      bodyText: input.bodyText?.trim() || undefined,
+      bodyText: bodyText || undefined,
       mentions,
     }
     const payloadHash = hashPayload(normalized)
@@ -992,7 +1023,7 @@ export async function createMessage(
       .insert(messages)
       .values({
         bodyContentRefId: input.bodyContentRefId ?? null,
-        bodyText: input.bodyText?.trim() || null,
+        bodyText: bodyText || null,
         channelId,
         createPayloadHash: payloadHash,
         executionRef: input.executionRef?.trim() || null,
