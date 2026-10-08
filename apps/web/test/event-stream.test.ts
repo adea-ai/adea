@@ -147,6 +147,12 @@ describe('workspace event stream protocol', () => {
       expect(frame).not.toContain(value)
   })
 
+  test('audience resync reveals only sequence and the opaque replay cursor', () => {
+    expect(deliveryFrame({ kind: 'audience_changed', workspaceSequence: 9 }, 'opaque-cursor')).toBe(
+      'id: opaque-cursor\nevent: workspace.audience_changed\ndata: {"workspaceSequence":9}\n\n'
+    )
+  })
+
   test('delivered and redacted events use the normal event frame', () => {
     expect(deliveryFrame({ event, kind: 'deliver' }, 'c1')).toBe(eventFrame(event, 'c1'))
     const redacted = {

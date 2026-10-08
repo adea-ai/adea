@@ -59,6 +59,7 @@ export type ApiAgentProfileInput = Readonly<{
   profileVersion: string
 }>
 export type ApiAgentResponse = Readonly<{ agent: AgentSummary }>
+export type ApiWorkspaceLeadResponse = Readonly<{ lead: AgentSummary | null }>
 
 export type ApiArtifactCreateInput = Readonly<{
   agentId?: string
@@ -936,6 +937,18 @@ export class AgentHqApiClient {
     return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/agents`)
   }
 
+  async getWorkspaceLead(workspaceId: string): Promise<ApiWorkspaceLeadResponse> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/lead`)
+  }
+
+  async ensureWorkspaceLead(workspaceId: string): Promise<ApiWorkspaceLeadResponse> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/lead`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+  }
+
   async getAgent(workspaceId: string, agentId: string): Promise<ApiAgentResponse> {
     return this.request(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}`
@@ -1280,6 +1293,13 @@ export class AgentHqApiClient {
     return this.createChannel(workspaceId, { ...input, kind: 'group' })
   }
 
+  async createDirectAgentTopic(
+    workspaceId: string,
+    input: Readonly<{ agentId: string; idempotencyKey: string; title: string }>
+  ): Promise<ApiChannelResponse> {
+    return this.createChannel(workspaceId, { ...input, kind: 'direct_agent', mode: 'new_topic' })
+  }
+
   async updateChannel(
     workspaceId: string,
     channelId: string,
@@ -1402,6 +1422,7 @@ export class AgentHqApiClient {
       agentId?: string
       idempotencyKey: string
       kind: 'project' | 'direct_agent' | 'group'
+      mode?: 'new_topic'
       projectId?: string
       taskId?: string
       title: string

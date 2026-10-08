@@ -58,6 +58,14 @@ export function withheldFrame(workspaceSequence: number, cursor: string): string
 
 /** The wire frame for one classified delivery. */
 export function deliveryFrame(delivery: WorkspaceEventDelivery, cursor: string): string {
+  if (delivery.kind === 'audience_changed')
+    return [
+      `id: ${cursor}`,
+      'event: workspace.audience_changed',
+      `data: ${JSON.stringify({ workspaceSequence: delivery.workspaceSequence })}`,
+      '',
+      '',
+    ].join('\n')
   return delivery.kind === 'withheld'
     ? withheldFrame(delivery.workspaceSequence, cursor)
     : eventFrame(delivery.event, cursor)

@@ -15,6 +15,7 @@ export type WorkspaceNavigation = Readonly<{
 
 export type WorkspaceSelectionDecision =
   | Readonly<{ action: 'wait' }>
+  | Readonly<{ action: 'clear' }>
   | Readonly<{ action: 'preserve'; clearExplicitSelection: boolean }>
   | Readonly<{ action: 'select'; channelId: string; projectId: string | null }>
 
@@ -31,7 +32,7 @@ export function reconcileWorkspaceChannelSelection(
     selectedChannelId: string | null
   }>
 ): WorkspaceSelectionDecision {
-  if (!input.channels?.length) return { action: 'wait' }
+  if (!input.channels) return { action: 'wait' }
 
   if (input.selectedChannelId && input.channels.some(({ id }) => id === input.selectedChannelId)) {
     return {
@@ -53,7 +54,9 @@ export function reconcileWorkspaceChannelSelection(
     input.navigation.groupChannels[0]?.id
   return channelId
     ? { action: 'select', channelId, projectId: firstProject?.project.id ?? null }
-    : { action: 'wait' }
+    : input.selectedChannelId
+      ? { action: 'clear' }
+      : { action: 'wait' }
 }
 
 function compareChannels(left: ChannelSummary, right: ChannelSummary) {

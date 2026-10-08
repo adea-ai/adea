@@ -1,5 +1,15 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, jsonb, text, unique, uuid } from 'drizzle-orm/pg-core'
+import {
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  text,
+  unique,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core'
 import { appSchema } from './schema'
 import {
   controlPlaneIdentifierColumn,
@@ -30,6 +40,7 @@ export const agents = appSchema.table(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    isWorkspaceLead: boolean('is_workspace_lead').default(false).notNull(),
     name: text('name').notNull(),
     roleSummary: text('role_summary'),
     avatarRef: text('avatar_ref'),
@@ -45,6 +56,13 @@ export const agents = appSchema.table(
   (table) => [
     unique('agents_control_plane_id_unique').on(table.controlPlaneAgentId),
     unique('agents_workspace_id_unique').on(table.workspaceId, table.id),
+    uniqueIndex('agents_workspace_lead_unique')
+      .on(table.workspaceId)
+      .where(sql`${table.isWorkspaceLead} = true`),
+    check(
+      'agents_workspace_lead_standalone',
+      sql`${table.isWorkspaceLead} = false or (${table.projectId} is null and ${table.lifecycleState} <> 'archived')`
+    ),
     check(
       'agents_control_plane_id_valid',
       sql`${table.controlPlaneAgentId} ~ '^agt_[0-9A-HJKMNP-TV-Z]{26}$'`

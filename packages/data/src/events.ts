@@ -56,6 +56,8 @@ export type WorkspaceEventSubscriptionOptions = Readonly<{
   now?: () => number
   random?: () => number
   onDiagnostic?: (diagnostic: WorkspaceEventDiagnostic) => void
+  /** Clear transient conversation UI after a sequence-only audience-change frame. */
+  onAudienceChanged?: () => void
 }>
 
 export type WorkspaceEventDiagnostic = Readonly<{
@@ -143,6 +145,26 @@ export function queryKeysForEvent(
 /** Everything a resync must refresh: the authoritative current state. */
 export function workspaceScopeKeys(workspaceId: string): readonly (readonly unknown[])[] {
   return [['workspaces', workspaceId]]
+}
+
+/** Erase resident data before refetching: invalidation and removal alone keep active observers stale. */
+function clearWorkspaceAudienceData(queryClient: QueryClient, workspaceId: string): void {
+  for (const queryKey of [...workspaceScopeKeys(workspaceId), accountQueryKeys.all]) {
+    void queryClient.cancelQueries({ queryKey }, { revert: false, silent: true })
+    for (const query of queryClient.getQueryCache().findAll({ queryKey })) {
+      // resetQueries restores initialData, which may itself contain revoked history.
+      query.setState({
+        data: undefined,
+        dataUpdatedAt: 0,
+        error: null,
+        errorUpdatedAt: 0,
+        status: 'pending',
+        fetchStatus: 'idle',
+      })
+      if (!query.getObserversCount())
+        queryClient.removeQueries({ queryKey: query.queryKey, exact: true })
+    }
+  }
 }
 
 /** Backoff schedule: exponential to the cap, with jitter supplied by the caller. */
@@ -313,10 +335,19 @@ export function createWorkspaceEventSubscription(
     })
   }
 
-  function applyEvent(envelope: WorkspaceEventEnvelope, withheld = false): void {
+  function applyEvent(
+    envelope: WorkspaceEventEnvelope,
+    withheld = false,
+    audienceChanged = false
+  ): void {
     if (envelope.workspaceSequence <= appliedSequence) {
       // Duplicate delivery, or a replay of something already applied.
       return
+    }
+    if (audienceChanged) {
+      clearWorkspaceAudienceData(queryClient, workspaceId)
+      options.onAudienceChanged?.()
+      refresh([...workspaceScopeKeys(workspaceId), accountQueryKeys.all])
     }
     if (envelope.workspaceSequence > appliedSequence + 1 && appliedSequence > 0) {
       // A gap means an event was missed; refreshing authoritative state is the
@@ -355,12 +386,23 @@ export function createWorkspaceEventSubscription(
       // normal path so authorization is re-checked.
       throw new StreamUnavailable(frame.data)
     }
-    if (frame.event === 'workspace.withheld') {
-      if (frame.id) persistCursorToken(frame.id)
+    if (frame.event === 'workspace.withheld' || frame.event === 'workspace.audience_changed') {
       try {
-        const { workspaceSequence } = JSON.parse(frame.data) as { workspaceSequence: unknown }
-        if (typeof workspaceSequence === 'number' && Number.isSafeInteger(workspaceSequence))
-          applyEvent({ eventType: 'withheld', workspaceSequence } as WorkspaceEventEnvelope, true)
+        const payload = JSON.parse(frame.data) as Record<string, unknown>
+        const workspaceSequence = payload.workspaceSequence
+        if (
+          Object.keys(payload).length === 1 &&
+          typeof workspaceSequence === 'number' &&
+          Number.isSafeInteger(workspaceSequence) &&
+          workspaceSequence > 0
+        ) {
+          applyEvent(
+            { eventType: 'withheld', workspaceSequence } as WorkspaceEventEnvelope,
+            true,
+            frame.event === 'workspace.audience_changed'
+          )
+          if (frame.id) persistCursorToken(frame.id)
+        }
       } catch {
         // Unparseable: the next reconnect replays it.
       }

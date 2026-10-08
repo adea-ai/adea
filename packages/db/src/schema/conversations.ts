@@ -61,6 +61,8 @@ export const channels = appSchema.table(
       .default(0)
       .notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
+    /** Immutable request identity for explicitly created topics; legacy rows remain null. */
+    createPayloadHash: text('create_payload_hash'),
     version: integer('version').default(1).notNull(),
     ...timestampColumns(),
   },
@@ -71,9 +73,13 @@ export const channels = appSchema.table(
       .where(
         sql`${table.isPrimaryProjectChannel} = true and ${table.lifecycleState} = 'active' and ${table.projectId} is not null`
       ),
-    uniqueIndex('channels_active_direct_agent_unique')
+    // Only the optional legacy default lane is unique. Explicit topics have
+    // independent canonical IDs and histories, even with the same agent.
+    uniqueIndex('channels_active_default_direct_agent_unique')
       .on(table.workspaceId, table.agentId)
-      .where(sql`${table.kind} = 'direct_agent' and ${table.lifecycleState} = 'active'`),
+      .where(
+        sql`${table.kind} = 'direct_agent' and ${table.lifecycleState} = 'active' and ${table.idempotencyKey} like 'direct-agent:%'`
+      ),
     check('channels_title_nonempty', sql`length(btrim(${table.title})) > 0`),
     check('channels_idempotency_nonempty', sql`length(btrim(${table.idempotencyKey})) > 0`),
     check('channels_sort_nonnegative', sql`${table.sortOrder} >= 0`),

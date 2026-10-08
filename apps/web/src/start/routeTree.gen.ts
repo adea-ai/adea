@@ -49,6 +49,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdSearchRouteImport } from './routes/a
 import { Route as ApiV1WorkspacesWorkspaceIdTasksRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks'
 import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesRouteImport } from './routes/api/workspaces/$workspaceId/skills/profiles'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId'
+import { Route as ApiV1WorkspacesWorkspaceIdAgentsLeadRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/lead'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs/$contentId'
 import { Route as ApiV1WorkspacesWorkspaceIdMessagesMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/messages/$messageId'
@@ -315,6 +316,12 @@ const ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute =
   ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteImport.update({
     id: '/$agentId',
     path: '/$agentId',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdAgentsRoute,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdAgentsLeadRoute =
+  ApiV1WorkspacesWorkspaceIdAgentsLeadRouteImport.update({
+    id: '/lead',
+    path: '/lead',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdAgentsRoute,
   } as any)
 const ApiV1WorkspacesWorkspaceIdChannelsChannelIdRoute =
@@ -638,6 +645,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   '/api/workspaces/$workspaceId/skills/profiles': typeof ApiWorkspacesWorkspaceIdSkillsProfilesRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/agents/lead': typeof ApiV1WorkspacesWorkspaceIdAgentsLeadRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
@@ -725,6 +733,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   '/api/workspaces/$workspaceId/skills/profiles': typeof ApiWorkspacesWorkspaceIdSkillsProfilesRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/agents/lead': typeof ApiV1WorkspacesWorkspaceIdAgentsLeadRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
@@ -813,6 +822,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   '/api/workspaces/$workspaceId/skills/profiles': typeof ApiWorkspacesWorkspaceIdSkillsProfilesRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/agents/lead': typeof ApiV1WorkspacesWorkspaceIdAgentsLeadRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
@@ -902,6 +912,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks'
     | '/api/workspaces/$workspaceId/skills/profiles'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
+    | '/api/v1/workspaces/$workspaceId/agents/lead'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
@@ -989,6 +1000,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks'
     | '/api/workspaces/$workspaceId/skills/profiles'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
+    | '/api/v1/workspaces/$workspaceId/agents/lead'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
@@ -1076,6 +1088,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/tasks'
     | '/api/workspaces/$workspaceId/skills/profiles'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
+    | '/api/v1/workspaces/$workspaceId/agents/lead'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
@@ -1447,6 +1460,13 @@ declare module '@tanstack/solid-router' {
       path: '/$agentId'
       fullPath: '/api/v1/workspaces/$workspaceId/agents/$agentId'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRoute
+    }
+    '/api/v1/workspaces/$workspaceId/agents/lead': {
+      id: '/api/v1/workspaces/$workspaceId/agents/lead'
+      path: '/lead'
+      fullPath: '/api/v1/workspaces/$workspaceId/agents/lead'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsLeadRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRoute
     }
     '/api/v1/workspaces/$workspaceId/channels/$channelId': {
@@ -1883,12 +1903,15 @@ const ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren =
 
 interface ApiV1WorkspacesWorkspaceIdAgentsRouteChildren {
   ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdAgentsLeadRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsLeadRoute
 }
 
 const ApiV1WorkspacesWorkspaceIdAgentsRouteChildren: ApiV1WorkspacesWorkspaceIdAgentsRouteChildren =
   {
     ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute:
       ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren,
+    ApiV1WorkspacesWorkspaceIdAgentsLeadRoute:
+      ApiV1WorkspacesWorkspaceIdAgentsLeadRoute,
   }
 
 const ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren =

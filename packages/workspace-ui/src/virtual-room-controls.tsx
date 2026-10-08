@@ -2,6 +2,7 @@ import type { ChannelSummary, TaskSummary } from '@adea-ai/types'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import {
   settledData,
+  settledConversationPage,
   useAgentListQuery,
   useArchiveChannelMutation,
   useArchiveTaskMutation,
@@ -97,8 +98,18 @@ export function VirtualRoomControls(props: {
   const markAllReadMutation = useMarkAllReadMutation(client(), mutationWorkspaceId)
   const prefetchChannelMessages = usePrefetchChannelMessages(client(), workspaceId)
   const [dialog, setDialog] = createSignal<SidebarDialog>(null)
+  const audienceEpoch = useWorkspaceState(
+    (state) => state.conversationAudienceEpochs[workspaceId() ?? ''] ?? 0
+  )
+  const channelData = () => {
+    const list = settledConversationPage(channels, audienceEpoch())
+    return list?.conversationWorkspaceId === workspaceId() ? list : undefined
+  }
+  const selectionAuthority = () => ({ workspaceId: workspaceId(), epoch: audienceEpoch() })
+  const currentSelectionAuthority = (authority: ReturnType<typeof selectionAuthority>) =>
+    authority.workspaceId === workspaceId() && authority.epoch === audienceEpoch()
   const navigation = createMemo(() =>
-    projectWorkspaceNavigation(settledData(projects) ?? [], settledData(channels) ?? [])
+    projectWorkspaceNavigation(settledData(projects) ?? [], channelData() ?? [])
   )
 
   createEffect(() => {
@@ -111,15 +122,25 @@ export function VirtualRoomControls(props: {
   // store's channel setter closes an open thread, so only stale selections may
   // be replaced while Virtual is mounted.
   let explicitSelection: string | null = null
+  let selectionScope = selectionAuthority()
   createEffect(() => {
+    if (!currentSelectionAuthority(selectionScope)) {
+      explicitSelection = null
+      selectionScope = selectionAuthority()
+    }
     const decision = reconcileWorkspaceChannelSelection({
-      channels: settledData(channels),
+      channels: channelData(),
       explicitSelection,
       navigation: navigation(),
       selectedChannelId: selectedChannelId(),
     })
     if (decision.action === 'preserve') {
       if (decision.clearExplicitSelection) explicitSelection = null
+      return
+    }
+    if (decision.action === 'clear') {
+      workspaceStore.getState().setSelectedProjectId(null)
+      workspaceStore.getState().setSelectedChannelId(null)
       return
     }
     if (decision.action !== 'select') return
@@ -172,11 +193,12 @@ export function VirtualRoomControls(props: {
     }
   }
   const createGroup = async (title: string) => {
+    const authority = selectionAuthority()
     const result = await createGroupMutation.mutateAsync({
       idempotencyKey: createClientRequestId(),
       title,
     })
-    selectChannel(result.channel.id)
+    if (currentSelectionAuthority(authority)) selectChannel(result.channel.id)
   }
   const archiveChannel = (channel: ChannelSummary) =>
     archiveChannelMutation
