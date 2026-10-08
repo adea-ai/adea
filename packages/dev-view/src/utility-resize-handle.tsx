@@ -22,7 +22,6 @@ export function UtilityResizeHandle(props: {
         step={48}
         label={`Resize ${props.side} utility pane`}
         controls={`dev-utility-panel-${props.side}`}
-        grip="rung"
         onChange={(size) => props.onResize(snapUtilitySize(size, props.side))}
       />
     </div>

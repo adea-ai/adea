@@ -51,7 +51,7 @@
   "dependencies": {
     "@adea-ai/app-ui": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.122.0",
+    "@adea-ai/ui": "0.122.2",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },
