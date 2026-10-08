@@ -39,7 +39,9 @@ const SkillsPane = lazy(() =>
 const CloudConnectionsPane = lazy(() =>
   import('./control-plane-settings').then((module) => ({ default: module.CloudConnectionsPane }))
 )
-const LeadModelPane = lazy(() => import('./lead-model-pane'))
+const LeadModelPane = lazy(() =>
+  import('./control-plane-settings').then((module) => ({ default: module.LeadModelPane }))
+)
 const RuntimeNodesPane = lazy(() =>
   import('./control-plane-settings').then((module) => ({ default: module.RuntimeNodesPane }))
 )

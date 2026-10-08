@@ -897,7 +897,7 @@ test('keeps the project draft and attachments after a failed send, then clears o
   await expect.poll(() => submissions.length).toBe(2)
   expect(submissions[0]).toMatchObject({ artifactIds: ['artifact-brief'], bodyText: draft })
   expect(submissions[1]).toMatchObject({ artifactIds: ['artifact-brief'], bodyText: draft })
-  expect(submissions[1]?.idempotencyKey).not.toBe(submissions[0]?.idempotencyKey)
+  expect(submissions[1]?.idempotencyKey).toBe(submissions[0]?.idempotencyKey)
   await expect(composer).toHaveValue('')
   await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
 })
@@ -921,6 +921,9 @@ test('keeps thread reply metadata separate from the project draft', async ({ pag
   // The reply strip names the thread the composer answers.
   await expect(page.getByText(/^Replying to /)).toBeVisible()
   await threadComposer.fill('Reply with the root identity preserved.')
+  await threadComposer.evaluate((element) =>
+    element.setAttribute('data-thread-composer-instance', 'original')
+  )
   await threadComposer.press('Enter')
 
   await expect.poll(() => submissions.length).toBe(1)
@@ -932,6 +935,7 @@ test('keeps thread reply metadata separate from the project draft', async ({ pag
   })
   await expect(projectComposer).toHaveValue('Project draft remains here.')
   await expect(threadComposer).toHaveValue('')
+  await expect(threadComposer).toHaveAttribute('data-thread-composer-instance', 'original')
 
   // The strip's dismissal closes the thread without touching the drafts.
   await page.getByRole('button', { name: 'Cancel reply' }).click()

@@ -14,7 +14,16 @@ import {
   usePrefetchThreadMessages,
 } from '@adea-ai/data'
 import { Info, MailOpen, Search } from 'lucide-solid'
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  lazy,
+  onCleanup,
+  onMount,
+  Show,
+} from 'solid-js'
 
 import type { ConversationReadingPosition } from '@adea-ai/ui/components/conversation'
 import {
@@ -27,7 +36,6 @@ import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { keyedRows } from './keyed-rows'
 import { isWorkspaceLeadConversation, messageSubmissionOutcome } from './lead-conversation-model'
-import { LeadTurnControls } from './lead-turn-controls'
 import {
   MessageComposer,
   type ComposerSubmission,
@@ -36,6 +44,10 @@ import {
 import { MessageRow } from './message-row'
 import { ThreadPanel } from './thread-panel'
 import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-states'
+
+const LeadTurnControls = lazy(() =>
+  import('./control-plane-settings').then((module) => ({ default: module.LeadTurnControls }))
+)
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
 import { ConversationAvatar } from './conversation-avatar'
@@ -319,44 +331,50 @@ export function ConversationSurface(props: {
   // The thread column: the focused thread when its root is inside the loaded
   // page, the placeholder panel when a deep link names a root this window
   // cannot show, and nothing — no second column — when no thread is open.
-  const threadPanel = createMemo(() => {
-    if (!props.threadRootMessageId) return undefined
-    const rootMessage = root()
-    if (!rootMessage) {
-      return (
-        <SharedThreadPanel
-          data-conventional-thread=""
-          label="Thread"
-          onClose={() => props.onThreadChange(null)}
+  // A refreshed root object updates metadata without disposing its pending
+  // composer. Changing the root identity still disposes the previous thread.
+  const threadPanel = (
+    <Show when={props.threadRootMessageId} keyed>
+      {(rootId) => (
+        <Show
+          when={root()?.id === rootId ? root() : undefined}
+          fallback={
+            <SharedThreadPanel
+              data-conventional-thread=""
+              label="Thread"
+              onClose={() => props.onThreadChange(null)}
+            >
+              <WorkspaceEmpty
+                title="Thread outside history window"
+                detail="This thread is outside the loaded history window."
+              />
+            </SharedThreadPanel>
+          }
         >
-          <WorkspaceEmpty
-            title="Thread outside history window"
-            detail="This thread is outside the loaded history window."
-          />
-        </SharedThreadPanel>
-      )
-    }
-    return (
-      <ThreadPanel
-        agents={props.agents}
-        artifacts={props.artifacts}
-        channelId={props.channel?.id ?? ''}
-        client={props.client}
-        draft={props.threadDraft}
-        onClose={() => props.onThreadChange(null)}
-        onDraftChange={props.onThreadDraftChange}
-        onOpenTask={props.onOpenTask}
-        onMarkRead={(sequence) => props.onMarkThreadRead(rootMessage.id, sequence)}
-        onMarkUnread={() => props.onMarkThreadUnread(rootMessage.id)}
-        privateContent={props.privateContent}
-        root={rootMessage}
-        searchTargetMessageId={props.searchTargetMessageId}
-        tasks={props.tasks}
-        transcription={props.transcription}
-        workspaceId={props.workspaceId}
-      />
-    )
-  })
+          {(rootMessage) => (
+            <ThreadPanel
+              agents={props.agents}
+              artifacts={props.artifacts}
+              channelId={props.channel?.id ?? ''}
+              client={props.client}
+              draft={props.threadDraft}
+              onClose={() => props.onThreadChange(null)}
+              onDraftChange={props.onThreadDraftChange}
+              onOpenTask={props.onOpenTask}
+              onMarkRead={(sequence) => props.onMarkThreadRead(rootId, sequence)}
+              onMarkUnread={() => props.onMarkThreadUnread(rootId)}
+              privateContent={props.privateContent}
+              root={rootMessage()}
+              searchTargetMessageId={props.searchTargetMessageId}
+              tasks={props.tasks}
+              transcription={props.transcription}
+              workspaceId={props.workspaceId}
+            />
+          )}
+        </Show>
+      )}
+    </Show>
+  )
 
   const submit = async (submission: ComposerSubmission): Promise<ComposerSubmissionOutcome> => {
     const submittedWorkspaceId = props.workspaceId
@@ -549,7 +567,7 @@ export function ConversationSurface(props: {
               </nav>
             </header>
           }
-          thread={threadPanel()}
+          thread={threadPanel}
         >
           <SharedConversationSurface
             data-conventional-transcript=""

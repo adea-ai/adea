@@ -99,7 +99,7 @@ export function MessageComposer(props: {
     } catch {
       if (!disposed && props.channelId === channelId)
         setSubmissionError(
-          'Your message could not be saved. Your draft is preserved; refresh the conversation and try again.'
+          'Message not sent. Your draft is still here; retry when the connection recovers.'
         )
     } finally {
       if (!disposed) setSending(false)

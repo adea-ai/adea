@@ -201,3 +201,29 @@ single-worker Playwright test passes: initial null state, observed running, exac
 cancellation request, busy disappearance, cancelling acknowledgement and terminal removal.
 Its product transport is scripted; this narrow mounted proof does not qualify the broader
 model/payer journey, connected runtime cancellation or any live provider.
+
+## Hosted bundle and composer repair
+
+The hosted Host gate retained a Chat raw-byte failure (325,526 against 310,272).
+Lead controls now load only for a designated lead through the existing deferred
+Control Plane UI entry, alongside model setup. An initial separate lazy entry passed
+the Chat cap but exposed 160 client files against the unchanged 157 cap. Consolidating
+the independent lead controls, model pane and shared funding-model chunks into the
+existing deferred entry passed every unchanged bundle gate: Chat 308,342 raw bytes and
+102,522 gzip bytes, with 157 client JavaScript files. No budget or snapshot was changed.
+
+The hosted conventional failures identified changed failure-notice copy and a thread
+composer remount after a same-ID root refetch. The legacy notice is restored, and the
+thread mount is keyed by root identity while updated root metadata stays reactive.
+Disposal protection still prevents a late acknowledgement clearing a different topic.
+The retry assertion now requires the same canonical idempotency key for an unchanged
+message, while preserving payload, draft, attachments and successful-clear assertions.
+
+The two original functional browser cases pass, including a strengthened same-DOM
+thread assertion. Two additional real mounted composer regressions and the mounted
+cancellation regression pass with scripted responses. These five focused browser
+cases do not qualify the whole visual suite or connected provider/runtime behavior.
+The hosted worker handler errors followed a refused database connection during warm-up
+against the intentionally unavailable visual-lane database; the focused local run saw
+neither error. The hosted failure logs remain retained separately, and this repair does
+not claim that a source change eliminated that warm-up failure.
