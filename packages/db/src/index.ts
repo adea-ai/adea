@@ -2,6 +2,7 @@ import 'server-only'
 export {
   compareMigrationSnapshots,
   MigrationSnapshotIdentityError,
+  MigrationSnapshotStructureError,
 } from './migration-snapshot-comparator'
 export {
   pullRuntimeNodeCommand,

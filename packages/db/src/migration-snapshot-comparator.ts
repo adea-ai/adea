@@ -9,13 +9,25 @@
 //
 // Epistemics are fail-closed. A family section absent from a document makes
 // that domain unknown, never zero. A section flagged truncated yields a
-// finding, so an incomplete scan can never read as a clean one. A malformed
-// or audience-ambiguous record is quarantined and excluded from matching
-// rather than guessed at. Identity mismatches between the two snapshots are
-// a typed error, not a diff. Output is deterministic: sorted findings, sorted
-// counts, no timestamps, and no message bodies or credentials — the record
-// contract (see `@adea-ai/types` migration-snapshot) excludes those fields,
-// and findings only ever carry allow-listed detail keys.
+// finding, so an incomplete scan can never read as a clean one; a section
+// whose truncation evidence is missing, whose shape is malformed, or whose
+// record count exceeds a documented bound is a typed structure error, never
+// a silent claim of completeness. A malformed, misfiled, or
+// audience-ambiguous record is quarantined and excluded from matching rather
+// than guessed at, and conflicting duplicate records are quarantined
+// deterministically — reordering input records or object keys cannot change
+// the outcome, because quarantine identities and opaque references are
+// derived from canonical (key-sorted) encodings. Identity mismatches between
+// the two snapshots are a typed error, not a diff. Output is deterministic:
+// sorted findings, sorted counts, no timestamps, and no message bodies or
+// credentials — the record contract (see `@adea-ai/types`
+// migration-snapshot) excludes those fields, findings only ever carry
+// allow-listed detail keys, and every value a finding carries passes a
+// well-formed reference check: anything else is replaced by an opaque
+// reference (type plus short deterministic fingerprint) before it can
+// surface. Workspace bindings of nested participants (channel participants,
+// project members, execution attempts) are part of the compared binding, so
+// a workspace-only remap can never read as identical.
 
 import { createHash } from 'node:crypto'
 
@@ -26,10 +38,15 @@ import type {
   MigrationSnapshotFamilyInventory,
   MigrationSnapshotFinding,
   MigrationSnapshotFindingClass,
+  MigrationSnapshotFindingDetailKey,
   MigrationSnapshotRecord,
   MigrationSnapshotSection,
 } from '@adea-ai/types'
 import {
+  isMigrationSnapshotFamily,
+  migrationSnapshotFindingDetailKeys,
+  MIGRATION_SNAPSHOT_MAX_FINDINGS,
+  MIGRATION_SNAPSHOT_MAX_RECORDS_PER_SECTION,
   MIGRATION_SNAPSHOT_FORMAT_VERSION,
   migrationSnapshotFamilies,
   migrationSnapshotRecordIssue,
@@ -40,6 +57,20 @@ export class MigrationSnapshotIdentityError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'MigrationSnapshotIdentityError'
+  }
+}
+
+/**
+ * A snapshot section is malformed or exceeds a documented bound: missing
+ * truncation evidence, ill-typed shape, or a record count over the declared
+ * limit, the per-section cap, or the comparison output bound. Fail-closed:
+ * such input is rejected instead of compared, so it can never yield a
+ * verdict — least of all a success verdict.
+ */
+export class MigrationSnapshotStructureError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'MigrationSnapshotStructureError'
   }
 }
 
@@ -78,7 +109,10 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     binding: ['projectId', 'workspaceId'],
     digests: [],
   },
-  channelParticipants: { attributes: [], binding: [], digests: [] },
+  // A channel participant's workspace binding is part of its identity
+  // binding: the audience row belongs to exactly one workspace, so a
+  // workspace-only change is a remap, never an identical match.
+  channelParticipants: { attributes: [], binding: ['workspaceId'], digests: [] },
   channels: {
     attributes: [{ field: 'visibility', widened: true }],
     binding: ['projectId', 'workspaceId'],
@@ -95,10 +129,11 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     digests: ['payloadDigest', 'schemaVersion'],
   },
   executionAttempts: {
-    // Owner binding; the finding class is chosen per row (only a row that is
-    // the active attempt on BOTH sides reports a conflicting owner).
+    // Owner binding: where (workspace, location, node) the attempt ran. The
+    // finding class is chosen per row (only a row that is the active attempt
+    // on BOTH sides reports a conflicting owner).
     attributes: [],
-    binding: ['locationKind', 'runtimeNodeId'],
+    binding: ['locationKind', 'runtimeNodeId', 'workspaceId'],
     digests: [],
   },
   identityBindings: { attributes: [], binding: ['userId'], digests: [] },
@@ -122,8 +157,10 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     digests: [],
   },
   projectMembers: {
+    // A project grant belongs to exactly one workspace: a workspace-only
+    // change is a remap of the grant, never an identical match.
     attributes: [{ field: 'role', widened: true }],
-    binding: [],
+    binding: ['workspaceId'],
     digests: [],
   },
   projects: {
@@ -190,6 +227,45 @@ function asText(value: unknown): string {
   return String(value)
 }
 
+const CANONICAL_JSON_MAX_DEPTH = 64
+
+/**
+ * Deterministic JSON encoding: object keys sorted, arrays positional,
+ * non-JSON values replaced with typed markers, recursion depth-capped.
+ * Malformed objects with equal content must fingerprint identically no
+ * matter how their keys were inserted, so quarantine identities, opaque
+ * references and duplicate detection never depend on input ordering.
+ */
+function canonicalJson(value: unknown, depth = 0): string {
+  if (depth > CANONICAL_JSON_MAX_DEPTH) return '"~depth"'
+  if (value === null) return 'null'
+  switch (typeof value) {
+    case 'string':
+      return JSON.stringify(value)
+    case 'number':
+      return Number.isFinite(value) ? JSON.stringify(value) : `"~${String(value)}"`
+    case 'boolean':
+      return value ? 'true' : 'false'
+    case 'bigint':
+      return `"~${value.toString()}n"`
+    case 'undefined':
+      return '"~undefined"'
+    case 'function':
+    case 'symbol':
+      return `"~${typeof value}"`
+    default: {
+      if (Array.isArray(value)) {
+        return `[${value.map((item) => canonicalJson(item, depth + 1)).join(',')}]`
+      }
+      const source = value as Record<string, unknown>
+      const entries = Object.keys(source)
+        .toSorted()
+        .map((key) => `${JSON.stringify(key)}:${canonicalJson(source[key], depth + 1)}`)
+      return `{${entries.join(',')}}`
+    }
+  }
+}
+
 /** Stable identity of a valid record, per family. */
 function stableIdOf(record: MigrationSnapshotRecord): string {
   switch (record.family) {
@@ -230,12 +306,57 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
 
 /**
  * Deterministic content identity for a record that failed validation, whose
- * real stable id cannot be trusted. Hashing keeps the finding referable
- * without echoing whatever the malformed field held.
+ * real stable id cannot be trusted. The fingerprint is taken over the
+ * canonical encoding, so reordering an object's keys cannot change it, and
+ * hashing keeps the finding referable without echoing whatever the malformed
+ * field held.
  */
-function quarantinedId(record: MigrationSnapshotRecord): string {
-  const digest = createHash('sha256').update(JSON.stringify(record), 'utf8').digest('hex')
+function quarantinedId(record: unknown): string {
+  const digest = createHash('sha256').update(canonicalJson(record), 'utf8').digest('hex')
   return `unverifiable:${digest}`
+}
+
+/**
+ * A reference the comparator may echo verbatim: bounded in length and built
+ * only from identifier-safe characters. Anything else — arbitrary text in a
+ * nominal identifier or digest, hostile extras — must never surface in a
+ * finding.
+ */
+const WELL_FORMED_REFERENCE = /^[\w.*:-]{1,512}$/
+
+const OPAQUE_REFERENCE_FINGERPRINT_LENGTH = 16
+
+/**
+ * An opaque, sanitized reference: the value's type plus a short deterministic
+ * fingerprint over its canonical encoding. It proves two occurrences of the
+ * same value are the same value without ever carrying the value itself.
+ */
+function opaqueReference(kind: string, value: unknown): string {
+  const fingerprint = createHash('sha256')
+    .update(canonicalJson(value), 'utf8')
+    .digest('hex')
+    .slice(0, OPAQUE_REFERENCE_FINGERPRINT_LENGTH)
+  return `opaque:${kind}:${fingerprint}`
+}
+
+/**
+ * The only values a finding may carry. A value that is not a well-formed
+ * reference is replaced by its opaque reference before it can appear in the
+ * output, so the comparator structurally cannot leak supplied content.
+ */
+function sanitizeReference(value: unknown): string {
+  const text = typeof value === 'string' ? value : asText(value)
+  if (WELL_FORMED_REFERENCE.test(text)) return text
+  return opaqueReference(typeof value, value)
+}
+
+function sanitizeDetail(detail: Detail): Detail {
+  const sanitized: { -readonly [K in MigrationSnapshotFindingDetailKey]?: string } = {}
+  for (const key of migrationSnapshotFindingDetailKeys) {
+    const value = detail[key]
+    if (value !== undefined) sanitized[key] = sanitizeReference(value)
+  }
+  return sanitized
 }
 
 type Detail = MigrationSnapshotFinding['detail']
@@ -261,11 +382,20 @@ class FindingCollector {
     stableId: string,
     detail: Detail = {}
   ): void {
-    const field = typeof detail.field === 'string' ? detail.field : undefined
-    const id = findingId(findingClass, family, side, stableId, field)
+    const safeStableId = sanitizeReference(stableId)
+    const safeDetail = sanitizeDetail(detail)
+    const field = typeof safeDetail.field === 'string' ? safeDetail.field : undefined
+    const id = findingId(findingClass, family, side, safeStableId, field)
     if (this.ids.has(id)) return
     this.ids.add(id)
-    this.findings.push({ detail, family, findingClass, id, side, stableId })
+    this.findings.push({
+      detail: safeDetail,
+      family,
+      findingClass,
+      id,
+      side,
+      stableId: safeStableId,
+    })
   }
 }
 
@@ -391,6 +521,8 @@ type Side = MigrationSnapshotFinding['side']
 type IntakeResult = Readonly<{
   activeAttempts: ReadonlyMap<string, number>
   byStableId: ReadonlyMap<string, MigrationSnapshotRecord>
+  /** Records excluded before matching (malformed, null, or misfiled). */
+  quarantined: number
 }>
 
 function intakeSection(
@@ -399,13 +531,37 @@ function intakeSection(
   side: Exclude<Side, 'both'>,
   collector: FindingCollector
 ): IntakeResult {
+  const canonicalById = new Map<string, string>()
+  const firstById = new Map<string, MigrationSnapshotRecord>()
   const byStableId = new Map<string, MigrationSnapshotRecord>()
   const occurrences = new Map<string, number>()
   const activeByTask = new Map<string, number>()
+  const conflicting = new Set<string>()
+  let quarantined = 0
 
   for (const record of section.records) {
+    if (typeof record !== 'object' || record === null) {
+      quarantined += 1
+      collector.add('quarantined_record', family, side, quarantinedId(record), {
+        field: 'record',
+        reason: 'malformed',
+      })
+      continue
+    }
+    // A record whose family does not name this section's family is misfiled:
+    // it is quarantined BEFORE comparison, never silently compared under the
+    // wrong family (which could mask a real diff).
+    if (!isMigrationSnapshotFamily(record.family) || record.family !== family) {
+      quarantined += 1
+      collector.add('quarantined_record', family, side, quarantinedId(record), {
+        field: 'family',
+        reason: 'family_mismatch',
+      })
+      continue
+    }
     const issue = migrationSnapshotRecordIssue(record)
     if (issue) {
+      quarantined += 1
       collector.add('quarantined_record', family, side, quarantinedId(record), {
         field: issue.field,
         reason: issue.kind,
@@ -414,7 +570,32 @@ function intakeSection(
     }
     const stableId = stableIdOf(record)
     occurrences.set(stableId, (occurrences.get(stableId) ?? 0) + 1)
-    if (!byStableId.has(stableId)) byStableId.set(stableId, record)
+    const canonical = canonicalJson(record)
+    const seenCanonical = canonicalById.get(stableId)
+    if (seenCanonical === undefined) {
+      canonicalById.set(stableId, canonical)
+      firstById.set(stableId, record)
+    } else if (seenCanonical !== canonical) {
+      // Same stable id, different content. Which copy "wins" must never
+      // depend on input order, so every conflicting id is quarantined as a
+      // whole: none of its copies is compared.
+      conflicting.add(stableId)
+    }
+  }
+  for (const [stableId, count] of occurrences) {
+    if (count > 1) {
+      collector.add('duplicated_record', family, side, stableId, { count: String(count) })
+    }
+    if (conflicting.has(stableId)) {
+      collector.add('quarantined_record', family, side, stableId, {
+        field: 'stableId',
+        reason: 'conflicting_duplicate',
+      })
+    }
+  }
+  for (const [stableId, record] of firstById) {
+    if (conflicting.has(stableId)) continue
+    byStableId.set(stableId, record)
     if (record.family === 'executionAttempts') {
       const current = activeByTask.get(record.taskId)
       if (current === undefined || record.attempt > current) {
@@ -422,16 +603,64 @@ function intakeSection(
       }
     }
   }
-  for (const [stableId, count] of occurrences) {
-    if (count > 1) {
-      collector.add('duplicated_record', family, side, stableId, { count: String(count) })
-    }
-  }
   if (section.truncated) {
     collector.add('truncated_input', family, side, '*', { reason: 'truncated' })
   }
-  return { activeAttempts: activeByTask, byStableId }
+  return { activeAttempts: activeByTask, byStableId, quarantined }
 }
+
+// ─── Structure and bounds ────────────────────────────────────────────────────
+
+/**
+ * Validate one present section's shape and bounds before any comparison.
+ * Missing truncation evidence is never read as completeness; a section whose
+ * record count exceeds its declared limit or the documented cap is rejected.
+ */
+function requireValidSectionShape(
+  section: MigrationSnapshotSection,
+  family: MigrationSnapshotFamily,
+  label: 'before' | 'after'
+): void {
+  const where = `${label} snapshot, family ${family}`
+  if (typeof section !== 'object' || section === null) {
+    throw new MigrationSnapshotStructureError(
+      `Malformed section in the ${where}: the section must be an object`
+    )
+  }
+  if (!Array.isArray(section.records)) {
+    throw new MigrationSnapshotStructureError(
+      `Malformed section in the ${where}: records must be an array`
+    )
+  }
+  if (typeof section.truncated !== 'boolean') {
+    throw new MigrationSnapshotStructureError(
+      `Missing truncation evidence in the ${where}: truncated must be a boolean; missing evidence is never read as completeness`
+    )
+  }
+  if (section.limit !== undefined && (!Number.isSafeInteger(section.limit) || section.limit < 0)) {
+    throw new MigrationSnapshotStructureError(
+      `Malformed section in the ${where}: limit must be a non-negative safe integer when present`
+    )
+  }
+  if (section.limit !== undefined && section.records.length > section.limit) {
+    throw new MigrationSnapshotStructureError(
+      `Section bound violated in the ${where}: ${section.records.length} records exceed the declared limit of ${section.limit}`
+    )
+  }
+  if (section.records.length > MIGRATION_SNAPSHOT_MAX_RECORDS_PER_SECTION) {
+    throw new MigrationSnapshotStructureError(
+      `Section bound violated in the ${where}: ${section.records.length} records exceed the maximum of ${MIGRATION_SNAPSHOT_MAX_RECORDS_PER_SECTION}`
+    )
+  }
+}
+
+/**
+ * Generous per-record share of the output bound: at most one quarantine or
+ * duplicate finding plus the largest per-pair delta count (bindings, digests,
+ * attributes and directional comparisons) of any family, with slack for
+ * unexpected/missing findings on the after side.
+ */
+const FINDINGS_PER_RECORD_BOUND = 24
 
 // ─── Identity ────────────────────────────────────────────────────────────────
 
@@ -479,7 +708,12 @@ function requireMatchingIdentity(
  * the complete, deterministic finding set. Throws
  * `MigrationSnapshotIdentityError` when the two documents do not carry the
  * same rehearsal id, format version and source, or when either identity is
- * malformed — a mismatch is an input error, never a diff.
+ * malformed — a mismatch is an input error, never a diff. Throws
+ * `MigrationSnapshotStructureError` when a present section is malformed or
+ * exceeds a documented bound (missing truncation evidence, ill-typed shape,
+ * record count over the declared limit or per-section cap), or when the
+ * input could produce an output beyond the findings bound — such input is
+ * rejected instead of compared, so it can never yield a success verdict.
  *
  * Pure and read-only: no database, no mutation, no side effects.
  */
@@ -490,6 +724,26 @@ export function compareMigrationSnapshots(
   }>
 ): MigrationSnapshotComparison {
   requireMatchingIdentity(input.before, input.after)
+
+  for (const family of migrationSnapshotFamilies) {
+    const beforeSection = input.before.sections[family]
+    const afterSection = input.after.sections[family]
+    if (beforeSection) requireValidSectionShape(beforeSection, family, 'before')
+    if (afterSection) requireValidSectionShape(afterSection, family, 'after')
+  }
+  let totalRecords = 0
+  for (const family of migrationSnapshotFamilies) {
+    totalRecords += input.before.sections[family]?.records.length ?? 0
+    totalRecords += input.after.sections[family]?.records.length ?? 0
+  }
+  const outputBound =
+    totalRecords * FINDINGS_PER_RECORD_BOUND + migrationSnapshotFamilies.length * 4
+  if (outputBound > MIGRATION_SNAPSHOT_MAX_FINDINGS) {
+    throw new MigrationSnapshotStructureError(
+      `Comparison output bound of ${outputBound} findings exceeds the maximum of ${MIGRATION_SNAPSHOT_MAX_FINDINGS}; split the snapshots into smaller sections`
+    )
+  }
+
   const collector = new FindingCollector()
   const inventory: MigrationSnapshotFamilyInventory[] = []
 
@@ -523,10 +777,15 @@ export function compareMigrationSnapshots(
         continue
       }
       // Only a row that is its task's active attempt (highest attempt number)
-      // on BOTH sides can report a conflicting attempt owner.
+      // on BOTH sides can report a conflicting attempt owner — and only when
+      // no attempt row on either side was quarantined: a quarantined row may
+      // be the real active attempt, so active-attempt attribution is then
+      // unproven and drift falls back to remap/attribute findings.
       const activeAttemptBoth =
         beforeRecord.family === 'executionAttempts' &&
         afterRecord.family === 'executionAttempts' &&
+        beforeIntake.quarantined === 0 &&
+        afterIntake.quarantined === 0 &&
         beforeIntake.activeAttempts.get(beforeRecord.taskId) === beforeRecord.attempt &&
         afterIntake.activeAttempts.get(afterRecord.taskId) === afterRecord.attempt
       for (const item of compareMatchedRecords(

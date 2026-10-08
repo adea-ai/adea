@@ -160,11 +160,274 @@ const task = (version: number): MigrationSnapshotRecord => ({
   workspaceId: 'wsp-1',
 })
 
+const projectMember = (workspaceId: string): MigrationSnapshotRecord => ({
+  family: 'projectMembers',
+  projectId: 'prj-1',
+  role: 'viewer',
+  userId: 'user-1',
+  workspaceId,
+})
+
+const attemptIn = (workspaceId: string): MigrationSnapshotRecord => ({
+  attempt: 1,
+  family: 'executionAttempts',
+  locationKind: 'local_device',
+  runtimeNodeId: 'node-1',
+  taskId: 'task-1',
+  workspaceId,
+})
+
 const allFamilySections = (
   records: MigrationSnapshotRecord[],
   family: MigrationSnapshotFamily
 ) => ({
   [family]: section(records),
+})
+
+describe('migration snapshot comparator review repairs', () => {
+  test('a workspace-only change on a channel participant is a typed remap, never identical', () => {
+    const comparison = compare(
+      { channelParticipants: section([{ ...participant('user-1'), workspaceId: 'wsp-1' }]) },
+      { channelParticipants: section([{ ...participant('user-1'), workspaceId: 'wsp-2' }]) }
+    )
+    expect(comparison.verdict).toBe('divergent')
+    const findings = findingsFor(comparison, 'channelParticipants', 'remapped_record')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.detail.field).toBe('workspaceId')
+    expect(findings[0]?.detail.before).toBe('wsp-1')
+    expect(findings[0]?.detail.after).toBe('wsp-2')
+  })
+
+  test('a workspace-only change on a project member is a typed remap, never identical', () => {
+    const comparison = compare(
+      { projectMembers: section([projectMember('wsp-1')]) },
+      { projectMembers: section([projectMember('wsp-2')]) }
+    )
+    expect(comparison.verdict).toBe('divergent')
+    const findings = findingsFor(comparison, 'projectMembers', 'remapped_record')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.detail.field).toBe('workspaceId')
+  })
+
+  test('a workspace-only change on the active execution attempt is a conflicting owner, never identical', () => {
+    const comparison = compare(
+      { executionAttempts: section([attemptIn('wsp-1')]) },
+      { executionAttempts: section([attemptIn('wsp-2')]) }
+    )
+    expect(comparison.verdict).toBe('divergent')
+    const findings = findingsFor(comparison, 'executionAttempts', 'conflicting_attempt_owner')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.detail.field).toBe('workspaceId')
+  })
+
+  test('a record filed under the wrong family section is quarantined before comparison, never compared', () => {
+    // Two membership rows sit in the events section and disagree on role.
+    // The mismatch must be caught before comparison: the role drift may
+    // never be compared under the events family (which would mask it).
+    const comparison = compare(
+      { events: section([membership('user-1', 'member')]) },
+      { events: section([membership('user-1', 'admin')]) }
+    )
+    const quarantined = findingsFor(comparison, 'events', 'quarantined_record')
+    expect(quarantined).toHaveLength(2)
+    expect(quarantined.map((finding) => finding.side).toSorted()).toEqual(['after', 'before'])
+    for (const finding of quarantined) {
+      expect(finding.detail.field).toBe('family')
+      expect(finding.detail.reason).toBe('family_mismatch')
+    }
+    // No comparison finding may be derived from the misfiled rows.
+    expect(familyClasses(comparison, 'events')).toEqual(['quarantined_record'])
+    expect(findingsFor(comparison, 'events', 'remapped_record')).toHaveLength(0)
+    expect(findingsFor(comparison, 'events', 'widened_access')).toHaveLength(0)
+    expect(findingsFor(comparison, 'events', 'changed_attribute')).toHaveLength(0)
+    expect(comparison.verdict).toBe('inconclusive')
+  })
+
+  test('a section without truncation evidence is rejected, never read as complete', () => {
+    const noEvidence = {
+      memberships: { records: [membership('user-1')] },
+    } as MigrationSnapshotSections
+    for (const broken of [
+      noEvidence,
+      {
+        memberships: { records: [membership('user-1')], truncated: 'yes' },
+      } as MigrationSnapshotSections,
+    ]) {
+      let thrown: unknown
+      try {
+        compareMigrationSnapshots({
+          before: doc(noEvidence, 'snapshot-before'),
+          after: doc(broken),
+        })
+      } catch (error) {
+        thrown = error
+      }
+      expect((thrown as Error | undefined)?.name).toBe('MigrationSnapshotStructureError')
+      expect((thrown as Error | undefined)?.message).toMatch(/truncation evidence/)
+    }
+  })
+
+  test('a null record is quarantined and the comparison can never be identical', () => {
+    const comparison = compare(
+      {
+        memberships: section([membership('user-1'), null as unknown as MigrationSnapshotRecord]),
+      },
+      { memberships: section([membership('user-1')]) }
+    )
+    const quarantined = findingsFor(comparison, 'memberships', 'quarantined_record')
+    expect(quarantined).toHaveLength(1)
+    expect(quarantined[0]?.detail.reason).toBe('malformed')
+    expect(quarantined[0]?.detail.field).toBe('record')
+    expect(findingsFor(comparison, 'memberships', 'missing_record')).toHaveLength(0)
+    expect(comparison.verdict).toBe('inconclusive')
+  })
+
+  test('a section over its declared limit or the record cap is a typed limit violation', () => {
+    let thrown: unknown
+    try {
+      compareMigrationSnapshots({
+        before: doc({ memberships: section([membership('user-1')]) }, 'snapshot-before'),
+        after: doc({
+          memberships: Object.freeze({
+            records: Object.freeze([membership('user-1'), membership('user-2')]),
+            truncated: false,
+            limit: 1,
+          }) as MigrationSnapshotSections['memberships'],
+        }),
+      })
+    } catch (error) {
+      thrown = error
+    }
+    expect((thrown as Error | undefined)?.name).toBe('MigrationSnapshotStructureError')
+    expect((thrown as Error | undefined)?.message).toMatch(/declared limit/)
+
+    const overCap = Array.from({ length: 10_001 }, (_, index) => membership(`user-${index}`))
+    thrown = undefined
+    try {
+      compareMigrationSnapshots({
+        before: doc({ memberships: section([membership('user-1')]) }, 'snapshot-before'),
+        after: doc({ memberships: section(overCap) }),
+      })
+    } catch (error) {
+      thrown = error
+    }
+    expect((thrown as Error | undefined)?.name).toBe('MigrationSnapshotStructureError')
+    expect((thrown as Error | undefined)?.message).toMatch(/maximum/)
+  })
+
+  test('an output beyond the findings bound is rejected with a typed limit violation', () => {
+    const many = Array.from({ length: 4_200 }, (_, index) => membership(`user-${index}`))
+    let thrown: unknown
+    try {
+      compareMigrationSnapshots({
+        before: doc({ memberships: section(many) }, 'snapshot-before'),
+        after: doc({ memberships: section(many.slice(1)) }),
+      })
+    } catch (error) {
+      thrown = error
+    }
+    expect((thrown as Error | undefined)?.name).toBe('MigrationSnapshotStructureError')
+    expect((thrown as Error | undefined)?.message).toMatch(/findings/)
+  })
+
+  test('arbitrary text in a digest field never surfaces; only the opaque reference is emitted', () => {
+    const comparison = compare(
+      { events: section([event({ payloadDigest: 'SECRET-NOMINAL-DIGEST-TEXT' })]) },
+      { events: section([event()]) }
+    )
+    // The unreadable row is quarantined, never compared, so no digest drift
+    // may be reported from it; the counterpart still reports as unexpected.
+    const quarantined = findingsFor(comparison, 'events', 'quarantined_record')
+    expect(quarantined).toHaveLength(1)
+    expect(quarantined[0]?.detail.field).toBe('payloadDigest')
+    expect(quarantined[0]?.detail.reason).toBe('malformed')
+    expect(quarantined[0]?.stableId).toMatch(/^unverifiable:[0-9a-f]{64}$/)
+    expect(findingsFor(comparison, 'events', 'digest_drift')).toHaveLength(0)
+    expect(comparison.verdict).toBe('divergent')
+    const serialized = JSON.stringify(comparison)
+    expect(serialized.includes('SECRET-NOMINAL-DIGEST-TEXT')).toBe(false)
+    expect(serialized.includes('SECRET')).toBe(false)
+  })
+
+  test('an ill-formed identifier drift is reported through opaque references only', () => {
+    const comparison = compare(
+      { events: section([event({ eventType: 'workspace.created; DROP TABLE events' })]) },
+      { events: section([event({ eventType: 'workspace.created\0evil' })]) }
+    )
+    expect(comparison.verdict).toBe('divergent')
+    const findings = findingsFor(comparison, 'events', 'remapped_record')
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.detail.field).toBe('eventType')
+    expect(findings[0]?.detail.before).toMatch(/^opaque:string:[0-9a-f]{16}$/)
+    expect(findings[0]?.detail.after).toMatch(/^opaque:string:[0-9a-f]{16}$/)
+    const serialized = JSON.stringify(comparison)
+    expect(serialized.includes('DROP TABLE')).toBe(false)
+    expect(serialized.includes('evil')).toBe(false)
+  })
+
+  test('malformed-record fingerprints are canonical: object key order cannot change the outcome', () => {
+    const malformed = {
+      role: 'member',
+      workspaceId: 'wsp-1',
+      host: 'HOSTILE-EXTRA-VALUE',
+      family: 'memberships',
+    } as MigrationSnapshotRecord
+    const reordered = {
+      family: 'memberships',
+      workspaceId: 'wsp-1',
+      host: 'HOSTILE-EXTRA-VALUE',
+      role: 'member',
+    } as MigrationSnapshotRecord
+    const forward = compare(
+      { memberships: section([membership('user-1'), malformed]) },
+      { memberships: section([membership('user-1')]) }
+    )
+    const reversed = compare(
+      { memberships: section([membership('user-1'), reordered]) },
+      { memberships: section([membership('user-1')]) }
+    )
+    expect(JSON.stringify(reversed)).toBe(JSON.stringify(forward))
+    const quarantined = findingsFor(forward, 'memberships', 'quarantined_record')
+    expect(quarantined).toHaveLength(1)
+    expect(quarantined[0]?.detail.field).toBe('userId')
+    expect(quarantined[0]?.stableId).toMatch(/^unverifiable:[0-9a-f]{64}$/)
+    expect(JSON.stringify(forward).includes('HOSTILE-EXTRA-VALUE')).toBe(false)
+    expect(forward.verdict).toBe('inconclusive')
+  })
+
+  test('conflicting duplicate records are quarantined deterministically regardless of input order', () => {
+    const afterCopies = (reverse: boolean): MigrationSnapshotRecord[] => {
+      const copies = [
+        event({ payloadDigest: 'a'.repeat(64) }),
+        event({ payloadDigest: 'b'.repeat(64) }),
+      ]
+      return reverse ? copies.toReversed() : copies
+    }
+    const forward = compare(
+      { events: section([event({ payloadDigest: 'a'.repeat(64) })]) },
+      { events: section(afterCopies(false)) }
+    )
+    const reversed = compare(
+      { events: section([event({ payloadDigest: 'a'.repeat(64) })]) },
+      { events: section(afterCopies(true)) }
+    )
+    // The outcome must not depend on which conflicting copy came first.
+    expect(JSON.stringify(reversed)).toBe(JSON.stringify(forward))
+    expect(findingsFor(forward, 'events', 'duplicated_record')).toHaveLength(1)
+    const quarantined = findingsFor(forward, 'events', 'quarantined_record')
+    expect(quarantined).toHaveLength(1)
+    expect(quarantined[0]?.detail.reason).toBe('conflicting_duplicate')
+    expect(quarantined[0]?.stableId).toBe('evt-1')
+    // The conflicting row is excluded from matching: no digest drift may be
+    // derived from either unreadable copy.
+    expect(findingsFor(forward, 'events', 'digest_drift')).toHaveLength(0)
+    expect(familyClasses(forward, 'events').toSorted()).toEqual([
+      'duplicated_record',
+      'missing_record',
+      'quarantined_record',
+    ])
+    expect(forward.verdict).toBe('divergent')
+  })
 })
 
 describe('migration snapshot comparator', () => {
