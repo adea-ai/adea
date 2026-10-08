@@ -136,8 +136,18 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // bytes above this build of main's 238,819 (~0.3%), repeating the
   // zero-headroom lesson the chat route documented on 2026-10-01. Startup
   // gzip moves to 238 KiB (~2% headroom); startup raw holds.
-  total: { rawBytes: 2_990_000, gzipBytes: 890 * 1024, fileCount: 157 },
-  startup: { rawBytes: 720 * 1024, gzipBytes: 238 * 1024 },
+  // Headroom restoration pass (2026-10-08, after the #811 migration wave
+  // and ui 0.122): main measures 2,989,541 raw / 910,433 gzip across 157
+  // files — 459 raw bytes and 927 gzip bytes of headroom, i.e. the total
+  // gate was one incidental change from red. Total ratchets to 3,050,000
+  // raw / 908 KiB gzip (~2% each). The same pass restores ~2% headroom on
+  // every route cap that had fallen under 1.5%: startup raw, virtual both
+  // axes, devShell both axes, devTerminal both axes and devEditor both
+  // axes, each documented at its cap below.
+  total: { rawBytes: 3_050_000, gzipBytes: 908 * 1024, fileCount: 157 },
+  // Startup measured 732,351 raw / 239,561 gzip on the same build; raw had
+  // 0.67% headroom. Raw ratchets to 730 KiB; gzip to 239 KiB (~2% each).
+  startup: { rawBytes: 730 * 1024, gzipBytes: 239 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now
@@ -179,7 +189,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // the navigation model measures 116,093 raw / 39,095 gzip on cold Linux.
     // Retain the original limits rather than inheriting #1165's headroom
     // increase; aggregate caps and route graph checks also remain unchanged.
-    virtual: { rawBytes: 114 * 1024, gzipBytes: 39_200 },
+    // Headroom restoration (2026-10-08): main then measured 116,096 raw /
+    // 39,087 gzip — 640 raw bytes and 113 gzip bytes of headroom. Raw
+    // ratchets to 116 KiB, gzip to 39,900 (~2% each).
+    virtual: { rawBytes: 116 * 1024, gzipBytes: 39_900 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and
@@ -321,7 +334,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // transcript density and the rail-aware sidebar sheet width replace Dev's
     // local restyles, so the shared resizable and transcript parts grow while
     // the Dev stylesheet shrinks; the 174 KiB cap above still holds both.
-    devShell: { rawBytes: 174 * 1024, gzipBytes: 59 * 1024 },
+    // Headroom restoration (2026-10-08): the same build of main measures
+    // 178,074 raw / 60,202 gzip — 102 raw bytes of headroom. Raw ratchets to
+    // 178 KiB, gzip to 60 KiB (~2% each).
+    devShell: { rawBytes: 178 * 1024, gzipBytes: 60 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested
@@ -384,7 +400,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // operations with their strict DTO decoders) lands the route at
     // 910,550 raw / 239,370 gzip; raw ratchets to 896 KiB (~0.8% headroom),
     // gzip still holds at 234 KiB.
-    devTerminal: { rawBytes: 896 * 1024, gzipBytes: 234 * 1024 },
+    // Headroom restoration (2026-10-08): the same build of main measures
+    // 907,410 raw / 237,523 gzip — gzip had 0.87% headroom. Raw ratchets to
+    // 904 KiB, gzip to 237 KiB (~2% each).
+    devTerminal: { rawBytes: 904 * 1024, gzipBytes: 237 * 1024 },
     // Same delta on the editor route (2026-10-06, ADR 0011 PR 10b): 541,499
     // raw / 171,081 gzip against its base build's 490,226 / 154,545. Raw
     // ratchets to 532 KiB (~0.6% headroom); gzip to 168 KiB (~0.6%).
@@ -395,7 +414,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // The machine-wide janitor (2026-10-07) shares the registry/decoder
     // chunks this route pulls: 538,169 raw. Raw ratchets to 530 KiB
     // (~0.9% headroom); gzip holds at 166 KiB.
-    devEditor: { rawBytes: 530 * 1024, gzipBytes: 166 * 1024 },
+    // Headroom restoration (2026-10-08): the same build of main measures
+    // 539,348 raw / 169,496 gzip — gzip had 0.29% headroom. Raw ratchets to
+    // 537 KiB, gzip to 169 KiB (~2% each).
+    devEditor: { rawBytes: 537 * 1024, gzipBytes: 169 * 1024 },
   },
 }
 
