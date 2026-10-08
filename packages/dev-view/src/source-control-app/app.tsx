@@ -70,14 +70,6 @@ export type SourceControlAppProps = Readonly<{
   runtime: DevRuntimeService
   /** Top bar mount for the search, sync state, and sync control. */
   toolbarMount?: HTMLElement
-  /**
-   * Top bar title-slot mount. When present, the whole search + sync group
-   * portals here so the pull-request search sits left of the sync status in
-   * the bar's centre column — the only track with room for a field wide
-   * enough for its placeholder. Hosts without one (bare integrations) keep
-   * the group in the leading toolbar mount.
-   */
-  titleMount?: HTMLElement
   /** Defaults to the browser's local storage when available. */
   storage?: KeyValueStorage
   /** Switch the workspace to the Dev view (after selecting a session). */
@@ -197,19 +189,19 @@ function TopBarSearch(props: { state: SourceControlState; actions: AppActions })
   )
 }
 
-function TopBarControls(
-  props: { state: SourceControlState; actions: AppActions } & Readonly<{ mount?: HTMLElement }>
-): JSX.Element {
+function TopBarControls(props: { state: SourceControlState; actions: AppActions }): JSX.Element {
   const synced = () => {
     const at = props.state.syncedAt()
     return at === undefined
       ? 'Not synced yet'
       : `Synced ${relativeTime(new Date(at).toISOString(), props.state.tick())}`
   }
-  const group = () => (
+  return (
     <div class="dev-scm-topbar">
-      {/* The search leads the group so it reads left of the sync status, and
-          grows with the group's track (see the stylesheet). */}
+      {/* The search leads the group so it reads left of the sync status,
+          lined up after the leading section's divider exactly like the Dev
+          view's pane actions; the stylesheet lets the field shrink with the
+          leading track instead of overflowing it. */}
       <TopBarSearch state={props.state} actions={props.actions} />
       <span class="dev-scm-topbar__synced">
         <StatusChip
@@ -236,11 +228,6 @@ function TopBarControls(
         <RefreshCw aria-hidden="true" />
       </ActionButton>
     </div>
-  )
-  return (
-    <Show when={props.mount} fallback={group()}>
-      {(mount) => <Portal mount={mount()}>{group()}</Portal>}
-    </Show>
   )
 }
 
@@ -431,7 +418,7 @@ function ConnectedApp(
       <Show when={props.toolbarMount}>
         {(mount) => (
           <Portal mount={mount()}>
-            <TopBarControls state={state} actions={actions} mount={props.titleMount} />
+            <TopBarControls state={state} actions={actions} />
           </Portal>
         )}
       </Show>
