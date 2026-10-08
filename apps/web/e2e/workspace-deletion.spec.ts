@@ -30,12 +30,12 @@ test('active deletion is unavailable and cannot invoke the mutation; default mar
   await button.dispatchEvent('click')
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('data-delete-calls')
-  await expect(settings.locator('[data-workspace-icon="box"]')).toHaveCount(2)
+  await expect(settings.locator('[data-workspace-icon="box"] svg')).toHaveCount(2)
   await settings.getByRole('textbox', { name: 'Workspace emoji' }).fill('📦')
   await settings.getByRole('textbox', { name: 'Workspace emoji' }).blur()
-  await expect(settings.locator('[data-workspace-icon="box"]')).toHaveCount(0)
+  await expect(settings.locator('[data-workspace-icon="box"] svg')).toHaveCount(0)
   await settings.getByRole('button', { name: 'Use workspace icon', exact: true }).click()
-  await expect(settings.locator('[data-workspace-icon="box"]')).toHaveCount(2)
+  await expect(settings.locator('[data-workspace-icon="box"] svg')).toHaveCount(2)
 })
 
 test('an interrupted pending workspace keeps its data and cannot submit deletion', async ({
@@ -59,7 +59,7 @@ test('a non-owner has no destructive settings action', async ({ page }) => {
 
 test('personal Home remains protected after renaming and changing its icon', async ({ page }) => {
   const settings = await openFixture(page, 'data-personal')
-  await expect(settings.locator('[data-workspace-icon="home"]')).toHaveCount(2)
+  await expect(settings.locator('[data-workspace-icon="home"] svg')).toHaveCount(2)
   await expect(settings.getByRole('button', { name: 'Delete workspace', exact: true })).toHaveCount(
     0
   )
@@ -73,12 +73,12 @@ test('personal Home remains protected after renaming and changing its icon', asy
   })
   await renamed.getByRole('textbox', { name: 'Workspace emoji' }).fill('🌿')
   await renamed.getByRole('textbox', { name: 'Workspace emoji' }).blur()
-  await expect(renamed.locator('[data-workspace-icon="home"]')).toHaveCount(0)
+  await expect(renamed.locator('[data-workspace-icon="home"] svg')).toHaveCount(0)
   await expect(renamed.getByRole('button', { name: 'Delete workspace', exact: true })).toHaveCount(
     0
   )
   await renamed.getByRole('button', { name: 'Use workspace icon', exact: true }).click()
-  await expect(renamed.locator('[data-workspace-icon="home"]')).toHaveCount(2)
+  await expect(renamed.locator('[data-workspace-icon="home"] svg')).toHaveCount(2)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('data-delete-calls')
 })
 
