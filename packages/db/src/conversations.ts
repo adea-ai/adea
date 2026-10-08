@@ -923,7 +923,7 @@ async function retreatChannelLatestSequence(
 }
 
 export async function createMessage(
-  database: AgentHqDatabase,
+  database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
@@ -934,6 +934,8 @@ export async function createMessage(
     executionRef?: string
     externalSessionRef?: string
     idempotencyKey: string
+    /** Explicit admission mode participates in retry identity; legacy requests omit it. */
+    leadTurn?: true
     mentions?: readonly ConversationParticipantRef[]
     replyToMessageId?: string
     sender: MessageSenderRef

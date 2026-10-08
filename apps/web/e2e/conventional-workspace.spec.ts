@@ -897,7 +897,7 @@ test('keeps the project draft and attachments after a failed send, then clears o
   await expect.poll(() => submissions.length).toBe(2)
   expect(submissions[0]).toMatchObject({ artifactIds: ['artifact-brief'], bodyText: draft })
   expect(submissions[1]).toMatchObject({ artifactIds: ['artifact-brief'], bodyText: draft })
-  expect(submissions[1]?.idempotencyKey).not.toBe(submissions[0]?.idempotencyKey)
+  expect(submissions[1]?.idempotencyKey).toBe(submissions[0]?.idempotencyKey)
   await expect(composer).toHaveValue('')
   await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
 })
@@ -908,9 +908,12 @@ test('keeps thread reply metadata separate from the project draft', async ({ pag
   await page.goto('/')
   await projectConversation(page, 'Product').click()
 
+  const pane = page.locator('[data-slot="conversation-pane"]').first()
+  await expect(pane).not.toHaveAttribute('data-conversation-thread-open', 'true')
   const projectComposer = page.getByRole('textbox', { name: 'Message' }).first()
   await projectComposer.fill('Project draft remains here.')
   await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
+  await expect(pane).toHaveAttribute('data-conversation-thread-open', 'true')
   const threadComposer = page.getByRole('textbox', { name: 'Message' }).nth(1)
   await expect(threadComposer).toHaveAttribute('id', 'composer-thread-message-root')
   const threadDescribedBy = await threadComposer.getAttribute('aria-describedby')
@@ -921,6 +924,9 @@ test('keeps thread reply metadata separate from the project draft', async ({ pag
   // The reply strip names the thread the composer answers.
   await expect(page.getByText(/^Replying to /)).toBeVisible()
   await threadComposer.fill('Reply with the root identity preserved.')
+  await threadComposer.evaluate((element) =>
+    element.setAttribute('data-thread-composer-instance', 'original')
+  )
   await threadComposer.press('Enter')
 
   await expect.poll(() => submissions.length).toBe(1)
@@ -932,10 +938,24 @@ test('keeps thread reply metadata separate from the project draft', async ({ pag
   })
   await expect(projectComposer).toHaveValue('Project draft remains here.')
   await expect(threadComposer).toHaveValue('')
+  await expect(threadComposer).toHaveAttribute('data-thread-composer-instance', 'original')
 
   // The strip's dismissal closes the thread without touching the drafts.
   await page.getByRole('button', { name: 'Cancel reply' }).click()
   await expect(threadComposer).toHaveCount(0)
+  await expect(pane).not.toHaveAttribute('data-conversation-thread-open', 'true')
+  await expect(projectComposer).toHaveValue('Project draft remains here.')
+
+  // A closed thread must also restore the conversation at overlay widths.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(projectComposer).toBeVisible()
+  await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
+  await expect(pane).toHaveAttribute('data-conversation-thread-open', 'true')
+  await expect(page.locator('#composer-thread-message-root')).toBeVisible()
+  await expect(pane.locator('form[data-slot="message-composer"]').first()).toBeHidden()
+  await page.getByRole('button', { name: 'Cancel reply' }).click()
+  await expect(pane).not.toHaveAttribute('data-conversation-thread-open', 'true')
+  await expect(projectComposer).toBeVisible()
   await expect(projectComposer).toHaveValue('Project draft remains here.')
 })
 
