@@ -73,7 +73,7 @@ import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
-import { isDesktopRuntime, openExternalUrl } from '../lib/desktop-bridge'
+import { isDesktopRuntime, openExternalUrl, pickDesktopFolder } from '../lib/desktop-bridge'
 import { adeaFeedbackUrl } from '../lib/feedback'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -120,6 +120,7 @@ const DevWorkspace = lazyComponent(
           onSelectionChange?: (selection: { projectId: string; sessionId: string | null }) => void
           onBreadcrumbChange?: (crumb: DevBreadcrumbSelection | undefined) => void
           workspaceNav?: DevWorkspaceNavHost
+          pickFolder?: () => Promise<string | null | undefined>
         }) => {
           const unavailable =
             entryProps.runtime ??
@@ -163,6 +164,7 @@ const DevWorkspace = lazyComponent(
               onSelectionChange={entryProps.onSelectionChange}
               onBreadcrumbChange={entryProps.onBreadcrumbChange}
               workspaceNav={entryProps.workspaceNav}
+              pickFolder={entryProps.pickFolder}
             />
           )
         }
@@ -566,6 +568,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // Project links (feedback, About's source, Help Center resources) share the
   // same handoff: undefined on web lets the shared composites use anchors.
   const openExternal = isDesktopRuntime() ? openExternalUrl : undefined
+  // The Dev sidebar's authorize step offers the shell's native folder picker
+  // only on the desktop runtime; on web the typed path input stays the sole
+  // way in (mirrors the Chat lane's wiring).
+  const pickFolder = isDesktopRuntime() ? () => pickDesktopFolder() : undefined
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
@@ -1339,6 +1345,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                             onSelectionChange={applyDevSelection}
                             onBreadcrumbChange={setDevBreadcrumb}
                             workspaceNav={devNavHost}
+                            pickFolder={pickFolder}
                           />
                         }
                       >
