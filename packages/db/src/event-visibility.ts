@@ -21,6 +21,8 @@ import { artifacts, channelParticipants, channels, contentRefs, messages, tasks 
  * - `redacted`: an access change that removes something from the subscriber's
  *   view. They need to refresh, so the type is kept, but the payload, aggregate
  *   id and actor are dropped.
+ * - `audience_changed`: a formerly public conversation is now inaccessible.
+ *   Only the sequence travels; the client clears cached content and selection.
  * - `withheld`: the event belongs to a project the subscriber cannot see. Only
  *   its sequence is sent, so the client advances its cursor without reading a
  *   gap as lost history.
@@ -28,6 +30,7 @@ import { artifacts, channelParticipants, channels, contentRefs, messages, tasks 
 export type WorkspaceEventDelivery =
   | Readonly<{ kind: 'deliver'; event: WorkspaceEventView }>
   | Readonly<{ kind: 'redacted'; event: WorkspaceEventView }>
+  | Readonly<{ kind: 'audience_changed'; workspaceSequence: number }>
   | Readonly<{ kind: 'withheld'; workspaceSequence: number }>
 
 /** Events that change what a subscriber can see; a hidden one is redacted, not withheld. */
@@ -199,8 +202,29 @@ export async function classifyWorkspaceEventsForUser(
       references.channelIds.some((id) => !readableChannels.get(id)) ||
       references.messageIds.some((id) => !readableMessages.get(id)) ||
       references.contentRefIds.some((id) => !readableContent.get(id))
-    )
+    ) {
+      // A formerly workspace-visible channel may already be in this reader's
+      // cache. Its revocation must clear that cache, but no now-private event
+      // identity or payload may travel. Private-from-creation channels and
+      // hidden projects continue to disclose only a withheld sequence.
+      const channelId = references.channelIds.length === 1 ? references.channelIds[0] : null
+      if (
+        eventType === 'channel.updated' &&
+        event.schemaVersion === 2 &&
+        payload.previousVisibility === 'workspace' &&
+        payload.visibility === 'participants' &&
+        channelId &&
+        event.aggregateType === 'channel' &&
+        event.aggregateId === channelId &&
+        !references.messageIds.length &&
+        !references.contentRefIds.length &&
+        readableChannels.get(channelId) === false &&
+        channelProject.has(channelId) &&
+        !hidden.has(channelProject.get(channelId) ?? '')
+      )
+        return { kind: 'audience_changed', workspaceSequence: event.workspaceSequence }
       return { kind: 'withheld', workspaceSequence: event.workspaceSequence }
+    }
     if (eventType === 'project.reordered' && Array.isArray(payload.projectIds)) {
       return {
         event: {

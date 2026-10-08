@@ -665,7 +665,13 @@ export async function updateChannel(
     if (!updated) throw new Error('Channel version conflict')
     await appendWorkspaceEvent(transaction, {
       eventType: 'channel.updated',
-      payload: { actorUserId: principal.userId, channelId, version: updated.version },
+      payload: {
+        actorUserId: principal.userId,
+        channelId,
+        previousVisibility: channel.visibility,
+        visibility: updated.visibility,
+        version: updated.version,
+      },
       workspaceId,
     })
     return channelSummary(transaction, updated)

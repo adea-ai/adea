@@ -6,8 +6,9 @@ import type {
   TaskSummary,
 } from '@adea-ai/types'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
+import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import {
-  settledData,
+  settledConversationPage,
   useCreateMessageMutation,
   useMessageListQuery,
   usePrefetchThreadMessages,
@@ -44,20 +45,35 @@ import { Button } from '@adea-ai/ui/components/ui/button'
  */
 const transcriptCache = new Map<
   string,
-  { messages: readonly MessageSummary[]; readingPosition: ConversationReadingPosition }
+  {
+    workspaceId: string
+    audienceEpoch: number
+    messages: readonly MessageSummary[]
+    readingPosition: ConversationReadingPosition
+  }
 >()
 const TRANSCRIPT_CACHE_LIMIT = 12
 
 function rememberTranscript(
+  workspaceId: string,
+  audienceEpoch: number,
   channelId: string,
   messages: readonly MessageSummary[],
   readingPosition: ConversationReadingPosition
 ) {
-  transcriptCache.delete(channelId)
-  transcriptCache.set(channelId, { messages, readingPosition })
+  if ((workspaceStore.getState().conversationAudienceEpochs[workspaceId] ?? 0) !== audienceEpoch)
+    return
+  const key = `${workspaceId}:${channelId}`
+  transcriptCache.delete(key)
+  transcriptCache.set(key, { workspaceId, audienceEpoch, messages, readingPosition })
   while (transcriptCache.size > TRANSCRIPT_CACHE_LIMIT) {
     transcriptCache.delete(transcriptCache.keys().next().value!)
   }
+}
+
+function cachedTranscript(workspaceId: string, audienceEpoch: number, channelId: string) {
+  const cached = transcriptCache.get(`${workspaceId}:${channelId}`)
+  return cached?.audienceEpoch === audienceEpoch ? cached : undefined
 }
 
 const dayFormatter = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' })
@@ -133,6 +149,9 @@ export function ConversationSurface(props: {
   transcription?: TranscriptionProvider
   workspaceId: string
 }) {
+  const audienceEpoch = useWorkspaceState(
+    (state) => state.conversationAudienceEpochs[props.workspaceId] ?? 0
+  )
   const [cursor, setCursor] = createSignal<number | undefined>()
   const [messages, setMessages] = createSignal<readonly MessageSummary[]>([])
   // Whether the loaded page belongs to this conversation. Solid Query keeps the
@@ -159,16 +178,6 @@ export function ConversationSurface(props: {
       // nothing observed and no refetch ever happened.
       afterSequence: () => cursor(),
       limit: 100,
-    },
-    {
-      // Revisiting a channel renders its last-known transcript as the
-      // placeholder page while the refetch merges fresher messages in — the
-      // query itself carries the stale-while-revalidate contract.
-      placeholderData: () => {
-        const channel = props.channel
-        const cached = channel ? transcriptCache.get(channel.id) : undefined
-        return cached ? { messages: cached.messages } : undefined
-      },
     }
   )
   const createMessage = useCreateMessageMutation(
@@ -185,25 +194,46 @@ export function ConversationSurface(props: {
   // One effect makes the order explicit: reset first when the channel changes,
   // then accept whatever the query currently holds.
   let loadedChannelId: string | undefined
+  let loadedWorkspaceId = props.workspaceId
+  let loadedAudienceEpoch = audienceEpoch()
   // Live scroll position of the loaded channel — captured into the cache
   // entry on switch instead of writing a map on every scroll event.
   let liveReadingPosition: ConversationReadingPosition = { top: 0, following: true }
   createEffect(() => {
+    const epoch = audienceEpoch()
     const channel = props.channel
-    if (channel?.id !== loadedChannelId) {
-      if (loadedChannelId) rememberTranscript(loadedChannelId, messages(), liveReadingPosition)
+    for (const [key, cached] of transcriptCache)
+      if (cached.workspaceId === props.workspaceId && cached.audienceEpoch !== epoch)
+        transcriptCache.delete(key)
+    if (
+      channel?.id !== loadedChannelId ||
+      epoch !== loadedAudienceEpoch ||
+      props.workspaceId !== loadedWorkspaceId
+    ) {
+      if (loadedChannelId)
+        rememberTranscript(
+          loadedWorkspaceId,
+          loadedAudienceEpoch,
+          loadedChannelId,
+          messages(),
+          liveReadingPosition
+        )
       loadedChannelId = channel?.id
+      loadedWorkspaceId = props.workspaceId
+      loadedAudienceEpoch = epoch
       setCursor(undefined)
       // Restore the last-known transcript for the incoming channel. The merge
       // below reconciles it with the fresh page when the refetch lands, so the
       // stale copy is a render bridge, not a second source of truth.
-      const cached = channel ? transcriptCache.get(channel.id) : undefined
+      const cached = channel ? cachedTranscript(props.workspaceId, epoch, channel.id) : undefined
       setMessages(cached?.messages ?? [])
       liveReadingPosition = cached?.readingPosition ?? { top: 0, following: true }
       setOptimisticMessage(null)
       setPageBelongsToChannel(false)
     }
-    const data = settledData(messageQuery)
+    // The resource can retain its previous success until Solid Query's queued
+    // update runs. Only a page admitted under this audience may refill history.
+    const data = settledConversationPage(messageQuery, epoch)
     if (!channel || !data) return
     const all = data.messages
     const page = all.filter((message) => message.channelId === channel.id)
@@ -321,6 +351,13 @@ export function ConversationSurface(props: {
   })
 
   const submit = async (submission: ComposerSubmission) => {
+    const submittedWorkspaceId = props.workspaceId
+    const submittedChannelId = props.channel?.id
+    const submittedAudienceEpoch = audienceEpoch()
+    const stillCurrent = () =>
+      props.workspaceId === submittedWorkspaceId &&
+      props.channel?.id === submittedChannelId &&
+      audienceEpoch() === submittedAudienceEpoch
     const createdAt = new Date().toISOString()
     setOptimisticMessage({
       artifactIds: submission.artifactIds,
@@ -338,6 +375,7 @@ export function ConversationSurface(props: {
     })
     try {
       const created = await createMessage.mutateAsync(submission)
+      if (!stillCurrent()) return
       // Merge the committed message immediately: the list invalidation that
       // follows refetches the page, but the transcript should not wait a round
       // trip (or drop the optimistic row first) to show what the server
@@ -349,7 +387,7 @@ export function ConversationSurface(props: {
         )
       })
     } finally {
-      setOptimisticMessage(null)
+      if (stillCurrent()) setOptimisticMessage(null)
     }
   }
 
@@ -484,7 +522,9 @@ export function ConversationSurface(props: {
             gutter
             ref={setTranscript}
             resetKey={channel().id}
-            initialReadingPosition={transcriptCache.get(channel().id)?.readingPosition}
+            initialReadingPosition={
+              cachedTranscript(props.workspaceId, audienceEpoch(), channel().id)?.readingPosition
+            }
             onReadingPositionChange={(position) => {
               // The engine's identity reset re-pins the outgoing transcript to
               // the bottom and reports that synthesized position before this
@@ -563,7 +603,9 @@ export function ConversationSurface(props: {
                       />
                     )}
                   </Show>
-                  <Show when={settledData(messageQuery)?.nextAfterSequence}>
+                  <Show
+                    when={settledConversationPage(messageQuery, audienceEpoch())?.nextAfterSequence}
+                  >
                     {(nextSequence) => (
                       <Button
                         type="button"

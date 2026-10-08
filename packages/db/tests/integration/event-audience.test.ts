@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { UserPrincipalRef } from '@adea-ai/types'
+import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 
@@ -17,6 +18,8 @@ import {
 } from '../../src/conversations'
 import { listWorkspaceEventsAfter, workspaceEventWindow } from '../../src/event-log'
 import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
+import { createProject } from '../../src/projects'
+import { setProjectVisibility } from '../../src/project-sharing'
 import { createTemporaryUserSession } from '../../src/identity'
 import * as schema from '../../src/schema'
 import { appendWorkspaceEvent, inTransaction } from '../../src/transactions'
@@ -215,8 +218,14 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
         f.workspace.id,
         f.admin.userId,
         archived
-      ))!.every(({ kind }) => kind === 'withheld')
-    ).toBe(true)
+      ))!.map(({ kind }) => kind)
+    ).toEqual(
+      archived.map((event) =>
+        event.eventType === 'channel.updated' && event.payload.previousVisibility === 'workspace'
+          ? 'audience_changed'
+          : 'withheld'
+      )
+    )
     expect(
       (await classifyWorkspaceEventsForUser(
         connection.db,
@@ -227,6 +236,111 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
     ).toBe(true)
   })
 
+  test('workspace-to-private transition gives former readers an ID-free audience resync', async () => {
+    const f = await fixture()
+    const created = await createGroupChannel(connection.db, f.workspace.id, f.owner, {
+      idempotencyKey: 'formerly-public',
+      title: 'Formerly public',
+    })
+    const group = await updateChannel(
+      connection.db,
+      f.workspace.id,
+      created.id,
+      f.owner,
+      { visibility: 'workspace' },
+      created.version
+    )
+    expect((await getChannelForUser(connection.db, f.workspace.id, group.id, f.admin)).id).toBe(
+      group.id
+    )
+    const { latest: start } = await workspaceEventWindow(connection.db, f.workspace.id)
+    await updateChannel(
+      connection.db,
+      f.workspace.id,
+      group.id,
+      f.owner,
+      { visibility: 'participants' },
+      group.version
+    )
+    await expect(
+      getChannelForUser(connection.db, f.workspace.id, group.id, f.admin)
+    ).rejects.toThrow('Channel unavailable')
+    const transitions = await listWorkspaceEventsAfter(connection.db, f.workspace.id, start, 100)
+    const deliveries = await classifyWorkspaceEventsForUser(
+      connection.db,
+      f.workspace.id,
+      f.admin.userId,
+      transitions
+    )
+    expect(deliveries).toEqual([
+      { kind: 'audience_changed', workspaceSequence: transitions[0]!.workspaceSequence },
+    ])
+    expect(JSON.stringify(deliveries)).not.toContain(group.id)
+    expect(JSON.stringify(deliveries)).not.toContain(f.owner.userId)
+    // An update to a channel that was private from creation never signals its audience.
+    await updateChannel(
+      connection.db,
+      f.workspace.id,
+      f.channel.id,
+      f.member,
+      { title: 'Still private' },
+      f.channel.version
+    )
+    const privateEvents = await listWorkspaceEventsAfter(
+      connection.db,
+      f.workspace.id,
+      transitions[0]!.workspaceSequence,
+      100
+    )
+    expect(
+      await classifyWorkspaceEventsForUser(
+        connection.db,
+        f.workspace.id,
+        f.admin.userId,
+        privateEvents
+      )
+    ).toEqual(
+      privateEvents.map((event) => ({
+        kind: 'withheld',
+        workspaceSequence: event.workspaceSequence,
+      }))
+    )
+  })
+
+  test('a channel transition in a never-authorized project remains withheld', async () => {
+    const f = await fixture()
+    const project = await createProject(connection.db, f.workspace.id, f.owner, {
+      name: 'Private project',
+      iconKey: 'folder',
+    })
+    await setProjectVisibility(connection.db, f.workspace.id, project.id, f.owner, 'members')
+    const primary = await connection.db
+      .select()
+      .from(schema.channels)
+      .where(eq(schema.channels.projectId, project.id))
+    const channel = primary[0]!
+    const { latest: start } = await workspaceEventWindow(connection.db, f.workspace.id)
+    await updateChannel(
+      connection.db,
+      f.workspace.id,
+      channel.id,
+      f.owner,
+      { visibility: 'participants' },
+      channel.version
+    )
+    const transitions = await listWorkspaceEventsAfter(connection.db, f.workspace.id, start, 100)
+    expect(
+      await classifyWorkspaceEventsForUser(
+        connection.db,
+        f.workspace.id,
+        f.outsider.userId,
+        transitions
+      )
+    ).toEqual(
+      transitions.map((event) => ({ kind: 'withheld', workspaceSequence: event.workspaceSequence }))
+    )
+  })
+
   test('missing, foreign or mismatched channel references fail closed', async () => {
     const f = await fixture()
     const foreign = await fixture()
@@ -235,7 +349,16 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
       idempotencyKey: 'visible-group',
       title: 'Visible group',
     })
+    const missingChannelId = crypto.randomUUID()
     const events = [
+      ...[missingChannelId, foreign.channel.id].map((channelId) => ({
+        ...template,
+        schemaVersion: 2,
+        eventType: 'channel.updated',
+        aggregateType: 'channel' as const,
+        aggregateId: channelId,
+        payload: { channelId, previousVisibility: 'workspace', visibility: 'participants' },
+      })),
       {
         ...template,
         eventType: 'channel.updated',

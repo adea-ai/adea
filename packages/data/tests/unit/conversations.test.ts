@@ -20,8 +20,9 @@ describe('conversation query contracts', () => {
     const queryClient = new QueryClient()
     const options = channelMutationOptions.directTopic(client, queryClient, 'w')
     const input = { agentId: 'a', idempotencyKey: 'topic-request-1', title: 'Architecture' }
+    const context = options.onMutate()
     const result = await options.mutationFn(input)
-    await options.onSuccess(result)
+    await options.onSuccess(result, undefined, context)
     expect(received).toEqual([['w', input]])
     expect(queryClient.getQueryData(channelQueryKeys.detail('w', 'topic-1'))).toEqual(result)
     expect(queryClient.getQueryData(channelQueryKeys.detail('other', 'topic-1'))).toBeUndefined()
@@ -44,8 +45,9 @@ describe('conversation query contracts', () => {
     } as never
     const queryClient = new QueryClient()
     const options = messageMutationOptions.create(client, queryClient, 'w', 'c')
+    const context = options.onMutate()
     const result = await options.mutationFn({ bodyText: 'Hello', idempotencyKey: 'm' })
-    await options.onSuccess(result)
+    await options.onSuccess(result, undefined, context)
     expect(queryClient.getQueryData(messageQueryKeys.detail('w', 'm'))).toEqual(result)
   })
 })

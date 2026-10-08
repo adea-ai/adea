@@ -134,7 +134,7 @@ execution's configuration or current compatibility.
 The log stays one shared, ordered history per workspace; filtering happens at delivery.
 `classifyWorkspaceEventsForUser` (`packages/db/src/event-visibility.ts`) takes each page the
 stream is about to send — replay and live alike — and the subscriber's **current** project and channel access,
-and gives every event one of three outcomes:
+and gives every event one of four outcomes:
 
 - **deliver**: sent as logged. `project.reordered` is narrowed to the project ids the subscriber can
   see.
@@ -142,6 +142,15 @@ and gives every event one of three outcomes:
   them — `project.visibility_changed`, `project.members_changed`, `task.project_changed`, and agent
   events naming a hidden project. The frame keeps the type, so the client refreshes, but drops the
   payload, aggregate id, actor and correlation id.
+- **audience_changed**: a version-2 `channel.updated` records a change from workspace visibility
+  to participant visibility and current channel access denies the subscriber. If its project is
+  still visible, the stream sends `event: workspace.audience_changed` with only
+  `data: {"workspaceSequence": n}` and the signed cursor. No channel, actor or content identity
+  travels. Private-from-creation channels and transitions in hidden projects remain withheld.
+  The client cancels pending queries and erases resident workspace and account data before
+  refetching. It clears channel/thread selection and invalidates retained transcript generations;
+  late query or mutation responses cannot restore the cleared conversation cache. Direct runtime
+  session selection and other workspaces retain their own authority.
 - **withheld**: everything else that touches a hidden project, a participant-only channel whose
   current audience excludes the subscriber, or a missing/foreign referenced resource. The stream sends
   `event: workspace.withheld` with `data: {"workspaceSequence": n}` and the usual signed cursor in
@@ -305,6 +314,15 @@ This proves liveness, never execution acceptance.
 - `packages/data/tests/unit/events.test.ts`: frame parsing, family-to-query
   mapping, withheld frames advancing without a gap, backoff, apply-once semantics with cursor persistence, gap and resync
   recovery, and the server-retry floor.
+- `packages/db/tests/integration/event-audience.test.ts`: current channel audience and archived
+  replay, ID-free visibility narrowing, and private/hidden/missing reference denial.
+- `packages/data/tests/unit/events-audience.test.ts` and `mutations-audience.test.ts`: real
+  QueryClient observers lose revoked data before denied refetch; cancelled late queries and
+  accepted late mutations cannot repopulate it. Malformed audience frames cannot advance cursors.
+  `conversation-audience-resource.test.ts` mounts the real Solid query resource and rejects an
+  old successful page during its delayed resource update using the request's audience generation.
+  State tests cover channel/thread reset while preserving direct sessions. Conversation surface
+  audience tests pin source guards; they do not qualify mounted UI or browser behavior.
 - `packages/db/tests/integration/account-summary.test.ts`: the frontier on
   insert, thread reply, idempotent retry and delete; counts across three
   member workspaces in exactly one query; a non-member workspace never

@@ -1,9 +1,11 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { TaskSummary } from '@adea-ai/types'
+import { workspaceStore } from '@adea-ai/state'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 
 export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
 export * from './dev-runtime'
+export { settledConversationPage } from './conversation-audience'
 export * from './sharing'
 
 /** A value that may be supplied as a Solid accessor so queries stay reactive. */
@@ -114,8 +116,27 @@ export const workspaceSearchQueryOptions = {
   }),
 }
 
+type ConversationMutationContext = Readonly<{ audienceEpoch: number }>
+
+function conversationMutationContext(workspaceId: string): ConversationMutationContext {
+  return { audienceEpoch: workspaceStore.getState().conversationAudienceEpochs[workspaceId] ?? 0 }
+}
+
+function currentConversationMutation(workspaceId: string, context?: ConversationMutationContext) {
+  return (
+    context !== undefined &&
+    context.audienceEpoch ===
+      (workspaceStore.getState().conversationAudienceEpochs[workspaceId] ?? 0)
+  )
+}
+
 function readStateMutationSuccess(queryClient: QueryClient, workspaceId: string) {
-  return (result: Awaited<ReturnType<AgentHqApiClient['getReadState']>>) => {
+  return (
+    result: Awaited<ReturnType<AgentHqApiClient['getReadState']>>,
+    _variables?: unknown,
+    context?: ConversationMutationContext
+  ) => {
+    if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(readStateQueryKeys.detail(workspaceId), result)
     // The account summary counts this workspace's unread channels too.
     void queryClient.invalidateQueries({ queryKey: accountQueryKeys.summary })
@@ -125,6 +146,7 @@ function readStateMutationSuccess(queryClient: QueryClient, workspaceId: string)
 export const readStateMutationOptions = {
   all: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: () => client.markAllRead(workspaceId),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: readStateMutationSuccess(queryClient, workspaceId),
   }),
   channel: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -141,6 +163,7 @@ export const readStateMutationOptions = {
           ? {}
           : { lastReadSequence: input.lastReadSequence }),
       }),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: readStateMutationSuccess(queryClient, workspaceId),
   }),
   thread: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -158,6 +181,7 @@ export const readStateMutationOptions = {
           ? {}
           : { lastReadSequence: input.lastReadSequence }),
       }),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: readStateMutationSuccess(queryClient, workspaceId),
   }),
 }
@@ -222,13 +246,25 @@ export const messageQueryOptions = {
       Object.keys(options).length === 0
         ? messageQueryKeys.list(workspaceId ?? '', channelId ?? '')
         : messageQueryKeys.page(workspaceId ?? '', channelId ?? '', options),
-    queryFn: () => client.listMessages(workspaceId!, channelId!, options),
+    queryFn: async (): Promise<
+      Awaited<ReturnType<AgentHqApiClient['listMessages']>> & { conversationAudienceEpoch?: number }
+    > => {
+      const conversationAudienceEpoch =
+        workspaceStore.getState().conversationAudienceEpochs[workspaceId!] ?? 0
+      const page = await client.listMessages(workspaceId!, channelId!, options)
+      return { ...page, conversationAudienceEpoch }
+    },
     enabled: Boolean(workspaceId && channelId),
   }),
 }
 
 function channelMutationSuccess(queryClient: QueryClient, workspaceId: string) {
-  return async (result: Awaited<ReturnType<AgentHqApiClient['getChannel']>>) => {
+  return async (
+    result: Awaited<ReturnType<AgentHqApiClient['getChannel']>>,
+    _variables?: unknown,
+    context?: ConversationMutationContext
+  ) => {
+    if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(channelQueryKeys.detail(workspaceId, result.channel.id), result)
     await queryClient.invalidateQueries({ queryKey: channelQueryKeys.list(workspaceId) })
   }
@@ -237,20 +273,24 @@ export const channelMutationOptions = {
   archive: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (input: Readonly<{ channelId: string; expectedVersion: number }>) =>
       client.archiveChannel(workspaceId, input.channelId, input.expectedVersion),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
   }),
   direct: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (agentId: string) => client.createDirectAgentChannel(workspaceId, agentId),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
   }),
   directTopic: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (input: Parameters<AgentHqApiClient['createDirectAgentTopic']>[1]) =>
       client.createDirectAgentTopic(workspaceId, input),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
   }),
   group: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (input: Parameters<AgentHqApiClient['createGroupChannel']>[1]) =>
       client.createGroupChannel(workspaceId, input),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
   }),
   participants: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -267,11 +307,13 @@ export const channelMutationOptions = {
         input.participants,
         input.expectedVersion
       ),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
   }),
   project: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (input: Parameters<AgentHqApiClient['createProjectChannel']>[1]) =>
       client.createProjectChannel(workspaceId, input),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
   }),
   update: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -282,12 +324,18 @@ export const channelMutationOptions = {
         update: Parameters<AgentHqApiClient['updateChannel']>[2]
       }>
     ) => client.updateChannel(workspaceId, input.channelId, input.update, input.expectedVersion),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
   }),
 }
 
 function messageMutationSuccess(queryClient: QueryClient, workspaceId: string, channelId?: string) {
-  return async (result: Awaited<ReturnType<AgentHqApiClient['getMessage']>>) => {
+  return async (
+    result: Awaited<ReturnType<AgentHqApiClient['getMessage']>>,
+    _variables?: unknown,
+    context?: ConversationMutationContext
+  ) => {
+    if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(messageQueryKeys.detail(workspaceId, result.message.id), result)
     const targetChannelId = channelId ?? result.message.channelId
     await queryClient.invalidateQueries({
@@ -304,11 +352,13 @@ export const messageMutationOptions = {
   ) => ({
     mutationFn: (input: Parameters<AgentHqApiClient['createMessage']>[2]) =>
       client.createMessage(workspaceId, channelId, input),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: messageMutationSuccess(queryClient, workspaceId, channelId),
   }),
   delete: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (input: Readonly<{ expectedVersion: number; messageId: string }>) =>
       client.deleteMessage(workspaceId, input.messageId, input.expectedVersion),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: messageMutationSuccess(queryClient, workspaceId),
   }),
   edit: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -319,6 +369,7 @@ export const messageMutationOptions = {
         messageId: string
       }>
     ) => client.editMessage(workspaceId, input.messageId, input.edit, input.expectedVersion),
+    onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: messageMutationSuccess(queryClient, workspaceId),
   }),
 }
