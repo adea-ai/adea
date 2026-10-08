@@ -6,7 +6,8 @@ import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote
 
 import { createAgent } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
-import { createGroupChannel, createMessage } from '../../src/conversations'
+import { createContentRef, getContentRefForUser } from '../../src/content-refs'
+import { createGroupChannel, createMessage, listMessagesForUser } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import { createProject } from '../../src/projects'
 import {
@@ -19,6 +20,7 @@ import {
   agents,
   commandOutbox,
   contentRefs,
+  messages,
   runtimeNodeKeys,
   runtimeNodes,
   taskExecutionAttempts,
@@ -262,6 +264,91 @@ describe.skipIf(!url)('durable encrypted Task intent', () => {
         .where(eq(workspaceEvents.workspaceId, f.workspace.id))
     ).toEqual(before)
     expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(0)
+  })
+
+  test('relay purge preserves canonical messages and local-only body references independently of ciphertext', async () => {
+    const f = await fixture()
+    const channel = await createGroupChannel(connection.db, f.workspace.id, f.owner.principal, {
+      idempotencyKey: 'retained-history',
+      title: 'Retained history',
+    })
+    const origin = await createMessage(
+      connection.db,
+      f.workspace.id,
+      channel.id,
+      f.owner.principal,
+      {
+        bodyText: 'CANONICAL_HISTORY_SENTINEL',
+        idempotencyKey: 'retained-origin',
+        sender: f.owner.principal,
+        taskId: f.task.id,
+      }
+    )
+    const body = await createContentRef(connection.db, f.workspace.id, f.owner.principal, {
+      availability: 'offline',
+      contentType: 'message_body',
+      digestSha256: 'e'.repeat(64),
+      id: crypto.randomUUID(),
+      keyVersion: 1,
+      schemaVersion: 1,
+      sensitivity: 'restricted',
+      storagePolicy: 'local_authority',
+      synchronizationPolicy: 'local_only',
+    })
+    const privateMessage = await createMessage(
+      connection.db,
+      f.workspace.id,
+      channel.id,
+      f.owner.principal,
+      { bodyContentRefId: body.id, idempotencyKey: 'retained-reference', sender: f.owner.principal }
+    )
+    const linked = await setTaskConversationReferences(
+      connection.db,
+      f.workspace.id,
+      f.task.id,
+      f.owner.principal,
+      { channelId: channel.id, messageId: origin.id },
+      {
+        idempotencyKey: 'retained-link',
+        requestId: crypto.randomUUID(),
+        expectedVersion: f.task.version,
+      }
+    )
+    const submission = await f.enqueue(f.input, { ...f.command, expectedVersion: linked.version })
+    const snapshot = async () => {
+      const [messageRows, content, history] = await Promise.all([
+        connection.db
+          .select()
+          .from(messages)
+          .where(eq(messages.workspaceId, f.workspace.id))
+          .orderBy(messages.sequence),
+        getContentRefForUser(connection.db, f.workspace.id, body.id, f.owner.principal),
+        listMessagesForUser(connection.db, f.workspace.id, channel.id, f.owner.principal),
+      ])
+      return { messageRows, content, history }
+    }
+    const before = await snapshot()
+    expect(before.history.messages.map((message) => message.id)).toEqual([
+      origin.id,
+      privateMessage.id,
+    ])
+    expect(before.content).toMatchObject({
+      availability: 'offline',
+      messageId: privateMessage.id,
+      synchronizationPolicy: 'local_only',
+    })
+    await expire(submission.id)
+
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(1)
+    expect((await readSubmissionOutbox(submission.id)).payload).not.toHaveProperty('envelope')
+    expect(await snapshot()).toEqual(before)
+    expect(
+      await getTaskForUser(connection.db, f.workspace.id, f.task.id, f.owner.principal)
+    ).toMatchObject({
+      conversation: { channelId: channel.id, messageId: origin.id },
+      lifecycleState: 'created',
+      version: linked.version,
+    })
   })
 
   test('dry-run, batch bounds and workspace isolation preserve future and foreign ciphertext', async () => {

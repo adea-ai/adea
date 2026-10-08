@@ -108,6 +108,12 @@
       "development": "./src/chat/index.ts",
       "import": "./dist/chat/index.js"
     },
+    "./sidebar/dev-nav-dialogs": {
+      "types": "./dist/sidebar/dev-nav-dialogs.d.ts",
+      "solid": "./src/sidebar/dev-nav-dialogs.tsx",
+      "development": "./src/sidebar/dev-nav-dialogs.tsx",
+      "import": "./dist/sidebar/dev-nav-dialogs.js"
+    },
     "./chat/model": {
       "types": "./dist/chat/model/index.d.ts",
       "solid": "./src/chat/model/index.ts",
@@ -175,7 +181,7 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/themes": "0.9.10",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.121.0",
+    "@adea-ai/ui": "0.122.2",
     "@adea-ai/workspace-nav": "workspace:*",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/language": "^6.12.4",

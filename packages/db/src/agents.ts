@@ -29,6 +29,7 @@ function summary(row: typeof agents.$inferSelect): AgentSummary {
     ...(row.characterRef ? { characterRef: row.characterRef } : {}),
     createdAt: row.createdAt.toISOString(),
     id: row.id,
+    isWorkspaceLead: row.isWorkspaceLead,
     lifecycleState: row.lifecycleState,
     name: row.name,
     presentationMetadata: Object.freeze(row.presentationMetadata as Record<string, string>),
@@ -135,6 +136,69 @@ export async function createAgent(
     })
     return summary(created)
   })
+}
+
+/** Provision identity only. No catalog lookup, model selection or inference occurs here. */
+export async function ensureWorkspaceLead(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  principal: UserPrincipalRef
+): Promise<AgentSummary> {
+  return database.transaction(async (transaction) => {
+    // Serializes structural setup across callers, including first provisioning.
+    const [workspace] = await transaction
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(and(eq(workspaces.id, workspaceId), isNull(workspaces.deletedAt)))
+      .for('update')
+    if (!workspace) throw new Error('Agent unavailable')
+    await requireProfileManager(transaction, workspaceId, principal)
+    const [existing] = await transaction
+      .select()
+      .from(agents)
+      .where(and(eq(agents.workspaceId, workspaceId), eq(agents.isWorkspaceLead, true)))
+    if (existing) return summary(existing)
+    const [created] = await transaction
+      .insert(agents)
+      .values({
+        workspaceId,
+        isWorkspaceLead: true,
+        name: 'Workspace lead',
+        roleSummary: 'Coordinates work in this workspace',
+        profileId: 'workspace-lead-unconfigured',
+        profileVersion: 'unconfigured',
+        profileState: 'missing',
+      })
+      .returning()
+    if (!created) throw new Error('Agent creation failed')
+    await appendWorkspaceEvent(transaction, {
+      eventType: 'agent.created',
+      payload: { actorUserId: principal.userId, agentId: created.id },
+      workspaceId,
+    })
+    return summary(created)
+  })
+}
+
+export async function getWorkspaceLeadForUser(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  principal: UserPrincipalRef
+): Promise<AgentSummary | null> {
+  const [row] = await database
+    .select({ agent: agents })
+    .from(agents)
+    .innerJoin(workspaces, and(eq(workspaces.id, agents.workspaceId), isNull(workspaces.deletedAt)))
+    .innerJoin(
+      workspaceMemberships,
+      and(
+        eq(workspaceMemberships.workspaceId, agents.workspaceId),
+        eq(workspaceMemberships.userId, principal.userId)
+      )
+    )
+    .where(and(eq(agents.workspaceId, workspaceId), eq(agents.isWorkspaceLead, true)))
+    .limit(1)
+  return row ? summary(row.agent) : null
 }
 
 export async function listAgentsForUser(
@@ -345,7 +409,8 @@ export async function archiveAgent(
         and(
           eq(agents.id, agentId),
           eq(agents.workspaceId, workspaceId),
-          eq(agents.lifecycleState, 'active')
+          eq(agents.lifecycleState, 'active'),
+          eq(agents.isWorkspaceLead, false)
         )
       )
       .returning({ id: agents.id })

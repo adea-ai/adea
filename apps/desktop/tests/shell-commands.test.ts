@@ -134,6 +134,53 @@ describe('desktop shell command surface', () => {
     }
   })
 
+  test('desktop_folder_pick answers from the injected native picker and refuses without one', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
+    try {
+      // A host without the native picker (or a test surface without the
+      // injection) refuses truthfully; the client's typed path input stays.
+      const bare = createCommandSurface(dataDir)
+      expect(await bare('desktop_folder_pick', {})).toEqual({
+        error: 'folder_picker_unavailable',
+        ok: false,
+      })
+
+      const requests: Array<{ startingFolder?: string }> = []
+      const invoke = createCommandSurface(dataDir, {
+        pickFolder: async (request) => {
+          requests.push(request)
+          return [join(dataDir, 'picked-project')]
+        },
+      })
+      expect(
+        await invoke('desktop_folder_pick', { startingFolder: '/Users/me/Developer' })
+      ).toEqual({ ok: true, value: { paths: [join(dataDir, 'picked-project')] } })
+      // A blank or non-string start folder is dropped, never forwarded.
+      expect(await invoke('desktop_folder_pick', { startingFolder: '   ' })).toEqual({
+        ok: true,
+        value: { paths: [join(dataDir, 'picked-project')] },
+      })
+      expect(await invoke('desktop_folder_pick', { startingFolder: 42 })).toEqual({
+        ok: true,
+        value: { paths: [join(dataDir, 'picked-project')] },
+      })
+      expect(requests).toEqual([{ startingFolder: '/Users/me/Developer' }, {}, {}])
+
+      // A picker failure surfaces as a refused command, not a fabricated path.
+      const failing = createCommandSurface(dataDir, {
+        pickFolder: async () => {
+          throw new Error('panel could not open')
+        },
+      })
+      expect(await failing('desktop_folder_pick', {})).toEqual({
+        error: 'panel could not open',
+        ok: false,
+      })
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
   test('deep-links the screen-recording repair to the exact Screen Capture pane', async () => {
     // The permissions row's "Open System Settings" affordance must land on the
     // Screen Recording pane, never generic Settings and never a client-supplied

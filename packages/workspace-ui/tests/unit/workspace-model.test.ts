@@ -3,11 +3,10 @@ import { describe, expect, test } from 'bun:test'
 import type { AgentSummary, ChannelSummary, ProjectSummary } from '@adea-ai/types'
 
 import {
-  fuzzySearchMatch,
-  parseAgentMentions,
   projectWorkspaceNavigation,
   reconcileWorkspaceChannelSelection,
 } from '../../src/workspace-model'
+import { fuzzySearchMatch, parseAgentMentions } from '../../src/workspace-text-match'
 
 const project = (id: string, sortOrder: number): ProjectSummary => ({
   createdAt: '2026-01-01T00:00:00.000Z',
@@ -135,6 +134,20 @@ describe('conventional workspace projection', () => {
         selectedChannelId: 'removed-channel',
       })
     ).toEqual({ action: 'select', channelId: 'engineering-main', projectId: 'engineering' })
+  })
+
+  test('distinguishes unavailable lists from settled empty lists', () => {
+    const input = {
+      explicitSelection: null,
+      navigation: projectWorkspaceNavigation([], []),
+      selectedChannelId: 'removed',
+    }
+    expect(reconcileWorkspaceChannelSelection({ ...input, channels: undefined })).toEqual({
+      action: 'wait',
+    })
+    expect(reconcileWorkspaceChannelSelection({ ...input, channels: [] })).toEqual({
+      action: 'clear',
+    })
   })
 
   test('fuzzy-matches command palette destinations without changing navigation ownership', () => {

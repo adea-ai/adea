@@ -22,9 +22,16 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'so
 import { keyedRows } from './keyed-rows'
 
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
-import { fuzzySearchMatch } from './workspace-model'
+import { fuzzySearchMatch } from './workspace-text-match'
 import type { PrivateContentResolver } from './platform'
-import { Command, CommandInput, CommandItem, CommandList } from '@adea-ai/ui/components/ui/command'
+import {
+  Command,
+  CommandHint,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandStatus,
+} from '@adea-ai/ui/components/ui/command'
 
 type SearchResult = WorkspaceSearchResult
 
@@ -329,35 +336,33 @@ export function WorkspaceSearchDialog(props: {
         </CommandList>
       </Command>
       <Show when={(remote.isFetching || localSearching()) && debouncedQuery().length >= 2}>
-        <p class="conventional-dialog-empty" role="status">
-          Searching…
-        </p>
+        <CommandStatus role="status">Searching…</CommandStatus>
       </Show>
       <Show when={settledData(remote)?.privateResultsUnavailable}>
-        <p class="conventional-dialog-empty" role="status">
+        <CommandStatus role="status">
           {props.privateContent?.search
             ? 'Cloud results exclude private bodies; this authorized device was searched separately.'
             : 'Private local content can only be searched on its trusted desktop device.'}
-        </p>
+        </CommandStatus>
       </Show>
       <Show
         when={!props.online && debouncedQuery().length >= 2}
         fallback={
           <Show when={remote.isError}>
-            <p class="conventional-dialog-empty" role="alert">
+            <CommandStatus role="alert">
               Search is temporarily unavailable. Your query was not lost.
-            </p>
+            </CommandStatus>
           </Show>
         }
       >
-        <p class="conventional-dialog-empty" role="status">
+        <CommandStatus role="status">
           Offline. Quick navigation remains available; search will retry after reconnecting.
-        </p>
+        </CommandStatus>
       </Show>
       <Show when={!remote.isFetching && !localSearching() && !results().length}>
-        <p class="conventional-dialog-empty">No workspace item matches “{query()}”.</p>
+        <CommandStatus>No workspace item matches “{query()}”.</CommandStatus>
       </Show>
-      <p class="conventional-search-hint">↑↓ move · Enter open · Esc close</p>
+      <CommandHint>↑↓ move · Enter open · Esc close</CommandHint>
     </ModalDialog>
   )
 }

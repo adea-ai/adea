@@ -104,6 +104,13 @@
       "import": "./dist/conventional-workspace-shell.js",
       "default": "./dist/conventional-workspace-shell.js"
     },
+    "./create-project-flow": {
+      "types": "./dist/create-project-flow.d.ts",
+      "solid": "./src/create-project-flow.ts",
+      "development": "./src/create-project-flow.ts",
+      "import": "./dist/create-project-flow.js",
+      "default": "./dist/create-project-flow.js"
+    },
     "./rail-preferences": {
       "types": "./dist/rail-preferences.d.ts",
       "solid": "./src/rail-preferences.ts",
@@ -184,7 +191,7 @@
     "@adea-ai/spatial": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.121.0",
+    "@adea-ai/ui": "0.122.2",
     "@adea-ai/workspace-nav": "workspace:*",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"

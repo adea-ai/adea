@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { createAgent } from '../../src/agents'
 import { createArtifact } from '../../src/artifacts'
@@ -8,6 +8,7 @@ import { createContentRef } from '../../src/content-refs'
 import {
   archiveChannel,
   createDirectAgentChannel,
+  createDirectAgentTopic,
   createGroupChannel,
   createMessage,
   createProjectChannel,
@@ -17,6 +18,7 @@ import {
   listMessagesForUser,
   provisionPrimaryProjectChannel,
   setChannelParticipants,
+  updateChannel,
 } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import { archiveProject, createProject } from '../../src/projects'
@@ -206,6 +208,221 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
       await listChannelsForUser(connection.db, workspace.id, nonParticipant.principal)
     ).toEqual([])
     await cleanup(workspace.id, [owner.principal.userId, nonParticipant.principal.userId])
+  })
+
+  test('isolates topic histories and caller retries from the legacy default lane', async () => {
+    const { owner, workspace } = await fixture('Distinct direct topics')
+    const member = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `topic-member-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    await addWorkspaceMembership(connection.db, workspace.id, member.principal, 'member')
+    const agent = await createAgent(connection.db, workspace.id, owner.principal, {
+      name: 'Ada',
+      profileId: 'engineer',
+      profileVersion: '1',
+    })
+    // Even a caller key resembling the legacy lane stays in the topic namespace.
+    const input = { idempotencyKey: `direct-agent:${agent.id}`, title: 'Architecture' }
+    const first = await createDirectAgentTopic(
+      connection.db,
+      workspace.id,
+      agent.id,
+      owner.principal,
+      input
+    )
+    const second = await createDirectAgentTopic(
+      connection.db,
+      workspace.id,
+      agent.id,
+      owner.principal,
+      {
+        idempotencyKey: 'second-topic',
+        title: 'Launch',
+      }
+    )
+    const defaultLane = await createDirectAgentChannel(
+      connection.db,
+      workspace.id,
+      agent.id,
+      owner.principal
+    )
+    expect(new Set([first.id, second.id, defaultLane.id]).size).toBe(3)
+    expect(first.visibility).toBe('participants')
+    expect(first.participants).toContainEqual({ kind: 'user', userId: owner.principal.userId })
+    expect(first.participants).toContainEqual({ kind: 'agent', agentId: agent.id })
+    const message = await createMessage(connection.db, workspace.id, first.id, owner.principal, {
+      bodyText: 'Architecture only',
+      idempotencyKey: 'first-message',
+      sender: owner.principal,
+    })
+    expect(
+      (await listMessagesForUser(connection.db, workspace.id, first.id, owner.principal)).messages
+    ).toEqual([message])
+    expect(
+      (await listMessagesForUser(connection.db, workspace.id, second.id, owner.principal)).messages
+    ).toEqual([])
+    expect(
+      (await listMessagesForUser(connection.db, workspace.id, defaultLane.id, owner.principal))
+        .messages
+    ).toEqual([])
+    expect(
+      (await createDirectAgentChannel(connection.db, workspace.id, agent.id, owner.principal)).id
+    ).toBe(defaultLane.id)
+    expect(await listChannelsForUser(connection.db, workspace.id, member.principal)).toEqual([])
+    await expect(
+      listMessagesForUser(connection.db, workspace.id, first.id, member.principal)
+    ).rejects.toThrow('Channel unavailable')
+    await expect(
+      createDirectAgentChannel(connection.db, workspace.id, agent.id, member.principal)
+    ).rejects.toThrow('Channel unavailable')
+    await expect(
+      updateChannel(
+        connection.db,
+        workspace.id,
+        first.id,
+        member.principal,
+        { title: 'Foreign edit' },
+        first.version
+      )
+    ).rejects.toThrow('Channel unavailable')
+    await expect(
+      archiveChannel(connection.db, workspace.id, first.id, member.principal, first.version)
+    ).rejects.toThrow('Channel unavailable')
+    const memberTopic = await createDirectAgentTopic(
+      connection.db,
+      workspace.id,
+      agent.id,
+      member.principal,
+      input
+    )
+    expect(memberTopic.id).not.toBe(first.id)
+    const renamed = await updateChannel(
+      connection.db,
+      workspace.id,
+      first.id,
+      owner.principal,
+      { title: 'Architecture renamed' },
+      first.version
+    )
+    expect(
+      (await createDirectAgentTopic(connection.db, workspace.id, agent.id, owner.principal, input))
+        .id
+    ).toBe(first.id)
+    await expect(
+      createDirectAgentTopic(connection.db, workspace.id, agent.id, owner.principal, {
+        ...input,
+        title: 'Changed request',
+      })
+    ).rejects.toThrow('Channel idempotency conflict')
+    const archived = await archiveChannel(
+      connection.db,
+      workspace.id,
+      first.id,
+      owner.principal,
+      renamed.version
+    )
+    expect(
+      (await createDirectAgentTopic(connection.db, workspace.id, agent.id, owner.principal, input))
+        .lifecycleState
+    ).toBe('archived')
+    expect(
+      (
+        await listChannelsForUser(connection.db, workspace.id, owner.principal, {
+          includeArchived: true,
+        })
+      ).find((channel) => channel.id === archived.id)?.lifecycleState
+    ).toBe('archived')
+    const stored = await connection.db
+      .select()
+      .from(messages)
+      .where(eq(messages.channelId, first.id))
+    expect(stored.map(({ id }) => id)).toEqual([message.id])
+    await connection.db
+      .delete(channelParticipants)
+      .where(
+        and(
+          eq(channelParticipants.channelId, first.id),
+          eq(channelParticipants.principalKind, 'user')
+        )
+      )
+    await expect(
+      createDirectAgentTopic(connection.db, workspace.id, agent.id, owner.principal, input)
+    ).rejects.toThrow('Channel unavailable')
+    await cleanup(workspace.id, [owner.principal.userId, member.principal.userId])
+  })
+
+  test('rejects topic retries with a changed agent or a foreign workspace', async () => {
+    const first = await fixture('Topic request identity')
+    const other = await fixture('Foreign topic workspace')
+    const agent = await createAgent(connection.db, first.workspace.id, first.owner.principal, {
+      name: 'Ada',
+      profileId: 'engineer',
+      profileVersion: '1',
+    })
+    const secondAgent = await createAgent(
+      connection.db,
+      first.workspace.id,
+      first.owner.principal,
+      {
+        name: 'Grace',
+        profileId: 'engineer',
+        profileVersion: '1',
+      }
+    )
+    const input = { idempotencyKey: 'same-request', title: 'Topic' }
+    const results = await Promise.all([
+      createDirectAgentTopic(
+        connection.db,
+        first.workspace.id,
+        agent.id,
+        first.owner.principal,
+        input
+      ),
+      createDirectAgentTopic(
+        connection.db,
+        first.workspace.id,
+        agent.id,
+        first.owner.principal,
+        input
+      ),
+    ])
+    expect(results[0]!.id).toBe(results[1]!.id)
+    await expect(
+      createDirectAgentTopic(
+        connection.db,
+        first.workspace.id,
+        secondAgent.id,
+        first.owner.principal,
+        input
+      )
+    ).rejects.toThrow('Channel idempotency conflict')
+    await expect(
+      createDirectAgentTopic(
+        connection.db,
+        other.workspace.id,
+        agent.id,
+        other.owner.principal,
+        input
+      )
+    ).rejects.toThrow('Agent unavailable')
+    await expect(
+      createDirectAgentTopic(
+        connection.db,
+        first.workspace.id,
+        agent.id,
+        other.owner.principal,
+        input
+      )
+    ).rejects.toThrow('Channel unavailable')
+    expect(() =>
+      createDirectAgentTopic(connection.db, first.workspace.id, agent.id, first.owner.principal, {
+        ...input,
+        idempotencyKey: ' ',
+      })
+    ).toThrow('Invalid topic request')
+    await cleanup(first.workspace.id, [first.owner.principal.userId])
+    await cleanup(other.workspace.id, [other.owner.principal.userId])
   })
 
   test('orders canonical Messages, preserves threads and refs, and rejects stale or foreign access', async () => {

@@ -18,6 +18,7 @@ import type {
   WorkspacePlatformServices,
   WorkspacePluginsProvider,
 } from '@adea-ai/workspace-ui/platform'
+import { devProjectFlow, type DevProjectFlow } from '@adea-ai/workspace-ui/create-project-flow'
 import type { RegistryPluginsProviderOptions } from '@adea-ai/workspace-ui/plugins'
 import type { RailPreferencesV1 } from '@adea-ai/workspace-ui/rail-preferences'
 import {
@@ -72,7 +73,7 @@ import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
-import { isDesktopRuntime, openExternalUrl } from '../lib/desktop-bridge'
+import { isDesktopRuntime, openExternalUrl, pickDesktopFolder } from '../lib/desktop-bridge'
 import { adeaFeedbackUrl } from '../lib/feedback'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -119,6 +120,7 @@ const DevWorkspace = lazyComponent(
           onSelectionChange?: (selection: { projectId: string; sessionId: string | null }) => void
           onBreadcrumbChange?: (crumb: DevBreadcrumbSelection | undefined) => void
           workspaceNav?: DevWorkspaceNavHost
+          pickFolder?: () => Promise<string | null | undefined>
         }) => {
           const unavailable =
             entryProps.runtime ??
@@ -162,6 +164,7 @@ const DevWorkspace = lazyComponent(
               onSelectionChange={entryProps.onSelectionChange}
               onBreadcrumbChange={entryProps.onBreadcrumbChange}
               workspaceNav={entryProps.workspaceNav}
+              pickFolder={entryProps.pickFolder}
             />
           )
         }
@@ -183,7 +186,6 @@ const SourceControlView = lazyComponent(
         return (entryProps: {
           runtime?: WorkspacePlatformServices['devRuntime']
           toolbarMount?: HTMLElement
-          titleMount?: HTMLElement
           onOpenDev(): void
         }) => (
           <SourceControlApp
@@ -192,7 +194,6 @@ const SourceControlView = lazyComponent(
               createSourceControlRuntime({ reason: 'channel_unauthenticated' })
             }
             toolbarMount={entryProps.toolbarMount}
-            titleMount={entryProps.titleMount}
             onOpenDev={entryProps.onOpenDev}
           />
         )
@@ -451,6 +452,7 @@ export type WorkspaceNavigationAccount = Readonly<{
 }>
 
 export type WorkspaceNavigationProps = Readonly<{
+  renderProjectDialog?: DevProjectFlow['renderDialog']
   account: WorkspaceNavigationAccount
   activeWorkspace?: WorkspaceSummary
   chatEntry?: (
@@ -566,12 +568,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // Project links (feedback, About's source, Help Center resources) share the
   // same handoff: undefined on web lets the shared composites use anchors.
   const openExternal = isDesktopRuntime() ? openExternalUrl : undefined
+  // The Dev sidebar's authorize step offers the shell's native folder picker
+  // only on the desktop runtime; on web the typed path input stays the sole
+  // way in (mirrors the Chat lane's wiring).
+  const pickFolder = isDesktopRuntime() ? () => pickDesktopFolder() : undefined
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
-  // Source control portals its search + sync group into the top bar's title
-  // slot: the centre column is the only track with room for a search field
-  // wide enough for its placeholder, with the sync status to its right.
-  const [scmSearchMount, setScmSearchMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
   // The chat shell reports its bootstrap fallback: while it renders the
   // skeleton or the error state, no contextual sidebar is mounted, so the top
@@ -902,6 +904,25 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     devSummary: () => props.devSummary?.(),
   })
 
+  // One create-project flow everywhere a runtime can back it: when this host
+  // carries a ready Dev Runtime, the Chat/Virtual sidebars' "Add project" runs
+  // the detailed Dev dialog (name the project, optionally bind a repository)
+  // with the shell's native folder picker; without one (the web lane) the
+  // accessor resolves undefined and those sidebars keep the basic dialog.
+  // The production web entry has no Dev Runtime composition root.
+  const devProjectFlowHost = __ADEA_DESKTOP_COMPONENTS__
+    ? (): DevProjectFlow | undefined => {
+        const runtime = props.services.devRuntime
+        if (!runtime || !props.renderProjectDialog) return undefined
+        return devProjectFlow({
+          runtime,
+          renderDialog: props.renderProjectDialog,
+          knownProjectNames: (devNavHost.projects ?? []).map(({ name }) => name),
+          onCreateProject: (name) => devNavHost.onCreateProject!(name),
+        })
+      }
+    : undefined
+
   // The active workspace's accent themes the whole app while it is active
   // (ADR 0011): it overrides the appearance accent, and a workspace without
   // one (null) keeps the appearance accent. It is painted on <body>, below
@@ -1028,6 +1049,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       embedded={embedded}
       taskBoardOnly={activeAppId() === 'kanban'}
       client={props.client}
+      createProjectFlow={devProjectFlowHost}
       deepLink={deepLink}
       manageSettings={false}
       onConsumeDeepLink={consumeDeepLink}
@@ -1093,12 +1115,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     workspaceStore.getState().setGlobalPanel('workspace-settings')
   }
   const openSearch = () => {
-    // Source control keeps its pull-request search in the title slot and
+    // Source control keeps its pull-request search in the leading toolbar
+    // group — right of the divider, like the Dev view's pane actions — and
     // advertises ⌘K on it, so the search command focuses that field while it
     // shows.
     const scmSearch =
       activeAppId() === 'source-control' && !libraryOpen()
-        ? scmSearchMount()?.querySelector('input')
+        ? toolbarMount()?.querySelector<HTMLInputElement>('[data-scm-search] input')
         : undefined
     if (scmSearch) {
       scmSearch.focus()
@@ -1148,7 +1171,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             onOpenSession={openDevSession}
           />
         }
-        titleMount={setScmSearchMount}
         showTitleControls={activeAppId() === 'source-control'}
         sidebarMount={setSidebarActionMount}
         showSidebarDivider={contextualUtilitiesAvailable()}
@@ -1323,13 +1345,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                             onSelectionChange={applyDevSelection}
                             onBreadcrumbChange={setDevBreadcrumb}
                             workspaceNav={devNavHost}
+                            pickFolder={pickFolder}
                           />
                         }
                       >
                         <SourceControlView
                           runtime={utilityRuntime}
                           toolbarMount={mount()}
-                          titleMount={scmSearchMount()}
                           onOpenDev={() => changeApp('dev')}
                         />
                       </Show>
@@ -1370,6 +1392,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                         archiveAction={archiveAction}
                         restoreFocusRef={sidebarOpener}
                         apiClient={props.client}
+                        createProjectFlow={devProjectFlowHost}
                         initialScene={scene()}
                         onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
                         onWorkspaceViewChange={changeView}

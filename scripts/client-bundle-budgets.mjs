@@ -136,8 +136,18 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // bytes above this build of main's 238,819 (~0.3%), repeating the
   // zero-headroom lesson the chat route documented on 2026-10-01. Startup
   // gzip moves to 238 KiB (~2% headroom); startup raw holds.
-  total: { rawBytes: 2_990_000, gzipBytes: 890 * 1024, fileCount: 157 },
-  startup: { rawBytes: 720 * 1024, gzipBytes: 238 * 1024 },
+  // Headroom restoration pass (2026-10-08, after the #811 migration wave
+  // and ui 0.122): main measures 2,989,541 raw / 910,433 gzip across 157
+  // files — 459 raw bytes and 927 gzip bytes of headroom, i.e. the total
+  // gate was one incidental change from red. Total ratchets to 3,050,000
+  // raw / 908 KiB gzip (~2% each). The same pass restores ~2% headroom on
+  // every route cap that had fallen under 1.5%: startup raw, virtual both
+  // axes, devShell both axes, devTerminal both axes and devEditor both
+  // axes, each documented at its cap below.
+  total: { rawBytes: 3_050_000, gzipBytes: 908 * 1024, fileCount: 157 },
+  // Startup measured 732,351 raw / 239,561 gzip on the same build; raw had
+  // 0.67% headroom. Raw ratchets to 730 KiB; gzip to 239 KiB (~2% each).
+  startup: { rawBytes: 730 * 1024, gzipBytes: 239 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now
@@ -175,7 +185,14 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // names), the draft-row hint, the group-by mode label and the
     // @adea-ai/ui 0.115 sidebar options. Raw ratchets to 114 KiB (~1.3%
     // headroom); gzip to 39,200 (~1.4%).
-    virtual: { rawBytes: 114 * 1024, gzipBytes: 39_200 },
+    // Unified project creation (2026-10-08): splitting Chat text helpers from
+    // the navigation model measures 116,093 raw / 39,095 gzip on cold Linux.
+    // Retain the original limits rather than inheriting #1165's headroom
+    // increase; aggregate caps and route graph checks also remain unchanged.
+    // Headroom restoration (2026-10-08): main then measured 116,096 raw /
+    // 39,087 gzip — 640 raw bytes and 113 gzip bytes of headroom. Raw
+    // ratchets to 116 KiB, gzip to 39,900 (~2% each).
+    virtual: { rawBytes: 116 * 1024, gzipBytes: 39_900 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
     // 65,600 gzip measured — the shared modules carry the keyboard and
@@ -240,7 +257,14 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // shared-UI bump fails before anyone can ratchet. Raw moves 298 → 303 KiB,
     // the whole-KiB step that restores the ~2% headroom the 2026-10-01
     // re-baseline documented instead of pinning to the build; gzip holds.
-    chat: { rawBytes: 303 * 1024, gzipBytes: 99 * 1024 },
+    // Conversation-stack rewire (#811 phase 2, 2026-10-07): the route's
+    // conversation pane, composer menus and status lines now compose the
+    // published @adea-ai/ui 0.121 ConversationPane/ComposerMenu/status slot;
+    // measured 305,264 raw / 101,405 gzip across 45 files. Raw fits inside
+    // the restored 303 KiB cap; gzip is 29 bytes over 99 KiB, so it ratchets
+    // to the next whole KiB — the deleted app-local families offset most of
+    // the shared panel's weight.
+    chat: { rawBytes: 303 * 1024, gzipBytes: 102 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the
@@ -310,7 +334,16 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // transcript density and the rail-aware sidebar sheet width replace Dev's
     // local restyles, so the shared resizable and transcript parts grow while
     // the Dev stylesheet shrinks; the 174 KiB cap above still holds both.
-    devShell: { rawBytes: 174 * 1024, gzipBytes: 59 * 1024 },
+    // Headroom restoration (2026-10-08): the same build of main measures
+    // 178,074 raw / 60,202 gzip — 102 raw bytes of headroom. Raw ratchets to
+    // 178 KiB, gzip to 60 KiB (~2% each).
+    // #1168 (2026-10-08, collapsed Files row + shared resize grips) re-splits
+    // the shell closure: 336,210 raw / 91,171 gzip across 27 files (+158 KB
+    // raw over the 178,074 above; the gzip side stays far under its cap).
+    // Its merge moved raw to 329 KiB without a comment — 0.2% headroom.
+    // Raw ratchets to 335 KiB (~2%); gzip holds at 105 KiB (~18% headroom,
+    // worth re-tightening on the next re-measure of this route).
+    devShell: { rawBytes: 335 * 1024, gzipBytes: 105 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested
@@ -373,7 +406,13 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // operations with their strict DTO decoders) lands the route at
     // 910,550 raw / 239,370 gzip; raw ratchets to 896 KiB (~0.8% headroom),
     // gzip still holds at 234 KiB.
-    devTerminal: { rawBytes: 896 * 1024, gzipBytes: 234 * 1024 },
+    // Headroom restoration (2026-10-08): the same build of main measures
+    // 907,410 raw / 237,523 gzip — gzip had 0.87% headroom. Raw ratchets to
+    // 904 KiB, gzip to 237 KiB (~2% each).
+    // #1168 (2026-10-08) grows the route again to 912,088 raw / 239,283
+    // gzip, back under 1.5% headroom on both caps (1.49% / 1.42%). Raw
+    // ratchets to 909 KiB, gzip to 239 KiB (~2% each).
+    devTerminal: { rawBytes: 909 * 1024, gzipBytes: 239 * 1024 },
     // Same delta on the editor route (2026-10-06, ADR 0011 PR 10b): 541,499
     // raw / 171,081 gzip against its base build's 490,226 / 154,545. Raw
     // ratchets to 532 KiB (~0.6% headroom); gzip to 168 KiB (~0.6%).
@@ -384,7 +423,15 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // The machine-wide janitor (2026-10-07) shares the registry/decoder
     // chunks this route pulls: 538,169 raw. Raw ratchets to 530 KiB
     // (~0.9% headroom); gzip holds at 166 KiB.
-    devEditor: { rawBytes: 530 * 1024, gzipBytes: 166 * 1024 },
+    // Headroom restoration (2026-10-08): the same build of main measures
+    // 539,348 raw / 169,496 gzip — gzip had 0.29% headroom. Raw ratchets to
+    // 537 KiB, gzip to 169 KiB (~2% each).
+    // #1168 (2026-10-08) carries the same shell-closure split onto this
+    // route: 697,197 raw / 200,446 gzip across 34 files (+158 KB raw over
+    // the 539,348 above). Its merge moved raw to 681 KiB without a comment —
+    // 147 bytes of headroom. Raw ratchets to 695 KiB (~2%); gzip holds at
+    // 210 KiB (~7% headroom, worth re-tightening on the next re-measure).
+    devEditor: { rawBytes: 695 * 1024, gzipBytes: 210 * 1024 },
   },
 }
 
@@ -681,9 +728,24 @@ export function inspectClientBundle(input) {
   if (uniqueDevUtilityPaneRoots.length === 0) {
     throw new Error('Dev View has no dynamically attributed utility panes')
   }
+  // The terminal route's static closure contains the workspace shell chunk,
+  // which carries the workspace nav's own preload-on-hover loaders — the
+  // draft row and the ≤48rem contextual sidebar. Rollup attributes those to
+  // the terminal route's closure now that the terminal empty state rides the
+  // entry graph; both are long-standing nav affordances shared with the chat
+  // route, not terminal code, so wherever the closure holds a chunk loading
+  // them by their stable module-derived names, they are expected. Every
+  // other dynamic edge stays pinned exactly.
+  const devTerminalExpected = new Map([[runtimeTerminalPane.file, [terminalPane.file]]])
+  for (const file of staticClosure([runtimeTerminalPane, terminalPane], chunksByFile)) {
+    const navLoaderTargets = dynamicChunkTargets([file], chunksByFile)
+      .map(({ file: target }) => target)
+      .filter((target) => /workspace-draft-row|mobile-contextual-sidebar/.test(target))
+    if (navLoaderTargets.length > 0) devTerminalExpected.set(file, navLoaderTargets)
+  }
   assertDynamicRouteClosure(
     [runtimeTerminalPane, terminalPane],
-    new Map([[runtimeTerminalPane.file, [terminalPane.file]]]),
+    devTerminalExpected,
     new Set([...startupFiles, devEntry.file]),
     chunksByFile,
     'Dev terminal route'

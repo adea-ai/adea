@@ -22,6 +22,32 @@ const agent: AgentSummary = {
   updatedAt: new Date(now).toISOString(),
 }
 
+test('structural lead remains setup-blocked without catalog or model calls', async () => {
+  const structural: AgentSummary = {
+    ...agent,
+    isWorkspaceLead: true,
+    profile: {
+      id: 'workspace-lead-unconfigured',
+      version: 'unconfigured',
+      state: 'missing',
+      revision: 0,
+    },
+  }
+  const results = await withAgentProfileAvailability([structural], correlation, {
+    now: () => now,
+    resolveControlPlaneScope: async () => {
+      throw new Error('Unexpected scope call')
+    },
+    fetch: Object.assign(
+      async () => {
+        throw new Error('Unexpected provider call')
+      },
+      { preconnect: () => undefined }
+    ) as typeof fetch,
+  })
+  expect(results[0]?.profile.state).toBe('missing')
+})
+
 async function fixture(
   options: { lifecycle?: string; status?: number; missing?: boolean; resolveOnly?: boolean } = {}
 ) {

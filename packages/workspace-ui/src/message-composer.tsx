@@ -1,19 +1,22 @@
 import type { AgentSummary, ArtifactSummary, ConversationParticipantRef } from '@adea-ai/types'
-import { AtSign, LoaderCircle, Mic, MicOff, X } from 'lucide-solid'
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { AtSign, Mic, MicOff, X } from 'lucide-solid'
+import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import {
   ComposerAttachmentButton,
+  ComposerMenu,
+  ComposerMenuItem,
   MessageComposer as SharedMessageComposer,
 } from '@adea-ai/ui/components/conversation'
-import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
+import { Spinner } from '@adea-ai/ui/components/ui/spinner'
 import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from './platform'
 import { keyedRows } from './keyed-rows'
 import { mergeTranscription } from './transcription'
 import { createClientRequestId } from './request-id'
-import { parseAgentMentions } from './workspace-model'
+import { createComposerSubmissionIdentity } from './composer-submission-identity'
+import { parseAgentMentions } from './workspace-text-match'
 
 export type ComposerSubmission = Readonly<{
   artifactIds: readonly string[]
@@ -22,6 +25,8 @@ export type ComposerSubmission = Readonly<{
   mentions: readonly ConversationParticipantRef[]
 }>
 
+export type ComposerSubmissionOutcome = Readonly<{ clearDraft: boolean }>
+
 export function MessageComposer(props: {
   agents: readonly AgentSummary[]
   artifacts: readonly ArtifactSummary[]
@@ -29,40 +34,34 @@ export function MessageComposer(props: {
   disabled?: boolean
   draft: string
   onDraftChange: (value: string) => void
-  onSubmit: (submission: ComposerSubmission) => Promise<void>
-  replyLabel?: string
+  onSubmit: (submission: ComposerSubmission) => Promise<void | ComposerSubmissionOutcome>
+  /** The thread this composer replies to, drawn as the shared reply strip. */
+  replyTo?: { label: string; onDismiss: () => void }
   transcription?: TranscriptionProvider
 }) {
   const [attachmentIds, setAttachmentIds] = createSignal<readonly string[]>([])
   const [attachmentsOpen, setAttachmentsOpen] = createSignal(false)
   const [sending, setSending] = createSignal(false)
+  const [submissionError, setSubmissionError] = createSignal<string>()
   const [transcriptionError, setTranscriptionError] = createSignal<string | null>(null)
   const [transcriptionState, setTranscriptionState] = createSignal<TranscriptionState>(
     props.transcription ? 'idle' : 'unavailable'
   )
-  const [form, setForm] = createSignal<HTMLFormElement>()
+  let textarea: HTMLTextAreaElement | undefined
   let transcriptionSession: TranscriptionSession | null = null
+  let disposed = false
+  const submissionIdentity = createComposerSubmissionIdentity(createClientRequestId)
   const artifactRows = keyedRows(
     () => props.artifacts,
     (artifact) => artifact.id
   )
 
-  onCleanup(() => transcriptionSession?.cancel())
-
-  // The public composer exposes its form ref and guarantees a textarea. Keep
-  // Adea's per-channel accessible description and focus restoration on that
-  // native field without taking ownership of the shared form behavior.
-  createEffect(() => {
-    const formElement = form()
-    const channelId = props.channelId
-    if (!formElement) return
-    const textarea = formElement.querySelector('textarea')
-    if (!textarea) return
-    textarea.id = `composer-${channelId}`
-    textarea.setAttribute('aria-describedby', `composer-help-${channelId}`)
+  onCleanup(() => {
+    disposed = true
+    transcriptionSession?.cancel()
   })
 
-  const focusDraft = () => requestAnimationFrame(() => form()?.querySelector('textarea')?.focus())
+  const focusDraft = () => requestAnimationFrame(() => textarea?.focus())
 
   const mentionSuggestions = createMemo(() => {
     const match = props.draft.match(/(?:^|\s)@([^\n]*)$/)
@@ -73,19 +72,37 @@ export function MessageComposer(props: {
 
   const submit = async () => {
     const bodyText = props.draft.trim()
+    const channelId = props.channelId
     if (!bodyText || props.disabled || sending()) return
     setSending(true)
+    setSubmissionError(undefined)
     try {
-      await props.onSubmit({
+      const content = {
         artifactIds: attachmentIds(),
         bodyText,
-        idempotencyKey: createClientRequestId(),
         mentions: parseAgentMentions(bodyText, props.agents),
+      }
+      const outcome = await props.onSubmit({
+        ...content,
+        idempotencyKey: submissionIdentity.key({ channelId, ...content }),
       })
-      props.onDraftChange('')
-      setAttachmentIds([])
+      if (
+        !disposed &&
+        props.channelId === channelId &&
+        props.draft.trim() === bodyText &&
+        outcome?.clearDraft !== false
+      ) {
+        props.onDraftChange('')
+        setAttachmentIds([])
+        submissionIdentity.reset()
+      }
+    } catch {
+      if (!disposed && props.channelId === channelId)
+        setSubmissionError(
+          'Message not sent. Your draft is still here; retry when the connection recovers.'
+        )
     } finally {
-      setSending(false)
+      if (!disposed) setSending(false)
     }
   }
 
@@ -139,41 +156,69 @@ export function MessageComposer(props: {
     }
   }
 
+  // Host progress rides the shared composer's own live region; sending and
+  // send-failure copy stay the composer's own, so only dictation lines live here.
+  const dictationStatus = (
+    <>
+      <Show when={transcriptionError()} keyed>
+        {(message) => (
+          <p role="alert" class="text-destructive px-2 text-xs">
+            {message}
+          </p>
+        )}
+      </Show>
+      <Show when={!transcriptionError() && !sending() && transcriptionState() === 'listening'}>
+        <p class="text-muted-foreground px-2 text-xs">
+          Listening… Select the microphone again to cancel.
+        </p>
+      </Show>
+      <Show when={!transcriptionError() && !sending() && transcriptionState() === 'processing'}>
+        <p class="text-muted-foreground px-2 text-xs">Preparing editable transcript…</p>
+      </Show>
+      <Show when={!transcriptionError() && !sending() && transcriptionState() === 'cancelled'}>
+        <p class="text-muted-foreground px-2 text-xs">
+          Dictation cancelled. Your draft was preserved.
+        </p>
+      </Show>
+    </>
+  )
+
   return (
-    <section
-      class="conventional-composer"
-      aria-label={props.replyLabel ? `Reply to ${props.replyLabel}` : 'Message composer'}
-    >
+    <section aria-label={props.replyTo ? `Reply to ${props.replyTo.label}` : 'Message composer'}>
+      <Show when={submissionError()}>{(message) => <p role="status">{message()}</p>}</Show>
       <SharedMessageComposer
-        ref={setForm}
+        inputRef={(element) => {
+          textarea = element
+        }}
+        inputId={`composer-${props.channelId}`}
+        inputDescription="Enter to send · Shift+Enter newline · Mod+Shift+M focus"
         value={props.draft}
         onValueChange={props.onDraftChange}
         onSubmit={submit}
         placeholder={props.disabled ? 'Messaging is unavailable' : 'Type something...'}
         disabled={props.disabled || sending()}
+        replyTo={props.replyTo}
+        status={dictationStatus}
         menu={
           <>
-            <Show when={props.replyLabel}>
-              {(replyLabel) => (
-                <div class="conventional-composer__context">
-                  <span>Replying in thread · {replyLabel()}</span>
-                </div>
-              )}
-            </Show>
             <Show when={attachmentIds().length}>
-              <div class="conventional-composer__attachments" aria-label="Selected attachments">
+              <div
+                class="border-border flex flex-wrap gap-1.5 border-b p-1.5"
+                aria-label="Selected attachments"
+              >
                 <For each={attachmentIds()}>
                   {(artifactId) => {
                     const artifact = () => props.artifacts.find(({ id }) => id === artifactId)
+                    const name = artifact()?.filename ?? 'Artifact'
                     return (
-                      <span>
-                        {artifact()?.filename ?? 'Artifact'}
+                      <span class="bg-primary-subtle inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs">
+                        {name}
                         <ActionButton
                           type="button"
                           variant="ghost"
                           size="icon-2xs"
-                          tooltip={`Remove ${artifact()?.filename ?? 'Artifact'}`}
-                          aria-label={`Remove ${artifact()?.filename ?? 'Artifact'}`}
+                          tooltip={`Remove ${name}`}
+                          aria-label={`Remove ${name}`}
                           onClick={() =>
                             setAttachmentIds((ids) => ids.filter((id) => id !== artifactId))
                           }
@@ -187,58 +232,59 @@ export function MessageComposer(props: {
               </div>
             </Show>
             <Show when={mentionSuggestions().length}>
-              <div class="conventional-mention-menu" aria-label="Mention an Agent">
+              <ComposerMenu label="Mention an Agent">
                 <For each={mentionSuggestions()}>
                   {(agent) => (
-                    <Button type="button" onClick={() => insertMention(agent)}>
+                    <ComposerMenuItem type="button" onClick={() => insertMention(agent)}>
                       <AtSign aria-hidden="true" />
                       {agent.name}
-                    </Button>
+                    </ComposerMenuItem>
                   )}
                 </For>
-              </div>
+              </ComposerMenu>
             </Show>
-            <p id={`composer-help-${props.channelId}`} class="visually-hidden">
-              Enter to send · Shift+Enter newline · Mod+Shift+M focus
-            </p>
           </>
         }
         leading={
-          <div class="conventional-composer__attachment-control">
-            <ComposerAttachmentButton
-              count={attachmentIds().length}
-              open={attachmentsOpen()}
-              aria-label={
-                attachmentIds().length === 0
-                  ? 'Attach an Artifact'
-                  : `${attachmentIds().length} Artifact${attachmentIds().length === 1 ? '' : 's'} attached, add an Artifact`
-              }
-              disabled={props.disabled || !props.artifacts.length}
-              onClick={() => setAttachmentsOpen((open) => !open)}
-            />
-            <Show when={attachmentsOpen()}>
-              <div class="conventional-attachment-menu">
-                <strong>Attach Artifact</strong>
-                <For each={artifactRows()}>
-                  {(entry) => (
-                    <Checkbox
-                      label={<span>{entry.item().filename}</span>}
-                      description={<small>{entry.item().availability}</small>}
-                      checked={attachmentIds().includes(entry.item().id)}
-                      disabled={entry.item().availability !== 'available'}
-                      onChange={(checked: boolean) =>
-                        setAttachmentIds((ids) =>
-                          checked
-                            ? [...ids, entry.item().id]
-                            : ids.filter((id) => id !== entry.item().id)
-                        )
-                      }
-                    />
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
+          <>
+            <div class="relative">
+              <ComposerAttachmentButton
+                count={attachmentIds().length}
+                open={attachmentsOpen()}
+                aria-label={
+                  attachmentIds().length === 0
+                    ? 'Attach an Artifact'
+                    : `${attachmentIds().length} Artifact${attachmentIds().length === 1 ? '' : 's'} attached, add an Artifact`
+                }
+                disabled={props.disabled || !props.artifacts.length}
+                onClick={() => setAttachmentsOpen((open) => !open)}
+              />
+              <Show when={attachmentsOpen()}>
+                <ComposerMenu label="Attach Artifact" class="absolute bottom-9 left-0 z-(--z-menu)">
+                  <div class="text-muted-foreground px-2 py-1 text-2xs font-semibold">
+                    Attach Artifact
+                  </div>
+                  <For each={artifactRows()}>
+                    {(entry) => (
+                      <Checkbox
+                        label={<span>{entry.item().filename}</span>}
+                        description={<small>{entry.item().availability}</small>}
+                        checked={attachmentIds().includes(entry.item().id)}
+                        disabled={entry.item().availability !== 'available'}
+                        onChange={(checked: boolean) =>
+                          setAttachmentIds((ids) =>
+                            checked
+                              ? [...ids, entry.item().id]
+                              : ids.filter((id) => id !== entry.item().id)
+                          )
+                        }
+                      />
+                    )}
+                  </For>
+                </ComposerMenu>
+              </Show>
+            </div>
+          </>
         }
         trailing={
           <ActionButton
@@ -267,28 +313,11 @@ export function MessageComposer(props: {
                 </Show>
               }
             >
-              <LoaderCircle class="conventional-spin" />
+              <Spinner size="sm" label={false} />
             </Show>
           </ActionButton>
         }
       />
-      <div class="conventional-composer__status" aria-live="polite">
-        <Show when={transcriptionError()} keyed>
-          {(message) => <p role="alert">{message}</p>}
-        </Show>
-        <Show when={!transcriptionError() && sending()}>
-          <p>Sending message…</p>
-        </Show>
-        <Show when={!transcriptionError() && !sending() && transcriptionState() === 'listening'}>
-          <p>Listening… Select the microphone again to cancel.</p>
-        </Show>
-        <Show when={!transcriptionError() && !sending() && transcriptionState() === 'processing'}>
-          <p>Preparing editable transcript…</p>
-        </Show>
-        <Show when={!transcriptionError() && !sending() && transcriptionState() === 'cancelled'}>
-          <p>Dictation cancelled. Your draft was preserved.</p>
-        </Show>
-      </div>
     </section>
   )
 }

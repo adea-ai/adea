@@ -13,6 +13,29 @@ const agent = {
 }
 
 describe('Agent API client', () => {
+  test('reads and provisions a structural lead through its workspace-scoped endpoint', async () => {
+    const requests: Request[] = []
+    const client = createApiClient({
+      baseUrl: 'https://hq.example/api',
+      fetchImpl: async (input, init) => {
+        requests.push(new Request(input, init))
+        return Response.json({
+          lead: {
+            ...agent,
+            isWorkspaceLead: true,
+            profile: { id: 'unconfigured', version: 'unconfigured', state: 'missing' },
+          },
+        })
+      },
+    })
+    expect((await client.getWorkspaceLead('workspace/1')).lead?.isWorkspaceLead).toBe(true)
+    await client.ensureWorkspaceLead('workspace/1')
+    expect(requests.map((request) => [request.method, new URL(request.url).pathname])).toEqual([
+      ['GET', '/api/v1/workspaces/workspace%2F1/agents/lead'],
+      ['POST', '/api/v1/workspaces/workspace%2F1/agents/lead'],
+    ])
+    expect(await requests[1]!.json()).toEqual({})
+  })
   test('uses stable Agent identity for CRUD, assignment, presentation, and profile changes', async () => {
     const requests: Request[] = []
     const client = createApiClient({

@@ -6,6 +6,11 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
+    "./model-connections": {
+      "types": "./dist/model-connections.d.ts",
+      "development": "./src/model-connections.ts",
+      "import": "./dist/model-connections.js"
+    },
     "./runtime-node-delivery": {
       "types": "./dist/runtime-node-delivery.d.ts",
       "development": "./src/runtime-node-delivery.ts",

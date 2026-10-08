@@ -758,7 +758,11 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
 
   const composer = page.getByRole('textbox', { name: 'Message' }).first()
   const composerForm = page.locator('form[data-slot="message-composer"]').first()
-  await expect(composer).toHaveAttribute('aria-describedby', 'composer-help-channel-product')
+  const describedBy = await composer.getAttribute('aria-describedby')
+  expect(describedBy).toBeTruthy()
+  await expect(page.locator(`#${describedBy}`)).toContainText(
+    'Enter to send · Shift+Enter newline · Mod+Shift+M focus'
+  )
   await expect(composer).toHaveAttribute('id', 'composer-channel-product')
   await expect(page.getByRole('button', { name: 'Start dictation' })).toBeDisabled()
   await composerForm.evaluate((form) => {
@@ -772,9 +776,8 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
     )
   })
   await composer.fill('Ask @Research')
-  const mentionOption = page
-    .locator('.conventional-mention-menu')
-    .getByRole('button', { name: 'Research Agent', exact: true })
+  const mentionMenu = page.getByRole('group', { name: 'Mention an Agent' })
+  const mentionOption = mentionMenu.getByRole('button', { name: 'Research Agent', exact: true })
   const mentionButtonSemantics = await mentionOption.evaluate((element) => {
     const button = element as HTMLButtonElement
     return {
@@ -791,9 +794,15 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
   // A mention row carries the shared Button's primary text, so the menu owns
   // the rung pairing: the row's own text at rest, and the accent rung with
   // its contrast text on hover — never primary-foreground on transparent.
+  // A mention row is the shared ghost button: at rest it is transparent with
+  // the frame's foreground text, and hovering paints a real background — the
+  // accent-rung pairing was a legibility hack for primary Buttons and died
+  // with the local menu CSS.
   const readMentionRowPaint = () =>
     page.evaluate(() => {
-      const row = document.querySelector<HTMLButtonElement>('.conventional-mention-menu button')
+      const row = document.querySelector<HTMLButtonElement>(
+        'form[data-slot="message-composer"] [data-slot="composer-menu"] button'
+      )
       const frame = row?.closest('.conventional-workspace')
       if (!row || !frame) return null
       const token = (name: string) => getComputedStyle(frame).getPropertyValue(name).trim()
@@ -801,46 +810,25 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
       return {
         color: style.color,
         background: style.backgroundColor,
-        text: token('--cw-text'),
-        accent: token('--cw-accent'),
-        accentContrast: token('--cw-accent-contrast'),
+        foreground: token('--foreground'),
       }
     })
   const restingMentionRow = await readMentionRowPaint()
-  expect(parseColor(restingMentionRow!.color)).toEqual(parseColor(restingMentionRow!.text))
+  expect(parseColor(restingMentionRow!.color)).toEqual(parseColor(restingMentionRow!.foreground))
   expect(restingMentionRow!.background).toBe('rgba(0, 0, 0, 0)')
   await mentionOption.hover()
   const hoveredMentionRow = await readMentionRowPaint()
-  expect(parseColor(hoveredMentionRow!.background)).toEqual(parseColor(hoveredMentionRow!.accent))
-  expect(parseColor(hoveredMentionRow!.color)).toEqual(
-    parseColor(hoveredMentionRow!.accentContrast)
-  )
-  // Composer status copy is progress, not failure: plain paragraphs take the
-  // muted rung and only an alert earns the destructive colour ("Listening…"
-  // is progress; the desktop transcription provider cannot run in this lane,
-  // so the contract is pinned on the shipped stylesheet instead).
-  const statusRungs = await page.evaluate(() => {
-    const status = document.querySelector('.conventional-composer__status')
-    const frame = status?.closest('.conventional-workspace')
-    if (!status || !frame) return null
-    const token = (name: string) => getComputedStyle(frame).getPropertyValue(name).trim()
-    const probe = (role?: string) => {
-      const paragraph = document.createElement('p')
-      if (role) paragraph.setAttribute('role', role)
-      status.appendChild(paragraph)
-      const color = getComputedStyle(paragraph).color
-      paragraph.remove()
-      return color
-    }
-    return {
-      plain: probe(),
-      alert: probe('alert'),
-      muted: token('--cw-muted'),
-      danger: token('--cw-danger'),
-    }
-  })
-  expect(parseColor(statusRungs!.plain)).toEqual(parseColor(statusRungs!.muted))
-  expect(parseColor(statusRungs!.alert)).toEqual(parseColor(statusRungs!.danger))
+  expect(hoveredMentionRow!.background).not.toBe('rgba(0, 0, 0, 0)')
+  // Dictation progress rides the shared composer's own live region — one
+  // region per composer, never a second one racing the sending copy. The
+  // muted/alert rungs are static utilities on the adapter's status lines
+  // (lint-held), and the desktop transcription provider cannot run in this
+  // lane, so the contract pinned here is the region itself.
+  const composerStatus = page
+    .locator('form[data-slot="message-composer"] > [role="status"]')
+    .first()
+  await expect(composerStatus).toBeAttached()
+  await expect(composerStatus).toHaveText(/Sending message|^$/)
   await mentionOption.click()
   expect(await composerForm.getAttribute('data-submit-event-count')).toBe('0')
   expect(submissions).toHaveLength(0)
@@ -851,22 +839,17 @@ test('submits channel messages with mentions, artifacts, and Shift+Enter newline
   await composer.press('Shift+Enter')
   await composer.type('with attached notes')
   await page.getByRole('button', { name: 'Attach an Artifact' }).click()
-  await page
-    .locator('.conventional-attachment-menu label')
-    .filter({ hasText: 'launch-brief.md' })
-    .click()
-  await expect(page.locator('.conventional-attachment-menu').getByRole('checkbox')).toBeChecked()
+  const attachmentMenu = page.getByRole('group', { name: 'Attach Artifact' })
+  await attachmentMenu.locator('label').filter({ hasText: 'launch-brief.md' }).click()
+  await expect(attachmentMenu.getByRole('checkbox')).toBeChecked()
   await expect(
     page.getByRole('button', { name: '1 Artifact attached, add an Artifact' })
   ).toBeVisible()
   await page.getByRole('button', { name: 'Remove launch-brief.md' }).click()
   await expect(page.getByRole('button', { name: 'Attach an Artifact' })).toBeVisible()
   await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
-  await page
-    .locator('.conventional-attachment-menu label')
-    .filter({ hasText: 'launch-brief.md' })
-    .click()
-  await expect(page.locator('.conventional-attachment-menu').getByRole('checkbox')).toBeChecked()
+  await attachmentMenu.locator('label').filter({ hasText: 'launch-brief.md' }).click()
+  await expect(attachmentMenu.getByRole('checkbox')).toBeChecked()
   await expect(
     page.getByRole('button', { name: '1 Artifact attached, add an Artifact' })
   ).toBeVisible()
@@ -897,11 +880,9 @@ test('keeps the project draft and attachments after a failed send, then clears o
   const draft = 'Keep this draft when the connection fails.'
   await composer.fill(draft)
   await page.getByRole('button', { name: 'Attach an Artifact' }).click()
-  await page
-    .locator('.conventional-attachment-menu label')
-    .filter({ hasText: 'launch-brief.md' })
-    .click()
-  await expect(page.locator('.conventional-attachment-menu').getByRole('checkbox')).toBeChecked()
+  const attachmentMenu = page.getByRole('group', { name: 'Attach Artifact' })
+  await attachmentMenu.locator('label').filter({ hasText: 'launch-brief.md' }).click()
+  await expect(attachmentMenu.getByRole('checkbox')).toBeChecked()
   await page.getByRole('button', { name: 'Send message' }).first().click()
 
   await expect(
@@ -916,7 +897,7 @@ test('keeps the project draft and attachments after a failed send, then clears o
   await expect.poll(() => submissions.length).toBe(2)
   expect(submissions[0]).toMatchObject({ artifactIds: ['artifact-brief'], bodyText: draft })
   expect(submissions[1]).toMatchObject({ artifactIds: ['artifact-brief'], bodyText: draft })
-  expect(submissions[1]?.idempotencyKey).not.toBe(submissions[0]?.idempotencyKey)
+  expect(submissions[1]?.idempotencyKey).toBe(submissions[0]?.idempotencyKey)
   await expect(composer).toHaveValue('')
   await expect(page.getByLabel('Selected attachments')).toHaveCount(0)
 })
@@ -927,16 +908,25 @@ test('keeps thread reply metadata separate from the project draft', async ({ pag
   await page.goto('/')
   await projectConversation(page, 'Product').click()
 
+  const pane = page.locator('[data-slot="conversation-pane"]').first()
+  await expect(pane).not.toHaveAttribute('data-conversation-thread-open', 'true')
   const projectComposer = page.getByRole('textbox', { name: 'Message' }).first()
   await projectComposer.fill('Project draft remains here.')
   await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
+  await expect(pane).toHaveAttribute('data-conversation-thread-open', 'true')
   const threadComposer = page.getByRole('textbox', { name: 'Message' }).nth(1)
-  await expect(threadComposer).toHaveAttribute(
-    'aria-describedby',
-    'composer-help-thread-message-root'
+  await expect(threadComposer).toHaveAttribute('id', 'composer-thread-message-root')
+  const threadDescribedBy = await threadComposer.getAttribute('aria-describedby')
+  expect(threadDescribedBy).toBeTruthy()
+  await expect(page.locator(`#${threadDescribedBy}`)).toContainText(
+    'Enter to send · Shift+Enter newline · Mod+Shift+M focus'
   )
-  await expect(page.getByText(/^Replying in thread ·/)).toBeVisible()
+  // The reply strip names the thread the composer answers.
+  await expect(page.getByText(/^Replying to /)).toBeVisible()
   await threadComposer.fill('Reply with the root identity preserved.')
+  await threadComposer.evaluate((element) =>
+    element.setAttribute('data-thread-composer-instance', 'original')
+  )
   await threadComposer.press('Enter')
 
   await expect.poll(() => submissions.length).toBe(1)
@@ -948,6 +938,25 @@ test('keeps thread reply metadata separate from the project draft', async ({ pag
   })
   await expect(projectComposer).toHaveValue('Project draft remains here.')
   await expect(threadComposer).toHaveValue('')
+  await expect(threadComposer).toHaveAttribute('data-thread-composer-instance', 'original')
+
+  // The strip's dismissal closes the thread without touching the drafts.
+  await page.getByRole('button', { name: 'Cancel reply' }).click()
+  await expect(threadComposer).toHaveCount(0)
+  await expect(pane).not.toHaveAttribute('data-conversation-thread-open', 'true')
+  await expect(projectComposer).toHaveValue('Project draft remains here.')
+
+  // A closed thread must also restore the conversation at overlay widths.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(projectComposer).toBeVisible()
+  await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
+  await expect(pane).toHaveAttribute('data-conversation-thread-open', 'true')
+  await expect(page.locator('#composer-thread-message-root')).toBeVisible()
+  await expect(pane.locator('form[data-slot="message-composer"]').first()).toBeHidden()
+  await page.getByRole('button', { name: 'Cancel reply' }).click()
+  await expect(pane).not.toHaveAttribute('data-conversation-thread-open', 'true')
+  await expect(projectComposer).toBeVisible()
+  await expect(projectComposer).toHaveValue('Project draft remains here.')
 })
 
 test('renders empty and populated Project-first workspace states', async ({ page }) => {
@@ -1592,7 +1601,7 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
   // must not also carry the conversation transcript's 40px outer gutters.
   const threadComposerGutters = await page.evaluate(() => {
     const composer = document.querySelector<HTMLElement>(
-      '[data-conventional-thread] .conventional-composer'
+      '[data-conventional-thread] form[data-slot="message-composer"]'
     )
     if (!composer) return null
     const style = getComputedStyle(composer)

@@ -163,6 +163,16 @@ const baseInvoke = createCommandSurface(DATA_DIR, {
   onChatPresentation: (candidate) => presentedRuntimeSession.set(candidate),
   memory: memoryStore,
   authorizedWorkspaceId: () => identity.currentScope().workspaceId,
+  // The add-project surface's native folder picker: directory-only, single
+  // selection, default start folder. The picked path is only a suggestion —
+  // the Dev Runtime still proves it through `dev.project.authorizeRoot`.
+  pickFolder: (request) =>
+    Utils.openFileDialog({
+      startingFolder: request.startingFolder ?? '~',
+      canChooseFiles: false,
+      canChooseDirectory: true,
+      allowsMultipleSelection: false,
+    }),
 })
 // The M10 channel authority binds the trusted window and gates every command.
 // Scope admission runs before capability checks and provider dispatch: a

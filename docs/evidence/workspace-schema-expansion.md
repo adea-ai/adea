@@ -1,0 +1,13 @@
+# Workspace schema expansion before application rollout
+
+Production Worker deployment and database migrations run independently on main. This additive phase lands the schema before application code starts selecting new workspace columns. It changes no runtime declarations, routes, native commands or default bootstrap: the existing application remains compatible.
+
+Migration0040 adds nullable deletion/control-plane-use metadata and minimal owner deletion receipts. Existing Control Plane scopes are conservatively marked used; no resource is deleted. Migration0041 adds persistent personal identity, its owner-unique/active constraints and home/box logo support. Only stable default-home/default creation metadata promotes an existing root. Its ID, customization and content remain; a proven archived root is restored. Ambiguous claims and Work remain intact. No pending intent or permanent deletion is authorized.
+
+Upstream0039 retention SQL/snapshot and journal prefix are unchanged. Workspace snapshots preserve that expansion, generated through the matching temporary declaration and then returning runtime declarations to their pre-activation state. This staging prevents a new migration from accidentally dropping retention columns, indexes or constraints. Final application declarations reconcile all three expansions.
+
+Before the application phase lands, verify on the approved production catalog:42 migration records including exact0040/0041 hashes; workspace is_personal/deletion_requested_at/control_plane_used_at; workspace_deletions; personal-owner unique index; active-root and logo constraints; retained0039 ciphertext column/index/expiry constraint. An application rollback keeps additive columns in place; any database correction is reviewed and forward-only.
+
+No live cleanup, native completion verifier, deployed application acceptance or retention purge is introduced. Permanent active deletion remains unavailable in the subsequent guarded application phase until a server-owned completion contract exists. Additional unbound-workspace authentication keeps the existing device_default behavior.
+
+Local validation: `bun run test:integration` passes111 tests/1827 assertions with42 migrations and deterministic replay using separate fixture app/migration roles. This exercises the unchanged application's prior bootstrap/read/write behavior. The catalog regression verifies future root constraints and retention preservation. `bun run --cwd packages/db db:check`, full formatting, package lint and documentation boundaries pass. No production readiness is claimed by these local checks; deployment/catalog verification remains a gate for the application phase.

@@ -1,9 +1,4 @@
-import type {
-  AgentSummary,
-  ChannelSummary,
-  ConversationParticipantRef,
-  ProjectSummary,
-} from '@adea-ai/types'
+import type { ChannelSummary, ProjectSummary } from '@adea-ai/types'
 
 export type ProjectNavigationItem = Readonly<{
   primaryChannel?: ChannelSummary
@@ -20,6 +15,7 @@ export type WorkspaceNavigation = Readonly<{
 
 export type WorkspaceSelectionDecision =
   | Readonly<{ action: 'wait' }>
+  | Readonly<{ action: 'clear' }>
   | Readonly<{ action: 'preserve'; clearExplicitSelection: boolean }>
   | Readonly<{ action: 'select'; channelId: string; projectId: string | null }>
 
@@ -36,7 +32,7 @@ export function reconcileWorkspaceChannelSelection(
     selectedChannelId: string | null
   }>
 ): WorkspaceSelectionDecision {
-  if (!input.channels?.length) return { action: 'wait' }
+  if (!input.channels) return { action: 'wait' }
 
   if (input.selectedChannelId && input.channels.some(({ id }) => id === input.selectedChannelId)) {
     return {
@@ -58,7 +54,9 @@ export function reconcileWorkspaceChannelSelection(
     input.navigation.groupChannels[0]?.id
   return channelId
     ? { action: 'select', channelId, projectId: firstProject?.project.id ?? null }
-    : { action: 'wait' }
+    : input.selectedChannelId
+      ? { action: 'clear' }
+      : { action: 'wait' }
 }
 
 function compareChannels(left: ChannelSummary, right: ChannelSummary) {
@@ -107,26 +105,4 @@ export function projectWorkspaceNavigation(
     ),
     projects: Object.freeze(projectItems),
   })
-}
-
-export function fuzzySearchMatch(candidate: string, query: string) {
-  const target = candidate.toLocaleLowerCase()
-  const needle = query.trim().toLocaleLowerCase()
-  if (!needle) return true
-  let cursor = 0
-  for (const character of target) if (character === needle[cursor]) cursor += 1
-  return cursor === needle.length
-}
-
-export function parseAgentMentions(
-  text: string,
-  agents: readonly AgentSummary[]
-): readonly ConversationParticipantRef[] {
-  const normalized = text.toLocaleLowerCase()
-  return agents
-    .filter(({ name }) => normalized.includes(`@${name.toLocaleLowerCase()}`))
-    .toSorted(
-      (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
-    )
-    .map(({ id }) => Object.freeze({ agentId: id, kind: 'agent' as const }))
 }

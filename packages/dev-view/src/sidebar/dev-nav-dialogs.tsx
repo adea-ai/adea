@@ -1,3 +1,5 @@
+import '@adea-ai/app-ui/dev-view.css'
+
 /*
  * The Dev sidebar's small dialogs (ADR 0011), loaded on first use: naming a
  * worktree, project or branch, confirming archive and delete with the exact
@@ -20,11 +22,13 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
+import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 import { For, Show, Suspense, createSignal, createUniqueId, lazy } from 'solid-js'
 
 import type { DevProjectNames } from '../platform'
 import { AddProjectForm } from './add-project-form'
+import { GitHubImportForm } from './github-import-form'
 
 const RepoRegistryPanel = lazy(() =>
   import('./repo-registry-panel').then((module) => ({ default: module.RepoRegistryPanel }))
@@ -178,6 +182,11 @@ export type DevRepositoryFlowProps = Readonly<{
   execute(command: DevCommand): Promise<DevReply>
   knownProjectNames: readonly string[]
   announce(message: string): void
+  /**
+   * The host's native folder picker for the authorize step, when the host has
+   * one; the form's typed path input remains the fallback.
+   */
+  pickFolder?: () => Promise<string | null | undefined>
 }>
 
 /**
@@ -205,6 +214,7 @@ export function DevAddRepositoryDialog(
           execute={props.execute}
           knownProjectNames={props.knownProjectNames}
           announce={props.announce}
+          {...(props.pickFolder ? { pickFolder: props.pickFolder } : {})}
           mintProjectId={() => props.projectId}
           onImported={() => {
             props.onImported()
@@ -218,8 +228,10 @@ export function DevAddRepositoryDialog(
 
 /**
  * The workspace header's "New project": name the cloud project first, then
- * optionally bind a local repository to it. Without a cloud host the dialog
- * goes straight to the repository step and the import mints the id.
+ * bind a repository to it — either a local folder ("On this Mac") or one of
+ * the authenticated gh account's repositories ("From GitHub", a managed
+ * clone). Without a cloud host the dialog goes straight to the repository
+ * step and the import mints the id.
  */
 export function DevNewProjectDialog(
   props: DevRepositoryFlowProps & {
@@ -231,6 +243,7 @@ export function DevNewProjectDialog(
 ) {
   const [projectId, setProjectId] = createSignal<string | undefined>()
   const [name, setName] = createSignal('')
+  const [source, setSource] = createSignal<'local' | 'github'>('local')
   const [error, setError] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
   const inputId = `dev-new-project-${createUniqueId()}`
@@ -242,25 +255,55 @@ export function DevNewProjectDialog(
       title={`New project in ${props.workspaceName}`}
       description={
         naming()
-          ? 'Name the project. You can add a local repository next, or later from its menu.'
-          : 'Authorize a folder on this machine, then import the repository found inside it.'
+          ? 'Name the project. You can add a repository next, or later from its menu.'
+          : source() === 'github'
+            ? 'Pick one of your GitHub repositories to clone into this project.'
+            : 'Authorize a folder on this machine, then import the repository found inside it.'
       }
     >
       <Show
         when={naming()}
         fallback={
           <div class="flex flex-col gap-3">
-            <AddProjectForm
-              scope={props.scope}
-              execute={props.execute}
-              knownProjectNames={props.knownProjectNames}
-              announce={props.announce}
-              {...(projectId() ? { mintProjectId: () => projectId()! } : {})}
-              onImported={() => {
-                props.onImported(projectId())
-                props.onClose()
-              }}
-            />
+            <Tabs value={source()} onChange={(value) => setSource(value as 'local' | 'github')}>
+              <TabsList appearance="segmented" aria-label="Repository source">
+                <TabsTrigger appearance="segmented" value="local">
+                  On this Mac
+                </TabsTrigger>
+                <TabsTrigger appearance="segmented" value="github">
+                  From GitHub
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Show
+              when={source() === 'github'}
+              fallback={
+                <AddProjectForm
+                  scope={props.scope}
+                  execute={props.execute}
+                  knownProjectNames={props.knownProjectNames}
+                  announce={props.announce}
+                  {...(props.pickFolder ? { pickFolder: props.pickFolder } : {})}
+                  {...(projectId() ? { mintProjectId: () => projectId()! } : {})}
+                  onImported={() => {
+                    props.onImported(projectId())
+                    props.onClose()
+                  }}
+                />
+              }
+            >
+              <GitHubImportForm
+                scope={props.scope}
+                execute={props.execute}
+                announce={props.announce}
+                {...(projectId() ? { mintProjectId: () => projectId()! } : {})}
+                onImported={() => {
+                  props.onImported(projectId())
+                  props.onClose()
+                }}
+              />
+            </Show>
+
             <Show when={projectId()}>
               <Button type="button" variant="outline" onClick={() => props.onClose()}>
                 Skip for now

@@ -1,7 +1,8 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
 import type { ApiMessagePage, ApiMessageResponse } from '@adea-ai/api-client'
-import { createMessage, listMessagesForUser } from '@adea-ai/db'
+import { createLeadTurn, createMessage, listMessagesForUser } from '@adea-ai/db'
+import { parseLeadTurnMode } from '../../../../../../../../server/lead-turn-request'
 
 import {
   conversationErrorResponse,
@@ -77,12 +78,14 @@ async function post(request: Request, { params }: Context) {
     return workspaceInvalidRequestResponse(request)
   }
   const hasBodyText = typeof body?.bodyText === 'string' && Boolean(body.bodyText.trim())
+  const leadTurnMode = body && !Array.isArray(body) ? parseLeadTurnMode(body) : null
   const hasBodyRef = isConversationUuid(body?.bodyContentRefId)
   const mentions = Array.isArray(body?.mentions)
     ? body.mentions.map(parseConversationParticipant)
     : []
   if (
     !body ||
+    leadTurnMode === null ||
     !idempotencyKey ||
     idempotencyKey.length > 128 ||
     hasBodyText === hasBodyRef ||
@@ -104,6 +107,22 @@ async function post(request: Request, { params }: Context) {
   )
     return workspaceInvalidRequestResponse(request)
   try {
+    if (leadTurnMode === 'lead') {
+      const payload: ApiMessageResponse = await createLeadTurn(
+        applicationDatabase(),
+        workspaceId,
+        channelId,
+        resolution.principal,
+        {
+          ...(Array.isArray(body.artifactIds) ? { artifactIds: body.artifactIds as string[] } : {}),
+          ...(hasBodyRef ? { bodyContentRefId: body.bodyContentRefId as string } : {}),
+          ...(hasBodyText ? { bodyText: body.bodyText as string } : {}),
+          idempotencyKey,
+          mentions: mentions as never,
+        }
+      )
+      return workspaceJsonResponse(payload, resolution, request, { status: 201 })
+    }
     const payload: ApiMessageResponse = {
       message: await createMessage(
         applicationDatabase(),

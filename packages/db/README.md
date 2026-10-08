@@ -63,3 +63,10 @@ Nothing runs cleanup automatically.
 Production rollback is forward-only: deploy an application rollback while the expanded schema is
 compatible, then add a reviewed corrective migration. Point-in-time restore is for data-loss
 recovery, not routine schema rollback.
+
+Workspace migrations 0040/0041 are the [workspace schema expansion phase](../../docs/evidence/workspace-schema-expansion.md). They precede application use of personal identity/deletion metadata. Their snapshots preserve retention0039's expansion; runtime declarations remain staged ahead of activation. Do not generate migrations from an older declaration that would remove these columns or constraints. Verify production migration history/catalog before landing the matching application.
+
+Migration 0042 adds the [workspace lead and direct-topic foundations](../../docs/evidence/pi-durable-foundations.md).
+It preserves the staged 0041 schema and all legacy identities, history and audiences.
+Apply it before the new lead/topic API callers; a designation or canonical message
+is not model readiness or execution acceptance.

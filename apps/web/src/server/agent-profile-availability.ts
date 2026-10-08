@@ -29,6 +29,14 @@ export async function withAgentProfileAvailability(
   const pins = new Map<string, AgentSummary['profile']>()
   for (const agent of agents) {
     const key = JSON.stringify([agent.profile.id, agent.profile.version])
+    if (
+      agent.isWorkspaceLead &&
+      agent.profile.id === 'workspace-lead-unconfigured' &&
+      agent.profile.version === 'unconfigured'
+    ) {
+      states.set(key, 'missing')
+      continue
+    }
     states.set(key, 'unavailable')
     if (pins.size < AGENT_PROFILE_READ_LIMITS.distinctPins) pins.set(key, agent.profile)
   }

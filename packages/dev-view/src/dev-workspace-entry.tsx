@@ -47,7 +47,7 @@ import {
 import { Portal } from 'solid-js/web'
 
 import { createDevKeyboardController } from './keyboard'
-import { SelectProjectEmptyState } from './select-project-empty'
+import { TerminalEmptyState } from './terminal-empty-state'
 import {
   closePane,
   countLeaves,
@@ -72,6 +72,13 @@ import { defaultLeftUtilitySize, utilityPaneById } from './utility-preferences'
 import { UtilityResizeHandle } from './utility-resize-handle'
 import type { TerminalStreamSocket } from './terminal/transport'
 import type { ShellObservation } from './terminal/blocks'
+import {
+  createSessionTerminal,
+  isTerminalPlaceholderLeaf,
+  replaceLeaf,
+  terminateSessionTerminal,
+  terminatesOnLastClose,
+} from './terminal/terminal-close'
 import { resolveDevSelection, type DevSelection, type DevSelectionReason } from './selection'
 import { ArchiveShelf } from './sidebar/archive-shelf'
 import { devBindingsFromProjection, type DevNavBinding } from './sidebar/dev-nav-model'
@@ -164,6 +171,11 @@ export type DevWorkspaceEntryProps = Readonly<{
    * the cloud project mutations. Absent hosts render the bindings alone.
    */
   workspaceNav?: DevWorkspaceNavHost
+  /**
+   * The host's native folder picker for the sidebar's authorize step, when
+   * the host has one; the typed path input remains the fallback.
+   */
+  pickFolder?: () => Promise<string | null | undefined>
 }>
 
 export { devViewFixtureProjects } from './sidebar/fixture-scale'
@@ -387,6 +399,16 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         (leaf) => leaf.pane === 'terminal' && leaf.resourceId === undefined
       )?.id
   )
+  /**
+   * How the last terminal close ended its instance: `freed` when the runtime
+   * confirmed the terminate, `kept` when management was unavailable or the
+   * command failed, `undefined` while no closed instance is pending. Drives
+   * the closed pane's truthful hint copy.
+   */
+  const [terminalCloseOutcome, setTerminalCloseOutcome] = createSignal<
+    'freed' | 'kept' | undefined
+  >(undefined)
+  const [newTerminalPending, setNewTerminalPending] = createSignal(false)
   const [announcement, setAnnouncement] = createSignal('')
   const [capabilities, setCapabilities] = createSignal<
     ReadonlyMap<DevCapability, { granted: boolean; reason?: string }>
@@ -572,6 +594,13 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   createEffect(() => {
     utilityOwner.selectDevSession(selectedCanonicalBinding())
   })
+  createEffect(() => {
+    // A session switch invalidates any recorded close outcome: the closed
+    // pane's hint must describe the runtime the pane now points at, not the
+    // previous session's terminal.
+    selectedSession()
+    setTerminalCloseOutcome(undefined)
+  })
   const recoveryMessage = () => recoveryNotice()
 
   createEffect(() => {
@@ -634,6 +663,85 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     setLayout(next)
     schedulePreferences(next)
     return next
+  }
+  const canManageTerminal = () => capabilities().get('dev.terminal.manage')?.granted === true
+  /**
+   * Real close semantics for the last terminal leaf: when closing a leaf
+   * empties the center onto the placeholder and that leaf carried the
+   * session's primary terminal, end the runtime instance (management
+   * capability permitting) instead of leaving it running headless. Closing
+   * one of several leaves never terminates. The outcome feeds the closed
+   * pane's hint, so the copy never claims a free the runtime did not
+   * confirm.
+   */
+  const maybeTerminateClosedTerminal = (
+    stateBefore: DevLayoutState,
+    closedLeaf: PaneLeaf | undefined
+  ) => {
+    if (!closedLeaf) return
+    const scope = activeScope()
+    const runtimeSessionId = selectedSession()
+    const worktreeId = selectedSessionWorktreeId()
+    const primaryTerminalId = selectedSessionRecord()?.terminalId
+    if (
+      !scope ||
+      !runtimeSessionId ||
+      !worktreeId ||
+      !canManageTerminal() ||
+      !terminatesOnLastClose({
+        leafCountBefore: countLeaves(stateBefore.center),
+        closedLeaf,
+        primaryTerminalId,
+      })
+    )
+      return
+    const terminalId = closedLeaf.resourceId ?? primaryTerminalId
+    if (!terminalId) return
+    void terminateSessionTerminal({
+      execute: (command) => props.runtime.execute(command),
+      scope,
+      runtimeSessionId,
+      worktreeId,
+      terminalId,
+    }).then((freed) => setTerminalCloseOutcome(freed ? 'freed' : 'kept'))
+  }
+  /**
+   * The closed pane's new-terminal action: create a fresh runtime instance
+   * (the terminated primary cannot be resurrected) and bind it explicitly on
+   * the placeholder's position, so the pane mounts against the new record.
+   */
+  const openNewTerminal = async () => {
+    const scope = activeScope()
+    const runtimeSessionId = selectedSession()
+    const worktreeId = selectedSessionWorktreeId()
+    const placeholder = listLeaves(layout().center).find(isTerminalPlaceholderLeaf)
+    if (!scope || !runtimeSessionId || !worktreeId || !placeholder) return
+    setNewTerminalPending(true)
+    try {
+      const created = await createSessionTerminal({
+        execute: (command) => props.runtime.execute(command),
+        scope,
+        runtimeSessionId,
+        worktreeId,
+      })
+      if (created.status !== 'ready') {
+        setAnnouncement('The runtime could not open a new terminal.')
+        return
+      }
+      const suffix = ++nextPaneId
+      updateLayout((state) => ({
+        ...state,
+        center: replaceLeaf(state.center, placeholder.id, {
+          kind: 'leaf',
+          id: `dev-terminal-${suffix}`,
+          pane: 'terminal',
+          resourceId: created.terminal.id,
+        }),
+      }))
+      setAnnouncement('New terminal opened')
+    } finally {
+      setNewTerminalPending(false)
+    }
   }
   const showPane = (pane: DevUtilityPane) => {
     utilityOwner.showUtilityPane(pane, selectedCanonicalBinding() ?? null)
@@ -888,14 +996,21 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         disabled={countLeaves(layout().center) <= 1}
         onClick={() => {
           let nextFocusId = layout().focusedLeafId
+          const closes: Array<{ before: DevLayoutState; closedLeaf: PaneLeaf }> = []
           updateLayout((state) => {
             let next = state
             for (const leaf of listLeaves(next.center)) {
+              const before = next
               next = closePane(next, leaf.id, () => `dev-placeholder-${++nextPaneId}`)
+              closes.push({ before, closedLeaf: leaf })
             }
             nextFocusId = next.focusedLeafId
             return next
           })
+          setTerminalCloseOutcome(undefined)
+          // The final close empties the center onto the placeholder; the same
+          // last-leaf terminate decision applies to it as to a single close.
+          for (const close of closes) maybeTerminateClosedTerminal(close.before, close.closedLeaf)
           setActiveEditorFile(undefined)
           focusPaneElement(nextFocusId)
           setAnnouncement('All panes closed')
@@ -992,6 +1107,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
               onConfirmDelete={utilityOwner.confirmArchiveDelete}
             />
           }
+          pickFolder={props.pickFolder}
           onSelectSession={(projectId, sessionId) => {
             setRecoveryNotice('')
             const store = workspaceStore.getState()
@@ -1053,24 +1169,41 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                 const worktreeId = selectedSessionWorktreeId()
                 if (!scope)
                   return (
-                    <p class="dev-pane-state__line" role="status" data-state="unavailable">
-                      Terminal access requires an authenticated runtime scope.
-                    </p>
+                    <TerminalEmptyState
+                      class="dev-empty-state--center-pane"
+                      title="Terminal access requires an authenticated runtime scope."
+                    />
                   )
                 if (!runtimeSessionId)
                   return (
-                    <SelectProjectEmptyState
+                    <TerminalEmptyState
                       class="dev-empty-state--center-pane"
-                      message="Select a project from the sidebar to begin."
+                      title="Select a project from the sidebar to begin."
                       hint="The terminal runs inside a project's session worktree."
-                      onAddProject={activeScope() ? addProjectFromEmptyState : undefined}
+                      onAddProject={scope ? addProjectFromEmptyState : undefined}
                     />
                   )
                 if (!worktreeId)
                   return (
-                    <p class="dev-pane-state__line" role="status" data-state="unavailable">
-                      The selected session has no worktree binding.
-                    </p>
+                    <TerminalEmptyState
+                      class="dev-empty-state--center-pane"
+                      title="The selected session has no worktree binding."
+                    />
+                  )
+                if (isTerminalPlaceholderLeaf(leaf))
+                  return (
+                    <TerminalEmptyState
+                      class="dev-empty-state--center-pane"
+                      title="No terminal open."
+                      hint={
+                        terminalCloseOutcome() === 'freed'
+                          ? 'Closing the pane ended its terminal instance on the runtime.'
+                          : 'New terminal starts a fresh instance for the selected session.'
+                      }
+                      onNewTerminal={canManageTerminal() ? () => void openNewTerminal() : undefined}
+                      newTerminalPending={newTerminalPending()}
+                      onAddProject={addProjectFromEmptyState}
+                    />
                   )
 
                 const terminalId =
@@ -1119,12 +1252,16 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                 )
               }}
               onClose={(leafId) => {
-                let nextFocusId = layout().focusedLeafId
+                const stateBefore = layout()
+                const closedLeaf = listLeaves(stateBefore.center).find((leaf) => leaf.id === leafId)
+                let nextFocusId = stateBefore.focusedLeafId
                 updateLayout((state) => {
                   const next = closePane(state, leafId, () => `dev-placeholder-${++nextPaneId}`)
                   nextFocusId = next.focusedLeafId
                   return next
                 })
+                setTerminalCloseOutcome(undefined)
+                maybeTerminateClosedTerminal(stateBefore, closedLeaf)
                 focusPaneElement(nextFocusId)
                 return nextFocusId
               }}

@@ -203,10 +203,27 @@ export {
   changeAgentProfile,
   AgentProfileConflictError,
   createAgent,
+  ensureWorkspaceLead,
+  getWorkspaceLeadForUser,
   getAgentForUser,
   listAgentsForUser,
   updateAgentPresentation,
 } from './agents'
+export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
+export {
+  resolveLeadTurnAuthority,
+  readLeadTurnRuntime,
+  authorizeLeadTurnFundingBinding,
+  prepareLeadTurnRuntime,
+  markLeadTurnDispatchPending,
+  observeLeadTurnRuntime,
+  recoverLeadTurnRuntimeBinding,
+  requestLeadTurnCancellation,
+  publishLeadTurnResult,
+  type LeadTurnAcceptedSelection,
+  type LeadTurnRuntimeBinding,
+  type LeadTurnObservedState,
+} from './lead-turn-runtime'
 export {
   archiveTask,
   assignTask,
@@ -230,6 +247,7 @@ export {
 export {
   archiveChannel,
   createDirectAgentChannel,
+  createDirectAgentTopic,
   createGroupChannel,
   createMessage,
   createProjectChannel,

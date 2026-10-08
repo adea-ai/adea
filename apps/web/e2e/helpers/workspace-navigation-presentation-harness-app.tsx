@@ -26,15 +26,23 @@ const devCommands: Array<{
   body: Record<string, unknown>
   resource?: unknown
 }> = []
-window.__adeaDesktop = {
-  invoke: async (command, args) => {
-    calls.push({
-      command,
-      sessionId: typeof args?.focusedSessionId === 'string' ? args.focusedSessionId : null,
-    })
-    return null
-  },
-  listen: async () => () => undefined,
+// A test may set `window.__harnessNoDesktop` before importing this module to
+// boot as a plain web host: no desktop bridge, so `isDesktopRuntime()` reads
+// false and desktop-only host hooks stay undefined.
+if (!(window as unknown as { __harnessNoDesktop?: boolean }).__harnessNoDesktop) {
+  window.__adeaDesktop = {
+    invoke: async (command, args) => {
+      calls.push({
+        command,
+        sessionId: typeof args?.focusedSessionId === 'string' ? args.focusedSessionId : null,
+      })
+      // The native picker answers with the fixture checkout so a threaded
+      // pick visibly fills the add surface's path input.
+      if (command === 'desktop_folder_pick') return { paths: ['/srv/checkout'] }
+      return null
+    },
+    listen: async () => () => undefined,
+  }
 }
 
 const scope = {
@@ -250,6 +258,9 @@ const runtime = {
         ],
         observedAt: new Date().toISOString(),
       }
+    } else if (command.operation === 'dev.project.bookmarks') {
+      // The add surface loads authorized roots as a paged item list.
+      value = { items: [] }
     } else if (command.operation === 'dev.device.capabilities') {
       value = {
         items: [
@@ -284,6 +295,24 @@ const client = {
     workspaces: [workspace],
   }),
   getWorkspace: async () => ({ workspace, agents: [], tasks: [] }),
+  // The Dev sidebar's New project flow names the cloud project first; the
+  // production host resolves that through the mutation's client call.
+  createProject: async (
+    workspaceId: string,
+    input: Readonly<{ id: string; name: string; iconKey?: string; sourceKind?: string }>
+  ) => ({
+    project: {
+      id: input.id,
+      workspaceId,
+      name: input.name,
+      iconKey: input.iconKey ?? 'folder',
+      sourceKind: input.sourceKind ?? 'none',
+      lifecycleState: 'active',
+      sortOrder: 0,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    },
+  }),
   listProjects: async () => [],
   listChannels: async () => [],
   listAgents: async () => [],
@@ -321,17 +350,22 @@ const appRoute = createRoute({
   },
 })
 const routeTree = rootRoute.addChildren([appRoute])
+// A test may set `window.__harnessInitialEntry` before importing this module:
+// the default fixture entry keeps the presentation lanes on their fixture
+// selection, while a bare `/?view=dev` boots the production path (no fixture
+// projects, nothing seeded in the store) for host-wiring assertions.
+const initialEntry =
+  (window as unknown as { __harnessInitialEntry?: string }).__harnessInitialEntry ??
+  '/?view=dev&devProject=fixture-adea&devSession=fixture-shell&devE2e=preserved'
 const router = createRouter({
   routeTree,
-  history: createMemoryHistory({
-    initialEntries: [
-      '/?view=dev&devProject=fixture-adea&devSession=fixture-shell&devE2e=preserved',
-    ],
-  }),
+  history: createMemoryHistory({ initialEntries: [initialEntry] }),
 })
 
-workspaceStore.getState().setSelectedDevProjectId('fixture-adea')
-workspaceStore.getState().setSelectedRuntimeSessionId('fixture-shell')
+if (initialEntry.includes('devE2e=preserved')) {
+  workspaceStore.getState().setSelectedDevProjectId('fixture-adea')
+  workspaceStore.getState().setSelectedRuntimeSessionId('fixture-shell')
+}
 
 const root = document.getElementById('harness-root')
 if (!root) throw new Error('workspace navigation harness root missing')

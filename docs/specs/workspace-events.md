@@ -69,6 +69,31 @@ optional correlation id.
 
 ### Explicit Agent profile changes
 
+Structural workspace-lead provisioning emits the existing `agent.created` event exactly
+once, in the identity transaction. Concurrent retries return the same Agent without a
+second event or model call. Lead designation, a missing structural profile, provider
+authentication and execution acceptance remain separate state. New direct topics use the
+same `channel.created` event; they preserve the canonical channel audience rather than
+copying a previous conversation's messages or participants.
+
+Explicit `leadTurn: true` message admission commits the ordinary `message.created`
+event, canonical message and a server-owned blocked dispatch intent in one transaction.
+Failure rolls all three back; retries retain the same message/intent and do not append
+another event. The UUID intent pins lead/profile/channel/audience references without
+copying message bodies or model credentials. A saved message event proves persistence;
+it does not prove runtime acceptance, dispatch or public child outcome delivery.
+Ordinary direct project/session message writes create no lead intent.
+
+Preparation separately retains exact canonical execution, attempt and selection pins;
+it does not start inference or mint a second session store. An explicit start requires
+the prepared funding confirmation and current authority. Status/progress reads and
+recovery never imply a start. Runtime progress is a bounded metadata projection rather
+than a durable token stream. Completed output publication commits its canonical Agent
+message/event and idempotent publication receipt together, under locks checking the
+current audience, original sender, pinned profile and runtime binding, plus a fresh
+trusted publication grant. A withheld or unknown outcome remains retained without a
+public append. Missing runtime composition remains unavailable.
+
 `agent.profile_changed` schema version 2 records `actorUserId`, `agentId`,
 `previousProfileId`, `previousProfileVersion`, `profileId`, `profileVersion`
 and the new `profileRevision`. The reference change, revision increment and
@@ -126,8 +151,8 @@ execution's configuration or current compatibility.
 
 The log stays one shared, ordered history per workspace; filtering happens at delivery.
 `classifyWorkspaceEventsForUser` (`packages/db/src/event-visibility.ts`) takes each page the
-stream is about to send — replay and live alike — and the subscriber's **current** project access,
-and gives every event one of three outcomes:
+stream is about to send — replay and live alike — and the subscriber's **current** project and channel access,
+and gives every event one of four outcomes:
 
 - **deliver**: sent as logged. `project.reordered` is narrowed to the project ids the subscriber can
   see.
@@ -135,30 +160,45 @@ and gives every event one of three outcomes:
   them — `project.visibility_changed`, `project.members_changed`, `task.project_changed`, and agent
   events naming a hidden project. The frame keeps the type, so the client refreshes, but drops the
   payload, aggregate id, actor and correlation id.
-- **withheld**: everything else that touches a hidden project. The stream sends
+- **audience_changed**: a version-2 `channel.updated` records a change from workspace visibility
+  to participant visibility and current channel access denies the subscriber. If its project is
+  still visible, the stream sends `event: workspace.audience_changed` with only
+  `data: {"workspaceSequence": n}` and the signed cursor. No channel, actor or content identity
+  travels. Private-from-creation channels and transitions in hidden projects remain withheld.
+  The client cancels pending queries and erases resident workspace and account data before
+  refetching. It clears channel/thread selection and invalidates retained transcript generations;
+  late query or mutation responses cannot restore the cleared conversation cache. Direct runtime
+  session selection and other workspaces retain their own authority.
+- **withheld**: everything else that touches a hidden project, a participant-only channel whose
+  current audience excludes the subscriber, or a missing/foreign referenced resource. The stream sends
   `event: workspace.withheld` with `data: {"workspaceSequence": n}` and the usual signed cursor in
   `id:`. The client advances its sequence without refreshing anything and without reading the skip
   as a gap. The frame reveals only that the shared sequence advanced, which any later event would
   reveal too.
 
 How an event maps to a project: the payload's `projectId`; the aggregate id of `project` events;
-the channel's project for `channelId`; the message's channel for a `messageId` without a
-`channelId`; the task's project for `taskId`; an artifact's task; and a content ref's task or
+the channel's project for `channelId`; the message's channel for every `messageId`, even when a
+`channelId` is also present; the task's project for `taskId`; an artifact's task; and a content ref's task or
 message channel. Lookups use current state, so a task moved into a hidden project is hidden in
 replay too, and a removed project member stops seeing the project's history on the next page.
+Channel, message, thread/reply and content references also require current channel audience access.
+Workspace owners and admins retain their project privileges but cannot bypass a participant-only
+channel's audience. Removing a participant therefore withholds that channel's replay events as well
+as future events; archived conversation history follows the same current audience check.
 
 **Never via resync.** `resync_required` frames carry only a fresh cursor; the client then refetches
-current state through the query layer, which applies the same project access. Cursors carry no
+current state through the query layer, which applies the same project and channel access. Cursors carry no
 access decision.
 
 **Membership.** If the subscriber is no longer a workspace member when a page is classified, the
 stream ends with `membership-revoked` straight away rather than at the next 30-second recheck.
 
 **Cost.** Every page that has events costs one or two indexed reads for the access scope
-(membership plus the workspace's `members` projects with the subscriber's rows). When the
-subscriber can see every project — owners, admins, and any workspace without hidden projects for
-them — that is all. Otherwise each page adds at most four batched lookups (channels, messages,
-tasks, artifacts/content refs) keyed by the ids in the page, never one query per event. Idle polls
+(membership plus the workspace's `members` projects with the subscriber's rows). Each page adds at
+most five batched reference lookups (channels, messages, tasks, artifacts, content refs) keyed by
+the ids in the page, never one query per event. Channel audience checks use indexed participant
+existence projections in those lookups, including for owners and admins. A page containing only
+project events needs only the access-scope reads. Idle polls
 read nothing extra.
 
 **Client refresh.** `project.visibility_changed` and `project.members_changed` refresh the whole
@@ -292,6 +332,15 @@ This proves liveness, never execution acceptance.
 - `packages/data/tests/unit/events.test.ts`: frame parsing, family-to-query
   mapping, withheld frames advancing without a gap, backoff, apply-once semantics with cursor persistence, gap and resync
   recovery, and the server-retry floor.
+- `packages/db/tests/integration/event-audience.test.ts`: current channel audience and archived
+  replay, ID-free visibility narrowing, and private/hidden/missing reference denial.
+- `packages/data/tests/unit/events-audience.test.ts` and `mutations-audience.test.ts`: real
+  QueryClient observers lose revoked data before denied refetch; cancelled late queries and
+  accepted late mutations cannot repopulate it. Malformed audience frames cannot advance cursors.
+  `conversation-audience-resource.test.ts` mounts the real Solid query resource and rejects an
+  old successful page during its delayed resource update using the request's audience generation.
+  State tests cover channel/thread reset while preserving direct sessions. Conversation surface
+  audience tests pin source guards; they do not qualify mounted UI or browser behavior.
 - `packages/db/tests/integration/account-summary.test.ts`: the frontier on
   insert, thread reply, idempotent retry and delete; counts across three
   member workspaces in exactly one query; a non-member workspace never

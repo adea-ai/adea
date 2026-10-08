@@ -17,6 +17,10 @@ resolver. Resolved plaintext is shown only while its resolver, workspace, and
 content reference still match. Switching items hides old plaintext immediately,
 and later responses or failures from the previous request are ignored.
 
+Navigation projection and selection live in `workspace-model`; Chat mention parsing
+and command-search matching live in `workspace-text-match`. Their separate module
+boundaries keep text helpers out of Virtual navigation's eager chunk graph.
+
 ## Conversation presentation
 
 The workspace keeps channel and thread queries, participant and artifact lookup,
