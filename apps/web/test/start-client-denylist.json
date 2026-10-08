@@ -13,6 +13,7 @@
   "/repo/node_modules/server-only/index.js",
   "/repo/apps/web/src/server/event-cursor.ts",
   "/repo/apps/web/src/server/workspace-event-stream.ts",
+  "/repo/apps/web/src/server/control-plane-events.ts",
   "/repo/node_modules/react/jsx-runtime.js",
   "/repo/node_modules/react-dom/client.js",
   "/repo/node_modules/@radix-ui/react-dialog/dist/index.js",

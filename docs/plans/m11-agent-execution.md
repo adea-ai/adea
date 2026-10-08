@@ -30,6 +30,16 @@ they do not certify a deployed Control Plane or a packaged desktop.
 
 ## Integration and release gates
 
+The [Control Plane event privacy boundary](../specs/workspace-events.md#control-plane-execution-event-privacy-boundary)
+decodes the pinned public execution envelope into bounded metadata, with source
+hash verification and independently supplied correlation scope. It is a
+prerequisite for #39, not a durable inbox or authenticated ingestion route.
+The public envelope lacks selected host/location binding, so retained accepted
+execution metadata and the authenticated producer must establish that identity
+before transactional application. Deduplication, ordering/replay, Task and
+Conversation Service mapping, Artifact/usage attribution and live delivery remain
+required; no acceptance-ledger state changes.
+
 [#42](https://github.com/adea-ai/adea/issues/42) and
 [#130](https://github.com/adea-ai/adea/issues/130) own the linked pre-release
 certification journeys. Their original criteria remain authoritative. Record
