@@ -755,21 +755,21 @@ export function ConventionalWorkspaceShell(props: {
                   title="Conversation details"
                   description="Canonical Adea identity and scope."
                 >
-                  <div class="conventional-conversation-details">
-                    <p>
-                      <span>Kind</span>
+                  <div class="grid gap-3">
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Kind</span>
                       <strong>{controller.selectedChannel?.kind.replace('_', ' ')}</strong>
                     </p>
-                    <p>
-                      <span>Visibility</span>
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Visibility</span>
                       <strong>{controller.selectedChannel?.visibility}</strong>
                     </p>
-                    <p>
-                      <span>Participants</span>
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Participants</span>
                       <strong>{controller.selectedChannel?.participants.length ?? 0}</strong>
                     </p>
-                    <p>
-                      <span>Task link</span>
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Task link</span>
                       <strong>{controller.selectedChannel?.taskId ? 'Linked' : 'None'}</strong>
                     </p>
                   </div>
