@@ -203,31 +203,6 @@
   z-index: calc(var(--z-menu) - 1);
 }
 
-/*
- * The pending-update dot: one accent indicator shared by the account trigger
- * and the Updates menu item. The dot carries no text on purpose — the host
- * controls extend their accessible names ("update available") so the state is
- * announced, and the dialog itself remains the source of truth.
- */
-[data-account-trigger] .global-rail__update-dot {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.6rem;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--primary);
-  pointer-events: none;
-}
-[role='menuitem'] .global-rail__update-dot {
-  flex: none;
-  width: 0.45rem;
-  height: 0.45rem;
-  margin-inline-start: auto;
-  border-radius: 50%;
-  background: var(--primary);
-}
-
 /* Root-level so portaled dialogs and sheets resolve the aliases too. */
 :root,
 .conventional-workspace,
@@ -1026,11 +1001,6 @@
   color: var(--cw-muted);
   font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
-.conventional-dialog-empty {
-  padding: 1rem;
-  color: var(--cw-muted);
-  text-align: center;
-}
 .conventional-artifact-detail {
   display: grid;
   /* The single implicit column track is content-sized, which shrink-wrapped
@@ -1051,12 +1021,6 @@
 .conventional-artifact-detail .conventional-surface-header {
   max-width: none;
   margin-inline: 0;
-}
-.conventional-search-hint {
-  padding: 0 1rem 0.35rem;
-  color: var(--cw-muted);
-  font-size: calc(0.75rem * var(--font-ui-scale, 1));
-  text-align: right;
 }
 .conventional-conversation-details {
   display: grid;
@@ -1521,6 +1485,12 @@
   min-width: 0;
   align-items: center;
   gap: 0.5rem;
+  /* Fixed-width controls never give up width to a sibling group: below the
+     shared 48rem breakpoint a shrinking group once painted over the last
+     control's edge (WCAG 2.5.8 target size), and with source control's
+     search row living in the leading group the same squeeze is possible at
+     any width. The section's own scroller owns the overflow instead. */
+  flex-shrink: 0;
 }
 [data-topbar-navigation][data-dev-actions] {
   display: grid;
@@ -1609,23 +1579,6 @@
   text-align: center;
 }
 
-/* Source control trades the plain title for its pull-request search + sync
-   row. The published title column clamps at 22vw, which leaves the search
-   too narrow for its placeholder, so the row's view widens the middle track
-   (layout-only, on the host's own hook; the leading and trailing tracks are
-   flexible and absorb the difference — but never below the sidebar edge the
-   view divider is painted at, or the divider would clip into the search). */
-[data-workspace-topbar]:has([data-scm-search]) {
-  grid-template-columns:
-    minmax(
-      calc(
-        var(--workspace-rail-width) + var(--dev-context-sidebar-width) -
-          var(--workspace-topbar-inline-start-inset)
-      ),
-      1fr
-    )
-    clamp(280px, 36vw, 640px) minmax(0, 1fr);
-}
 /* A view-owned title-slot control (source control's pull-request search)
    fills the centred slot in place of the plain title, so the field itself is
    what sits at the bar's centre. */

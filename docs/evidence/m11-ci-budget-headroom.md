@@ -59,3 +59,25 @@ bounds are unchanged. Dedicated machine-resource tests retain the observation,
 identity, output-bound and stop-authorization coverage. The composition test
 keeps its original timeout and resource/stop assertions; this is fixture
 isolation, not a change to application resource behavior.
+
+## First hosted candidate and current-main integration
+
+Candidate `5e817ffa611e383032e22710a7cc3cd359bad9a6` passed the
+[hosted bundle check](https://github.com/adea-ai/adea/actions/runs/37705244741)
+and [Neon preview job](https://github.com/adea-ai/adea/actions/runs/37705244770/job/113077976351).
+The preview verified 42 migrations and completed 111 integration tests / 1,827
+assertions with no failures. This is the CI repair candidate's receipt; it does
+not exercise the retention operator candidate's additional cases or establish
+M11 acceptance.
+
+Its [visual job](https://github.com/adea-ai/adea/actions/runs/37705244749/job/113077944201)
+passed the workspace cases, then failed all 12 Linux ChatView captures. Each
+hosted diff contains the same 36 significant pixels at the neutral status dot
+introduced by #1155's shared `statusDotVariants`; the macOS ChatView baseline
+already includes that dot. The subsequent #1157 and #1166 platform captures
+landed on main. This candidate integrates main
+`80f6c9689dd550790546c3e2e8bcc5b96998d06f` instead of duplicating their baselines;
+its owned diff remains the two finite budgets, fixture seam, and this evidence.
+Fresh validation of the integrated head remains required. An additional local
+Linux diagnostic stopped at dev-server readiness and supplies no product test
+result.
