@@ -52,13 +52,38 @@ describe('account directory paging boundary', () => {
     expect(decodeAccountDirectoryCursor(encoded)).toEqual(cursor)
   })
 
-  test('round-trips an inbox cursor, normalizing the timestamp', () => {
-    const cursor = {
+  test('round-trips an inbox cursor at full microsecond precision', () => {
+    // The regression: a Date-normalized cursor truncated PostgreSQL's
+    // microseconds to milliseconds, so a boundary row stored at .123456
+    // produced a .123000 cursor and the tie group behind it was skipped.
+    const microsecond = {
       id: '10000000-0000-4000-8000-000000000003',
-      updatedAt: '2026-10-08T10:00:00.000Z',
+      updatedAt: '2026-10-08T12:00:00.123456Z',
     }
-    const encoded = encodeAccountInboxCursor(cursor)
-    expect(decodeAccountInboxCursor(encoded)).toEqual(cursor)
+    expect(decodeAccountInboxCursor(encodeAccountInboxCursor(microsecond))).toEqual(microsecond)
+    // The exact text the query renders is carried verbatim, offset included.
+    const rendered = {
+      id: '10000000-0000-4000-8000-000000000004',
+      updatedAt: '2026-10-08 12:00:00.123456+00',
+    }
+    expect(decodeAccountInboxCursor(encodeAccountInboxCursor(rendered))).toEqual(rendered)
+    expect(decodeAccountInboxCursor(encodeAccountInboxCursor(microsecond)).updatedAt).toContain(
+      '.123456'
+    )
+  })
+
+  test('rejects timestamps the SQL cast cannot trust', () => {
+    for (const updatedAt of [
+      '2026-10-08T12:00:00.123456789Z', // nanoseconds do not exist in SQL
+      '2026-10-08T12:00:00.123456', // no offset: a session zone would decide
+      '2026-13-01T10:00:00Z', // month out of range
+      '2026-10-08 25:00:00+00', // hour out of range
+      '2026-10-08', // date only
+    ]) {
+      expect(() =>
+        decodeAccountInboxCursor(forged({ id: '10000000-0000-4000-8000-000000000001', updatedAt }))
+      ).toThrow('Inbox cursor invalid')
+    }
   })
 
   test('rejects malformed cursors as invalid instead of throwing raw errors', () => {

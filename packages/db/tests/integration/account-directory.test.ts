@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { UserPrincipalRef } from '@adea-ai/types'
-import { and, eq, inArray, isNotNull } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 
 import { accountAgentDirectory, findAccountAgent } from '../../src/account-directory'
+import { decodeAccountInboxCursor } from '../../src/account-cursor'
 import { accountConversationInbox, findAccountConversation } from '../../src/account-inbox'
 import { createAgent } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
@@ -18,7 +19,11 @@ import {
 import { createTemporaryUserSession } from '../../src/identity'
 import { setProjectMember, setProjectVisibility } from '../../src/project-sharing'
 import { createProject } from '../../src/projects'
-import { markChannelReadState, markThreadReadState } from '../../src/read-state'
+import {
+  listReadStateForUser,
+  markChannelReadState,
+  markThreadReadState,
+} from '../../src/read-state'
 import {
   agents,
   channelParticipants,
@@ -483,6 +488,116 @@ describe.skipIf(!connectionUrl)('account-wide directory and inbox', () => {
     expect(
       accountConversationInbox(connection.db, alice, { after: 'forged-cursor' })
     ).rejects.toThrow('Inbox cursor invalid')
+  })
+
+  test('inbox cursors carry microsecond precision and traverse tied rows exactly once', async () => {
+    const alice = await user('micro-owner')
+    const workspaceId = await workspace(alice, 'Microsecond HQ')
+    const lanes: string[] = []
+    for (const name of ['Micro One', 'Micro Two', 'Micro Three', 'Micro Four', 'Micro Five']) {
+      lanes.push((await projectWithChannel(workspaceId, alice, name)).channelId)
+    }
+    // Three conversations share one exact microsecond instant, and the next
+    // sits at the truncated millisecond a Date-normalized cursor used to
+    // carry — the skipped-tie bug this walk pins shut.
+    const tied = sql`timestamptz '2026-10-08 12:00:00.123456+00'`
+    const truncated = sql`timestamptz '2026-10-08 12:00:00.123000+00'`
+    await connection.db
+      .update(channels)
+      .set({ updatedAt: tied })
+      .where(inArray(channels.id, [lanes[0]!, lanes[1]!, lanes[2]!]))
+    await connection.db
+      .update(channels)
+      .set({ updatedAt: truncated })
+      .where(eq(channels.id, lanes[3]!))
+    await connection.db
+      .update(channels)
+      .set({ updatedAt: sql`timestamptz '2026-10-08 11:00:00.000001+00'` })
+      .where(eq(channels.id, lanes[4]!))
+
+    // The cursor itself carries the full microsecond text, not a Date's
+    // millisecond rounding.
+    const firstPage = await accountConversationInbox(connection.db, alice, { limit: 1 })
+    expect(decodeAccountInboxCursor(firstPage.nextCursor!)).toEqual({
+      id: firstPage.conversations[0]!.id,
+      updatedAt: '2026-10-08T12:00:00.123456Z',
+    })
+
+    // limit=1 traverses every row exactly once across the tie.
+    const seen: string[] = []
+    let after: string | undefined
+    for (let page = 0; page < 10; page += 1) {
+      const result = await accountConversationInbox(connection.db, alice, { after, limit: 1 })
+      expect(result.conversations).toHaveLength(1)
+      seen.push(result.conversations[0]!.id)
+      after = result.nextCursor
+      if (!after) break
+    }
+    expect(after).toBeUndefined()
+    expect(seen).toHaveLength(lanes.length)
+    expect(seen.toSorted()).toEqual(lanes.toSorted())
+
+    // The tie group is contiguous and internally id-descending — the id
+    // tiebreak is what makes the equal timestamps a total order.
+    const tie = seen.filter((id) => [lanes[0], lanes[1], lanes[2]].includes(id))
+    expect(tie).toHaveLength(3)
+    const tieIndexes = tie.map((id) => seen.indexOf(id))
+    expect(tieIndexes[1]).toBe(tieIndexes[0]! + 1)
+    expect(tieIndexes[2]).toBe(tieIndexes[0]! + 2)
+    expect([...tie].toSorted().toReversed()).toEqual(tie)
+  })
+
+  test('inbox thread unread sums unread replies and manual marks like workspace read state', async () => {
+    const alice = await user('thread-owner')
+    const workspaceId = await workspace(alice, 'Thread HQ')
+    const lane = (await projectWithChannel(workspaceId, alice, 'Threads')).channelId
+    const rootA = await post(workspaceId, lane, alice)
+    const rootB = await post(workspaceId, lane, alice)
+    for (let index = 0; index < 3; index += 1)
+      await post(workspaceId, lane, alice, { threadRootMessageId: rootA.id })
+    for (let index = 0; index < 2; index += 1)
+      await post(workspaceId, lane, alice, { threadRootMessageId: rootB.id })
+
+    const inboxEntry = async () =>
+      (await accountConversationInbox(connection.db, alice)).conversations.find(
+        ({ id }) => id === lane
+      )!
+    const canonical = async () =>
+      (await listReadStateForUser(connection.db, workspaceId, alice)).find(
+        ({ channelId }) => channelId === lane
+      )!
+
+    // Three unread replies in one thread count as three, not one thread.
+    expect((await inboxEntry()).threadUnreadCount).toBe(5)
+    expect((await inboxEntry()).threadUnreadCount).toBe((await canonical()).threadUnreadCount)
+    expect((await inboxEntry()).unread).toBe(true)
+
+    // Reading thread A leaves exactly thread B's two replies.
+    await markThreadReadState(connection.db, workspaceId, lane, rootA.id, alice, 'read')
+    expect((await inboxEntry()).threadUnreadCount).toBe(2)
+    expect((await inboxEntry()).threadUnreadCount).toBe((await canonical()).threadUnreadCount)
+
+    // A manual mark on thread B adds one on top of its (now zero) unread
+    // replies — the frontier itself moved to latest.
+    await markThreadReadState(connection.db, workspaceId, lane, rootB.id, alice, 'unread')
+    expect((await inboxEntry()).threadUnreadCount).toBe(1)
+    expect((await inboxEntry()).threadUnreadCount).toBe((await canonical()).threadUnreadCount)
+
+    // A new reply in the read thread flags through the manual mark on B.
+    await post(workspaceId, lane, alice, { threadRootMessageId: rootA.id })
+    expect((await inboxEntry()).threadUnreadCount).toBe(2)
+    expect((await inboxEntry()).threadUnreadCount).toBe((await canonical()).threadUnreadCount)
+
+    // Reading the threads drains the sum to zero, but the row's own top-level
+    // roots are still unread — the flag only clears once the channel reads.
+    await markThreadReadState(connection.db, workspaceId, lane, rootA.id, alice, 'read')
+    await markThreadReadState(connection.db, workspaceId, lane, rootB.id, alice, 'read')
+    expect((await inboxEntry()).threadUnreadCount).toBe(0)
+    expect((await inboxEntry()).threadUnreadCount).toBe((await canonical()).threadUnreadCount)
+    expect((await inboxEntry()).unread).toBe(true)
+    await markChannelReadState(connection.db, workspaceId, lane, alice, 'read')
+    expect((await inboxEntry()).unread).toBe(false)
+    expect((await inboxEntry()).threadUnreadCount).toBe(0)
   })
 
   test('cross-workspace isolation: busy foreign workspaces never leak into the account view', async () => {

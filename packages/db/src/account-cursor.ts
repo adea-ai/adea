@@ -102,11 +102,22 @@ export function encodeAccountInboxCursor(cursor: AccountInboxCursor): string {
   return encodeCursor({ ...cursor, v: 1 })
 }
 
+// PostgreSQL keeps timestamptz at microsecond precision while JavaScript
+// Dates hold only milliseconds, so a cursor value that round-trips through
+// `Date` compares `.123000` against stored `.123456` rows and silently skips
+// them after the tie. The cursor therefore carries the timestamp TEXT
+// verbatim — microseconds and offset included — and validation only checks
+// the shape the SQL `::timestamptz` cast will accept. Calendars are checked
+// down to month/day/hour bounds; day-of-month vs month length is left to the
+// cast, whose failure the request boundary reports like any server fault.
+const TIMESTAMP_PATTERN =
+  /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])[T ]([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,6})?(Z|[+-](0\d|1[0-4])(:?[0-5]\d)?)$/
+
 export function decodeAccountInboxCursor(cursor: string): AccountInboxCursor {
   return decodeCursor(cursor, 'Inbox cursor invalid', (value) => {
     if (!hasStringFields(value, ['id', 'updatedAt']) || !isAccountResourceId(value.id)) return null
-    const updatedAt = new Date(value.updatedAt as string)
-    if (Number.isNaN(updatedAt.getTime())) return null
-    return { id: value.id as string, updatedAt: updatedAt.toISOString() }
+    const updatedAt = value.updatedAt as string
+    if (!TIMESTAMP_PATTERN.test(updatedAt)) return null
+    return { id: value.id as string, updatedAt }
   })
 }

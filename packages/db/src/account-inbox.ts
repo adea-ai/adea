@@ -43,6 +43,8 @@ type InboxRow = {
   version: number
   createdAt: Date | string
   updatedAt: Date | string
+  /** Exact `updated_at` text at microsecond precision; the cursor's sort key. */
+  updatedAtText: string
   latestTopLevelSequence: string | number
   manuallyUnread: boolean
   topLevelUnreadCount: string | number
@@ -67,8 +69,11 @@ type InboxRow = {
 // Unread state reuses the counts-only account summary's contract (ADR 0011):
 // the denormalized `channels.latest_message_sequence` frontier gates the
 // top-level count, so a read conversation costs no message access; the
-// mention lateral runs only for channels unread by sequence. Nothing here
-// names another person.
+// mention lateral runs only for channels unread by sequence. Thread unread
+// follows the canonical workspace read-state semantics exactly — the sum of
+// live replies past each thread's frontier, plus one per manually-unread
+// thread — so an inbox row and the workspace read state can never disagree.
+// Nothing here names another person.
 
 const inboxSelection = sql`
     channel.id as "id",
@@ -85,6 +90,12 @@ const inboxSelection = sql`
     channel.version as "version",
     channel.created_at as "createdAt",
     channel.updated_at as "updatedAt",
+    /* The cursor's ordering key: exact timestamp text at microsecond
+       precision, independent of both the driver's Date mapping and the
+       session time zone. A Date-normalized cursor would compare .123000
+       against stored .123456 rows and skip them after a tie. */
+    to_char(channel.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+      as "updatedAtText",
     channel.latest_message_sequence as "latestTopLevelSequence",
     coalesce(read_state.manually_unread, false) as "manuallyUnread",
     (
@@ -99,10 +110,20 @@ const inboxSelection = sql`
       else 0
       end
     ) as "topLevelUnreadCount",
+    /* Canonical thread semantics, identical to the workspace read state
+       (read-state.ts): per thread, the live replies past the thread's read
+       frontier, plus one for a manual unread mark — summed across the
+       channel. Counting unread THREADS would collapse three unread replies
+       into one. */
     (
-      select count(*)
+      select coalesce(sum(thread_entry.unread), 0)
       from (
-        select message.thread_root_message_id
+        select
+          count(message.id) filter (
+            where message.sequence > coalesce(thread_state.last_read_sequence, 0)
+          )
+          + case when coalesce(thread_state.manually_unread, false) then 1 else 0 end
+            as unread
         from ${messages} as message
         /* Thread state is keyed per (workspace, user, thread root), so the
            join never splits a thread. */
@@ -117,9 +138,7 @@ const inboxSelection = sql`
           message.thread_root_message_id,
           thread_state.last_read_sequence,
           thread_state.manually_unread
-        having max(message.sequence) > coalesce(thread_state.last_read_sequence, 0)
-          or coalesce(thread_state.manually_unread, false)
-      ) as unread_threads
+      ) as thread_entry
     ) as "threadUnreadCount",
     coalesce(mention.count, 0) as "unreadMentions"
   `
@@ -213,12 +232,16 @@ function inboxEntry(row: InboxRow): AccountConversationInboxEntry {
  * independent of the currently selected workspace (M11.03). Pages are
  * keyset-paginated on `(updated_at, id)` descending — a total order over
  * stable conversation ids — so rows shifting between pages never duplicates
- * or skips one inside a single walk. The ordering key is the channel's own
- * metadata recency, which message writes deliberately leave alone (they
- * advance `latest_message_sequence`, carried on every row, instead);
- * re-ranking by message activity belongs with the inbox UI slice and its own
- * reviewed index migration. `includeArchived` lists archived conversations
- * where their history remains reachable; live ones only by default.
+ * or skips one inside a single walk. The cursor carries the boundary row's
+ * `updated_at` at PostgreSQL's full microsecond precision (rendered in the
+ * query as exact UTC text), because a Date-normalized value would truncate
+ * to milliseconds and skip rows that tie across the truncated digit.
+ * The ordering key is the channel's own metadata recency, which message
+ * writes deliberately leave alone (they advance `latest_message_sequence`,
+ * carried on every row, instead); re-ranking by message activity belongs
+ * with the inbox UI slice and its own reviewed index migration.
+ * `includeArchived` lists archived conversations where their history
+ * remains reachable; live ones only by default.
  */
 export async function accountConversationInbox(
   database: Database,
@@ -245,9 +268,11 @@ export async function accountConversationInbox(
     conversations: Object.freeze(page.map(inboxEntry)),
     ...(page.length < rows.length && last
       ? {
+          // The exact timestamp text, not a Date-normalized one: PostgreSQL
+          // compares microseconds while `Date` holds only milliseconds.
           nextCursor: encodeAccountInboxCursor({
             id: last.id,
-            updatedAt: toIso(last.updatedAt),
+            updatedAt: last.updatedAtText,
           }),
         }
       : {}),
