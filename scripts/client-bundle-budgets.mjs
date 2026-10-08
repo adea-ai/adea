@@ -175,6 +175,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // names), the draft-row hint, the group-by mode label and the
     // @adea-ai/ui 0.115 sidebar options. Raw ratchets to 114 KiB (~1.3%
     // headroom); gzip to 39,200 (~1.4%).
+    // Unified project creation (2026-10-08): splitting Chat text helpers from
+    // the navigation model measures 116,093 raw / 39,095 gzip on cold Linux.
+    // Retain the original limits rather than inheriting #1165's headroom
+    // increase; aggregate caps and route graph checks also remain unchanged.
     virtual: { rawBytes: 114 * 1024, gzipBytes: 39_200 },
     // The chat route composes the shared conversation surface and composer
     // (2026-09-30 migration) instead of app-local markup: 221,045 raw /
