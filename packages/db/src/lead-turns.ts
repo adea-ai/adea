@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
@@ -51,7 +52,7 @@ async function lockAuthority(
     .where(and(eq(workspaces.id, workspaceId), isNull(workspaces.deletedAt)))
     .for('share')
   const [member] = await tx
-    .select({ id: workspaceMemberships.id })
+    .select({ id: workspaceMemberships.id, role: workspaceMemberships.role })
     .from(workspaceMemberships)
     .where(
       and(
@@ -61,6 +62,16 @@ async function lockAuthority(
     )
     .for('share')
   if (!workspace || !member) throw new Error('Lead turn unavailable')
+  if (
+    requireAudienceMemberships &&
+    !(
+      await authorizeWorkspaceAction(
+        { permission: 'runtime.invoke', principal, workspaceId },
+        { findMembership: async () => member }
+      )
+    ).allowed
+  )
+    throw new Error('Lead turn unavailable')
   const [channel] = await tx
     .select()
     .from(channels)

@@ -29,13 +29,14 @@ export type CurrentLeadTurnProduct = Readonly<{
 /**
  * Trusted in-process reader: selectors resolve the exact mapped workspace and stored
  * original actor. Current actor, designated lead, profile, message and complete audience
- * authority remain locked until the canonical evidence is read. No caller grants are accepted.
+ * authority remain locked through the awaited disclosure callback. No caller grants are accepted.
  */
-export async function readCurrentLeadTurnProduct(
+export async function withCurrentLeadTurnProduct<T>(
   database: AgentHqDatabase | AgentHqTransaction,
   controlPlaneWorkspaceId: string,
-  intentId: string
-): Promise<CurrentLeadTurnProduct | undefined> {
+  intentId: string,
+  disclose: (product: CurrentLeadTurnProduct) => Promise<T>
+): Promise<T | undefined> {
   if (!isLeadTurnProductSelector(controlPlaneWorkspaceId, intentId)) return undefined
   return database.transaction(async (tx) => {
     // Resolve selectors without early locks. The canonical helper owns lock order,
@@ -82,26 +83,42 @@ export async function readCurrentLeadTurnProduct(
           !['workspace', 'participants'].includes(intent.channelVisibility)
         )
           throw new Error('Lead turn unavailable')
-        return Object.freeze({
-          workspaceId: workspace.id,
-          controlPlaneWorkspaceId: mappedWorkspaceId,
-          intentId: intent.id,
-          intentCreatedAt: intent.createdAt.toISOString(),
-          channelId: intent.channelId,
-          channelVersion: intent.channelVersion,
-          channelVisibility: intent.channelVisibility as 'workspace' | 'participants',
-          audience: Object.freeze([...intent.audience]),
-          messageId: message.id,
-          messageVersion: message.version,
-          actorUserId: intent.actorUserId,
-          agentId: intent.agentId,
-          controlPlaneAgentId: intent.controlPlaneAgentId,
-          profileId: intent.profileId,
-          profileVersion: intent.profileVersion,
-          profileRevision: intent.profileRevision,
-          prompt: message.bodyText,
-        })
+        return disclose(
+          Object.freeze({
+            workspaceId: workspace.id,
+            controlPlaneWorkspaceId: mappedWorkspaceId,
+            intentId: intent.id,
+            intentCreatedAt: intent.createdAt.toISOString(),
+            channelId: intent.channelId,
+            channelVersion: intent.channelVersion,
+            channelVisibility: intent.channelVisibility as 'workspace' | 'participants',
+            audience: Object.freeze([...intent.audience]),
+            messageId: message.id,
+            messageVersion: message.version,
+            actorUserId: intent.actorUserId,
+            agentId: intent.agentId,
+            controlPlaneAgentId: intent.controlPlaneAgentId,
+            profileId: intent.profileId,
+            profileVersion: intent.profileVersion,
+            profileRevision: intent.profileRevision,
+            prompt: message.bodyText,
+          })
+        )
       }
     )
   })
+}
+
+/** Snapshot convenience only. Disclosure requiring fresh authority uses the callback port. */
+export function readCurrentLeadTurnProduct(
+  database: AgentHqDatabase | AgentHqTransaction,
+  controlPlaneWorkspaceId: string,
+  intentId: string
+): Promise<CurrentLeadTurnProduct | undefined> {
+  return withCurrentLeadTurnProduct(
+    database,
+    controlPlaneWorkspaceId,
+    intentId,
+    async (product) => product
+  )
 }

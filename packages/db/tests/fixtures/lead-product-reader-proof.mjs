@@ -7,7 +7,8 @@ import {
   ensureWorkspaceLead,
   createDirectAgentTopic,
   createLeadTurn,
-  readCurrentLeadTurnProduct,
+  withCurrentLeadTurnProduct,
+  workspaces,
   workspaceMemberships,
 } from '@adea-ai/db'
 import { createLeadProductReaderHandler } from '../../../../apps/web/src/server/lead-product-reader.ts'
@@ -42,6 +43,12 @@ try {
     bodyText: 'Synthetic canonical test question',
     idempotencyKey: crypto.randomUUID(),
   })
+  const [mapped] = await connection.db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, workspace.id))
+  assert.ok(mapped?.controlPlaneWorkspaceId)
+  const mappedWorkspaceId = mapped.controlPlaneWorkspaceId
   const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])
   const publicJwk = await crypto.subtle.exportKey('jwk', pair.publicKey)
   const at = Date.now()
@@ -53,7 +60,7 @@ try {
     keyId,
     publicJwk,
     principalId,
-    workspaceIds: [workspace.controlPlaneWorkspaceId],
+    workspaceIds: [mappedWorkspaceId],
     revokedCredentialIds: [],
   }
   const environment = { PI_LEAD_PRODUCT_TRUST: JSON.stringify(trust) }
@@ -66,7 +73,7 @@ try {
     issuer,
     keyId,
     principalId,
-    workspaceIds: [workspace.controlPlaneWorkspaceId],
+    workspaceIds: [mappedWorkspaceId],
     projectIds: [],
     scopes: ['execution:read'],
   }
@@ -81,13 +88,13 @@ try {
   const handler = createLeadProductReaderHandler({
     lifetimeMs: 300_000,
     verify: createLeadProductServiceVerifier(environment),
-    readCurrent: async (workspaceId, intentId) => {
+    withCurrent: async (workspaceId, intentId, disclose) => {
       reads++
-      return readCurrentLeadTurnProduct(connection.db, workspaceId, intentId)
+      return withCurrentLeadTurnProduct(connection.db, workspaceId, intentId, disclose)
     },
   })
   const selectors = {
-    workspaceId: workspace.controlPlaneWorkspaceId,
+    workspaceId: mappedWorkspaceId,
     intentId: admitted.leadTurn.intentId,
     principalId,
   }
@@ -101,7 +108,7 @@ try {
   assert.equal(accepted.status, 200)
   const evidence = await accepted.json()
   assert.equal(evidence.intentId, admitted.leadTurn.intentId)
-  assert.equal(evidence.workspaceId, workspace.controlPlaneWorkspaceId)
+  assert.equal(evidence.workspaceId, mappedWorkspaceId)
   assert.equal(evidence.canonicalActorPrincipalId, `user:${owner.principal.userId}`)
   assert.equal(evidence.profileId, lead.profile.id)
   assert.equal(evidence.profileVersion, lead.profile.version)

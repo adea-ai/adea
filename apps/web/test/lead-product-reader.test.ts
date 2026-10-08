@@ -36,9 +36,13 @@ test('private product read authenticates before DB work and rejects caller actor
     lifetimeMs: 300_000,
     now: () => now,
     verify: async () => false,
-    readCurrent: async () => {
+    withCurrent: async (
+      _w: string,
+      _i: string,
+      disclose: (p: CurrentLeadTurnProduct) => Promise<Response>
+    ) => {
       reads++
-      return product
+      return disclose(product)
     },
   }
   expect((await createLeadProductReaderHandler(dependencies)(request())).status).toBe(404)
@@ -58,7 +62,7 @@ test('fresh canonical evidence pins original actor/audience/profile and has a st
     lifetimeMs: 300_000,
     now: () => clock,
     verify: async () => true,
-    readCurrent: async () => current,
+    withCurrent: async (_w, _i, disclose) => (current ? disclose(current) : undefined),
   })
   const first = await handler(request())
   expect(first.status).toBe(200)
@@ -86,7 +90,11 @@ test('invalid policy, body limit, wrong DB binding and DB denial expose no canon
     lifetimeMs: 0,
     now: () => now,
     verify: async () => true,
-    readCurrent: async () => product,
+    withCurrent: async (
+      _w: string,
+      _i: string,
+      disclose: (p: CurrentLeadTurnProduct) => Promise<Response>
+    ) => disclose(product),
   }
   expect((await createLeadProductReaderHandler(dependencies)(request())).status).toBe(404)
   const handler = createLeadProductReaderHandler({ ...dependencies, lifetimeMs: 300_000 })
@@ -94,7 +102,7 @@ test('invalid policy, body limit, wrong DB binding and DB denial expose no canon
   const denied = createLeadProductReaderHandler({
     ...dependencies,
     lifetimeMs: 300_000,
-    readCurrent: async () => {
+    withCurrent: async () => {
       throw new Error('provider or canonical text must never escape')
     },
   })
@@ -104,7 +112,8 @@ test('invalid policy, body limit, wrong DB binding and DB denial expose no canon
   const mismatched = createLeadProductReaderHandler({
     ...dependencies,
     lifetimeMs: 300_000,
-    readCurrent: async () => ({ ...product, controlPlaneWorkspaceId: `wsp_${'1'.repeat(26)}` }),
+    withCurrent: async (_w, _i, disclose) =>
+      disclose({ ...product, controlPlaneWorkspaceId: `wsp_${'1'.repeat(26)}` }),
   })
   expect((await mismatched(request())).status).toBe(404)
 })
@@ -123,9 +132,9 @@ test('service revocation while the canonical DB read awaits withholds the privat
     lifetimeMs: 300_000,
     now: () => now,
     verify: async () => currentServiceAuthority,
-    readCurrent: async () => {
+    withCurrent: async (_w, _i, disclose) => {
       began()
-      return pending
+      return disclose(await pending)
     },
   })
   const result = handler(request())
@@ -135,4 +144,45 @@ test('service revocation while the canonical DB read awaits withholds the privat
   const response = await result
   expect(response.status).toBe(404)
   expect(await response.json()).toEqual({ code: 'LEAD_PRODUCT_UNAVAILABLE' })
+})
+
+test('final service verification and response construction remain inside canonical product locks', async () => {
+  let locked = false
+  let calls = 0
+  let begin!: () => void
+  let release!: () => void
+  const verifying = new Promise<void>((resolve) => {
+    begin = resolve
+  })
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const handler = createLeadProductReaderHandler({
+    lifetimeMs: 300_000,
+    now: () => now,
+    verify: async () => {
+      if (++calls === 2) {
+        expect(locked).toBe(true)
+        begin()
+        await gate
+        expect(locked).toBe(true)
+      }
+      return true
+    },
+    withCurrent: async (_w, _i, disclose) => {
+      locked = true
+      try {
+        return await disclose(product)
+      } finally {
+        locked = false
+      }
+    },
+  })
+  const pending = handler(request())
+  await verifying
+  expect(locked).toBe(true) // a concurrent product revocation must await these locks
+  release()
+  const response = await pending
+  expect(response.status).toBe(200)
+  expect(locked).toBe(false)
 })

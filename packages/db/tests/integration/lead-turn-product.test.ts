@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { ensureWorkspaceLead } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createDirectAgentTopic } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
-import { createLeadTurn } from '../../src/lead-turns'
-import { readCurrentLeadTurnProduct } from '../../src/lead-turn-product'
+import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
+import { readCurrentLeadTurnProduct, withCurrentLeadTurnProduct } from '../../src/lead-turn-product'
 import { agents, channels, messages, workspaceMemberships, workspaces } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
@@ -16,7 +16,7 @@ describe.skipIf(!databaseUrl)('trusted current lead product reader', () => {
     connection = createDatabase(databaseUrl!)
   })
   afterAll(() => connection.close())
-  async function fixture() {
+  async function fixture(role: 'owner' | 'admin' = 'owner') {
     const owner = await createTemporaryUserSession(connection.db, {
       credentialDigest: crypto.randomUUID(),
       expiresAt: new Date(Date.now() + 60_000),
@@ -26,6 +26,16 @@ describe.skipIf(!databaseUrl)('trusted current lead product reader', () => {
       owner: owner.principal,
       idempotencyKey: crypto.randomUUID(),
     })
+    if (role !== 'owner')
+      await connection.db
+        .update(workspaceMemberships)
+        .set({ role })
+        .where(
+          and(
+            eq(workspaceMemberships.workspaceId, workspace.id),
+            eq(workspaceMemberships.userId, owner.principal.userId)
+          )
+        )
     const lead = await ensureWorkspaceLead(connection.db, workspace.id, owner.principal)
     const topic = await createDirectAgentTopic(
       connection.db,
@@ -109,6 +119,102 @@ describe.skipIf(!databaseUrl)('trusted current lead product reader', () => {
       .update(messages)
       .set({ version: 2, editedAt: new Date(), bodyText: 'Changed question' })
       .where(eq(messages.id, f.admitted.message.id))
+    await expect(f.read()).rejects.toThrow('unavailable')
+  })
+
+  test('admin admission downgraded to member denies runtime evidence and retains authorized history', async () => {
+    const f = await fixture('admin')
+    expect(await f.read()).toMatchObject({ actorUserId: f.owner.principal.userId })
+    await connection.db
+      .update(workspaceMemberships)
+      .set({ role: 'member' })
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, f.workspace.id),
+          eq(workspaceMemberships.userId, f.owner.principal.userId)
+        )
+      )
+    await expect(f.read()).rejects.toThrow('unavailable')
+    let disclosed = false
+    await expect(
+      withCurrentLeadTurnProduct(
+        connection.db,
+        f.mapped.controlPlaneWorkspaceId,
+        f.admitted.leadTurn.intentId,
+        async () => {
+          disclosed = true
+        }
+      )
+    ).rejects.toThrow('unavailable')
+    expect(disclosed).toBe(false)
+    expect(
+      await getLeadTurnForUser(
+        connection.db,
+        f.workspace.id,
+        f.admitted.message.id,
+        f.owner.principal
+      )
+    ).toMatchObject({ intentId: f.admitted.leadTurn.intentId })
+  })
+
+  test('async disclosure retains actor-role and pinned-profile locks until verification settles', async () => {
+    const f = await fixture('admin')
+    let entered!: () => void
+    let release!: () => void
+    const callbackEntered = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const verification = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const disclosure = withCurrentLeadTurnProduct(
+      connection.db,
+      f.mapped.controlPlaneWorkspaceId,
+      f.admitted.leadTurn.intentId,
+      async (product) => {
+        entered()
+        await verification
+        return product
+      }
+    )
+    await callbackEntered
+    try {
+      await expect(
+        connection.db.transaction(async (tx) => {
+          await tx.execute(sql`set local lock_timeout = '100ms'`)
+          await tx
+            .update(workspaceMemberships)
+            .set({ role: 'member' })
+            .where(
+              and(
+                eq(workspaceMemberships.workspaceId, f.workspace.id),
+                eq(workspaceMemberships.userId, f.owner.principal.userId)
+              )
+            )
+        })
+      ).rejects.toMatchObject({ cause: { code: '55P03' } })
+      await expect(
+        connection.db.transaction(async (tx) => {
+          await tx.execute(sql`set local lock_timeout = '100ms'`)
+          await tx
+            .update(agents)
+            .set({ profileRevision: f.lead.profile.revision + 1 })
+            .where(eq(agents.id, f.lead.id))
+        })
+      ).rejects.toMatchObject({ cause: { code: '55P03' } })
+    } finally {
+      release()
+      await disclosure
+    }
+    await connection.db
+      .update(workspaceMemberships)
+      .set({ role: 'member' })
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, f.workspace.id),
+          eq(workspaceMemberships.userId, f.owner.principal.userId)
+        )
+      )
     await expect(f.read()).rejects.toThrow('unavailable')
   })
 })

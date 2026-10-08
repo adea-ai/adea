@@ -1,5 +1,5 @@
 import 'server-only'
-import { readCurrentLeadTurnProduct } from '@adea-ai/db'
+import { withCurrentLeadTurnProduct } from '@adea-ai/db'
 import { applicationDatabase } from './database'
 import { createLeadProductReaderHandler } from './lead-product-reader'
 import { createLeadProductServiceVerifier } from './lead-product-service-auth'
@@ -15,8 +15,8 @@ export async function handleLeadProductReaderRequest(request: Request): Promise<
       },
     }),
     // The database is created only after strict selectors and the current signed service proof pass.
-    readCurrent: (workspaceId, intentId) =>
-      readCurrentLeadTurnProduct(applicationDatabase(), workspaceId, intentId),
+    withCurrent: (workspaceId, intentId, disclose) =>
+      withCurrentLeadTurnProduct(applicationDatabase(), workspaceId, intentId, disclose),
   })
   return handler(request)
 }

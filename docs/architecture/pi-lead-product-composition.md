@@ -55,3 +55,5 @@ reader supplies canonical profile ID/version/revision, and CP's required trusted
 immutable profile resolver supplies its digest. No profile or selection pins are
 borrowed from a fixture. These settings are code-level deployment prerequisites;
 this change creates no signing key, trust entry, grant, or credential.
+
+The private reader constructs its response inside `withCurrentLeadTurnProduct`: canonical actor, audience, profile and message locks stay held through the final asynchronous service verification and response construction. A detached evidence snapshot must never be used for disclosure after those locks are released.

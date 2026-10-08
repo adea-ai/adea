@@ -210,7 +210,11 @@ export {
   updateAgentPresentation,
 } from './agents'
 export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
-export { readCurrentLeadTurnProduct, type CurrentLeadTurnProduct } from './lead-turn-product'
+export {
+  readCurrentLeadTurnProduct,
+  withCurrentLeadTurnProduct,
+  type CurrentLeadTurnProduct,
+} from './lead-turn-product'
 export {
   resolveLeadTurnAuthority,
   readLeadTurnRuntime,

@@ -4,7 +4,11 @@ import { canonicalJson, isRecord } from './control-plane-client'
 
 export type LeadProductReaderDependencies = Readonly<{
   verify(request: Request, workspaceId: string, principalId: string): Promise<boolean>
-  readCurrent(workspaceId: string, intentId: string): Promise<CurrentLeadTurnProduct | undefined>
+  withCurrent(
+    workspaceId: string,
+    intentId: string,
+    disclose: (product: CurrentLeadTurnProduct) => Promise<Response>
+  ): Promise<Response | undefined>
   /** Explicit operator policy, never a credential grant or automatic renewal. */
   lifetimeMs: number
   now?: () => number
@@ -71,62 +75,68 @@ export function createLeadProductReaderHandler(dependencies: LeadProductReaderDe
         !(await dependencies.verify(request, selectors.workspaceId, selectors.principalId))
       )
         return unavailable()
-      const product = await dependencies.readCurrent(selectors.workspaceId, selectors.intentId)
-      if (
-        !product ||
-        product.controlPlaneWorkspaceId !== selectors.workspaceId ||
-        product.intentId !== selectors.intentId
+      const response = await dependencies.withCurrent(
+        selectors.workspaceId,
+        selectors.intentId,
+        async (product) => {
+          if (
+            product.controlPlaneWorkspaceId !== selectors.workspaceId ||
+            product.intentId !== selectors.intentId
+          )
+            return unavailable()
+          // Canonical product locks remain held across final service verification and response construction.
+          if (!(await dependencies.verify(request, selectors.workspaceId, selectors.principalId)))
+            return unavailable()
+          const now = dependencies.now?.() ?? Date.now()
+          const createdAt = Date.parse(product.intentCreatedAt)
+          const expiresAt = createdAt + dependencies.lifetimeMs
+          if (!Number.isFinite(createdAt) || createdAt > now || expiresAt <= now)
+            return unavailable()
+          const actor = `user:${product.actorUserId}`
+          // This digest names the exact current product audience, message and profile pins.
+          // It confers no CP spending or execution authority.
+          const scopeDigest = createHash('sha256')
+            .update(
+              canonicalJson({
+                workspaceId: product.workspaceId,
+                channelId: product.channelId,
+                channelVersion: product.channelVersion,
+                visibility: product.channelVisibility,
+                audience: product.audience,
+                messageId: product.messageId,
+                messageVersion: product.messageVersion,
+                actor,
+                agentId: product.agentId,
+                controlPlaneAgentId: product.controlPlaneAgentId,
+                profileId: product.profileId,
+                profileVersion: product.profileVersion,
+                profileRevision: product.profileRevision,
+              })
+            )
+            .digest('hex')
+          return Response.json(
+            {
+              schemaVersion: 'pi-lead-intent/v1',
+              intentId: product.intentId,
+              workspaceId: product.controlPlaneWorkspaceId,
+              projectId: null,
+              messageRef: `message:${product.messageId}`,
+              authorityRevision: product.channelVersion,
+              principalRef: actor,
+              canonicalActorPrincipalId: actor,
+              scopeRef: `adea-product:sha256:${scopeDigest}`,
+              expiresAt: new Date(expiresAt).toISOString(),
+              allowedPrincipalIds: [selectors.principalId],
+              prompt: product.prompt,
+              profileId: product.profileId,
+              profileVersion: product.profileVersion,
+              profileRevision: product.profileRevision,
+            },
+            { headers: { 'cache-control': 'private, no-store' } }
+          )
+        }
       )
-        return unavailable()
-      // DB locks can wait; service expiry, key rotation or revocation must remain current at disclosure.
-      if (!(await dependencies.verify(request, selectors.workspaceId, selectors.principalId)))
-        return unavailable()
-      const now = dependencies.now?.() ?? Date.now()
-      const createdAt = Date.parse(product.intentCreatedAt)
-      const expiresAt = createdAt + dependencies.lifetimeMs
-      if (!Number.isFinite(createdAt) || createdAt > now || expiresAt <= now) return unavailable()
-      const actor = `user:${product.actorUserId}`
-      // This digest names the exact current product audience, message and profile pins.
-      // It confers no CP spending or execution authority.
-      const scopeDigest = createHash('sha256')
-        .update(
-          canonicalJson({
-            workspaceId: product.workspaceId,
-            channelId: product.channelId,
-            channelVersion: product.channelVersion,
-            visibility: product.channelVisibility,
-            audience: product.audience,
-            messageId: product.messageId,
-            messageVersion: product.messageVersion,
-            actor,
-            agentId: product.agentId,
-            controlPlaneAgentId: product.controlPlaneAgentId,
-            profileId: product.profileId,
-            profileVersion: product.profileVersion,
-            profileRevision: product.profileRevision,
-          })
-        )
-        .digest('hex')
-      return Response.json(
-        {
-          schemaVersion: 'pi-lead-intent/v1',
-          intentId: product.intentId,
-          workspaceId: product.controlPlaneWorkspaceId,
-          projectId: null,
-          messageRef: `message:${product.messageId}`,
-          authorityRevision: product.channelVersion,
-          principalRef: actor,
-          canonicalActorPrincipalId: actor,
-          scopeRef: `adea-product:sha256:${scopeDigest}`,
-          expiresAt: new Date(expiresAt).toISOString(),
-          allowedPrincipalIds: [selectors.principalId],
-          prompt: product.prompt,
-          profileId: product.profileId,
-          profileVersion: product.profileVersion,
-          profileRevision: product.profileRevision,
-        },
-        { headers: { 'cache-control': 'private, no-store' } }
-      )
+      return response ?? unavailable()
     } catch {
       return unavailable()
     }
