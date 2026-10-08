@@ -33,13 +33,8 @@ import { WorkspaceNavSidebar, type WorkspaceNavHost } from './workspace-nav-side
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
 )
-const CreateProjectDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateProjectDialog }))
-)
-const DevNewProjectDialog = lazy(() =>
-  import('./dev-create-project-dialog').then((module) => ({
-    default: module.DevNewProjectDialog,
-  }))
+const ProjectCreateDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({ default: module.ProjectCreateDialog }))
 )
 
 type SidebarDialog = 'create-group' | 'create-project' | null
@@ -70,8 +65,8 @@ export function VirtualRoomControls(props: {
   /** The integrated frame's workspace switching; see `WorkspaceNavHost`. */
   workspaceHost?: WorkspaceNavHost
 }) {
-  const [defaultClient] = createSignal(createApiClient())
-  const client = () => props.client ?? defaultClient()
+  const defaultClient = createApiClient()
+  const client = () => props.client ?? defaultClient
   const persistenceReady = useWorkspacePersistence()
   const bootstrap = useWorkspaceBootstrapQuery(client())
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
@@ -83,33 +78,25 @@ export function VirtualRoomControls(props: {
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
     bootstrapData()?.activeWorkspace
   const workspaceId = () => activeWorkspace()?.id
+  const mutationWorkspaceId = () => workspaceId() ?? ''
   const projects = useProjectListQuery(client(), workspaceId)
   const channels = useChannelListQuery(client(), workspaceId)
+  const refreshChannels = channels.refetch
   const agents = useAgentListQuery(client(), workspaceId)
   const readState = useReadStateQuery(client(), workspaceId)
   // Tasks are sidebar leaves in Virtual too (as desks); the query is shared
   // with Chat's, so switching views reuses one cache entry.
   const tasks = useTaskListQuery(client(), workspaceId)
-  const updateTaskMutation = useUpdateTaskMutation(client(), () => workspaceId() ?? '')
-  const archiveTaskMutation = useArchiveTaskMutation(client(), () => workspaceId() ?? '')
-  const createProjectMutation = useCreateProjectMutation(client(), () => workspaceId() ?? '')
-  const createGroupMutation = useCreateGroupChannelMutation(client(), () => workspaceId() ?? '')
-  const updateProjectMutation = useUpdateProjectMutation(client(), () => workspaceId() ?? '')
-  const updateChannelMutation = useUpdateChannelMutation(client(), () => workspaceId() ?? '')
-  const archiveChannelMutation = useArchiveChannelMutation(client(), () => workspaceId() ?? '')
-  const markAllReadMutation = useMarkAllReadMutation(client(), () => workspaceId() ?? '')
+  const updateTaskMutation = useUpdateTaskMutation(client(), mutationWorkspaceId)
+  const archiveTaskMutation = useArchiveTaskMutation(client(), mutationWorkspaceId)
+  const createProjectMutation = useCreateProjectMutation(client(), mutationWorkspaceId)
+  const createGroupMutation = useCreateGroupChannelMutation(client(), mutationWorkspaceId)
+  const updateProjectMutation = useUpdateProjectMutation(client(), mutationWorkspaceId)
+  const updateChannelMutation = useUpdateChannelMutation(client(), mutationWorkspaceId)
+  const archiveChannelMutation = useArchiveChannelMutation(client(), mutationWorkspaceId)
+  const markAllReadMutation = useMarkAllReadMutation(client(), mutationWorkspaceId)
   const prefetchChannelMessages = usePrefetchChannelMessages(client(), workspaceId)
   const [dialog, setDialog] = createSignal<SidebarDialog>(null)
-  // The Dev dialog's live-region announcements, captured from the flow when
-  // "Add project" opens.
-  const [devAnnouncement, setDevAnnouncement] = createSignal('')
-  // The flow is sampled once per open so a reactive rebuild (fresh project
-  // names) cannot remount an open dialog and drop its typed state.
-  const [openProjectFlow, setOpenProjectFlow] = createSignal<DevProjectFlow>()
-  const openCreateProject = () => {
-    setOpenProjectFlow(props.createProjectFlow?.())
-    setDialog('create-project')
-  }
   const navigation = createMemo(() =>
     projectWorkspaceNavigation(settledData(projects) ?? [], settledData(channels) ?? [])
   )
@@ -171,7 +158,7 @@ export function VirtualRoomControls(props: {
   }
   const createProject = async (input: Readonly<{ iconKey: string; name: string }>) => {
     const result = await createProjectMutation.mutateAsync(input)
-    const refreshedChannels = await channels.refetch()
+    const refreshedChannels = await refreshChannels()
     const primaryChannel = settledData(refreshedChannels)?.find(
       (channel) =>
         channel.kind === 'project' &&
@@ -228,7 +215,7 @@ export function VirtualRoomControls(props: {
     if (channels.isError)
       return {
         message: 'Conversations could not be loaded.',
-        retry: () => void channels.refetch(),
+        retry: () => void refreshChannels(),
       }
     if (agents.isError)
       return { message: 'Agents could not be loaded.', retry: () => void agents.refetch() }
@@ -288,7 +275,7 @@ export function VirtualRoomControls(props: {
         onArchiveTask={archiveTask}
         onChannelIntent={prefetchChannelMessages}
         onCreateGroup={() => setDialog('create-group')}
-        onCreateProject={() => openCreateProject()}
+        onCreateProject={() => setDialog('create-project')}
         onMarkAllRead={() => markAllReadMutation.mutateAsync().then(() => undefined)}
         onOpenAgents={() => routeToChat('agents')}
         onOpenTask={(task) => {
@@ -316,48 +303,19 @@ export function VirtualRoomControls(props: {
             : undefined
         }
         status={sidebarStatus()}
-        workspaceReady={Boolean(activeWorkspace())}
+        workspaceReady={!!activeWorkspace()}
       />
-      <Show when={devAnnouncement()}>
-        <p class="sr-only" aria-live="polite">
-          {devAnnouncement()}
-        </p>
-      </Show>
-      <Suspense fallback={null}>
+      <Suspense>
         <Show when={dialog() === 'create-project' && activeWorkspace()}>
           {(workspace) => (
-            <Show
-              when={openProjectFlow()}
-              fallback={
-                <CreateProjectDialog
-                  busy={createProjectMutation.isPending}
-                  onClose={() => setDialog(null)}
-                  onCreate={createProject}
-                  open
-                  template={workspace().scene}
-                />
-              }
-            >
-              {(flow) => (
-                <DevNewProjectDialog
-                  scope={flow().scope}
-                  execute={flow().execute}
-                  knownProjectNames={flow().knownProjectNames}
-                  announce={setDevAnnouncement}
-                  {...(flow().pickFolder ? { pickFolder: flow().pickFolder } : {})}
-                  workspaceName={workspace().name}
-                  onCreateProject={(name) => flow().onCreateProject(name)}
-                  onImported={() => void channels.refetch()}
-                  onClose={() => {
-                    setDialog(null)
-                    // The Dev flow's cloud create invalidates the project
-                    // list through the shared query cache; the new project's
-                    // primary channel needs this refetch.
-                    void channels.refetch()
-                  }}
-                />
-              )}
-            </Show>
+            <ProjectCreateDialog
+              busy={createProjectMutation.isPending}
+              createProjectFlow={props.createProjectFlow}
+              workspace={workspace()}
+              onImported={refreshChannels}
+              onClose={() => setDialog(null)}
+              onCreate={createProject}
+            />
           )}
         </Show>
         <Show when={dialog() === 'create-group'}>

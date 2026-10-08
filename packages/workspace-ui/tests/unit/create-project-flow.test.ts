@@ -40,6 +40,7 @@ function readyRuntime(runtimeScope: Scope | undefined): {
 }
 
 const host = {
+  renderDialog: () => undefined,
   knownProjectNames: ['Existing Project'],
   onCreateProject: async (name: string) => `project-id-for-${name}`,
 }

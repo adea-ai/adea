@@ -20,7 +20,7 @@ import type {
   Scope,
 } from '@adea-ai/types/dev-runtime'
 import { For, Show, createSignal, onMount } from 'solid-js'
-import { FolderOpen, FolderPlus } from 'lucide-solid'
+import { FolderPlus } from 'lucide-solid'
 
 import { buildDevCommand } from '../browser/command'
 import {
@@ -246,7 +246,7 @@ export function AddProjectForm(props: AddProjectFormProps) {
               disabled={picking()}
               onClick={() => void chooseFolder()}
             >
-              <FolderOpen aria-hidden="true" />
+              <FolderPlus aria-hidden="true" />
               {picking() ? 'Choosing…' : 'Choose folder…'}
             </Button>
           </Show>

@@ -25,13 +25,8 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
 )
-const CreateProjectDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateProjectDialog }))
-)
-const DevNewProjectDialog = lazy(() =>
-  import('./dev-create-project-dialog').then((module) => ({
-    default: module.DevNewProjectDialog,
-  }))
+const ProjectCreateDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({ default: module.ProjectCreateDialog }))
 )
 const ModalDialog = lazy(() =>
   import('@adea-ai/ui/components/ui/modal-dialog').then((module) => ({
@@ -124,16 +119,6 @@ export function ConventionalWorkspaceShell(props: {
   const [dialog, setDialog] = createSignal<DialogId>(null)
   const [accountBusy, setAccountBusy] = createSignal(false)
   const [online, setOnline] = createSignal(true)
-  // The Dev dialog's live-region announcements (authorized roots, import
-  // results), captured from the flow when "Add project" opens.
-  const [devAnnouncement, setDevAnnouncement] = createSignal('')
-  // The flow is sampled once per open so a reactive rebuild (fresh project
-  // names) cannot remount an open dialog and drop its typed state.
-  const [openProjectFlow, setOpenProjectFlow] = createSignal<DevProjectFlow>()
-  const openCreateProject = () => {
-    setOpenProjectFlow(props.createProjectFlow?.())
-    setDialog('create-project')
-  }
   const [searchTargetMessageId, setSearchTargetMessageId] = createSignal<string | null>(null)
   const [selectedArtifactId, setSelectedArtifactId] = createSignal<string | null>(null)
   const [sessionNoticeDismissed, setSessionNoticeDismissed] = createSignal(false)
@@ -466,7 +451,7 @@ export function ConventionalWorkspaceShell(props: {
                 onArchiveChannel={controller.channelActions.archive}
                 onArchiveTask={controller.taskActions.archive}
                 onCreateGroup={() => setDialog('create-group')}
-                onCreateProject={() => openCreateProject()}
+                onCreateProject={() => setDialog('create-project')}
                 onRenameChannel={controller.channelActions.rename}
                 onRenameTask={(task, title) => controller.taskActions.update(task, { title })}
                 onOpenAgents={() => {
@@ -707,38 +692,14 @@ export function ConventionalWorkspaceShell(props: {
                   primitives already mount only while open, so opening and
                   closing behaves exactly as before. */}
               <Show when={dialog() === 'create-project'}>
-                <Show
-                  when={openProjectFlow()}
-                  fallback={
-                    <CreateProjectDialog
-                      busy={controller.createProjectBusy}
-                      onClose={() => setDialog(null)}
-                      onCreate={controller.createProject}
-                      open
-                      template={controller.activeWorkspace!.scene}
-                    />
-                  }
-                >
-                  {(flow) => (
-                    <DevNewProjectDialog
-                      scope={flow().scope}
-                      execute={flow().execute}
-                      knownProjectNames={flow().knownProjectNames}
-                      announce={setDevAnnouncement}
-                      {...(flow().pickFolder ? { pickFolder: flow().pickFolder } : {})}
-                      workspaceName={controller.activeWorkspace?.name ?? 'this workspace'}
-                      onCreateProject={(name) => flow().onCreateProject(name)}
-                      onImported={() => void controller.refreshAfterProjectCreate()}
-                      onClose={() => {
-                        setDialog(null)
-                        // The Dev flow's cloud create invalidates the project
-                        // list through the shared query cache; the new
-                        // project's primary channel needs this refetch.
-                        void controller.refreshAfterProjectCreate()
-                      }}
-                    />
-                  )}
-                </Show>
+                <ProjectCreateDialog
+                  busy={controller.createProjectBusy}
+                  createProjectFlow={props.createProjectFlow}
+                  workspace={controller.activeWorkspace!}
+                  onImported={controller.refreshAfterProjectCreate}
+                  onClose={() => setDialog(null)}
+                  onCreate={controller.createProject}
+                />
               </Show>
               <Show when={dialog() === 'create-group'}>
                 <CreateGroupDialog
@@ -803,21 +764,21 @@ export function ConventionalWorkspaceShell(props: {
                   title="Conversation details"
                   description="Canonical Adea identity and scope."
                 >
-                  <div class="conventional-conversation-details">
-                    <p>
-                      <span>Kind</span>
+                  <div class="grid gap-3">
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Kind</span>
                       <strong>{controller.selectedChannel?.kind.replace('_', ' ')}</strong>
                     </p>
-                    <p>
-                      <span>Visibility</span>
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Visibility</span>
                       <strong>{controller.selectedChannel?.visibility}</strong>
                     </p>
-                    <p>
-                      <span>Participants</span>
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Participants</span>
                       <strong>{controller.selectedChannel?.participants.length ?? 0}</strong>
                     </p>
-                    <p>
-                      <span>Task link</span>
+                    <p class="border-border flex justify-between gap-4 border-b pb-3">
+                      <span class="text-muted-foreground">Task link</span>
                       <strong>{controller.selectedChannel?.taskId ? 'Linked' : 'None'}</strong>
                     </p>
                   </div>
@@ -827,11 +788,6 @@ export function ConventionalWorkspaceShell(props: {
             <div class="visually-hidden" aria-live="polite">
               {online() ? 'Workspace online' : 'Workspace offline. Drafts remain on this device.'}
             </div>
-            <Show when={devAnnouncement()}>
-              <p class="sr-only" aria-live="polite">
-                {devAnnouncement()}
-              </p>
-            </Show>
             <Show when={selectedAgentId()}>
               <span class="visually-hidden">Selected Agent {selectedAgentId()}</span>
             </Show>

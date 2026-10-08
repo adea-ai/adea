@@ -73,7 +73,7 @@ import { RuntimeResourcesControl } from './runtime-resources-control'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
-import { isDesktopRuntime, openExternalUrl, pickDesktopFolder } from '../lib/desktop-bridge'
+import { isDesktopRuntime, openExternalUrl } from '../lib/desktop-bridge'
 import { adeaFeedbackUrl } from '../lib/feedback'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -450,6 +450,7 @@ export type WorkspaceNavigationAccount = Readonly<{
 }>
 
 export type WorkspaceNavigationProps = Readonly<{
+  renderProjectDialog?: DevProjectFlow['renderDialog']
   account: WorkspaceNavigationAccount
   activeWorkspace?: WorkspaceSummary
   chatEntry?: (
@@ -902,16 +903,19 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // the detailed Dev dialog (name the project, optionally bind a repository)
   // with the shell's native folder picker; without one (the web lane) the
   // accessor resolves undefined and those sidebars keep the basic dialog.
-  const devProjectFlowHost = (): DevProjectFlow | undefined => {
-    const runtime = props.services.devRuntime
-    if (!runtime) return undefined
-    return devProjectFlow({
-      runtime,
-      knownProjectNames: (devNavHost.projects ?? []).map(({ name }) => name),
-      onCreateProject: (name) => devNavHost.onCreateProject!(name),
-      ...(isDesktopRuntime() ? { pickFolder: () => pickDesktopFolder() } : {}),
-    })
-  }
+  // The production web entry has no Dev Runtime composition root.
+  const devProjectFlowHost = __ADEA_DESKTOP_COMPONENTS__
+    ? (): DevProjectFlow | undefined => {
+        const runtime = props.services.devRuntime
+        if (!runtime || !props.renderProjectDialog) return undefined
+        return devProjectFlow({
+          runtime,
+          renderDialog: props.renderProjectDialog,
+          knownProjectNames: (devNavHost.projects ?? []).map(({ name }) => name),
+          onCreateProject: (name) => devNavHost.onCreateProject!(name),
+        })
+      }
+    : undefined
 
   // The active workspace's accent themes the whole app while it is active
   // (ADR 0011): it overrides the appearance accent, and a workspace without

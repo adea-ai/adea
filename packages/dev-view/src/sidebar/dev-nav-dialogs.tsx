@@ -1,3 +1,5 @@
+import '@adea-ai/app-ui/dev-view.css'
+
 /*
  * The Dev sidebar's small dialogs (ADR 0011), loaded on first use: naming a
  * worktree, project or branch, confirming archive and delete with the exact
@@ -301,6 +303,7 @@ export function DevNewProjectDialog(
                 }}
               />
             </Show>
+
             <Show when={projectId()}>
               <Button type="button" variant="outline" onClick={() => props.onClose()}>
                 Skip for now

@@ -3106,7 +3106,11 @@ live project names, and the cloud create that resolves the binding id), so
 their "Add project" opens this exact dialog instead of the basic name-and-icon
 create. A host without a Dev Runtime (web-only, cloud-only contexts) injects
 nothing and keeps its basic dialog; which dialog opens is decided only by the
-injected flow, never by a second surface implementation. On desktop hosts the
+injected flow, never by a second surface implementation. The host supplies
+its lazy detailed renderer and owns its live announcements; the shared
+Chat/Virtual dialog samples that flow once when it opens, so background
+project-list refreshes cannot discard a typed draft. The production web
+host keeps the basic renderer outside the desktop dependency graph. On desktop hosts the
 authorize step can fill its path input from the shell's native folder picker
 (`desktop_folder_pick`; directory-only, single selection, `[]`/refusal when
 the user cancels or the shell predates the command). The picker only fills

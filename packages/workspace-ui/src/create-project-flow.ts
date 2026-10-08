@@ -1,3 +1,4 @@
+import type { JSX } from 'solid-js'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
 import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
 
@@ -11,6 +12,13 @@ import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
  * project first and resolves the id the binding is keyed by.
  */
 export type DevProjectFlow = Readonly<{
+  /** The host owns the detailed renderer and its live announcements. */
+  renderDialog(props: {
+    flow: DevProjectFlow
+    workspaceName: string
+    onImported(): void
+    onClose(): void
+  }): JSX.Element
   scope: Scope
   execute(command: DevCommand): Promise<DevReply>
   knownProjectNames: readonly string[]
@@ -49,6 +57,7 @@ export function resolveCreateProjectSurface(
  */
 export function devProjectFlow(input: {
   runtime: DevRuntimeService
+  renderDialog: DevProjectFlow['renderDialog']
   knownProjectNames: readonly string[]
   onCreateProject(name: string): Promise<string>
   pickFolder?: () => Promise<string | null | undefined>
@@ -58,6 +67,7 @@ export function devProjectFlow(input: {
   if (!scope || runtime.state().status !== 'ready') return undefined
   return {
     scope,
+    renderDialog: input.renderDialog,
     execute: (command) => runtime.execute(command),
     knownProjectNames: input.knownProjectNames,
     onCreateProject: input.onCreateProject,
