@@ -70,3 +70,8 @@ Migration 0042 adds the [workspace lead and direct-topic foundations](../../docs
 It preserves the staged 0041 schema and all legacy identities, history and audiences.
 Apply it before the new lead/topic API callers; a designation or canonical message
 is not model readiness or execution acceptance.
+
+The opt-in [installed SDK / production-factory consumer proof](../../docs/guides/pi-production-factory-consumer-proof.md)
+uses a reviewed CP checkout and actual public candidate packages with an owned restricted
+PG database. Its preflight regressions are in the normal DB unit inventory; the connected
+fixture requires explicit verified inputs and never substitutes a mocked SDK or live config.
