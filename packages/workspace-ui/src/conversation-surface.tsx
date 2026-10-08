@@ -567,7 +567,7 @@ export function ConversationSurface(props: {
               </nav>
             </header>
           }
-          thread={threadPanel}
+          thread={props.threadRootMessageId ? threadPanel : undefined}
         >
           <SharedConversationSurface
             data-conventional-transcript=""
