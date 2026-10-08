@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { SuccessResponseEnvelopeSchema } from '@adea-ai/contracts'
 import { createConfiguredLeadTurnDependencies } from '../src/server/lead-turn-composition'
 import { type LeadSdkPort } from '../src/server/lead-turn-sdk-port'
 const workspaceId = `wsp_${'0'.repeat(26)}`
@@ -48,6 +49,25 @@ async function fixture() {
       calls.push({ method, body, claims })
       if (method === 'getModelSelectionFunding') return { data: { funding } }
       if (method === 'getPiDurableLeadPublication') return { data: { publication } }
+      if (method === 'dispatchPiDurableLead') {
+        // Installed public base envelope is real; the new lead DTO is a disclosed mock
+        // until compatible public SDK/runtime schemas are released.
+        return SuccessResponseEnvelopeSchema.strict().parse({
+          contractVersion: body.contractVersion,
+          requestId: body.requestId,
+          correlation: body.correlation,
+          data: {
+            schemaVersion: 'pi-lead-dispatch/v1',
+            dispatchId: publication.dispatchId,
+            intentId: authority.intentId,
+            executionId: prepared.executionId,
+            attemptId: prepared.attemptId,
+            runtimeSessionId: publication.runtimeSessionId,
+            state: 'running',
+            replayed: false,
+          },
+        })
+      }
       return { data: {} }
     },
   }
@@ -110,7 +130,21 @@ test('configured composition signs only scoped reference commands and rechecks f
   expect(await composed.authorizeConfirmedStart!(authority, prepared)).toEqual(prepared)
   expect(f.calls[0]!.method).toBe('getModelSelectionFunding')
   expect(f.calls[0]!.claims.scopes).toEqual(['credential:read'])
-  await composed.adapter!.dispatch(authority, `lead-turn:${authority.intentId}`, prepared)
+  const dispatched = await composed.adapter!.dispatch(
+    authority,
+    `lead-turn:${authority.intentId}`,
+    prepared
+  )
+  expect(dispatched).toEqual({
+    schemaVersion: 'pi-lead-dispatch/v1',
+    dispatchId: f.publication.dispatchId,
+    intentId: authority.intentId,
+    executionId: prepared.executionId,
+    attemptId: prepared.attemptId,
+    runtimeSessionId: f.publication.runtimeSessionId,
+    state: 'running',
+    replayed: false,
+  })
   expect(f.calls[1]!.claims.scopes).toEqual(['execution:accept'])
   expect(f.calls[1]!.claims.workspaceIds).toEqual([workspaceId])
   expect(f.calls[1]!.body.payload).toEqual({

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import type { AgentHqDatabase } from './connection'
-import { createMessage } from './conversations'
+import { createRuntimeResultMessage } from './conversations'
 import { withAuthorizedLeadTurn } from './lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
 
@@ -390,7 +390,7 @@ export function publishLeadTurnResult(
           if (row.publicationDigest !== digest) throw new Error('RUNTIME_RESPONSE_INVALID')
           return row.publishedMessageId
         }
-        const message = await createMessage(
+        const message = await createRuntimeResultMessage(
           publicationTx,
           workspaceId,
           admitted.channelId,

@@ -15,6 +15,7 @@ import {
   type ModelConnectionListRequest,
   type ModelDefaultsSetRequest,
   type ModelSelectionResolveRequest,
+  type ModelSelectionFundingRequest,
 } from '@adea-ai/sdk'
 
 import { modelReadiness } from '../../apps/web/src/server/model-selection-readiness'
@@ -121,6 +122,24 @@ export function createCandidateModelConnections(options: CandidateModelConnectio
   }
 
   return {
+    async funding(input: ModelSelectionFundingRequest['parameters']) {
+      const operation = ControlApiOperations.getModelSelectionFunding
+      const request = parse(
+        (value) => operation.requestSchema.parse(value),
+        read(operation.operation, input)
+      )
+      const result = await call(
+        request,
+        (value) => client.getModelSelectionFunding(value),
+        (value) =>
+          value.data.funding.workspaceId === options.workspaceId &&
+          Object.entries(input).every(
+            ([key, expected]) =>
+              (value.data.funding as unknown as Record<string, unknown>)[key] === expected
+          )
+      )
+      return result.data.funding
+    },
     async create(input: ModelConnectionCreateRequest['payload'], idempotencyKey: string) {
       const operation = ControlApiOperations.createModelConnection
       const request = parse(
