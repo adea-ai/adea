@@ -27,6 +27,9 @@ export type WorkspaceState = {
   sidebarGroupBy: Readonly<Record<string, SidebarGroupBy>>
   devFocusMode: boolean
   drafts: Readonly<Record<string, string>>
+  /** Transient invalidation markers; never persisted or interpreted as authorization. */
+  conversationAudienceEpochs: Readonly<Record<string, number>>
+  invalidateConversationAudience: (workspaceId: string) => void
   mobileSidebarOpen: boolean
   globalPanel: 'about' | 'help' | 'plugins' | 'search' | 'settings' | 'workspace-settings' | null
   setCameraViewMode: (mode: WorkspaceViewMode) => void
@@ -102,6 +105,19 @@ function initialState(): WorkspaceState {
     sidebarGroupBy: {},
     devFocusMode: false,
     drafts: {},
+    conversationAudienceEpochs: {},
+    invalidateConversationAudience: (workspaceId) => {
+      set({
+        conversationAudienceEpochs: {
+          ...state.conversationAudienceEpochs,
+          [workspaceId]: (state.conversationAudienceEpochs[workspaceId] ?? 0) + 1,
+        },
+      })
+      // During bootstrap the active workspace is resolved by the provider while
+      // the explicit workspace selection is still null.
+      if (state.selectedWorkspaceId === workspaceId || state.selectedWorkspaceId === null)
+        set({ selectedChannelId: null, threadRootMessageId: null })
+    },
     mobileSidebarOpen: wideViewportAtLoad,
     globalPanel: null,
     setCameraViewMode: (cameraViewMode) => set({ cameraViewMode }),

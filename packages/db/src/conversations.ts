@@ -180,7 +180,12 @@ async function channelSummary(database: Database, row: ChannelRow): Promise<Chan
   })
 }
 
-async function requireChannel(database: Database, workspaceId: string, channelId: string) {
+async function requireChannel(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  includeArchived = false
+) {
   const [channel] = await database
     .select()
     .from(channels)
@@ -188,7 +193,7 @@ async function requireChannel(database: Database, workspaceId: string, channelId
       and(
         eq(channels.id, channelId),
         eq(channels.workspaceId, workspaceId),
-        eq(channels.lifecycleState, 'active')
+        ...(includeArchived ? [] : [eq(channels.lifecycleState, 'active')])
       )
     )
     .limit(1)
@@ -206,7 +211,8 @@ async function requireChannelAccess(
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  mode: 'read' | 'write' = 'read'
+  mode: 'read' | 'write' = 'read',
+  includeArchived = false
 ) {
   const scope = await requireProjectAccessScope(
     database,
@@ -214,7 +220,7 @@ async function requireChannelAccess(
     principal,
     'Channel unavailable'
   )
-  const channel = await requireChannel(database, workspaceId, channelId)
+  const channel = await requireChannel(database, workspaceId, channelId, includeArchived)
   if (!canReadProject(scope, channel.projectId)) throw new Error('Channel unavailable')
   if (mode === 'write' && !canWriteProject(scope, channel.projectId))
     throw new Error('Project read-only')
@@ -282,7 +288,7 @@ async function nextChannelSortOrder(database: Database, workspaceId: string) {
   return (position?.value ?? -1) + 1
 }
 
-async function findActiveDirectAgentChannel(
+async function findActiveDefaultDirectAgentChannel(
   database: Database,
   workspaceId: string,
   agentId: string
@@ -295,9 +301,11 @@ async function findActiveDirectAgentChannel(
         eq(channels.workspaceId, workspaceId),
         eq(channels.agentId, agentId),
         eq(channels.kind, 'direct_agent'),
-        eq(channels.lifecycleState, 'active')
+        eq(channels.lifecycleState, 'active'),
+        sql`${channels.idempotencyKey} like 'direct-agent:%'`
       )
     )
+    .orderBy(asc(channels.createdAt), asc(channels.id))
     .limit(1)
   return row ?? null
 }
@@ -379,6 +387,7 @@ async function createChannel(
   principal: UserPrincipalRef,
   input: Readonly<{
     agentId?: string
+    createPayloadHash?: string
     idempotencyKey: string
     kind: 'project' | 'direct_agent' | 'group'
     projectId?: string
@@ -403,6 +412,7 @@ async function createChannel(
       .insert(channels)
       .values({
         agentId: input.agentId ?? null,
+        createPayloadHash: input.createPayloadHash ?? null,
         idempotencyKey: input.idempotencyKey.trim(),
         kind: input.kind,
         projectId: input.projectId ?? null,
@@ -428,14 +438,18 @@ async function createChannel(
         .limit(1)
       if (
         !channel ||
-        channel.kind !== input.kind ||
-        channel.projectId !== (input.projectId ?? null) ||
-        channel.agentId !== (input.agentId ?? null) ||
-        channel.taskId !== (input.taskId ?? null) ||
-        channel.title !== input.title.trim() ||
-        channel.visibility !== input.visibility
+        (input.createPayloadHash
+          ? channel.createPayloadHash !== input.createPayloadHash
+          : channel.kind !== input.kind ||
+            channel.projectId !== (input.projectId ?? null) ||
+            channel.agentId !== (input.agentId ?? null) ||
+            channel.taskId !== (input.taskId ?? null) ||
+            channel.title !== input.title.trim() ||
+            channel.visibility !== input.visibility)
       )
         throw new Error('Channel idempotency conflict')
+      if (input.createPayloadHash)
+        await requireChannelAccess(transaction, workspaceId, channel.id, principal, 'read', true)
     } else {
       await appendWorkspaceEvent(transaction, {
         eventType: 'channel.created',
@@ -481,6 +495,7 @@ export const createProjectChannel = (
     visibility: 'workspace',
   })
 
+/** Open the optional legacy default lane. This never selects an explicit topic. */
 export const createDirectAgentChannel = async (
   database: AgentHqDatabase,
   workspaceId: string,
@@ -489,13 +504,11 @@ export const createDirectAgentChannel = async (
 ) => {
   await requireMembership(database, workspaceId, principal)
   await requireActiveAgent(database, workspaceId, agentId)
-  // Semantic idempotency first: at most one active direct channel may exist per
-  // agent, but the canonical idempotency key can point at an archived row while
-  // the live row (created by the reopen path below) carries a suffixed key.
-  // Opening the conversation must return the live row instead of attempting a
-  // fresh insert that would violate channels_active_direct_agent_unique.
-  const live = await findActiveDirectAgentChannel(database, workspaceId, agentId)
-  if (live) return channelSummary(database, live)
+  const live = await findActiveDefaultDirectAgentChannel(database, workspaceId, agentId)
+  if (live) {
+    await requireChannelAccess(database, workspaceId, live.id, principal)
+    return channelSummary(database, live)
+  }
   try {
     const existing = await createChannel(database, workspaceId, principal, {
       agentId,
@@ -504,7 +517,10 @@ export const createDirectAgentChannel = async (
       title: 'Direct conversation',
       visibility: 'participants',
     })
-    if (existing.lifecycleState === 'active') return existing
+    if (existing.lifecycleState === 'active') {
+      await requireChannelAccess(database, workspaceId, existing.id, principal)
+      return existing
+    }
     // A deleted conversation stays deleted: opening a new one starts fresh
     // history under a unique key instead of resurrecting the archived row.
     return await createChannel(database, workspaceId, principal, {
@@ -517,12 +533,40 @@ export const createDirectAgentChannel = async (
   } catch (error) {
     // A concurrent open may have inserted the live row after the lookup above.
     // Return it instead of surfacing the unique violation as a generic error.
-    if (error instanceof Error && error.message.includes('channels_active_direct_agent_unique')) {
-      const retry = await findActiveDirectAgentChannel(database, workspaceId, agentId)
-      if (retry) return channelSummary(database, retry)
+    if (
+      error instanceof Error &&
+      error.message.includes('channels_active_default_direct_agent_unique')
+    ) {
+      const retry = await findActiveDefaultDirectAgentChannel(database, workspaceId, agentId)
+      if (retry) {
+        await requireChannelAccess(database, workspaceId, retry.id, principal)
+        return channelSummary(database, retry)
+      }
     }
     throw error
   }
+}
+
+/** New topics have independent history and caller-scoped immutable retry identity. */
+export const createDirectAgentTopic = (
+  database: AgentHqDatabase,
+  workspaceId: string,
+  agentId: string,
+  principal: UserPrincipalRef,
+  input: Readonly<{ idempotencyKey: string; title: string }>
+) => {
+  const requestKey = input.idempotencyKey.trim()
+  const title = input.title.trim()
+  if (!requestKey || requestKey.length > 128 || !title || input.title.length > 120)
+    throw new Error('Invalid topic request')
+  return createChannel(database, workspaceId, principal, {
+    agentId,
+    createPayloadHash: hashPayload({ agentId, principal, title, workspaceId }),
+    idempotencyKey: `direct-topic:${principal.userId}:${requestKey}`,
+    kind: 'direct_agent',
+    title,
+    visibility: 'participants',
+  })
 }
 
 export const createGroupChannel = (
@@ -596,6 +640,8 @@ export async function updateChannel(
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
     const channel = await requireChannel(transaction, workspaceId, channelId)
+    if (channel.kind === 'direct_agent' && channel.createPayloadHash)
+      await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (input.taskId) await requireVisibleTask(transaction, workspaceId, input.taskId, principal)
@@ -619,7 +665,13 @@ export async function updateChannel(
     if (!updated) throw new Error('Channel version conflict')
     await appendWorkspaceEvent(transaction, {
       eventType: 'channel.updated',
-      payload: { actorUserId: principal.userId, channelId, version: updated.version },
+      payload: {
+        actorUserId: principal.userId,
+        channelId,
+        previousVisibility: channel.visibility,
+        visibility: updated.visibility,
+        version: updated.version,
+      },
       workspaceId,
     })
     return channelSummary(transaction, updated)
@@ -636,6 +688,8 @@ export async function archiveChannel(
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
     const channel = await requireChannel(transaction, workspaceId, channelId)
+    if (channel.kind === 'direct_agent' && channel.createPayloadHash)
+      await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (channel.isPrimaryProjectChannel && channel.projectId) {
@@ -869,7 +923,7 @@ async function retreatChannelLatestSequence(
 }
 
 export async function createMessage(
-  database: AgentHqDatabase,
+  database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
@@ -880,6 +934,8 @@ export async function createMessage(
     executionRef?: string
     externalSessionRef?: string
     idempotencyKey: string
+    /** Explicit admission mode participates in retry identity; legacy requests omit it. */
+    leadTurn?: true
     mentions?: readonly ConversationParticipantRef[]
     replyToMessageId?: string
     sender: MessageSenderRef

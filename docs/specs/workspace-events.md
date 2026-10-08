@@ -69,6 +69,31 @@ optional correlation id.
 
 ### Explicit Agent profile changes
 
+Structural workspace-lead provisioning emits the existing `agent.created` event exactly
+once, in the identity transaction. Concurrent retries return the same Agent without a
+second event or model call. Lead designation, a missing structural profile, provider
+authentication and execution acceptance remain separate state. New direct topics use the
+same `channel.created` event; they preserve the canonical channel audience rather than
+copying a previous conversation's messages or participants.
+
+Explicit `leadTurn: true` message admission commits the ordinary `message.created`
+event, canonical message and a server-owned blocked dispatch intent in one transaction.
+Failure rolls all three back; retries retain the same message/intent and do not append
+another event. The UUID intent pins lead/profile/channel/audience references without
+copying message bodies or model credentials. A saved message event proves persistence;
+it does not prove runtime acceptance, dispatch or public child outcome delivery.
+Ordinary direct project/session message writes create no lead intent.
+
+Preparation separately retains exact canonical execution, attempt and selection pins;
+it does not start inference or mint a second session store. An explicit start requires
+the prepared funding confirmation and current authority. Status/progress reads and
+recovery never imply a start. Runtime progress is a bounded metadata projection rather
+than a durable token stream. Completed output publication commits its canonical Agent
+message/event and idempotent publication receipt together, under locks checking the
+current audience, original sender, pinned profile and runtime binding, plus a fresh
+trusted publication grant. A withheld or unknown outcome remains retained without a
+public append. Missing runtime composition remains unavailable.
+
 `agent.profile_changed` schema version 2 records `actorUserId`, `agentId`,
 `previousProfileId`, `previousProfileVersion`, `profileId`, `profileVersion`
 and the new `profileRevision`. The reference change, revision increment and
@@ -126,8 +151,8 @@ execution's configuration or current compatibility.
 
 The log stays one shared, ordered history per workspace; filtering happens at delivery.
 `classifyWorkspaceEventsForUser` (`packages/db/src/event-visibility.ts`) takes each page the
-stream is about to send — replay and live alike — and the subscriber's **current** project access,
-and gives every event one of three outcomes:
+stream is about to send — replay and live alike — and the subscriber's **current** project and channel access,
+and gives every event one of four outcomes:
 
 - **deliver**: sent as logged. `project.reordered` is narrowed to the project ids the subscriber can
   see.
@@ -135,30 +160,45 @@ and gives every event one of three outcomes:
   them — `project.visibility_changed`, `project.members_changed`, `task.project_changed`, and agent
   events naming a hidden project. The frame keeps the type, so the client refreshes, but drops the
   payload, aggregate id, actor and correlation id.
-- **withheld**: everything else that touches a hidden project. The stream sends
+- **audience_changed**: a version-2 `channel.updated` records a change from workspace visibility
+  to participant visibility and current channel access denies the subscriber. If its project is
+  still visible, the stream sends `event: workspace.audience_changed` with only
+  `data: {"workspaceSequence": n}` and the signed cursor. No channel, actor or content identity
+  travels. Private-from-creation channels and transitions in hidden projects remain withheld.
+  The client cancels pending queries and erases resident workspace and account data before
+  refetching. It clears channel/thread selection and invalidates retained transcript generations;
+  late query or mutation responses cannot restore the cleared conversation cache. Direct runtime
+  session selection and other workspaces retain their own authority.
+- **withheld**: everything else that touches a hidden project, a participant-only channel whose
+  current audience excludes the subscriber, or a missing/foreign referenced resource. The stream sends
   `event: workspace.withheld` with `data: {"workspaceSequence": n}` and the usual signed cursor in
   `id:`. The client advances its sequence without refreshing anything and without reading the skip
   as a gap. The frame reveals only that the shared sequence advanced, which any later event would
   reveal too.
 
 How an event maps to a project: the payload's `projectId`; the aggregate id of `project` events;
-the channel's project for `channelId`; the message's channel for a `messageId` without a
-`channelId`; the task's project for `taskId`; an artifact's task; and a content ref's task or
+the channel's project for `channelId`; the message's channel for every `messageId`, even when a
+`channelId` is also present; the task's project for `taskId`; an artifact's task; and a content ref's task or
 message channel. Lookups use current state, so a task moved into a hidden project is hidden in
 replay too, and a removed project member stops seeing the project's history on the next page.
+Channel, message, thread/reply and content references also require current channel audience access.
+Workspace owners and admins retain their project privileges but cannot bypass a participant-only
+channel's audience. Removing a participant therefore withholds that channel's replay events as well
+as future events; archived conversation history follows the same current audience check.
 
 **Never via resync.** `resync_required` frames carry only a fresh cursor; the client then refetches
-current state through the query layer, which applies the same project access. Cursors carry no
+current state through the query layer, which applies the same project and channel access. Cursors carry no
 access decision.
 
 **Membership.** If the subscriber is no longer a workspace member when a page is classified, the
 stream ends with `membership-revoked` straight away rather than at the next 30-second recheck.
 
 **Cost.** Every page that has events costs one or two indexed reads for the access scope
-(membership plus the workspace's `members` projects with the subscriber's rows). When the
-subscriber can see every project — owners, admins, and any workspace without hidden projects for
-them — that is all. Otherwise each page adds at most four batched lookups (channels, messages,
-tasks, artifacts/content refs) keyed by the ids in the page, never one query per event. Idle polls
+(membership plus the workspace's `members` projects with the subscriber's rows). Each page adds at
+most five batched reference lookups (channels, messages, tasks, artifacts, content refs) keyed by
+the ids in the page, never one query per event. Channel audience checks use indexed participant
+existence projections in those lookups, including for owners and admins. A page containing only
+project events needs only the access-scope reads. Idle polls
 read nothing extra.
 
 **Client refresh.** `project.visibility_changed` and `project.members_changed` refresh the whole
@@ -268,6 +308,63 @@ it contains neither ciphertext nor prompt/context bodies, and grants no runtime
 acceptance or Task lifecycle transition. The rollback and duplicate-admission
 cases in `packages/db/tests/integration/task-submissions.test.ts` pin this boundary.
 
+## Control Plane execution event privacy boundary
+
+`apps/web/src/server/control-plane-events.ts` decodes the pinned public
+`AgentHqExecutionEventEnvelopeSchema` from `@adea-ai/contracts` 1.14.0. This is
+a prerequisite for #39's inbox, not the inbox or an authenticated delivery
+endpoint. Raw Control Plane events are never WorkspaceEvents or Messages.
+
+The encoded envelope is capped at 24 KiB before UTF-8 decoding. Structural
+preflight refuses `__proto__` keys and caps depth at 16 and visited values at 512 before the public recursive
+JSON schema or canonical hasher runs. Source data is capped at 16 KiB and the
+final projection at 8 KiB. Unexpected envelope/correlation fields, unsupported
+event names, contract majors other than 1, and payload schema versions other
+than 1 are refused. Additive contract minors use the same explicit projection.
+Sequence and count metadata must remain safe integers; timestamps are bounded.
+
+The caller supplies an independently resolved workspace/project/Task/Agent/
+execution scope. Every corresponding public identifier must match. The source
+payload SHA-256 is verified using the public canonical JSON serializer before
+private fields are removed; `projectionHash` covers only the retained `data`,
+not the envelope headers. Neither data hash identifies a complete event. Future
+inbox deduplication must also compare the qualified event identity and its
+coordination headers. Both hashes are metadata, not authorization or execution
+acceptance.
+
+The accepted `data` fields form Adea's bounded cloud projection inside the
+public envelope's otherwise unrestricted JSON data:
+
+| Field                           | Retained metadata                                                                             |
+| ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `state`                         | Fixed execution-state vocabulary; a state-bearing execution/attempt type cannot contradict it |
+| `availability`, `providerState` | Fixed availability classifications, never provider text                                       |
+| `failure`                       | Fixed failure classification and optional retryability; no free-form code/message             |
+| `progress`                      | Nonnegative safe `completed`/`total` counts, with completed no greater than total             |
+| `usage`                         | Public usage counts and bounded amount/currency; no provider output                           |
+| `artifactRefs`                  | At most 32 public Artifact IDs, versions, digests and sizes; no locator or media label        |
+
+Unknown data fields are removed, including prompt/response/ContextPackage,
+provider material, native paths, result locators and transcripts. Malformed
+recognized metadata is refused rather than coerced. Header and usage fields
+are explicitly copied, so a future public schema addition is not automatically
+forwarded into persistence. The isolated projection is recursively frozen.
+Errors expose only fixed reason codes and no input or schema diagnostics.
+
+The public envelope does not carry selected host/location identity. Authenticated
+delivery and retained acceptance metadata must establish that binding before
+inbox admission. A caller cannot derive the expected scope from this same input.
+Artifact references still need authorized resolution; no content access is
+granted by decoding one. No inbox row, Task transition, Message, Artifact or
+usage attribution is written by this decoder. Durable scoped deduplication,
+ordering/gap handling, atomic application, replay tools and canonical Conversation
+Service mapping remain required by #39.
+
+`apps/web/test/control-plane-events.test.ts` pins the public-schema content-leak
+canaries, scope/hash/schema refusals, bounded work, metadata projection and
+immutability. The client bundle denylist keeps this server boundary out of
+browser code. These tests require no Control Plane checkout or service.
+
 ## Pinned by
 
 Outbound pulls emit the version-1 `runtime_node.proof_accepted` event at most
@@ -292,6 +389,15 @@ This proves liveness, never execution acceptance.
 - `packages/data/tests/unit/events.test.ts`: frame parsing, family-to-query
   mapping, withheld frames advancing without a gap, backoff, apply-once semantics with cursor persistence, gap and resync
   recovery, and the server-retry floor.
+- `packages/db/tests/integration/event-audience.test.ts`: current channel audience and archived
+  replay, ID-free visibility narrowing, and private/hidden/missing reference denial.
+- `packages/data/tests/unit/events-audience.test.ts` and `mutations-audience.test.ts`: real
+  QueryClient observers lose revoked data before denied refetch; cancelled late queries and
+  accepted late mutations cannot repopulate it. Malformed audience frames cannot advance cursors.
+  `conversation-audience-resource.test.ts` mounts the real Solid query resource and rejects an
+  old successful page during its delayed resource update using the request's audience generation.
+  State tests cover channel/thread reset while preserving direct sessions. Conversation surface
+  audience tests pin source guards; they do not qualify mounted UI or browser behavior.
 - `packages/db/tests/integration/account-summary.test.ts`: the frontier on
   insert, thread reply, idempotent retry and delete; counts across three
   member workspaces in exactly one query; a non-member workspace never

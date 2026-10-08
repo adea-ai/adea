@@ -551,6 +551,9 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
   const projectsSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
+  // Utility slots start collapsed; the deterministic checks below need the
+  // Files slot open.
+  await toggleDevLeftUtility(page)
   await expect(globalNavigation).toBeVisible()
   await expect(projectsSidebar).toBeVisible()
   await expect(leftUtilities).toBeVisible()
@@ -794,6 +797,8 @@ test('the utility selector reveals its pane and the sidebar fills the workspace 
   const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
   const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
 
+  // The Files slot starts collapsed; open it before pinning the selector.
+  await toggleDevLeftUtility(page)
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
   await devToolbarControl(page, 'Collapse left utility sidebar').click()
   await expect(leftUtilities).toBeHidden()
@@ -1049,6 +1054,8 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
 
   const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
   const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
+  // The Files slot starts collapsed; open it before pinning the selector.
+  await toggleDevLeftUtility(page)
   const selector = leftUtilities.getByRole('group', { name: 'Files and Source Control' })
   const filesButton = selector.getByRole('button', { name: 'Files' })
   const sourceControlButton = selector.getByRole('button', { name: 'Source control' })

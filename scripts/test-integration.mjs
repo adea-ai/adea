@@ -70,6 +70,7 @@ try {
   // entry. Integration also runs independently from the workspace build.
   run('bun', ['run', '--cwd', 'packages/remote-content', 'build'], process.env)
   run('bun', ['run', '--cwd', 'packages/types', 'build'], process.env)
+  run('bun', ['run', '--cwd', 'packages/auth', 'build'], process.env)
   // API regression cases exercise the production server handler through the
   // compiled database entry, with the explicit server-only runtime condition.
   run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)

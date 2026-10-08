@@ -39,7 +39,8 @@ test('a read-state mutation refreshes the account summary', async () => {
   } as unknown as AgentHqApiClient
   const options = readStateMutationOptions.all(client, queryClient, 'workspace-home')
 
-  options.onSuccess(await options.mutationFn())
+  const context = options.onMutate()
+  options.onSuccess(await options.mutationFn(), undefined, context)
 
   expect(queryClient.getQueryState(accountQueryKeys.summary)?.isInvalidated).toBe(true)
   expect(queryClient.getQueryData(['workspaces', 'workspace-home', 'read-state'])).toEqual({

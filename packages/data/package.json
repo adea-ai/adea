@@ -1,11 +1,17 @@
 {
   "name": "@adea-ai/data",
-  "version": "0.85.0",
+  "version": "0.86.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
+    "./model-connections": {
+      "types": "./dist/model-connections.d.ts",
+      "solid": "./src/model-connections.ts",
+      "development": "./src/model-connections.ts",
+      "import": "./dist/model-connections.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "solid": "./src/index.ts",

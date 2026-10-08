@@ -95,6 +95,8 @@ export function isUserPrincipalRef(principal: PrincipalRef): principal is UserPr
 }
 
 export type AgentSummary = {
+  /** Structural designation only; model/profile readiness is resolved separately. */
+  isWorkspaceLead?: boolean
   avatarRef?: string
   characterRef?: string
   createdAt: string

@@ -46,6 +46,9 @@ const CloudConnectionsPane = lazy(() =>
 const RuntimeNodesPane = lazy(() =>
   import('./control-plane-settings').then((module) => ({ default: module.RuntimeNodesPane }))
 )
+const LeadModelPane = lazy(() =>
+  import('./control-plane-settings').then((module) => ({ default: module.LeadModelPane }))
+)
 
 /**
  * One workspace's own settings, opened from the sidebar's workspace gear:
@@ -258,6 +261,9 @@ export function WorkspaceDetailsDialog(props: {
                   </Suspense>
                   <Suspense fallback={<p role="status">Loading execution hosts…</p>}>
                     <RuntimeNodesPane client={apiClient()} workspaceId={props.workspace.id} />
+                  </Suspense>
+                  <Suspense fallback={<p role="status">Loading agent models…</p>}>
+                    <LeadModelPane client={apiClient()} workspaceId={props.workspace.id} />
                   </Suspense>
                   <Suspense fallback={<p role="status">Loading cloud connections…</p>}>
                     <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />

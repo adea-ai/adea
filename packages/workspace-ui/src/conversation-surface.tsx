@@ -5,15 +5,25 @@ import type {
   MessageSummary,
   TaskSummary,
 } from '@adea-ai/types'
-import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { AgentHqApiClient, ApiLeadTurnStatus } from '@adea-ai/api-client'
+import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import {
-  settledData,
+  settledConversationPage,
   useCreateMessageMutation,
   useMessageListQuery,
   usePrefetchThreadMessages,
 } from '@adea-ai/data'
 import { Info, MailOpen, Search } from 'lucide-solid'
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  lazy,
+  onCleanup,
+  onMount,
+  Show,
+} from 'solid-js'
 
 import type { ConversationReadingPosition } from '@adea-ai/ui/components/conversation'
 import {
@@ -25,10 +35,19 @@ import {
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { keyedRows } from './keyed-rows'
-import { MessageComposer, type ComposerSubmission } from './message-composer'
+import { isWorkspaceLeadConversation, messageSubmissionOutcome } from './lead-conversation-model'
+import {
+  MessageComposer,
+  type ComposerSubmission,
+  type ComposerSubmissionOutcome,
+} from './message-composer'
 import { MessageRow } from './message-row'
 import { ThreadPanel } from './thread-panel'
 import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-states'
+
+const LeadTurnControls = lazy(() =>
+  import('./control-plane-settings').then((module) => ({ default: module.LeadTurnControls }))
+)
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
 import { ConversationAvatar } from './conversation-avatar'
@@ -44,20 +63,35 @@ import { Button } from '@adea-ai/ui/components/ui/button'
  */
 const transcriptCache = new Map<
   string,
-  { messages: readonly MessageSummary[]; readingPosition: ConversationReadingPosition }
+  {
+    workspaceId: string
+    audienceEpoch: number
+    messages: readonly MessageSummary[]
+    readingPosition: ConversationReadingPosition
+  }
 >()
 const TRANSCRIPT_CACHE_LIMIT = 12
 
 function rememberTranscript(
+  workspaceId: string,
+  audienceEpoch: number,
   channelId: string,
   messages: readonly MessageSummary[],
   readingPosition: ConversationReadingPosition
 ) {
-  transcriptCache.delete(channelId)
-  transcriptCache.set(channelId, { messages, readingPosition })
+  if ((workspaceStore.getState().conversationAudienceEpochs[workspaceId] ?? 0) !== audienceEpoch)
+    return
+  const key = `${workspaceId}:${channelId}`
+  transcriptCache.delete(key)
+  transcriptCache.set(key, { workspaceId, audienceEpoch, messages, readingPosition })
   while (transcriptCache.size > TRANSCRIPT_CACHE_LIMIT) {
     transcriptCache.delete(transcriptCache.keys().next().value!)
   }
+}
+
+function cachedTranscript(workspaceId: string, audienceEpoch: number, channelId: string) {
+  const cached = transcriptCache.get(`${workspaceId}:${channelId}`)
+  return cached?.audienceEpoch === audienceEpoch ? cached : undefined
 }
 
 const dayFormatter = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' })
@@ -133,6 +167,10 @@ export function ConversationSurface(props: {
   transcription?: TranscriptionProvider
   workspaceId: string
 }) {
+  const audienceEpoch = useWorkspaceState(
+    (state) => state.conversationAudienceEpochs[props.workspaceId] ?? 0
+  )
+  const [leadReceipt, setLeadReceipt] = createSignal<ApiLeadTurnStatus | null>(null)
   const [cursor, setCursor] = createSignal<number | undefined>()
   const [messages, setMessages] = createSignal<readonly MessageSummary[]>([])
   // Whether the loaded page belongs to this conversation. Solid Query keeps the
@@ -159,16 +197,6 @@ export function ConversationSurface(props: {
       // nothing observed and no refetch ever happened.
       afterSequence: () => cursor(),
       limit: 100,
-    },
-    {
-      // Revisiting a channel renders its last-known transcript as the
-      // placeholder page while the refetch merges fresher messages in — the
-      // query itself carries the stale-while-revalidate contract.
-      placeholderData: () => {
-        const channel = props.channel
-        const cached = channel ? transcriptCache.get(channel.id) : undefined
-        return cached ? { messages: cached.messages } : undefined
-      },
     }
   )
   const createMessage = useCreateMessageMutation(
@@ -185,25 +213,47 @@ export function ConversationSurface(props: {
   // One effect makes the order explicit: reset first when the channel changes,
   // then accept whatever the query currently holds.
   let loadedChannelId: string | undefined
+  let loadedWorkspaceId = props.workspaceId
+  let loadedAudienceEpoch = audienceEpoch()
   // Live scroll position of the loaded channel — captured into the cache
   // entry on switch instead of writing a map on every scroll event.
   let liveReadingPosition: ConversationReadingPosition = { top: 0, following: true }
   createEffect(() => {
+    const epoch = audienceEpoch()
     const channel = props.channel
-    if (channel?.id !== loadedChannelId) {
-      if (loadedChannelId) rememberTranscript(loadedChannelId, messages(), liveReadingPosition)
+    for (const [key, cached] of transcriptCache)
+      if (cached.workspaceId === props.workspaceId && cached.audienceEpoch !== epoch)
+        transcriptCache.delete(key)
+    if (
+      channel?.id !== loadedChannelId ||
+      epoch !== loadedAudienceEpoch ||
+      props.workspaceId !== loadedWorkspaceId
+    ) {
+      setLeadReceipt(null)
+      if (loadedChannelId)
+        rememberTranscript(
+          loadedWorkspaceId,
+          loadedAudienceEpoch,
+          loadedChannelId,
+          messages(),
+          liveReadingPosition
+        )
       loadedChannelId = channel?.id
+      loadedWorkspaceId = props.workspaceId
+      loadedAudienceEpoch = epoch
       setCursor(undefined)
       // Restore the last-known transcript for the incoming channel. The merge
       // below reconciles it with the fresh page when the refetch lands, so the
       // stale copy is a render bridge, not a second source of truth.
-      const cached = channel ? transcriptCache.get(channel.id) : undefined
+      const cached = channel ? cachedTranscript(props.workspaceId, epoch, channel.id) : undefined
       setMessages(cached?.messages ?? [])
       liveReadingPosition = cached?.readingPosition ?? { top: 0, following: true }
       setOptimisticMessage(null)
       setPageBelongsToChannel(false)
     }
-    const data = settledData(messageQuery)
+    // The resource can retain its previous success until Solid Query's queued
+    // update runs. Only a page admitted under this audience may refill history.
+    const data = settledConversationPage(messageQuery, epoch)
     if (!channel || !data) return
     const all = data.messages
     const page = all.filter((message) => message.channelId === channel.id)
@@ -281,46 +331,59 @@ export function ConversationSurface(props: {
   // The thread column: the focused thread when its root is inside the loaded
   // page, the placeholder panel when a deep link names a root this window
   // cannot show, and nothing — no second column — when no thread is open.
-  const threadPanel = createMemo(() => {
-    if (!props.threadRootMessageId) return undefined
-    const rootMessage = root()
-    if (!rootMessage) {
-      return (
-        <SharedThreadPanel
-          data-conventional-thread=""
-          label="Thread"
-          onClose={() => props.onThreadChange(null)}
+  // A refreshed root object updates metadata without disposing its pending
+  // composer. Changing the root identity still disposes the previous thread.
+  const threadPanel = (
+    <Show when={props.threadRootMessageId} keyed>
+      {(rootId) => (
+        <Show
+          when={root()?.id === rootId ? root() : undefined}
+          fallback={
+            <SharedThreadPanel
+              data-conventional-thread=""
+              label="Thread"
+              onClose={() => props.onThreadChange(null)}
+            >
+              <WorkspaceEmpty
+                title="Thread outside history window"
+                detail="This thread is outside the loaded history window."
+              />
+            </SharedThreadPanel>
+          }
         >
-          <WorkspaceEmpty
-            title="Thread outside history window"
-            detail="This thread is outside the loaded history window."
-          />
-        </SharedThreadPanel>
-      )
-    }
-    return (
-      <ThreadPanel
-        agents={props.agents}
-        artifacts={props.artifacts}
-        channelId={props.channel?.id ?? ''}
-        client={props.client}
-        draft={props.threadDraft}
-        onClose={() => props.onThreadChange(null)}
-        onDraftChange={props.onThreadDraftChange}
-        onOpenTask={props.onOpenTask}
-        onMarkRead={(sequence) => props.onMarkThreadRead(rootMessage.id, sequence)}
-        onMarkUnread={() => props.onMarkThreadUnread(rootMessage.id)}
-        privateContent={props.privateContent}
-        root={rootMessage}
-        searchTargetMessageId={props.searchTargetMessageId}
-        tasks={props.tasks}
-        transcription={props.transcription}
-        workspaceId={props.workspaceId}
-      />
-    )
-  })
+          {(rootMessage) => (
+            <ThreadPanel
+              agents={props.agents}
+              artifacts={props.artifacts}
+              channelId={props.channel?.id ?? ''}
+              client={props.client}
+              draft={props.threadDraft}
+              onClose={() => props.onThreadChange(null)}
+              onDraftChange={props.onThreadDraftChange}
+              onOpenTask={props.onOpenTask}
+              onMarkRead={(sequence) => props.onMarkThreadRead(rootId, sequence)}
+              onMarkUnread={() => props.onMarkThreadUnread(rootId)}
+              privateContent={props.privateContent}
+              root={rootMessage()}
+              searchTargetMessageId={props.searchTargetMessageId}
+              tasks={props.tasks}
+              transcription={props.transcription}
+              workspaceId={props.workspaceId}
+            />
+          )}
+        </Show>
+      )}
+    </Show>
+  )
 
-  const submit = async (submission: ComposerSubmission) => {
+  const submit = async (submission: ComposerSubmission): Promise<ComposerSubmissionOutcome> => {
+    const submittedWorkspaceId = props.workspaceId
+    const submittedChannelId = props.channel?.id
+    const submittedAudienceEpoch = audienceEpoch()
+    const stillCurrent = () =>
+      props.workspaceId === submittedWorkspaceId &&
+      props.channel?.id === submittedChannelId &&
+      audienceEpoch() === submittedAudienceEpoch
     const createdAt = new Date().toISOString()
     setOptimisticMessage({
       artifactIds: submission.artifactIds,
@@ -337,7 +400,21 @@ export function ConversationSurface(props: {
       workspaceId: props.workspaceId,
     })
     try {
-      const created = await createMessage.mutateAsync(submission)
+      const useLead = isWorkspaceLeadConversation(props.channel, directAgent())
+      const created = await createMessage.mutateAsync({
+        ...submission,
+        ...(useLead ? { leadTurn: true as const } : {}),
+      })
+      if (!stillCurrent()) return { clearDraft: false }
+      if (created.leadTurn)
+        setLeadReceipt({
+          schemaVersion: 'adea-lead-turn/v1',
+          intentId: created.leadTurn.intentId,
+          messageId: created.leadTurn.messageId,
+          state: 'blocked',
+          availability: 'unavailable',
+          reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE',
+        })
       // Merge the committed message immediately: the list invalidation that
       // follows refetches the page, but the transcript should not wait a round
       // trip (or drop the optimistic row first) to show what the server
@@ -348,8 +425,9 @@ export function ConversationSurface(props: {
           (left, right) => left.sequence - right.sequence
         )
       })
+      return messageSubmissionOutcome(created, stillCurrent())
     } finally {
-      setOptimisticMessage(null)
+      if (stillCurrent()) setOptimisticMessage(null)
     }
   }
 
@@ -390,15 +468,27 @@ export function ConversationSurface(props: {
         <ConversationPane
           gutter
           composer={
-            <MessageComposer
-              agents={props.agents}
-              artifacts={props.artifacts}
-              channelId={channel().id}
-              draft={props.draft}
-              onDraftChange={props.onDraftChange}
-              onSubmit={submit}
-              transcription={props.transcription}
-            />
+            <>
+              <Show when={isWorkspaceLeadConversation(channel(), directAgent())}>
+                <LeadTurnControls
+                  client={props.client}
+                  workspaceId={props.workspaceId}
+                  channelId={channel().id}
+                  audienceEpoch={audienceEpoch()}
+                  receipt={leadReceipt()}
+                  onTimelineChange={() => void messageQuery.refetch()}
+                />
+              </Show>
+              <MessageComposer
+                agents={props.agents}
+                artifacts={props.artifacts}
+                channelId={channel().id}
+                draft={props.draft}
+                onDraftChange={props.onDraftChange}
+                onSubmit={submit}
+                transcription={props.transcription}
+              />
+            </>
           }
           header={
             <header class="border-border bg-card border-b px-5 pt-2.5 pb-2">
@@ -477,14 +567,16 @@ export function ConversationSurface(props: {
               </nav>
             </header>
           }
-          thread={threadPanel()}
+          thread={props.threadRootMessageId ? threadPanel : undefined}
         >
           <SharedConversationSurface
             data-conventional-transcript=""
             gutter
             ref={setTranscript}
             resetKey={channel().id}
-            initialReadingPosition={transcriptCache.get(channel().id)?.readingPosition}
+            initialReadingPosition={
+              cachedTranscript(props.workspaceId, audienceEpoch(), channel().id)?.readingPosition
+            }
             onReadingPositionChange={(position) => {
               // The engine's identity reset re-pins the outgoing transcript to
               // the bottom and reports that synthesized position before this
@@ -563,7 +655,9 @@ export function ConversationSurface(props: {
                       />
                     )}
                   </Show>
-                  <Show when={settledData(messageQuery)?.nextAfterSequence}>
+                  <Show
+                    when={settledConversationPage(messageQuery, audienceEpoch())?.nextAfterSequence}
+                  >
                     {(nextSequence) => (
                       <Button
                         type="button"

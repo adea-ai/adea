@@ -3,6 +3,7 @@ import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import type { ChannelSummary, TaskSummary } from '@adea-ai/types'
 import {
   settledData,
+  settledConversationPage,
   useAgentListQuery,
   useArchiveAgentMutation,
   useArchiveChannelMutation,
@@ -77,8 +78,18 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const tasks = useTaskListQuery(client(), workspaceId)
   const artifacts = useArtifactListQuery(client(), workspaceId)
   const readState = useReadStateQuery(client(), workspaceId)
+  const audienceEpoch = useWorkspaceState(
+    (state) => state.conversationAudienceEpochs[workspaceId() ?? ''] ?? 0
+  )
+  const channelData = () => {
+    const list = settledConversationPage(channels, audienceEpoch())
+    return list?.conversationWorkspaceId === workspaceId() ? list : undefined
+  }
+  const selectionAuthority = () => ({ workspaceId: workspaceId(), epoch: audienceEpoch() })
+  const currentSelectionAuthority = (authority: ReturnType<typeof selectionAuthority>) =>
+    authority.workspaceId === workspaceId() && authority.epoch === audienceEpoch()
   const navigation = createMemo(() =>
-    projectWorkspaceNavigation(settledData(projects) ?? [], settledData(channels) ?? [])
+    projectWorkspaceNavigation(settledData(projects) ?? [], channelData() ?? [])
   )
   const createProject = useCreateProjectMutation(client(), () => workspaceId() ?? '')
   const createGroup = useCreateGroupChannelMutation(client(), () => workspaceId() ?? '')
@@ -117,15 +128,25 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   })
 
   let explicitSelection: string | null = null
+  let selectionScope = selectionAuthority()
   createEffect(() => {
+    if (!currentSelectionAuthority(selectionScope)) {
+      explicitSelection = null
+      selectionScope = selectionAuthority()
+    }
     const decision = reconcileWorkspaceChannelSelection({
-      channels: settledData(channels),
+      channels: channelData(),
       explicitSelection,
       navigation: navigation(),
       selectedChannelId: selectedChannelId(),
     })
     if (decision.action === 'preserve') {
       if (decision.clearExplicitSelection) explicitSelection = null
+      return
+    }
+    if (decision.action === 'clear') {
+      workspaceStore.getState().setSelectedProjectId(null)
+      workspaceStore.getState().setSelectedChannelId(null)
       return
     }
     if (decision.action !== 'select') return
@@ -176,7 +197,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     },
     bootstrap,
     get channels() {
-      return settledData(channels) ?? []
+      return channelData() ?? []
     },
     client: client(),
     createAgent: (input: Parameters<typeof createAgent.mutateAsync>[0]) =>
@@ -185,11 +206,12 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       return createAgent.isPending
     },
     createGroup: async (title: string) => {
+      const authority = selectionAuthority()
       const result = await createGroup.mutateAsync({
         idempotencyKey: createClientRequestId(),
         title,
       })
-      selectChannel(result.channel.id)
+      if (currentSelectionAuthority(authority)) selectChannel(result.channel.id)
     },
     get createGroupBusy() {
       return createGroup.isPending
@@ -254,8 +276,9 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
         markThreadRead.mutateAsync(input).then(() => undefined),
     },
     openAgentConversation: async (agentId: string) => {
+      const authority = selectionAuthority()
       const result = await createDirect.mutateAsync(agentId)
-      selectChannel(result.channel.id)
+      if (currentSelectionAuthority(authority)) selectChannel(result.channel.id)
     },
     get persistenceReady() {
       return persistenceReady()
@@ -266,7 +289,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     selectChannel,
     selectWorkspace,
     get selectedChannel() {
-      return settledData(channels)?.find(({ id }) => id === selectedChannelId())
+      return channelData()?.find(({ id }) => id === selectedChannelId())
     },
     taskActions: {
       archive: (task: TaskSummary) =>

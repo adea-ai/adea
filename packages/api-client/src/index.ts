@@ -1,3 +1,17 @@
+import {
+  createModelConnectionsAdapter,
+  type ApiModelConnectionsResponse,
+  type ApiModelDefaultsResponse,
+  type ApiModelDefaultsSetInput,
+  type ApiModelSelectionResolveInput,
+  type ApiModelSelectionResponse,
+  type ApiModelFundingBinding,
+  type ApiModelFundingResponse,
+  type ApiModelConnectionCreateInput,
+  type ApiModelConnectionRevokeInput,
+  type ApiModelConnectionResponse,
+} from './model-connections.js'
+
 import type {
   AccountSummary,
   AgentSummary,
@@ -59,6 +73,7 @@ export type ApiAgentProfileInput = Readonly<{
   profileVersion: string
 }>
 export type ApiAgentResponse = Readonly<{ agent: AgentSummary }>
+export type ApiWorkspaceLeadResponse = Readonly<{ lead: AgentSummary | null }>
 
 export type ApiArtifactCreateInput = Readonly<{
   agentId?: string
@@ -155,12 +170,40 @@ export type ApiReadStateResponse = Readonly<{ readState: readonly ChannelReadSta
 export type ApiAccountSummaryResponse = AccountSummary
 
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
-export type ApiMessageResponse = Readonly<{ message: MessageSummary }>
+export type {
+  ApiLeadTurnStatus,
+  ApiLeadTurnResponse,
+  ApiChannelLeadTurnResponse,
+  ApiLeadTurnProgress,
+  ApiLeadTurnProgressResponse,
+  LeadTurnRuntimeState,
+  LeadTurnReasonCode,
+} from './lead-turns'
+import type {
+  ApiLeadTurnResponse,
+  ApiLeadTurnProgressResponse,
+  ApiChannelLeadTurnResponse,
+} from './lead-turns'
+
+export type ApiMessageResponse = Readonly<{
+  message: MessageSummary
+  /** Canonical persistence is not runtime admission or execution. */
+  leadTurn?: Readonly<{
+    schemaVersion: 'pi-lead-intent/v1'
+    intentId: string
+    messageId: string
+    dispatchKey: string
+    state: 'blocked'
+    reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE'
+  }>
+}>
 export type ApiMessagePage = Readonly<{
   messages: readonly MessageSummary[]
   nextAfterSequence?: number
 }>
 export type ApiMessageCreateInput = Readonly<{
+  /** Explicit workspace lead admission; direct sessions remain ordinary messages. */
+  leadTurn?: true
   artifactIds?: readonly string[]
   bodyContentRefId?: string
   bodyText?: string
@@ -792,6 +835,64 @@ export class AgentHqApiClient {
     )
   }
 
+  /** Model metadata remains separate from connector credentials and execution admission. */
+  createModelConnection(
+    workspaceId: string,
+    input: ApiModelConnectionCreateInput
+  ): Promise<ApiModelConnectionResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).createModelConnection(workspaceId, input)
+  }
+
+  revokeModelConnection(
+    workspaceId: string,
+    input: ApiModelConnectionRevokeInput
+  ): Promise<ApiModelConnectionResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).revokeModelConnection(workspaceId, input)
+  }
+
+  listModelConnections(workspaceId: string): Promise<ApiModelConnectionsResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).listModelConnections(workspaceId)
+  }
+
+  getWorkspaceModelDefaults(workspaceId: string): Promise<ApiModelDefaultsResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).getWorkspaceModelDefaults(workspaceId)
+  }
+
+  setWorkspaceModelDefaults(
+    workspaceId: string,
+    input: ApiModelDefaultsSetInput
+  ): Promise<ApiModelDefaultsResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).setWorkspaceModelDefaults(workspaceId, input)
+  }
+
+  resolveWorkspaceModelSelection(
+    workspaceId: string,
+    input: ApiModelSelectionResolveInput
+  ): Promise<ApiModelSelectionResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).resolveWorkspaceModelSelection(workspaceId, input)
+  }
+
+  getModelSelectionFunding(
+    workspaceId: string,
+    input: ApiModelFundingBinding
+  ): Promise<ApiModelFundingResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).getModelSelectionFunding(workspaceId, input)
+  }
+
   /** Cloud connection metadata (ADR 0013); never secret material. */
   async listCloudConnections(
     workspaceId: string,
@@ -963,6 +1064,18 @@ export class AgentHqApiClient {
 
   async listAgents(workspaceId: string): Promise<readonly AgentSummary[]> {
     return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/agents`)
+  }
+
+  async getWorkspaceLead(workspaceId: string): Promise<ApiWorkspaceLeadResponse> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/lead`)
+  }
+
+  async ensureWorkspaceLead(workspaceId: string): Promise<ApiWorkspaceLeadResponse> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/lead`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
   }
 
   async getAgent(workspaceId: string, agentId: string): Promise<ApiAgentResponse> {
@@ -1309,6 +1422,13 @@ export class AgentHqApiClient {
     return this.createChannel(workspaceId, { ...input, kind: 'group' })
   }
 
+  async createDirectAgentTopic(
+    workspaceId: string,
+    input: Readonly<{ agentId: string; idempotencyKey: string; title: string }>
+  ): Promise<ApiChannelResponse> {
+    return this.createChannel(workspaceId, { ...input, kind: 'direct_agent', mode: 'new_topic' })
+  }
+
   async updateChannel(
     workspaceId: string,
     channelId: string,
@@ -1392,6 +1512,66 @@ export class AgentHqApiClient {
     )
   }
 
+  async dispatchLeadTurn(workspaceId: string, intentId: string): Promise<ApiLeadTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }
+    )
+  }
+
+  async prepareLeadTurn(workspaceId: string, intentId: string): Promise<ApiLeadTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/prepare`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }
+    )
+  }
+
+  async getChannelLeadTurn(
+    workspaceId: string,
+    channelId: string
+  ): Promise<ApiChannelLeadTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/lead-turn`
+    )
+  }
+
+  async getLeadTurnStatus(workspaceId: string, intentId: string): Promise<ApiLeadTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}`
+    )
+  }
+
+  async getLeadTurnProgress(
+    workspaceId: string,
+    intentId: string,
+    afterSequence = 0
+  ): Promise<ApiLeadTurnProgressResponse> {
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0)
+      throw new Error('Invalid lead progress cursor')
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/progress?afterSequence=${afterSequence}`
+    )
+  }
+
+  async cancelLeadTurn(workspaceId: string, intentId: string): Promise<ApiLeadTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/cancel`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }
+    )
+  }
+
   async getMessage(workspaceId: string, messageId: string): Promise<ApiMessageResponse> {
     return this.request(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/messages/${encodeURIComponent(messageId)}`
@@ -1431,6 +1611,7 @@ export class AgentHqApiClient {
       agentId?: string
       idempotencyKey: string
       kind: 'project' | 'direct_agent' | 'group'
+      mode?: 'new_topic'
       projectId?: string
       taskId?: string
       title: string

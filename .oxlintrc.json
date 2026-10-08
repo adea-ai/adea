@@ -68,6 +68,8 @@
           "__adeaScmChurn",
           "__adeaTerminalPaneHarness",
           "__agentHqSound",
+          "__harnessInitialEntry",
+          "__harnessNoDesktop",
           "__TSR_index"
         ]
       }

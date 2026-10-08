@@ -252,7 +252,8 @@ describe('lazy shared layout storage', () => {
     testOwner.bind()
     await testOwner.waitForLoaderCall(1)
     expect(owner.layoutLoadState()).toBe('loading')
-    expect(owner.utilityPreferences().find((item) => item.pane === 'files')?.visible).toBe(true)
+    // The immediate pre-hydration state is the new all-collapsed default.
+    expect(owner.utilityPreferences().find((item) => item.pane === 'files')?.visible).toBe(false)
 
     owner.showUtilityPane('history')
     expect(owner.utilityPreferences().find((item) => item.pane === 'history')?.visible).toBe(true)
