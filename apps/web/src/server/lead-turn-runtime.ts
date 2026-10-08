@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type {
   ApiLeadTurnStatus,
   ApiLeadTurnProgressResponse,
@@ -56,7 +57,10 @@ export type LeadRuntimeAdapter = {
   cancel(input: LeadRuntimeAuthority, dispatchId: string, cancelKey: string): Promise<unknown>
   /** Current authoritative grant, selection and payer must match this exact execution/attempt. */
   assertPublicationCurrent?: (
-    input: LeadRuntimeAuthority & LeadRuntimeBinding & LeadPreparedSelection
+    input: LeadRuntimeAuthority &
+      LeadRuntimeBinding &
+      LeadPreparedSelection &
+      Readonly<{ resultContentDigest: string }>
   ) => Promise<void>
 }
 export type LeadRuntimeStore = {
@@ -341,6 +345,7 @@ export function createLeadTurnRuntime(
               selectionRevision: pinned.selectionRevision!,
               preparationRef: pinned.preparationRef!,
               expiresAt: pinned.preparationExpiresAt!,
+              resultContentDigest: `sha256:${createHash('sha256').update(output).digest('hex')}`,
             })
           )
         } catch {
