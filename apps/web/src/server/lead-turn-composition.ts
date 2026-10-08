@@ -56,6 +56,24 @@ export async function createConfiguredLeadTurnDependencies(
       : readEnvelope(credential, correlation, operation, parameters, now)
     return port.invoke(method, credential, body, dependencies)
   }
+  async function dispatchData(
+    method: LeadSdkMethod,
+    operation: string,
+    parameters: Record<string, unknown>,
+    serviceScope: ControlPlaneServiceScope,
+    key?: string
+  ) {
+    // The installed SDK validates the complete response envelope. Runtime transport
+    // consumes its data projection; prepare and lookup have their own full-envelope decoders.
+    const response = await invoke(method, operation, parameters, serviceScope, key)
+    if (
+      !isRecord(response) ||
+      !isRecord(response.data) ||
+      response.data.schemaVersion !== 'pi-lead-dispatch/v1'
+    )
+      throw new Error('RUNTIME_RESPONSE_INVALID')
+    return response.data
+  }
   async function funding(
     prepared: Parameters<NonNullable<LeadTurnProductDependencies['authorizeConfirmedStart']>>[1]
   ) {
@@ -100,7 +118,7 @@ export async function createConfiguredLeadTurnDependencies(
       lookup: (intentId) =>
         invoke('lookupPiDurableLead', 'pi-durable.lead.lookup', { intentId }, 'execution:read'),
       dispatch: (intentId, preparationRef) =>
-        invoke(
+        dispatchData(
           'dispatchPiDurableLead',
           'pi-durable.lead.dispatch',
           { intentId, preparationRef },
@@ -108,21 +126,21 @@ export async function createConfiguredLeadTurnDependencies(
           `lead-turn:${intentId}`
         ),
       status: (dispatchId) =>
-        invoke(
+        dispatchData(
           'getPiDurableLeadStatus',
           'pi-durable.lead.status',
           { dispatchId },
           'execution:read'
         ),
       progress: (dispatchId, afterSequence) =>
-        invoke(
+        dispatchData(
           'getPiDurableLeadProgress',
           'pi-durable.lead.progress',
           { dispatchId, afterSequence },
           'execution:read'
         ),
       cancel: (dispatchId) =>
-        invoke(
+        dispatchData(
           'cancelPiDurableLead',
           'pi-durable.lead.cancel',
           { dispatchId },
