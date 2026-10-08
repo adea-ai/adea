@@ -104,6 +104,13 @@
       "import": "./dist/conventional-workspace-shell.js",
       "default": "./dist/conventional-workspace-shell.js"
     },
+    "./create-project-flow": {
+      "types": "./dist/create-project-flow.d.ts",
+      "solid": "./src/create-project-flow.ts",
+      "development": "./src/create-project-flow.ts",
+      "import": "./dist/create-project-flow.js",
+      "default": "./dist/create-project-flow.js"
+    },
     "./rail-preferences": {
       "types": "./dist/rail-preferences.d.ts",
       "solid": "./src/rail-preferences.ts",

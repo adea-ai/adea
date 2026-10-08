@@ -22,12 +22,21 @@ builds. The event decoder adds no browser bytes. The shared UI migration in
 seven gzip bytes of headroom. The candidate reproduces the [hosted failure](https://github.com/adea-ai/adea/actions/runs/37698982644/job/113057596224)
 exactly: 39,202 exceeds the 39,200-byte limit.
 
-The Virtual caps move from 114 KiB raw / 39,200 gzip bytes to 116 KiB raw /
-39 KiB gzip: approximately 2% headroom, matching the startup/Chat approach in
+#1165 initially moved the Virtual caps from 114 KiB raw / 39,200 gzip bytes
+to 116 KiB raw / 39 KiB gzip: approximately 2% headroom, matching the startup/Chat approach in
 #1149. Aggregate, startup, other route, file-count and module-attribution gates
 retain their limits. A 5% increase over the measured Virtual output still
 exceeds either new independent byte cap. The [performance ADR](../decisions/0010-performance-budgets-and-gates.md#go-no-go-gates)
 requires this attribution and retained aggregate enforcement.
+
+The subsequent #1156 integration removes Chat text helpers from Virtual's eager
+navigation graph. Its cold hosted Linux build measures 116,093 raw / 39,095 gzip
+bytes across 16 Virtual files, with 2,989,377 raw / 910,354 gzip bytes across all
+157 client files ([strict-cap build receipt](https://github.com/adea-ai/adea/actions/runs/37716656642/job/113114545338)).
+That build passes the original caps; its separate mobile history transport
+failure is not browser-suite acceptance. The integrated candidate therefore
+restores 114 KiB raw / 39,200 gzip bytes before publication and preserves the
+other CI and fixture fixes below. Fresh exact-head CI remains required.
 
 ## Managed Neon preview integration
 

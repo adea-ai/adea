@@ -52,6 +52,14 @@ export type AddProjectFormProps = Readonly<{
    * sidebar passes the project being bound. The default mints a client UUID.
    */
   mintProjectId?: () => string
+  /**
+   * The host's native folder picker; when present the authorize step offers
+   * "Choose folder…" and fills the path input from the picked folder. The
+   * typed input remains the fallback, and the picked path still goes through
+   * `dev.project.authorizeRoot` — the picker only fills the field, it never
+   * widens authorization.
+   */
+  pickFolder?: () => Promise<string | null | undefined>
 }>
 
 type ScanState =
@@ -70,6 +78,7 @@ export function AddProjectForm(props: AddProjectFormProps) {
   const [bookmarksError, setBookmarksError] = createSignal('')
   const [selectedBookmarkId, setSelectedBookmarkId] = createSignal('')
   const [folderPath, setFolderPath] = createSignal('')
+  const [picking, setPicking] = createSignal(false)
   const [authorizing, setAuthorizing] = createSignal(false)
   const [authorizeError, setAuthorizeError] = createSignal('')
   const [scan, setScan] = createSignal<ScanState>({ status: 'idle' })
@@ -109,6 +118,17 @@ export function AddProjectForm(props: AddProjectFormProps) {
   })
 
   const mintProjectId = () => props.mintProjectId?.() ?? crypto.randomUUID()
+
+  /** Fills the path input from the host's native picker. A cancelled or
+   *  failed pick leaves the typed value untouched. */
+  const chooseFolder = async (): Promise<void> => {
+    if (!props.pickFolder || picking()) return
+    setPicking(true)
+    const picked = await props.pickFolder().catch(() => undefined)
+    setPicking(false)
+    const path = typeof picked === 'string' ? picked.trim() : ''
+    if (path !== '') setFolderPath(path)
+  }
 
   /** Authorize one absolute host path as a project root, then scan it. The
    *  runtime proves owner consent host-side over the scope-bound channel;
@@ -218,15 +238,28 @@ export function AddProjectForm(props: AddProjectFormProps) {
             {authorizeError()}
           </p>
         </Show>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={authorizing() || folderPath().trim() === ''}
-          onClick={() => void authorizeFolder()}
-        >
-          <FolderPlus aria-hidden="true" />
-          {authorizing() ? 'Authorizing…' : 'Authorize folder'}
-        </Button>
+        <div class="flex flex-wrap items-center gap-2">
+          <Show when={props.pickFolder}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={picking()}
+              onClick={() => void chooseFolder()}
+            >
+              <FolderPlus aria-hidden="true" />
+              {picking() ? 'Choosing…' : 'Choose folder…'}
+            </Button>
+          </Show>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={authorizing() || folderPath().trim() === ''}
+            onClick={() => void authorizeFolder()}
+          >
+            <FolderPlus aria-hidden="true" />
+            {authorizing() ? 'Authorizing…' : 'Authorize folder'}
+          </Button>
+        </div>
       </div>
       <Show when={bookmarksError()}>
         <p class="dev-tree-empty" role="alert">
