@@ -7,6 +7,10 @@ export {
 
 export { accountWorkspaceSummaries } from './account-summary'
 export {
+  inspectExpiredTaskSubmissionCiphertext,
+  purgeExpiredTaskSubmissionCiphertext,
+} from './task-submission-retention'
+export {
   enqueueTaskSubmission,
   getTaskSubmissionForUser,
   TaskSubmissionError,

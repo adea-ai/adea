@@ -35,6 +35,7 @@ import {
 import { enqueueTaskSubmission } from '../../src/task-submissions'
 import { createTask } from '../../src/tasks'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
+import { purgeExpiredTaskSubmissionCiphertext } from '../../src/task-submission-retention'
 
 const publicKey = async (key: CryptoKey) =>
   Buffer.from(await crypto.subtle.exportKey('raw', key)).toString('base64url')
@@ -149,6 +150,29 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
     const pull = async () => pullRuntimeNodeCommand(connection.db, scope, await proof())
     return { owner, workspace, agent, task, node, envelope, submission, scope, proof, pull }
   }
+
+  test('an expired purged command cannot be redelivered or erase the retained intent', async () => {
+    const f = await fixture()
+    const first = await f.pull()
+    expect(first?.submissionId).toBe(f.submission.id)
+    await connection.db
+      .update(taskSubmissions)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(taskSubmissions.id, f.submission.id))
+    expect(await purgeExpiredTaskSubmissionCiphertext(connection.db, f.workspace.id)).toBe(1)
+    expect(await f.pull()).toBeNull()
+    const [intent] = await connection.db
+      .select()
+      .from(taskSubmissions)
+      .where(eq(taskSubmissions.id, f.submission.id))
+    expect(intent!.commandId).toBe(first!.commandId)
+    const [outbox] = await connection.db
+      .select()
+      .from(commandOutbox)
+      .where(eq(commandOutbox.id, first!.commandId))
+    expect(outbox!.status).toBe('pending')
+    expect(outbox!.payload).not.toHaveProperty('envelope')
+  })
 
   test('fresh signatures redeliver one immutable ciphertext identity after reconnect without acceptance', async () => {
     const f = await fixture()
