@@ -1,5 +1,60 @@
 # Changelog
 
+## [0.86.0](https://github.com/adea-ai/adea/compare/v0.85.0...v0.86.0) (2026-10-08)
+
+
+### Features
+
+* act on the October 7 owner feedback round ([#1152](https://github.com/adea-ai/adea/issues/1152)) ([35ba2d7](https://github.com/adea-ai/adea/commit/35ba2d7da1d607d5cf4dcd0a2cac902c7595219b))
+* add durable lead admission and model connection consumers ([#1190](https://github.com/adea-ai/adea/issues/1190)) ([fc5e06a](https://github.com/adea-ai/adea/commit/fc5e06a9c5fbefb2bcb01c3e22b1a39e65d99d2c))
+* add isolated Agent topics and revoke inaccessible cached history ([#1186](https://github.com/adea-ai/adea/issues/1186)) ([a85ccd4](https://github.com/adea-ai/adea/commit/a85ccd4c95717427bbcd8b8a1e113653b846a402))
+* authenticate outbound runtime node delivery ([#1148](https://github.com/adea-ai/adea/issues/1148)) ([a1354ec](https://github.com/adea-ai/adea/commit/a1354ec61310292f16f7c4dddd6b5375013fe105))
+* collapse Files by default, shared resize grips, terminal close that closes ([#1168](https://github.com/adea-ai/adea/issues/1168)) ([bd67d60](https://github.com/adea-ai/adea/commit/bd67d60b4d852c42d4f9a4825591cc9e48106837))
+* **db:** expand relay retention schema before operator rollout ([#1153](https://github.com/adea-ai/adea/issues/1153)) ([2526486](https://github.com/adea-ai/adea/commit/25264860b403f5f400ab9b4c933f06a15524cba3))
+* **db:** expand workspace schema before guarded Home rollout ([#1162](https://github.com/adea-ai/adea/issues/1162)) ([717e707](https://github.com/adea-ai/adea/commit/717e707d2d9bbd8a5c858ebc6ba24417482b0cc4))
+* **dev-runtime:** list the gh account's repositories and import projects from GitHub ([#1151](https://github.com/adea-ai/adea/issues/1151)) ([79bdfec](https://github.com/adea-ai/adea/commit/79bdfec9f88f1c5e79e7103310bf5a315bd2a38e))
+* **dev:** thread the desktop folder picker into the Dev sidebar add surface ([#1189](https://github.com/adea-ai/adea/issues/1189)) ([39696e8](https://github.com/adea-ai/adea/commit/39696e8b06c145097c488df3744db30e501fa28b))
+* **events:** bound cloud-safe Control Plane event projections ([#1158](https://github.com/adea-ai/adea/issues/1158)) ([5741c95](https://github.com/adea-ai/adea/commit/5741c9502764b69ba62b8b196fc86f58a407c2f4))
+* one create-project flow everywhere a runtime can back it ([#1156](https://github.com/adea-ai/adea/issues/1156)) ([5dcc0d9](https://github.com/adea-ai/adea/commit/5dcc0d9ecc1fcfab725c1dff7ee53c4b5cb2c5a4))
+* persist encrypted Task submission intent ([#1142](https://github.com/adea-ai/adea/issues/1142)) ([a5f60d2](https://github.com/adea-ai/adea/commit/a5f60d26a054d4394557e956b2fa7277c3256cd8))
+* **relay:** support bounded expired ciphertext cleanup ([#1154](https://github.com/adea-ai/adea/issues/1154)) ([4a7e6fe](https://github.com/adea-ai/adea/commit/4a7e6fe80f3c094d5aa9b8b3326cd15c4675a8ae))
+* **runtime:** expose scoped execution host inventory ([#1150](https://github.com/adea-ai/adea/issues/1150)) ([001ae71](https://github.com/adea-ai/adea/commit/001ae7149059ebfd87fb2bfad1e640cef3b146be))
+
+
+### Bug Fixes
+
+* **dev:** draw the source-control pane title in sentence case ([#1146](https://github.com/adea-ai/adea/issues/1146)) ([9ff00a1](https://github.com/adea-ai/adea/commit/9ff00a16cc13a279372a1f78ed601199679c4642))
+* **dev:** line the source-control search row up after the leading divider ([#1159](https://github.com/adea-ai/adea/issues/1159)) ([60b3eac](https://github.com/adea-ai/adea/commit/60b3eac22bfceb86f3dc6d401a98c29825c22bbd))
+* **workspace:** replace milestone jargon in user-facing copy ([#1185](https://github.com/adea-ai/adea/issues/1185)) ([0486450](https://github.com/adea-ai/adea/commit/04864501029c96d99d3a1c88949f9753583cd5e8))
+
+
+### Documentation
+
+* **m13:** record the [#719](https://github.com/adea-ai/adea/issues/719) verification pass on the chat plan checklist ([#1147](https://github.com/adea-ai/adea/issues/1147)) ([8773cb7](https://github.com/adea-ai/adea/commit/8773cb7a0234764506f4fdf3a5049a33949b6d08))
+
+
+### Tests
+
+* **deps:** guard the @adea-ai/themes pin against ui's declared range ([#1145](https://github.com/adea-ai/adea/issues/1145)) ([48aae66](https://github.com/adea-ai/adea/commit/48aae66ea6689eb8c1e0fe769140f3d8db6a6255))
+* **e2e:** refresh the linux workspace baselines after [#1168](https://github.com/adea-ai/adea/issues/1168) ([#1188](https://github.com/adea-ai/adea/issues/1188)) ([a4c4690](https://github.com/adea-ai/adea/commit/a4c4690a4bed5a181ee045a2add404512434154a))
+* **visual:** refresh macOS workspace identity and appearance captures ([#1163](https://github.com/adea-ai/adea/issues/1163)) ([5ab5ce4](https://github.com/adea-ai/adea/commit/5ab5ce433248a7c39b2913514b7639038c669d5c))
+
+
+### Maintenance
+
+* **budgets:** ratchet the chat route raw cap to the next whole KiB ([#1144](https://github.com/adea-ai/adea/issues/1144)) ([cfb5b4a](https://github.com/adea-ai/adea/commit/cfb5b4a471030800d7088bcb3fa5116ff909fea7))
+* **budgets:** restore ~2% headroom on every cap below 1.5% ([#1184](https://github.com/adea-ai/adea/issues/1184)) ([0c2b2ef](https://github.com/adea-ai/adea/commit/0c2b2efb189202af1316520472471301fde85e52))
+* **budgets:** restore headroom on the startup and chat route caps ([#1149](https://github.com/adea-ai/adea/issues/1149)) ([6b181a2](https://github.com/adea-ai/adea/commit/6b181a2e4a88a8c1345c31e89f683efb23096d24))
+* **bundles:** ratchet devShell, devEditor and devTerminal caps back to ~2% headroom after [#1168](https://github.com/adea-ai/adea/issues/1168) ([#1187](https://github.com/adea-ai/adea/issues/1187)) ([be10960](https://github.com/adea-ai/adea/commit/be109603662d6c3eb72f72789a01634b732284c3))
+* **ci:** keep M11 validation bounded and deterministic ([#1165](https://github.com/adea-ai/adea/issues/1165)) ([45dcf8c](https://github.com/adea-ai/adea/commit/45dcf8cc29d7cb9bba4624a470f31a9c731b608d))
+* **css:** finish the phase-5 css burn-down and restore the settings scroll-freeze hook ([#1169](https://github.com/adea-ai/adea/issues/1169)) ([507275d](https://github.com/adea-ai/adea/commit/507275d99ca5bc3ffb797c2891ff906f5782cf4e))
+* **deps:** adopt @adea-ai/ui 0.122.2 and drop the explicit rung grips ([#1191](https://github.com/adea-ai/adea/issues/1191)) ([3990201](https://github.com/adea-ai/adea/commit/3990201b59ece2e1f7aaec67a6a914b9c6d152cc))
+* **dev-view:** compose panes from shared rows and status parts ([#1155](https://github.com/adea-ai/adea/issues/1155)) ([66d1d68](https://github.com/adea-ai/adea/commit/66d1d68c5e9b5a8465d09e055124121377d6c8b2))
+* **visual:** refresh -linux baselines after the October 7 owner feedback round ([#1160](https://github.com/adea-ai/adea/issues/1160)) ([5a180f9](https://github.com/adea-ai/adea/commit/5a180f9a305666cde6fab39c81bd313537a05725))
+* **visual:** refresh chat-view -linux baselines after the divider follow-up ([#1166](https://github.com/adea-ai/adea/issues/1166)) ([80f6c96](https://github.com/adea-ai/adea/commit/80f6c9689dd550790546c3e2e8bcc5b96998d06f))
+* **workspace:** compose account menu and search from @adea-ai/ui ([#811](https://github.com/adea-ai/adea/issues/811) phase 3) ([#1157](https://github.com/adea-ai/adea/issues/1157)) ([8aaeddd](https://github.com/adea-ai/adea/commit/8aaeddd0c65bd76388c5db766f0a23f7ab510734))
+* **workspace:** compose the conversation stack from @adea-ai/ui ([#1167](https://github.com/adea-ai/adea/issues/1167)) ([b468b35](https://github.com/adea-ai/adea/commit/b468b3571608b172ab8b8c20ca9720211fb03223)), closes [#811](https://github.com/adea-ai/adea/issues/811)
+
 ## [0.85.0](https://github.com/adea-ai/adea/compare/v0.84.0...v0.85.0) (2026-10-07)
 
 
