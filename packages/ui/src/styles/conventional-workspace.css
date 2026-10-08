@@ -1041,12 +1041,6 @@
   clip-path: inset(50%) !important;
 }
 
-@keyframes conventional-pulse {
-  50% {
-    opacity: 0.45;
-  }
-}
-
 @media (max-width: 64rem) {
   .conventional-workspace {
     grid-template-columns: var(--conventional-sidebar-width, 17rem) minmax(0, 1fr);
