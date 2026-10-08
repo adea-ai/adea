@@ -144,7 +144,7 @@
   min-width: 0;
   align-items: center;
   gap: 0.35rem;
-  min-height: var(--dev-files-row-height, 1.75rem);
+  min-height: 1.75rem;
   padding: 0 0.5rem;
 }
 

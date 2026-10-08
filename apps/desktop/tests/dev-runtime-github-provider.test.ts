@@ -77,6 +77,23 @@ const ACCOUNT_JSON = JSON.stringify({
   html_url: 'https://github.com/octocat',
 })
 
+const REPO_LIST_JSON = JSON.stringify([
+  {
+    nameWithOwner: 'acme/widgets',
+    url: 'https://github.com/acme/widgets',
+    visibility: 'PRIVATE',
+    updatedAt: '2026-09-01T10:00:00Z',
+    isFork: false,
+  },
+  {
+    nameWithOwner: 'acme/forked',
+    url: 'https://github.com/acme/forked',
+    visibility: 'PUBLIC',
+    updatedAt: '2026-08-01T10:00:00Z',
+    isFork: true,
+  },
+])
+
 const REPO_JSON = JSON.stringify({
   id: 1001,
   name: 'widgets',
@@ -364,6 +381,85 @@ describe('github remote provider', () => {
       value: reply.value,
       observedAt: reply.observedAt,
     })
+  })
+
+  test('repository listing maps gh repo list output and answers typed failures', async () => {
+    const fixture = makeFixture()
+    fixtures.push(fixture)
+    const { runner, calls } = ghFixture((_path, args) =>
+      args[0] === 'repo' ? { stdout: REPO_LIST_JSON } : { exitCode: 1, stderr: 'unexpected' }
+    )
+    const { authority } = runtimeFor(fixture, runner)
+    const channel = handshakeChannel(authority)
+    const reply = await execute(
+      channel,
+      authority,
+      makeCommand('dev.github.repositories', { limit: 50 })
+    )
+    expect(reply.ok).toBe(true)
+    if (!reply.ok) return
+    // gh's GraphQL visibility enum arrives upper-cased; the DTO normalizes it.
+    expect(reply.value).toEqual([
+      {
+        nameWithOwner: 'acme/widgets',
+        url: 'https://github.com/acme/widgets',
+        visibility: 'private',
+        updatedAt: '2026-09-01T10:00:00.000Z',
+        isFork: false,
+        observedAt: (reply.value as { observedAt: string }[])[0]!.observedAt,
+      },
+      {
+        nameWithOwner: 'acme/forked',
+        url: 'https://github.com/acme/forked',
+        visibility: 'public',
+        updatedAt: '2026-08-01T10:00:00.000Z',
+        isFork: true,
+        observedAt: (reply.value as { observedAt: string }[])[1]!.observedAt,
+      },
+    ])
+    // One fixed-argv invocation: `gh repo list` with the host flag, the
+    // requested bound, and the exact JSON field set — nothing else.
+    expect(calls[0]).toEqual([
+      'repo',
+      'list',
+      '--hostname',
+      'github.com',
+      '--limit',
+      '50',
+      '--json',
+      'nameWithOwner,url,visibility,updatedAt,isFork',
+    ])
+    // The reply decodes through the strict contract decoder.
+    devOperationDecoders['dev.github.repositories'].reply({
+      schemaVersion: 1,
+      operation: 'dev.github.repositories',
+      requestId: reply.requestId,
+      ok: true,
+      value: reply.value,
+      observedAt: reply.observedAt,
+    })
+  })
+
+  test('repository listing surfaces a gh failure as a typed DevError', async () => {
+    const fixture = makeFixture()
+    fixtures.push(fixture)
+    const { runner } = ghFixture((_path, args) =>
+      args[0] === 'repo'
+        ? { exitCode: 4, stderr: 'gh: To get started with GitHub CLI, please run: gh auth login' }
+        : { exitCode: 1, stderr: 'unexpected' }
+    )
+    const { authority, registered } = runtimeFor(fixture, runner)
+    const channel = handshakeChannel(authority)
+    const reply = await execute(channel, authority, makeCommand('dev.github.repositories', {}))
+    expect(reply.ok).toBe(false)
+    if (reply.ok) return
+    expect(reply.error).toMatchObject({ code: 'unauthenticated' })
+    expect(reply.error.message).not.toContain('token')
+    // The operation is contracted and this provider registers it.
+    expect(devOperationDefinitions['dev.github.repositories'].reply).toBe(
+      'GitHubRepositorySummary[]<=200'
+    )
+    expect(registered.commands).toContain('dev.github.repositories')
   })
 
   test('gh absence and unauthenticated gh resolve typed, retryable refusals', async () => {

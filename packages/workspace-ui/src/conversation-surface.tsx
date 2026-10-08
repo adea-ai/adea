@@ -17,11 +17,13 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 
 import type { ConversationReadingPosition } from '@adea-ai/ui/components/conversation'
 import {
+  ConversationPane,
   ConversationSurface as SharedConversationSurface,
   MessageDayDivider,
   ThreadPanel as SharedThreadPanel,
 } from '@adea-ai/ui/components/conversation'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
+import { cn } from '@adea-ai/app-ui/lib/utils'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { keyedRows } from './keyed-rows'
 import { MessageComposer, type ComposerSubmission } from './message-composer'
 import { MessageRow } from './message-row'
@@ -276,6 +278,47 @@ export function ConversationSurface(props: {
   const conversationPeople = createMemo(() =>
     props.channel ? peopleForConversation(props.channel, props.agents, directAgent()) : []
   )
+  // The thread column: the focused thread when its root is inside the loaded
+  // page, the placeholder panel when a deep link names a root this window
+  // cannot show, and nothing — no second column — when no thread is open.
+  const threadPanel = createMemo(() => {
+    if (!props.threadRootMessageId) return undefined
+    const rootMessage = root()
+    if (!rootMessage) {
+      return (
+        <SharedThreadPanel
+          data-conventional-thread=""
+          label="Thread"
+          onClose={() => props.onThreadChange(null)}
+        >
+          <WorkspaceEmpty
+            title="Thread outside history window"
+            detail="This thread is outside the loaded history window."
+          />
+        </SharedThreadPanel>
+      )
+    }
+    return (
+      <ThreadPanel
+        agents={props.agents}
+        artifacts={props.artifacts}
+        channelId={props.channel?.id ?? ''}
+        client={props.client}
+        draft={props.threadDraft}
+        onClose={() => props.onThreadChange(null)}
+        onDraftChange={props.onThreadDraftChange}
+        onOpenTask={props.onOpenTask}
+        onMarkRead={(sequence) => props.onMarkThreadRead(rootMessage.id, sequence)}
+        onMarkUnread={() => props.onMarkThreadUnread(rootMessage.id)}
+        privateContent={props.privateContent}
+        root={rootMessage}
+        searchTargetMessageId={props.searchTargetMessageId}
+        tasks={props.tasks}
+        transcription={props.transcription}
+        workspaceId={props.workspaceId}
+      />
+    )
+  })
 
   const submit = async (submission: ComposerSubmission) => {
     const createdAt = new Date().toISOString()
@@ -344,103 +387,101 @@ export function ConversationSurface(props: {
       }
     >
       {(channel) => (
-        <section
-          class={`conventional-conversation${root() ? ' conventional-conversation--thread-open' : ''}`}
-        >
-          <header class="conventional-conversation__header">
-            <div class="conventional-conversation__header-top">
-              <div class="conventional-conversation__identity">
-                <span>
-                  {channel().kind === 'project'
-                    ? 'Project conversation'
-                    : channel().kind === 'direct_agent'
-                      ? 'Direct Conversation'
-                      : 'Group conversation'}
-                </span>
-                <h1>{directAgent() ? directAgent()!.name : channel().title}</h1>
-              </div>
-              <div class="conventional-conversation__actions">
-                <Show when={directAgent()}>{(agent) => <AgentStatusBadge agent={agent()} />}</Show>
-                <Tooltip>
-                  <TooltipTrigger
+        <ConversationPane
+          gutter
+          composer={
+            <MessageComposer
+              agents={props.agents}
+              artifacts={props.artifacts}
+              channelId={channel().id}
+              draft={props.draft}
+              onDraftChange={props.onDraftChange}
+              onSubmit={submit}
+              transcription={props.transcription}
+            />
+          }
+          header={
+            <header class="border-border bg-card border-b px-5 pt-2.5 pb-2">
+              <div class="flex min-h-16 items-center gap-3">
+                <div class="min-w-0 flex-1">
+                  <p class="text-muted-foreground text-2xs font-bold tracking-wider uppercase">
+                    {channel().kind === 'project'
+                      ? 'Project conversation'
+                      : channel().kind === 'direct_agent'
+                        ? 'Direct Conversation'
+                        : 'Group conversation'}
+                  </p>
+                  <h1 class="truncate text-lg font-bold tracking-tight">
+                    {directAgent() ? directAgent()!.name : channel().title}
+                  </h1>
+                </div>
+                <div class="flex items-center justify-end gap-1">
+                  <Show when={directAgent()}>
+                    {(agent) => <AgentStatusBadge agent={agent()} />}
+                  </Show>
+                  <ActionButton
+                    variant="ghost"
+                    size="icon-sm"
                     aria-label="Search this conversation"
+                    tooltip="Search this conversation (Mod+F)"
+                    tooltipSide="top"
                     onClick={() => props.onOpenSearch()}
                   >
                     <Search aria-hidden="true" />
-                  </TooltipTrigger>
-                  <TooltipContent
-                    icon={<Search aria-hidden="true" />}
-                    hideArrow
-                    placement="top"
-                    gutter={4}
-                    data-slot="tooltip-content"
-                  >
-                    Search this conversation (Mod+F)
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
+                  </ActionButton>
+                  <ActionButton
+                    variant="ghost"
+                    size="icon-sm"
                     aria-label="Mark conversation unread"
+                    tooltip="Mark conversation unread (Mod+Shift+U)"
+                    tooltipSide="top"
                     onClick={() => void props.onMarkUnread()}
                   >
                     <MailOpen aria-hidden="true" />
-                  </TooltipTrigger>
-                  <TooltipContent
-                    icon={<MailOpen aria-hidden="true" />}
-                    hideArrow
-                    placement="top"
-                    gutter={4}
-                    data-slot="tooltip-content"
-                  >
-                    Mark conversation unread (Mod+Shift+U)
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
+                  </ActionButton>
+                  <ActionButton
+                    variant="ghost"
+                    size="icon-sm"
                     aria-label="Open conversation details"
+                    tooltip="Open conversation details"
+                    tooltipSide="top"
                     onClick={() => props.onOpenDetails()}
                   >
                     <Info aria-hidden="true" />
-                  </TooltipTrigger>
-                  <TooltipContent
-                    icon={<Info aria-hidden="true" />}
-                    hideArrow
-                    placement="top"
-                    gutter={4}
-                    data-slot="tooltip-content"
-                  >
-                    Open conversation details
-                  </TooltipContent>
-                </Tooltip>
+                  </ActionButton>
+                </div>
               </div>
-            </div>
-            <nav class="conventional-conversation__people" aria-label="People in this conversation">
-              <ul>
-                <For each={conversationPeople()}>
-                  {(person) => (
-                    <li
-                      class={
-                        person.active ? 'conventional-conversation__person--active' : undefined
-                      }
-                      aria-label={person.label}
-                      title={person.label}
-                    >
-                      <span
-                        class={`conventional-conversation__person-avatar conventional-conversation__person-avatar--${person.kind}`}
+              <nav class="min-w-0 overflow-hidden pt-0.5" aria-label="People in this conversation">
+                <ul class="flex justify-center gap-2.5 pt-0.5 pb-1">
+                  <For each={conversationPeople()}>
+                    {(person) => (
+                      <li
+                        class="relative grid size-9 shrink-0 place-items-center"
+                        aria-label={person.label}
+                        title={person.label}
                       >
-                        <ConversationAvatar kind={person.kind} avatarRef={person.avatarRef} />
-                      </span>
-                      <Show when={person.active}>
-                        <span class="conventional-conversation__person-presence" />
-                      </Show>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </nav>
-          </header>
+                        <span
+                          class={cn('block rounded-full', {
+                            'ring-primary ring-offset-card ring-2 ring-offset-2': person.active,
+                          })}
+                        >
+                          <ConversationAvatar kind={person.kind} avatarRef={person.avatarRef} />
+                        </span>
+                        <Show when={person.active}>
+                          <span class="border-card bg-primary absolute right-0.5 bottom-0 size-2.5 rounded-full border-2" />
+                        </Show>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </nav>
+            </header>
+          }
+          thread={threadPanel()}
+        >
           <SharedConversationSurface
             data-conventional-transcript=""
+            gutter
             ref={setTranscript}
             resetKey={channel().id}
             initialReadingPosition={transcriptCache.get(channel().id)?.readingPosition}
@@ -548,54 +589,7 @@ export function ConversationSurface(props: {
               />
             </Show>
           </SharedConversationSurface>
-          <MessageComposer
-            agents={props.agents}
-            artifacts={props.artifacts}
-            channelId={channel().id}
-            draft={props.draft}
-            onDraftChange={props.onDraftChange}
-            onSubmit={submit}
-            transcription={props.transcription}
-          />
-          <Show
-            when={root()}
-            fallback={
-              <Show when={props.threadRootMessageId}>
-                <SharedThreadPanel
-                  data-conventional-thread=""
-                  label="Thread"
-                  onClose={() => props.onThreadChange(null)}
-                >
-                  <WorkspaceEmpty
-                    title="Thread outside history window"
-                    detail="This thread is outside the loaded history window."
-                  />
-                </SharedThreadPanel>
-              </Show>
-            }
-          >
-            {(rootMessage) => (
-              <ThreadPanel
-                agents={props.agents}
-                artifacts={props.artifacts}
-                channelId={channel().id}
-                client={props.client}
-                draft={props.threadDraft}
-                onClose={() => props.onThreadChange(null)}
-                onDraftChange={props.onThreadDraftChange}
-                onOpenTask={props.onOpenTask}
-                onMarkRead={(sequence) => props.onMarkThreadRead(rootMessage().id, sequence)}
-                onMarkUnread={() => props.onMarkThreadUnread(rootMessage().id)}
-                privateContent={props.privateContent}
-                root={rootMessage()}
-                searchTargetMessageId={props.searchTargetMessageId}
-                tasks={props.tasks}
-                transcription={props.transcription}
-                workspaceId={props.workspaceId}
-              />
-            )}
-          </Show>
-        </section>
+        </ConversationPane>
       )}
     </Show>
   )

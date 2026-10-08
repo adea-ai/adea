@@ -3099,6 +3099,21 @@ supplies the id of the cloud project being bound; a host without a cloud
 project list falls back to a client UUID (the register never mints one). A
 successful import records the cloud project's `sourceKind` as `repository`.
 
+The repository step offers a source choice: **On this Mac** (the authorize →
+scan → import flow above) and **From GitHub** — the authenticated GitHub
+selection. The GitHub source lists the authenticated `gh` account's
+repositories through `dev.github.repositories`, renders a bounded,
+client-filtered pick list, and binds each pick with a **managed**
+`dev.project.clone`: the body carries only redacted remote parts
+(`provider: 'github'`, host, owner, repository — never a raw URL and never
+credential material), and the host re-proves every admission at clone time
+exactly as the clone contract below requires. The picked row shows a busy
+state for the duration of the clone, typed failures surface as inline error
+text, and a successful clone closes the dialog and refreshes the sidebar like
+the folder path's import. A dialog without a cloud project id (a host without
+a cloud project list) falls back to the same client-UUID `mintProjectId` seam
+the folder path uses.
+
 Scanner defaults:
 
 - parse declared workspaces/config rather than every `package.json`;
@@ -4896,6 +4911,21 @@ reviews, conversations, or branch rules. No admin bypass.
 Issue, PR, review, and check text/logs are untrusted display content. They are
 sanitized, bounded, and never automatically inserted into a privileged prompt
 or shell command.
+
+`dev.github.repositories` is the provider's one account-scoped read: it lists
+the authenticated `gh` account's repositories (the add surface's "From
+GitHub" import source) without a repository resource. The invocation is one
+fixed-argv `gh repo list --hostname github.com --limit <N> --json
+nameWithOwner,url,visibility,updatedAt,isFork` through the bounded runner
+(the workspace git-hosting binding resolves its token env exactly like every
+other `gh` child), `N` defaults to and caps at 200, and the reply is a strict
+`GitHubRepositorySummary[]<=200` — the DTO normalizes gh's upper-cased
+GraphQL visibility enum to `public`/`private`/`internal` before the literal
+guard. Reads cache with the provider's short TTL and every gh failure answers
+through the shared typed classification (unauthenticated, rate-limited,
+remote-unavailable), credential-redacted. It names remotes to clone; it never
+implies a local registration, and it feeds only the managed-clone binding
+described in the add-surface contract.
 
 ### Pull request collaboration (source control app)
 

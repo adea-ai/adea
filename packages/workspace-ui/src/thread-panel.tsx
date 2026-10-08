@@ -142,7 +142,10 @@ export function ThreadPanel(props: {
       draft={props.draft}
       onDraftChange={props.onDraftChange}
       onSubmit={submit}
-      replyLabel={props.root.bodyText?.slice(0, 56) || 'private message'}
+      replyTo={{
+        label: props.root.bodyText?.slice(0, 56) || 'private message',
+        onDismiss: () => props.onClose(),
+      }}
       transcription={props.transcription}
     />
   )

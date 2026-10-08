@@ -62,29 +62,25 @@
 
 /* ── Top bar group ──────────────────────────────────────────────────────── */
 
-/* Portaled into the title mount, the group fills the centre column: the
-   search takes every pixel the sync status and control leave it. The track
-   is a grid `minmax` (not a grown flex item) because portals and Show
-   branches interleave classless wrapper divs between the group and its
-   children — a grid track stretches whatever lands in it, wrapper or not. */
+/* The group sits in the leading view-action mount, right of the section's
+   divider exactly where the Dev view's pane actions are. It must shrink with
+   the leading track — the navigation controls beside it are protected from
+   shrinking (a squeezed group once painted over the last control's edge) —
+   so the search flexes down to its floor before the group ever overflows. */
 .dev-scm-topbar {
-  display: grid;
-  grid-template-columns: minmax(12rem, 1fr) auto auto;
+  display: flex;
   align-items: center;
   gap: 0.5rem;
-  width: 100%;
   min-width: 0;
 }
 
-.workspace-topbar__title-mount > * {
-  width: 100%;
-  min-width: 0;
-}
-
-/* The search leads the group so it reads left of the sync status. */
+/* The search leads the group so it reads left of the sync status, growing
+   toward a comfortable width with room to spare, and shrinking to a floor
+   that still fits the placeholder. */
 .dev-scm-topbar [data-scm-search] {
-  width: 100%;
-  min-width: 0;
+  flex: 1 1 16rem;
+  min-width: 10rem;
+  max-width: 28rem;
 }
 
 @media (max-width: 48rem) {
