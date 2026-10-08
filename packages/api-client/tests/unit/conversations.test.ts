@@ -3,6 +3,43 @@ import { describe, expect, test } from 'bun:test'
 import { AgentHqApiClient } from '../../src'
 
 describe('conversation API client', () => {
+  test('starts distinct topics with caller retry keys while default opening stays separate', async () => {
+    const requests: Request[] = []
+    const client = new AgentHqApiClient({
+      baseUrl: '/api',
+      fetchImpl: async (input, init) => {
+        requests.push(new Request(`https://test${input}`, init))
+        return Response.json({ channel: { id: 'topic-1' } })
+      },
+    })
+    await client.createDirectAgentTopic('workspace/1', {
+      agentId: 'agent-1',
+      idempotencyKey: 'topic-request-1',
+      title: 'Architecture',
+    })
+    await client.createDirectAgentTopic('workspace/1', {
+      agentId: 'agent-1',
+      idempotencyKey: 'topic-request-2',
+      title: 'Launch',
+    })
+    await client.createDirectAgentChannel('workspace/1', 'agent-1')
+    expect(requests.map((request) => request.headers.get('idempotency-key'))).toEqual([
+      'topic-request-1',
+      'topic-request-2',
+      'direct-agent:agent-1',
+    ])
+    expect(await requests[0]!.json()).toEqual({
+      agentId: 'agent-1',
+      kind: 'direct_agent',
+      mode: 'new_topic',
+      title: 'Architecture',
+    })
+    expect(await requests[2]!.json()).toEqual({
+      agentId: 'agent-1',
+      kind: 'direct_agent',
+      title: 'Direct conversation',
+    })
+  })
   test('uses versioned Channel and Message routes with conflict and retry metadata', async () => {
     const requests: Request[] = []
     const client = new AgentHqApiClient({

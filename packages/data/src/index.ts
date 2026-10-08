@@ -243,6 +243,11 @@ export const channelMutationOptions = {
     mutationFn: (agentId: string) => client.createDirectAgentChannel(workspaceId, agentId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
   }),
+  directTopic: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (input: Parameters<AgentHqApiClient['createDirectAgentTopic']>[1]) =>
+      client.createDirectAgentTopic(workspaceId, input),
+    onSuccess: channelMutationSuccess(queryClient, workspaceId),
+  }),
   group: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (input: Parameters<AgentHqApiClient['createGroupChannel']>[1]) =>
       client.createGroupChannel(workspaceId, input),

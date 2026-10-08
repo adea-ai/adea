@@ -1,9 +1,31 @@
 import { describe, expect, test } from 'bun:test'
 import { QueryClient } from '@tanstack/solid-query'
 
-import { channelQueryKeys, messageMutationOptions, messageQueryKeys } from '../../src'
+import {
+  channelMutationOptions,
+  channelQueryKeys,
+  messageMutationOptions,
+  messageQueryKeys,
+} from '../../src'
 
 describe('conversation query contracts', () => {
+  test('creates a topic with its own retry identity and caches only its workspace', async () => {
+    const received: unknown[] = []
+    const client = {
+      createDirectAgentTopic: async (...input: unknown[]) => {
+        received.push(input)
+        return { channel: { id: 'topic-1' } }
+      },
+    } as never
+    const queryClient = new QueryClient()
+    const options = channelMutationOptions.directTopic(client, queryClient, 'w')
+    const input = { agentId: 'a', idempotencyKey: 'topic-request-1', title: 'Architecture' }
+    const result = await options.mutationFn(input)
+    await options.onSuccess(result)
+    expect(received).toEqual([['w', input]])
+    expect(queryClient.getQueryData(channelQueryKeys.detail('w', 'topic-1'))).toEqual(result)
+    expect(queryClient.getQueryData(channelQueryKeys.detail('other', 'topic-1'))).toBeUndefined()
+  })
   test('keeps Channel and Message caches workspace scoped', () => {
     expect(channelQueryKeys.list('w')).toEqual(['workspaces', 'w', 'channels', 'list'])
     expect(messageQueryKeys.list('w', 'c')).toEqual([

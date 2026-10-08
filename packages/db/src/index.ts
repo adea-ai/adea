@@ -199,6 +199,8 @@ export {
   changeAgentProfile,
   AgentProfileConflictError,
   createAgent,
+  ensureWorkspaceLead,
+  getWorkspaceLeadForUser,
   getAgentForUser,
   listAgentsForUser,
   updateAgentPresentation,
@@ -226,6 +228,7 @@ export {
 export {
   archiveChannel,
   createDirectAgentChannel,
+  createDirectAgentTopic,
   createGroupChannel,
   createMessage,
   createProjectChannel,
