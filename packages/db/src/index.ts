@@ -167,6 +167,17 @@ export {
   setProjectVisibility,
 } from './project-sharing'
 export {
+  decideGroupHistoryRead,
+  decideGroupPublication,
+  decideGroupSummaryRead,
+  decideGroupTurn,
+  evaluateGroupGrantWindow,
+  GROUP_CREATION_JOIN_SEQUENCE,
+  sameQualifiedAgentIdentity,
+  validateGroupCreation,
+  workspaceQualifiedAgentKey,
+} from './group-participation-policy'
+export {
   acceptWorkspaceInvitation,
   createWorkspaceInvitation,
   digestInvitationToken,
