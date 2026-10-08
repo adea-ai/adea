@@ -811,6 +811,7 @@ export function WorkspaceNavSidebar(props: Props) {
         step={SIDEBAR_WIDTH_STEP}
         wideViewportAtLoad={wideViewportAtLoad}
         resizeLabel="Resize workspace navigation"
+        resizeGrip="rung"
         restoreFocusRef={props.restoreFocusRef}
         onSidebarElement={(element, mobile) => {
           // The workspace shell's layout rules find both asides by this hook;

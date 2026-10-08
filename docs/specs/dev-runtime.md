@@ -1319,8 +1319,21 @@ and reopening after a reload or session change is not promised. Closing or
 reopening a terminal pane only disposes or recreates its local renderer and
 stream attachment. It does not stop, archive, or recreate the native terminal
 or runtime session; a reopened pane may attach to the same selected live
-terminal and replay whatever history the runtime retains. Closing a terminal
-process is a separate privileged command. The center layout is a strict binary
+terminal and replay whatever history the runtime retains. The one exception is
+the last center leaf: when the closed terminal leaf carried the session's
+projected primary terminal — explicitly or as the first unbound leaf — and the
+runtime grants `dev.terminal.manage`, the close revalidates the record and
+issues `dev.terminal.terminate` so the instance is freed instead of left
+running headless. Closing one of several leaves never terminates anything, and
+without the manage grant the close stays renderer-only. The closed last leaf
+substitutes one terminal placeholder, and the center renders a single
+standardized empty state for every terminal leaf that cannot mount a live pane
+(no scope, no selected project, no worktree binding, or a closed pane); its
+New terminal action creates a fresh instance (`dev.terminal.create`) and binds
+the new record explicitly on the placeholder's position — it never resurrects
+the terminated record, whose projected id now fails resolution like any ended
+terminal. A user-issued terminate remains a separate privileged command
+elsewhere. The center layout is a strict binary
 tree with a hard M12 cap of 8 leaves and depth 8; split/duplicate refuses with `limit_exceeded`
 when either cap would be exceeded. Ratios are finite and clamp to `[0.1, 0.9]`.
 Leaf IDs are unique, utility panes do not count as center leaves, and closing the

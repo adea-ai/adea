@@ -113,6 +113,12 @@ test('the Dev git pane lays its rows out and sizes its glyphs', async ({ page })
   // The presentation harness boots into the Dev view with a worktree that
   // carries a repository, so the pane's remote section renders.
   await openShellHarness(page)
+  // The Files slot starts collapsed; open the left utility before switching
+  // to the git pane.
+  await page
+    .locator('.workspace-topbar__view-actions')
+    .getByRole('button', { name: 'Expand left utility sidebar', exact: true })
+    .click()
   const left = page.getByRole('complementary', { name: 'Developer utilities (left)' })
   await left
     .getByRole('group', { name: 'Files and Source Control' })
