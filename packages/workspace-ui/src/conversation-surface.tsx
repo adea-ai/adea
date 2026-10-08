@@ -5,7 +5,7 @@ import type {
   MessageSummary,
   TaskSummary,
 } from '@adea-ai/types'
-import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { AgentHqApiClient, ApiLeadTurnStatus } from '@adea-ai/api-client'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import {
   settledConversationPage,
@@ -26,7 +26,13 @@ import {
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { keyedRows } from './keyed-rows'
-import { MessageComposer, type ComposerSubmission } from './message-composer'
+import { isWorkspaceLeadConversation, messageSubmissionOutcome } from './lead-conversation-model'
+import { LeadTurnControls } from './lead-turn-controls'
+import {
+  MessageComposer,
+  type ComposerSubmission,
+  type ComposerSubmissionOutcome,
+} from './message-composer'
 import { MessageRow } from './message-row'
 import { ThreadPanel } from './thread-panel'
 import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-states'
@@ -152,6 +158,7 @@ export function ConversationSurface(props: {
   const audienceEpoch = useWorkspaceState(
     (state) => state.conversationAudienceEpochs[props.workspaceId] ?? 0
   )
+  const [leadReceipt, setLeadReceipt] = createSignal<ApiLeadTurnStatus | null>(null)
   const [cursor, setCursor] = createSignal<number | undefined>()
   const [messages, setMessages] = createSignal<readonly MessageSummary[]>([])
   // Whether the loaded page belongs to this conversation. Solid Query keeps the
@@ -210,6 +217,7 @@ export function ConversationSurface(props: {
       epoch !== loadedAudienceEpoch ||
       props.workspaceId !== loadedWorkspaceId
     ) {
+      setLeadReceipt(null)
       if (loadedChannelId)
         rememberTranscript(
           loadedWorkspaceId,
@@ -350,7 +358,7 @@ export function ConversationSurface(props: {
     )
   })
 
-  const submit = async (submission: ComposerSubmission) => {
+  const submit = async (submission: ComposerSubmission): Promise<ComposerSubmissionOutcome> => {
     const submittedWorkspaceId = props.workspaceId
     const submittedChannelId = props.channel?.id
     const submittedAudienceEpoch = audienceEpoch()
@@ -374,8 +382,21 @@ export function ConversationSurface(props: {
       workspaceId: props.workspaceId,
     })
     try {
-      const created = await createMessage.mutateAsync(submission)
-      if (!stillCurrent()) return
+      const useLead = isWorkspaceLeadConversation(props.channel, directAgent())
+      const created = await createMessage.mutateAsync({
+        ...submission,
+        ...(useLead ? { leadTurn: true as const } : {}),
+      })
+      if (!stillCurrent()) return { clearDraft: false }
+      if (created.leadTurn)
+        setLeadReceipt({
+          schemaVersion: 'adea-lead-turn/v1',
+          intentId: created.leadTurn.intentId,
+          messageId: created.leadTurn.messageId,
+          state: 'blocked',
+          availability: 'unavailable',
+          reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE',
+        })
       // Merge the committed message immediately: the list invalidation that
       // follows refetches the page, but the transcript should not wait a round
       // trip (or drop the optimistic row first) to show what the server
@@ -386,6 +407,7 @@ export function ConversationSurface(props: {
           (left, right) => left.sequence - right.sequence
         )
       })
+      return messageSubmissionOutcome(created, stillCurrent())
     } finally {
       if (stillCurrent()) setOptimisticMessage(null)
     }
@@ -428,15 +450,27 @@ export function ConversationSurface(props: {
         <ConversationPane
           gutter
           composer={
-            <MessageComposer
-              agents={props.agents}
-              artifacts={props.artifacts}
-              channelId={channel().id}
-              draft={props.draft}
-              onDraftChange={props.onDraftChange}
-              onSubmit={submit}
-              transcription={props.transcription}
-            />
+            <>
+              <Show when={isWorkspaceLeadConversation(channel(), directAgent())}>
+                <LeadTurnControls
+                  client={props.client}
+                  workspaceId={props.workspaceId}
+                  channelId={channel().id}
+                  audienceEpoch={audienceEpoch()}
+                  receipt={leadReceipt()}
+                  onTimelineChange={() => void messageQuery.refetch()}
+                />
+              </Show>
+              <MessageComposer
+                agents={props.agents}
+                artifacts={props.artifacts}
+                channelId={channel().id}
+                draft={props.draft}
+                onDraftChange={props.onDraftChange}
+                onSubmit={submit}
+                transcription={props.transcription}
+              />
+            </>
           }
           header={
             <header class="border-border bg-card border-b px-5 pt-2.5 pb-2">

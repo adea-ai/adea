@@ -15,6 +15,7 @@ import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } 
 import { keyedRows } from './keyed-rows'
 import { mergeTranscription } from './transcription'
 import { createClientRequestId } from './request-id'
+import { createComposerSubmissionIdentity } from './composer-submission-identity'
 import { parseAgentMentions } from './workspace-text-match'
 
 export type ComposerSubmission = Readonly<{
@@ -24,6 +25,8 @@ export type ComposerSubmission = Readonly<{
   mentions: readonly ConversationParticipantRef[]
 }>
 
+export type ComposerSubmissionOutcome = Readonly<{ clearDraft: boolean }>
+
 export function MessageComposer(props: {
   agents: readonly AgentSummary[]
   artifacts: readonly ArtifactSummary[]
@@ -31,7 +34,7 @@ export function MessageComposer(props: {
   disabled?: boolean
   draft: string
   onDraftChange: (value: string) => void
-  onSubmit: (submission: ComposerSubmission) => Promise<void>
+  onSubmit: (submission: ComposerSubmission) => Promise<void | ComposerSubmissionOutcome>
   /** The thread this composer replies to, drawn as the shared reply strip. */
   replyTo?: { label: string; onDismiss: () => void }
   transcription?: TranscriptionProvider
@@ -39,18 +42,24 @@ export function MessageComposer(props: {
   const [attachmentIds, setAttachmentIds] = createSignal<readonly string[]>([])
   const [attachmentsOpen, setAttachmentsOpen] = createSignal(false)
   const [sending, setSending] = createSignal(false)
+  const [submissionError, setSubmissionError] = createSignal<string>()
   const [transcriptionError, setTranscriptionError] = createSignal<string | null>(null)
   const [transcriptionState, setTranscriptionState] = createSignal<TranscriptionState>(
     props.transcription ? 'idle' : 'unavailable'
   )
   let textarea: HTMLTextAreaElement | undefined
   let transcriptionSession: TranscriptionSession | null = null
+  let disposed = false
+  const submissionIdentity = createComposerSubmissionIdentity(createClientRequestId)
   const artifactRows = keyedRows(
     () => props.artifacts,
     (artifact) => artifact.id
   )
 
-  onCleanup(() => transcriptionSession?.cancel())
+  onCleanup(() => {
+    disposed = true
+    transcriptionSession?.cancel()
+  })
 
   const focusDraft = () => requestAnimationFrame(() => textarea?.focus())
 
@@ -63,19 +72,37 @@ export function MessageComposer(props: {
 
   const submit = async () => {
     const bodyText = props.draft.trim()
+    const channelId = props.channelId
     if (!bodyText || props.disabled || sending()) return
     setSending(true)
+    setSubmissionError(undefined)
     try {
-      await props.onSubmit({
+      const content = {
         artifactIds: attachmentIds(),
         bodyText,
-        idempotencyKey: createClientRequestId(),
         mentions: parseAgentMentions(bodyText, props.agents),
+      }
+      const outcome = await props.onSubmit({
+        ...content,
+        idempotencyKey: submissionIdentity.key({ channelId, ...content }),
       })
-      props.onDraftChange('')
-      setAttachmentIds([])
+      if (
+        !disposed &&
+        props.channelId === channelId &&
+        props.draft.trim() === bodyText &&
+        outcome?.clearDraft !== false
+      ) {
+        props.onDraftChange('')
+        setAttachmentIds([])
+        submissionIdentity.reset()
+      }
+    } catch {
+      if (!disposed && props.channelId === channelId)
+        setSubmissionError(
+          'Your message could not be saved. Your draft is preserved; refresh the conversation and try again.'
+        )
     } finally {
-      setSending(false)
+      if (!disposed) setSending(false)
     }
   }
 
@@ -158,6 +185,7 @@ export function MessageComposer(props: {
 
   return (
     <section aria-label={props.replyTo ? `Reply to ${props.replyTo.label}` : 'Message composer'}>
+      <Show when={submissionError()}>{(message) => <p role="status">{message()}</p>}</Show>
       <SharedMessageComposer
         inputRef={(element) => {
           textarea = element
