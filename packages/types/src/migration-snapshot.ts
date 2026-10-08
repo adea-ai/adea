@@ -18,8 +18,12 @@
 //
 // Epistemics (fail-closed): a family section that is absent from a document
 // makes that domain `unknown` — never zero. A scan that hit its bound is
-// flagged `truncated`. A record that is malformed, or whose audience/ownership
+// flagged `truncated`; a section whose truncation evidence is missing is a
+// structure error, never a silent claim of completeness. A record that is
+// malformed, over a documented bound, or whose audience/ownership
 // classification is ambiguous, is `quarantined` and excluded from matching.
+// Identifier and digest fields are format- and length-bounded, so a hostile
+// or corrupt value can never travel into comparator findings verbatim.
 // Inconclusive input can never yield a success verdict.
 
 /**
@@ -27,6 +31,26 @@
  * shape changes; the comparator refuses to compare documents that disagree.
  */
 export const MIGRATION_SNAPSHOT_FORMAT_VERSION = 1
+
+/**
+ * Maximum length of any single identifier field, in characters. Identifier
+ * fields longer than this are a typed limit issue, not silently accepted —
+ * bounds on record fields bound both the comparator's input and its output.
+ */
+export const MIGRATION_SNAPSHOT_MAX_IDENTIFIER_LENGTH = 512
+
+/**
+ * Maximum number of records one family section may carry. A section beyond
+ * this bound is rejected by the comparator instead of compared unbounded.
+ */
+export const MIGRATION_SNAPSHOT_MAX_RECORDS_PER_SECTION = 10_000
+
+/**
+ * Maximum number of findings one comparison may report. The comparator
+ * rejects an input whose findings could exceed this bound, keeping the
+ * output size bounded by the documented input bounds.
+ */
+export const MIGRATION_SNAPSHOT_MAX_FINDINGS = 100_000
 
 /**
  * Every record family a snapshot document may carry, in sorted order.
@@ -458,18 +482,14 @@ export type MigrationSnapshotComparison = Readonly<{
  * of the wrong shape. `ambiguous`: the record is shaped but its audience or
  * ownership classification is not one of the known values, so the comparator
  * refuses to guess which side of an access comparison it belongs to.
+ * `limit`: the field is well-formed in shape but exceeds a documented bound
+ * (identifier length), so accepting it would break the comparator's bounded
+ * input and output guarantees.
  */
 export type MigrationSnapshotRecordIssue =
   | Readonly<{ field: string; kind: 'ambiguous' }>
+  | Readonly<{ field: string; kind: 'limit' }>
   | Readonly<{ field: string; kind: 'malformed' }>
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0
-}
-
-function isNullableNonEmptyString(value: unknown): value is string | null {
-  return value === null || isNonEmptyString(value)
-}
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
@@ -485,7 +505,11 @@ function isInList<T extends string>(value: unknown, values: readonly T[]): value
 
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/
 
-type FieldCheck = Readonly<{ field: string; ok: boolean; kind?: 'ambiguous' }>
+function isDigest(value: unknown): value is string {
+  return typeof value === 'string' && DIGEST_PATTERN.test(value)
+}
+
+type FieldCheck = Readonly<{ field: string; ok: boolean; kind?: 'ambiguous' | 'limit' }>
 
 function check(field: string, ok: boolean): FieldCheck {
   return { field, ok }
@@ -501,6 +525,25 @@ function enumField(field: string, value: unknown, values: readonly string[]): Fi
   return { field, kind: 'ambiguous', ok: isInList(value, values) }
 }
 
+/**
+ * An identifier field: absent or wrongly typed is malformed; present but
+ * over `MIGRATION_SNAPSHOT_MAX_IDENTIFIER_LENGTH` or carrying surrounding
+ * whitespace is a typed limit issue.
+ */
+function identifierField(field: string, value: unknown): FieldCheck {
+  if (value === undefined) return check(field, false)
+  if (typeof value !== 'string' || value.length === 0) return check(field, false)
+  if (value.length > MIGRATION_SNAPSHOT_MAX_IDENTIFIER_LENGTH || value.trim() !== value) {
+    return { field, kind: 'limit', ok: false }
+  }
+  return check(field, true)
+}
+
+function nullableIdentifierField(field: string, value: unknown): FieldCheck {
+  if (value === null) return check(field, true)
+  return identifierField(field, value)
+}
+
 function firstIssue(checks: readonly FieldCheck[]): MigrationSnapshotRecordIssue | null {
   for (const item of checks) {
     if (!item.ok) return { field: item.field, kind: item.kind ?? 'malformed' }
@@ -511,66 +554,67 @@ function firstIssue(checks: readonly FieldCheck[]): MigrationSnapshotRecordIssue
 /**
  * Validate one record against the snapshot contract. Returns the first issue
  * found, or null when the record is well-formed and unambiguous. The issue
- * names the offending field and never echoes the offending value.
+ * names the offending field and never echoes the offending value. A null or
+ * non-object input is a structural rejection on the `record` field itself,
+ * never a runtime error.
  */
 export function migrationSnapshotRecordIssue(
   record: MigrationSnapshotRecord
 ): MigrationSnapshotRecordIssue | null {
+  if (typeof record !== 'object' || record === null) {
+    return { field: 'record', kind: 'malformed' }
+  }
   if (!isMigrationSnapshotFamily(record.family)) return { field: 'family', kind: 'malformed' }
-  if (typeof record !== 'object' || record === null) return { field: 'family', kind: 'malformed' }
 
   switch (record.family) {
     case 'agents':
       return firstIssue([
-        check('agentId', isNonEmptyString(record.agentId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check('projectId', isNullableNonEmptyString(record.projectId)),
+        identifierField('agentId', record.agentId),
+        identifierField('workspaceId', record.workspaceId),
+        nullableIdentifierField('projectId', record.projectId),
         enumField('lifecycleState', record.lifecycleState, migrationAgentLifecycleStates),
       ])
     case 'channelParticipants':
       return firstIssue([
-        check('channelId', isNonEmptyString(record.channelId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check('principalId', isNonEmptyString(record.principalId)),
+        identifierField('channelId', record.channelId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('principalId', record.principalId),
         enumField('principalKind', record.principalKind, migrationParticipantKinds),
       ])
     case 'channels':
       return firstIssue([
-        check('channelId', isNonEmptyString(record.channelId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check('projectId', isNullableNonEmptyString(record.projectId)),
+        identifierField('channelId', record.channelId),
+        identifierField('workspaceId', record.workspaceId),
+        nullableIdentifierField('projectId', record.projectId),
         enumField('visibility', record.visibility, migrationChannelVisibilities),
       ])
     case 'contentRefs':
       return firstIssue([
-        check('contentRefId', isNonEmptyString(record.contentRefId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check(
-          'digestSha256',
-          isNonEmptyString(record.digestSha256) && DIGEST_PATTERN.test(record.digestSha256)
-        ),
+        identifierField('contentRefId', record.contentRefId),
+        identifierField('workspaceId', record.workspaceId),
+        check('digestSha256', isDigest(record.digestSha256)),
         check('revision', isNonNegativeSafeInteger(record.revision)),
         check('keyVersion', isNonNegativeSafeInteger(record.keyVersion)),
-        check('messageId', isNullableNonEmptyString(record.messageId)),
-        check('taskId', isNullableNonEmptyString(record.taskId)),
+        nullableIdentifierField('messageId', record.messageId),
+        nullableIdentifierField('taskId', record.taskId),
         enumField('availability', record.availability, migrationContentAvailabilities),
       ])
     case 'events':
       return firstIssue([
-        check('eventId', isNonEmptyString(record.eventId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
+        identifierField('eventId', record.eventId),
+        identifierField('workspaceId', record.workspaceId),
         check('workspaceSequence', isNonNegativeSafeInteger(record.workspaceSequence)),
-        check('eventType', isNonEmptyString(record.eventType)),
+        identifierField('eventType', record.eventType),
         check('schemaVersion', isNonNegativeSafeInteger(record.schemaVersion)),
-        check('payloadDigest', isNonEmptyString(record.payloadDigest)),
+        check('payloadDigest', isDigest(record.payloadDigest)),
       ])
     case 'executionAttempts': {
       const base = firstIssue([
-        check('taskId', isNonEmptyString(record.taskId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
+        identifierField('taskId', record.taskId),
+        identifierField('workspaceId', record.workspaceId),
         check('attempt', isNonNegativeSafeInteger(record.attempt) && record.attempt > 0),
         enumField('locationKind', record.locationKind, migrationExecutionLocationKinds),
-        check('runtimeNodeId', isNullableNonEmptyString(record.runtimeNodeId)),
+        nullableIdentifierField('runtimeNodeId', record.runtimeNodeId),
       ])
       if (base) return base
       // Ownership is ambiguous when the location and node contradict each
@@ -584,77 +628,77 @@ export function migrationSnapshotRecordIssue(
     }
     case 'identityBindings':
       return firstIssue([
-        check('provider', isNonEmptyString(record.provider)),
-        check('subject', isNonEmptyString(record.subject)),
-        check('userId', isNonEmptyString(record.userId)),
+        identifierField('provider', record.provider),
+        identifierField('subject', record.subject),
+        identifierField('userId', record.userId),
       ])
     case 'invitations':
       return firstIssue([
-        check('invitationId', isNonEmptyString(record.invitationId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check('invitedByUserId', isNonEmptyString(record.invitedByUserId)),
+        identifierField('invitationId', record.invitationId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('invitedByUserId', record.invitedByUserId),
         enumField('role', record.role, migrationInvitationRoles),
         enumField('state', record.state, migrationInvitationStates),
       ])
     case 'memberships':
       return firstIssue([
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check('userId', isNonEmptyString(record.userId)),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('userId', record.userId),
         enumField('role', record.role, migrationWorkspaceRoles),
       ])
     case 'messages':
       return firstIssue([
-        check('messageId', isNonEmptyString(record.messageId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check('channelId', isNonEmptyString(record.channelId)),
-        check('threadRootMessageId', isNullableNonEmptyString(record.threadRootMessageId)),
+        identifierField('messageId', record.messageId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('channelId', record.channelId),
+        nullableIdentifierField('threadRootMessageId', record.threadRootMessageId),
         check('deleted', isBoolean(record.deleted)),
       ])
     case 'projectMembers':
       return firstIssue([
-        check('projectId', isNonEmptyString(record.projectId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check('userId', isNonEmptyString(record.userId)),
+        identifierField('projectId', record.projectId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('userId', record.userId),
         enumField('role', record.role, migrationProjectMemberRoles),
       ])
     case 'projects':
       return firstIssue([
-        check('projectId', isNonEmptyString(record.projectId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
+        identifierField('projectId', record.projectId),
+        identifierField('workspaceId', record.workspaceId),
         enumField('visibility', record.visibility, migrationProjectVisibilities),
       ])
     case 'readState':
       return firstIssue([
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check('userId', isNonEmptyString(record.userId)),
-        check('channelId', isNonEmptyString(record.channelId)),
-        check('threadRootMessageId', isNullableNonEmptyString(record.threadRootMessageId)),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('userId', record.userId),
+        identifierField('channelId', record.channelId),
+        nullableIdentifierField('threadRootMessageId', record.threadRootMessageId),
         check('lastReadSequence', isNonNegativeSafeInteger(record.lastReadSequence)),
         check('manuallyUnread', isBoolean(record.manuallyUnread)),
       ])
     case 'tasks':
       return firstIssue([
-        check('taskId', isNonEmptyString(record.taskId)),
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check('projectId', isNullableNonEmptyString(record.projectId)),
-        check('channelId', isNullableNonEmptyString(record.channelId)),
-        check('messageId', isNullableNonEmptyString(record.messageId)),
-        check('threadRootMessageId', isNullableNonEmptyString(record.threadRootMessageId)),
-        check('creatorUserId', isNonEmptyString(record.creatorUserId)),
+        identifierField('taskId', record.taskId),
+        identifierField('workspaceId', record.workspaceId),
+        nullableIdentifierField('projectId', record.projectId),
+        nullableIdentifierField('channelId', record.channelId),
+        nullableIdentifierField('messageId', record.messageId),
+        nullableIdentifierField('threadRootMessageId', record.threadRootMessageId),
+        identifierField('creatorUserId', record.creatorUserId),
         enumField('lifecycleState', record.lifecycleState, migrationTaskLifecycleStates),
         check('version', isNonNegativeSafeInteger(record.version) && record.version > 0),
       ])
     case 'temporarySessions':
       return firstIssue([
-        check('sessionId', isNonEmptyString(record.sessionId)),
-        check('userId', isNonEmptyString(record.userId)),
+        identifierField('sessionId', record.sessionId),
+        identifierField('userId', record.userId),
         check('claimed', isBoolean(record.claimed)),
       ])
     case 'workspaces':
       return firstIssue([
-        check('workspaceId', isNonEmptyString(record.workspaceId)),
-        check('controlPlaneWorkspaceId', isNonEmptyString(record.controlPlaneWorkspaceId)),
-        check('ownerUserId', isNonEmptyString(record.ownerUserId)),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('controlPlaneWorkspaceId', record.controlPlaneWorkspaceId),
+        identifierField('ownerUserId', record.ownerUserId),
         check('archived', isBoolean(record.archived)),
       ])
   }

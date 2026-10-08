@@ -347,3 +347,48 @@ describe('migration snapshot record validation', () => {
     expect(JSON.stringify(issue)).not.toContain('SUPERUSER_SECRET_MARKER')
   })
 })
+
+describe('migration snapshot bounds and record structure', () => {
+  test('digest fields must be well-formed sha-256 digests, never free text', () => {
+    // A nominal digest that is not a 64-character hex string is malformed:
+    // arbitrary text must never pass as a digest and later surface verbatim
+    // in comparator findings.
+    expect(
+      migrationSnapshotRecordIssue(
+        withField(validRecord('events'), 'payloadDigest', 'SECRET-NOMINAL-DIGEST-TEXT')
+      )
+    ).toEqual({ field: 'payloadDigest', kind: 'malformed' })
+    expect(
+      migrationSnapshotRecordIssue(
+        withField(validRecord('contentRefs'), 'digestSha256', 'SECRET-NOMINAL-DIGEST-TEXT')
+      )
+    ).toEqual({ field: 'digestSha256', kind: 'malformed' })
+  })
+
+  test('identifier fields are length-bounded with a typed limit issue', () => {
+    expect(
+      migrationSnapshotRecordIssue(
+        withField(validRecord('memberships'), 'workspaceId', 'x'.repeat(513))
+      )
+    ).toEqual({ field: 'workspaceId', kind: 'limit' })
+    expect(
+      migrationSnapshotRecordIssue(withField(validRecord('memberships'), 'workspaceId', ' padded'))
+    ).toEqual({ field: 'workspaceId', kind: 'limit' })
+    expect(
+      migrationSnapshotRecordIssue(
+        withField(validRecord('memberships'), 'workspaceId', 'x'.repeat(512))
+      )
+    ).toBeNull()
+  })
+
+  test('a null or non-object record is rejected structurally instead of dereferenced', () => {
+    expect(migrationSnapshotRecordIssue(null as unknown as MigrationSnapshotRecord)).toEqual({
+      field: 'record',
+      kind: 'malformed',
+    })
+    expect(migrationSnapshotRecordIssue(42 as unknown as MigrationSnapshotRecord)).toEqual({
+      field: 'record',
+      kind: 'malformed',
+    })
+  })
+})
