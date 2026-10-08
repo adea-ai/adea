@@ -6,6 +6,10 @@ import {
   ControlPlaneClientError,
   PublicContractManifest,
 } from '@adea-ai/sdk'
+export {
+  PiDurableLeadPreparationSchema as candidatePreparationSchema,
+  PiDurableLeadLookupResponseSchema as candidateLookupResponseSchema,
+} from '@adea-ai/runtime-sdk'
 
 type Options = Readonly<{
   baseUrl: string
@@ -66,7 +70,7 @@ export function createCandidateLeadDispatch(options: Options) {
       commandId: options.commandId(),
       idempotencyKey,
       issuedAt: options.now().toISOString(),
-      // Both public lead command payloads contain exactly one string field.
+      // Field order is fixed by this consumer before hashing canonical payloads.
       payloadHash: createHash('sha256').update(JSON.stringify(payload)).digest('hex'),
     }
   }
@@ -99,10 +103,40 @@ export function createCandidateLeadDispatch(options: Options) {
     }
   }
   return {
-    dispatch(intentId: string) {
+    prepare(intentId: string) {
+      const operation = ControlApiOperations.preparePiDurableLead
+      const request = operation.requestSchema.parse(
+        command(operation.operation, { intentId }, `lead-prepare:${intentId}`)
+      )
+      return invoke(request, (value) => client.preparePiDurableLead(value)).then((response) => {
+        if (
+          response.data.intentId !== intentId ||
+          response.data.funding.workspaceId !== options.workspaceId
+        )
+          throw new CandidateLeadDispatchError('CANDIDATE_RESPONSE_MISMATCH')
+        return response.data
+      })
+    },
+    lookup(intentId: string) {
+      const operation = ControlApiOperations.lookupPiDurableLead
+      const request = operation.requestSchema.parse(read(operation.operation, { intentId }))
+      return invoke(request, (value) => client.lookupPiDurableLead(value)).then((response) => {
+        if (
+          response.data.intentId !== intentId ||
+          response.data.workspaceId !== options.workspaceId
+        )
+          throw new CandidateLeadDispatchError('CANDIDATE_RESPONSE_MISMATCH')
+        return response
+      })
+    },
+    dispatch(intentId: string, preparationRef?: string) {
       const operation = ControlApiOperations.dispatchPiDurableLead
       const request = operation.requestSchema.parse(
-        command(operation.operation, { intentId }, `lead-turn:${intentId}`)
+        command(
+          operation.operation,
+          { intentId, ...(preparationRef ? { preparationRef } : {}) },
+          `lead-turn:${intentId}`
+        )
       )
       return invoke(request, (value) => client.dispatchPiDurableLead(value)).then((response) => {
         if (response.data.intentId !== intentId)
