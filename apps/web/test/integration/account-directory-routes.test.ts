@@ -1,23 +1,29 @@
 // Route → PostgreSQL → client flows for the account-wide directory and inbox
 // wiring (M11.03, stacked on #1194's query layer).
 //
-// Lane: this directory is deliberately outside the apps/web unit glob
-// (`test/*.test.ts`). The route handlers live in server modules guarded by the
-// `server-only` marker, so the file runs with the react-server export
-// condition and the repo-standard integration database:
+// Lane: a normal part of `bun run test:integration`. The runner discovers this
+// directory, provisions the repo's restricted local Postgres when no
+// DATABASE_URL is exported (or requires the full
+// DATABASE_URL / DATABASE_URL_UNPOOLED / DATABASE_MIGRATION_URL trio when one
+// is), and invokes this file with the react-server export condition, which the
+// route handlers' `server-only` marker requires. Missing database configuration
+// fails the lane; it never skips it. To iterate on one file, reproduce the
+// runner's invocation:
 //
 //   DATABASE_URL=... DATABASE_URL_UNPOOLED=... \
-//     bun test --conditions=react-server --timeout 180000 \
+//     bun test --conditions=react-server --timeout 30000 \
 //     apps/web/test/integration
 //
-// The four route files under src/start/routes/api/v1/account each wire
-// guardDesktopWorkspaceRequest → resolveWorkspacePrincipal → one
-// account*Response(request, applicationDatabase(), resolution, <db fn>).
-// TanStack Start's `createFileRoute` registration cannot initialize outside a
-// bundler, so the dispatcher below mirrors that wiring with the REAL guard,
-// request handlers, application database and db queries; the route files
-// themselves are pinned textually by
-// scripts/account-directory-route-boundary.test.ts.
+// What bun can and cannot load here (probed): the route modules under
+// src/start/routes/api/v1/account and the real `resolveWorkspacePrincipal`
+// both transitively import `@tanstack/solid-router`, whose module scope uses
+// the solid-js/web client runtime — without the bundler's solid aliasing it
+// throws at import time even under react-server conditions. Those stay pinned
+// textually by scripts/account-directory-route-boundary.test.ts. Everything
+// else of the boundary is exercised for real below: the desktop request guard,
+// the principal gate shape, `withRequestScope` request cleanup, the exported
+// account*Response request handlers, the application database and the real
+// @adea-ai/db queries, driven by the public @adea-ai/api-client.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
@@ -58,8 +64,20 @@ import {
 import { AccountDirectoryApiClient } from '@adea-ai/api-client/account-directory'
 import { ApiClientError } from '@adea-ai/api-client'
 import type { WorkspacePrincipalResolution } from '../../src/server/workspace-principal'
+import type {
+  AccountAgentLookup,
+  AccountConversationLookup,
+} from '../../src/server/account-directory-request'
 
 const connectionUrl = process.env.DATABASE_URL
+
+if (!connectionUrl) {
+  // A missing database configuration fails the lane; a silent skip would turn
+  // the whole route-flow lane green without exercising a single request.
+  throw new Error(
+    'DATABASE_URL is required for the account route-flow lane: run it through `bun run test:integration` (which provisions the restricted local Postgres or requires the DATABASE_URL / DATABASE_URL_UNPOOLED / DATABASE_MIGRATION_URL trio)'
+  )
+}
 
 function resolutionFor(principal: UserPrincipalRef): WorkspacePrincipalResolution {
   return Object.freeze({
@@ -69,7 +87,7 @@ function resolutionFor(principal: UserPrincipalRef): WorkspacePrincipalResolutio
     temporary: true,
   })
 }
-describe.skipIf(!connectionUrl)('account directory and inbox routes', () => {
+describe('account directory and inbox routes', () => {
   let connection: DatabaseConnection
   const workspaceIds: string[] = []
   const userIds: string[] = []
@@ -176,13 +194,24 @@ describe.skipIf(!connectionUrl)('account directory and inbox routes', () => {
 
   /**
    * The four route files' wiring, minus the `createFileRoute` registration:
-   * guard, then the principal gate, then exactly one injected handler call.
-   * scripts/account-directory-route-boundary.test.ts pins the route files to
-   * this same sequence.
+   * exactly like the registered handlers, the request runs inside the real
+   * `withRequestScope` (so the per-request application database is closed when
+   * the response is produced), then the guard, then the principal gate, then
+   * exactly one injected handler call. scripts/account-directory-route-boundary
+   * .test.ts pins the route files to this same sequence. Tests may override the
+   * injected lookup — the handlers' own dependency seam — to stage a state
+   * change at an exact point inside the real handler.
    */
-  async function dispatch(request: Request): Promise<Response> {
+  async function dispatch(
+    request: Request,
+    overrides: Readonly<{
+      agentLookup?: AccountAgentLookup
+      conversationLookup?: AccountConversationLookup
+    }> = {}
+  ): Promise<Response> {
     const { guardDesktopWorkspaceRequest } = await import('../../src/server/desktop-workspace')
     const { applicationDatabase } = await import('../../src/server/database')
+    const { withRequestScope } = await import('../../src/server/request-scope')
     const { workspaceUnavailableResponse } = await import('../../src/server/workspace-response')
     const {
       accountAgentDirectoryResponse,
@@ -191,34 +220,36 @@ describe.skipIf(!connectionUrl)('account directory and inbox routes', () => {
       accountConversationLookupResponse,
     } = await import('../../src/server/account-directory-request')
 
-    const rejected = guardDesktopWorkspaceRequest(request)
-    if (rejected) return rejected
-    if (!caller) return workspaceUnavailableResponse(request, 401)
-    const database = applicationDatabase()
-    const path = new URL(request.url).pathname
-    if (path === '/api/v1/account/agents')
-      return accountAgentDirectoryResponse(request, database, caller, accountAgentDirectory)
-    if (path === '/api/v1/account/conversations')
-      return accountConversationInboxResponse(request, database, caller, accountConversationInbox)
-    const agentId = /^\/api\/v1\/account\/agents\/([^/]+)$/u.exec(path)?.[1]
-    if (agentId)
-      return accountAgentLookupResponse(
-        request,
-        database,
-        caller,
-        findAccountAgent,
-        decodeURIComponent(agentId)
-      )
-    const conversationId = /^\/api\/v1\/account\/conversations\/([^/]+)$/u.exec(path)?.[1]
-    if (conversationId)
-      return accountConversationLookupResponse(
-        request,
-        database,
-        caller,
-        findAccountConversation,
-        decodeURIComponent(conversationId)
-      )
-    return new Response('not found', { status: 404 })
+    return withRequestScope(async () => {
+      const rejected = guardDesktopWorkspaceRequest(request)
+      if (rejected) return rejected
+      if (!caller) return workspaceUnavailableResponse(request, 401)
+      const database = applicationDatabase()
+      const path = new URL(request.url).pathname
+      if (path === '/api/v1/account/agents')
+        return accountAgentDirectoryResponse(request, database, caller, accountAgentDirectory)
+      if (path === '/api/v1/account/conversations')
+        return accountConversationInboxResponse(request, database, caller, accountConversationInbox)
+      const agentId = /^\/api\/v1\/account\/agents\/([^/]+)$/u.exec(path)?.[1]
+      if (agentId)
+        return accountAgentLookupResponse(
+          request,
+          database,
+          caller,
+          overrides.agentLookup ?? findAccountAgent,
+          decodeURIComponent(agentId)
+        )
+      const conversationId = /^\/api\/v1\/account\/conversations\/([^/]+)$/u.exec(path)?.[1]
+      if (conversationId)
+        return accountConversationLookupResponse(
+          request,
+          database,
+          caller,
+          overrides.conversationLookup ?? findAccountConversation,
+          decodeURIComponent(conversationId)
+        )
+      return new Response('not found', { status: 404 })
+    })
   }
 
   /** The public client against the real route handlers and database. */
@@ -366,7 +397,7 @@ describe.skipIf(!connectionUrl)('account directory and inbox routes', () => {
     expect(await denied.text()).toBe(await missing.text())
   })
 
-  test('revocation mid-flight makes prior deep links 404 exactly like missing ids', async () => {
+  test('revocation between requests turns prior deep links 404 exactly like missing ids', async () => {
     const owner = await user('revoke-owner')
     const guest = await user('revoke-guest')
     const workspaceId = await workspace(owner, 'Route Revocation HQ')
@@ -385,8 +416,9 @@ describe.skipIf(!connectionUrl)('account directory and inbox routes', () => {
     )
     expect((await client.accountAgent(agent.id)).agent.id).toBe(agent.id)
 
-    // Participation is revoked mid-flight: the same deep link now answers the
-    // missing response, and the inbox entry disappears without a trace.
+    // Participation is revoked between two requests: the same deep link now
+    // answers the missing response, and the inbox entry disappears without a
+    // trace.
     await setChannelParticipants(
       connection.db,
       workspaceId,
@@ -412,6 +444,56 @@ describe.skipIf(!connectionUrl)('account directory and inbox routes', () => {
     expect((await client.accountAgentDirectory()).agents.some(({ id }) => id === agent.id)).toBe(
       false
     )
+  })
+
+  test('a revocation that commits while the lookup request is in flight is honored by that request', async () => {
+    const owner = await user('revoke-during-owner')
+    const guest = await user('revoke-during-guest')
+    const workspaceId = await workspace(owner, 'Route During-Request HQ')
+    await addWorkspaceMembership(connection.db, workspaceId, guest, 'member')
+    const conversation = await groupConversation(workspaceId, owner, 'Route During-Request Lane', [
+      guest,
+    ])
+
+    caller = resolutionFor(guest)
+    const client = routeClient()
+    expect((await client.accountConversation(conversation.id)).conversation.id).toBe(
+      conversation.id
+    )
+
+    // The revocation commits while the request is in flight — after the guard
+    // and the principal gate, before the data read: the handlers inject their
+    // lookup, so the override revokes first and then delegates to the real
+    // query inside the real accountConversationLookupResponse. The SAME request
+    // must answer the exact missing response; nothing between the principal
+    // resolution and the row read may serve from an authorization snapshot.
+    const missing = await dispatch(
+      new Request(
+        'https://adea.test/api/v1/account/conversations/30000000-0000-4000-8000-000000000009'
+      )
+    )
+    let revocationCommitted = false
+    const during = await dispatch(
+      new Request(`https://adea.test/api/v1/account/conversations/${conversation.id}`),
+      {
+        conversationLookup: async (database, principal, conversationId) => {
+          await setChannelParticipants(
+            connection.db,
+            workspaceId,
+            conversation.id,
+            owner,
+            [{ kind: 'user', userId: owner.userId }],
+            await currentChannelVersion(workspaceId, conversation.id)
+          )
+          revocationCommitted = true
+          return findAccountConversation(database, principal, conversationId)
+        },
+      }
+    )
+    expect(revocationCommitted).toBe(true)
+    expect(during.status).toBe(404)
+    expect(during.status).toBe(missing.status)
+    expect(await during.text()).toBe(await missing.text())
   })
 
   test('unread state moves with messages and read marks through the route', async () => {
@@ -499,6 +581,30 @@ describe.skipIf(!connectionUrl)('account directory and inbox routes', () => {
       .catch((e) => e)
     expect(hostileCursor).toBeInstanceOf(ApiClientError)
     expect(hostileCursor.status).toBe(400)
+  })
+
+  test('an unmapped lookup failure answers 503 instead of a fake 404', async () => {
+    const owner = await user('unmapped-owner')
+    await workspace(owner, 'Route Unmapped HQ')
+    caller = resolutionFor(owner)
+
+    // An unexpected database failure is a server failure, not "missing": it
+    // must not masquerade as the denied-equals-missing 404 answer.
+    const response = await dispatch(
+      new Request(
+        'https://adea.test/api/v1/account/conversations/20000000-0000-4000-8000-000000000009'
+      ),
+      {
+        conversationLookup: async () => {
+          throw new Error('replica connection lost')
+        },
+      }
+    )
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({
+      code: 'account_directory_unavailable',
+      message: 'Directory unavailable',
+    })
   })
 
   test('account routes answer the same regardless of any selected workspace', async () => {

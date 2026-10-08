@@ -5,6 +5,16 @@
 // boundary pins that wiring per route file: the guard runs first, the
 // principal gate answers 401, and exactly one account*Response call receives
 // the application database and the matching @adea-ai/db query.
+//
+// The route modules import `@tanstack/solid-router`, whose module scope needs
+// the bundler's solid-js/web client aliasing, so bun cannot initialize them
+// even under react-server conditions — these textual pins stay for exactly
+// that part. The server modules the route files delegate to (the guard, the
+// request scope, the account*Response handlers) DO load under the route-flow
+// lane's react-server condition, so they are exercised behaviorally there
+// (apps/web/test/integration, run by scripts/test-integration.mjs): real
+// guard rejects, 401 gate, 400 invalid cursors/ids, denied-equals-missing
+// 404s, 503 for unmapped failures, per-request connection cleanup.
 
 import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
@@ -71,17 +81,4 @@ describe('account directory route boundary', () => {
       expect(source).toContain('withRequestScope(')
       expect(source).toContain('handleDesktopWorkspacePreflight(request)')
     })
-
-  test('the request boundary keeps denied lookups indistinguishable', async () => {
-    const source = await readFile(
-      join(root, 'apps/web/src/server/account-directory-request.ts'),
-      'utf8'
-    )
-    // Unreadable cursor or id: 400; a denied lookup: the same missing answer
-    // as a nonexistent one; anything unexpected stays unmapped for the 500
-    // handler instead of masquerading as "unavailable".
-    expect(source).toContain("'invalid_request'")
-    expect(source.match(/workspaceUnavailableResponse\(request\)/gu)?.length).toBe(2)
-    expect(source).toContain("'account_directory_unavailable'")
-  })
 })
