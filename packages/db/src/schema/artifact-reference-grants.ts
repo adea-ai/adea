@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import {
+  check,
+  foreignKey,
+  index,
+  integer,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core'
 
 import { entityId, timestampColumns } from './conventions'
 import { appSchema } from './schema'
@@ -29,12 +38,8 @@ export const artifactReferenceGrants = appSchema.table(
   {
     id: entityId(),
     grantId: text('grant_id').notNull(),
-    sourceWorkspaceId: uuid('source_workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'cascade' }),
-    audienceWorkspaceId: uuid('audience_workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    sourceWorkspaceId: uuid('source_workspace_id').notNull(),
+    audienceWorkspaceId: uuid('audience_workspace_id').notNull(),
     artifactId: uuid('artifact_id').notNull(),
     version: integer('version').notNull(),
     checksumSha256: text('checksum_sha256').notNull(),
@@ -45,6 +50,18 @@ export const artifactReferenceGrants = appSchema.table(
   },
   (table) => [
     unique('artifact_reference_grants_grant_id_unique').on(table.grantId),
+    // Named explicitly: the generated default name for the audience side is
+    // 64 characters, one over PostgreSQL's 63-character identifier limit.
+    foreignKey({
+      columns: [table.sourceWorkspaceId],
+      foreignColumns: [workspaces.id],
+      name: 'artifact_reference_grants_source_workspace_fk',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.audienceWorkspaceId],
+      foreignColumns: [workspaces.id],
+      name: 'artifact_reference_grants_audience_workspace_fk',
+    }).onDelete('cascade'),
     check('artifact_reference_grants_revision_positive', sql`${table.revision} > 0`),
     check('artifact_reference_grants_version_positive', sql`${table.version} > 0`),
     check(
