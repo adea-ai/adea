@@ -25,6 +25,11 @@ export {
   type ArtifactCreateInput,
 } from './artifacts'
 export {
+  authorizeArtifactReferencePublication,
+  authorizeArtifactReferenceRetrieval,
+  readArtifactReferenceEvidence,
+} from './artifact-reference-policy'
+export {
   createDatabase,
   type AgentHqDatabase,
   type AgentHqTransaction,
