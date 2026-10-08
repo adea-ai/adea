@@ -5,6 +5,7 @@
 // `WorkspaceNavigation`.
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show, lazy } from 'solid-js'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { AccountDirectoryApiClient } from '@adea-ai/api-client/account-directory'
 import type { DesktopSession } from '@adea-ai/auth/desktop'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type {
@@ -241,6 +242,15 @@ export function DesktopWorkspaceEntry(props: {
     return nextClient
   })
 
+  // The account-scoped directory client the global directory and inbox reads
+  // through (M11.03), bound to the same session as `client` above. `undefined`
+  // before the first bootstrap lands; the surface only mounts after one.
+  const accountDirectoryClient = createMemo(() => {
+    const state = workspaceState()
+    if (!state) return undefined
+    return runtime.createAccountDirectoryClient(session(), state.temporaryCredential ?? undefined)
+  })
+
   async function beginSignIn() {
     setStatus('opening')
     setMessage('Opening your system browser…')
@@ -298,6 +308,8 @@ export function DesktopWorkspaceEntry(props: {
               appVersion={appVersion()}
               busy={busy()}
               client={client()!}
+              accountDirectoryClient={accountDirectoryClient}
+              accountPrincipalId={() => workspaceState()?.userId ?? null}
               plugins={plugins}
               characterDesigner={props.characterDesigner ?? false}
               roomDesigner={props.roomDesigner ?? false}
@@ -329,6 +341,10 @@ function DesktopWorkspace(props: {
   appVersion: string
   busy: boolean
   client: AgentHqApiClient
+  /** Session-bound builder for the account-wide directory surface (M11.03). */
+  accountDirectoryClient: () => AccountDirectoryApiClient | undefined
+  /** The shell session's principal id, for the account cache guard (M11.03). */
+  accountPrincipalId: () => string | null | undefined
   devScope: DesktopDevScopeSelector
   devScopeWorkspaceId: string
   plugins: ReturnType<typeof createDeferredPluginsProvider>
@@ -442,6 +458,8 @@ function DesktopWorkspace(props: {
           />
         )}
         client={props.client}
+        accountDirectoryClient={props.accountDirectoryClient}
+        accountPrincipalId={props.accountPrincipalId}
         onAuthorizeWorkspace={async (workspaceId) => {
           await localContentAuthority.authorizeWorkspace(workspaceId)
           // Switching workspaces switches the Dev scope before the store does;
