@@ -76,8 +76,19 @@ hosted diff contains the same 36 significant pixels at the neutral status dot
 introduced by #1155's shared `statusDotVariants`; the macOS ChatView baseline
 already includes that dot. The subsequent #1157 and #1166 platform captures
 landed on main. This candidate integrates main
-`80f6c9689dd550790546c3e2e8bcc5b96998d06f` instead of duplicating their baselines;
+`b468b3571608b172ab8b8c20ca9720211fb03223`, including #1167's conversation
+composition and Chat budget, instead of duplicating or reversing their work;
 its owned diff remains the two finite budgets, fixture seam, and this evidence.
 Fresh validation of the integrated head remains required. An additional local
 Linux diagnostic stopped at dev-server readiness and supplies no product test
 result.
+
+At the preceding `80f6c9689dd550790546c3e2e8bcc5b96998d06f` integration,
+build, lint, typecheck, formatting, focused boundary tests, root coverage
+(302 tests / 7,139 assertions), and web tests (309 / 1,350) passed. The full
+local default suite failed the unchanged navigation scale case's 100 ms gate;
+serial execution passed that gate in 28 ms but hit four unchanged desktop
+Git fixture five-second deadlines. All four Git cases passed individually
+with their original deadlines. These isolated passes do not make the failed
+aggregate pass. Current-head hosted default-concurrency validation is still
+required; no timing assertion or deadline has been relaxed.
