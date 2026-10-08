@@ -4,8 +4,9 @@
  * This module holds the identity, grant, decision and typed-rejection shapes
  * for tenant-bounded groups: explicit human audience grants, explicit Agent
  * enlistment grants, join-point history policy and revocation. Grants carry an
- * identity and revision, admissions and completed jobs retain the binding to
- * the exact authorizing group/grant/revision, and every revocation timestamp
+ * identity and revision and are bound to the group they were issued for;
+ * admissions and completed jobs retain the binding to the exact authorizing
+ * group/grant/revision, and every revocation timestamp
  * is evaluated fail closed. It is consumed by the pure policy functions in
  * `@adea-ai/db`'s `group-participation-policy` module and deliberately
  * contains no I/O: atomic group creation, live enlistment and publication are
@@ -65,20 +66,33 @@ export const groupGrantStates = [
   'revoked',
 ] as const satisfies readonly GroupGrantState[]
 
-/** Explicit admission of one human into a group's audience. */
+/**
+ * Explicit admission of one human into a group's audience. The grant is bound
+ * to the group it was issued for: at admission the requested group must equal
+ * `groupId`, and the authorization retained on the admission is sourced from
+ * the grant — never relabelled from the request.
+ */
 export type GroupAudienceGrant = GroupGrantWindow &
   GroupGrantIdentity &
   Readonly<{
+    /** The group this grant was issued for; it authorizes nothing elsewhere. */
+    groupId: string
     /** The exact human this grant admits; it admits no one else. */
     participant: UserPrincipalRef
   }>
 
-/** Explicit enlistment of one Agent into a group, bound to its qualified identity. */
+/**
+ * Explicit enlistment of one Agent into a group, bound to its qualified
+ * identity. Like every participation grant it is bound to the group it was
+ * issued for and never authorizes a different one.
+ */
 export type GroupAgentEnlistmentGrant = GroupGrantWindow &
   GroupGrantIdentity &
   Readonly<{
     /** The exact Agent enlisted; a same-named Agent elsewhere is a different identity. */
     agent: QualifiedAgentIdentity
+    /** The group this grant was issued for; it authorizes nothing elsewhere. */
+    groupId: string
   }>
 
 export const groupSharingScopes = ['earlier_history', 'earlier_summary'] as const
@@ -162,8 +176,11 @@ export type GroupCreationRejectionReason =
   | 'duplicate_participant'
   | 'grant_absent'
   | 'grant_expired'
+  | 'grant_id_missing'
+  | 'grant_mismatched_group'
   | 'grant_mismatched_participant'
   | 'grant_not_yet_issued'
+  | 'grant_revision_invalid'
   | 'grant_revoked'
   | 'group_id_missing'
   | 'group_workspace_missing'
@@ -176,8 +193,11 @@ export const groupCreationRejectionReasons = [
   'duplicate_participant',
   'grant_absent',
   'grant_expired',
+  'grant_id_missing',
+  'grant_mismatched_group',
   'grant_mismatched_participant',
   'grant_not_yet_issued',
+  'grant_revision_invalid',
   'grant_revoked',
   'group_id_missing',
   'group_workspace_missing',

@@ -25,6 +25,7 @@ const NOW = '2026-10-08T12:00:00.000Z'
 const WORKSPACE = 'wsp_adea'
 const OTHER_WORKSPACE = 'wsp_elsewhere'
 const GROUP = 'grp_adea'
+const OTHER_GROUP = 'grp_elsewhere'
 
 const ALICE = { kind: 'user' as const, userId: 'usr_alice' }
 const BOB = { kind: 'user' as const, userId: 'usr_bob' }
@@ -46,6 +47,7 @@ function audienceGrant(
   return {
     expiresAt: null,
     grantId: 'gra_alice',
+    groupId: GROUP,
     issuedAt: ISSUED,
     participant,
     revision: 1,
@@ -62,6 +64,7 @@ function enlistmentGrant(
     agent: { agentId, workspaceId: WORKSPACE },
     expiresAt: null,
     grantId: `grn_${agentId}`,
+    groupId: GROUP,
     issuedAt: ISSUED,
     revision: 1,
     revokedAt: null,
@@ -628,6 +631,197 @@ describe('group creation validation', () => {
       ok: false,
       rejections: [{ reason: 'group_id_missing', scope: 'group' }],
     })
+  })
+})
+
+describe('admission validates grant identity, revision and group binding', () => {
+  test('rejects an empty grant id at admission, failing the whole creation', () => {
+    const validation = validateGroupCreation({
+      candidates: [
+        {
+          audienceGrant: audienceGrant(),
+          kind: 'human',
+          participant: ALICE,
+          workspaceId: WORKSPACE,
+        },
+        {
+          audienceGrant: audienceGrant({ grantId: '   ' }, BOB),
+          kind: 'human',
+          participant: BOB,
+          workspaceId: WORKSPACE,
+        },
+      ],
+      groupId: GROUP,
+      now: CREATED,
+      workspaceId: WORKSPACE,
+    })
+
+    expect(validation.ok).toBeFalse()
+    if (validation.ok) return
+    // All-or-nothing: the valid founder is enumerated with no rejection, the
+    // blank grant id fails its candidate with a typed reason and no roster is
+    // produced.
+    expect(validation.rejections).toEqual([
+      {
+        candidateIndex: 1,
+        participant: BOB,
+        reason: 'grant_id_missing',
+        scope: 'candidate',
+      },
+    ])
+  })
+
+  test('rejects malformed, non-positive and wrong-type revisions at admission', () => {
+    const wrongType = { revision: '2' } as unknown as Partial<GroupAudienceGrant>
+    const wrongTypeParticipant = { kind: 'user' as const, userId: 'usr_wrong_type' }
+    const validation = validateGroupCreation({
+      candidates: [
+        {
+          audienceGrant: audienceGrant(),
+          kind: 'human',
+          participant: ALICE,
+          workspaceId: WORKSPACE,
+        },
+        {
+          audienceGrant: audienceGrant({ revision: 0 }, BOB),
+          kind: 'human',
+          participant: BOB,
+          workspaceId: WORKSPACE,
+        },
+        {
+          enlistmentGrant: enlistmentGrant({ revision: -1 }, 'agt_negative'),
+          agentId: 'agt_negative',
+          kind: 'agent',
+          workspaceId: WORKSPACE,
+        },
+        {
+          enlistmentGrant: enlistmentGrant({ revision: 1.5 }, 'agt_fractional'),
+          agentId: 'agt_fractional',
+          kind: 'agent',
+          workspaceId: WORKSPACE,
+        },
+        {
+          enlistmentGrant: enlistmentGrant({ revision: Number.NaN }, 'agt_nan'),
+          agentId: 'agt_nan',
+          kind: 'agent',
+          workspaceId: WORKSPACE,
+        },
+        {
+          audienceGrant: audienceGrant(wrongType, wrongTypeParticipant),
+          kind: 'human',
+          participant: wrongTypeParticipant,
+          workspaceId: WORKSPACE,
+        },
+      ],
+      groupId: GROUP,
+      now: CREATED,
+      workspaceId: WORKSPACE,
+    })
+
+    expect(validation.ok).toBeFalse()
+    if (validation.ok) return
+    expect(validation.rejections.map((rejection) => rejection.reason)).toEqual([
+      'grant_revision_invalid',
+      'grant_revision_invalid',
+      'grant_revision_invalid',
+      'grant_revision_invalid',
+      'grant_revision_invalid',
+    ])
+  })
+
+  test('rejects a grant issued for another group instead of relabelling it', () => {
+    const validation = validateGroupCreation({
+      candidates: [
+        {
+          audienceGrant: audienceGrant(),
+          kind: 'human',
+          participant: ALICE,
+          workspaceId: WORKSPACE,
+        },
+        {
+          // Issued for group Y, presented inside a creation for group X: a
+          // typed rejection, never a relabelled admission.
+          audienceGrant: audienceGrant({ groupId: OTHER_GROUP }, BOB),
+          kind: 'human',
+          participant: BOB,
+          workspaceId: WORKSPACE,
+        },
+        {
+          enlistmentGrant: enlistmentGrant({ groupId: OTHER_GROUP }, 'agt_foreign'),
+          agentId: 'agt_foreign',
+          kind: 'agent',
+          workspaceId: WORKSPACE,
+        },
+      ],
+      groupId: GROUP,
+      now: CREATED,
+      workspaceId: WORKSPACE,
+    })
+
+    expect(validation.ok).toBeFalse()
+    if (validation.ok) return
+    expect(validation.rejections.map((rejection) => rejection.reason)).toEqual([
+      'grant_mismatched_group',
+      'grant_mismatched_group',
+    ])
+  })
+
+  test('a grant whose own group id is empty can never match the request', () => {
+    const validation = validateGroupCreation({
+      candidates: [
+        {
+          audienceGrant: audienceGrant({ groupId: '   ' }),
+          kind: 'human',
+          participant: ALICE,
+          workspaceId: WORKSPACE,
+        },
+      ],
+      groupId: GROUP,
+      now: CREATED,
+      workspaceId: WORKSPACE,
+    })
+
+    expect(validation.ok).toBeFalse()
+    if (validation.ok) return
+    expect(validation.rejections.map((rejection) => rejection.reason)).toEqual([
+      'grant_mismatched_group',
+    ])
+  })
+
+  test('sources the retained authorization binding from the grant itself', () => {
+    const issued = audienceGrant({ groupId: GROUP, grantId: 'gra_issued', revision: 7 })
+    const enlisted = enlistmentGrant(
+      { groupId: GROUP, grantId: 'grn_issued', revision: 9 },
+      'agt_scout'
+    )
+    const validation = validateGroupCreation({
+      candidates: [
+        {
+          audienceGrant: issued,
+          kind: 'human',
+          participant: ALICE,
+          workspaceId: WORKSPACE,
+        },
+        {
+          enlistmentGrant: enlisted,
+          agentId: 'agt_scout',
+          kind: 'agent',
+          workspaceId: WORKSPACE,
+        },
+      ],
+      // The request labels the same group; the retained binding still derives
+      // from each grant's own identity, never from the request's label.
+      groupId: GROUP,
+      now: CREATED,
+      workspaceId: WORKSPACE,
+    })
+
+    expect(validation.ok).toBeTrue()
+    if (!validation.ok) return
+    expect(validation.roster.map((member) => member.authorization)).toEqual([
+      { groupId: issued.groupId, grantId: issued.grantId, revision: issued.revision },
+      { groupId: enlisted.groupId, grantId: enlisted.grantId, revision: enlisted.revision },
+    ])
   })
 })
 

@@ -11,6 +11,11 @@
  * - Creation is all-or-nothing; every invalid participant is enumerated with
  *   a typed reason and no partial roster is produced, and each admission
  *   retains the binding to the exact authorizing group, grant and revision.
+ * - Admission validates every grant's identity up front: a blank grant id or
+ *   a malformed, non-positive or wrong-typed revision fails closed with a
+ *   typed reason, and a grant only ever admits into the group it was issued
+ *   for. The retained authorization binding is sourced from the grant's own
+ *   group identity, never relabelled from the request's label.
  * - Participants must belong to the group's owning workspace; workspace
  *   membership alone grants nothing — enlistment and audience membership
  *   require explicit grants, and private history requires explicit
@@ -160,6 +165,25 @@ function grantWindow(grant: GroupGrantWindow): GroupGrantWindow {
   return { expiresAt: grant.expiresAt, issuedAt: grant.issuedAt, revokedAt: grant.revokedAt }
 }
 
+/**
+ * Validates a grant's own identity and group binding up front, before its
+ * window is evaluated: the grant id must be present, the revision a positive
+ * safe integer (a malformed, non-positive or wrong-typed revision proves
+ * nothing), and the grant must carry the group it was issued for — the
+ * request's group id is already validated nonblank at group scope, so a
+ * grant with a blank or different group never matches and is never
+ * relabelled into it.
+ */
+function grantAdmissionRejection(
+  grant: Readonly<{ grantId: string; groupId: string; revision: number }>,
+  requestedGroupId: string
+): CandidateRejectionReason | null {
+  if (!hasText(grant.grantId)) return 'grant_id_missing'
+  if (!Number.isSafeInteger(grant.revision) || grant.revision < 1) return 'grant_revision_invalid'
+  if (!hasText(grant.groupId) || grant.groupId !== requestedGroupId) return 'grant_mismatched_group'
+  return null
+}
+
 function joinPointAt(now: string) {
   return { joinedAt: now, joinedSequence: GROUP_CREATION_JOIN_SEQUENCE }
 }
@@ -169,7 +193,9 @@ function joinPointAt(now: string) {
  * the candidates' explicit grants. All-or-nothing: any rejection fails the
  * whole creation and enumerates every invalid participant; only a fully valid
  * roster is admitted, each member at the creation join point with the
- * authorizing group, grant identity and revision retained in their binding.
+ * authorization retained from their grant's own identity — its group, grant
+ * id and revision — never relabelled from the request. A grant admits only
+ * with a nonblank id, a positive revision and its own issuing group.
  * At least one human candidate is required as the founding audience.
  */
 export function validateGroupCreation(input: GroupCreationInput): GroupCreationValidation {
@@ -198,6 +224,8 @@ export function validateGroupCreation(input: GroupCreationInput): GroupCreationV
       if (!audienceGrant) return reject(participant, 'grant_absent')
       if (audienceGrant.participant.userId !== participant.userId)
         return reject(participant, 'grant_mismatched_participant')
+      const identityRejection = grantAdmissionRejection(audienceGrant, input.groupId)
+      if (identityRejection) return reject(participant, identityRejection)
       const state = evaluateGroupGrantWindow(audienceGrant, input.now)
       if (state !== 'effective') return reject(participant, rejectionForGrantState(state))
       if (seenParticipants.has(`user:${participant.userId}`))
@@ -205,7 +233,7 @@ export function validateGroupCreation(input: GroupCreationInput): GroupCreationV
       seenParticipants.add(`user:${participant.userId}`)
       roster.push({
         authorization: {
-          groupId: input.groupId,
+          groupId: audienceGrant.groupId,
           grantId: audienceGrant.grantId,
           revision: audienceGrant.revision,
         },
@@ -224,6 +252,8 @@ export function validateGroupCreation(input: GroupCreationInput): GroupCreationV
     if (!enlistmentGrant) return reject(participant, 'grant_absent')
     if (!sameQualifiedAgentIdentity(enlistmentGrant.agent, candidate))
       return reject(participant, 'grant_mismatched_participant')
+    const identityRejection = grantAdmissionRejection(enlistmentGrant, input.groupId)
+    if (identityRejection) return reject(participant, identityRejection)
     const state = evaluateGroupGrantWindow(enlistmentGrant, input.now)
     if (state !== 'effective') return reject(participant, rejectionForGrantState(state))
     const key = `agent:${workspaceQualifiedAgentKey(candidate)}`
@@ -231,7 +261,7 @@ export function validateGroupCreation(input: GroupCreationInput): GroupCreationV
     seenParticipants.add(key)
     roster.push({
       authorization: {
-        groupId: input.groupId,
+        groupId: enlistmentGrant.groupId,
         grantId: enlistmentGrant.grantId,
         revision: enlistmentGrant.revision,
       },
