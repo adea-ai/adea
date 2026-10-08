@@ -9,7 +9,9 @@ import {
   recoverLeadTurnRuntimeBinding,
   requestLeadTurnCancellation,
   publishLeadTurnResult,
+  controlPlaneScopeIds,
 } from '@adea-ai/db'
+import { createConfiguredLeadTurnDependencies } from './lead-turn-composition'
 import {
   createLeadTurnRuntime,
   type LeadRuntimeAdapter,
@@ -26,8 +28,17 @@ export type LeadTurnProductDependencies = Readonly<{
   ) => Promise<LeadPreparedSelection>
 }>
 /** No SDK operation guesses, scope expansion, credential discovery, or inferred project. */
-export function configuredLeadTurnProductDependencies(): LeadTurnProductDependencies {
-  return {}
+export async function configuredLeadTurnProductDependencies(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  request?: Request
+): Promise<LeadTurnProductDependencies> {
+  return createConfiguredLeadTurnDependencies(
+    {
+      resolveControlPlaneScope: () => controlPlaneScopeIds(database, { workspaceId }),
+    },
+    request
+  )
 }
 const principal = (scope: Readonly<{ userId: string }>) => ({
   kind: 'user' as const,

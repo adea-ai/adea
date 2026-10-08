@@ -211,6 +211,11 @@ export {
 } from './agents'
 export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
 export {
+  readCurrentLeadTurnProduct,
+  withCurrentLeadTurnProduct,
+  type CurrentLeadTurnProduct,
+} from './lead-turn-product'
+export {
   resolveLeadTurnAuthority,
   readLeadTurnRuntime,
   authorizeLeadTurnFundingBinding,
