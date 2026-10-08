@@ -3111,6 +3111,8 @@ initiates project imports or bootstrap commands. Each confirmed import sends
 supplies the id of the cloud project being bound; a host without a cloud
 project list falls back to a client UUID (the register never mints one). A
 successful import records the cloud project's `sourceKind` as `repository`.
+On desktop hosts that authorize step also offers the shell's native folder
+picker (`desktop_folder_pick`); the typed path input remains the fallback.
 
 One create-project flow everywhere a runtime can back it: a host that mounts
 the Chat/Virtual sidebars with a ready, scoped Dev Runtime injects the same

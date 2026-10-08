@@ -171,6 +171,11 @@ export type DevWorkspaceEntryProps = Readonly<{
    * the cloud project mutations. Absent hosts render the bindings alone.
    */
   workspaceNav?: DevWorkspaceNavHost
+  /**
+   * The host's native folder picker for the sidebar's authorize step, when
+   * the host has one; the typed path input remains the fallback.
+   */
+  pickFolder?: () => Promise<string | null | undefined>
 }>
 
 export { devViewFixtureProjects } from './sidebar/fixture-scale'
@@ -1102,6 +1107,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
               onConfirmDelete={utilityOwner.confirmArchiveDelete}
             />
           }
+          pickFolder={props.pickFolder}
           onSelectSession={(projectId, sessionId) => {
             setRecoveryNotice('')
             const store = workspaceStore.getState()

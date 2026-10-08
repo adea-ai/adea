@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
 
 const path = '/__workspace-navigation-presentation-harness'
@@ -313,4 +313,73 @@ test('discards a pending Chat archive page after switching to Virtual', async ({
   await expect(virtualRow).toBeVisible()
   await expect(page.getByText('Stale Chat archive result')).toHaveCount(0)
   expect((await report()).utility.view).toBe('virtual')
+})
+
+/** Mounts the production navigation on a bare `/?view=dev` entry: no fixture
+ *  projects and nothing seeded in the store, so the Dev view runs its host
+ *  wiring. `noDesktop` boots without the shell bridge (a plain web host). */
+const mountProductionDev = async (page: Page, options?: { noDesktop?: boolean }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.stack ?? error.message))
+  await page.route('**' + path, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><head></head><body><div id="harness-root"></div></body></html>',
+    })
+  )
+  await page.goto(path)
+  await page.evaluate((noDesktop) => {
+    const harness = window as unknown as {
+      __harnessInitialEntry?: string
+      __harnessNoDesktop?: boolean
+    }
+    harness.__harnessInitialEntry = '/?view=dev'
+    if (noDesktop) harness.__harnessNoDesktop = true
+  }, Boolean(options?.noDesktop))
+  const app = resolve(
+    process.cwd(),
+    'apps/web/e2e/helpers/workspace-navigation-presentation-harness-app.tsx'
+  )
+  await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + app}'` })
+  // The module graph loads asynchronously; wait for the harness global.
+  await page.waitForFunction(() => Boolean(window.workspaceNavigationPresentationHarness))
+  const report = () => page.evaluate(() => window.workspaceNavigationPresentationHarness.report())
+  return { report, pageErrors }
+}
+
+/** The workspace header's "New project": names the cloud project, then lands
+ *  on the repository step whose authorize pane offers the path input. */
+const openNewProjectDialog = async (page: Page) => {
+  await page.getByRole('button', { name: 'New project in Workspace' }).click()
+  const dialog = page.getByRole('dialog', { name: 'New project in Workspace' })
+  await dialog.getByRole('textbox', { name: 'Project name' }).fill('Cloud project')
+  await dialog.getByRole('button', { name: 'Create project', exact: true }).click()
+  return dialog
+}
+
+test('the Dev add surface fills its path from the desktop host folder picker', async ({ page }) => {
+  const { report, pageErrors } = await mountProductionDev(page)
+  const dialog = await openNewProjectDialog(page)
+
+  const pathInput = dialog.getByRole('textbox', { name: 'Folder path to authorize' })
+  await expect(pathInput).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Choose folder…' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click()
+  // The shell's picker answers through the bridge and the picked folder lands
+  // in the typed input the authorize step still gates.
+  await expect(pathInput).toHaveValue('/srv/checkout')
+  expect((await report()).calls.some((call) => call.command === 'desktop_folder_pick')).toBe(true)
+  expect(pageErrors).toEqual([])
+})
+
+test('a web host keeps the typed path input as the only way into the add surface', async ({
+  page,
+}) => {
+  const { report, pageErrors } = await mountProductionDev(page, { noDesktop: true })
+  const dialog = await openNewProjectDialog(page)
+
+  await expect(dialog.getByRole('textbox', { name: 'Folder path to authorize' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Choose folder…' })).toHaveCount(0)
+  expect((await report()).calls).toEqual([])
+  expect(pageErrors).toEqual([])
 })
