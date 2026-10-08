@@ -37,6 +37,7 @@ import { Route as ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport } from './
 import { Route as ApiWorkspacesWorkspaceIdModelConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/model-connections'
 import { Route as ApiWorkspacesWorkspaceIdReopenRouteImport } from './routes/api/workspaces/$workspaceId/reopen'
 import { Route as ApiWorkspacesWorkspaceIdSkillsRouteImport } from './routes/api/workspaces/$workspaceId/skills'
+import { Route as ApiInternalPiDurableLeadProductCurrentRouteImport } from './routes/api/internal/pi-durable/lead-product/current'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents'
 import { Route as ApiV1WorkspacesWorkspaceIdArtifactsRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifacts'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels'
@@ -251,6 +252,12 @@ const ApiWorkspacesWorkspaceIdSkillsRoute =
     id: '/skills',
     path: '/skills',
     getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
+const ApiInternalPiDurableLeadProductCurrentRoute =
+  ApiInternalPiDurableLeadProductCurrentRouteImport.update({
+    id: '/api/internal/pi-durable/lead-product/current',
+    path: '/api/internal/pi-durable/lead-product/current',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const ApiV1WorkspacesWorkspaceIdAgentsRoute =
   ApiV1WorkspacesWorkspaceIdAgentsRouteImport.update({
@@ -675,6 +682,7 @@ export interface FileRoutesByFullPath {
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
+  '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
@@ -769,6 +777,7 @@ export interface FileRoutesByTo {
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
+  '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
@@ -864,6 +873,7 @@ export interface FileRoutesById {
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
+  '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
@@ -960,6 +970,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
+    | '/api/internal/pi-durable/lead-product/current'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
@@ -1054,6 +1065,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
+    | '/api/internal/pi-durable/lead-product/current'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
@@ -1148,6 +1160,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
+    | '/api/internal/pi-durable/lead-product/current'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
@@ -1236,6 +1249,7 @@ export interface RootRouteChildren {
   ApiMarketplaceInstallationsGetRoute: typeof ApiMarketplaceInstallationsGetRoute
   ApiMarketplaceInstallationsUninstallRoute: typeof ApiMarketplaceInstallationsUninstallRoute
   ApiV1AccountSummaryRoute: typeof ApiV1AccountSummaryRoute
+  ApiInternalPiDurableLeadProductCurrentRoute: typeof ApiInternalPiDurableLeadProductCurrentRoute
   ApiV1WorkspacesWorkspaceIdAgentsRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdArtifactsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   ApiV1WorkspacesWorkspaceIdChannelsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
@@ -1456,6 +1470,13 @@ declare module '@tanstack/solid-router' {
       fullPath: '/api/workspaces/$workspaceId/skills'
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdSkillsRouteImport
       parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
+    }
+    '/api/internal/pi-durable/lead-product/current': {
+      id: '/api/internal/pi-durable/lead-product/current'
+      path: '/api/internal/pi-durable/lead-product/current'
+      fullPath: '/api/internal/pi-durable/lead-product/current'
+      preLoaderRoute: typeof ApiInternalPiDurableLeadProductCurrentRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/v1/workspaces/$workspaceId/agents': {
       id: '/api/v1/workspaces/$workspaceId/agents'
@@ -2303,6 +2324,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMarketplaceInstallationsUninstallRoute:
     ApiMarketplaceInstallationsUninstallRoute,
   ApiV1AccountSummaryRoute: ApiV1AccountSummaryRoute,
+  ApiInternalPiDurableLeadProductCurrentRoute:
+    ApiInternalPiDurableLeadProductCurrentRoute,
   ApiV1WorkspacesWorkspaceIdAgentsRoute:
     ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdArtifactsRoute:
