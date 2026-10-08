@@ -1,5 +1,5 @@
 {
-  "id": "44583f13-d2e4-4119-9bd9-7f9a9c8c475f",
+  "id": "e143add1-65c4-4a37-9797-88ed56aec91f",
   "prevId": "c943ea33-bb4b-43d6-b9c7-a0f384c615fb",
   "version": "7",
   "dialect": "postgresql",
@@ -389,8 +389,8 @@
         }
       },
       "foreignKeys": {
-        "artifact_reference_grants_source_workspace_id_workspaces_id_fk": {
-          "name": "artifact_reference_grants_source_workspace_id_workspaces_id_fk",
+        "artifact_reference_grants_source_workspace_fk": {
+          "name": "artifact_reference_grants_source_workspace_fk",
           "tableFrom": "artifact_reference_grants",
           "tableTo": "workspaces",
           "schemaTo": "app",
@@ -399,8 +399,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "artifact_reference_grants_audience_workspace_id_workspaces_id_fk": {
-          "name": "artifact_reference_grants_audience_workspace_id_workspaces_id_fk",
+        "artifact_reference_grants_audience_workspace_fk": {
+          "name": "artifact_reference_grants_audience_workspace_fk",
           "tableFrom": "artifact_reference_grants",
           "tableTo": "workspaces",
           "schemaTo": "app",

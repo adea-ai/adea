@@ -19,6 +19,6 @@ CREATE TABLE "app"."artifact_reference_grants" (
 	CONSTRAINT "artifact_reference_grants_workspaces_distinct" CHECK ("app"."artifact_reference_grants"."source_workspace_id" <> "app"."artifact_reference_grants"."audience_workspace_id")
 );
 --> statement-breakpoint
-ALTER TABLE "app"."artifact_reference_grants" ADD CONSTRAINT "artifact_reference_grants_source_workspace_id_workspaces_id_fk" FOREIGN KEY ("source_workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "app"."artifact_reference_grants" ADD CONSTRAINT "artifact_reference_grants_audience_workspace_id_workspaces_id_fk" FOREIGN KEY ("audience_workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app"."artifact_reference_grants" ADD CONSTRAINT "artifact_reference_grants_source_workspace_fk" FOREIGN KEY ("source_workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app"."artifact_reference_grants" ADD CONSTRAINT "artifact_reference_grants_audience_workspace_fk" FOREIGN KEY ("audience_workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "artifact_reference_grants_source_artifact_idx" ON "app"."artifact_reference_grants" USING btree ("source_workspace_id","artifact_id","audience_workspace_id");
