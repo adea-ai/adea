@@ -263,6 +263,16 @@ export function DevNewProjectDialog(
         when={naming()}
         fallback={
           <div class="flex flex-col gap-3">
+            <Tabs value={source()} onChange={(value) => setSource(value as 'local' | 'github')}>
+              <TabsList appearance="segmented" aria-label="Repository source">
+                <TabsTrigger appearance="segmented" value="local">
+                  On this Mac
+                </TabsTrigger>
+                <TabsTrigger appearance="segmented" value="github">
+                  From GitHub
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
             <Show
               when={source() === 'github'}
               fallback={
