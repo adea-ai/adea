@@ -5,7 +5,7 @@ import type {
   MessageSummary,
   TaskSummary,
 } from '@adea-ai/types'
-import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { AgentHqApiClient, ApiLeadTurnStatus } from '@adea-ai/api-client'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import {
   settledConversationPage,
@@ -14,7 +14,16 @@ import {
   usePrefetchThreadMessages,
 } from '@adea-ai/data'
 import { Info, MailOpen, Search } from 'lucide-solid'
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  lazy,
+  onCleanup,
+  onMount,
+  Show,
+} from 'solid-js'
 
 import type { ConversationReadingPosition } from '@adea-ai/ui/components/conversation'
 import {
@@ -26,10 +35,19 @@ import {
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { keyedRows } from './keyed-rows'
-import { MessageComposer, type ComposerSubmission } from './message-composer'
+import { isWorkspaceLeadConversation, messageSubmissionOutcome } from './lead-conversation-model'
+import {
+  MessageComposer,
+  type ComposerSubmission,
+  type ComposerSubmissionOutcome,
+} from './message-composer'
 import { MessageRow } from './message-row'
 import { ThreadPanel } from './thread-panel'
 import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-states'
+
+const LeadTurnControls = lazy(() =>
+  import('./control-plane-settings').then((module) => ({ default: module.LeadTurnControls }))
+)
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
 import { ConversationAvatar } from './conversation-avatar'
@@ -152,6 +170,7 @@ export function ConversationSurface(props: {
   const audienceEpoch = useWorkspaceState(
     (state) => state.conversationAudienceEpochs[props.workspaceId] ?? 0
   )
+  const [leadReceipt, setLeadReceipt] = createSignal<ApiLeadTurnStatus | null>(null)
   const [cursor, setCursor] = createSignal<number | undefined>()
   const [messages, setMessages] = createSignal<readonly MessageSummary[]>([])
   // Whether the loaded page belongs to this conversation. Solid Query keeps the
@@ -210,6 +229,7 @@ export function ConversationSurface(props: {
       epoch !== loadedAudienceEpoch ||
       props.workspaceId !== loadedWorkspaceId
     ) {
+      setLeadReceipt(null)
       if (loadedChannelId)
         rememberTranscript(
           loadedWorkspaceId,
@@ -311,46 +331,52 @@ export function ConversationSurface(props: {
   // The thread column: the focused thread when its root is inside the loaded
   // page, the placeholder panel when a deep link names a root this window
   // cannot show, and nothing — no second column — when no thread is open.
-  const threadPanel = createMemo(() => {
-    if (!props.threadRootMessageId) return undefined
-    const rootMessage = root()
-    if (!rootMessage) {
-      return (
-        <SharedThreadPanel
-          data-conventional-thread=""
-          label="Thread"
-          onClose={() => props.onThreadChange(null)}
+  // A refreshed root object updates metadata without disposing its pending
+  // composer. Changing the root identity still disposes the previous thread.
+  const threadPanel = (
+    <Show when={props.threadRootMessageId} keyed>
+      {(rootId) => (
+        <Show
+          when={root()?.id === rootId ? root() : undefined}
+          fallback={
+            <SharedThreadPanel
+              data-conventional-thread=""
+              label="Thread"
+              onClose={() => props.onThreadChange(null)}
+            >
+              <WorkspaceEmpty
+                title="Thread outside history window"
+                detail="This thread is outside the loaded history window."
+              />
+            </SharedThreadPanel>
+          }
         >
-          <WorkspaceEmpty
-            title="Thread outside history window"
-            detail="This thread is outside the loaded history window."
-          />
-        </SharedThreadPanel>
-      )
-    }
-    return (
-      <ThreadPanel
-        agents={props.agents}
-        artifacts={props.artifacts}
-        channelId={props.channel?.id ?? ''}
-        client={props.client}
-        draft={props.threadDraft}
-        onClose={() => props.onThreadChange(null)}
-        onDraftChange={props.onThreadDraftChange}
-        onOpenTask={props.onOpenTask}
-        onMarkRead={(sequence) => props.onMarkThreadRead(rootMessage.id, sequence)}
-        onMarkUnread={() => props.onMarkThreadUnread(rootMessage.id)}
-        privateContent={props.privateContent}
-        root={rootMessage}
-        searchTargetMessageId={props.searchTargetMessageId}
-        tasks={props.tasks}
-        transcription={props.transcription}
-        workspaceId={props.workspaceId}
-      />
-    )
-  })
+          {(rootMessage) => (
+            <ThreadPanel
+              agents={props.agents}
+              artifacts={props.artifacts}
+              channelId={props.channel?.id ?? ''}
+              client={props.client}
+              draft={props.threadDraft}
+              onClose={() => props.onThreadChange(null)}
+              onDraftChange={props.onThreadDraftChange}
+              onOpenTask={props.onOpenTask}
+              onMarkRead={(sequence) => props.onMarkThreadRead(rootId, sequence)}
+              onMarkUnread={() => props.onMarkThreadUnread(rootId)}
+              privateContent={props.privateContent}
+              root={rootMessage()}
+              searchTargetMessageId={props.searchTargetMessageId}
+              tasks={props.tasks}
+              transcription={props.transcription}
+              workspaceId={props.workspaceId}
+            />
+          )}
+        </Show>
+      )}
+    </Show>
+  )
 
-  const submit = async (submission: ComposerSubmission) => {
+  const submit = async (submission: ComposerSubmission): Promise<ComposerSubmissionOutcome> => {
     const submittedWorkspaceId = props.workspaceId
     const submittedChannelId = props.channel?.id
     const submittedAudienceEpoch = audienceEpoch()
@@ -374,8 +400,21 @@ export function ConversationSurface(props: {
       workspaceId: props.workspaceId,
     })
     try {
-      const created = await createMessage.mutateAsync(submission)
-      if (!stillCurrent()) return
+      const useLead = isWorkspaceLeadConversation(props.channel, directAgent())
+      const created = await createMessage.mutateAsync({
+        ...submission,
+        ...(useLead ? { leadTurn: true as const } : {}),
+      })
+      if (!stillCurrent()) return { clearDraft: false }
+      if (created.leadTurn)
+        setLeadReceipt({
+          schemaVersion: 'adea-lead-turn/v1',
+          intentId: created.leadTurn.intentId,
+          messageId: created.leadTurn.messageId,
+          state: 'blocked',
+          availability: 'unavailable',
+          reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE',
+        })
       // Merge the committed message immediately: the list invalidation that
       // follows refetches the page, but the transcript should not wait a round
       // trip (or drop the optimistic row first) to show what the server
@@ -386,6 +425,7 @@ export function ConversationSurface(props: {
           (left, right) => left.sequence - right.sequence
         )
       })
+      return messageSubmissionOutcome(created, stillCurrent())
     } finally {
       if (stillCurrent()) setOptimisticMessage(null)
     }
@@ -428,15 +468,27 @@ export function ConversationSurface(props: {
         <ConversationPane
           gutter
           composer={
-            <MessageComposer
-              agents={props.agents}
-              artifacts={props.artifacts}
-              channelId={channel().id}
-              draft={props.draft}
-              onDraftChange={props.onDraftChange}
-              onSubmit={submit}
-              transcription={props.transcription}
-            />
+            <>
+              <Show when={isWorkspaceLeadConversation(channel(), directAgent())}>
+                <LeadTurnControls
+                  client={props.client}
+                  workspaceId={props.workspaceId}
+                  channelId={channel().id}
+                  audienceEpoch={audienceEpoch()}
+                  receipt={leadReceipt()}
+                  onTimelineChange={() => void messageQuery.refetch()}
+                />
+              </Show>
+              <MessageComposer
+                agents={props.agents}
+                artifacts={props.artifacts}
+                channelId={channel().id}
+                draft={props.draft}
+                onDraftChange={props.onDraftChange}
+                onSubmit={submit}
+                transcription={props.transcription}
+              />
+            </>
           }
           header={
             <header class="border-border bg-card border-b px-5 pt-2.5 pb-2">
@@ -515,7 +567,7 @@ export function ConversationSurface(props: {
               </nav>
             </header>
           }
-          thread={threadPanel()}
+          thread={props.threadRootMessageId ? threadPanel : undefined}
         >
           <SharedConversationSurface
             data-conventional-transcript=""

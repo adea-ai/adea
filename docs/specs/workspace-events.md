@@ -76,6 +76,24 @@ authentication and execution acceptance remain separate state. New direct topics
 same `channel.created` event; they preserve the canonical channel audience rather than
 copying a previous conversation's messages or participants.
 
+Explicit `leadTurn: true` message admission commits the ordinary `message.created`
+event, canonical message and a server-owned blocked dispatch intent in one transaction.
+Failure rolls all three back; retries retain the same message/intent and do not append
+another event. The UUID intent pins lead/profile/channel/audience references without
+copying message bodies or model credentials. A saved message event proves persistence;
+it does not prove runtime acceptance, dispatch or public child outcome delivery.
+Ordinary direct project/session message writes create no lead intent.
+
+Preparation separately retains exact canonical execution, attempt and selection pins;
+it does not start inference or mint a second session store. An explicit start requires
+the prepared funding confirmation and current authority. Status/progress reads and
+recovery never imply a start. Runtime progress is a bounded metadata projection rather
+than a durable token stream. Completed output publication commits its canonical Agent
+message/event and idempotent publication receipt together, under locks checking the
+current audience, original sender, pinned profile and runtime binding, plus a fresh
+trusted publication grant. A withheld or unknown outcome remains retained without a
+public append. Missing runtime composition remains unavailable.
+
 `agent.profile_changed` schema version 2 records `actorUserId`, `agentId`,
 `previousProfileId`, `previousProfileVersion`, `profileId`, `profileVersion`
 and the new `profileRevision`. The reference change, revision increment and

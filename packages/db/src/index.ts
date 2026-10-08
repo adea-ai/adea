@@ -205,6 +205,21 @@ export {
   listAgentsForUser,
   updateAgentPresentation,
 } from './agents'
+export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
+export {
+  resolveLeadTurnAuthority,
+  readLeadTurnRuntime,
+  authorizeLeadTurnFundingBinding,
+  prepareLeadTurnRuntime,
+  markLeadTurnDispatchPending,
+  observeLeadTurnRuntime,
+  recoverLeadTurnRuntimeBinding,
+  requestLeadTurnCancellation,
+  publishLeadTurnResult,
+  type LeadTurnAcceptedSelection,
+  type LeadTurnRuntimeBinding,
+  type LeadTurnObservedState,
+} from './lead-turn-runtime'
 export {
   archiveTask,
   assignTask,
