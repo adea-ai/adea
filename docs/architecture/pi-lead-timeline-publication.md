@@ -9,3 +9,5 @@ The completion path retains original actor, execution, attempt, session, selecti
 Focused tests exercise the real Adea composition and runtime using an explicitly mocked CP transport and an in-memory store. The separate restricted PostgreSQL fixture exercises the real product/repository timeline append using that same mocked CP transport. Neither proves the released SDK, CP production authority, model inference, provider credentials, device authority or deployment. Actual #996 public packages and independently authorized operator configuration remain required; missing configuration or installed SDK support continues to fail closed.
 
 The frozen #1202 disclosure/role fixes and its prior failures remain separate evidence. No migration, credential, grant, screenshot or UI baseline change is part of this slice.
+
+Trusted terminal publication uses a server-only message write boundary that preserves the exact authorized UTF-8 text in both the canonical body and creation identity. Ordinary user message creation retains its existing trim normalization. Leading indentation and trailing whitespace are part of the accepted output; changed text on replay is rejected.

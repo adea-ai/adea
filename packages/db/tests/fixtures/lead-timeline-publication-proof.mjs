@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import {
   createDatabase,
@@ -7,6 +8,8 @@ import {
   ensureWorkspaceLead,
   createDirectAgentTopic,
   createLeadTurn,
+  createMessage,
+  publishLeadTurnResult,
   workspaces,
   messages,
   workspaceEvents,
@@ -57,7 +60,7 @@ try {
     workspaceId: mapped.controlPlaneWorkspaceId,
     intentId: scope.intentId,
     originalActorRef: `user:${scope.userId}`,
-    text: 'Exact accepted answer\n',
+    text: '  Exact accepted answer\n\t',
   })
   const product = createLeadTurnProduct(connection.db, cp.dependencies)
   assert.equal((await product.prepare(scope)).state, 'prepared')
@@ -72,6 +75,9 @@ try {
     { canonicalActorPrincipalId: `user:${crypto.randomUUID()}` },
     { attemptId: `att_${'1'.repeat(26)}` },
     { resultContentDigest: `sha256:${'0'.repeat(64)}` },
+    {
+      resultContentDigest: `sha256:${createHash('sha256').update('Exact accepted answer').digest('hex')}`,
+    },
   ]) {
     cp.resetPublication()
     cp.changePublication(change)
@@ -84,10 +90,39 @@ try {
   assert.ok(completed.publishedMessageId)
   const replay = await product.status(scope)
   assert.equal(replay.publishedMessageId, completed.publishedMessageId)
+  assert.equal(
+    await publishLeadTurnResult(
+      connection.db,
+      workspace.id,
+      scope.intentId,
+      owner.principal,
+      cp.binding,
+      '  Exact accepted answer\n\t',
+      async () => {}
+    ),
+    completed.publishedMessageId
+  )
+  await assert.rejects(
+    () =>
+      publishLeadTurnResult(
+        connection.db,
+        workspace.id,
+        scope.intentId,
+        owner.principal,
+        cp.binding,
+        'Exact accepted answer',
+        async () => {}
+      ),
+    /RUNTIME_RESPONSE_INVALID/
+  )
   const rows = await channelRows()
   assert.equal(rows.length, 2)
   const output = rows.find((row) => row.id === completed.publishedMessageId)
-  assert.equal(output.bodyText, 'Exact accepted answer\n')
+  assert.equal(output.bodyText, '  Exact accepted answer\n\t')
+  assert.equal(
+    new TextEncoder().encode(output.bodyText).length,
+    new TextEncoder().encode('  Exact accepted answer\n\t').length
+  )
   assert.equal(output.senderAgentId, lead.id)
   assert.equal(output.executionRef, cp.binding.executionId)
   assert.equal(output.externalSessionRef, cp.binding.runtimeSessionId)
@@ -97,6 +132,25 @@ try {
     .where(eq(workspaceEvents.workspaceId, workspace.id))
   assert.equal(events.filter((event) => event.eventType === 'message.created').length, 2)
   assert.equal(cp.calls.filter((call) => call.method === 'dispatchPiDurableLead').length, 1)
+  const ordinaryTopic = await createDirectAgentTopic(
+    connection.db,
+    workspace.id,
+    lead.id,
+    owner.principal,
+    { title: 'Ordinary text normalization', idempotencyKey: crypto.randomUUID() }
+  )
+  const ordinary = await createMessage(
+    connection.db,
+    workspace.id,
+    ordinaryTopic.id,
+    owner.principal,
+    {
+      bodyText: '  Ordinary question\n\t',
+      sender: owner.principal,
+      idempotencyKey: crypto.randomUUID(),
+    }
+  )
+  assert.equal(ordinary.bodyText, 'Ordinary question')
   await connection.db
     .delete(workspaceMemberships)
     .where(eq(workspaceMemberships.workspaceId, workspace.id))
@@ -122,7 +176,11 @@ try {
       canonicalPostgresPublication: true,
       publicationWithheldBeforeCurrentGrant: true,
       changedActorAttemptDigestDenied: true,
+      trimmedOutputDigestDenied: true,
+      changedWhitespaceReplayRejected: true,
       exactUtf8AndSessionPins: true,
+      leadingAndTrailingWhitespacePreserved: true,
+      ordinaryUserNormalizationUnchanged: true,
       oneTimelineAppend: true,
       stableReplay: true,
       revokedOriginalActorDenied: true,

@@ -10,24 +10,28 @@ export async function timelineCompositionFixture(input: {
   originalActorRef: string
   text?: string
 }) {
+  // Distinct admitted intents need distinct canonical attempts and dispatch receipts.
+  const hex = input.intentId.replaceAll('-', '')
+  if (!/^[a-f0-9]{32}$/.test(hex)) throw new Error('Fixture intent invalid')
+  const canonicalId = hex.slice(0, 26).toUpperCase()
   const text = input.text ?? 'Accepted answer\n'
   const expiry = new Date(Date.now() + 300_000).toISOString()
   const prepared = {
     ...input,
-    executionId: `exe_${'0'.repeat(26)}`,
-    attemptId: `att_${'0'.repeat(26)}`,
-    selectionRef: `msel_${'a'.repeat(32)}`,
+    executionId: `exe_${canonicalId}`,
+    attemptId: `att_${canonicalId}`,
+    selectionRef: `msel_${hex}`,
     selectionRevision: 1,
-    preparationRef: `prep_${'a'.repeat(32)}`,
+    preparationRef: `prep_${hex}`,
     expiresAt: expiry,
   }
   const binding = {
     schemaVersion: 'pi-lead-dispatch/v1',
     intentId: input.intentId,
-    dispatchId: `dispatch_${'a'.repeat(32)}`,
+    dispatchId: `dispatch_${hex}`,
     executionId: prepared.executionId,
     attemptId: prepared.attemptId,
-    runtimeSessionId: `ses_${'0'.repeat(26)}`,
+    runtimeSessionId: `ses_${canonicalId}`,
   }
   let publication = {
     ...prepared,
