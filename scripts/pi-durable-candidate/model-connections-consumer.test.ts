@@ -59,6 +59,33 @@ const SELECTION = {
   workspaceGrant: { grantRef: 'fixture-grant', revision: 1 },
   configurationRevision: 1,
 }
+const FUNDING_BINDING = {
+  executionId: 'exe_01JABCDEF0123456789ABCDEFG',
+  attemptId: 'att_01JABCDEF0123456789ABCDEFG',
+  selectionRef: SELECTION.selectionRef,
+  selectionRevision: SELECTION.selectionRevision,
+}
+const FUNDING = {
+  schemaVersion: 'model-funding-display/v1',
+  workspaceId: WORKSPACE,
+  ...FUNDING_BINDING,
+  state: 'ready',
+  provider: SELECTION.provider,
+  providerModel: SELECTION.providerModel,
+  accountRef: SELECTION.accountRef,
+  authKind: SELECTION.authKind,
+  fundingSource: SELECTION.fundingSource,
+  fundingOwner: {
+    ownerRef: 'recorded-payer:not-connection-admin',
+    kind: 'workspace_account',
+    displayName: 'Recorded payer',
+    revision: 1,
+    evidenceRef: 'payer-evidence:fixture',
+  },
+  authorizationRef: 'spending:fixture',
+  authorityRevision: 1,
+  expiresAt: '2099-01-01T00:00:00.000Z',
+}
 
 function fixture(transform?: (body: Record<string, any>) => Record<string, any>) {
   const requests: { path: string; body: Record<string, any> }[] = []
@@ -75,30 +102,32 @@ function fixture(transform?: (body: Record<string, any>) => Record<string, any>)
       const body = JSON.parse(String(init?.body))
       const path = new URL(String(url)).pathname
       requests.push({ path, body })
-      const data = path.endsWith('/list')
-        ? {
-            connections: [
-              {
-                connection: CONNECTION,
-                models: [
-                  {
-                    providerModel: 'fixture-model',
-                    readiness: { ready: true, reasonCode: 'READY' },
-                  },
-                ],
-              },
-            ],
-          }
-        : path.includes('/defaults/')
-          ? { defaults: DEFAULTS }
-          : path.endsWith('/resolve')
-            ? { selection: SELECTION }
-            : {
-                connection: {
-                  ...CONNECTION,
-                  status: path.endsWith('/revoke') ? 'revoked' : 'active',
+      const data = path.endsWith('/funding/get')
+        ? { funding: FUNDING }
+        : path.endsWith('/list')
+          ? {
+              connections: [
+                {
+                  connection: CONNECTION,
+                  models: [
+                    {
+                      providerModel: 'fixture-model',
+                      readiness: { ready: true, reasonCode: 'READY' },
+                    },
+                  ],
                 },
-              }
+              ],
+            }
+          : path.includes('/defaults/')
+            ? { defaults: DEFAULTS }
+            : path.endsWith('/resolve')
+              ? { selection: SELECTION }
+              : {
+                  connection: {
+                    ...CONNECTION,
+                    status: path.endsWith('/revoke') ? 'revoked' : 'active',
+                  },
+                }
       const response = {
         contractVersion: body.contractVersion,
         requestId: body.requestId,
@@ -113,6 +142,23 @@ function fixture(transform?: (body: Record<string, any>) => Record<string, any>)
 }
 
 describe('packed SDK candidate model consumer', () => {
+  test('funding reads bind the exact accepted attempt and selection without model work', async () => {
+    const h = fixture()
+    expect(await h.consumer.funding(FUNDING_BINDING)).toEqual(FUNDING)
+    expect(h.requests).toHaveLength(1)
+    expect(h.requests[0].path).toBe('/v1/model-connections/selection/funding/get')
+    expect(h.requests[0].body.parameters).toEqual(FUNDING_BINDING)
+    expect(h.requests[0].body.payload).toBeUndefined()
+  })
+  test('another attempt cannot supply a schema-valid funding disclosure', async () => {
+    const h = fixture((response) => ({
+      ...response,
+      data: { funding: { ...FUNDING, attemptId: 'att_01JABCDEF0123456789ABCDEFH' } },
+    }))
+    await expect(h.consumer.funding(FUNDING_BINDING)).rejects.toMatchObject({
+      reasonCode: 'READINESS_UNAVAILABLE',
+    })
+  })
   test('safe readiness reason set matches the actual public SDK schema', () => {
     expect([...MODEL_READINESS_REASON_CODES].toSorted()).toEqual(
       [...ModelReadinessReasonSchema.options].toSorted()
