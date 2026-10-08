@@ -384,7 +384,7 @@ export function publishLeadTurnResult(
         // Trusted adapter rechecks current selection/payer/grant inside these held canonical locks.
         await assertCurrentGrant()
         const digest = createHash('sha256')
-          .update(JSON.stringify({ ...binding, bodyText: bodyText.trim() }))
+          .update(JSON.stringify({ ...binding, bodyText }))
           .digest('hex')
         if (row.publishedMessageId) {
           if (row.publicationDigest !== digest) throw new Error('RUNTIME_RESPONSE_INVALID')

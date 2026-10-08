@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { authorizeLeadTurnFundingBinding } from '@adea-ai/db'
 import { controlPlaneAdminDependencies } from '../../../../../server/control-plane-admin-dependencies'
+import { configuredLeadExecutionTarget } from '../../../../../server/lead-execution-target'
 import { applicationDatabase } from '../../../../../server/database'
 import { handleDesktopWorkspacePreflight } from '../../../../../server/desktop-workspace'
 import {
@@ -12,6 +13,10 @@ import { workspaceInvalidRequestResponse } from '../../../../../server/workspace
 
 const dependencies: ModelMetadataRouteDependencies = {
   ...controlPlaneAdminDependencies,
+  hop: (workspaceId) => ({
+    ...controlPlaneAdminDependencies.hop(workspaceId),
+    target: () => configuredLeadExecutionTarget(),
+  }),
   authorizeFundingBinding: async (principal, workspaceId, binding) => {
     try {
       return await authorizeLeadTurnFundingBinding(

@@ -7,6 +7,10 @@ export {
 
 export { accountWorkspaceSummaries } from './account-summary'
 export {
+  inspectExpiredTaskSubmissionCiphertext,
+  purgeExpiredTaskSubmissionCiphertext,
+} from './task-submission-retention'
+export {
   enqueueTaskSubmission,
   getTaskSubmissionForUser,
   TaskSubmissionError,
@@ -206,6 +210,11 @@ export {
   updateAgentPresentation,
 } from './agents'
 export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
+export {
+  readCurrentLeadTurnProduct,
+  withCurrentLeadTurnProduct,
+  type CurrentLeadTurnProduct,
+} from './lead-turn-product'
 export {
   resolveLeadTurnAuthority,
   readLeadTurnRuntime,

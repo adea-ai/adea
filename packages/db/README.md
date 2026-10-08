@@ -49,11 +49,16 @@ authority remains withheld. Pull is not execution acceptance or a host receipt.
 
 Migration 0039 is the [relay retention expansion phase](../../docs/evidence/m11-relay-retention-schema.md).
 It adds a nullable purge marker, partial expiry index and expiry constraint before
-the matching application declaration/operator deploys. During this short staged
-rollout the generated snapshot is ahead of the runtime declaration: integrate
-the application phase before generating further migrations from that declaration.
-Verify the approved target's schema readiness before publishing code that reads
-the column; parallel main-push migration and Worker jobs do not establish order.
+the matching application declaration/operator deploys. This application phase
+aligns the runtime declaration with that expanded snapshot; integrate both phases
+before generating further migrations.
+
+The [retention operator](../../docs/guides/relay-ciphertext-retention.md)
+uses an explicit workspace and direct application-role connection, defaults to
+dry-run, and preserves submission identity and execution/history state. Verify
+the approved target's schema readiness before deploying code that reads the
+column; parallel main-push migration and Worker jobs do not establish order.
+Nothing runs cleanup automatically.
 
 Production rollback is forward-only: deploy an application rollback while the expanded schema is
 compatible, then add a reviewed corrective migration. Point-in-time restore is for data-loss

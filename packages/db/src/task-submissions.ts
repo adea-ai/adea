@@ -61,7 +61,7 @@ function summary(row: SubmissionRow): TaskSubmissionSummary {
     requestId: row.requestId,
     runtimeNodeId: row.runtimeNodeId,
     locationKind: row.locationKind,
-    state: Date.now() >= row.expiresAt.getTime() ? 'expired' : row.state,
+    state: row.ciphertextPurgedAt || Date.now() >= row.expiresAt.getTime() ? 'expired' : row.state,
     profile: Object.freeze({
       id: row.profileId,
       version: row.profileVersion,
