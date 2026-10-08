@@ -17,7 +17,7 @@ jobs:
   preview:
     name: Cloudflare Preview / adea-web
     if: github.event.pull_request.draft == false
-    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.44.3
+    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.47.1
     with:
       mode: preview
       deploy-tool: cf
