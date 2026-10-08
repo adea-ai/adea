@@ -353,11 +353,18 @@ test('General saves workspace identity changes as they are made', async ({ page 
     page.getByRole('dialog', { name: 'Settings harness workspace settings' })
   ).toBeVisible()
   const panel = page.locator('#workspace-settings-panel-general')
-  await expect(panel.getByRole('status')).toHaveText('Changes save as you make them.')
+  await expect(panel.getByRole('status', { name: 'Workspace identity save status' })).toHaveText(
+    'Changes save as you make them.'
+  )
+  await expect(panel.getByRole('status', { name: 'Workspace order position' })).toHaveText(
+    'Position 1 of 2'
+  )
   const name = panel.getByRole('textbox', { name: 'Workspace name' })
   await name.fill('Renamed harness')
   await name.press('Enter')
-  await expect(panel.getByRole('status')).toHaveText('Saved.')
+  await expect(panel.getByRole('status', { name: 'Workspace identity save status' })).toHaveText(
+    'Saved.'
+  )
   // The title follows the saved name.
   await expect(
     page.getByRole('dialog', { name: 'Renamed harness workspace settings' })
@@ -438,7 +445,9 @@ test('Skills lists workspace and read-only system skills and deprecates after co
   await confirm.getByRole('textbox', { name: 'Reason' }).fill('Replaced by 2.0.0')
   await confirm.getByRole('button', { name: 'Deprecate', exact: true }).click()
   await expect(
-    panel.getByRole('status').filter({ hasText: 'Release notes deprecated.' })
+    panel
+      .getByRole('status', { name: 'Workspace identity save status' })
+      .filter({ hasText: 'Release notes deprecated.' })
   ).toBeVisible()
   await expect(panel.getByText('Deprecated', { exact: true })).toBeVisible()
   const deprecation = (await recordedRequests(page)).find(({ path }) => path.endsWith('/deprecate'))
@@ -463,7 +472,9 @@ test('Cloud connections adds a connection with a write-only secret, rotates and 
   await secret.fill(CLOUD_SECRET_CANARY)
   await panel.getByRole('button', { name: 'Add connection' }).click()
   await expect(
-    panel.getByRole('status').filter({ hasText: 'openai cloud connection added.' })
+    panel
+      .getByRole('status', { name: 'Workspace identity save status' })
+      .filter({ hasText: 'openai cloud connection added.' })
   ).toBeVisible()
   await expect(panel.getByText('openai', { exact: true })).toBeVisible()
   await expect(panel.getByLabel('Secret', { exact: true })).toHaveCount(0)
@@ -482,7 +493,9 @@ test('Cloud connections adds a connection with a write-only secret, rotates and 
   await panel.getByLabel('New github secret').fill(`${CLOUD_SECRET_CANARY}-2`)
   await panel.getByRole('button', { name: 'Rotate secret' }).click()
   await expect(
-    panel.getByRole('status').filter({ hasText: 'github secret rotated.' })
+    panel
+      .getByRole('status', { name: 'Workspace identity save status' })
+      .filter({ hasText: 'github secret rotated.' })
   ).toBeVisible()
   await expect(panel.getByText(/revision 2 · rotated 2026-10-07/u)).toBeVisible()
 

@@ -198,7 +198,7 @@ export function WorkspaceDetailsDialog(props: {
               <Show when={props.onReorderWorkspaces && workspacePosition() >= 0}>
                 <SettingsRow label="Workspace order">
                   <div class="flex flex-col gap-2">
-                    <p role="status">
+                    <p role="status" aria-label="Workspace order position">
                       Position {workspacePosition() + 1} of {props.workspaceOrder?.length ?? 0}
                     </p>
                     <div class="flex items-center gap-2">
@@ -250,13 +250,31 @@ export function WorkspaceDetailsDialog(props: {
               <SkillsPane client={apiClient()} workspaceId={props.workspace.id} />
             </Show>
             <Show when={props.open && section() === 'connections'}>
-              <Suspense fallback={<p role="status">Loading device connections…</p>}>
+              <Suspense
+                fallback={
+                  <p role="status" aria-label="Workspace order position">
+                    Loading device connections…
+                  </p>
+                }
+              >
                 <ConnectionsPane service={props.services?.connections} />
               </Suspense>
-              <Suspense fallback={<p role="status">Loading execution hosts…</p>}>
+              <Suspense
+                fallback={
+                  <p role="status" aria-label="Workspace order position">
+                    Loading execution hosts…
+                  </p>
+                }
+              >
                 <RuntimeNodesPane client={apiClient()} workspaceId={props.workspace.id} />
               </Suspense>
-              <Suspense fallback={<p role="status">Loading cloud connections…</p>}>
+              <Suspense
+                fallback={
+                  <p role="status" aria-label="Workspace order position">
+                    Loading cloud connections…
+                  </p>
+                }
+              >
                 <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />
               </Suspense>
             </Show>

@@ -182,7 +182,12 @@ export function WorkspaceIdentitySettings(props: {
           <RadioGroupItem value="work" label="Work" />
         </RadioGroup>
       </SettingsRow>
-      <p class="conventional-settings-note" role="status" aria-live="polite">
+      <p
+        class="conventional-settings-note"
+        role="status"
+        aria-label="Workspace identity save status"
+        aria-live="polite"
+      >
         {status()}
       </p>
     </>
