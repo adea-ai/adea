@@ -22,7 +22,7 @@
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test tests/unit",
-    "test:integration": "bun run --cwd ../remote-content build && bun run --cwd ../types build && bun test tests/integration",
+    "test:integration": "bun run --cwd ../remote-content build && bun run --cwd ../types build && bun run --cwd ../auth build && bun test tests/integration",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:check": "drizzle-kit check --config=drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
