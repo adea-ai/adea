@@ -6,6 +6,8 @@ export {
 } from './runtime-node-delivery'
 
 export { accountWorkspaceSummaries } from './account-summary'
+export { accountAgentDirectory, findAccountAgent } from './account-directory'
+export { accountConversationInbox, findAccountConversation } from './account-inbox'
 export {
   inspectExpiredTaskSubmissionCiphertext,
   purgeExpiredTaskSubmissionCiphertext,
