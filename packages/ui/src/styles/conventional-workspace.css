@@ -203,31 +203,6 @@
   z-index: calc(var(--z-menu) - 1);
 }
 
-/*
- * The pending-update dot: one accent indicator shared by the account trigger
- * and the Updates menu item. The dot carries no text on purpose — the host
- * controls extend their accessible names ("update available") so the state is
- * announced, and the dialog itself remains the source of truth.
- */
-[data-account-trigger] .global-rail__update-dot {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.6rem;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--primary);
-  pointer-events: none;
-}
-[role='menuitem'] .global-rail__update-dot {
-  flex: none;
-  width: 0.45rem;
-  height: 0.45rem;
-  margin-inline-start: auto;
-  border-radius: 50%;
-  background: var(--primary);
-}
-
 /* Root-level so portaled dialogs and sheets resolve the aliases too. */
 :root,
 .conventional-workspace,
@@ -1026,11 +1001,6 @@
   color: var(--cw-muted);
   font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
-.conventional-dialog-empty {
-  padding: 1rem;
-  color: var(--cw-muted);
-  text-align: center;
-}
 .conventional-artifact-detail {
   display: grid;
   /* The single implicit column track is content-sized, which shrink-wrapped
@@ -1051,12 +1021,6 @@
 .conventional-artifact-detail .conventional-surface-header {
   max-width: none;
   margin-inline: 0;
-}
-.conventional-search-hint {
-  padding: 0 1rem 0.35rem;
-  color: var(--cw-muted);
-  font-size: calc(0.75rem * var(--font-ui-scale, 1));
-  text-align: right;
 }
 .conventional-conversation-details {
   display: grid;

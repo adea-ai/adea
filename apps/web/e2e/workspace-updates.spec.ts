@@ -49,7 +49,9 @@ test('keeps the boot badge seed while delaying the visual dialog until first ope
     exact: true,
   })
   await expect(trigger).toBeVisible()
-  await expect(page.locator('[data-account-trigger] .global-rail__update-dot')).toHaveCount(1)
+  await expect(
+    page.locator('[data-slot="account-menu-trigger"] [data-slot="account-menu-update-dot"]')
+  ).toHaveCount(1)
   await expect.poll(sharedDialogModuleLoads).toBe(0)
 
   const openUpdates = async () => {
@@ -175,7 +177,9 @@ test('a pending update marks the account trigger and the Updates item', async ({
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(trigger).toHaveAccessibleName('User settings')
-  await expect(page.locator('[data-account-trigger] .global-rail__update-dot')).toHaveCount(0)
+  await expect(
+    page.locator('[data-slot="account-menu-trigger"] [data-slot="account-menu-update-dot"]')
+  ).toHaveCount(0)
 
   // An available update reaches the badge through the dialog's own check —
   // the adapter mirror is the only writer of the shared pending state. The
@@ -191,12 +195,14 @@ test('a pending update marks the account trigger and the Updates item', async ({
     exact: true,
   })
   await expect(pendingTrigger).toBeVisible()
-  await expect(page.locator('[data-account-trigger] .global-rail__update-dot')).toHaveCount(1)
+  await expect(
+    page.locator('[data-slot="account-menu-trigger"] [data-slot="account-menu-update-dot"]')
+  ).toHaveCount(1)
 
   await pendingTrigger.click()
   const updatesItem = page.getByRole('menuitem', { name: 'Updates, update available' })
   await expect(updatesItem).toBeVisible()
-  await expect(updatesItem.locator('.global-rail__update-dot')).toHaveCount(1)
+  await expect(updatesItem.locator('[data-slot="account-menu-update-dot"]')).toHaveCount(1)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('menu')).toHaveCount(0)
 
@@ -204,14 +210,16 @@ test('a pending update marks the account trigger and the Updates item', async ({
   // names flip only once the dialog re-checks, so drive this pass through
   // name-agnostic locators.
   await page.getByRole('button', { name: 'Make update current' }).click()
-  await page.locator('[data-account-trigger]').click()
+  await page.locator('[data-slot="account-menu-trigger"]').click()
   await page.getByRole('menuitem', { name: /Updates/ }).click()
   await expect(page.getByText('Adea is up to date.', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(
     page.getByRole('button', { name: 'User settings', exact: true })
   ).toHaveAccessibleName('User settings')
-  await expect(page.locator('[data-account-trigger] .global-rail__update-dot')).toHaveCount(0)
+  await expect(
+    page.locator('[data-slot="account-menu-trigger"] [data-slot="account-menu-update-dot"]')
+  ).toHaveCount(0)
 })
 
 test('an in-flight download visibly progresses and completes without regressing', async ({
