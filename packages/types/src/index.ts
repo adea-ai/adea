@@ -3,6 +3,7 @@ import type { TaskExecutionLocation } from './task-execution'
 export * from './desktop-permissions'
 export * from './execution-location'
 export * from './group-participation'
+export * from './migration-snapshot'
 export * from './task-submission'
 
 export type WorkspaceSceneId = 'home' | 'work'
