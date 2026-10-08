@@ -3,11 +3,10 @@ import { describe, expect, test } from 'bun:test'
 import type { AgentSummary, ChannelSummary, ProjectSummary } from '@adea-ai/types'
 
 import {
-  fuzzySearchMatch,
-  parseAgentMentions,
   projectWorkspaceNavigation,
   reconcileWorkspaceChannelSelection,
 } from '../../src/workspace-model'
+import { fuzzySearchMatch, parseAgentMentions } from '../../src/workspace-text-match'
 
 const project = (id: string, sortOrder: number): ProjectSummary => ({
   createdAt: '2026-01-01T00:00:00.000Z',

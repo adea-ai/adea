@@ -15,7 +15,7 @@ import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } 
 import { keyedRows } from './keyed-rows'
 import { mergeTranscription } from './transcription'
 import { createClientRequestId } from './request-id'
-import { parseAgentMentions } from './workspace-model'
+import { parseAgentMentions } from './workspace-text-match'
 
 export type ComposerSubmission = Readonly<{
   artifactIds: readonly string[]
