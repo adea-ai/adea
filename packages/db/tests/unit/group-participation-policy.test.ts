@@ -90,6 +90,7 @@ function sharingGrant(
   return {
     expiresAt: null,
     grantId: `grs_${scope}`,
+    groupId: GROUP,
     issuedAt: ISSUED,
     participant,
     revision: 1,
@@ -179,6 +180,7 @@ describe('malformed revocation timestamps fail closed on every path', () => {
       decideGroupHistoryRead({
         admission: unreadable,
         entry: { occurredAt: NOW, sequence: 140 },
+        groupId: GROUP,
         now: NOW,
         sharingGrants: [],
       })
@@ -191,6 +193,7 @@ describe('malformed revocation timestamps fail closed on every path', () => {
       decideGroupSummaryRead({
         admission: unreadable,
         fromSequence: 100,
+        groupId: GROUP,
         now: NOW,
         sharingGrants: [],
       })
@@ -205,6 +208,7 @@ describe('malformed revocation timestamps fail closed on every path', () => {
     expect(
       decideGroupTurn({
         admission: admission({ grant: { expiresAt: null, issuedAt: ISSUED, revokedAt: 'junk' } }),
+        groupId: GROUP,
         now: NOW,
       })
     ).toEqual({
@@ -233,6 +237,7 @@ describe('malformed revocation timestamps fail closed on every path', () => {
     const decision = decideGroupHistoryRead({
       admission: admission(),
       entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [sharingGrant('earlier_history', { revokedAt: 'junk' })],
     })
@@ -832,6 +837,7 @@ describe('join-point history policy', () => {
       decideGroupHistoryRead({
         admission: member,
         entry: { occurredAt: CREATED, sequence: 100 },
+        groupId: GROUP,
         now: NOW,
         sharingGrants: [],
       })
@@ -840,6 +846,7 @@ describe('join-point history policy', () => {
       decideGroupHistoryRead({
         admission: member,
         entry: { occurredAt: NOW, sequence: 140 },
+        groupId: GROUP,
         now: NOW,
         sharingGrants: [],
       })
@@ -850,6 +857,7 @@ describe('join-point history policy', () => {
     const decision = decideGroupHistoryRead({
       admission: admission(),
       entry: { occurredAt: '2026-10-01T00:00:00.000Z', sequence: 99 },
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [],
     })
@@ -865,6 +873,7 @@ describe('join-point history policy', () => {
       decideGroupHistoryRead({
         admission: null,
         entry: { occurredAt: NOW, sequence: 140 },
+        groupId: GROUP,
         now: NOW,
         sharingGrants: [],
       })
@@ -875,6 +884,7 @@ describe('join-point history policy', () => {
     const decision = decideGroupHistoryRead({
       admission: admission({ grant: { expiresAt: null, issuedAt: ISSUED, revokedAt: NOW } }),
       entry: { occurredAt: NOW, sequence: 140 },
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [],
     })
@@ -889,6 +899,7 @@ describe('join-point history policy', () => {
     const decision = decideGroupHistoryRead({
       admission: admission({ grant: { expiresAt: NOW, issuedAt: ISSUED, revokedAt: null } }),
       entry: { occurredAt: NOW, sequence: 140 },
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [],
     })
@@ -905,6 +916,7 @@ describe('explicit earlier-history sharing', () => {
     const decision = decideGroupHistoryRead({
       admission: admission(),
       entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [sharingGrant('earlier_history')],
     })
@@ -919,6 +931,7 @@ describe('explicit earlier-history sharing', () => {
     const decision = decideGroupHistoryRead({
       admission: admission(),
       entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [sharingGrant('earlier_history', {}, BOB)],
     })
@@ -929,6 +942,7 @@ describe('explicit earlier-history sharing', () => {
     const expired = decideGroupHistoryRead({
       admission: admission(),
       entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [sharingGrant('earlier_history', { expiresAt: NOW })],
     })
@@ -937,6 +951,7 @@ describe('explicit earlier-history sharing', () => {
     const revoked = decideGroupHistoryRead({
       admission: admission(),
       entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [sharingGrant('earlier_history', { revokedAt: ISSUED })],
     })
@@ -947,6 +962,7 @@ describe('explicit earlier-history sharing', () => {
     const decision = decideGroupSummaryRead({
       admission: admission(),
       fromSequence: 10,
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [sharingGrant('earlier_history')],
     })
@@ -963,6 +979,7 @@ describe('explicit earlier-summary sharing', () => {
     const decision = decideGroupSummaryRead({
       admission: admission(),
       fromSequence: 100,
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [],
     })
@@ -977,6 +994,7 @@ describe('explicit earlier-summary sharing', () => {
     const decision = decideGroupSummaryRead({
       admission: admission(),
       fromSequence: 10,
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [sharingGrant('earlier_summary')],
     })
@@ -991,6 +1009,7 @@ describe('explicit earlier-summary sharing', () => {
     const decision = decideGroupHistoryRead({
       admission: admission(),
       entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      groupId: GROUP,
       now: NOW,
       sharingGrants: [sharingGrant('earlier_summary')],
     })
@@ -1002,6 +1021,7 @@ describe('explicit earlier-summary sharing', () => {
       decideGroupSummaryRead({
         admission: null,
         fromSequence: 10,
+        groupId: GROUP,
         now: NOW,
         sharingGrants: [sharingGrant('earlier_summary')],
       })
@@ -1011,13 +1031,16 @@ describe('explicit earlier-summary sharing', () => {
 
 describe('turn policy', () => {
   test('allows a turn for an effective participant', () => {
-    expect(decideGroupTurn({ admission: admission(), now: NOW })).toEqual({ action: 'allow' })
+    expect(decideGroupTurn({ admission: admission(), groupId: GROUP, now: NOW })).toEqual({
+      action: 'allow',
+    })
   })
 
   test('denies turns immediately after revocation', () => {
     expect(
       decideGroupTurn({
         admission: admission({ grant: { expiresAt: null, issuedAt: ISSUED, revokedAt: NOW } }),
+        groupId: GROUP,
         now: NOW,
       })
     ).toEqual({
@@ -1031,6 +1054,7 @@ describe('turn policy', () => {
     expect(
       decideGroupTurn({
         admission: admission({ grant: { expiresAt: CREATED, issuedAt: ISSUED, revokedAt: null } }),
+        groupId: GROUP,
         now: NOW,
       })
     ).toEqual({
@@ -1038,7 +1062,7 @@ describe('turn policy', () => {
       participationState: 'expired',
       reason: 'turn_not_participant',
     })
-    expect(decideGroupTurn({ admission: null, now: NOW })).toEqual({
+    expect(decideGroupTurn({ admission: null, groupId: GROUP, now: NOW })).toEqual({
       action: 'deny',
       reason: 'turn_not_participant',
     })
@@ -1163,7 +1187,7 @@ describe('revocation as a publication gate', () => {
     const revokedAdmission = admission({
       grant: { expiresAt: null, issuedAt: ISSUED, revokedAt: '2026-10-08T10:00:00.000Z' },
     })
-    expect(decideGroupTurn({ admission: revokedAdmission, now: NOW })).toEqual({
+    expect(decideGroupTurn({ admission: revokedAdmission, groupId: GROUP, now: NOW })).toEqual({
       action: 'deny',
       participationState: 'revoked',
       reason: 'turn_participation_revoked',
@@ -1274,6 +1298,262 @@ describe('publication binds jobs to their authorizing grant', () => {
       completedAt: COMPLETED,
       jobId: 'job_outside',
       participant: ALICE,
+    })
+  })
+})
+
+describe('grant identity and group binding fail closed on every decision path', () => {
+  test('an empty sharing-grant id authorizes no earlier history and no earlier summary', () => {
+    const history = decideGroupHistoryRead({
+      admission: admission(),
+      entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      groupId: GROUP,
+      now: NOW,
+      sharingGrants: [sharingGrant('earlier_history', { grantId: '   ' })],
+    })
+    expect(history).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'history_before_join_point',
+    })
+    const summary = decideGroupSummaryRead({
+      admission: admission(),
+      fromSequence: 10,
+      groupId: GROUP,
+      now: NOW,
+      sharingGrants: [sharingGrant('earlier_summary', { grantId: '   ' })],
+    })
+    expect(summary).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'summary_before_join_point',
+    })
+  })
+
+  test('an empty retained grant id denies history reads, summary reads, turns and publication', () => {
+    const unprovable = admission({
+      authorization: { ...AUTHORIZATION, grantId: '   ' },
+    })
+    expect(
+      decideGroupHistoryRead({
+        admission: unprovable,
+        entry: { occurredAt: NOW, sequence: 140 },
+        groupId: GROUP,
+        now: NOW,
+        sharingGrants: [],
+      })
+    ).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_id_missing',
+    })
+    expect(
+      decideGroupSummaryRead({
+        admission: unprovable,
+        fromSequence: 140,
+        groupId: GROUP,
+        now: NOW,
+        sharingGrants: [],
+      })
+    ).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_id_missing',
+    })
+    expect(decideGroupTurn({ admission: unprovable, groupId: GROUP, now: NOW })).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_id_missing',
+    })
+    // Publication never reaches the window: an unprovable binding on either
+    // side never matches, so the result stays held.
+    expect(
+      decideGroupPublication({ admission: unprovable, job, now: NOW, publisher: ALICE })
+    ).toEqual({ action: 'hold', jobId: 'job_1', reason: 'publication_binding_mismatch' })
+    expect(
+      decideGroupPublication({
+        admission: admission(),
+        job: { ...job, authorization: { groupId: GROUP, grantId: '   ', revision: 1 } },
+        now: NOW,
+        publisher: ALICE,
+      })
+    ).toEqual({ action: 'hold', jobId: 'job_1', reason: 'publication_binding_mismatch' })
+  })
+
+  test('a negative revision denies history reads, summary reads, turns and publication', () => {
+    const negative = admission({ authorization: { ...AUTHORIZATION, revision: -1 } })
+    expect(
+      decideGroupHistoryRead({
+        admission: negative,
+        entry: { occurredAt: NOW, sequence: 140 },
+        groupId: GROUP,
+        now: NOW,
+        sharingGrants: [],
+      })
+    ).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_revision_invalid',
+    })
+    expect(
+      decideGroupSummaryRead({
+        admission: negative,
+        fromSequence: 140,
+        groupId: GROUP,
+        now: NOW,
+        sharingGrants: [],
+      })
+    ).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_revision_invalid',
+    })
+    expect(decideGroupTurn({ admission: negative, groupId: GROUP, now: NOW })).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_revision_invalid',
+    })
+    expect(
+      decideGroupPublication({ admission: negative, job, now: NOW, publisher: ALICE })
+    ).toEqual({ action: 'hold', jobId: 'job_1', reason: 'publication_binding_mismatch' })
+    const negativeSharing = decideGroupHistoryRead({
+      admission: admission(),
+      entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      groupId: GROUP,
+      now: NOW,
+      sharingGrants: [sharingGrant('earlier_history', { revision: -1 })],
+    })
+    expect(negativeSharing).toMatchObject({ action: 'deny', reason: 'history_before_join_point' })
+  })
+
+  test('a NaN or wrong-typed revision denies history reads, summary reads and turns', () => {
+    const nanSharing = decideGroupHistoryRead({
+      admission: admission(),
+      entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      groupId: GROUP,
+      now: NOW,
+      sharingGrants: [sharingGrant('earlier_history', { revision: Number.NaN })],
+    })
+    expect(nanSharing).toMatchObject({ action: 'deny', reason: 'history_before_join_point' })
+    const wrongTyped = admission({
+      authorization: {
+        ...AUTHORIZATION,
+        revision: '2',
+      } as unknown as GroupAdmission['authorization'],
+    })
+    expect(decideGroupTurn({ admission: wrongTyped, groupId: GROUP, now: NOW })).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_revision_invalid',
+    })
+    expect(
+      decideGroupSummaryRead({
+        admission: admission({ authorization: { ...AUTHORIZATION, revision: Number.NaN } }),
+        fromSequence: 140,
+        groupId: GROUP,
+        now: NOW,
+        sharingGrants: [],
+      })
+    ).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_revision_invalid',
+    })
+  })
+
+  test('revision zero is a revision nowhere: publication aligns with creation', () => {
+    const zeroCreation = validateGroupCreation({
+      candidates: [
+        {
+          audienceGrant: audienceGrant({ revision: 0 }),
+          kind: 'human',
+          participant: ALICE,
+          workspaceId: WORKSPACE,
+        },
+      ],
+      groupId: GROUP,
+      now: CREATED,
+      workspaceId: WORKSPACE,
+    })
+    expect(zeroCreation.ok).toBeFalse()
+    if (zeroCreation.ok) return
+    expect(zeroCreation.rejections.map((rejection) => rejection.reason)).toEqual([
+      'grant_revision_invalid',
+    ])
+    const zero = admission({ authorization: { ...AUTHORIZATION, revision: 0 } })
+    expect(decideGroupTurn({ admission: zero, groupId: GROUP, now: NOW })).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_revision_invalid',
+    })
+    expect(decideGroupPublication({ admission: zero, job, now: NOW, publisher: ALICE })).toEqual({
+      action: 'hold',
+      jobId: 'job_1',
+      reason: 'publication_binding_mismatch',
+    })
+    expect(
+      decideGroupPublication({
+        admission: admission(),
+        job: { ...job, authorization: { groupId: GROUP, grantId: 'gra_alice', revision: 0 } },
+        now: NOW,
+        publisher: ALICE,
+      })
+    ).toEqual({ action: 'hold', jobId: 'job_1', reason: 'publication_binding_mismatch' })
+  })
+
+  test('a sharing grant issued for another group authorizes nothing in this one', () => {
+    const history = decideGroupHistoryRead({
+      admission: admission(),
+      entry: { occurredAt: '2026-09-30T00:00:00.000Z', sequence: 10 },
+      groupId: GROUP,
+      now: NOW,
+      sharingGrants: [sharingGrant('earlier_history', { groupId: OTHER_GROUP })],
+    })
+    expect(history).toMatchObject({ action: 'deny', reason: 'history_before_join_point' })
+    const summary = decideGroupSummaryRead({
+      admission: admission(),
+      fromSequence: 10,
+      groupId: GROUP,
+      now: NOW,
+      sharingGrants: [sharingGrant('earlier_summary', { groupId: OTHER_GROUP })],
+    })
+    expect(summary).toMatchObject({ action: 'deny', reason: 'summary_before_join_point' })
+  })
+
+  test('an admission bound to another group denies reads and turns in this group', () => {
+    const foreign = admission({
+      authorization: { groupId: OTHER_GROUP, grantId: 'gra_alice', revision: 1 },
+    })
+    expect(
+      decideGroupHistoryRead({
+        admission: foreign,
+        entry: { occurredAt: NOW, sequence: 140 },
+        groupId: GROUP,
+        now: NOW,
+        sharingGrants: [],
+      })
+    ).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_mismatched_group',
+    })
+    expect(
+      decideGroupSummaryRead({
+        admission: foreign,
+        fromSequence: 140,
+        groupId: GROUP,
+        now: NOW,
+        sharingGrants: [],
+      })
+    ).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_mismatched_group',
+    })
+    expect(decideGroupTurn({ admission: foreign, groupId: GROUP, now: NOW })).toEqual({
+      action: 'deny',
+      participationState: 'effective',
+      reason: 'grant_mismatched_group',
     })
   })
 })

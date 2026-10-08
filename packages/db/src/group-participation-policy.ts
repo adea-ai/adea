@@ -16,6 +16,14 @@
  *   typed reason, and a grant only ever admits into the group it was issued
  *   for. The retained authorization binding is sourced from the grant's own
  *   group identity, never relabelled from the request's label.
+ * - Every decision path re-runs that same shared identity validation on each
+ *   grant it consumes: history reads, summary reads, turns and publication
+ *   all require the retained binding — and, for reads, every sharing grant —
+ *   to carry a nonblank id, a positive safe-integer revision (zero is a
+ *   revision nowhere) and the group of the decision itself. An unprovable
+ *   grant fails closed with the admission-style typed reasons
+ *   (`grant_id_missing`, `grant_revision_invalid`, `grant_mismatched_group`)
+ *   and authorizes nothing on any path.
  * - Participants must belong to the group's owning workspace; workspace
  *   membership alone grants nothing — enlistment and audience membership
  *   require explicit grants, and private history requires explicit
@@ -41,6 +49,7 @@ import type {
   GroupCreationRejectionReason,
   GroupCreationValidation,
   GroupGrantState,
+  GroupGrantIdentityRejectionReason,
   GroupGrantWindow,
   GroupHistoryReadDecision,
   GroupHistoryReadInput,
@@ -89,14 +98,14 @@ function sameParticipant(
   return false
 }
 
-/** A retained binding is usable only when every field is present and in range. */
+/**
+ * A retained binding is usable only when it passes the one shared
+ * grant-identity validation: a nonblank grant id and group, and a positive
+ * safe-integer revision — the exact rule admission enforces, so zero, a
+ * negative, a malformed or a wrong-typed revision is valid nowhere.
+ */
 function wellFormedBinding(binding: GroupAuthorizationBinding): boolean {
-  return (
-    hasText(binding.groupId) &&
-    hasText(binding.grantId) &&
-    Number.isSafeInteger(binding.revision) &&
-    binding.revision >= 0
-  )
+  return grantIdentityRejection(binding, binding.groupId) === null
 }
 
 /**
@@ -166,21 +175,21 @@ function grantWindow(grant: GroupGrantWindow): GroupGrantWindow {
 }
 
 /**
- * Validates a grant's own identity and group binding up front, before its
- * window is evaluated: the grant id must be present, the revision a positive
+ * The one grant-identity validation every grant-consuming path shares,
+ * admission included: the grant id must be present, the revision a positive
  * safe integer (a malformed, non-positive or wrong-typed revision proves
- * nothing), and the grant must carry the group it was issued for — the
- * request's group id is already validated nonblank at group scope, so a
- * grant with a blank or different group never matches and is never
- * relabelled into it.
+ * nothing — zero is a revision nowhere), and the grant must carry the group
+ * of the decision context — a grant with a blank or different group never
+ * matches and is never relabelled into it. Returns the typed rejection, or
+ * null when the grant's identity is provable.
  */
-function grantAdmissionRejection(
+function grantIdentityRejection(
   grant: Readonly<{ grantId: string; groupId: string; revision: number }>,
-  requestedGroupId: string
-): CandidateRejectionReason | null {
+  contextGroupId: string
+): GroupGrantIdentityRejectionReason | null {
   if (!hasText(grant.grantId)) return 'grant_id_missing'
   if (!Number.isSafeInteger(grant.revision) || grant.revision < 1) return 'grant_revision_invalid'
-  if (!hasText(grant.groupId) || grant.groupId !== requestedGroupId) return 'grant_mismatched_group'
+  if (!hasText(grant.groupId) || grant.groupId !== contextGroupId) return 'grant_mismatched_group'
   return null
 }
 
@@ -224,7 +233,7 @@ export function validateGroupCreation(input: GroupCreationInput): GroupCreationV
       if (!audienceGrant) return reject(participant, 'grant_absent')
       if (audienceGrant.participant.userId !== participant.userId)
         return reject(participant, 'grant_mismatched_participant')
-      const identityRejection = grantAdmissionRejection(audienceGrant, input.groupId)
+      const identityRejection = grantIdentityRejection(audienceGrant, input.groupId)
       if (identityRejection) return reject(participant, identityRejection)
       const state = evaluateGroupGrantWindow(audienceGrant, input.now)
       if (state !== 'effective') return reject(participant, rejectionForGrantState(state))
@@ -252,7 +261,7 @@ export function validateGroupCreation(input: GroupCreationInput): GroupCreationV
     if (!enlistmentGrant) return reject(participant, 'grant_absent')
     if (!sameQualifiedAgentIdentity(enlistmentGrant.agent, candidate))
       return reject(participant, 'grant_mismatched_participant')
-    const identityRejection = grantAdmissionRejection(enlistmentGrant, input.groupId)
+    const identityRejection = grantIdentityRejection(enlistmentGrant, input.groupId)
     if (identityRejection) return reject(participant, identityRejection)
     const state = evaluateGroupGrantWindow(enlistmentGrant, input.now)
     if (state !== 'effective') return reject(participant, rejectionForGrantState(state))
@@ -279,6 +288,7 @@ export function validateGroupCreation(input: GroupCreationInput): GroupCreationV
 function sharingGrantEffective(
   input: Readonly<{
     admissionParticipant: ConversationParticipantRef
+    contextGroupId: string
     now: string
     scope: GroupSharingScope
     sharingGrants: readonly GroupSharingGrant[]
@@ -288,6 +298,10 @@ function sharingGrantEffective(
     (grant) =>
       grant.scope === input.scope &&
       sameParticipant(grant.participant, input.admissionParticipant) &&
+      // The sharing grant passes the same shared identity validation as every
+      // other grant: an empty id, an invalid revision or a grant issued for
+      // another group authorizes nothing here and behaves as absent.
+      grantIdentityRejection(grant, input.contextGroupId) === null &&
       evaluateGroupGrantWindow(grant, input.now) === 'effective'
   )
 }
@@ -295,12 +309,22 @@ function sharingGrantEffective(
 /**
  * Join-point history policy: a participant admitted at their join point sees
  * sequences from it onward by default; earlier history requires an explicit
- * `earlier_history` sharing grant scoped to them.
+ * `earlier_history` sharing grant scoped to them. Every grant consumed here
+ * passes the shared identity validation first: the admission's retained
+ * binding must prove which grant and group admit the reader — bound to the
+ * group being read — and every sharing grant must be bound to that same
+ * group, so an unprovable or foreign grant fails closed and authorizes
+ * nothing.
  */
 export function decideGroupHistoryRead(input: GroupHistoryReadInput): GroupHistoryReadDecision {
   const admission = input.admission
   if (!admission) return { action: 'deny', reason: 'history_not_participant' }
   const state = evaluateGroupGrantWindow(admission.grant, input.now)
+  const identityRejection = grantIdentityRejection(admission.authorization, input.groupId)
+  if (identityRejection)
+    // An unprovable grant behaves as absent with its typed admission-style
+    // reason, exactly as admission would have rejected it.
+    return { action: 'deny', participationState: state, reason: identityRejection }
   if (state === 'revoked')
     return { action: 'deny', participationState: state, reason: 'history_participation_revoked' }
   if (state !== 'effective')
@@ -311,6 +335,7 @@ export function decideGroupHistoryRead(input: GroupHistoryReadInput): GroupHisto
   if (
     sharingGrantEffective({
       admissionParticipant: admission.participant,
+      contextGroupId: input.groupId,
       now: input.now,
       scope: 'earlier_history',
       sharingGrants: input.sharingGrants,
@@ -323,12 +348,20 @@ export function decideGroupHistoryRead(input: GroupHistoryReadInput): GroupHisto
 /**
  * Authorized summaries: a summary reaching before the join point requires an
  * explicit `earlier_summary` sharing grant scoped to the reader; an
- * `earlier_history` grant never unlocks it and vice versa.
+ * `earlier_history` grant never unlocks it and vice versa. Every grant
+ * consumed here passes the shared identity validation first: the retained
+ * binding must prove which grant and group admit the reader — bound to the
+ * group whose summary is read — and every sharing grant must be bound to
+ * that same group, so an unprovable or foreign grant fails closed and
+ * authorizes nothing.
  */
 export function decideGroupSummaryRead(input: GroupSummaryReadInput): GroupSummaryReadDecision {
   const admission = input.admission
   if (!admission) return { action: 'deny', reason: 'summary_not_participant' }
   const state = evaluateGroupGrantWindow(admission.grant, input.now)
+  const identityRejection = grantIdentityRejection(admission.authorization, input.groupId)
+  if (identityRejection)
+    return { action: 'deny', participationState: state, reason: identityRejection }
   if (state === 'revoked')
     return { action: 'deny', participationState: state, reason: 'summary_participation_revoked' }
   if (state !== 'effective')
@@ -338,6 +371,7 @@ export function decideGroupSummaryRead(input: GroupSummaryReadInput): GroupSumma
   if (
     sharingGrantEffective({
       admissionParticipant: admission.participant,
+      contextGroupId: input.groupId,
       now: input.now,
       scope: 'earlier_summary',
       sharingGrants: input.sharingGrants,
@@ -349,12 +383,18 @@ export function decideGroupSummaryRead(input: GroupSummaryReadInput): GroupSumma
 
 /**
  * Turns require an effective participation grant at `now`; revocation denies
- * the next turn immediately and an expired grant behaves as absent.
+ * the next turn immediately and an expired grant behaves as absent. The
+ * retained binding must first prove which grant and group admit the
+ * participant — bound to the group the turn is taken in — so an unprovable
+ * or foreign grant fails closed and takes no turn.
  */
 export function decideGroupTurn(input: GroupTurnInput): GroupTurnDecision {
   const admission = input.admission
   if (!admission) return { action: 'deny', reason: 'turn_not_participant' }
   const state = evaluateGroupGrantWindow(admission.grant, input.now)
+  const identityRejection = grantIdentityRejection(admission.authorization, input.groupId)
+  if (identityRejection)
+    return { action: 'deny', participationState: state, reason: identityRejection }
   if (state === 'revoked')
     return { action: 'deny', participationState: state, reason: 'turn_participation_revoked' }
   if (state !== 'effective')
@@ -369,8 +409,10 @@ export function decideGroupTurn(input: GroupTurnInput): GroupTurnDecision {
  * grant and revision — so a job admitted under a revoked or superseded grant
  * stays held even when an identical-looking replacement grant exists — and
  * the participant must have been effective at completion and still be
- * effective now. Holding never cancels the job and never transfers its
- * authority.
+ * effective now. Both bindings must be well-formed under the one shared
+ * identity validation, so a zero, negative or wrong-typed revision — or a
+ * blank id — is valid here exactly as nowhere else. Holding never cancels
+ * the job and never transfers its authority.
  */
 export function decideGroupPublication(input: GroupPublicationInput): GroupPublicationDecision {
   const { job } = input

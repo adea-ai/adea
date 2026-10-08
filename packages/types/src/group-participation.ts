@@ -106,11 +106,15 @@ export function isGroupSharingScope(value: unknown): value is GroupSharingScope 
 /**
  * An audience-aware sharing grant: it extends one specific participant's
  * visibility past their join point. History sharing and summary sharing are
- * separately grantable — one scope never implies the other.
+ * separately grantable — one scope never implies the other. Like every grant
+ * it carries an identity and revision and is bound to the group it was issued
+ * for: it unlocks earlier material only for decisions in that group.
  */
 export type GroupSharingGrant = GroupGrantWindow &
   GroupGrantIdentity &
   Readonly<{
+    /** The group this grant was issued for; it authorizes nothing elsewhere. */
+    groupId: string
     /** The exact participant the earlier material is shared with. */
     participant: ConversationParticipantRef
     scope: GroupSharingScope
@@ -244,12 +248,38 @@ export type GroupHistoryEntryRef = Readonly<{
   sequence: number
 }>
 
+/**
+ * The grant-identity rejection reasons admission and every grant-consuming
+ * decision share: a blank grant id, a revision that is not a positive safe
+ * integer, or a grant issued for another group proves nothing and authorizes
+ * nothing on any path. Decision paths re-run the same validation admission
+ * performs, so an unprovable grant fails closed everywhere with these typed
+ * reasons and never grants anything.
+ */
+export type GroupGrantIdentityRejectionReason =
+  | 'grant_id_missing'
+  | 'grant_revision_invalid'
+  | 'grant_mismatched_group'
+
+export const groupGrantIdentityRejectionReasons = [
+  'grant_id_missing',
+  'grant_revision_invalid',
+  'grant_mismatched_group',
+] as const satisfies readonly GroupGrantIdentityRejectionReason[]
+
 export type GroupHistoryReadInput = Readonly<{
   /** The reader's admission, or null when they were never admitted. */
   admission: GroupAdmission | null
   entry: GroupHistoryEntryRef
-  /** The group's sharing grants; policy checks the ones scoped to this reader. */
+  /**
+   * The group whose history is being read. The admission's retained binding
+   * and every sharing grant must be bound to it: nothing authorizes a read
+   * into another group's history.
+   */
+  groupId: string
+  /** Evaluation time used for deterministic grant-window checks. */
   now: string
+  /** The group's sharing grants; policy checks the ones scoped to this reader. */
   sharingGrants: readonly GroupSharingGrant[]
 }>
 
@@ -264,6 +294,7 @@ export type GroupHistoryReadDecision =
       /** Absent exactly when the reader was never admitted. */
       participationState?: GroupGrantState
       reason:
+        | GroupGrantIdentityRejectionReason
         | 'history_before_join_point'
         | 'history_not_participant'
         | 'history_participation_revoked'
@@ -272,8 +303,15 @@ export type GroupHistoryReadDecision =
 export type GroupSummaryReadInput = Readonly<{
   /** The reader's admission, or null when they were never admitted. */
   admission: GroupAdmission | null
+  /**
+   * The group whose summary is being read. The admission's retained binding
+   * and every sharing grant must be bound to it: nothing authorizes a read
+   * into another group's summary.
+   */
+  groupId: string
   /** The earliest conversation sequence the summary covers. */
   fromSequence: number
+  /** Evaluation time used for deterministic grant-window checks. */
   now: string
   sharingGrants: readonly GroupSharingGrant[]
 }>
@@ -289,6 +327,7 @@ export type GroupSummaryReadDecision =
       /** Absent exactly when the reader was never admitted. */
       participationState?: GroupGrantState
       reason:
+        | GroupGrantIdentityRejectionReason
         | 'summary_before_join_point'
         | 'summary_not_participant'
         | 'summary_participation_revoked'
@@ -297,6 +336,12 @@ export type GroupSummaryReadDecision =
 export type GroupTurnInput = Readonly<{
   /** The participant's admission, or null when they were never admitted. */
   admission: GroupAdmission | null
+  /**
+   * The group the turn is taken in. The admission's retained binding must be
+   * bound to it: one group's admission never takes turns in another.
+   */
+  groupId: string
+  /** Evaluation time used for deterministic grant-window checks. */
   now: string
 }>
 
@@ -306,7 +351,10 @@ export type GroupTurnDecision =
       action: 'deny'
       /** Absent exactly when the participant was never admitted. */
       participationState?: GroupGrantState
-      reason: 'turn_not_participant' | 'turn_participation_revoked'
+      reason:
+        | GroupGrantIdentityRejectionReason
+        | 'turn_not_participant'
+        | 'turn_participation_revoked'
     }>
 
 /**

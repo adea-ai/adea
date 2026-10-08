@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   groupCreationRejectionReasons,
+  groupGrantIdentityRejectionReasons,
   groupGrantStates,
   groupPublicationHoldReasons,
   groupSharingScopes,
@@ -35,6 +36,14 @@ describe('group participation type contracts', () => {
       'group_workspace_missing',
       'participant_cross_tenant',
       'participant_unqualified',
+    ])
+  })
+
+  test('enumerates the grant-identity reasons shared by admission and every decision path', () => {
+    expect(groupGrantIdentityRejectionReasons).toEqual([
+      'grant_id_missing',
+      'grant_revision_invalid',
+      'grant_mismatched_group',
     ])
   })
 
