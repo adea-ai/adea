@@ -52,13 +52,19 @@ function grantFor(
       revokedAt: null,
       revision: 1,
       sourceWorkspaceId: target.sourceWorkspaceId,
+      version: target.version,
       ...overrides,
     },
     grantState: {
+      artifactId: target.artifactId,
       audienceWorkspaceIds: [target.audienceWorkspaceId],
+      checksumSha256: target.checksumSha256,
+      expiresAt: null,
       grantId: 'grant-live',
       revoked: false,
       revision: 1,
+      sourceWorkspaceId: target.sourceWorkspaceId,
+      version: target.version,
     },
   }
 }
@@ -389,6 +395,52 @@ describe.skipIf(!connectionUrl)('Artifact reference evidence and gates', () => {
       reason: 'artifact_quarantined',
       stage: 'retrieval',
     })
+  })
+
+  test('a live grant identity cannot be relabelled onto a different live artifact', async () => {
+    const { destination, owner, source } = await fixture('relabel')
+    const granted = await createAvailableArtifact(source.id, owner)
+    const other = await createAvailableArtifact(source.id, owner)
+    const grantedEvidence = await readArtifactReferenceEvidence(
+      connection.db,
+      source.id,
+      granted.id,
+      owner
+    )
+    const otherEvidence = await readArtifactReferenceEvidence(
+      connection.db,
+      source.id,
+      other.id,
+      owner
+    )
+    expect(grantedEvidence).not.toBeNull()
+    expect(otherEvidence).not.toBeNull()
+    // The registration and the grant are for `granted`; the presented grant
+    // and locator claim `other`, whose live evidence really exists. Only the
+    // registered artifact field disagrees — that is enough to fail closed.
+    const target = targetFrom(otherEvidence!, source.id, destination.id)
+    const { grant, grantState } = grantFor(targetFrom(grantedEvidence!, source.id, destination.id))
+    const held = authorizeArtifactReferencePublication({
+      authority: { kind: 'workspace_grant' },
+      evidence: otherEvidence,
+      grant: { ...grant, artifactId: other.id },
+      grantState,
+      now: new Date().toISOString(),
+      target,
+    })
+    expect(held.ok).toBe(false)
+    if (!held.ok) expect(held.reason).toBe('grant_target_mismatch')
+    const denied = authorizeArtifactReferenceRetrieval({
+      authority: { kind: 'workspace_grant' },
+      evidence: otherEvidence,
+      grant: { ...grant, artifactId: other.id },
+      grantState,
+      now: new Date().toISOString(),
+      requestingWorkspaceId: destination.id,
+      target,
+    })
+    expect(denied.ok).toBe(false)
+    if (!denied.ok) expect(denied.reason).toBe('grant_target_mismatch')
   })
 
   test('revocation holds the late publication and leaves the producing job output intact', async () => {

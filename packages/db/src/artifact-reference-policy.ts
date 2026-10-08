@@ -23,6 +23,15 @@ import type { AgentHqDatabase } from './connection'
  * current, registered, unrevoked, unexpired grant. A URL or artifact id
  * alone never grants access.
  *
+ * The presented grant is authenticated in full against its authoritative
+ * registration: identity, revision, revocation and audience as before, and
+ * now also the registered source workspace, artifact, version, digest and
+ * expiry. Every field must equal the retained record, and any divergence is
+ * its own typed refusal (`grant_target_mismatch`, `grant_digest_mismatch`,
+ * `grant_version_mismatch`, `grant_expiry_mismatch`): a known grant can
+ * never be relabelled onto another artifact, version or lifetime, and a
+ * presented expiry is never trusted over the registered one.
+ *
  * The functions are pure: the caller injects the database handle when reading
  * evidence, the presented grant, its authoritative registration state and the
  * clock. Nothing here mutates artifacts, cancels jobs, or discovers grants.
@@ -108,12 +117,14 @@ function evaluateArtifactReference(
   if (evidence.checksumSha256 !== input.target.checksumSha256) return 'digest_mismatch'
 
   // A supported workspace grant must exist, be well-formed, and bind exactly
-  // the presented target.
+  // the presented target — including the granted artifact version, so a v1
+  // grant never presents a v2 locator even under an unchanged checksum.
   const { grant } = input
   if (!grant || !isArtifactReferenceGrant(grant)) return 'grant_malformed'
   if (
     grant.sourceWorkspaceId !== input.target.sourceWorkspaceId ||
     grant.artifactId !== input.target.artifactId ||
+    grant.version !== input.target.version ||
     grant.checksumSha256 !== input.target.checksumSha256 ||
     grant.audienceWorkspaceId !== input.target.audienceWorkspaceId
   )
@@ -123,12 +134,28 @@ function evaluateArtifactReference(
   // forged, stale revisions are superseded, revocation is absolute.
   const { grantState } = input
   if (!grantState || grantState.grantId !== grant.grantId) return 'grant_not_registered'
+  // And it must be COMPLETELY the registered one: the retained registration
+  // authenticates every identity-bearing field of the presented grant, each
+  // divergence under its own typed refusal. A known grant identity thus
+  // authorizes exactly the artifact, digest, version and lifetime it was
+  // issued for — never a relabelled target, a substituted digest, a moved
+  // version, or a nulled/extended expiry.
+  if (
+    grantState.sourceWorkspaceId !== grant.sourceWorkspaceId ||
+    grantState.artifactId !== grant.artifactId
+  )
+    return 'grant_target_mismatch'
+  if (grantState.checksumSha256 !== grant.checksumSha256) return 'grant_digest_mismatch'
+  if (grantState.version !== grant.version) return 'grant_version_mismatch'
+  if (grantState.expiresAt !== grant.expiresAt) return 'grant_expiry_mismatch'
   if (grantState.revoked || grant.revokedAt !== null) return 'grant_revoked'
   if (grantState.revision !== grant.revision) return 'grant_revision_stale'
   if (!grantState.audienceWorkspaceIds.includes(input.target.audienceWorkspaceId))
     return 'audience_not_authorized'
 
   // Expiry is checked last so a revoked or superseded grant is named as such.
+  // It is only reached when the presented expiry equals the registered one,
+  // so the lifetime decision below runs on authenticated truth.
   if (grant.expiresAt !== null) {
     const expiresAt = parseTimestamp(grant.expiresAt)
     if (expiresAt === null) return 'grant_malformed'

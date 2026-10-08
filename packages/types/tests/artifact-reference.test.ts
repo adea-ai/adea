@@ -33,6 +33,7 @@ function grant(overrides: Partial<ArtifactReferenceGrant> = {}): ArtifactReferen
     revokedAt: null,
     revision: 2,
     sourceWorkspaceId: 'ws-source',
+    version: 3,
     ...overrides,
   }
 }
@@ -89,6 +90,13 @@ describe('artifact reference grant guard', () => {
     expect(isArtifactReferenceGrant(grant({ grantId: '' }))).toBe(false)
     expect(isArtifactReferenceGrant(grant({ audienceWorkspaceId: ' ' }))).toBe(false)
     expect(isArtifactReferenceGrant(grant({ revision: 0 }))).toBe(false)
+  })
+
+  test('binds the granted artifact version: zero, fractional or absent is malformed', () => {
+    expect(isArtifactReferenceGrant(grant({ version: 0 }))).toBe(false)
+    expect(isArtifactReferenceGrant(grant({ version: 1.5 }))).toBe(false)
+    expect(isArtifactReferenceGrant(grant({ version: undefined as unknown as number }))).toBe(false)
+    expect(isArtifactReferenceGrant(grant({ version: 7 }))).toBe(true)
   })
 
   test('requires explicit null or a timestamp for expiry and revocation', () => {

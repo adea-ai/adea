@@ -48,6 +48,8 @@ export type ArtifactReferenceTarget = Readonly<{
  * A grant binding one exact target to one audience. `revision` is bumped by
  * the granting workspace whenever the registration changes; a presented
  * grant whose revision differs from the authoritative registration is stale.
+ * `version` binds the granted artifact version: a grant issued for v1 never
+ * authorizes v2, even when the content checksum is unchanged.
  */
 export type ArtifactReferenceGrant = Readonly<{
   artifactId: string
@@ -58,19 +60,29 @@ export type ArtifactReferenceGrant = Readonly<{
   revokedAt: string | null
   revision: number
   sourceWorkspaceId: string
+  version: number
 }>
 
 /**
  * The authoritative current registration of a grant, read by the caller from
  * its own grant store and injected here. The policy store holds no grant
  * schema in this slice, so this is the only way revision/revocation/audience
- * truth reaches the decision.
+ * truth reaches the decision. It retains the registration's complete
+ * identity — source workspace, artifact, version, content digest and expiry —
+ * so the presented grant can be authenticated field by field: a known
+ * `grantId` can never be relabelled onto another target, digest, version or
+ * lifetime.
  */
 export type ArtifactReferenceGrantState = Readonly<{
+  artifactId: string
   audienceWorkspaceIds: readonly string[]
+  checksumSha256: string
+  expiresAt: string | null
   grantId: string
   revoked: boolean
   revision: number
+  sourceWorkspaceId: string
+  version: number
 }>
 
 /**
@@ -100,11 +112,15 @@ export const artifactReferenceRefusalReasons = [
   'audience_not_authorized',
   'digest_mismatch',
   'evidence_unavailable',
+  'grant_digest_mismatch',
   'grant_expired',
+  'grant_expiry_mismatch',
   'grant_malformed',
   'grant_not_registered',
   'grant_revoked',
   'grant_revision_stale',
+  'grant_target_mismatch',
+  'grant_version_mismatch',
   'reference_malformed',
   'stale_version',
   'target_mismatch',
@@ -219,8 +235,11 @@ export function isArtifactReferenceGrant(value: unknown): value is ArtifactRefer
     typeof candidate.revision === 'number' &&
     Number.isInteger(candidate.revision) &&
     candidate.revision > 0 &&
+    typeof candidate.version === 'number' &&
+    Number.isInteger(candidate.version) &&
+    candidate.version > 0 &&
     (candidate.expiresAt === null || hasText(candidate.expiresAt)) &&
     (candidate.revokedAt === null || hasText(candidate.revokedAt)) &&
-    Object.keys(candidate).length === 8
+    Object.keys(candidate).length === 9
   )
 }

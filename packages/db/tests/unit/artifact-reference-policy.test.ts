@@ -61,6 +61,7 @@ function grant(overrides: Partial<ArtifactReferenceGrant> = {}): ArtifactReferen
     revokedAt: null,
     revision: 2,
     sourceWorkspaceId: SOURCE,
+    version: 3,
     ...overrides,
   }
 }
@@ -69,10 +70,15 @@ function grantState(
   overrides: Partial<ArtifactReferenceGrantState> = {}
 ): ArtifactReferenceGrantState {
   return {
+    artifactId: 'artifact-1',
     audienceWorkspaceIds: [DESTINATION],
+    checksumSha256: CHECKSUM,
+    expiresAt: null,
     grantId: 'grant-1',
     revoked: false,
     revision: 2,
+    sourceWorkspaceId: SOURCE,
+    version: 3,
     ...overrides,
   }
 }
@@ -302,24 +308,40 @@ describe('artifact reference policy: revocation, stale revisions, expiry, audien
 
   test('an expired grant is refused at the boundary instant and before it', () => {
     const expiresAt = '2026-10-08T12:00:00.000Z'
-    const expired = { grant: grant({ expiresAt }), now: NOW }
+    const expired = {
+      grant: grant({ expiresAt }),
+      grantState: grantState({ expiresAt }),
+      now: NOW,
+    }
     const held = authorizeArtifactReferencePublication(publicationInput(expired))
     expect(held.ok).toBe(false)
     if (!held.ok) expect(held.reason).toBe('grant_expired')
     const stillValid = authorizeArtifactReferencePublication(
-      publicationInput({ grant: grant({ expiresAt }), now: '2026-10-08T11:59:59.999Z' })
+      publicationInput({
+        grant: grant({ expiresAt }),
+        grantState: grantState({ expiresAt }),
+        now: '2026-10-08T11:59:59.999Z',
+      })
     )
     expect(stillValid.ok).toBe(true)
   })
 
   test('an unparseable expiry is a malformed grant and an unverifiable clock fails closed', () => {
     const malformed = authorizeArtifactReferencePublication(
-      publicationInput({ grant: grant({ expiresAt: 'not-a-timestamp' }) })
+      publicationInput({
+        grant: grant({ expiresAt: 'not-a-timestamp' }),
+        grantState: grantState({ expiresAt: 'not-a-timestamp' }),
+      })
     )
     expect(malformed.ok).toBe(false)
     if (!malformed.ok) expect(malformed.reason).toBe('grant_malformed')
+    const expiresAt = '2026-12-01T00:00:00.000Z'
     const failedClock = authorizeArtifactReferencePublication(
-      publicationInput({ grant: grant({ expiresAt: '2026-12-01T00:00:00.000Z' }), now: 'soon' })
+      publicationInput({
+        grant: grant({ expiresAt }),
+        grantState: grantState({ expiresAt }),
+        now: 'soon',
+      })
     )
     expect(failedClock.ok).toBe(false)
     if (!failedClock.ok) expect(failedClock.reason).toBe('grant_expired')
@@ -466,5 +488,110 @@ describe('artifact reference policy: sanitized refusals', () => {
         expect(serialized).not.toContain(CHECKSUM)
       }
     }
+  })
+})
+
+describe('artifact reference policy: the presented grant is authenticated in full', () => {
+  test('a known grant identity relabelled onto another artifact is refused', () => {
+    // The registration retains the grant for artifact-1; the presented grant
+    // borrows its live identity (id, revision, audience) to authorize
+    // artifact-2, whose current evidence really exists. Every field agrees
+    // except the one the registration actually retained.
+    const stolen = {
+      evidence: evidence({ id: 'artifact-2' }),
+      grant: grant({ artifactId: 'artifact-2' }),
+      target: target({ artifactId: 'artifact-2' }),
+    }
+    const held = authorizeArtifactReferencePublication(publicationInput(stolen))
+    expect(held.ok).toBe(false)
+    if (!held.ok) expect(held.reason).toBe('grant_target_mismatch')
+    const denied = authorizeArtifactReferenceRetrieval(retrievalInput(stolen))
+    expect(denied.ok).toBe(false)
+    if (!denied.ok) expect(denied.reason).toBe('grant_target_mismatch')
+  })
+
+  test('a known grant identity relabelled onto another source workspace is refused', () => {
+    const foreignSource = {
+      evidence: evidence({ id: 'artifact-2', workspaceId: ELSEWHERE }),
+      grant: grant({ artifactId: 'artifact-2', sourceWorkspaceId: ELSEWHERE }),
+      target: target({ artifactId: 'artifact-2', sourceWorkspaceId: ELSEWHERE }),
+    }
+    const held = authorizeArtifactReferencePublication(publicationInput(foreignSource))
+    expect(held.ok).toBe(false)
+    if (!held.ok) expect(held.reason).toBe('grant_target_mismatch')
+    const denied = authorizeArtifactReferenceRetrieval(retrievalInput(foreignSource))
+    expect(denied.ok).toBe(false)
+    if (!denied.ok) expect(denied.reason).toBe('grant_target_mismatch')
+  })
+
+  test('a known grant identity with a substituted digest is refused', () => {
+    // Target and evidence agree with the digest the presented grant claims —
+    // only the authoritative registration still retains the granted one.
+    const digestSwap = {
+      evidence: evidence({ checksumSha256: TAMPERED }),
+      grant: grant({ checksumSha256: TAMPERED }),
+      target: target({ checksumSha256: TAMPERED }),
+    }
+    const held = authorizeArtifactReferencePublication(publicationInput(digestSwap))
+    expect(held.ok).toBe(false)
+    if (!held.ok) expect(held.reason).toBe('grant_digest_mismatch')
+    const denied = authorizeArtifactReferenceRetrieval(retrievalInput(digestSwap))
+    expect(denied.ok).toBe(false)
+    if (!denied.ok) expect(denied.reason).toBe('grant_digest_mismatch')
+  })
+
+  test('a nulled or replaced expiry is refused: the lifetime comes from the registration', () => {
+    const expiresAt = '2026-10-01T00:00:00.000Z'
+    // Nulling a lapsed registration would otherwise make the grant
+    // non-expiring; replacing it postpones the boundary. Both diverge from
+    // the retained record and fail closed.
+    for (const presented of [null, '2026-12-31T23:59:59.999Z'] as const) {
+      const tampered = {
+        grant: grant({ expiresAt: presented }),
+        grantState: grantState({ expiresAt }),
+      }
+      const held = authorizeArtifactReferencePublication(publicationInput(tampered))
+      expect(held.ok).toBe(false)
+      if (!held.ok) expect(held.reason).toBe('grant_expiry_mismatch')
+      const denied = authorizeArtifactReferenceRetrieval(retrievalInput(tampered))
+      expect(denied.ok).toBe(false)
+      if (!denied.ok) expect(denied.reason).toBe('grant_expiry_mismatch')
+    }
+  })
+
+  test('a v1 grant never authorizes a v2 artifact even when the checksum is unchanged', () => {
+    // The registration binds version 3; the artifact is now version 4 with
+    // the identical content digest. Whichever version the presented grant
+    // claims, substitution fails: claiming v2 diverges from the registration,
+    // claiming v1 diverges from the presented target.
+    const bumped = {
+      evidence: evidence({ version: 4 }),
+      grantState: grantState(),
+      target: target({ version: 4 }),
+    }
+    const v2Grant = authorizeArtifactReferencePublication(
+      publicationInput({ ...bumped, grant: grant({ version: 4 }) })
+    )
+    expect(v2Grant.ok).toBe(false)
+    if (!v2Grant.ok) expect(v2Grant.reason).toBe('grant_version_mismatch')
+    const denied = authorizeArtifactReferenceRetrieval(
+      retrievalInput({ ...bumped, grant: grant({ version: 4 }) })
+    )
+    expect(denied.ok).toBe(false)
+    if (!denied.ok) expect(denied.reason).toBe('grant_version_mismatch')
+    const v1Grant = authorizeArtifactReferencePublication(
+      publicationInput({ ...bumped, grant: grant({ version: 3 }) })
+    )
+    expect(v1Grant.ok).toBe(false)
+    if (!v1Grant.ok) expect(v1Grant.reason).toBe('target_mismatch')
+  })
+
+  test('a presented grant equal to its retained registration still admits both gates', () => {
+    // The happy path is unchanged: artifact, digest, version and expiry all
+    // equal to the authoritative record.
+    const publication = authorizeArtifactReferencePublication(publicationInput())
+    expect(publication.ok).toBe(true)
+    const retrieval = authorizeArtifactReferenceRetrieval(retrievalInput())
+    expect(retrieval.ok).toBe(true)
   })
 })
