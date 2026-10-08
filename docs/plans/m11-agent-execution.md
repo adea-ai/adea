@@ -30,6 +30,16 @@ they do not certify a deployed Control Plane or a packaged desktop.
 
 ## Integration and release gates
 
+The [Control Plane event privacy boundary](../specs/workspace-events.md#control-plane-execution-event-privacy-boundary)
+decodes the pinned public execution envelope into bounded metadata, with source
+hash verification and independently supplied correlation scope. It is a
+prerequisite for #39, not a durable inbox or authenticated ingestion route.
+The public envelope lacks selected host/location binding, so retained accepted
+execution metadata and the authenticated producer must establish that identity
+before transactional application. Deduplication, ordering/replay, Task and
+Conversation Service mapping, Artifact/usage attribution and live delivery remain
+required; no acceptance-ledger state changes.
+
 [#42](https://github.com/adea-ai/adea/issues/42) and
 [#130](https://github.com/adea-ai/adea/issues/130) own the linked pre-release
 certification journeys. Their original criteria remain authoritative. Record
@@ -153,6 +163,15 @@ does not select another node. [Queue evidence](../evidence/m11-task-submission-i
 records independent validation and the remaining host-delivery, SDK acceptance,
 reconciliation, expiry cleanup and product gates. Pending delivery is not runtime
 acceptance or a Task lifecycle transition.
+
+The [expired-ciphertext operator](../guides/relay-ciphertext-retention.md)
+provides bounded workspace-scoped dry-run/apply cleanup, preserving intent and
+all execution/history state. Its additive migration and supported entry need
+ordered rollout and separately configured scheduling before operational expiry
+acceptance. Host inbox/key retention and cross-product certification remain
+open; this implementation changes no criterion's verification state.
+[Retention evidence](../evidence/m11-relay-ciphertext-retention.md) separates
+local regression coverage from deployment and operational acceptance.
 
 ## Authenticated outbound delivery
 

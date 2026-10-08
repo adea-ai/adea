@@ -1,3 +1,17 @@
+import {
+  createModelConnectionsAdapter,
+  type ApiModelConnectionsResponse,
+  type ApiModelDefaultsResponse,
+  type ApiModelDefaultsSetInput,
+  type ApiModelSelectionResolveInput,
+  type ApiModelSelectionResponse,
+  type ApiModelFundingBinding,
+  type ApiModelFundingResponse,
+  type ApiModelConnectionCreateInput,
+  type ApiModelConnectionRevokeInput,
+  type ApiModelConnectionResponse,
+} from './model-connections.js'
+
 import type {
   AccountSummary,
   AgentSummary,
@@ -156,12 +170,40 @@ export type ApiReadStateResponse = Readonly<{ readState: readonly ChannelReadSta
 export type ApiAccountSummaryResponse = AccountSummary
 
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
-export type ApiMessageResponse = Readonly<{ message: MessageSummary }>
+export type {
+  ApiLeadTurnStatus,
+  ApiLeadTurnResponse,
+  ApiChannelLeadTurnResponse,
+  ApiLeadTurnProgress,
+  ApiLeadTurnProgressResponse,
+  LeadTurnRuntimeState,
+  LeadTurnReasonCode,
+} from './lead-turns'
+import type {
+  ApiLeadTurnResponse,
+  ApiLeadTurnProgressResponse,
+  ApiChannelLeadTurnResponse,
+} from './lead-turns'
+
+export type ApiMessageResponse = Readonly<{
+  message: MessageSummary
+  /** Canonical persistence is not runtime admission or execution. */
+  leadTurn?: Readonly<{
+    schemaVersion: 'pi-lead-intent/v1'
+    intentId: string
+    messageId: string
+    dispatchKey: string
+    state: 'blocked'
+    reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE'
+  }>
+}>
 export type ApiMessagePage = Readonly<{
   messages: readonly MessageSummary[]
   nextAfterSequence?: number
 }>
 export type ApiMessageCreateInput = Readonly<{
+  /** Explicit workspace lead admission; direct sessions remain ordinary messages. */
+  leadTurn?: true
   artifactIds?: readonly string[]
   bodyContentRefId?: string
   bodyText?: string
@@ -762,6 +804,64 @@ export class AgentHqApiClient {
       ),
       input
     )
+  }
+
+  /** Model metadata remains separate from connector credentials and execution admission. */
+  createModelConnection(
+    workspaceId: string,
+    input: ApiModelConnectionCreateInput
+  ): Promise<ApiModelConnectionResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).createModelConnection(workspaceId, input)
+  }
+
+  revokeModelConnection(
+    workspaceId: string,
+    input: ApiModelConnectionRevokeInput
+  ): Promise<ApiModelConnectionResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).revokeModelConnection(workspaceId, input)
+  }
+
+  listModelConnections(workspaceId: string): Promise<ApiModelConnectionsResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).listModelConnections(workspaceId)
+  }
+
+  getWorkspaceModelDefaults(workspaceId: string): Promise<ApiModelDefaultsResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).getWorkspaceModelDefaults(workspaceId)
+  }
+
+  setWorkspaceModelDefaults(
+    workspaceId: string,
+    input: ApiModelDefaultsSetInput
+  ): Promise<ApiModelDefaultsResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).setWorkspaceModelDefaults(workspaceId, input)
+  }
+
+  resolveWorkspaceModelSelection(
+    workspaceId: string,
+    input: ApiModelSelectionResolveInput
+  ): Promise<ApiModelSelectionResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).resolveWorkspaceModelSelection(workspaceId, input)
+  }
+
+  getModelSelectionFunding(
+    workspaceId: string,
+    input: ApiModelFundingBinding
+  ): Promise<ApiModelFundingResponse> {
+    return createModelConnectionsAdapter((path, init) =>
+      this.request(path, init)
+    ).getModelSelectionFunding(workspaceId, input)
   }
 
   /** Cloud connection metadata (ADR 0013); never secret material. */
@@ -1379,6 +1479,66 @@ export class AgentHqApiClient {
         body: JSON.stringify(body),
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
         method: 'POST',
+      }
+    )
+  }
+
+  async dispatchLeadTurn(workspaceId: string, intentId: string): Promise<ApiLeadTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }
+    )
+  }
+
+  async prepareLeadTurn(workspaceId: string, intentId: string): Promise<ApiLeadTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/prepare`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }
+    )
+  }
+
+  async getChannelLeadTurn(
+    workspaceId: string,
+    channelId: string
+  ): Promise<ApiChannelLeadTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/lead-turn`
+    )
+  }
+
+  async getLeadTurnStatus(workspaceId: string, intentId: string): Promise<ApiLeadTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}`
+    )
+  }
+
+  async getLeadTurnProgress(
+    workspaceId: string,
+    intentId: string,
+    afterSequence = 0
+  ): Promise<ApiLeadTurnProgressResponse> {
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0)
+      throw new Error('Invalid lead progress cursor')
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/progress?afterSequence=${afterSequence}`
+    )
+  }
+
+  async cancelLeadTurn(workspaceId: string, intentId: string): Promise<ApiLeadTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/cancel`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
       }
     )
   }
