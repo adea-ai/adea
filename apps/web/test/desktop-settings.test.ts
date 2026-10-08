@@ -16,6 +16,7 @@ describe('desktop workspace preferences boundary', () => {
       notifyMentions: false,
       notifyTasks: 'yes',
       privateNotificationPreviews: true,
+      windowSurface: 'frosted',
       unknown: 'discard',
     }))
     expect(await provider.load()).toEqual({
@@ -23,6 +24,7 @@ describe('desktop workspace preferences boundary', () => {
       notifyMentions: false,
       notifyTasks: true,
       privateNotificationPreviews: true,
+      windowSurface: 'frosted',
       version: 1,
     })
   })
@@ -39,6 +41,7 @@ describe('desktop workspace preferences boundary', () => {
         notifyMentions: false,
         notifyTasks: false,
         privateNotificationPreviews: true,
+        windowSurface: 'opaque',
         version: 1,
       })
       expect(saved).toEqual({
@@ -46,6 +49,7 @@ describe('desktop workspace preferences boundary', () => {
         notifyMentions: false,
         notifyTasks: false,
         privateNotificationPreviews: true,
+        windowSurface: 'opaque',
         version: 1,
       })
       expect(requests).toEqual([{ command: 'desktop_preferences_save', preferences: saved }])

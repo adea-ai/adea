@@ -132,8 +132,12 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // Canonical themes 0.9.10 (2026-10-07, #1139): the generated provenance
   // strings in the startup chunk measure 238,657 gzip, 65 bytes over the
   // 233 KiB cap (raw holds). Startup gzip ratchets to 234 KiB.
+  // Startup gzip headroom restoration (2026-10-07): that ratchet left 797
+  // bytes above this build of main's 238,819 (~0.3%), repeating the
+  // zero-headroom lesson the chat route documented on 2026-10-01. Startup
+  // gzip moves to 238 KiB (~2% headroom); startup raw holds.
   total: { rawBytes: 2_990_000, gzipBytes: 890 * 1024, fileCount: 157 },
-  startup: { rawBytes: 720 * 1024, gzipBytes: 234 * 1024 },
+  startup: { rawBytes: 720 * 1024, gzipBytes: 238 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now
@@ -231,14 +235,19 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // by 30–66 bytes. The same lesson this route documented on 2026-10-01:
     // a cap pinned to the last build leaves zero headroom. Raw ratchets to
     // the next whole KiB; gzip holds at 99 KiB.
+    // Raw headroom restoration (2026-10-07): the #1144 ratchet left the raw
+    // cap 1,069 bytes above this build of main's 304,083 (~0.4%), so the next
+    // shared-UI bump fails before anyone can ratchet. Raw moves 298 → 303 KiB,
+    // the whole-KiB step that restores the ~2% headroom the 2026-10-01
+    // re-baseline documented instead of pinning to the build; gzip holds.
     // Conversation-stack rewire (#811 phase 2, 2026-10-07): the route's
     // conversation pane, composer menus and status lines now compose the
     // published @adea-ai/ui 0.121 ConversationPane/ComposerMenu/status slot;
-    // measured 305,264 raw / 101,405 gzip across 45 files — 112 bytes and 29
-    // bytes over the 298 KiB / 99 KiB caps. Both ratchet to the next whole
-    // KiB; the deleted app-local CSS and wrappers offset most of the shared
-    // panel's weight.
-    chat: { rawBytes: 299 * 1024, gzipBytes: 102 * 1024 },
+    // measured 305,264 raw / 101,405 gzip across 45 files. Raw fits inside
+    // the restored 303 KiB cap; gzip is 29 bytes over 99 KiB, so it ratchets
+    // to the next whole KiB — the deleted app-local families offset most of
+    // the shared panel's weight.
+    chat: { rawBytes: 303 * 1024, gzipBytes: 102 * 1024 },
     // The library route composes the shared ListGroup/ListRow composites
     // (2026-09-29 rebuild) instead of raw divs; that costs ~2 KB raw over the
     // hand-rolled markup and is the point of the change. Re-measured for the

@@ -60,8 +60,13 @@
   }
 }
 
-/* ── Top bar portal ─────────────────────────────────────────────────────── */
+/* ── Top bar group ──────────────────────────────────────────────────────── */
 
+/* The group sits in the leading view-action mount, right of the section's
+   divider exactly where the Dev view's pane actions are. It must shrink with
+   the leading track — the navigation controls beside it are protected from
+   shrinking (a squeezed group once painted over the last control's edge) —
+   so the search flexes down to its floor before the group ever overflows. */
 .dev-scm-topbar {
   display: flex;
   align-items: center;
@@ -69,9 +74,14 @@
   min-width: 0;
 }
 
-/* Centered in the top bar's title slot, the search fills the slot instead of
-   its fixed leading-group width, so the field sits at the bar's centre where
-   the plain workspace-name title would be. */
+/* The search leads the group so it reads left of the sync status, growing
+   toward a comfortable width with room to spare, and shrinking to a floor
+   that still fits the placeholder. */
+.dev-scm-topbar [data-scm-search] {
+  flex: 1 1 16rem;
+  min-width: 10rem;
+  max-width: 28rem;
+}
 
 @media (max-width: 48rem) {
   [data-scm-search],

@@ -3099,6 +3099,21 @@ supplies the id of the cloud project being bound; a host without a cloud
 project list falls back to a client UUID (the register never mints one). A
 successful import records the cloud project's `sourceKind` as `repository`.
 
+The repository step offers a source choice: **On this Mac** (the authorize →
+scan → import flow above) and **From GitHub** — the authenticated GitHub
+selection. The GitHub source lists the authenticated `gh` account's
+repositories through `dev.github.repositories`, renders a bounded,
+client-filtered pick list, and binds each pick with a **managed**
+`dev.project.clone`: the body carries only redacted remote parts
+(`provider: 'github'`, host, owner, repository — never a raw URL and never
+credential material), and the host re-proves every admission at clone time
+exactly as the clone contract below requires. The picked row shows a busy
+state for the duration of the clone, typed failures surface as inline error
+text, and a successful clone closes the dialog and refreshes the sidebar like
+the folder path's import. A dialog without a cloud project id (a host without
+a cloud project list) falls back to the same client-UUID `mintProjectId` seam
+the folder path uses.
+
 Scanner defaults:
 
 - parse declared workspaces/config rather than every `package.json`;
@@ -4897,6 +4912,21 @@ Issue, PR, review, and check text/logs are untrusted display content. They are
 sanitized, bounded, and never automatically inserted into a privileged prompt
 or shell command.
 
+`dev.github.repositories` is the provider's one account-scoped read: it lists
+the authenticated `gh` account's repositories (the add surface's "From
+GitHub" import source) without a repository resource. The invocation is one
+fixed-argv `gh repo list --hostname github.com --limit <N> --json
+nameWithOwner,url,visibility,updatedAt,isFork` through the bounded runner
+(the workspace git-hosting binding resolves its token env exactly like every
+other `gh` child), `N` defaults to and caps at 200, and the reply is a strict
+`GitHubRepositorySummary[]<=200` — the DTO normalizes gh's upper-cased
+GraphQL visibility enum to `public`/`private`/`internal` before the literal
+guard. Reads cache with the provider's short TTL and every gh failure answers
+through the shared typed classification (unauthenticated, rate-limited,
+remote-unavailable), credential-redacted. It names remotes to clone; it never
+implies a local registration, and it feeds only the managed-clone binding
+described in the add-surface contract.
+
 ### Pull request collaboration (source control app)
 
 The source control app reads and acts on pull requests across every
@@ -5458,10 +5488,11 @@ Safety contract (non-negotiable, enforced by the provider design):
   the user's `~/.Trash` (recoverable, destination names deduplicate without
   overwriting, and a cross-volume rename fails the item instead of deleting).
   Only entries discovered inside the Trash offer `trash_empty` (the OS already
-  classified them deleted), and only a provably stale git worktree admin entry
-  (`git worktree list` `prunable` reason, directory still gone at commit time)
-  offers `prune` (fixed-argv `git worktree prune` scoped to the reporting
-  repository).
+  classified them deleted). Git worktrees dispose two ways: a provably stale
+  admin entry (`git worktree list` `prunable` reason, directory still gone at
+  commit time) offers `prune` (fixed-argv `git worktree prune` scoped to the
+  reporting repository), and a healthy unregistered worktree — any worktree the
+  user created outside Adea included — offers `trash` like the junk roots.
 - Discovery and sizing are read-only: `readdir`/`lstat` at the item roots,
   never symlink-following, and fixed-argv git. The scan universe is closed
   over first-level entries of the well-known roots plus worktrees under the
@@ -5475,9 +5506,12 @@ Safety contract (non-negotiable, enforced by the provider design):
 - Worktree discovery runs `git worktree list --porcelain` per configured scan
   root (default: the register's authorized repository roots — the user's
   configured project roots; the composition's `janitorScanRoots` seam
-  overrides). The primary checkout and every Adea-registered root are never
-  candidates; an unregistered worktree is a candidate only when Git itself
-  marks it prunable.
+  overrides). The primary checkout, every Adea-registered root, and a locked
+  worktree are never candidates. Every other unregistered worktree is a
+  candidate: Git's `prunable` reason (a registry entry whose directory is
+  gone) offers `prune`, and a healthy directory offers `trash`, listed only
+  when `lstat` proves the directory at scan time and disposed through the
+  same identity-re-proved move to Trash as the junk roots.
 - The whole authority composes on macOS only; elsewhere every janitor command
   fails closed with `capability_unavailable`.
 
@@ -5638,6 +5672,15 @@ type AppearancePreferencesV2 = {
   }
 }
 ```
+
+The `surface` also drives the native window on the desktop shell: the web
+mirrors the user-facing glass choice into the persisted workspace preferences
+(`windowSurface`, normalized to `theme`/`frosted`/`opaque`), and the shell
+reads that file when it creates the window — `frosted` creates the window
+see-through on macOS so the alpha-mixed background composites over the
+desktop. Electrobun 2.0.1 sets transparency at window creation only, so a
+change applies on relaunch; `theme` and `opaque` (and reduced transparency)
+stay fully opaque, and a missing or unreadable preference stays opaque.
 
 Font choices are device-local and use the shared UI's supported family IDs and
 normalizer, with System defaults at 14px for UI/content and 12px for code. The

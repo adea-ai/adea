@@ -47,6 +47,16 @@ current authorization locks before releasing ciphertext. Migrations 0037/0038
 add those records and a distinct runtime-node event actor. Unrecoverable legacy
 authority remains withheld. Pull is not execution acceptance or a host receipt.
 
+Migration 0039 is the [relay retention expansion phase](../../docs/evidence/m11-relay-retention-schema.md).
+It adds a nullable purge marker, partial expiry index and expiry constraint before
+the matching application declaration/operator deploys. During this short staged
+rollout the generated snapshot is ahead of the runtime declaration: integrate
+the application phase before generating further migrations from that declaration.
+Verify the approved target's schema readiness before publishing code that reads
+the column; parallel main-push migration and Worker jobs do not establish order.
+
 Production rollback is forward-only: deploy an application rollback while the expanded schema is
 compatible, then add a reviewed corrective migration. Point-in-time restore is for data-loss
 recovery, not routine schema rollback.
+
+Workspace migrations 0040/0041 are the [workspace schema expansion phase](../../docs/evidence/workspace-schema-expansion.md). They precede application use of personal identity/deletion metadata. Their snapshots preserve retention0039's expansion; runtime declarations remain staged ahead of activation. Do not generate migrations from an older declaration that would remove these columns or constraints. Verify production migration history/catalog before landing the matching application.

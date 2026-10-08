@@ -680,6 +680,12 @@
       "body": "{ repoId: string; worktreeId: string; ref: string; expectedLocalSha: sha; forceWithLease?: { expectedRemoteSha: sha } }",
       "reply": "MutationPlan"
     },
+    "dev.github.repositories": {
+      "capabilities": ["dev.github.read"],
+      "resource": null,
+      "body": "{ limit?: integer(1..200) }",
+      "reply": "GitHubRepositorySummary[]<=200"
+    },
     "dev.github.repository": {
       "capabilities": ["dev.github.read"],
       "resource": "repository:required",

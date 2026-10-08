@@ -17,6 +17,7 @@ import { findResponsiveInventoryItem, groupDeviceInventory } from './device-mode
 import '../browser/browser-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ListRowControl } from '@adea-ai/ui/components/composites/list-row'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 import {
   createDevUtilityFenceSource,
   devUtilityContextKey,
@@ -231,7 +232,9 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
               )}
             </Show>
 
-            <p class="dev-browser__section-title">Responsive</p>
+            <Text variant="overline" class="mt-1.5 mx-2 block">
+              Responsive
+            </Text>
             <div class="dev-browser__actions">
               <Show when={!hasDevUtilitySession(context())}>
                 <p class="dev-terminal-muted" role="status">
@@ -301,7 +304,9 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                   >
                     {(group) => (
                       <>
-                        <p class="dev-browser__section-title">{group.label}</p>
+                        <Text variant="overline" class="mt-1.5 mx-2 block">
+                          {group.label}
+                        </Text>
                         <Show when={group.guidance}>
                           {(guidance) => <p class="dev-terminal-muted">{guidance()}</p>}
                         </Show>
@@ -328,7 +333,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                                       <Button
                                         type="button"
                                         variant="outline"
-                                        size="sm"
+                                        size="md"
                                         disabled={
                                           item.state === 'unauthorized' ||
                                           !hasDevUtilitySession(context())
@@ -343,7 +348,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
                                     <Button
                                       type="button"
                                       variant="outline"
-                                      size="sm"
+                                      size="md"
                                       onClick={() => {
                                         const session = sessionItems().find(
                                           (entry) =>

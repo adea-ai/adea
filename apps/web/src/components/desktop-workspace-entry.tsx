@@ -26,8 +26,14 @@ import { desktopMemoryService } from '../lib/desktop-memory'
 import {
   desktopCapabilityProvider,
   desktopSettingsProvider,
+  registerDesktopWindowSurfaceMirror,
   systemTranscriptionProvider,
 } from '../lib/desktop-platform-services'
+
+// The glass appearance setting drives the native window's transparency
+// (applied at window creation, so a change lands on relaunch); this module is
+// desktop-only, so registering here never arms the mirror on the web lane.
+registerDesktopWindowSurfaceMirror()
 import { desktopRuntime } from '../lib/desktop-runtime'
 import {
   bootstrapDesktopWorkspace,

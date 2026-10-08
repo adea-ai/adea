@@ -79,12 +79,16 @@ import { Switch } from '@adea-ai/ui/components/ui/switch'
 import {
   EyeOff,
   ChevronDown,
+  Monitor,
+  Moon,
   Palette,
   PanelsTopLeft,
   SlidersHorizontal,
   SquareTerminal,
+  Sun,
 } from 'lucide-solid'
 import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, type JSX } from 'solid-js'
+import { Dynamic } from 'solid-js/web'
 
 import { isThemeAccentId } from '@adea-ai/app-ui/components/appearance'
 import { cn } from '@adea-ai/app-ui/lib/utils'
@@ -513,6 +517,7 @@ const MODES = [
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
 ] as const
+const MODE_ICONS = { system: Monitor, light: Sun, dark: Moon } as const
 const SURFACES = [
   { value: 'theme', label: 'Theme default' },
   { value: 'frosted', label: 'Frosted' },
@@ -565,7 +570,17 @@ export function ModeChoices(props: AppearanceEditorProps) {
                         <ThemeMiniatureSplit light={props.lightTheme} dark={props.darkTheme} />
                       </Show>
                     </span>
-                    <span>{option.label}</span>
+                    {/* The sun/moon/monitor glyph names the axis beside the
+                        miniature, so the cards read like the published
+                        ThemeModeToggle without losing the previews. */}
+                    <span class="flex items-center justify-center gap-1.5">
+                      <Dynamic
+                        component={MODE_ICONS[option.value]}
+                        aria-hidden="true"
+                        class="size-3.5"
+                      />
+                      {option.label}
+                    </span>
                   </span>
                 </Label>
               </RadioGroupItem>

@@ -55,6 +55,12 @@ export type WorkspacePreferences = Readonly<{
   notifyMentions: boolean
   notifyTasks: boolean
   privateNotificationPreviews: boolean
+  /**
+   * The glass appearance setting mirrored for the native window: only
+   * `'frosted'` creates the desktop window see-through (macOS), and the
+   * value applies on relaunch — Electrobun sets transparency at creation.
+   */
+  windowSurface: 'theme' | 'frosted' | 'opaque'
   version: 1
 }>
 
@@ -91,6 +97,7 @@ export const defaultWorkspacePreferences: WorkspacePreferences = Object.freeze({
   notifyMentions: true,
   notifyTasks: true,
   privateNotificationPreviews: false,
+  windowSurface: 'theme',
   version: 1,
 })
 

@@ -1,4 +1,5 @@
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
+import { runtimeInventoryFixtureResponse } from './runtime-inventory-fixture'
 
 function record(method: string, path: string, body: unknown) {
   const root = document.querySelector('#harness-root')
@@ -85,6 +86,8 @@ export function controlPlaneSettingsClient(mode: 'scoped' | 'unavailable'): Agen
           { code: 'CONTROL_PLANE_UNAVAILABLE', message: 'Control Plane is not configured' },
           { status: 503 }
         )
+      const runtimeInventory = await runtimeInventoryFixtureResponse(url, init?.signal ?? undefined)
+      if (runtimeInventory) return runtimeInventory
       const path = url.pathname.replace(/^\/api\/workspaces\/[^/]+\//u, '')
       if (path === 'skills' && method === 'GET') return Response.json(skills())
       if (path === 'skills/profiles') return Response.json({ canManage: true, items: [] })

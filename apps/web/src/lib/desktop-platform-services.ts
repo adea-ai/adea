@@ -13,6 +13,7 @@ import type {
 
 import { normalizeWorkspacePreferences } from '@adea-ai/workspace-ui/preferences'
 
+import { registerWindowSurfaceMirror } from '@adea-ai/dev-view/appearance/window-surface'
 import { Channel, invoke } from './desktop-bridge'
 
 /**
@@ -53,6 +54,24 @@ export const desktopSettingsProvider = createDesktopSettingsProvider((command, a
     ? invoke('desktop_preferences_load')
     : invoke('desktop_preferences_save', args)
 )
+
+/**
+ * Mirror the glass appearance setting into the persisted workspace
+ * preferences. The native shell reads `windowSurface` from that file when it
+ * creates the window, so 'Frosted' makes the whole desktop window
+ * see-through (macOS) — applied at creation, so a change lands on relaunch.
+ * Best effort by design: a failed mirror keeps the web copy authoritative.
+ */
+export function registerDesktopWindowSurfaceMirror(): void {
+  registerWindowSurfaceMirror((surface) => {
+    void desktopSettingsProvider
+      .load()
+      .then((preferences) =>
+        desktopSettingsProvider.save({ ...preferences, windowSurface: surface })
+      )
+      .catch(() => undefined)
+  })
+}
 
 type NativeTranscriptionEvent =
   | Readonly<{ type: 'complete'; text: string }>

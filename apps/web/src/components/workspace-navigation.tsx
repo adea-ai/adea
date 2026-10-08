@@ -183,7 +183,6 @@ const SourceControlView = lazyComponent(
         return (entryProps: {
           runtime?: WorkspacePlatformServices['devRuntime']
           toolbarMount?: HTMLElement
-          titleMount?: HTMLElement
           onOpenDev(): void
         }) => (
           <SourceControlApp
@@ -192,7 +191,6 @@ const SourceControlView = lazyComponent(
               createSourceControlRuntime({ reason: 'channel_unauthenticated' })
             }
             toolbarMount={entryProps.toolbarMount}
-            titleMount={entryProps.titleMount}
             onOpenDev={entryProps.onOpenDev}
           />
         )
@@ -568,9 +566,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const openExternal = isDesktopRuntime() ? openExternalUrl : undefined
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
-  // Source control portals its pull-request search into the top bar's title
-  // slot so the field replaces the plain workspace-name title, center aligned.
-  const [scmSearchMount, setScmSearchMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
   // The chat shell reports its bootstrap fallback: while it renders the
   // skeleton or the error state, no contextual sidebar is mounted, so the top
@@ -1092,11 +1087,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     workspaceStore.getState().setGlobalPanel('workspace-settings')
   }
   const openSearch = () => {
-    // Source control puts its own search in the title slot and advertises
-    // ⌘K on it, so the search command focuses that field while it shows.
+    // Source control keeps its pull-request search in the leading toolbar
+    // group — right of the divider, like the Dev view's pane actions — and
+    // advertises ⌘K on it, so the search command focuses that field while it
+    // shows.
     const scmSearch =
       activeAppId() === 'source-control' && !libraryOpen()
-        ? scmSearchMount()?.querySelector('input')
+        ? toolbarMount()?.querySelector<HTMLInputElement>('[data-scm-search] input')
         : undefined
     if (scmSearch) {
       scmSearch.focus()
@@ -1146,7 +1143,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             onOpenSession={openDevSession}
           />
         }
-        titleMount={setScmSearchMount}
         showTitleControls={activeAppId() === 'source-control'}
         sidebarMount={setSidebarActionMount}
         showSidebarDivider={contextualUtilitiesAvailable()}
@@ -1158,8 +1154,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             <ActionButton
               ref={setUtilityOpener}
               type="button"
-              variant="ghost"
+              variant="toolbar"
               size="icon-sm"
+              data-expanded={utilityOwner.rightUtilityOpen() ? '' : undefined}
               tooltip={
                 utilityOwner.rightUtilityOpen()
                   ? 'Collapse utility sidebar'
@@ -1326,7 +1323,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                         <SourceControlView
                           runtime={utilityRuntime}
                           toolbarMount={mount()}
-                          titleMount={scmSearchMount()}
                           onOpenDev={() => changeApp('dev')}
                         />
                       </Show>

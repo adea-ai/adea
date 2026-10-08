@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { and, eq, sql } from 'drizzle-orm'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
-import { runtimeNodePullMessage } from '@adea-ai/types/runtime-node-delivery'
+import {
+  runtimeNodePullMessage,
+  RUNTIME_NODE_PULL_WINDOW_MS,
+} from '@adea-ai/types/runtime-node-delivery'
 
 import { createAgent } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
@@ -231,7 +234,10 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
 
   test('an old but valid signed request retains rate accounting beyond its remaining replay window', async () => {
     const f = await fixture()
-    const proof = await f.proof(new Date(Date.now() - 119_000).toISOString())
+    // Retain less than a full rate window, allowing for hosted database admission latency.
+    const proof = await f.proof(
+      new Date(Date.now() - (RUNTIME_NODE_PULL_WINDOW_MS - 30_000)).toISOString()
+    )
     expect(await pullRuntimeNodeCommand(connection.db, f.scope, proof)).not.toBeNull()
     const [request] = await connection.db
       .select()
@@ -239,6 +245,9 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
       .where(eq(runtimeNodeDeliveryRequests.nonce, proof.nonce))
     expect(request!.expiresAt.getTime() - request!.createdAt.getTime()).toBeGreaterThanOrEqual(
       60_000
+    )
+    expect(request!.expiresAt.getTime()).toBeGreaterThan(
+      Date.parse(proof.issuedAt) + RUNTIME_NODE_PULL_WINDOW_MS
     )
   })
 

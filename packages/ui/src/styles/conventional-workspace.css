@@ -865,6 +865,11 @@
   height: 1.65rem;
   object-fit: contain;
 }
+/* Long public host/runtime identifiers wrap inside the inspection layout. */
+.workspace-runtime-inventory {
+  overflow-wrap: anywhere;
+}
+
 .conventional-settings-panel {
   /* The panel, not its tab content, scrolls: sticky footers (the appearance
      editor's save bar) pin against the padded scrollport as before. */
@@ -1156,6 +1161,12 @@
   min-width: 0;
   align-items: center;
   gap: 0.5rem;
+  /* Fixed-width controls never give up width to a sibling group: below the
+     shared 48rem breakpoint a shrinking group once painted over the last
+     control's edge (WCAG 2.5.8 target size), and with source control's
+     search row living in the leading group the same squeeze is possible at
+     any width. The section's own scroller owns the overflow instead. */
+  flex-shrink: 0;
 }
 [data-topbar-navigation][data-dev-actions] {
   display: grid;
@@ -1243,6 +1254,7 @@
 [data-topbar-title] {
   text-align: center;
 }
+
 /* A view-owned title-slot control (source control's pull-request search)
    fills the centred slot in place of the plain title, so the field itself is
    what sits at the bar's centre. */

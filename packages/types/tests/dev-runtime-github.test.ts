@@ -310,6 +310,46 @@ describe('GitHub collaboration replies', () => {
   })
 })
 
+describe('GitHub repository listing (add-surface import source)', () => {
+  const repository = {
+    nameWithOwner: 'acme/widgets',
+    url: 'https://github.com/acme/widgets',
+    visibility: 'private',
+    updatedAt: now,
+    isFork: false,
+    observedAt: now,
+  }
+
+  test('decodes the bounded list reply and its request body', () => {
+    const envelope = reply('dev.github.repositories', [repository])
+    expect(decodeDevReply(envelope)).toEqual(envelope)
+    const withLimit = command('dev.github.repositories', { limit: 200 })
+    expect(decodeDevCommand(withLimit)).toEqual(withLimit)
+    const withoutLimit = command('dev.github.repositories', {})
+    expect(decodeDevCommand(withoutLimit)).toEqual(withoutLimit)
+  })
+
+  test('fails closed on unknown keys, bad literals, and out-of-bounds limits', () => {
+    expect(() =>
+      decodeDevReply(reply('dev.github.repositories', [{ ...repository, extra: true }]))
+    ).toThrow('unknown key')
+    expect(() =>
+      decodeDevReply(reply('dev.github.repositories', [{ ...repository, visibility: 'secret' }]))
+    ).toThrow()
+    expect(() =>
+      decodeDevReply(reply('dev.github.repositories', [{ ...repository, isFork: 'no' }]))
+    ).toThrow('expected boolean')
+    expect(() =>
+      decodeDevReply(reply('dev.github.repositories', [{ ...repository, updatedAt: 'yesterday' }]))
+    ).toThrow()
+    expect(() => decodeDevReply(reply('dev.github.repositories', { items: [repository] }))).toThrow(
+      'expected array'
+    )
+    expect(() => decodeDevCommand(command('dev.github.repositories', { limit: 201 }))).toThrow()
+    expect(() => decodeDevCommand(command('dev.github.repositories', { limit: 0 }))).toThrow()
+  })
+})
+
 describe('GitLab mirrors', () => {
   const mr = 'gl:labs/platform/deploy-scripts!12'
 

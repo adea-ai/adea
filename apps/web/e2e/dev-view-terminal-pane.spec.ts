@@ -92,7 +92,7 @@ test.describe('terminal pane (real xterm surface)', () => {
       'scripted sidecar attached (generation 1)'
     )
     // Authenticated shell observations light the integration affordances.
-    await expect(pane.locator('.dev-terminal-pane-integration')).toHaveAttribute(
+    await expect(pane.locator('[data-terminal-integration]')).toHaveAttribute(
       'data-status',
       'active'
     )
