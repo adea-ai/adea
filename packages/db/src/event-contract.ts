@@ -65,7 +65,7 @@ export const WORKSPACE_EVENT_CONTRACTS = {
   'channel.created': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
   'channel.read': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
   'channel.unread': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
-  'channel.updated': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
+  'channel.updated': { schemaVersion: 2, aggregateType: 'channel', aggregateIdKey: 'channelId' },
   'content.availability_changed': {
     schemaVersion: 1,
     aggregateType: 'content_ref',

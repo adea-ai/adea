@@ -1319,8 +1319,21 @@ and reopening after a reload or session change is not promised. Closing or
 reopening a terminal pane only disposes or recreates its local renderer and
 stream attachment. It does not stop, archive, or recreate the native terminal
 or runtime session; a reopened pane may attach to the same selected live
-terminal and replay whatever history the runtime retains. Closing a terminal
-process is a separate privileged command. The center layout is a strict binary
+terminal and replay whatever history the runtime retains. The one exception is
+the last center leaf: when the closed terminal leaf carried the session's
+projected primary terminal — explicitly or as the first unbound leaf — and the
+runtime grants `dev.terminal.manage`, the close revalidates the record and
+issues `dev.terminal.terminate` so the instance is freed instead of left
+running headless. Closing one of several leaves never terminates anything, and
+without the manage grant the close stays renderer-only. The closed last leaf
+substitutes one terminal placeholder, and the center renders a single
+standardized empty state for every terminal leaf that cannot mount a live pane
+(no scope, no selected project, no worktree binding, or a closed pane); its
+New terminal action creates a fresh instance (`dev.terminal.create`) and binds
+the new record explicitly on the placeholder's position — it never resurrects
+the terminated record, whose projected id now fails resolution like any ended
+terminal. A user-issued terminate remains a separate privileged command
+elsewhere. The center layout is a strict binary
 tree with a hard M12 cap of 8 leaves and depth 8; split/duplicate refuses with `limit_exceeded`
 when either cap would be exceeded. Ratios are finite and clamp to `[0.1, 0.9]`.
 Leaf IDs are unique, utility panes do not count as center leaves, and closing the
@@ -3098,6 +3111,27 @@ initiates project imports or bootstrap commands. Each confirmed import sends
 supplies the id of the cloud project being bound; a host without a cloud
 project list falls back to a client UUID (the register never mints one). A
 successful import records the cloud project's `sourceKind` as `repository`.
+On desktop hosts that authorize step also offers the shell's native folder
+picker (`desktop_folder_pick`); the typed path input remains the fallback.
+
+One create-project flow everywhere a runtime can back it: a host that mounts
+the Chat/Virtual sidebars with a ready, scoped Dev Runtime injects the same
+detailed flow (`createProjectFlow` — scope, `dev.project.*` command channel,
+live project names, and the cloud create that resolves the binding id), so
+their "Add project" opens this exact dialog instead of the basic name-and-icon
+create. A host without a Dev Runtime (web-only, cloud-only contexts) injects
+nothing and keeps its basic dialog; which dialog opens is decided only by the
+injected flow, never by a second surface implementation. The host supplies
+its lazy detailed renderer and owns its live announcements; the shared
+Chat/Virtual dialog samples that flow once when it opens, so background
+project-list refreshes cannot discard a typed draft. The production web
+host keeps the basic renderer outside the desktop dependency graph. On desktop hosts the
+authorize step can fill its path input from the shell's native folder picker
+(`desktop_folder_pick`; directory-only, single selection, `[]`/refusal when
+the user cancels or the shell predates the command). The picker only fills
+the field: the chosen path is still proven by `dev.project.authorizeRoot`, so
+the picker never widens authorization, and the typed absolute path remains
+the fallback on hosts without a picker.
 
 The repository step offers a source choice: **On this Mac** (the authorize →
 scan → import flow above) and **From GitHub** — the authenticated GitHub

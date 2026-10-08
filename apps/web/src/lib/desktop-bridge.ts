@@ -60,6 +60,22 @@ export async function openExternalUrl(url: string): Promise<void> {
   await invoke('shell_open_external', { url })
 }
 
+/**
+ * The shell's native folder picker (`desktop_folder_pick`). The shell owns the
+ * native open panel and disables multiple selection, so the renderer receives
+ * at most one absolute path. Resolves null when the user cancelled, the
+ * command failed, or the running shell predates the command — the typed path
+ * input remains the fallback in every one of those cases, and the picked path
+ * still goes through the Dev Runtime's `dev.project.authorizeRoot`.
+ */
+export async function pickDesktopFolder(): Promise<string | null> {
+  const result = await invoke<{ paths?: readonly string[] } | null>('desktop_folder_pick').catch(
+    () => null
+  )
+  const path = result?.paths?.[0]
+  return typeof path === 'string' && path !== '' ? path : null
+}
+
 /** Streaming channel stub for transcription parity with the previous shell. */
 export class Channel<T> {
   onmessage: ((message: T) => void) | null = null

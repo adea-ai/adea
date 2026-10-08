@@ -60,6 +60,11 @@ export type DesktopFirstRunChatProps = Readonly<{
   workspaceId: string
   /** Cloud project names keyed by project id; absent names show the short id. */
   projectNames?: DevProjectNames
+  /**
+   * The shell's native folder picker for the sidebar's add surface; absent on
+   * hosts without one (the typed path input is the fallback there).
+   */
+  pickFolder?: () => Promise<string | null | undefined>
   /** The cloud workspace the shared sidebar renders (ADR 0011). */
   workspaceNav?: DevWorkspaceNavHost
   /** The team conversation or Agents surface opened from the sidebar's global sections. */
@@ -352,6 +357,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                 restoreFocusRef={props.sidebarOpener}
                 navigationLabel="Chat workspaces"
                 footer={props.archiveAction}
+                pickFolder={props.pickFolder}
                 onSelectSession={(projectId, sessionId) => {
                   props.teamChat?.onRuntimeSelection()
                   const store = workspaceStore.getState()

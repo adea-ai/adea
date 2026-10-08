@@ -18,9 +18,11 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
     'activeSurface',
     'cameraViewMode',
     'collapsedProjectIds',
+    'conversationAudienceEpochs',
     'devFocusMode',
     'drafts',
     'globalPanel',
+    'invalidateConversationAudience',
     'mobileSidebarOpen',
     'restoreConventionalState',
     'selectedAgentId',
@@ -54,6 +56,52 @@ test('the store keeps only ephemeral UI and Dev selection state', () => {
     'threadRootMessageId',
     'toggleProjectCollapsed',
   ])
+})
+
+test('conversation audience invalidation clears channel/thread without resetting direct runtime sessions', () => {
+  workspaceStore.setState({
+    selectedWorkspaceId: 'work',
+    selectedChannelId: 'private-channel',
+    threadRootMessageId: 'private-root',
+    selectedRuntimeNodeId: 'node',
+    selectedDevProjectId: 'dev-project',
+    selectedRuntimeSessionId: 'direct-session',
+    selectedDevPaneId: 'terminal',
+  })
+  workspaceStore.getState().invalidateConversationAudience('other')
+  expect(workspaceStore.getState().selectedChannelId).toBe('private-channel')
+  workspaceStore.getState().invalidateConversationAudience('work')
+  expect(workspaceStore.getState()).toMatchObject({
+    selectedChannelId: null,
+    threadRootMessageId: null,
+    selectedRuntimeNodeId: 'node',
+    selectedDevProjectId: 'dev-project',
+    selectedRuntimeSessionId: 'direct-session',
+    selectedDevPaneId: 'terminal',
+  })
+  expect(workspaceStore.getState().conversationAudienceEpochs).toMatchObject({ work: 1, other: 1 })
+})
+
+test('conversation audience invalidation clears bootstrap selection and preserves direct runtime authority', () => {
+  workspaceStore.setState({
+    selectedWorkspaceId: null,
+    selectedChannelId: 'bootstrap-channel',
+    threadRootMessageId: 'bootstrap-thread',
+    selectedRuntimeNodeId: 'node',
+    selectedDevProjectId: 'dev-project',
+    selectedRuntimeSessionId: 'direct-session',
+    selectedDevPaneId: 'terminal',
+  })
+  workspaceStore.getState().invalidateConversationAudience('bootstrap-workspace')
+  expect(workspaceStore.getState()).toMatchObject({
+    selectedWorkspaceId: null,
+    selectedChannelId: null,
+    threadRootMessageId: null,
+    selectedRuntimeNodeId: 'node',
+    selectedDevProjectId: 'dev-project',
+    selectedRuntimeSessionId: 'direct-session',
+    selectedDevPaneId: 'terminal',
+  })
 })
 
 test('Dev selections reset at their authority boundaries without storing durable records', () => {

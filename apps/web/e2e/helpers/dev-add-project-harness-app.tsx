@@ -1,7 +1,7 @@
 import '../../src/start/globals.css'
 import type { DevCommand, DevReply } from '@adea-ai/types/dev-runtime'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { Show, Suspense, createSignal, lazy, onMount } from 'solid-js'
+import { Show, Suspense, createSignal, lazy, onMount, onCleanup } from 'solid-js'
 import { render } from 'solid-js/web'
 
 // The Dev sidebar opens this dialog from a project's "Add repository…" item
@@ -12,16 +12,34 @@ const DevAddRepositoryDialog = lazy(() =>
   }))
 )
 
+const ProjectCreateDialog = lazy(() =>
+  import('../../../../packages/workspace-ui/src/create-workspace-dialogs').then((module) => ({
+    default: module.ProjectCreateDialog,
+  }))
+)
+
+const DevNewProjectDialog = lazy(() =>
+  import('../../../../packages/dev-view/src/sidebar/dev-nav-dialogs').then((module) => ({
+    default: module.DevNewProjectDialog,
+  }))
+)
+
 /** The cloud project the dialog binds; the register never mints one itself. */
 const PROJECT_ID = '0d9e4f1a-1111-4000-8000-00000000c10d'
 
 function Harness() {
   const [ready, setReady] = createSignal(false)
+  const [knownNames, setKnownNames] = createSignal<string[]>([])
   const [operations, setOperations] = createSignal<string[]>([])
   const [announcement, setAnnouncement] = createSignal('')
   const [imports, setImports] = createSignal(0)
   const [authorized, setAuthorized] = createSignal(false)
   const [open, setOpen] = createSignal(false)
+  const [newProjectOpen, setNewProjectOpen] = createSignal(false)
+  const [createdNames, setCreatedNames] = createSignal<string[]>([])
+  const [cloneBodies, setCloneBodies] = createSignal<Record<string, unknown>[]>([])
+  const [refreshes, setRefreshes] = createSignal(0)
+  const [pickerCalls, setPickerCalls] = createSignal(0)
   const [importedIds, setImportedIds] = createSignal<string[]>([])
   const execute = async (command: DevCommand): Promise<DevReply> => {
     setOperations((current) => [...current, command.operation])
@@ -94,6 +112,21 @@ function Harness() {
           diagnostics: [],
         }
         break
+      case 'dev.github.repositories':
+        value = [
+          {
+            nameWithOwner: 'fixture/repository',
+            url: 'https://github.com/fixture/repository',
+            visibility: 'private',
+            updatedAt: '2026-10-07T00:00:00Z',
+            isFork: false,
+          },
+        ]
+        break
+      case 'dev.project.clone':
+        setCloneBodies((current) => [...current, command.body as Record<string, unknown>])
+        value = { id: command.body.projectId }
+        break
       case 'dev.project.import': {
         // The import binds a client-minted cloud project id; the register
         // takes no name and no groups.
@@ -119,11 +152,19 @@ function Harness() {
       value,
     }
   }
-  onMount(() => setReady(true))
+  const refreshKnownNames = () => setKnownNames(['Another project'])
+  onMount(() => {
+    window.addEventListener('project-list-refresh', refreshKnownNames)
+    setReady(true)
+  })
+  onCleanup(() => window.removeEventListener('project-list-refresh', refreshKnownNames))
   return (
     <>
       <Button type="button" onClick={() => setOpen(true)}>
         Add repository…
+      </Button>
+      <Button type="button" onClick={() => setNewProjectOpen(true)}>
+        New project
       </Button>
       <Suspense fallback={null}>
         <Show when={open()}>
@@ -138,7 +179,59 @@ function Harness() {
             announce={setAnnouncement}
           />
         </Show>
+        <Show when={newProjectOpen()}>
+          <ProjectCreateDialog
+            busy={false}
+            onCreate={async ({ name }) => {
+              setCreatedNames((current) => [...current, name])
+            }}
+            createProjectFlow={() =>
+              (window as unknown as { basic?: boolean }).basic
+                ? undefined
+                : {
+                    renderDialog: (dialog) => (
+                      <DevNewProjectDialog
+                        scope={dialog.flow.scope}
+                        execute={dialog.flow.execute}
+                        knownProjectNames={dialog.flow.knownProjectNames}
+                        announce={setAnnouncement}
+                        {...(dialog.flow.pickFolder ? { pickFolder: dialog.flow.pickFolder } : {})}
+                        workspaceName={dialog.workspaceName}
+                        onCreateProject={dialog.flow.onCreateProject}
+                        onImported={dialog.onImported}
+                        onClose={dialog.onClose}
+                      />
+                    ),
+                    scope: {
+                      accountId: 'account',
+                      workspaceId: 'workspace',
+                      runtimeNodeId: 'node',
+                    },
+                    execute,
+                    knownProjectNames: knownNames(),
+                    onCreateProject: async (name) => {
+                      setCreatedNames((current) => [...current, name])
+                      return PROJECT_ID
+                    },
+                    pickFolder: async () => {
+                      setPickerCalls((current) => current + 1)
+                      return (window as unknown as { cancelPicker?: boolean }).cancelPicker
+                        ? null
+                        : '/srv/checkout'
+                    },
+                  }
+            }
+            workspace={{ name: 'Fixture workspace', scene: 'work' }}
+            onImported={() => setRefreshes((current) => current + 1)}
+            onClose={() => setNewProjectOpen(false)}
+          />
+        </Show>
       </Suspense>
+      <output data-testid="known-names">{JSON.stringify(knownNames())}</output>
+      <output data-testid="created-names">{JSON.stringify(createdNames())}</output>
+      <output data-testid="clone-bodies">{JSON.stringify(cloneBodies())}</output>
+      <output data-testid="refreshes">{refreshes()}</output>
+      <output data-testid="picker-calls">{pickerCalls()}</output>
       <output data-testid="ready">{ready() ? 'ready' : 'mounting'}</output>
       <output data-testid="operations">{JSON.stringify(operations())}</output>
       <output data-testid="announcement">{announcement()}</output>

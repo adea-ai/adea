@@ -3,6 +3,7 @@ import { withRequestScope } from '../../../../../../server/request-scope'
 import type { ApiChannelResponse } from '@adea-ai/api-client'
 import {
   createDirectAgentChannel,
+  createDirectAgentTopic,
   createGroupChannel,
   createProjectChannel,
   listChannelsForUser,
@@ -84,14 +85,30 @@ async function post(request: Request, { params }: Context) {
         }
       )
     } else if (body.kind === 'direct_agent') {
-      if (!isConversationUuid(body.agentId) || idempotencyKey !== `direct-agent:${body.agentId}`)
-        return workspaceInvalidRequestResponse(request)
-      channel = await createDirectAgentChannel(
-        applicationDatabase(),
-        workspaceId,
-        body.agentId,
-        resolution.principal
+      if (
+        !isConversationUuid(body.agentId) ||
+        (body.mode !== undefined && body.mode !== 'new_topic') ||
+        Object.keys(body).some((key) => !['kind', 'mode', 'agentId', 'title'].includes(key))
       )
+        return workspaceInvalidRequestResponse(request)
+      if (body.mode === 'new_topic') {
+        channel = await createDirectAgentTopic(
+          applicationDatabase(),
+          workspaceId,
+          body.agentId,
+          resolution.principal,
+          { idempotencyKey, title: body.title }
+        )
+      } else {
+        if (idempotencyKey !== `direct-agent:${body.agentId}`)
+          return workspaceInvalidRequestResponse(request)
+        channel = await createDirectAgentChannel(
+          applicationDatabase(),
+          workspaceId,
+          body.agentId,
+          resolution.principal
+        )
+      }
     } else {
       channel = await createGroupChannel(applicationDatabase(), workspaceId, resolution.principal, {
         idempotencyKey,

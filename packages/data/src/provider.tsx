@@ -73,6 +73,8 @@ export function useWorkspaceEventStream(
     const subscription = createWorkspaceEventSubscription({
       headers: () => options.headers?.() ?? {},
       queryClient,
+      onAudienceChanged: () =>
+        workspaceStore.getState().invalidateConversationAudience(workspaceId),
       url,
       workspaceId,
     })

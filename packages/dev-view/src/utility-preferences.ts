@@ -49,7 +49,11 @@ export const defaultUtilityPreferences = (): DevUtilityPreference[] =>
     pane: item.pane,
     side: item.side,
     order,
-    visible: item.pane === 'files',
+    // Every utility slot starts collapsed so the first run opens on the
+    // center panes; the toolbar toggle opens a slot on demand. Stored
+    // DevLayoutPreferencesV2 documents decode visibility verbatim, so this
+    // moves first-run and reset layouts only.
+    visible: false,
     size: item.side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize,
     lastNonzeroSize: item.side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize,
     fullWidth: false,

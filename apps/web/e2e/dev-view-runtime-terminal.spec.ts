@@ -274,11 +274,80 @@ test('input denial prevents terminal listing, while missing manage disables resi
   ).toEqual([])
 })
 
+test('closing the last terminal pane ends its runtime instance and offers a fresh one', async ({
+  page,
+}) => {
+  await openHarness(page, 'primary')
+  await expect(
+    page.locator('[data-pane-id="dev-terminal"] .dev-terminal-pane-status')
+  ).toHaveAttribute('data-state', 'open', { timeout: 30_000 })
+
+  await page.getByRole('button', { name: 'Close terminal pane' }).click()
+
+  // Real close: the privileged terminate runs against the revalidated record.
+  await expect
+    .poll(async () =>
+      (await report(page)).commands.find((item) => item.operation === 'dev.terminal.terminate')
+    )
+    .toEqual(
+      expect.objectContaining({
+        terminalId: '33333333-3333-4333-8333-333333333333',
+        generation: 7,
+      })
+    )
+  await expect(page.getByText('No terminal open.', { exact: true })).toBeVisible()
+
+  // New terminal creates a fresh instance and binds it — the pane never
+  // reattaches the terminated record.
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+  const state = await report(page)
+  const create = state.commands.find((item) => item.operation === 'dev.terminal.create')
+  expect(create).toEqual(
+    expect.objectContaining({ sessionId: '11111111-1111-4111-8111-111111111111' })
+  )
+  await expect(
+    page.locator('[data-pane-id^="dev-terminal-"] .dev-terminal-pane-status')
+  ).toHaveAttribute('data-state', 'open', { timeout: 30_000 })
+  await expect(page.locator('[data-pane-id^="dev-terminal-"] .xterm-rows')).toContainText(
+    'selected terminal 99999999-9994-4999-8999-000000000001'
+  )
+  // The terminated primary is never reattached: its initial read grant stays
+  // the only one.
+  expect(
+    state.attachments.filter(
+      (item) =>
+        item.terminalId === '33333333-3333-4333-8333-333333333333' && item.direction === 'read'
+    )
+  ).toHaveLength(1)
+})
+
+test('without the manage capability the close stays renderer-only', async ({ page }) => {
+  await openHarness(page, 'no-manage')
+  await expect(
+    page.locator('[data-pane-id="dev-terminal"] .dev-terminal-pane-status')
+  ).toHaveAttribute('data-state', 'open', { timeout: 30_000 })
+
+  await page.getByRole('button', { name: 'Close terminal pane' }).click()
+  await expect(page.getByText('No terminal open.', { exact: true })).toBeVisible()
+  expect(
+    (await report(page)).commands.filter((item) => item.operation === 'dev.terminal.terminate')
+  ).toEqual([])
+  // Creating a terminal also needs the manage capability, so the empty state
+  // offers no dead action.
+  await expect(page.getByRole('button', { name: 'New terminal' })).toHaveCount(0)
+})
+
 test('a workspace with no selected project asks for one instead of reporting a runtime error', async ({
   page,
 }) => {
   await openHarness(page, 'no-session')
   await expect(page.getByText('Select a project from the sidebar to begin.')).toBeVisible()
+  // The Files slot starts collapsed; open it to see the files pane's own
+  // ask-for-a-project state.
+  await page
+    .locator('.dev-toolbar')
+    .getByRole('button', { name: 'Expand left utility sidebar', exact: true })
+    .click()
   await expect(page.getByText('Select a project to browse files.')).toBeVisible()
   // The ask-for-a-project title is the state's heading: it reads in the
   // primary foreground rung the pane headers use, not the muted caption

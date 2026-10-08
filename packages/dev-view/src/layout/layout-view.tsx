@@ -5,7 +5,7 @@ import type { Accessor, JSX } from 'solid-js'
 import { Files, TerminalSquare } from 'lucide-solid'
 import { Show, createMemo } from 'solid-js'
 
-import type { DevLayoutState } from './operations'
+import { countLeaves, type DevLayoutState } from './operations'
 
 export type DevLayoutViewProps = Readonly<{
   state: DevLayoutState
@@ -80,6 +80,11 @@ function PanePlaceholder(props: { terminal: boolean; unavailable: boolean }) {
 }
 
 export function DevLayoutView(props: DevLayoutViewProps) {
+  // Moving a pane needs a target leaf; with a single leaf the shared drag is
+  // already a no-op, so the drag affordance (grip icon, draggable, grab
+  // cursor) drops out by not forwarding onMove until a second pane exists.
+  // SplitLayout reads this prop reactively, so the grip returns live when an
+  // editor split appears.
   return (
     <SplitLayout
       state={props.state}
@@ -106,8 +111,11 @@ export function DevLayoutView(props: DevLayoutViewProps) {
       onClose={props.onClose}
       onFocus={props.onFocus}
       onResize={props.onResize}
-      onMove={(leafId, targetId, intent) =>
-        props.onMoveTo(leafId, targetId, intent.placement, intent.direction)
+      onMove={
+        countLeaves(props.state.center) > 1
+          ? (leafId, targetId, intent) =>
+              props.onMoveTo(leafId, targetId, intent.placement, intent.direction)
+          : undefined
       }
     />
   )

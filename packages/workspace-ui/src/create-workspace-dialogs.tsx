@@ -3,7 +3,8 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { Input } from '@adea-ai/ui/components/ui/input'
-import { createSignal, For, Show } from 'solid-js'
+import { createSignal, For, Show, type ComponentProps } from 'solid-js'
+import type { DevProjectFlow } from './create-project-flow'
 
 import {
   AlertDialog,
@@ -370,5 +371,44 @@ export function ConfirmActionDialog(props: {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+/** Shared lazy routing keeps the detailed form out of both eager sidebar graphs. */
+export function ProjectCreateDialog(
+  props: Omit<ComponentProps<typeof CreateProjectDialog>, 'open' | 'template'> & {
+    createProjectFlow?: () => DevProjectFlow | undefined
+    workspace: { name: string; scene: ComponentProps<typeof CreateProjectDialog>['template'] }
+    onImported(): void
+  }
+) {
+  // Sample once as the lazy dialog opens; later project-list updates cannot
+  // replace its scope or discard the form's draft state.
+  const projectFlow = props.createProjectFlow?.()
+  return (
+    <Show
+      when={projectFlow}
+      fallback={
+        <CreateProjectDialog
+          busy={props.busy}
+          onClose={props.onClose}
+          onCreate={props.onCreate}
+          open
+          template={props.workspace.scene}
+        />
+      }
+    >
+      {(flow) =>
+        flow().renderDialog({
+          flow: flow(),
+          workspaceName: props.workspace.name,
+          onImported: props.onImported,
+          onClose: () => {
+            props.onClose()
+            props.onImported()
+          },
+        })
+      }
+    </Show>
   )
 }

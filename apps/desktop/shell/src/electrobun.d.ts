@@ -27,5 +27,18 @@ declare module 'electrobun/main' {
   }
   export const Utils: {
     showNotification(request: { title: string; body: string }): void
+    /**
+     * Native open panel; resolves the picked absolute paths, `[]` when the
+     * user cancels. Verified against the pinned 2.0.1 `Utils.openFileDialog`
+     * (`package/src/sdks/main/core/Utils.ts`); the shell only asks for a
+     * single directory.
+     */
+    openFileDialog(options?: {
+      startingFolder?: string
+      allowedFileTypes?: string
+      canChooseFiles?: boolean
+      canChooseDirectory?: boolean
+      allowsMultipleSelection?: boolean
+    }): Promise<string[]>
   }
 }
