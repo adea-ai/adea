@@ -1,5 +1,9 @@
 import 'server-only'
 export {
+  compareMigrationSnapshots,
+  MigrationSnapshotIdentityError,
+} from './migration-snapshot-comparator'
+export {
   pullRuntimeNodeCommand,
   pruneRuntimeNodeDeliveryRequests,
   RuntimeNodeDeliveryError,
