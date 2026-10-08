@@ -59,9 +59,10 @@ export async function handleLeadTurnRequest(
   )
     return workspaceInvalidRequestResponse(request)
   try {
+    const database = applicationDatabase()
     const service = createLeadTurnProduct(
-      applicationDatabase(),
-      configuredLeadTurnProductDependencies()
+      database,
+      await configuredLeadTurnProductDependencies(database, params.workspaceId, request)
     )
     const scope = {
       workspaceId: params.workspaceId,

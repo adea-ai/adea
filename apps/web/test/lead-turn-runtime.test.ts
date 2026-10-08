@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import {
   createLeadTurnRuntime,
   type LeadRuntimeStore,
@@ -32,6 +33,29 @@ const selection = {
   preparationRef: `prep_${'a'.repeat(32)}`,
   expiresAt: '2100-01-01T00:00:00Z',
 }
+test('publication gate receives the exact canonical output digest under publication locks', async () => {
+  const f = fixture()
+  await f.service.prepare(scope)
+  await f.service.dispatch(scope)
+  const text = 'Authorized answer\n'
+  f.adapter.status = async () => ({
+    ...binding,
+    state: 'completed',
+    status: {
+      observedAt: '2026-10-08T00:00:00Z',
+      result: { output: { text } },
+    },
+  })
+  let digest: unknown
+  f.adapter.assertPublicationCurrent = async (input) => {
+    expect(f.calls.at(-1)).toBe('publication-lock')
+    digest = Reflect.get(input, 'resultContentDigest')
+  }
+  await f.service.status(scope)
+  expect(digest).toBe(`sha256:${createHash('sha256').update(text).digest('hex')}`)
+  expect(digest).not.toBe(`sha256:${createHash('sha256').update(text.trim()).digest('hex')}`)
+  expect(f.calls).toContain('publish')
+})
 function fixture() {
   const calls: string[] = []
   let observed: Record<string, unknown> | undefined
