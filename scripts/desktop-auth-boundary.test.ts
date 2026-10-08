@@ -406,9 +406,11 @@ describe('desktop packaging and single-UI client boundary', () => {
     // The account trigger is a SideRailButton that receives the accessible
     // label through its `label` prop, rendered as the trigger's aria-label.
     expect(accountMenu).toContain('label="User settings"')
-    // The updates item stays reachable: the menu owns the after-close
-    // handoff that reopens the updates dialog from its trigger.
-    expect(accountMenu).toContain("item.id === 'updates'")
+    // The updates item stays reachable: the adapter forwards the updates
+    // handoff into the shared composite's after-close support — and keeps the
+    // row enabled when no handoff exists — so the updates dialog still reopens
+    // from its stable trigger.
+    expect(accountMenu).toContain('onUpdates: props.onOpenUpdates')
     expect(desktopEntry).toContain('onOpenUpdates: () => props.onUpdatesOpenChange(true)')
     expect(webStyles).not.toContain('max-width: calc(100vw - 2.5rem)')
   })
