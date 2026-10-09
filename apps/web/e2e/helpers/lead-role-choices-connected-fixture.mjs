@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
-import { startFactoryChild } from './lead-role-choices-connected-process.mjs'
+import {
+  safeTransportFailureDiagnostic,
+  startFactoryChild,
+} from './lead-role-choices-connected-process.mjs'
 import {
   verifyFactoryArchives,
   verifyFactorySource,
@@ -62,6 +65,11 @@ const safeFailureClass = (error) =>
   /^[A-Za-z][A-Za-z0-9]{0,48}$/u.test(error?.name ?? '') ? error.name : 'Error'
 const safeDiagnosticField = (value, pattern) =>
   typeof value === 'string' && pattern.test(value) ? value : undefined
+const safeDiagnosticTimestamp = (value) => {
+  if (typeof value !== 'string') return undefined
+  const milliseconds = Date.parse(value)
+  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : undefined
+}
 const controlPlaneOperations = new Set([
   'model-connections.list',
   'model-defaults.get',
@@ -81,6 +89,21 @@ const controlPlaneSchemaVersions = new Set([
   'pi-lead-publication/v1',
   'model-funding-display/v1',
 ])
+const leadTurnStates = new Set([
+  'starting',
+  'running',
+  'awaiting_input',
+  'cancelling',
+  'completed',
+  'failed',
+  'cancelled',
+  'timed_out',
+  'unknown',
+])
+const boundedAppend = (values, value, maximum = 64) => {
+  values.push(value)
+  if (values.length > maximum) values.splice(0, values.length - maximum)
+}
 const safeMissingPackage = (error) => {
   const candidates = []
   for (const field of ['message', 'specifier', 'moduleName', 'path', 'file']) {
@@ -167,6 +190,8 @@ export async function startLeadRoleChoicesConnectedFixture() {
   let progressProjection
   const runtimeReadCounts = { latest: 0, status: 0, progress: 0 }
   const controlPlaneWire = []
+  const productOperationDiagnostics = []
+  const drainDiagnostics = []
   const publicationGate = {
     calls: 0,
     successes: 0,
@@ -432,7 +457,7 @@ export async function startLeadRoleChoicesConnectedFixture() {
       const sentRequestId = typeof sent?.requestId === 'string' ? sent.requestId : undefined
       const sentTraceId =
         typeof sent?.correlation?.traceId === 'string' ? sent.correlation.traceId : undefined
-      const recordResponse = async (status, response) => {
+      const recordResponse = async (status, response, elapsedMs) => {
         let received
         try {
           received = await response.clone().json()
@@ -444,9 +469,10 @@ export async function startLeadRoleChoicesConnectedFixture() {
           received?.code ?? received?.data?.reasonCode,
           /^[A-Z][A-Z0-9_]{1,63}$/u
         )
-        controlPlaneWire.push({
+        boundedAppend(controlPlaneWire, {
           operation,
           status,
+          elapsedMs: Math.round(elapsedMs),
           requestIdMatches: Boolean(sentRequestId && received?.requestId === sentRequestId),
           traceIdMatches: Boolean(sentTraceId && received?.correlation?.traceId === sentTraceId),
           ...(schemaVersion ? { schemaVersion } : {}),
@@ -455,6 +481,10 @@ export async function startLeadRoleChoicesConnectedFixture() {
         if (operation === 'pi-durable.lead.publication.current') {
           const actual = received?.data?.publication
           const expected = publicationGate.expected
+          const observedAtMs = Date.now()
+          const observedAt = new Date(observedAtMs).toISOString()
+          const expiresAt = safeDiagnosticTimestamp(actual?.expiresAt)
+          const expiryTime = expiresAt ? Date.parse(expiresAt) : Number.NaN
           const fields = [
             'intentId',
             'dispatchId',
@@ -476,29 +506,51 @@ export async function startLeadRoleChoicesConnectedFixture() {
             actorMatches: actual?.canonicalActorPrincipalId === expected?.originalActorRef,
             authorityRevisionValid:
               Number.isSafeInteger(actual?.authorityRevision) && actual.authorityRevision > 0,
-            expiryValid:
-              typeof actual?.expiresAt === 'string' &&
-              Number.isFinite(Date.parse(actual.expiresAt)) &&
-              Date.parse(actual.expiresAt) > Date.now(),
+            expiryValid: Number.isFinite(expiryTime) && expiryTime > observedAtMs,
+            observedAt,
+            ...(expiresAt ? { expiresAt } : {}),
+            ...(safeDiagnosticTimestamp(expected?.expiresAt)
+              ? { preparationExpiresAt: safeDiagnosticTimestamp(expected.expiresAt) }
+              : {}),
+            ...(Number.isFinite(expiryTime)
+              ? {
+                  expiryRemainingMs: Math.max(
+                    -180_000,
+                    Math.min(180_000, expiryTime - observedAtMs)
+                  ),
+                }
+              : {}),
           })
         }
         return response
       }
+      const fetchStartedAt = performance.now()
+      let transportFailed = false
       try {
         const response = await previousFetch(input, init)
-        return await recordResponse(response.status, response)
-      } catch {
-        controlPlaneWire.push({
+        return await recordResponse(response.status, response, performance.now() - fetchStartedAt)
+      } catch (error) {
+        const failure = safeTransportFailureDiagnostic(
+          error,
+          init?.signal,
+          performance.now() - fetchStartedAt
+        )
+        boundedAppend(controlPlaneWire, {
           operation,
           status: 0,
           requestIdMatches: false,
           traceIdMatches: false,
           responseCode: 'CONTROL_PLANE_TRANSPORT_FAILED',
+          transportFailure: failure,
         })
         if (operation === 'pi-durable.lead.publication.current')
-          publicationGate.transportFailures.push({ reason: 'CONTROL_PLANE_TRANSPORT_FAILED' })
-        throw new Error('CONTROL_PLANE_TRANSPORT_FAILED')
+          boundedAppend(publicationGate.transportFailures, {
+            reason: 'CONTROL_PLANE_TRANSPORT_FAILED',
+            ...failure,
+          })
+        transportFailed = true
       }
+      if (transportFailed) throw new Error('CONTROL_PLANE_TRANSPORT_FAILED')
     }
     const fixtureResolution = async (request) => {
       const supplied = readTemporaryCredential(request)
@@ -829,10 +881,38 @@ export async function startLeadRoleChoicesConnectedFixture() {
                 }
                 if (operation === 'status' || operation === 'progress')
                   runtimeReadCounts[operation]++
-                const result =
-                  operation === 'progress'
-                    ? await leadProduct.progress(scope, afterSequence)
-                    : await leadProduct[operation](scope)
+                const operationStartedAt = performance.now()
+                let result
+                try {
+                  result =
+                    operation === 'progress'
+                      ? await leadProduct.progress(scope, afterSequence)
+                      : await leadProduct[operation](scope)
+                } catch (error) {
+                  boundedAppend(productOperationDiagnostics, {
+                    operation,
+                    elapsedMs: Math.round(performance.now() - operationStartedAt),
+                    outcome: 'threw',
+                    ...safeTransportFailureDiagnostic(
+                      error,
+                      undefined,
+                      performance.now() - operationStartedAt
+                    ),
+                  })
+                  throw error
+                }
+                const leadTurn = result?.leadTurn ?? result
+                const reasonCode = safeDiagnosticField(
+                  leadTurn?.reasonCode,
+                  /^[A-Z][A-Z0-9_]{1,63}$/u
+                )
+                boundedAppend(productOperationDiagnostics, {
+                  operation,
+                  elapsedMs: Math.round(performance.now() - operationStartedAt),
+                  outcome: 'returned',
+                  ...(leadTurnStates.has(leadTurn?.state) ? { state: leadTurn.state } : {}),
+                  ...(reasonCode ? { reasonCode } : {}),
+                })
                 if (operation === 'prepare') preparationProjection = result
                 if (operation === 'dispatch') dispatchProjection = result
                 if (operation === 'status') statusProjection = result
@@ -845,10 +925,20 @@ export async function startLeadRoleChoicesConnectedFixture() {
                     nextSequence: result.nextSequence,
                   }
                 if (operation === 'dispatch') {
+                  const drainStartedAt = performance.now()
                   try {
                     await host.control('drain')
+                    boundedAppend(drainDiagnostics, {
+                      elapsedMs: Math.round(performance.now() - drainStartedAt),
+                      outcome: 'returned',
+                    })
                   } catch {
                     drainFailure = true
+                    boundedAppend(drainDiagnostics, {
+                      elapsedMs: Math.round(performance.now() - drainStartedAt),
+                      outcome: 'failed',
+                      reasonCode: 'HOST_DRAIN_FAILED',
+                    })
                   }
                 }
                 const payload = operation === 'progress' ? result : { leadTurn: result }
@@ -911,6 +1001,8 @@ export async function startLeadRoleChoicesConnectedFixture() {
           statusProjection,
           progressProjection,
           runtimeReadCounts: { ...runtimeReadCounts },
+          productOperationDiagnostics: [...productOperationDiagnostics],
+          drainDiagnostics: [...drainDiagnostics],
           publicationGate: {
             calls: publicationGate.calls,
             successes: publicationGate.successes,
