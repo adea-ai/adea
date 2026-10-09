@@ -107,16 +107,22 @@ export function admissionForParticipant(
 
 /**
  * Pure binding check: the live window for one admission resolves from its
- * grant row only on a full identity/revision match. Unit-tested directly.
+ * grant row only on a full identity/revision match — the retained binding
+ * must name THIS group, the same grant id and revision, and the same
+ * subject (user or Agent). Anything else resolves fail-closed. Unit-tested
+ * directly; the policy's own grant-identity check denies cross-group
+ * bindings a second time at decision time.
  */
 export function resolveAdmissionWindow(
   admission: Pick<GroupAdmission, 'authorization' | 'participant'>,
   grants: Readonly<{
     audience: readonly GroupAudienceGrant[]
     enlistment: readonly GroupAgentEnlistmentGrant[]
-  }>
+  }>,
+  groupId: string
 ): GroupGrantWindow {
   const { authorization, participant } = admission
+  if (authorization.groupId !== groupId) return ABSENT_GRANT_WINDOW
   if (participant.kind === 'user') {
     const grant = grants.audience.find((candidate) => candidate.grantId === authorization.grantId)
     if (
@@ -242,7 +248,8 @@ export async function loadGroupRoster(
               ? { kind: 'user', userId: row.userId! }
               : { agentId: row.agentId!, kind: 'agent' },
         },
-        grants
+        grants,
+        channelId
       )
     )
   )

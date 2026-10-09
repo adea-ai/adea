@@ -676,12 +676,30 @@ export type GroupPostBarrier = Readonly<{
 }>
 
 /**
+ * Trusted time for group boundaries. Production callers omit the clock and
+ * read the live wall clock INSIDE the transaction (after locks are held), so
+ * a grant expiring while the transaction waited still denies. Tests inject a
+ * deterministic sequence. An HTTP caller-supplied instant is NEVER authority:
+ * when no clock is given, tests pass an explicit `now` for determinism.
+ */
+export type GroupClock = () => string
+
+export const liveGroupClock: GroupClock = () => new Date().toISOString()
+
+export type GroupFenceOptions = Readonly<{
+  barrier?: GroupPostBarrier
+  clock?: GroupClock
+  now?: string
+}>
+
+/**
  * ONE shared transaction/fence for a group turn and its actual write: the
  * current admission and grant rows are locked and decided here, then the
  * message (direct) or lead turn (nested, savepointed exactly as today) is
- * written in the same transaction. A revocation committing any earlier
- * denies before any write; one committing later lands after the write —
- * never between the check and the write.
+ * written in the same transaction. The gate reads trusted time AFTER locks
+ * are held, and a FINAL expiry check runs immediately before the nested
+ * write, so a grant expiring anywhere in the wait denies and the whole
+ * transaction — message, intent, event — rolls back with zero rows written.
  */
 export async function postGroupChannelMessageInTransaction<T extends GroupChannelPostInput>(
   transaction: AgentHqTransaction,
@@ -690,11 +708,11 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   principal: UserPrincipalRef,
   sender: MessageSenderRef,
   input: T,
-  now: string,
-  barrier: GroupPostBarrier = {}
+  options: GroupFenceOptions = {}
 ): Promise<
   T extends Readonly<{ mode: 'lead' }> ? Awaited<ReturnType<typeof createLeadTurn>> : MessageSummary
 > {
+  const readNow = () => options.clock?.() ?? options.now ?? liveGroupClock()
   const gate = await loadChannelGate(transaction, workspaceId, channelId)
   const participant: ConversationParticipantRef | null =
     sender.kind === 'user'
@@ -708,9 +726,14 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
       : await loadGroupAdmission(transaction, workspaceId, channelId, participant, {
           forUpdate: true,
         })
-  const decision = authorizeGroupChannelTurn(gate, { admission, now })
+  const decision = authorizeGroupChannelTurn(gate, { admission, now: readNow() })
   if (decision.action !== 'allow') throw new Error('Channel unavailable')
-  await barrier.afterGate?.()
+  await options.barrier?.afterGate?.()
+  // Final in-transaction lifetime check: the nested write below can await
+  // its own locks, so re-evaluate on fresh trusted time. A denial here
+  // throws before any write runs and rolls the fence back clean.
+  const final = authorizeGroupChannelTurn(gate, { admission, now: readNow() })
+  if (final.action !== 'allow') throw new Error('Channel unavailable')
   if (input.mode === 'lead') {
     const lead = (input as Readonly<{ lead: GroupChannelLeadPostInput; mode: 'lead' }>).lead
     const posted = await createLeadTurn(transaction, workspaceId, channelId, principal, lead)
@@ -737,7 +760,7 @@ export async function postGroupChannelMessage<T extends GroupChannelPostInput>(
   principal: UserPrincipalRef,
   sender: MessageSenderRef,
   input: T,
-  now: string
+  options: GroupFenceOptions = {}
 ): Promise<
   T extends Readonly<{ mode: 'lead' }> ? Awaited<ReturnType<typeof createLeadTurn>> : MessageSummary
 > {
@@ -749,9 +772,37 @@ export async function postGroupChannelMessage<T extends GroupChannelPostInput>(
       principal,
       sender,
       input,
-      now
+      options
     )
   )
+}
+
+/**
+ * Live-clock publication decision for a completed group job. Loads the gate
+ * and the canonical roster in one transaction and evaluates on trusted time
+ * (injected clock, explicit instant, else the live wall clock), so a grant
+ * expiring while the read waited still holds. Read-only: a hold carries no
+ * write to roll back, and the independently owned job is untouched.
+ */
+export async function decideGroupChannelPublicationNow(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  channelId: string,
+  job: GroupCompletedJob,
+  publisher: ConversationParticipantRef,
+  options: GroupFenceOptions = {}
+): Promise<GroupPublicationDecision> {
+  return inTransaction(database, async (transaction) => {
+    const gate = await loadChannelGate(transaction, workspaceId, channelId)
+    const roster = await loadGroupRoster(transaction, workspaceId, channelId)
+    const now = options.clock?.() ?? options.now ?? liveGroupClock()
+    return authorizeGroupChannelPublication(gate, {
+      admission: admissionForParticipant(roster, publisher),
+      job,
+      now,
+      publisher,
+    })
+  })
 }
 
 /**
@@ -766,9 +817,13 @@ export async function listGroupChannelMessagesForUser(
   channelId: string,
   principal: UserPrincipalRef,
   options: Readonly<{ afterSequence?: number; limit?: number; threadRootMessageId?: string }>,
-  now: string
+  fence: GroupFenceOptions = {}
 ) {
-  return listMessagesForUser(database, workspaceId, channelId, principal, { ...options, now })
+  const instant = fence.clock ? fence.clock() : fence.now
+  return listMessagesForUser(database, workspaceId, channelId, principal, {
+    ...options,
+    ...(instant === undefined ? null : { now: instant }),
+  })
 }
 
 /**
@@ -781,9 +836,16 @@ export async function getGroupMessageForUser(
   channelId: string,
   messageId: string,
   principal: UserPrincipalRef,
-  now: string
+  fence: GroupFenceOptions = {}
 ): Promise<MessageSummary> {
-  const message = await getMessageForUser(database, workspaceId, messageId, principal, { now })
+  const instant = fence.clock ? fence.clock() : fence.now
+  const message = await getMessageForUser(
+    database,
+    workspaceId,
+    messageId,
+    principal,
+    instant === undefined ? {} : { now: instant }
+  )
   if (message.channelId !== channelId) throw new Error('Message unavailable')
   return message
 }

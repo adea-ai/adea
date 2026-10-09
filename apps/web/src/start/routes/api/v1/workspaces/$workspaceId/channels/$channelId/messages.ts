@@ -63,14 +63,14 @@ async function get(request: Request, { params }: Context) {
     )
     if (channel.kind === 'group') {
       // Join-point-filtered group history: earlier entries stay held without
-      // an explicit audience-aware sharing grant.
+      // an explicit audience-aware sharing grant. No caller instant is
+      // passed: the shared read evaluates on trusted time it reads itself.
       const payload: ApiMessagePage = await listGroupChannelMessagesForUser(
         applicationDatabase(),
         workspaceId,
         channelId,
         resolution.principal,
-        { afterSequence, limit, threadRootMessageId },
-        new Date().toISOString()
+        { afterSequence, limit, threadRootMessageId }
       )
       return workspaceJsonResponse(payload, resolution, request, {
         headers: { 'cache-control': 'private, no-store' },
@@ -172,8 +172,7 @@ async function post(request: Request, { params }: Context) {
               mentions: mentions as never,
             },
             mode: 'lead',
-          },
-          new Date().toISOString()
+          }
         )
         return workspaceJsonResponse(payload, resolution, request, { status: 201 })
       }
@@ -206,8 +205,7 @@ async function post(request: Request, { params }: Context) {
                 : {}),
             },
             mode: 'direct',
-          },
-          new Date().toISOString()
+          }
         ),
       }
       return workspaceJsonResponse(payload, resolution, request, { status: 201 })

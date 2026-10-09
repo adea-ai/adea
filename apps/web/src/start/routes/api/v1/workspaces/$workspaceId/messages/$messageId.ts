@@ -62,8 +62,7 @@ async function get(request: Request, { params }: Context) {
               workspaceId,
               preview.channelId,
               messageId,
-              resolution.principal,
-              new Date().toISOString()
+              resolution.principal
             )
           : preview,
     }

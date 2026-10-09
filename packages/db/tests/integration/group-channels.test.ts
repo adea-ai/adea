@@ -201,8 +201,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
       f.workspace.id,
       channel.id,
       f.owner,
-      {},
-      new Date().toISOString()
+      {}
     )
     expect(page.messages.map((message) => message.sequence)).toContain(posted.sequence)
     const roster = await loadGroupRoster(connection.db, f.workspace.id, channel.id)
@@ -417,7 +416,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
       channelId,
       f.member,
       {},
-      LATER
+      { now: LATER }
     )
     expect(page.messages).toHaveLength(0)
     const founderPage = await listGroupChannelMessagesForUser(
@@ -426,7 +425,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
       channelId,
       f.owner,
       {},
-      LATER
+      { now: LATER }
     )
     expect(founderPage.messages.map((message) => message.sequence)).toContain(posted.sequence)
   })
@@ -460,7 +459,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
       channelId,
       f.member,
       {},
-      LATER
+      { now: LATER }
     )
     expect(before.messages).toHaveLength(0)
     await shareGroupHistory(connection.db, f.workspace.id, channelId, f.owner, {
@@ -481,7 +480,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
       channelId,
       f.member,
       {},
-      LATER
+      { now: LATER }
     )
     expect(unlocked.messages).toHaveLength(1)
     const revoked = await revokeGroupGrant(connection.db, f.workspace.id, channelId, f.owner, {
@@ -496,7 +495,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
       channelId,
       f.member,
       {},
-      LATER
+      { now: LATER }
     )
     expect(relocked.messages).toHaveLength(0)
   })
@@ -1020,8 +1019,7 @@ describe('durable binding, fences and shared read boundary', () => {
             message: { bodyText: 'fenced hello', idempotencyKey: crypto.randomUUID() },
             mode: 'direct',
           },
-          LATER,
-          barrier
+          { barrier, now: LATER }
         )
       )
       await Promise.race([
@@ -1220,7 +1218,7 @@ describe('durable binding, fences and shared read boundary', () => {
             message: { bodyText: 'must not land', idempotencyKey: key },
             mode: 'direct',
           },
-          LATER
+          { now: LATER }
         )
       ).rejects.toThrow('Channel unavailable')
       const rows = await f.local.db
@@ -1243,9 +1241,178 @@ describe('durable binding, fences and shared read boundary', () => {
           message: { bodyText: 'founder lands', idempotencyKey: crypto.randomUUID() },
           mode: 'direct',
         },
-        LATER
+        { now: LATER }
       )
       expect(allowed.sequence).toBeGreaterThanOrEqual(1)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('a grant expiring between gate and write denies direct posts with zero rows', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      // The member grant lapses mid-afternoon: valid at the gate instant,
+      // expired at the final in-transaction check.
+      const expiring = '2026-10-08T12:30:00.000Z'
+      const grant = {
+        expiresAt: expiring,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder, grant],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const readings = [NOW, LATER]
+      const clock = () => readings.shift() ?? LATER
+      const key = crypto.randomUUID()
+      await expect(
+        postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.member,
+          f.member,
+          { message: { bodyText: 'must not land', idempotencyKey: key }, mode: 'direct' },
+          { clock }
+        )
+      ).rejects.toThrow('Channel unavailable')
+      const rows = await f.local.db
+        .select()
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      expect(rows).toHaveLength(0)
+      // Control: a clock that never lapses writes exactly once.
+      const steady = [NOW, NOW]
+      const steadyClock = () => steady.shift() ?? NOW
+      const posted = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.member,
+        f.member,
+        {
+          message: { bodyText: 'in-window lands', idempotencyKey: crypto.randomUUID() },
+          mode: 'direct',
+        },
+        { clock: steadyClock }
+      )
+      expect(posted.sequence).toBeGreaterThanOrEqual(1)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('a grant expiring between gate and write denies lead posts with zero side effects', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const expiring = '2026-10-08T12:30:00.000Z'
+      const grant = {
+        expiresAt: expiring,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder, grant],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const readings = [NOW, LATER]
+      const clock = () => readings.shift() ?? LATER
+      await expect(
+        postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.member,
+          f.member,
+          {
+            lead: { bodyText: 'must not land', idempotencyKey: crypto.randomUUID(), mentions: [] },
+            mode: 'lead',
+          },
+          { clock }
+        )
+      ).rejects.toThrow('Channel unavailable')
+      const [messages, intents] = await Promise.all([
+        f.local.db
+          .select()
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.workspaceId, f.workspace.id),
+              eq(schema.messages.channelId, channelId)
+            )
+          ),
+        f.local.db
+          .select()
+          .from(schema.leadTurnIntents)
+          .where(eq(schema.leadTurnIntents.channelId, channelId)),
+      ])
+      expect(messages).toHaveLength(0)
+      expect(intents).toHaveLength(0)
+      // Control: with a live grant the gate passes and the nested lead
+      // authority — owned by #1179 — refuses groups on its own terms.
+      const steady = [NOW, NOW]
+      const steadyClock = () => steady.shift() ?? NOW
+      await expect(
+        postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.member,
+          f.member,
+          {
+            lead: { bodyText: 'gate passes', idempotencyKey: crypto.randomUUID(), mentions: [] },
+            mode: 'lead',
+          },
+          { clock: steadyClock }
+        )
+      ).rejects.toThrow('Lead turn unavailable')
     } finally {
       await f.local.close()
     }

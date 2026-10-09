@@ -505,9 +505,28 @@ describe('resolveAdmissionWindow binds every identity and revision field', () =>
   }
 
   test('a fully matching row resolves its live window', () => {
-    expect(resolveAdmissionWindow(bound, grants)).toEqual({
+    expect(resolveAdmissionWindow(bound, grants, CHANNEL)).toEqual({
       expiresAt: null,
       issuedAt: ISSUED,
+      revokedAt: null,
+    })
+  })
+
+  test('a retained binding for another group resolves nothing here', () => {
+    const foreign = admission({
+      authorization: { groupId: 'grp_elsewhere', grantId: 'gra_alice', revision: 1 },
+    })
+    expect(resolveAdmissionWindow(foreign, grants, CHANNEL)).toEqual({
+      expiresAt: null,
+      issuedAt: 'invalid-grant-absent',
+      revokedAt: null,
+    })
+    const malformed = admission({
+      authorization: { groupId: '   ', grantId: 'gra_alice', revision: 1 },
+    })
+    expect(resolveAdmissionWindow(malformed, grants, CHANNEL)).toEqual({
+      expiresAt: null,
+      issuedAt: 'invalid-grant-absent',
       revokedAt: null,
     })
   })
@@ -517,7 +536,7 @@ describe('resolveAdmissionWindow binds every identity and revision field', () =>
       audience: [audienceGrant({ revision: 2, revokedAt: null })],
       enlistment: [],
     }
-    expect(resolveAdmissionWindow(bound, regranted)).toEqual({
+    expect(resolveAdmissionWindow(bound, regranted, CHANNEL)).toEqual({
       expiresAt: null,
       issuedAt: 'invalid-grant-absent',
       revokedAt: null,
@@ -529,7 +548,7 @@ describe('resolveAdmissionWindow binds every identity and revision field', () =>
       audience: [audienceGrant({ participant: BOB, revision: 2 })],
       enlistment: [],
     }
-    expect(resolveAdmissionWindow(bound, retargeted)).toEqual({
+    expect(resolveAdmissionWindow(bound, retargeted, CHANNEL)).toEqual({
       expiresAt: null,
       issuedAt: 'invalid-grant-absent',
       revokedAt: null,
@@ -538,7 +557,7 @@ describe('resolveAdmissionWindow binds every identity and revision field', () =>
       authorization: { groupId: CHANNEL, grantId: 'gra_alice', revision: 2 },
       participant: BOB,
     })
-    expect(resolveAdmissionWindow(stranger, grants)).toEqual({
+    expect(resolveAdmissionWindow(stranger, grants, CHANNEL)).toEqual({
       expiresAt: null,
       issuedAt: 'invalid-grant-absent',
       revokedAt: null,
@@ -551,13 +570,17 @@ describe('resolveAdmissionWindow binds every identity and revision field', () =>
       participant: { agentId: 'agt_doc', kind: 'agent' },
     })
     expect(
-      resolveAdmissionWindow(agentBound, {
-        audience: [audienceGrant({ grantId: 'gra_doc' })],
-        enlistment: [],
-      })
+      resolveAdmissionWindow(
+        agentBound,
+        {
+          audience: [audienceGrant({ grantId: 'gra_doc' })],
+          enlistment: [],
+        },
+        CHANNEL
+      )
     ).toEqual({ expiresAt: null, issuedAt: 'invalid-grant-absent', revokedAt: null })
     expect(
-      resolveAdmissionWindow(bound, { audience: [], enlistment: [enlistmentGrant()] })
+      resolveAdmissionWindow(bound, { audience: [], enlistment: [enlistmentGrant()] }, CHANNEL)
     ).toEqual({ expiresAt: null, issuedAt: 'invalid-grant-absent', revokedAt: null })
   })
 })
