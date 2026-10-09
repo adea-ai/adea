@@ -1073,9 +1073,9 @@ describe.skipIf(!connectionUrl)('Artifact reference grant store', () => {
     const input = inputFor(source, audience, created.id)
 
     expect(await removeWorkspaceMembership(connection.db, source.id, admin)).toBe(true)
-    expect(registerArtifactReferenceGrant(connection.db, source.id, admin, input)).rejects.toThrow(
-      'Artifact reference grant issuer unauthorized'
-    )
+    await expect(
+      registerArtifactReferenceGrant(connection.db, source.id, admin, input)
+    ).rejects.toThrow('Artifact reference grant issuer unauthorized')
     expect(await storedRows(input.grantId)).toHaveLength(0)
   })
 
