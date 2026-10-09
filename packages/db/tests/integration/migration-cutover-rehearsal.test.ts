@@ -1,11 +1,18 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { afterAll, describe, expect, test } from 'bun:test'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
+import { createArtifact } from '../../src/artifacts'
+import {
+  ArtifactReferenceGrantError,
+  readCurrentArtifactReferenceGrant,
+  registerArtifactReferenceGrant,
+  revokeArtifactReferenceGrant,
+} from '../../src/artifact-reference-grants'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createContentRef } from '../../src/content-refs'
 import {
@@ -21,9 +28,9 @@ import {
   type MigrationSnapshotCaptureIdentityInput,
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
-import { markChannelReadState, listReadStateForUser } from '../../src/read-state'
 import { setProjectMember } from '../../src/project-sharing'
 import { createProject } from '../../src/projects'
+import { listReadStateForUser, markChannelReadState } from '../../src/read-state'
 import { taskExecutionAttempts, workspaceMemberships } from '../../src/schema'
 import { createTask, listTasksForUser } from '../../src/tasks'
 import {
@@ -31,35 +38,55 @@ import {
   listWorkspaceMembersForUser,
 } from '../../src/workspace-invitations'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
+import {
+  CUTOVER_TAG,
+  DRIZZLE_DIR,
+  disposeRehearsal,
+  isProductDenial,
+  migrationsFolderBefore,
+  type RehearsalResources,
+  readJournal,
+  view,
+} from '../fixtures/cutover-rehearsal'
 
-// Cutover rehearsal for #1222, on a disposable database that this file creates
-// and drops. The pre-cutover state is the repository's own drizzle journal cut
-// immediately before `0046_artifact_reference_grants`, applied through the same
-// `migrate` the capture proofs use. The cutover is the remaining journal entry,
-// applied unchanged. Nothing here writes a migration, a backfill, or a second
-// migration framework. Capture and comparison are the #1219 tooling.
+// Cutover rehearsal for #1222 on a disposable database that this file creates and
+// drops. The pre-cutover state is the repository's drizzle journal cut immediately
+// before `0046_artifact_reference_grants`, applied with the same `migrate` the capture
+// proofs use. The cutover is the remaining journal entry, applied unchanged. Nothing
+// here adds a migration, a backfill, or a second migration framework.
 //
-// Provisioning follows migration-snapshot-capture.test.ts: the admin URL comes
-// from MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL, and scratch names carry the
-// `rehearsal_1222_` prefix. The proofs skip cleanly without the provisioning
-// URL and never fall back to the shared DATABASE_URL.
+// Determinism: one scenario runs once, in fixed order, however the tests are selected
+// or reordered. Every test asserts on that scenario's recorded results and never on
+// state a previous test left behind.
+//
+// Provisioning: the admin URL comes from MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL, which
+// scripts/test-integration.mjs exports when Docker provisioning succeeds. In CI a
+// missing URL fails the suite instead of skipping it. Outside CI the suite is skipped
+// without the URL, and it never falls back to the shared DATABASE_URL.
 
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
+const inCi = process.env.CI === 'true' || process.env.CI === '1'
 const SCRATCH_PREFIX = 'rehearsal_1222_'
-const DRIZZLE_DIR = `${import.meta.dir}/../../drizzle`
-const CUTOVER_TAG = '0046_artifact_reference_grants'
+const CHECKSUM = 'b'.repeat(64)
 
-const CAPTURED_AT = new Date('2026-01-05T00:00:00.000Z')
 const identity = (snapshotId: string): MigrationSnapshotCaptureIdentityInput => ({
-  capturedAt: CAPTURED_AT,
+  capturedAt: new Date('2026-01-05T00:00:00.000Z'),
   rehearsalId: 'rehearsal-cutover-1222',
   snapshotId,
   source: 'integration',
 })
 
+function requireProvisioningUrl(): string {
+  if (!provisioningUrl) {
+    throw new Error(
+      'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL is not set. In CI this means the Docker capture provisioning did not run, and the rehearsal refuses to skip silently.'
+    )
+  }
+  return provisioningUrl
+}
+
 function urlForDatabase(database: string): string {
-  if (!provisioningUrl) throw new Error('MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL is required')
-  const url = new URL(provisioningUrl)
+  const url = new URL(requireProvisioningUrl())
   url.pathname = `/${database}`
   return url.toString()
 }
@@ -72,42 +99,25 @@ function assertScratch(database: string): void {
   }
 }
 
-type Journal = { entries: { idx: number; tag: string }[]; dialect: string; version: string }
-
-/** The journal entries before `tag`, copied verbatim with their SQL, as a migrations folder. */
-function migrationsFolderBefore(tag: string): string {
-  const journal = JSON.parse(readFileSync(`${DRIZZLE_DIR}/meta/_journal.json`, 'utf8')) as Journal
-  const cut = journal.entries.findIndex((entry) => entry.tag === tag)
-  if (cut < 0) throw new Error(`cutover tag ${tag} is not in the journal`)
-  const folder = mkdtempSync(join(tmpdir(), 'rehearsal-1222-pre-'))
-  mkdirSync(join(folder, 'meta'))
-  const kept = journal.entries.slice(0, cut)
-  writeFileSync(
-    join(folder, 'meta', '_journal.json'),
-    JSON.stringify({ ...journal, entries: kept })
-  )
-  for (const entry of kept)
-    copyFileSync(`${DRIZZLE_DIR}/${entry.tag}.sql`, join(folder, `${entry.tag}.sql`))
-  return folder
-}
-
-/** Principal-scoped reads through the product's own functions. Denial is a value, not a throw. */
-async function view<T>(read: () => Promise<T>): Promise<T | 'denied'> {
+async function adminExecute(statement: string): Promise<void> {
+  const admin = postgres(urlForDatabase('postgres'), { max: 1, onnotice: () => {} })
   try {
-    return await read()
-  } catch {
-    return 'denied'
+    await admin.unsafe(statement)
+  } finally {
+    await admin.end()
   }
 }
 
-const ids = (rows: readonly { id: string }[] | 'denied'): string[] | 'denied' =>
-  rows === 'denied' ? 'denied' : rows.map((row) => row.id).toSorted()
+type Principal = Awaited<ReturnType<typeof createTemporaryUserSession>>['principal']
 
 type Fixture = {
   workspaceId: string
-  owner: Awaited<ReturnType<typeof createTemporaryUserSession>>['principal']
-  collaborator: Awaited<ReturnType<typeof createTemporaryUserSession>>['principal']
-  outsider: Awaited<ReturnType<typeof createTemporaryUserSession>>['principal']
+  audienceWorkspaceId: string
+  artifactId: string
+  owner: Principal
+  audienceOwner: Principal
+  collaborator: Principal
+  outsider: Principal
   sharedChannelId: string
   archivedChannelId: string
 }
@@ -115,24 +125,17 @@ type Fixture = {
 async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixture> {
   const suffix = crypto.randomUUID()
   const expiresAt = new Date(Date.now() + 600_000)
-  const owner = (
-    await createTemporaryUserSession(connection.db, {
-      credentialDigest: `rehearsal-owner-${suffix}`,
-      expiresAt,
-    })
-  ).principal
-  const collaborator = (
-    await createTemporaryUserSession(connection.db, {
-      credentialDigest: `rehearsal-collaborator-${suffix}`,
-      expiresAt,
-    })
-  ).principal
-  const outsider = (
-    await createTemporaryUserSession(connection.db, {
-      credentialDigest: `rehearsal-outsider-${suffix}`,
-      expiresAt,
-    })
-  ).principal
+  const session = async (name: string) =>
+    (
+      await createTemporaryUserSession(connection.db, {
+        credentialDigest: `rehearsal-${name}-${suffix}`,
+        expiresAt,
+      })
+    ).principal
+  const owner = await session('owner')
+  const collaborator = await session('collaborator')
+  const outsider = await session('outsider')
+  const audienceOwner = await session('audience-owner')
 
   const { workspace } = await createWorkspaceWithOwner(connection.db, {
     idempotencyKey: `rehearsal-${suffix}`,
@@ -145,21 +148,23 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     userId: collaborator.userId,
     workspaceId,
   })
+  const { workspace: audience } = await createWorkspaceWithOwner(connection.db, {
+    idempotencyKey: `rehearsal-audience-${suffix}`,
+    name: 'Rehearsal audience',
+    owner: audienceOwner,
+  })
 
   const shared = await createGroupChannel(connection.db, workspaceId, owner, {
     idempotencyKey: `rehearsal-shared-${suffix}`,
     title: 'Shared rehearsal channel',
   })
-  await createMessage(connection.db, workspaceId, shared.id, owner, {
-    bodyText: 'rehearsal-shared-body-1',
-    idempotencyKey: `rehearsal-message-1-${suffix}`,
-    sender: owner,
-  })
-  await createMessage(connection.db, workspaceId, shared.id, owner, {
-    bodyText: 'rehearsal-shared-body-2',
-    idempotencyKey: `rehearsal-message-2-${suffix}`,
-    sender: owner,
-  })
+  for (const body of ['rehearsal-shared-body-1', 'rehearsal-shared-body-2']) {
+    await createMessage(connection.db, workspaceId, shared.id, owner, {
+      bodyText: body,
+      idempotencyKey: `rehearsal-${body}-${suffix}`,
+      sender: owner,
+    })
+  }
   await markChannelReadState(connection.db, workspaceId, shared.id, owner, 'read')
 
   const closed = await createGroupChannel(connection.db, workspaceId, owner, {
@@ -208,7 +213,7 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
   await createContentRef(connection.db, workspaceId, owner, {
     availability: 'available',
     contentType: 'task_input',
-    digestSha256: 'b'.repeat(64),
+    digestSha256: 'c'.repeat(64),
     id: crypto.randomUUID(),
     keyVersion: 1,
     schemaVersion: 1,
@@ -217,9 +222,24 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     synchronizationPolicy: 'local_only',
   })
 
+  // Created before cutover: the artifact must survive the expansion unchanged.
+  const artifact = await createArtifact(connection.db, workspaceId, owner, {
+    availability: 'available',
+    checksumSha256: CHECKSUM,
+    filename: 'rehearsal.txt',
+    location: { reference: `outputs/${crypto.randomUUID()}`, type: 'object_store' },
+    mediaType: 'text/plain',
+    sizeBytes: 32,
+    sourceArtifactRef: `runtime-output:${crypto.randomUUID()}`,
+    sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
+  })
+
   return {
     workspaceId,
+    audienceWorkspaceId: audience.id,
+    artifactId: artifact.id,
     owner,
+    audienceOwner,
     collaborator,
     outsider,
     sharedChannelId: shared.id,
@@ -227,7 +247,10 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
   }
 }
 
-/** What each principal can read through the product's own functions, by stable id. */
+const ids = (rows: readonly { id: string }[] | 'denied') =>
+  rows === 'denied' ? 'denied' : rows.map((row) => row.id).toSorted()
+
+/** Product reads per principal, keyed by stable id. Denials are values; other errors throw. */
 async function readThroughProduct(connection: DatabaseConnection, fixture: Fixture) {
   const { db } = connection
   const { workspaceId, sharedChannelId, archivedChannelId } = fixture
@@ -268,78 +291,221 @@ async function readThroughProduct(connection: DatabaseConnection, fixture: Fixtu
   return out
 }
 
-describe.skipIf(!provisioningUrl)('migration cutover rehearsal (#1222)', () => {
-  let connection: DatabaseConnection
-  let scratch: string
-  let preFolder: string
-  let fixture: Fixture
-  let baselineReads: Awaited<ReturnType<typeof readThroughProduct>>
-  let before: Awaited<ReturnType<typeof captureMigrationSnapshot>>
-  let after: Awaited<ReturnType<typeof captureMigrationSnapshot>>
+async function journalCount(connection: DatabaseConnection): Promise<number> {
+  const rows = await connection.db.execute<{ count: number }>(
+    sql`select count(*)::int as count from drizzle.__drizzle_migrations`
+  )
+  return rows[0]?.count ?? -1
+}
 
-  beforeAll(async () => {
-    scratch = `${SCRATCH_PREFIX}${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
-    assertScratch(scratch)
-    const admin = postgres(urlForDatabase('postgres'), { max: 1, onnotice: () => {} })
-    try {
-      await admin.unsafe(`create database "${scratch}"`)
-    } finally {
-      await admin.end()
-    }
-    connection = createDatabase(urlForDatabase(scratch))
-    preFolder = migrationsFolderBefore(CUTOVER_TAG)
-    await migrate(connection.db, { migrationsFolder: preFolder })
-    fixture = await seedLegacyFixture(connection)
-    before = await captureMigrationSnapshot(connection.db, { identity: identity('before') })
-    baselineReads = await readThroughProduct(connection, fixture)
+async function tablePresent(connection: DatabaseConnection, name: string): Promise<boolean> {
+  const rows = await connection.db.execute<{ present: boolean }>(
+    sql`select to_regclass(${name}) is not null as present`
+  )
+  return rows[0]?.present === true
+}
+
+async function grantRowCount(connection: DatabaseConnection, grantId: string): Promise<number> {
+  const rows = await connection.db.execute<{ count: number }>(
+    sql`select count(*)::int as count from app.artifact_reference_grants where grant_id = ${grantId}`
+  )
+  return rows[0]?.count ?? -1
+}
+
+async function artifactRowCount(connection: DatabaseConnection, artifactId: string) {
+  const rows = await connection.db.execute<{ count: number }>(
+    sql`select count(*)::int as count from app.artifacts where id = ${artifactId}`
+  )
+  return rows[0]?.count ?? -1
+}
+
+type Scenario = Awaited<ReturnType<typeof executeScenario>>
+
+const resources: RehearsalResources = {}
+let scenario: Promise<Scenario> | undefined
+
+async function executeScenario() {
+  requireProvisioningUrl()
+  const scratch = `${SCRATCH_PREFIX}${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
+  assertScratch(scratch)
+  resources.scratch = scratch
+  await adminExecute(`create database "${scratch}"`)
+  const connection = createDatabase(urlForDatabase(scratch))
+  resources.connection = connection
+  resources.preFolder = migrationsFolderBefore(CUTOVER_TAG)
+
+  // Pre-cutover: the journal before the cutover tag only.
+  await migrate(connection.db, { migrationsFolder: resources.preFolder })
+  const journalLength = readJournal().entries.length
+  const cutIndex = readJournal().entries.findIndex((entry) => entry.tag === CUTOVER_TAG)
+  const pre = {
+    applied: await journalCount(connection),
+    expectedApplied: cutIndex,
+    grantsTablePresent: await tablePresent(connection, 'app.artifact_reference_grants'),
+  }
+  const fixture = await seedLegacyFixture(connection)
+  const before = await captureMigrationSnapshot(connection.db, { identity: identity('before') })
+  const baselineReads = await readThroughProduct(connection, fixture)
+
+  // Cutover: the remaining journal entry, applied unchanged.
+  await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
+  const cutover = {
+    applied: await journalCount(connection),
+    grantsTablePresent: await tablePresent(connection, 'app.artifact_reference_grants'),
+    artifactRows: await artifactRowCount(connection, fixture.artifactId),
+  }
+  const after = await captureMigrationSnapshot(connection.db, { identity: identity('after') })
+  const cutoverComparison = compareMigrationSnapshots({
+    after: after.document,
+    before: before.document,
+  })
+  const afterReads = await readThroughProduct(connection, fixture)
+
+  // Artifact-reference grants through the real API, after cutover.
+  const grantId = `rehearsal-grant-${crypto.randomUUID()}`
+  const grantInput = {
+    artifactId: fixture.artifactId,
+    audienceWorkspaceId: fixture.audienceWorkspaceId,
+    checksumSha256: CHECKSUM,
+    expiresAt: null,
+    grantId,
+    version: 1,
+  }
+  const registration = await registerArtifactReferenceGrant(
+    connection.db,
+    fixture.workspaceId,
+    fixture.owner,
+    grantInput
+  )
+  const outsiderRegistration = await registerArtifactReferenceGrant(
+    connection.db,
+    fixture.workspaceId,
+    fixture.outsider,
+    { ...grantInput, grantId: `rehearsal-denied-${crypto.randomUUID()}` }
+  ).then(
+    () => null,
+    (error: unknown) => error
+  )
+  const grantBeforeRepeat = await readCurrentArtifactReferenceGrant(connection.db, {
+    grantId,
+    revision: registration.state.revision,
+  })
+  const grantRowsBefore = await grantRowCount(connection, grantId)
+
+  // Repeat: re-running the migration and the capture must change nothing.
+  await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
+  const repeat = {
+    applied: await journalCount(connection),
+    artifactRows: await artifactRowCount(connection, fixture.artifactId),
+  }
+  const again = await captureMigrationSnapshot(connection.db, {
+    identity: identity('after-repeat'),
+  })
+  const repeatComparison = compareMigrationSnapshots({
+    after: again.document,
+    before: after.document,
+  })
+  const repeatReads = await readThroughProduct(connection, fixture)
+  const grantAfterRepeat = await readCurrentArtifactReferenceGrant(connection.db, {
+    grantId,
+    revision: registration.state.revision,
+  })
+  const grantRowsAfterRepeat = await grantRowCount(connection, grantId)
+
+  // Revocation through the API, then a stale presentation is refused.
+  const revoked = await revokeArtifactReferenceGrant(
+    connection.db,
+    fixture.workspaceId,
+    fixture.owner,
+    grantId
+  )
+  const revokedCurrent = revoked
+    ? await readCurrentArtifactReferenceGrant(connection.db, {
+        grantId,
+        revision: revoked.revision,
+      })
+    : null
+  const staleAfterRevoke = await readCurrentArtifactReferenceGrant(connection.db, {
+    grantId,
+    revision: registration.state.revision,
+  })
+
+  // Sensitivity: the comparator must still see a removed record after cutover.
+  const mutated = structuredClone(after.document) as typeof after.document
+  const messages = mutated.sections.messages
+  if (!messages) throw new Error('messages section missing from the after capture')
+  mutated.sections.messages = { ...messages, records: messages.records.slice(1) }
+  const sensitivity = compareMigrationSnapshots({ after: mutated, before: after.document })
+
+  return {
+    fixture,
+    journalLength,
+    pre,
+    cutover,
+    repeat,
+    before,
+    after,
+    again,
+    baselineReads,
+    afterReads,
+    repeatReads,
+    cutoverComparison,
+    repeatComparison,
+    sensitivity,
+    grants: {
+      registration,
+      outsiderRegistration,
+      grantBeforeRepeat,
+      grantAfterRepeat,
+      grantRowsBefore,
+      grantRowsAfterRepeat,
+      revoked,
+      revokedCurrent,
+      staleAfterRevoke,
+      grantId,
+    },
+  }
+}
+
+/** Run once per file, however many tests are selected or in what order. */
+function runScenario(): Promise<Scenario> {
+  scenario ??= executeScenario()
+  return scenario
+}
+
+describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)', () => {
+  afterAll(async () => {
+    const pending = scenario
+    scenario = undefined
+    const owned = { ...resources }
+    for (const key of Object.keys(resources) as (keyof RehearsalResources)[]) delete resources[key]
+    if (pending) await pending.catch(() => undefined)
+    await disposeRehearsal(owned, async (database) => {
+      assertScratch(database)
+      await adminExecute(`drop database if exists "${database}" with (force)`)
+    })
   }, 300_000)
 
-  afterAll(async () => {
-    try {
-      await connection?.close()
-    } catch {
-      // Setup may fail before a connection opens; the drop below still runs.
-    }
-    if (scratch) {
-      assertScratch(scratch)
-      const admin = postgres(urlForDatabase('postgres'), { max: 1, onnotice: () => {} })
-      try {
-        await admin.unsafe(`drop database if exists "${scratch}" with (force)`)
-      } finally {
-        await admin.end()
-      }
-    }
-    if (preFolder) rmSync(preFolder, { recursive: true, force: true })
-  }, 120_000)
-
   test('the pre-cutover database has exactly the journal entries before the cutover tag', async () => {
-    const rows = await connection.db.execute<{ count: number }>(
-      sql`select count(*)::int as count from drizzle.__drizzle_migrations`
-    )
-    const journal = JSON.parse(readFileSync(`${DRIZZLE_DIR}/meta/_journal.json`, 'utf8')) as Journal
-    const cut = journal.entries.findIndex((entry) => entry.tag === CUTOVER_TAG)
-    expect(rows[0]?.count).toBe(cut)
-    const [table] = await connection.db.execute<{ present: boolean }>(
-      sql`select to_regclass('app.artifact_reference_grants') is not null as present`
-    )
-    expect(table?.present).toBe(false)
-  })
+    const { pre, journalLength } = await runScenario()
+    expect(pre.applied).toBe(pre.expectedApplied)
+    expect(pre.applied).toBeLessThan(journalLength)
+    expect(pre.grantsTablePresent).toBe(false)
+  }, 300_000)
 
   test('the cutover applies the remaining journal entry and changes no captured record', async () => {
-    await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
-    const [table] = await connection.db.execute<{ present: boolean }>(
-      sql`select to_regclass('app.artifact_reference_grants') is not null as present`
-    )
-    expect(table?.present).toBe(true)
+    const { cutover, journalLength, cutoverComparison, baselineReads, afterReads } =
+      await runScenario()
+    expect(cutover.applied).toBe(journalLength)
+    expect(cutover.grantsTablePresent).toBe(true)
+    expect(cutover.artifactRows).toBe(1)
+    expect(cutoverComparison.findings).toEqual([])
+    expect(cutoverComparison.verdict).toBe('identical')
+    expect(afterReads).toEqual(baselineReads)
+  }, 300_000)
 
-    after = await captureMigrationSnapshot(connection.db, { identity: identity('after') })
-    const comparison = compareMigrationSnapshots({ after: after.document, before: before.document })
-    expect(comparison.findings).toEqual([])
-    expect(comparison.verdict).toBe('identical')
-    expect(await readThroughProduct(connection, fixture)).toEqual(baselineReads)
-  })
-
-  test('the capture covers the rehearsed families and the fixture survives the cutover', async () => {
+  test('the capture covers the rehearsed families and the fixture is read through the product', async () => {
+    const { before, baselineReads } = await runScenario()
     const families = Object.keys(before.document.sections).toSorted()
     expect(families).toEqual(
       [
@@ -367,28 +533,22 @@ describe.skipIf(!provisioningUrl)('migration cutover rehearsal (#1222)', () => {
     expect(baselineReads.outsider.sharedMessages).toBe('denied')
     expect(baselineReads.collaborator.sharedMessages).toBe('denied')
     expect(baselineReads.collaborator.archivedMessages).toBe('denied')
-  })
+  }, 300_000)
 
   test('repeating the migration and capture is idempotent', async () => {
-    await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
-    const rows = await connection.db.execute<{ count: number }>(
-      sql`select count(*)::int as count from drizzle.__drizzle_migrations`
-    )
-    const journal = JSON.parse(readFileSync(`${DRIZZLE_DIR}/meta/_journal.json`, 'utf8')) as Journal
-    expect(rows[0]?.count).toBe(journal.entries.length)
-
-    const again = await captureMigrationSnapshot(connection.db, {
-      identity: identity('after-repeat'),
-    })
-    expect(
-      compareMigrationSnapshots({ after: again.document, before: after.document }).findings
-    ).toEqual([])
-    expect(await readThroughProduct(connection, fixture)).toEqual(baselineReads)
-  })
+    const { repeat, journalLength, repeatComparison, repeatReads, afterReads, again, after } =
+      await runScenario()
+    expect(repeat.applied).toBe(journalLength)
+    expect(repeat.artifactRows).toBe(1)
+    expect(repeatComparison.findings).toEqual([])
+    expect(repeatComparison.verdict).toBe('identical')
+    expect(again.document.sections).toEqual(after.document.sections)
+    expect(repeatReads).toEqual(afterReads)
+  }, 300_000)
 
   test('denied users stay denied through the product read paths after cutover', async () => {
-    const reads = await readThroughProduct(connection, fixture)
-    expect(reads.outsider).toEqual({
+    const { afterReads, baselineReads, fixture } = await runScenario()
+    expect(afterReads.outsider).toEqual({
       channels: 'denied',
       sharedMessages: 'denied',
       archivedMessages: 'denied',
@@ -397,26 +557,123 @@ describe.skipIf(!provisioningUrl)('migration cutover rehearsal (#1222)', () => {
       members: 'denied',
     })
     // A workspace member who is not a participant sees neither channel's content.
-    expect(reads.collaborator.sharedMessages).toBe('denied')
-    expect(reads.collaborator.archivedMessages).toBe('denied')
-    // Message reads exclude archived channels for everyone, participants included, so the
-    // archived participant-only channel is denied to all principals before and after cutover.
-    expect(reads.owner.archivedMessages).toBe('denied')
-    expect(reads.owner.archivedMessages).toEqual(baselineReads.owner.archivedMessages)
+    expect(afterReads.collaborator.sharedMessages).toBe('denied')
+    expect(afterReads.collaborator.archivedMessages).toBe('denied')
+    // Message reads exclude archived channels for everyone, participants included.
+    expect(afterReads.owner.archivedMessages).toBe('denied')
+    expect(afterReads.owner.archivedMessages).toEqual(baselineReads.owner.archivedMessages)
     // Only the participant sees the archived channel in the includeArchived listing.
-    expect(reads.owner.channels).toContain(fixture.archivedChannelId)
-    expect(reads.collaborator.channels).not.toContain(fixture.archivedChannelId)
-  })
+    expect(afterReads.owner.channels).toContain(fixture.archivedChannelId)
+    expect(afterReads.collaborator.channels).not.toContain(fixture.archivedChannelId)
+    // Positive controls: the same resources are readable by an authorized principal, so each
+    // denial above is a real authorization outcome and not a missing fixture.
+    expect(afterReads.owner.sharedMessages).not.toBe('denied')
+    expect(afterReads.owner.members).not.toBe('denied')
+    expect(afterReads.collaborator.members).not.toBe('denied')
+    expect(afterReads.collaborator.tasks).not.toBe('denied')
+  }, 300_000)
 
-  test('the comparator still reports a removed record after cutover', () => {
-    const mutated = structuredClone(after.document) as typeof after.document
-    const messages = mutated.sections.messages
-    if (!messages) throw new Error('messages section missing')
-    mutated.sections.messages = { ...messages, records: messages.records.slice(1) }
-    const comparison = compareMigrationSnapshots({ after: mutated, before: after.document })
-    expect(comparison.verdict).not.toBe('identical')
-    expect(comparison.findings.some((finding) => finding.findingClass === 'missing_record')).toBe(
+  test('artifact-reference grants register, survive repeat migration, and revoke through the API', async () => {
+    const { grants } = await runScenario()
+    // Registered through the real API by the source owner.
+    expect(grants.registration.outcome).toBe('registered')
+    expect(grants.registration.state.revision).toBe(1)
+    expect(grants.registration.state.revoked).toBe(false)
+    // Authority is enforced: a non-member of the source workspace is refused.
+    expect(grants.outsiderRegistration).toBeInstanceOf(ArtifactReferenceGrantError)
+    expect((grants.outsiderRegistration as Error).message).toBe(
+      'Artifact reference grant issuer unauthorized'
+    )
+    // The grant reads back identically before and after the repeat migration.
+    expect(grants.grantBeforeRepeat).not.toBeNull()
+    expect(grants.grantAfterRepeat).toEqual(grants.grantBeforeRepeat)
+    expect(grants.grantRowsBefore).toBe(1)
+    expect(grants.grantRowsAfterRepeat).toBe(1)
+    // Revocation through the API. The stored grant reads back revoked for the presentation that
+    // matches it, so a holder cannot treat the grant as live after revocation.
+    expect(grants.revoked?.revoked).toBe(true)
+    expect(grants.revokedCurrent?.revoked).toBe(true)
+    expect(grants.staleAfterRevoke?.revoked).toBe(true)
+  }, 300_000)
+
+  test('the comparator still reports a removed record after cutover', async () => {
+    const { sensitivity } = await runScenario()
+    expect(sensitivity.verdict).not.toBe('identical')
+    expect(sensitivity.findings.some((finding) => finding.findingClass === 'missing_record')).toBe(
       true
     )
+  }, 300_000)
+})
+
+describe('product denial classification (no database)', () => {
+  test('an unrelated failure from a read path is not treated as a denial', async () => {
+    const connectionLoss = new Error('connection terminated unexpectedly')
+    await expect(view(() => Promise.reject(connectionLoss))).rejects.toBe(connectionLoss)
+    const missingRelation = new Error('relation "app.artifact_reference_grants" does not exist')
+    await expect(view(() => Promise.reject(missingRelation))).rejects.toBe(missingRelation)
+    const notAnError = 'Channel unavailable'
+    await expect(view(() => Promise.reject(notAnError))).rejects.toBe(notAnError)
+  })
+
+  test('the product denial messages are denials, exactly', async () => {
+    for (const message of [
+      'Channel unavailable',
+      'Conversation participant unavailable',
+      'Message unavailable',
+      'Project unavailable',
+      'Read state unavailable',
+      'Task unavailable',
+    ]) {
+      expect(await view(() => Promise.reject(new Error(message)))).toBe('denied')
+    }
+    expect(isProductDenial(new Error('Channel unavailable!'))).toBe(false)
+    expect(isProductDenial(new Error('channel unavailable'))).toBe(false)
+  })
+})
+
+describe('cleanup disposal (no database)', () => {
+  test('every step is attempted, failures surface together, and the folder is removed', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'rehearsal-1222-dispose-'))
+    writeFileSync(join(folder, 'marker.sql'), '-- marker')
+    const attempted: string[] = []
+    const closeError = new Error('close failed')
+    const dropError = new Error('drop failed')
+    const failure = await disposeRehearsal(
+      {
+        connection: {
+          close: async () => {
+            attempted.push('close')
+            throw closeError
+          },
+        },
+        scratch: 'rehearsal_1222_x',
+        preFolder: folder,
+      },
+      async () => {
+        attempted.push('drop')
+        throw dropError
+      }
+    ).catch((error: unknown) => error)
+    expect(attempted).toEqual(['close', 'drop'])
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([closeError, dropError])
+    expect(existsSync(folder)).toBe(false)
+  })
+
+  test('a clean disposal drops the scratch database and removes the folder', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'rehearsal-1222-clean-'))
+    const dropped: string[] = []
+    await disposeRehearsal(
+      {
+        connection: { close: async () => undefined },
+        scratch: 'rehearsal_1222_y',
+        preFolder: folder,
+      },
+      async (database) => {
+        dropped.push(database)
+      }
+    )
+    expect(dropped).toEqual(['rehearsal_1222_y'])
+    expect(existsSync(folder)).toBe(false)
   })
 })

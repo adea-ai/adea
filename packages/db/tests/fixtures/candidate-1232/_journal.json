@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791529797353,
+      "tag": "0047_huge_hitman",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791529867999,
+      "tag": "0048_graceful_prima",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791530437626,
+      "tag": "0049_group_participation_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791534000000,
+      "tag": "0050_group_legacy_backfill",
+      "breakpoints": true
+    }
+  ]
+}
