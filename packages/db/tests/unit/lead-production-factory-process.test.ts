@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
+  FactoryFixtureFailure,
   factoryFailureRecord,
   runFactoryProof,
   startFactoryChild,
@@ -143,5 +144,121 @@ process.exitCode=await runFactoryProof(async()=>verifyInstalledPackagePayload({a
     expect(result.stdout).toBe('')
     expect(result.stderr).not.toContain(canary)
     expect(JSON.parse(result.stderr)).toMatchObject({ phase: 'preflight', code: 'PROOF_FAILED' })
+  })
+  test('diagnostic captures a changing code getter exactly once', () => {
+    const failure = new FactoryFixtureFailure('PROOF_FAILED')
+    let reads = 0
+    Object.defineProperty(failure, 'code', { get: () => (++reads === 1 ? 'PROOF_FAILED' : canary) })
+    const record = factoryFailureRecord('prepare', failure, 1)
+    expect(reads).toBe(1)
+    expect(record.code).toBe('PROOF_FAILED')
+    expect(JSON.stringify(record)).not.toContain(canary)
+  })
+  test('diagnostic throwing code getter cannot abort remaining cleanup', async () => {
+    const failure = new FactoryFixtureFailure('PROOF_FAILED')
+    let reads = 0
+    Object.defineProperty(failure, 'code', {
+      get: () => {
+        reads++
+        throw Error(canary)
+      },
+    })
+    const records: unknown[] = [],
+      completed: string[] = []
+    const status = await runFactoryProof(
+      async () => {
+        throw failure
+      },
+      {
+        phase: () => 'prepare',
+        readerRequests: () => 0,
+        actions: [
+          () => {
+            completed.push('first')
+            throw failure
+          },
+          () => {
+            completed.push('last')
+          },
+        ],
+      },
+      (record) => {
+        records.push(record)
+      }
+    )
+    expect(status).toBe(1)
+    expect(reads).toBe(2)
+    expect(completed).toEqual(['first', 'last'])
+    expect(records).toHaveLength(2)
+    expect(JSON.stringify(records)).not.toContain(canary)
+    expect(records).toEqual([
+      {
+        schemaVersion: 'adea-production-factory-failure/v1',
+        phase: 'prepare',
+        code: 'PROOF_FAILED',
+        readerRequests: 0,
+      },
+      {
+        schemaVersion: 'adea-production-factory-failure/v1',
+        phase: 'cleanup',
+        code: 'PROOF_FAILED',
+        readerRequests: 0,
+      },
+    ])
+  })
+  test('diagnostic context and rejected output cannot interrupt cleanup', async () => {
+    const completed: string[] = [],
+      records: unknown[] = []
+    const status = await runFactoryProof(
+      async () => {
+        throw Error(canary)
+      },
+      {
+        phase: () => {
+          throw Error(canary)
+        },
+        readerRequests: () => {
+          throw Error(canary)
+        },
+        actions: [
+          () => {
+            completed.push('first')
+            throw Error(canary)
+          },
+          () => {
+            completed.push('last')
+          },
+        ],
+      },
+      async (record) => {
+        records.push(record)
+        throw Error(canary)
+      }
+    )
+    expect(status).toBe(1)
+    expect(completed).toEqual(['first', 'last'])
+    expect(records).toHaveLength(2)
+    expect(JSON.stringify(records)).not.toContain(canary)
+  })
+
+  test('pending diagnostic output cannot hold resource cleanup', async () => {
+    let completed = false
+    const status = await runFactoryProof(
+      async () => {
+        throw Error(canary)
+      },
+      {
+        phase: () => 'prepare',
+        readerRequests: () => 0,
+        actions: [
+          () => {
+            completed = true
+          },
+        ],
+      },
+      () => new Promise(() => {})
+    )
+    expect(status).toBe(1)
+    expect(completed).toBe(true)
   })
 })

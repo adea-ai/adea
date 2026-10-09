@@ -32,11 +32,23 @@ export class FactoryFixtureFailure extends Error {
     this.code = codes.has(code) ? code : 'PROOF_FAILED'
   }
 }
+function readErrorCode(error) {
+  try {
+    return error?.code
+  } catch {
+    return undefined
+  }
+}
 /** No error messages, stacks, upstream text, executable paths, or child stderr cross this boundary. */
 export function factoryFailureRecord(phase, error, readerRequests = 0) {
   let code = 'PROOF_FAILED'
-  if (error instanceof FactoryFixtureFailure && codes.has(error.code)) code = error.code
-  else if (error?.code === 'ERR_ASSERTION') code = 'PROOF_ASSERTION_FAILED'
+  const captured = readErrorCode(error)
+  try {
+    if (typeof captured === 'string') {
+      if (error instanceof FactoryFixtureFailure && codes.has(captured)) code = captured
+      else if (captured === 'ERR_ASSERTION') code = 'PROOF_ASSERTION_FAILED'
+    }
+  } catch {} // A hostile prototype/proxy cannot escape diagnostic construction.
   return {
     schemaVersion: 'adea-production-factory-failure/v1',
     phase: phases.has(phase) ? phase : 'preflight',
@@ -84,10 +96,11 @@ export function startFactoryChild(binary, args, options) {
     didSpawn = true
   })
   child.on('error', (error) => {
+    const captured = readErrorCode(error)
     const code =
-      error?.code === 'ENOENT'
+      captured === 'ENOENT'
         ? 'HOST_BINARY_MISSING'
-        : error?.code === 'EACCES'
+        : captured === 'EACCES'
           ? 'HOST_BINARY_NOT_EXECUTABLE'
           : 'HOST_SPAWN_FAILED'
     settleStartup(new FactoryFixtureFailure(code))
@@ -170,18 +183,31 @@ export async function runFactoryProof(
   output = (record) => console.error(JSON.stringify(record))
 ) {
   let failed = false
+  function report(error, cleanup = false) {
+    let phase = cleanup ? 'cleanup' : 'preflight'
+    let requests = 0
+    try {
+      if (!cleanup) phase = cleanups.phase()
+    } catch {}
+    try {
+      requests = cleanups.readerRequests()
+    } catch {}
+    try {
+      void Promise.resolve(output(factoryFailureRecord(phase, error, requests))).catch(() => {})
+    } catch {} // Diagnostic construction/output must never interrupt resource cleanup.
+  }
   try {
     await work()
   } catch (error) {
     failed = true
-    output(factoryFailureRecord(cleanups.phase(), error, cleanups.readerRequests()))
+    report(error)
   } finally {
     for (const cleanup of cleanups.actions) {
       try {
         await cleanup()
       } catch (error) {
         failed = true
-        output(factoryFailureRecord('cleanup', error, cleanups.readerRequests()))
+        report(error, true)
       }
     }
   }

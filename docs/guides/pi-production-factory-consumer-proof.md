@@ -63,7 +63,9 @@ Asynchronous spawn errors and process close settle startup only once. Missing or
 non-executable binaries still run every owned cleanup. Failure records contain only
 a bounded phase, allow-listed code and safe request count; messages, stacks, child
 stdout/stderr and credential fields are never forwarded. Failure returns a nonzero
-exit without rethrowing a raw error. The process-fault tests exercise missing binaries,
+exit without rethrowing a raw error. Error codes are captured once under a guarded read;
+diagnostic callbacks and output failures cannot interrupt subsequent cleanup.
+The process-fault tests exercise missing binaries,
 permissions, real owned reader shutdown and primary/cleanup/startup canaries without
 starting PostgreSQL or a provider.
 It retains its synthetic canonical DB records as evidence; isolate the test target.
