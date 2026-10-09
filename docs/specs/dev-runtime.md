@@ -1586,18 +1586,23 @@ The following invariants are mandatory:
    resume, duplicate, or implicitly transfer a run.
 3. Input ownership is changed only by the authorized `dev.session.transferInput`
    operation. Renderer focus is a presentation hint, not ownership proof.
-   The transfer also records the retained coordination holder (#1177):
-   `toView` `'dev'` hands coordination to the lead, `'chat'` returns it to
-   the user, projected as the session's optional `coordinationOwner` on
-   every later `get`/`list` reply and across restarts. Absent means no
-   explicit coordination was ever recorded. The routing (`fromView`/
-   `toView`) stays transient and is never stored; only the holder is
-   retained, and only `transferInput` may write it.
-4. The provider MUST expose the authenticated preference scope separately from
+   Input-view routing is transient and records nothing: an ordinary
+   chat<->Dev View switch never hands off agent coordination (#1177).
+4. Session coordination is bound only by the authorized
+   `dev.session.transferCoordination` operation. Handing coordination to
+   the lead names the exact register-bound harness run receiving it
+   (`harnessRunId` must equal the session's `activeHarnessRunId` or the
+   transfer is refused); returning it releases coordination back to the
+   user. The binding is retained as the session's optional
+   `coordinationOwner` (`'lead'` with its `coordinationHarnessRunId`, or
+   `'user'` with no run) on every later `get`/`list` reply and across
+   restarts. Absent means no explicit coordination was ever recorded.
+   Only `transferCoordination` may write these fields.
+5. The provider MUST expose the authenticated preference scope separately from
    runtime records. Until that scope exists, Dev may render unavailable state
    and pure local fixtures in development/E2E only, but MUST NOT persist a
    production layout under a guessed or synthetic scope.
-5. Changing workspace or runtime node cancels in-flight private queries before
+6. Changing workspace or runtime node cancels in-flight private queries before
    removing the old scope's cache. No projection, selection, path label, or
    preference from the old node may be used for the new node.
 
@@ -2124,7 +2129,7 @@ type DevOperation =
   | `dev.connections.${'get' | 'setGitHosting' | 'setHarnessAccount'}`
   | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
-  | `dev.session.${'create' | 'get' | 'list' | 'launchDefault' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
+  | `dev.session.${'create' | 'get' | 'list' | 'launchDefault' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'transferCoordination' | 'archive' | 'unarchive'}`
   | `dev.harness.${'managedPiStatus' | 'managedPiInstall' | 'acpConnect' | 'acpConnections' | 'acpClose' | 'preferences' | 'preferenceUpdate' | 'preferenceReset' | 'runStatus' | 'runs'}`
   | `dev.harness.accountProfiles.${'list' | 'create' | 'delete'}`
   | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream' | 'renameOverwritePlan' | 'renameOverwriteCommit' | 'deleteTreePlan' | 'deleteTreeCommit' | 'copyTreePlan' | 'copyTreeCommit'}`
@@ -2565,7 +2570,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.connections`            | `get`, `setGitHosting`, `setHarnessAccount`                                                                                                                                                                                                                                                                            |
 | `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `rename`, `diffSummary`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                               |
 | `dev.terminal`               | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                                                                               |
-| `dev.session`                | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                                                                         |
+| `dev.session`                | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `transferCoordination`, `archive`, `unarchive`                                                                                                                                                 |
 | `dev.summary`                | `workspaces`                                                                                                                                                                                                                                                                                                           |
 | `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`, `accountProfiles.list`, `accountProfiles.create`, `accountProfiles.delete`                                                                               |
 | `dev.memory`                 | `propose`                                                                                                                                                                                                                                                                                                              |

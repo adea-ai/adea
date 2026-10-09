@@ -64,7 +64,7 @@ export type ChatViewProps = Readonly<{
     Partial<
       Pick<
         ChatConversationModel,
-        'transfer' | 'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId'
+        'coordinate' | 'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId'
       >
     >
   authority?: ChatInputAuthority
@@ -297,44 +297,46 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     return void runHandoffAction('lead_stop', stop)
   }
 
-  const recordTransferReceipt =
-    (fromView: 'chat' | 'dev', toView: 'chat' | 'dev') => (result: unknown) => {
-      // The confirmed receipt carries the refreshed canonical generation:
-      // it applies exactly while the conversation shows it, and goes
-      // superseded (never overwriting) once canonical ownership moves on.
-      const generation = (result as ChatConversation | undefined)?.generation
-      if (typeof generation !== 'number') return
-      setHandoffReceipt({
-        sessionId: props.conversation.runtimeSessionId,
-        fromView,
-        toView,
-        generation,
-      })
-    }
+  const recordTransferReceipt = (holder: 'lead' | 'user') => (result: unknown) => {
+    // The confirmed receipt carries the refreshed canonical generation:
+    // it applies exactly while the conversation shows it, and goes
+    // superseded (never overwriting) once canonical ownership moves on.
+    const generation = (result as ChatConversation | undefined)?.generation
+    if (typeof generation !== 'number') return
+    setHandoffReceipt({
+      sessionId: props.conversation.runtimeSessionId,
+      holder,
+      generation,
+    })
+  }
 
-  const transferThrough = (
+  const coordinateThrough = (
     action: 'return_to_user' | 'handoff_to_lead',
-    direction: { fromView: 'chat' | 'dev'; toView: 'chat' | 'dev' }
+    direction: { toHolder: 'lead' | 'user'; harnessRunId?: string }
   ): Promise<'completed' | 'rejected' | 'superseded'> => {
-    const transfer = props.model?.transfer
-    if (!transfer) return Promise.resolve('rejected')
+    const coordinate = props.model?.coordinate
+    if (!coordinate) return Promise.resolve('rejected')
     return runHandoffAction(
       action,
-      () => transfer(props.conversation.runtimeSessionId, direction),
-      recordTransferReceipt(direction.fromView, direction.toView)
+      () => coordinate(props.conversation.runtimeSessionId, direction),
+      recordTransferReceipt(direction.toHolder)
     )
   }
 
   const returnToUserAction = (): void | Promise<void> => {
     if (props.onReturnToUser) return props.onReturnToUser()
-    if (!props.model?.transfer) return undefined
-    return void transferThrough('return_to_user', { fromView: 'dev', toView: 'chat' })
+    if (!props.model?.coordinate) return undefined
+    return void coordinateThrough('return_to_user', { toHolder: 'user' })
   }
 
   const handoffToLeadAction = (): void | Promise<void> => {
     if (props.onHandoffToLead) return props.onHandoffToLead()
-    if (!props.model?.transfer) return undefined
-    return void transferThrough('handoff_to_lead', { fromView: 'chat', toView: 'dev' })
+    if (!props.model?.coordinate) return undefined
+    // The handoff names the exact register-bound run receiving coordination;
+    // the host refuses anything but the current binding.
+    const harnessRunId = props.conversation.activeHarnessRunId
+    if (!harnessRunId) return undefined
+    return void coordinateThrough('handoff_to_lead', { toHolder: 'lead', harnessRunId })
   }
 
   const reconnectHandoffAction = (): void | Promise<void> => {
@@ -417,10 +419,10 @@ export function ChatView(props: ChatViewProps): JSX.Element {
               props.onReconnectHandoff ?? (props.model ? reconnectHandoffAction : undefined)
             }
             onReturnToUser={
-              props.onReturnToUser ?? (props.model?.transfer ? returnToUserAction : undefined)
+              props.onReturnToUser ?? (props.model?.coordinate ? returnToUserAction : undefined)
             }
             onHandoffToLead={
-              props.onHandoffToLead ?? (props.model?.transfer ? handoffToLeadAction : undefined)
+              props.onHandoffToLead ?? (props.model?.coordinate ? handoffToLeadAction : undefined)
             }
             actionState={handoffAction}
           />

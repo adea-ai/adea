@@ -267,7 +267,10 @@ export type ChatConversationModel = Readonly<{
   switchTo(runtimeSessionId: string): ChatConversation
   resume(runtimeSessionId: string, harnessRunId?: string): Promise<ChatConversation>
   cancel(runtimeSessionId: string, harnessRunId?: string): Promise<ChatConversation>
-  transfer(runtimeSessionId: string, direction: SessionTransferDirection): Promise<ChatConversation>
+  coordinate(
+    runtimeSessionId: string,
+    direction: SessionCoordinationDirection
+  ): Promise<ChatConversation>
   archive(runtimeSessionId: string, reason?: string): Promise<ChatConversation>
   unarchive(runtimeSessionId: string): Promise<ChatConversation>
   send(runtimeSessionId: string, text: string): Promise<void>
@@ -287,9 +290,9 @@ export type ChatConversationModel = Readonly<{
   }>
 }>
 
-export type SessionTransferDirection = Readonly<{
-  fromView: 'chat' | 'dev'
-  toView: 'chat' | 'dev'
+export type SessionCoordinationDirection = Readonly<{
+  toHolder: 'lead' | 'user'
+  harnessRunId?: string
 }>
 
 export function createChatConversationModel(
@@ -557,9 +560,9 @@ export function createChatConversationModel(
     await executeChatCommand(service, command)
     return refresh(runtimeSessionId)
   }
-  const transferInput = async (
+  const transferCoordination = async (
     runtimeSessionId: string,
-    direction: SessionTransferDirection
+    direction: SessionCoordinationDirection
   ): Promise<ChatConversation> => {
     const current = sessions.get(runtimeSessionId)
       ? requireConversation(runtimeSessionId)
@@ -571,19 +574,20 @@ export function createChatConversationModel(
         retryable: false,
         message: `Runtime session ${runtimeSessionId} was not found.`,
       })
-    // The persisted authoritative input-ownership transfer (#1177): the host
-    // fences it on the exact generation and owner version, bumps both, and
-    // publishes `session.input_transferred`. Input granted under the old
+    // The persisted authoritative coordination transfer (#1177): the host
+    // fences it on the exact generation and owner version, binds or releases
+    // the retained holder, bumps both, and publishes
+    // `session.coordination_changed`. Coordination granted under the old
     // generation is inert afterwards, so a transport loss after commit is
     // recovered by refreshing — never by replaying blindly.
     const command = buildDevCommand({
-      operation: 'dev.session.transferInput',
+      operation: 'dev.session.transferCoordination',
       scope,
       body: {
         runtimeSessionId,
         expectedGeneration: current.generation,
-        fromView: direction.fromView,
-        toView: direction.toView,
+        toHolder: direction.toHolder,
+        ...(direction.harnessRunId !== undefined ? { harnessRunId: direction.harnessRunId } : {}),
         expectedOwnerVersion: stored.version,
       },
       resource: sessionResource(stored),
@@ -842,7 +846,7 @@ export function createChatConversationModel(
       mutateSession(runtimeSessionId, 'dev.session.resumeHarness', harnessRunId),
     cancel: (runtimeSessionId, harnessRunId) =>
       mutateSession(runtimeSessionId, 'dev.session.cancelHarness', harnessRunId),
-    transfer: (runtimeSessionId, direction) => transferInput(runtimeSessionId, direction),
+    coordinate: (runtimeSessionId, direction) => transferCoordination(runtimeSessionId, direction),
     archive,
     unarchive,
     send,

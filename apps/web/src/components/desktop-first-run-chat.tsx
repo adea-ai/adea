@@ -467,7 +467,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                         onJumpToTerminal={props.onOpenDev}
                         // #1177 production handoff supply: the view derives from
                         // the live conversation with model-backed lead-stop,
-                        // reconnect, and return-to-user (transferInput) actions.
+                        // reconnect, handoff, and return-to-user (transferCoordination) actions.
                         handoff={{}}
                         readingPosition={props.modelHost.readingPosition(state().scope, active())}
                         onReadingPositionChange={(identity, position) => {

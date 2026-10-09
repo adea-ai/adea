@@ -1464,6 +1464,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
     stream: null,
   },
+  'dev.session.transferCoordination': {
+    body: "{ runtimeSessionId: string; expectedGeneration: integer; toHolder: 'lead'|'user'; harnessRunId?: string; expectedOwnerVersion: integer }",
+    capabilities: ['dev.session.manage'],
+    reply: 'RuntimeSession',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
   'dev.session.transferInput': {
     body: "{ runtimeSessionId: string; expectedGeneration: integer; fromView: 'chat'|'dev'; toView: 'chat'|'dev'; expectedOwnerVersion: integer }",
     capabilities: ['dev.session.manage'],

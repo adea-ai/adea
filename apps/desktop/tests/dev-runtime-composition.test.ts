@@ -392,6 +392,7 @@ describe('dev runtime composition', () => {
         'dev.session.get',
         'dev.session.create',
         'dev.session.transferInput',
+        'dev.session.transferCoordination',
         'dev.session.archive',
         'dev.session.unarchive',
         // #31/#32 harness substrate: managed Pi, ACP lane, and run status.

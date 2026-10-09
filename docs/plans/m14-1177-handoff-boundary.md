@@ -26,26 +26,28 @@ Implementation: `packages/dev-view/src/chat/model/handoff.ts`
 production supplier, single-flight admission with a monotonic view/action
 epoch), `packages/dev-view/src/chat/handoff-controls.tsx`, default supplier
 plus model-backed actions in `ChatView` (`handoff` config; full `handoffView`
-override still wins), `transfer` on `ChatConversationModel`, retained
-`coordinationOwner` on `RuntimeSession` written only by the host
-`transferInput` handler, and the production enablement in
+override still wins), `coordinate` on `ChatConversationModel`, the explicit
+`dev.session.transferCoordination` host operation (registered in
+`docs/specs/dev-runtime-operations.json` with generated metadata/registry),
+and the production enablement in
 `apps/web/src/components/desktop-first-run-chat.tsx`.
 
-Coordination semantics: nothing is inferred from a bound run or from
-composer input authority — a user-created direct run is not proof of an
-explicit handoff, and who may type in a box is a different dimension from
-who holds session coordination. The retained coordination holder lives on
-the session record itself: `dev.session.transferInput` writes
-`coordinationOwner` (`toView` `'dev'` hands coordination to the lead,
-`'chat'` returns it to the user) alongside the generation/version bump,
-and every later `get`/`list` reply and restart projects it. Absent means
-no explicit coordination was ever recorded, and a live session without one
-attaches read-only even with a run bound. The transient input-view
-routing (`fromView`/`toView`) stays a distinct, unstored concept: the
-routing says where input goes next, the owner says who coordinates until
-the next explicit transfer. The only paths into a coordinating mode are
-the host-projected owner, our unobserved commit (current receipt), or an
-explicit caller override — never a default.
+Coordination semantics: nothing is inferred from a bound run, from composer
+input authority, or from input-view routing — a user-created direct run is
+not proof of an explicit handoff, who may type in a box is a different
+dimension, and an ordinary chat<->Dev View input switch records nothing.
+Coordination moves only through the explicit authorized operation
+`dev.session.transferCoordination` (`dev.session.manage`, generation- and
+owner-version-fenced, resource-bound): handing coordination to the lead
+names the exact register-bound harness run receiving it (anything but the
+current `activeHarnessRunId` is refused, so no view label can invent a
+lead), and returning it releases coordination back to the user. The
+binding is retained as `coordinationOwner` (`'lead'` with its
+`coordinationHarnessRunId`, or `'user'` with no run) on every later
+`get`/`list` reply and across restarts; absent means no explicit
+coordination was ever recorded. The only paths into a coordinating mode
+are the host-projected owner, our unobserved commit (current receipt), or
+an explicit caller override — never a default.
 The view mints no session, run, or location IDs and switches no worktree,
 project, or execution location. Offline, stale generation, control conflicts,
 scope mismatch, archived sessions, superseded/foreign/terminal runs, and
@@ -53,12 +55,12 @@ missing bound runs each render a named reason with a remediation — never a
 silent fallback. Unsent drafts are preserved through transfer, lead-stop,
 and failed transfers (pinned against the live model maps, not a flag).
 
-Persisted authoritative transition: `dev.session.transferInput`
+Persisted authoritative transition: `dev.session.transferCoordination`
 (generation- and owner-version-fenced, durable host snapshot,
-`session.input_transferred` event, retained `coordinationOwner`).
+`session.coordination_changed` event, retained holder plus bound run).
 Handoff and return execute it for real via
-`ChatConversationModel.transfer` (exact fenced command, refresh from the
-canonical register, drafts untouched); a stale receipt parks an explicit
+`ChatConversationModel.coordinate` (exact fenced command naming the bound
+run for handoffs, refresh from the canonical register, drafts untouched); a stale receipt parks an explicit
 control conflict scoped to the parked generation (it clears when the
 conversation moves past it via refresh, never by blind retry at the same
 generation). Late completions are fenced by session identity plus a
@@ -75,23 +77,29 @@ to the register id exactly as `cancelHarness` does where they do not — a
 run older than the session generation still binds, because transfers bump
 the session without replacing the run.
 
-Existing operations reused (`docs/specs/dev-runtime-operations.json`):
+Contract surface (`docs/specs/dev-runtime-operations.json`, generated
+metadata/registry refreshed in the same commit):
 `dev.session.get`, `dev.session.list`, `dev.session.events`,
-`dev.session.transferInput` (ownership only), `dev.session.cancelHarness`
-(bound harness run only), `dev.session.resumeHarness`,
-`dev.session.archive/unarchive`. Lead-stop maps to the bound `cancelHarness`
-control; nothing else is mapped onto it.
+`dev.session.transferInput` (input-view routing only — records no
+coordination), `dev.session.transferCoordination` (new in this slice: the
+explicit authorized coordination operation above),
+`dev.session.cancelHarness` (bound harness run only),
+`dev.session.resumeHarness`, `dev.session.archive/unarchive`. Lead-stop
+maps to the bound `cancelHarness` control; nothing else is mapped onto
+it.
 
 ## What Adea does NOT own (Control Plane)
 
 Lead-turn/job/descendant cancellation beyond the bound harness run, plus
 native-bridge qualification and budget/progress delivery, remain Control Plane
-products. No new `dev.*` operation was added in this slice and no
-Control Plane code was edited. The session contract was extended within
-#1177 with boundary coordination instead: the optional retained
-`coordinationOwner` on `RuntimeSession` (written only by the existing
-`transferInput`, projected by the existing `get`/`list`, validated on
-stored records), specified in `docs/specs/dev-runtime.md` in the same
+products. No Control Plane code was edited. One new `dev.*` operation
+was added in this slice with boundary coordination (allowed scope: extend
+the relevant existing session projection/host contract within #1177):
+`dev.session.transferCoordination` plus the optional retained
+`coordinationOwner`/`coordinationHarnessRunId` on `RuntimeSession`
+(written only by the new operation, projected by the existing
+`get`/`list`, validated on stored records with foreign bindings failing
+closed as corrupt), specified in `docs/specs/dev-runtime.md` in the same
 commit as the behavior.
 
 ## Exact contract status with the CP #935 owner (verified 2026-10-09)
@@ -139,12 +147,15 @@ disabled states; integration lands when the CP contract is confirmed.
 REQ 032, 080–088, 095, 096, 104, 110, 130–136. Tests A12–A14, A18, A21,
 A23–A25, A33 (this slice: `chat-handoff-model.test.ts` binding/guard/a11y
 contract/action-machine/epoch-admission tests,
-`chat-handoff-transfer.test.ts` exact-command and live-draft-preservation
-tests against the real conversation model,
+`chat-handoff-coordinate.test.ts` exact-command (holder plus bound run)
+and live-draft-preservation tests against the real conversation model,
 `chat-handoff-supplier.test.ts` retained-owner/receipt/run/draft
 derivation tests, `project-session-handoff-journey.test.ts` joined
-real-register journey (direct-user → handoff → return → restart with one
-retained run/location, generation fencing, corrupt-owner fail-closed),
+real-register journey (direct-user → explicit handoff bound to the exact
+run → return → restart with one retained session/run/location at
+gen3/ver3, ordinary view transfer provably recording no coordination,
+generation/version fencing, foreign-run and unbound-handoff refusal,
+return-with-nothing-held refusal, corrupt-binding fail-closed),
 plus mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts`
 over `e2e/helpers/direct-session-handoff-harness-app.tsx`: read-only
 attach default, joined handoff→return with direction proof, single-flight

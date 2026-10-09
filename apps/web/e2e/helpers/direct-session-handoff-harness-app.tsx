@@ -45,11 +45,11 @@ function conversation(
   }
 }
 
-type PendingTransfer = {
+type PendingCoordination = {
   resolve: (next: ChatConversation) => void
   reject: (error: Error) => void
   base: ChatConversation
-  direction: { fromView: 'chat' | 'dev'; toView: 'chat' | 'dev' }
+  direction: { toHolder: 'lead' | 'user'; harnessRunId?: string }
 }
 
 const STORAGE_KEY = 'direct-handoff-fixture-sessions-v1'
@@ -90,10 +90,10 @@ function Harness() {
   }
   const [activeId, setActiveId] = createSignal('session-1')
   const [connected, setConnected] = createSignal(true)
-  const [transferCalls, setTransferCalls] = createSignal(0)
+  const [coordinateCalls, setCoordinateCalls] = createSignal(0)
   const [cancelCalls, setCancelCalls] = createSignal(0)
-  const [lastDirection, setLastDirection] = createSignal('')
-  const pendingTransfers: PendingTransfer[] = []
+  const [lastHolder, setLastHolder] = createSignal('')
+  const pendingCoordinations: PendingCoordination[] = []
 
   const active = createMemo(() => sessions()[activeId()]!)
 
@@ -115,43 +115,49 @@ function Harness() {
       setCancelCalls((count) => count + 1)
       return active()
     },
-    transfer: async (
+    coordinate: async (
       runtimeSessionId: string,
-      direction: { fromView: 'chat' | 'dev'; toView: 'chat' | 'dev' }
+      direction: { toHolder: 'lead' | 'user'; harnessRunId?: string }
     ) => {
-      setTransferCalls((count) => count + 1)
+      setCoordinateCalls((count) => count + 1)
       const base = sessions()[runtimeSessionId]!
-      setLastDirection(`${direction.fromView}→${direction.toView}`)
+      setLastHolder(direction.toHolder)
       return new Promise<ChatConversation>((resolve, reject) => {
-        pendingTransfers.push({ resolve, reject, base, direction })
+        pendingCoordinations.push({ resolve, reject, base, direction })
       })
     },
   }
 
-  const resolveTransfer = () => {
+  const resolveCoordination = () => {
     // FIFO: the oldest pending intent commits first, like the host log.
-    const pending = pendingTransfers.shift()
+    const pending = pendingCoordinations.shift()
     if (!pending) return
+    const { coordinationHarnessRunId: _dropped, ...unbound } = pending.base
+    void _dropped
     const next: ChatConversation = {
-      ...pending.base,
+      ...unbound,
       generation: pending.base.generation + 1,
       version: pending.base.version + 1,
-      // The host-double retains coordination ownership from the explicit
-      // direction, exactly like dev.session.transferInput does.
-      coordinationOwner: pending.direction.toView === 'chat' ? 'user' : 'lead',
+      // The host-double retains coordination exactly like
+      // dev.session.transferCoordination does: the holder plus, for the
+      // lead, the exact bound run — never a view label.
+      coordinationOwner: pending.direction.toHolder,
+      ...(pending.direction.toHolder === 'lead' && pending.direction.harnessRunId !== undefined
+        ? { coordinationHarnessRunId: pending.direction.harnessRunId }
+        : {}),
     }
     updateSessions((previous) => ({ ...previous, [pending.base.runtimeSessionId]: next }))
     pending.resolve(next)
   }
 
-  const rejectTransferStale = () => {
-    const pending = pendingTransfers.shift()
+  const rejectCoordinationStale = () => {
+    const pending = pendingCoordinations.shift()
     if (!pending) return
     pending.reject(
       new ChatRuntimeError({
         code: 'stale_version',
         retryable: false,
-        message: 'input owner version conflict',
+        message: 'coordination owner version conflict',
       })
     )
   }
@@ -168,11 +174,11 @@ function Harness() {
         <Button type="button" onClick={() => setConnected((value) => !value)}>
           {connected() ? 'Go offline' : 'Go online'}
         </Button>
-        <Button type="button" onClick={resolveTransfer}>
-          Resolve pending transfer
+        <Button type="button" onClick={resolveCoordination}>
+          Resolve pending coordination
         </Button>
-        <Button type="button" onClick={rejectTransferStale}>
-          Reject pending transfer stale
+        <Button type="button" onClick={rejectCoordinationStale}>
+          Reject pending coordination stale
         </Button>
         <Button
           type="button"
@@ -192,9 +198,9 @@ function Harness() {
         >
           Observe concurrent generation
         </Button>
-        <output aria-label="Transfer calls">{transferCalls()}</output>
+        <output aria-label="Coordinate calls">{coordinateCalls()}</output>
         <output aria-label="Cancel calls">{cancelCalls()}</output>
-        <output aria-label="Last transfer direction">{lastDirection()}</output>
+        <output aria-label="Last coordination holder">{lastHolder()}</output>
         <output aria-label="Active draft">{active().draft}</output>
         <output aria-label="Active generation">{active().generation}</output>
       </div>
