@@ -34,6 +34,8 @@ import {
 } from '@adea-ai/ui/components/conversation'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { leadRequestedChoicesKey } from './request-id'
+import type { LeadRequestedChoices } from './lead-model-request'
 import { keyedRows } from './keyed-rows'
 import { isWorkspaceLeadConversation, messageSubmissionOutcome } from './lead-conversation-model'
 import {
@@ -170,6 +172,17 @@ export function ConversationSurface(props: {
   const audienceEpoch = useWorkspaceState(
     (state) => state.conversationAudienceEpochs[props.workspaceId] ?? 0
   )
+  const [requestedChoices, setRequestedChoices] = createSignal<LeadRequestedChoices>({})
+  let modelRequests:
+    | ReturnType<typeof import('./lead-model-request').createLeadModelRequestResolver>
+    | undefined
+  createEffect(() => {
+    void props.workspaceId
+    void props.channel?.id
+    void audienceEpoch()
+    setRequestedChoices({})
+    modelRequests?.reset()
+  })
   const [leadReceipt, setLeadReceipt] = createSignal<ApiLeadTurnStatus | null>(null)
   const [cursor, setCursor] = createSignal<number | undefined>()
   const [messages, setMessages] = createSignal<readonly MessageSummary[]>([])
@@ -401,9 +414,25 @@ export function ConversationSurface(props: {
     })
     try {
       const useLead = isWorkspaceLeadConversation(props.channel, directAgent())
+      const choices = requestedChoices()
+      if (useLead && (choices.lead || choices.child) && !modelRequests) {
+        const module = await import('./control-plane-settings')
+        if (!stillCurrent()) return { clearDraft: false }
+        modelRequests = module.createLeadModelRequestResolver(props.client)
+      }
+      const requestedModelSelections = useLead
+        ? await modelRequests?.resolve(
+            submittedWorkspaceId,
+            submission.idempotencyKey,
+            choices,
+            stillCurrent
+          )
+        : undefined
+      if (!stillCurrent()) return { clearDraft: false }
       const created = await createMessage.mutateAsync({
         ...submission,
         ...(useLead ? { leadTurn: true as const } : {}),
+        ...(requestedModelSelections ? { requestedModelSelections } : {}),
       })
       if (!stillCurrent()) return { clearDraft: false }
       if (created.leadTurn)
@@ -476,6 +505,8 @@ export function ConversationSurface(props: {
                   channelId={channel().id}
                   audienceEpoch={audienceEpoch()}
                   receipt={leadReceipt()}
+                  requestedChoices={requestedChoices()}
+                  onRequestedChoicesChange={setRequestedChoices}
                   onTimelineChange={() => void messageQuery.refetch()}
                 />
               </Show>
@@ -486,6 +517,11 @@ export function ConversationSurface(props: {
                 draft={props.draft}
                 onDraftChange={props.onDraftChange}
                 onSubmit={submit}
+                submissionContext={
+                  isWorkspaceLeadConversation(channel(), directAgent())
+                    ? leadRequestedChoicesKey(requestedChoices())
+                    : undefined
+                }
                 transcription={props.transcription}
               />
             </>
