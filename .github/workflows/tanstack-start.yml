@@ -2,7 +2,10 @@ name: TanStack Start Host
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
+    # No opened/reopened: Draft Guard converts every ordinary pull request to
+    # draft, so firing here ran the full lane on a draft and again (cancelled)
+    # at ready. ready_for_review + synchronize are the moments that count.
+    types: [synchronize, ready_for_review]
     paths:
       - 'apps/web/**'
       - 'packages/**'

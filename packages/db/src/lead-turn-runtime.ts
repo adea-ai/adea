@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import type { AgentHqDatabase } from './connection'
-import { createMessage } from './conversations'
+import { createRuntimeResultMessage } from './conversations'
 import { withAuthorizedLeadTurn } from './lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
 
@@ -384,13 +384,13 @@ export function publishLeadTurnResult(
         // Trusted adapter rechecks current selection/payer/grant inside these held canonical locks.
         await assertCurrentGrant()
         const digest = createHash('sha256')
-          .update(JSON.stringify({ ...binding, bodyText: bodyText.trim() }))
+          .update(JSON.stringify({ ...binding, bodyText }))
           .digest('hex')
         if (row.publishedMessageId) {
           if (row.publicationDigest !== digest) throw new Error('RUNTIME_RESPONSE_INVALID')
           return row.publishedMessageId
         }
-        const message = await createMessage(
+        const message = await createRuntimeResultMessage(
           publicationTx,
           workspaceId,
           admitted.channelId,
