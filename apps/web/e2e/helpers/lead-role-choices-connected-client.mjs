@@ -12,35 +12,126 @@ function bounded(promise, milliseconds, code) {
   ]).finally(() => clearTimeout(timer))
 }
 
+function safeSpawnReason(error) {
+  if (error?.code === 'ENOENT') return 'HOST_BINARY_MISSING'
+  if (error?.code === 'EACCES' || error?.code === 'EPERM') return 'HOST_BINARY_NOT_EXECUTABLE'
+  return 'HOST_SPAWN_FAILED'
+}
+
+function startupError(phase, reason) {
+  return new Error(`CONNECTED_FIXTURE_START_FAILED:${phase}:${reason}:Error`)
+}
+
 /** Owns only the Bun fixture child; diagnostic text from its stderr is discarded. */
-export async function startConnectedFixtureChild({ bun, cwd, env }) {
+export async function startConnectedFixtureChild({
+  bun,
+  cwd,
+  env,
+  spawnProcess = spawn,
+  startupTimeoutMs = 60_000,
+  controlTimeoutMs = 10_000,
+  closeCommandTimeoutMs = 20_000,
+  closeWaitMs = 20_000,
+  terminateWaitMs = 5_000,
+  reapWaitMs = 5_000,
+}) {
   const script = new URL('./lead-role-choices-connected-fixture-server.mjs', import.meta.url)
-  const child = spawn(bun, ['--conditions=react-server', script.pathname], {
-    cwd,
-    env,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  })
+  let child
+  try {
+    child = spawnProcess(bun, ['--conditions=react-server', script.pathname], {
+      cwd,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+  } catch {
+    throw startupError('spawn', 'HOST_SPAWN_FAILED')
+  }
   const pending = new Map()
   let readyResolve
   let readyReject
   let didClose = false
-  const closePromise = new Promise((resolve) => child.once('close', resolve))
+  let readySettled = false
+  let closeResult
+  let cleanupPromise
+  let childUnavailable = false
+  let readyRecordReceived = false
+  let childFailureReason
+  let resolveClose
+  const closePromise = new Promise((resolve) => {
+    resolveClose = resolve
+  })
   const readyPromise = new Promise((resolve, reject) => {
     readyResolve = resolve
     readyReject = reject
   })
-  const rejectPending = () => {
-    for (const value of pending.values()) value.reject(new Error('CONNECTED_FIXTURE_CLOSED'))
+  const settleReady = (settle, value) => {
+    if (readySettled) return false
+    readySettled = true
+    settle(value)
+    return true
+  }
+  const rejectPending = (error = new Error('CONNECTED_FIXTURE_CLOSED')) => {
+    for (const value of pending.values()) value.reject(error)
     pending.clear()
   }
-  child.once('error', () => readyReject(new Error('CONNECTED_FIXTURE_SPAWN_FAILED')))
-  child.once('close', () => {
+
+  const signalChild = (signal) => {
+    if (didClose || child.exitCode !== null || child.signalCode !== null) return
+    try {
+      child.kill(signal)
+    } catch {
+      // The close event below is the only proof that this owned process exited.
+    }
+  }
+
+  const terminateAndReap = () => {
+    if (didClose) return closePromise
+    if (cleanupPromise) return cleanupPromise
+    cleanupPromise = (async () => {
+      signalChild('SIGTERM')
+      try {
+        return await bounded(closePromise, terminateWaitMs, 'HOST_TERMINATE_TIMEOUT')
+      } catch {
+        signalChild('SIGKILL')
+        try {
+          return await bounded(closePromise, reapWaitMs, 'HOST_REAP_TIMEOUT')
+        } catch {
+          throw new Error('HOST_REAP_TIMEOUT')
+        }
+      }
+    })()
+    return cleanupPromise
+  }
+
+  const failChild = (phase, reason) => {
+    if (didClose) return
+    childUnavailable = true
+    childFailureReason = reason
+    settleReady(readyReject, startupError(phase, reason))
+    rejectPending(new Error('CONNECTED_FIXTURE_CONTROL_FAILED'))
+    void terminateAndReap().catch(() => {})
+  }
+  const handleChildError = (error) =>
+    failChild(
+      readyRecordReceived ? 'startup' : 'spawn',
+      readyRecordReceived ? 'HOST_CONTROL_UNAVAILABLE' : safeSpawnReason(error)
+    )
+  const handleStreamError = () => failChild('startup', 'HOST_CONTROL_UNAVAILABLE')
+
+  // ChildProcess may emit an asynchronous spawn/kill error after an earlier
+  // error event. Keep the listener installed so no later error escapes.
+  child.on('error', handleChildError)
+  child.once('close', (code, signal) => {
     didClose = true
-    readyReject(new Error('CONNECTED_FIXTURE_CLOSED_BEFORE_READY'))
+    closeResult = { code, signal }
+    settleReady(readyReject, startupError('startup', 'HOST_EXIT_BEFORE_READY'))
     rejectPending()
+    resolveClose(closeResult)
   })
   child.stderr.on('data', () => {})
-  child.stderr.on('error', () => {})
+  child.stderr.on('error', handleStreamError)
+  child.stdin.on('error', handleStreamError)
+  child.stdout.on('error', handleStreamError)
   const lines = createInterface({ input: child.stdout })
   lines.on('line', (line) => {
     try {
@@ -123,12 +214,16 @@ export async function startConnectedFixtureChild({ bun, cwd, env }) {
             /^[A-Za-z][A-Za-z0-9]{0,48}$/u.test(message.failureClass)
               ? message.failureClass
               : 'Error'
-          readyReject(
+          settleReady(
+            readyReject,
             new Error(
               `CONNECTED_FIXTURE_START_FAILED:${phase}:${reason}:${failureClass}${missingPackage ? `:${missingPackage}` : ''}`
             )
           )
-        } else readyResolve(message)
+        } else {
+          readyRecordReceived = true
+          settleReady(readyResolve, message)
+        }
       } else if (typeof message?.controlId === 'string' && pending.has(message.controlId)) {
         const control = pending.get(message.controlId)
         pending.delete(message.controlId)
@@ -140,26 +235,71 @@ export async function startConnectedFixtureChild({ bun, cwd, env }) {
     }
   })
 
-  const writeCommand = (command, fields = {}) => {
-    if (didClose) throw new Error('CONNECTED_FIXTURE_CLOSED')
+  const writeCommand = async (command, fields = {}) => {
+    if (didClose || childUnavailable) throw new Error('CONNECTED_FIXTURE_CLOSED')
     const id = randomUUID()
-    const promise = new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
-    child.stdin.write(`${JSON.stringify({ id, command, ...fields })}\n`, (error) => {
-      if (error) {
-        pending.get(id)?.reject(new Error('CONNECTED_FIXTURE_CONTROL_WRITE_FAILED'))
-        pending.delete(id)
-      }
+    const control = {}
+    const promise = new Promise((resolve, reject) => {
+      Object.assign(control, { resolve, reject })
+      pending.set(id, control)
     })
-    return bounded(
-      promise,
-      command === 'close' ? 20_000 : 10_000,
-      'CONNECTED_FIXTURE_CONTROL_TIMEOUT'
-    )
+    try {
+      child.stdin.write(`${JSON.stringify({ id, command, ...fields })}\n`, (error) => {
+        if (error) {
+          childUnavailable = true
+          if (pending.get(id) === control) {
+            pending.delete(id)
+            control.reject(new Error('CONNECTED_FIXTURE_CONTROL_WRITE_FAILED'))
+          }
+          rejectPending(new Error('CONNECTED_FIXTURE_CONTROL_FAILED'))
+          void terminateAndReap().catch(() => {})
+        }
+      })
+    } catch {
+      childUnavailable = true
+      pending.delete(id)
+      control.reject(new Error('CONNECTED_FIXTURE_CONTROL_WRITE_FAILED'))
+      rejectPending(new Error('CONNECTED_FIXTURE_CONTROL_FAILED'))
+      void terminateAndReap().catch(() => {})
+    }
+    try {
+      return await bounded(
+        promise,
+        command === 'close' ? closeCommandTimeoutMs : controlTimeoutMs,
+        'CONNECTED_FIXTURE_CONTROL_TIMEOUT'
+      )
+    } finally {
+      if (pending.get(id) === control) pending.delete(id)
+    }
   }
 
-  const ready = await bounded(readyPromise, 60_000, 'CONNECTED_FIXTURE_START_TIMEOUT')
+  let ready
+  try {
+    ready = await bounded(readyPromise, startupTimeoutMs, 'CONNECTED_FIXTURE_START_TIMEOUT')
+  } catch (error) {
+    if (error?.message === 'CONNECTED_FIXTURE_START_TIMEOUT')
+      settleReady(readyReject, new Error('CONNECTED_FIXTURE_START_TIMEOUT'))
+    try {
+      await terminateAndReap()
+    } catch {
+      throw new Error('HOST_REAP_TIMEOUT')
+    }
+    throw error
+  }
+  if (didClose || childUnavailable) {
+    try {
+      await terminateAndReap()
+    } catch {
+      throw new Error('HOST_REAP_TIMEOUT')
+    }
+    throw startupError('startup', childFailureReason ?? 'HOST_EXIT_BEFORE_CONTROL_REPLY')
+  }
   if (!ready?.baseUrl || !ready?.workspaceId || !ready?.channelId || !ready?.credential) {
-    await child.close?.()
+    try {
+      await terminateAndReap()
+    } catch {
+      throw new Error('HOST_REAP_TIMEOUT')
+    }
     throw new Error('CONNECTED_FIXTURE_INVALID_READY_RECORD')
   }
   return {
@@ -167,18 +307,24 @@ export async function startConnectedFixtureChild({ bun, cwd, env }) {
     evidence: () => writeCommand('evidence'),
     snapshot: (intentId) => writeCommand('snapshot', { intentId }),
     async close() {
-      if (didClose) return
+      if (didClose) return closePromise
       try {
         await writeCommand('close')
       } catch {
-        if (!didClose && child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
+        // A lost close acknowledgement is resolved by exit or signal escalation.
       }
       if (!didClose) {
-        await bounded(closePromise, 20_000, 'CONNECTED_FIXTURE_CLOSE_TIMEOUT').catch(() => {
-          if (!didClose && child.exitCode === null && child.signalCode === null)
-            child.kill('SIGKILL')
-        })
+        try {
+          await bounded(closePromise, closeWaitMs, 'CONNECTED_FIXTURE_CLOSE_TIMEOUT')
+        } catch {
+          try {
+            await terminateAndReap()
+          } catch {
+            throw new Error('HOST_REAP_TIMEOUT')
+          }
+        }
       }
+      return closeResult
     },
   }
 }
