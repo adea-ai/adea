@@ -758,6 +758,21 @@ export const projectMutationOptions = {
       await queryClient.invalidateQueries({ queryKey: projectQueryKeys.all(workspaceId) })
     },
   }),
+  restore: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      variables: Readonly<{
+        input: Parameters<AgentHqApiClient['restoreProject']>[2]
+        projectId: string
+      }>
+    ) => client.restoreProject(workspaceId, variables.projectId, variables.input),
+    onSuccess: async (
+      result: Awaited<ReturnType<AgentHqApiClient['restoreProject']>>,
+      variables: Readonly<{ projectId: string }>
+    ) => {
+      queryClient.setQueryData(projectQueryKeys.detail(workspaceId, variables.projectId), result)
+      await queryClient.invalidateQueries({ queryKey: projectQueryKeys.all(workspaceId) })
+    },
+  }),
   create: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (input: Parameters<AgentHqApiClient['createProject']>[1]) =>
       client.createProject(workspaceId, input),
@@ -1028,6 +1043,17 @@ export function useDeleteProjectMutation(
   const queryClient = useQueryClient()
   return useMutation(() =>
     projectMutationOptions.delete(client, queryClient, resolveAccessor(workspaceId))
+  )
+}
+
+/** Explicit promotion of an archived project at the observed revision. */
+export function useRestoreProjectMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  const queryClient = useQueryClient()
+  return useMutation(() =>
+    projectMutationOptions.restore(client, queryClient, resolveAccessor(workspaceId))
   )
 }
 

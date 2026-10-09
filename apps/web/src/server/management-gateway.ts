@@ -109,10 +109,29 @@ export function managementFailure(
   const matches = (candidates: ReadonlySet<string>) =>
     [...candidates].some((candidate) => known.has(candidate))
 
-  if (matches(KNOWN_REVISIONS) || matches(KNOWN_ORDER_CONFLICTS))
+  if (
+    matches(KNOWN_REVISIONS) ||
+    matches(KNOWN_ORDER_CONFLICTS) ||
+    known.has('Project promotion conflict') ||
+    known.has('Project state conflict')
+  )
     return Object.freeze({
       code: 'stale_revision' as const,
       message: 'Management target changed; refresh and retry',
+      operation,
+    })
+  // Explicit promotion is only executed with the caller's confirmation; the
+  // domain refusal is projected as a conflict, never as a silent success.
+  if (known.has('Project promotion not confirmed'))
+    return Object.freeze({
+      code: 'conflict' as const,
+      message: 'Management target requires explicit confirmation',
+      operation,
+    })
+  if (known.has('Project state unchanged'))
+    return Object.freeze({
+      code: 'conflict' as const,
+      message: 'Management target is already in the requested state',
       operation,
     })
   if (known.has('Project id conflict'))

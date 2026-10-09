@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 
 import { and, eq } from 'drizzle-orm'
 
+import { archiveChannel, createProjectChannel } from '../../src/conversations'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
@@ -16,7 +17,11 @@ import {
   listProjectsForUser,
 } from '../../src/projects'
 import { setProjectVisibility } from '../../src/project-sharing'
-import { ProjectStatePromotionError, promoteProjectState } from '../../src/project-state-policy'
+import {
+  ProjectStatePromotionError,
+  promoteProjectState,
+  restoreProjectChannels,
+} from '../../src/project-state-policy'
 import {
   channels,
   projects,
@@ -94,6 +99,28 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
     return summary
   }
 
+  async function channelRows(workspaceId: string, projectId: string) {
+    return connection.db
+      .select({
+        archiveSource: channels.archiveSource,
+        id: channels.id,
+        lifecycleState: channels.lifecycleState,
+        version: channels.version,
+      })
+      .from(channels)
+      .where(and(eq(channels.workspaceId, workspaceId), eq(channels.projectId, projectId)))
+  }
+
+  async function eventCount(workspaceId: string, eventType: string) {
+    const rows = await connection.db
+      .select({ eventType: workspaceEvents.eventType })
+      .from(workspaceEvents)
+      .where(
+        and(eq(workspaceEvents.workspaceId, workspaceId), eq(workspaceEvents.eventType, eventType))
+      )
+    return rows.length
+  }
+
   test('promotes an archived project at the observed revision and preserves its audience', async () => {
     const { owner, outsider, project, workspace } = await fixture()
     try {
@@ -108,6 +135,15 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
       const archived = await archivedSummary(workspace.id, project.id, owner.principal)
       expect(archived.lifecycleState).toBe('archived')
       expect(archived.visibility).toBe('members')
+      // The project cascade marks every channel it sleeps with its provenance.
+      const cascade = await channelRows(workspace.id, project.id)
+      expect(cascade.length).toBeGreaterThan(0)
+      expect(
+        cascade.every(
+          (channel) =>
+            channel.lifecycleState === 'archived' && channel.archiveSource === 'project_cascade'
+        )
+      ).toBe(true)
 
       const promoted = await promoteProjectState(
         connection.db,
@@ -126,12 +162,10 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
       ])
 
       // The archive cascade slept the project channel; promotion wakes it at +1 version.
-      const projectChannels = await connection.db
-        .select({ lifecycleState: channels.lifecycleState, version: channels.version })
-        .from(channels)
-        .where(and(eq(channels.workspaceId, workspace.id), eq(channels.projectId, project.id)))
+      const projectChannels = await channelRows(workspace.id, project.id)
       expect(projectChannels.length).toBeGreaterThan(0)
       expect(projectChannels.every((channel) => channel.lifecycleState === 'active')).toBe(true)
+      expect(projectChannels.every((channel) => channel.archiveSource === 'individual')).toBe(true)
       // version 1 on create, +1 on archive, +1 on restore.
       expect(projectChannels.every((channel) => channel.version === 3)).toBe(true)
 
@@ -163,6 +197,97 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
           expectedUpdatedAt: archived.updatedAt,
         })
       ).rejects.toThrow('Project unavailable')
+    } finally {
+      await cleanup({ outsider, owner, workspace })
+    }
+  })
+
+  test('promotion wakes only the channels the project archive slept', async () => {
+    const { owner, outsider, project, workspace } = await fixture()
+    try {
+      // A topic archived on its own keeps its provenance and is never revived
+      // by promoting the project.
+      const topic = await createProjectChannel(
+        connection.db,
+        workspace.id,
+        project.id,
+        owner.principal,
+        { idempotencyKey: `promotion-topic-${crypto.randomUUID()}`, title: 'Independent topic' }
+      )
+      await archiveChannel(connection.db, workspace.id, topic.id, owner.principal, topic.version)
+      await archiveProject(connection.db, workspace.id, project.id, owner.principal)
+      const archived = await archivedSummary(workspace.id, project.id, owner.principal)
+      const before = await channelRows(workspace.id, project.id)
+      const independent = before.find((channel) => channel.id === topic.id)
+      expect(independent).toMatchObject({ archiveSource: 'individual', lifecycleState: 'archived' })
+      expect(before.filter((channel) => channel.id !== topic.id).length).toBeGreaterThan(0)
+
+      await promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
+        confirmed: true,
+        expectedUpdatedAt: archived.updatedAt,
+      })
+      const after = await channelRows(workspace.id, project.id)
+      // Exactly the cascade channel woke; the independent archive stayed archived.
+      expect(after.find((channel) => channel.id === topic.id)).toEqual(independent)
+      const cascade = after.filter((channel) => channel.id !== topic.id)
+      expect(cascade.every((channel) => channel.lifecycleState === 'active')).toBe(true)
+      expect(cascade.every((channel) => channel.version === 3)).toBe(true)
+      // One channel.restored event per cascade channel, none for the topic.
+      expect(await eventCount(workspace.id, 'channel.restored')).toBe(cascade.length)
+    } finally {
+      await cleanup({ outsider, owner, workspace })
+    }
+  })
+
+  test('concurrent promotions promote exactly once and bump each channel once', async () => {
+    const { owner, outsider, project, workspace } = await fixture()
+    try {
+      await archiveProject(connection.db, workspace.id, project.id, owner.principal)
+      const archived = await archivedSummary(workspace.id, project.id, owner.principal)
+      const results = await Promise.allSettled([
+        promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
+          confirmed: true,
+          expectedUpdatedAt: archived.updatedAt,
+        }),
+        promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
+          confirmed: true,
+          expectedUpdatedAt: archived.updatedAt,
+        }),
+      ])
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+      const rejected = results.filter((result) => result.status === 'rejected')
+      expect(rejected).toHaveLength(1)
+      const reason = (rejected[0] as PromiseRejectedResult).reason as { reason?: string }
+      expect(['promotion_state_invalid', 'promotion_stale']).toContain(reason.reason)
+      expect(await eventCount(workspace.id, 'project.restored')).toBe(1)
+      const rows = await channelRows(workspace.id, project.id)
+      expect(rows.every((channel) => channel.lifecycleState === 'active')).toBe(true)
+      expect(rows.every((channel) => channel.version === 3)).toBe(true)
+      expect(await eventCount(workspace.id, 'channel.restored')).toBe(rows.length)
+    } finally {
+      await cleanup({ outsider, owner, workspace })
+    }
+  })
+
+  test('a concurrent channel restore CASes the version and never double-wakes', async () => {
+    const { owner, outsider, project, workspace } = await fixture()
+    try {
+      await archiveProject(connection.db, workspace.id, project.id, owner.principal)
+      const [first, second] = await Promise.all([
+        connection.db.transaction((transaction) =>
+          restoreProjectChannels(transaction, workspace.id, project.id, owner.principal)
+        ),
+        connection.db.transaction((transaction) =>
+          restoreProjectChannels(transaction, workspace.id, project.id, owner.principal)
+        ),
+      ])
+      // One transaction wins the row locks and wakes the cascade; the other
+      // re-reads the committed state and wakes nothing.
+      expect([first, second].toSorted()).toEqual([0, 1])
+      const rows = await channelRows(workspace.id, project.id)
+      expect(rows.every((channel) => channel.lifecycleState === 'active')).toBe(true)
+      expect(rows.every((channel) => channel.version === 3)).toBe(true)
+      expect(await eventCount(workspace.id, 'channel.restored')).toBe(rows.length)
     } finally {
       await cleanup({ outsider, owner, workspace })
     }

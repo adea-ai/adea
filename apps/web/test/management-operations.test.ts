@@ -51,6 +51,7 @@ function harness(caller: ManagementCaller) {
     },
     createProject: executor('createProject', project),
     removeProjectMember: executor('removeProjectMember', true),
+    promoteProjectState: executor('promoteProjectState', project),
     reopenWorkspace: executor('reopenWorkspace', project),
     reorderProjects: executor('reorderProjects', [project]),
     setProjectMember: executor('setProjectMember', {

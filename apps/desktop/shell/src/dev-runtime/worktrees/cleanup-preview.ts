@@ -23,10 +23,15 @@
 //   without repeating a completed step.
 import type { CleanupPredicate } from '../../../../../../packages/types/src/dev-runtime'
 
-import { evaluatePredicates, type CleanupFacts as AutomaticCleanupFacts } from '../resources/policy'
 import {
+  cleanupPolicyStanding,
+  evaluatePredicates,
+  type CleanupFacts as AutomaticCleanupFacts,
+} from '../resources/policy'
+import {
+  cleanupHasDestructiveStep,
+  cleanupSelectionBlocked,
   computeCleanupBlockers,
-  DESTRUCTIVE_CLEANUP_STEPS,
   factsChanged,
   type CleanupBlocker as PlanCleanupBlocker,
   type CleanupFacts,
@@ -223,12 +228,12 @@ export function buildCleanupPreview(input: {
 }): CleanupPreview {
   const blockers = computeCleanupBlockers(input.facts)
   const selected = [...new Set(input.selectedSteps)]
-  const destructiveSelected = selected.some((step) => DESTRUCTIVE_CLEANUP_STEPS.includes(step))
+  const destructiveSelected = cleanupHasDestructiveStep(selected)
   const consequences = [...cleanupConsequences(input.facts), ...cleanupStepConsequences(selected)]
   const refusal: InteractiveCleanupRefusal | undefined =
     selected.length === 0
       ? 'nothing_selected'
-      : destructiveSelected && blockers.length > 0
+      : cleanupSelectionBlocked(blockers, selected)
         ? 'cleanup_blocked'
         : undefined
   return Object.freeze({
@@ -275,7 +280,10 @@ export function previewCleanupCommit(input: {
   if (changedField) {
     return { kind: 'stale', executesNothing: true, changedField, action: 'replan_cleanup' }
   }
-  if (!input.planned.interactive.allowed || input.planned.blockers.length > 0) {
+  // The canonical executor gate: only a destructive step meets a blocker, so
+  // a narrowed non-destructive plan stays runnable exactly as commitCleanup
+  // permits it.
+  if (cleanupSelectionBlocked(input.planned.blockers, input.planned.selectedSteps)) {
     return {
       kind: 'blocked',
       executesNothing: true,
@@ -289,6 +297,7 @@ export type AutomaticCleanupRefusal =
   | 'policy_unavailable'
   | 'policy_not_approved'
   | 'policy_expired'
+  | 'policy_invalid'
   | 'policy_facts_unavailable'
   | 'policy_predicates_unmet'
   | 'automatic_step_denied'
@@ -332,14 +341,22 @@ export function previewAutomaticCleanup(input: {
     }
   }
   const policy = input.policy
-  const now = (input.now ?? new Date()).getTime()
-  const expired =
-    policy.state === 'expired' ||
-    (policy.expiresAt !== undefined && Number.isFinite(Date.parse(policy.expiresAt))
-      ? Date.parse(policy.expiresAt) <= now
-      : false)
+  const nowMs = (input.now ?? new Date()).getTime()
+  // The canonical standing decision: an invalid clock or malformed expiry is
+  // never "not expired", and only `approved` may authorize a run.
+  const standing = cleanupPolicyStanding(policy, nowMs)
   const baseConsequences = input.facts ? cleanupConsequences(input.facts) : []
-  if (expired) {
+  if (standing.standing === 'invalid') {
+    return {
+      executesNothing: true,
+      allowed: false,
+      refusal: 'policy_invalid',
+      policyId: policy.id,
+      consequences: baseConsequences,
+      blockers: [],
+    }
+  }
+  if (standing.standing === 'expired') {
     return {
       executesNothing: true,
       allowed: false,
@@ -349,7 +366,7 @@ export function previewAutomaticCleanup(input: {
       blockers: [],
     }
   }
-  if (policy.state !== 'approved') {
+  if (standing.standing === 'not_approved') {
     return {
       executesNothing: true,
       allowed: false,

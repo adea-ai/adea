@@ -87,6 +87,7 @@ describe('management operation inventory (#1215)', () => {
 
   test('keeps shared cloud project operations callable on all lanes', () => {
     expect(managementOperationLanes('project.update')).toEqual(['web', 'desktop', 'lead'])
+    expect(managementOperationLanes('project.promote')).toEqual(['web', 'desktop', 'lead'])
     expect(managementOperationLanes('config.workspace.update')).toEqual(['web', 'desktop', 'lead'])
     expect(managementOperationSupport('project.delete', 'lead')).toEqual({ state: 'supported' })
   })
@@ -121,6 +122,14 @@ describe('management operation inventory (#1215)', () => {
       confirmation: 'explicit',
       permission: 'workspace.update',
       revision: 'none',
+    })
+    expect(managementOperation('project.promote')).toMatchObject({
+      api: { api: 'promoteProjectState', kind: 'web' },
+      audit: 'workspace_event',
+      confirmation: 'explicit',
+      permission: 'workspace.update',
+      recovery: 'version_conflict',
+      revision: 'project_revision',
     })
     expect(managementOperation('config.workspace.update')).toMatchObject({
       permission: 'workspace.update',

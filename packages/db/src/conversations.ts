@@ -349,7 +349,12 @@ export async function provisionPrimaryProjectChannelInTransaction(
   if (existing.lifecycleState === 'archived') {
     const [restored] = await transaction
       .update(channels)
-      .set({ lifecycleState: 'active', updatedAt: new Date(), version: existing.version + 1 })
+      .set({
+        archiveSource: 'individual',
+        lifecycleState: 'active',
+        updatedAt: new Date(),
+        version: existing.version + 1,
+      })
       .where(and(eq(channels.id, existing.id), eq(channels.version, existing.version)))
       .returning()
     if (!restored) throw new Error('Channel version conflict')
@@ -702,7 +707,12 @@ export async function archiveChannel(
     }
     const [archived] = await transaction
       .update(channels)
-      .set({ lifecycleState: 'archived', updatedAt: new Date(), version: channel.version + 1 })
+      .set({
+        archiveSource: 'individual',
+        lifecycleState: 'archived',
+        updatedAt: new Date(),
+        version: channel.version + 1,
+      })
       .where(
         and(
           eq(channels.id, channelId),

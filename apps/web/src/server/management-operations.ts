@@ -44,6 +44,13 @@ export type ManagementExecutors = Readonly<{
       sourceKind?: ProjectSourceKind
     }>
   ): Promise<ProjectSummary>
+  promoteProjectState(
+    database: AgentHqDatabase,
+    workspaceId: string,
+    projectId: string,
+    principal: UserPrincipalRef,
+    input: Readonly<{ confirmed: boolean; expectedUpdatedAt: string }>
+  ): Promise<ProjectSummary>
   removeProjectMember(
     database: AgentHqDatabase,
     workspaceId: string,
@@ -114,6 +121,15 @@ export type ManagementOperations = Readonly<{
   projectDelete(
     input: Readonly<{ principal: UserPrincipalRef; projectId: string; workspaceId: string }>
   ): Promise<ManagementOutcome<null>>
+  projectPromote(
+    input: Readonly<{
+      confirmed: boolean
+      expectedUpdatedAt: string
+      principal: UserPrincipalRef
+      projectId: string
+      workspaceId: string
+    }>
+  ): Promise<ManagementOutcome<ProjectSummary>>
   projectMemberRemove(
     input: Readonly<{
       principal: UserPrincipalRef
@@ -245,6 +261,16 @@ export function createManagementOperations(
             role: input.role,
             userId: input.userId,
           }
+        )
+      ),
+    projectPromote: (input) =>
+      run(gateway, 'project.promote', input, () =>
+        executors.promoteProjectState(
+          database(),
+          input.workspaceId,
+          input.projectId,
+          input.principal,
+          { confirmed: input.confirmed, expectedUpdatedAt: input.expectedUpdatedAt }
         )
       ),
     projectReorder: (input) =>

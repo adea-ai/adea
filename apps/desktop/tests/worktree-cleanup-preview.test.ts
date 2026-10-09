@@ -177,6 +177,22 @@ describe('interactive cleanup preview', () => {
     expect(commit.kind).toBe('blocked')
     if (commit.kind === 'blocked') expect(commit.blockerCodes).toContain('dirty')
   })
+
+  test('a narrowed non-destructive plan stays runnable on a dirty worktree', () => {
+    // The executor permits non-destructive steps under blockers, so the
+    // preview commit gate must agree instead of blanket-blocking the plan.
+    const plannedFacts = facts({ dirty: true, unpushedCommits: 1, untracked: true })
+    const preview = buildCleanupPreview({
+      facts: plannedFacts,
+      selectedSteps: ['prune_retained_data'],
+    })
+    expect(preview.interactive.allowed).toBe(true)
+    expect(preview.interactive.narrowable).toBe(false)
+    expect(preview.blockers.length).toBeGreaterThan(0)
+    expect(
+      previewCleanupCommit({ planned: preview, plannedFacts, observed: plannedFacts })
+    ).toEqual({ kind: 'runnable', executesNothing: true })
+  })
 })
 
 describe('automatic cleanup preview', () => {
@@ -270,6 +286,21 @@ describe('automatic cleanup preview', () => {
     const unmet = automatic({ automaticFacts: { ...AUTOMATIC_FACTS, pushed: 'false' } })
     expect(unmet.refusal).toBe('policy_predicates_unmet')
     expect(unmet.blockers.some((blocker) => blocker.code === 'unpushed')).toBe(true)
+  })
+
+  test('a malformed expiry or an unprovable clock fails closed, never "not expired"', () => {
+    expect(automatic({ policy: { ...policy, expiresAt: 'not-a-date' } })).toMatchObject({
+      allowed: false,
+      refusal: 'policy_invalid',
+    })
+    expect(automatic({ policy: { ...policy, expiresAt: '   ' } })).toMatchObject({
+      allowed: false,
+      refusal: 'policy_invalid',
+    })
+    expect(automatic({ now: new Date('not-a-date') })).toMatchObject({
+      allowed: false,
+      refusal: 'policy_invalid',
+    })
   })
 
   test('ordinary cleanup blockers still require confirmation even when predicates pass', () => {

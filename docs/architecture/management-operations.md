@@ -25,9 +25,10 @@ no explicit "not from here yet" contract.
   method, or a `dev.*` Dev Runtime registry operation);
 - its **workspace permission** (cloud) or Dev Runtime **capability** (device);
 - its **revision** anchor (`workspace_version`, `workspace_order`,
-  `memory_revision`, `project_order`, `worktree_generation`,
-  `session_generation`, `plan_digest`), **confirmation** style (`none`,
-  `explicit`, `plan_commit`), **audit** surface and **recovery** contract;
+  `memory_revision`, `project_order`, `project_revision`,
+  `worktree_generation`, `session_generation`, `plan_digest`), **confirmation**
+  style (`none`, `explicit`, `plan_commit`), **audit** surface and **recovery**
+  contract;
 - the callable state per **lane** (`web`, `desktop`, `lead`), where every
   unsupported lane carries one of the typed reasons below.
 
@@ -67,6 +68,10 @@ access of its own; a lead tool without a resolved authority fails closed with
   bounded error projection.
 - `apps/web/test/management-operations.test.ts` pins executor wiring, the
   version/order conflict contracts and the dedicated confirmation operations.
+- `apps/web/test/project-promotion-management.test.ts` pins the explicit
+  `project.promote` path: `workspace.update` authorization, exact revision,
+  typed stale-revision projection, unconfirmed refusal and lead-lane audit
+  parity.
 - `apps/web/test/lead-management-tools.test.ts` pins that the lead definitions
   are exactly the inventory's lead-callable slice and that execution routes
   through the same shared operations.

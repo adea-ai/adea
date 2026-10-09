@@ -1,310 +1,97 @@
-# M14.03 management-action contract handoff: #1218 → #1215
+# M14.03 management-action contract: #1218 on top of #1215
 
-- Status: active lane handoff (2026-10-08).
+- Status: implemented on the stacked lane (2026-10-09).
 - Lane: **#1218** — preserve memory provenance/audience and explicit project
   state promotion; preview sensitive/dirty-worktree cleanup.
 - Sibling: **#1215** — route management through shared audited APIs
-  (`feat/issue-1215-management-audit-apis`).
-- Base: `413aa9735` (both lanes start there).
+  (`feat/issue-1215-management-audit-apis`, commit `8364b2865`, PR #1230).
+- Stacking: this branch is rebased onto `8364b2865`, so PR #1227's diff
+  shrinks to this lane's single commit once #1230 merges. Both slices target
+  `main`.
 - Contract sources: REQ 022,033,050,052–058,086,087; tests A11,A14,A33,A35;
   reuse gate [#811](https://github.com/adea-ai/adea/issues/811).
 
-This note is the coordination boundary. It lists what this lane owns, the
-exact hunks it lands in shared files, and the integration hunks proposed for
-the sibling lane. The sibling lane should **not** edit this lane's files; it
-consumes the exported functions/types instead.
+## Ownership map (this lane)
 
-## Ownership map
+| Source                                                                                          | Notes                                                                                       |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `apps/desktop/shell/src/memory/provenance.ts`                                                   | Memory provenance/audience guard; `memory/store.ts` calls the decision directly.            |
+| `apps/desktop/shell/src/dev-runtime/worktrees/cleanup-preview.ts`                               | Pure read-only preview; both cleanup gates, stale-write and recovery projections.           |
+| `apps/desktop/shell/src/dev-runtime/worktrees/cleanup-plan.ts`                                  | Canonical destructive-selection gate shared by the executor and the preview.                |
+| `apps/desktop/shell/src/dev-runtime/resources/policy.ts`                                        | Canonical policy expiry/standing decision; malformed expiry or clock fails closed.          |
+| `packages/db/src/project-state-policy.ts`                                                       | Promotion decision plus the canonical project/channel state transitions (lock order + CAS). |
+| `packages/db/src/agent-persona-policy.ts`                                                       | Persona guard; `changeAgentProfile` calls it before the UPDATE.                             |
+| `apps/desktop/tests/{memory-provenance,worktree-cleanup-preview,dev-runtime-resources}.test.ts` | Provenance, cleanup preview/gates, expiry fail-closed tests.                                |
+| `packages/db/tests/unit/{project-state-policy,agent-persona-policy}.test.ts`                    | Pure policy tests.                                                                          |
+| `packages/db/tests/integration/project-state-promotion.test.ts`                                 | Promotion, archive provenance, concurrent promotion and channel-restore race.               |
+| `apps/web/test/project-promotion-management.test.ts`                                            | Authorization, revision and confirmation through the shared gateway.                        |
 
-| Source                                                                           | Owner | Notes                                                            |
-| -------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------- |
-| `apps/desktop/shell/src/memory/provenance.ts`                                    | #1218 | Memory provenance/audience guard; consumed by `memory/store.ts`. |
-| `apps/desktop/shell/src/dev-runtime/worktrees/cleanup-preview.ts`                | #1218 | Pure, read-only cleanup preview (both gates).                    |
-| `packages/db/src/project-state-policy.ts`                                        | #1218 | Pure promotion decision + transactional `promoteProjectState`.   |
-| `packages/db/src/agent-persona-policy.ts`                                        | #1218 | Persona guard; called by `changeAgentProfile`.                   |
-| `apps/desktop/tests/memory-provenance.test.ts`                                   | #1218 | Provenance/audience/promotion tests.                             |
-| `apps/desktop/tests/worktree-cleanup-preview.test.ts`                            | #1218 | Stale/revocation/crash-retry/both-gate tests.                    |
-| `packages/db/tests/unit/{project-state-policy,agent-persona-policy}.test.ts`     | #1218 | Pure policy tests.                                               |
-| `packages/db/tests/integration/project-state-promotion.test.ts`                  | #1218 | Promotion/stale/opt-in integration.                              |
-| Shared management action envelope, routes, api-client, TanStack mutation surface | #1215 | Proposed hunks below; #1218 does not touch these.                |
+## What this lane consumes from #1215
 
-## Shared contract #1215 should define (proposal, not this lane's write)
+`packages/types/src/management.ts`, `apps/web/src/server/management-gateway.ts`,
+`management-operations.ts`, `management-composition.ts` and
+`lead-management-tools.ts` are the sibling's shared surface. This lane adds
+one inventory entry and wires the promotion through the same gateway; it does
+not fork the gateway, authorization or audit paths.
 
-One envelope for every management action, with the domain modules above as
-the decision hooks:
+## What this lane lands on top of #1215
 
-```ts
-export type ManagementActionProvenance = Readonly<{
-  actorKind: 'user' | 'agent' | 'system'
-  source: 'human' | 'lead' | 'automation'
-  actorUserId?: string
-  agentId?: string
-  leadTurnId?: string
-}>
+- **Inventory** — `project.promote` (`project`/cloud, permission
+  `workspace.update`, `explicit` confirmation, `workspace_event` audit,
+  `version_conflict` recovery, new `project_revision` revision kind).
+- **Executor and routing** — `ManagementExecutors.promoteProjectState`,
+  `ManagementOperations.projectPromote`, composition wiring, the
+  `projectPromote` lead tool, and the POST route
+  `.../projects/$projectId/restore.ts` (regenerated `routeTree.gen.ts`).
+- **Clients** — `ApiProjectRestoreInput` + `restoreProject` in
+  `@adea-ai/api-client`; `projectMutationOptions.restore` and
+  `useRestoreProjectMutation` in `@adea-ai/data`.
+- **Cleanup preview** — optional `MutationPlan.consequences` in
+  `@adea-ai/types` (strict decoder, backward compatible when omitted), filled
+  by `dev.worktree.cleanupPlan` from `buildCleanupPreview`, mapped by the Dev
+  sidebar and rendered in the delete confirmation. The preview stays read-only
+  (`executesNothing: true`) and never grants execution.
+- **Channel archive provenance** — new `channels.archive_source`
+  (`individual | project_cascade`) with migration `0045`. The canonical
+  `archiveProjectChannels`/`restoreProjectChannels` in
+  `packages/db/src/project-state-policy.ts` are shared by `archiveProject`,
+  `softDeleteProject` and `promoteProjectState`: the project row is locked
+  first, then its channels in id order, and every versioned write is a
+  compare-and-swap. Promotion wakes exactly the channels the project cascade
+  slept; a channel archived independently keeps `individual` provenance and is
+  never revived by a project promotion. Individual archive and primary-channel
+  provisioning mark `individual`.
+- **Memory** — `memory/store.ts` applies `decideMemoryPromotion` directly;
+  promotion carries provenance and workspace audience unchanged and pins the
+  observed revision.
+- **Cleanup gates** — `cleanupSelectionBlocked` is the one destructive-step
+  gate used by `commitCleanup` and the preview, so a narrowed
+  non-destructive plan stays runnable on a dirty worktree. `cleanupPolicyExpiry`/
+  `cleanupPolicyStanding` are the one lifetime gate: a malformed `expiresAt`
+  or an unprovable clock is `invalid`, never "not expired", and every
+  non-approved state authorizes nothing.
 
-export type ManagementActionAudience = Readonly<{
-  workspaceId: string
-  projectId?: string
-  visibility?: ProjectVisibility
-  /** A tool call may never address another workspace than its session scope. */
-  sessionId?: string
-}>
+## Verification
 
-export type ManagementActionRequest = Readonly<{
-  action:
-    | 'memory.accept_proposal'
-    | 'memory.reject_proposal'
-    | 'memory.set_injection'
-    | 'project.promote_state'
-    | 'agent.change_persona'
-    | 'worktree.cleanup_preview'
-  audience: ManagementActionAudience
-  provenance: ManagementActionProvenance
-  expectedRevision: string | number
-  confirmation: Readonly<{ required: boolean; token?: string }>
-  idempotencyKey: string
-}>
-```
+- `bun test apps/desktop/tests/{memory-provenance,workspace-memory-store,workspace-local-data,worktree-cleanup-preview,dev-runtime-resources}.test.ts`
+- `bun test packages/db/tests/unit`
+- `bun --conditions=react-server test packages/db/tests/integration` (isolated
+  local database) — includes the independently-archived-channel regression,
+  concurrent promotion and concurrent channel restore.
+- `bun test --conditions=browser apps/web/test/{management-operations,management-gateway,lead-management-tools,management-routing-boundary,project-promotion-management}.test.ts`
+- `bun test packages/types/tests/{management,dev-runtime}.test.ts`
+- `bunx turbo run typecheck` + `lint` over db, types, api-client, data, web,
+  desktop and dev-view.
+- `bun test scripts/docs-boundary.test.ts`
 
-Invariants the envelope must carry, matching this lane's guards:
+## Follow-ups (not in this lane)
 
-1. **Provenance is preserved, not re-labelled.** A lead/agent tool call
-   records the same provenance the domain decision returns; an accept may not
-   present a new `source`.
-2. **Audience is the workspace, exactly.** A request for another workspace is
-   indistinguishable from a missing resource on every path.
-3. **Revisions are exact and stale writes refuse.** `memory` uses the integer
-   `revision`, `project` the observed `updatedAt` (until the version column
-   below), `agent` the profile revision.
-4. **Confirmation is explicit opt-in** for promotion and every destructive
-   cleanup step; absence refuses.
-5. **Audit and recovery are append-only.** `project.restored` /
-   `channel.restored` are now registered. Cleanup recovery is journal-driven:
-   a completed step is never repeated.
+### `projects.version` replaces the `updatedAt` revision token
 
-## Hunks this lane lands in shared files (already in the #1218 commit)
-
-The sibling lane rebases over these; none touch route, client or envelope
-code.
-
-### `packages/db/src/event-contract.ts`
-
-```diff
-   'channel.read': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
-+  'channel.restored': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
-   'channel.unread': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
-@@
-   'project.reordered': { schemaVersion: 1, aggregateType: 'project' },
-+  'project.restored': { schemaVersion: 1, aggregateType: 'project', aggregateIdKey: 'projectId' },
-   'project.updated': { schemaVersion: 1, aggregateType: 'project', aggregateIdKey: 'projectId' },
-```
-
-### `packages/db/src/index.ts`
-
-Adds the export blocks for `project-state-policy.ts` and
-`agent-persona-policy.ts` (see the diff in the #1218 PR). Both are additive;
-no existing export changes.
-
-### `apps/desktop/shell/src/memory/store.ts`
-
-`accept` now routes through `promoteWithMemoryGuard` (from
-`memory/provenance.ts`), which pins status/revision and refuses a presented
-provenance change. Observable codes are unchanged (`memory_stale_revision`,
-`memory_invalid_state`, `memory_not_found`).
-
-### `packages/db/src/agents.ts`
-
-`changeAgentProfile` calls `decideAgentPersonaChange` before the UPDATE and
-writes the normalized plan values. No authority field is written.
-
-## Integration hunks proposed to #1215 (not applied here)
-
-### 1. `project.promote_state` route
-
-New file
-`apps/web/src/start/routes/api/v1/workspaces/$workspaceId/projects/$projectId/restore.ts`,
-then regenerate `apps/web/src/start/routeTree.gen.ts`:
-
-```ts
-import { createFileRoute } from '@tanstack/solid-router'
-import type { ApiProjectResponse, ApiProjectRestoreInput } from '@adea-ai/api-client'
-import { promoteProjectState, ProjectStatePromotionError } from '@adea-ai/db'
-import { withRequestScope } from '../../../../../../../../server/request-scope'
-import { applicationDatabase } from '../../../../../../../../server/database'
-import {
-  guardDesktopWorkspaceRequest,
-  handleDesktopWorkspacePreflight,
-} from '../../../../../../../../server/desktop-workspace'
-import { authorizeWorkspace } from '../../../../../../../../server/workspace-authorization'
-import { resolveWorkspacePrincipal } from '../../../../../../../../server/workspace-principal'
-import {
-  workspaceInvalidRequestResponse,
-  workspaceJsonResponse,
-  workspaceUnavailableResponse,
-} from '../../../../../../../../server/workspace-response'
-
-async function post(
-  request: Request,
-  { params }: { params: { projectId: string; workspaceId: string } }
-) {
-  const rejected = guardDesktopWorkspaceRequest(request)
-  if (rejected) return rejected
-  const { projectId, workspaceId } = await params
-  const resolution = await resolveWorkspacePrincipal(request)
-  if (!resolution) return workspaceUnavailableResponse(request, 401)
-  const authorization = await authorizeWorkspace(
-    resolution.principal,
-    'workspace.update',
-    workspaceId
-  )
-  if (!authorization.allowed) return workspaceUnavailableResponse(request)
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return workspaceInvalidRequestResponse(request)
-  }
-  const candidate = body as Record<string, unknown>
-  const input: ApiProjectRestoreInput | null =
-    candidate.confirmed === true && typeof candidate.expectedUpdatedAt === 'string'
-      ? { confirmed: true, expectedUpdatedAt: candidate.expectedUpdatedAt }
-      : null
-  if (!input) return workspaceInvalidRequestResponse(request)
-  try {
-    const payload: ApiProjectResponse = {
-      project: await promoteProjectState(
-        applicationDatabase(),
-        workspaceId,
-        projectId,
-        resolution.principal,
-        input
-      ),
-    }
-    return workspaceJsonResponse(payload, resolution, request)
-  } catch (error) {
-    if (error instanceof ProjectStatePromotionError) {
-      if (error.reason === 'promotion_stale') {
-        return workspaceJsonResponse(
-          { code: 'project_conflict', message: error.message },
-          resolution,
-          request,
-          { status: 409 }
-        )
-      }
-      return workspaceUnavailableResponse(request)
-    }
-    throw error
-  }
-}
-
-export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/projects/$projectId/restore')(
-  {
-    server: {
-      handlers: {
-        POST: ({ request, params }) => withRequestScope(() => post(request, { params })),
-        OPTIONS: ({ request }) => withRequestScope(() => handleDesktopWorkspacePreflight(request)),
-      },
-    },
-  }
-)
-```
-
-### 2. `packages/api-client/src/index.ts`
-
-```diff
- export type ApiProjectUpdateInput = Readonly<{
-   iconKey?: string
-   name?: string
-   sourceKind?: ProjectSourceKind
- }>
-+
-+/** Explicit promotion of an archived project; `expectedUpdatedAt` is the
-+ * observed revision and `confirmed` is the owner's explicit opt-in. */
-+export type ApiProjectRestoreInput = Readonly<{
-+  confirmed: true
-+  expectedUpdatedAt: string
-+}>
-```
-
-### 3. `packages/data/src/index.ts`
-
-Add beside the existing project mutation options:
-
-```ts
-export const projectRestoreMutationOptions = {
-  mutationFn: ({
-    workspaceId,
-    projectId,
-    input,
-  }: Readonly<{ workspaceId: string; projectId: string; input: ApiProjectRestoreInput }>) =>
-    apiClient.projects.restore(workspaceId, projectId, input),
-  onSuccess: (
-    _project: ProjectSummary,
-    variables: Readonly<{ workspaceId: string }>,
-    queryClient: QueryClient
-  ) => {
-    void queryClient.invalidateQueries({ queryKey: projectQueryKeys.list(variables.workspaceId) })
-    void queryClient.invalidateQueries({
-      queryKey: workspaceQueryKeys.events(variables.workspaceId),
-    })
-  },
-}
-```
-
-### 4. `packages/types/src/dev-runtime.ts` — preview consequences on the plan
-
-`cleanup-preview.ts` is pure and already returns the consequences; the shared
-plan DTO can carry them so one response serves both the human confirmation and
-the lead tool:
-
-```diff
- export type MutationPlan = Readonly<{
-   id: string
-   operation: DevOperation
-   scope: Scope
-   resource: Readonly<{ kind: string; id: string; generation: number }>
-   factVersions: Readonly<Record<string, string>>
-   steps: readonly Readonly<{
-     id: string
-     kind: string
-     targetId: string
-     dependsOn: readonly string[]
-   }>[]
-   blockers: readonly CleanupBlocker[]
-+  /** Read-only consequences of the plan; never authority to execute. */
-+  consequences?: readonly Readonly<{
-+    kind: string
-+    blocking: boolean
-+    detail: string
-+  }>[]
-   requiredApprovalIds: readonly string[]
-   digest: string
-```
-
-The corresponding hunk in
-`apps/desktop/shell/src/dev-runtime/worktrees/register.ts`
-(`dev.worktree.cleanupPlan`) is:
-
-```ts
-+      const preview = buildCleanupPreview({
-+        facts: plan.facts,
-+        selectedSteps: plan.selectedSteps,
-+      })
-...satisfies MutationPlan =>
-         blockers: plan.blockers.map(...),
-+        consequences: preview.consequences.map(({ kind, blocking, detail }) => ({
-+          kind,
-+          blocking,
-+          detail,
-+        })),
-```
-
-### 5. `projects.version` (follow-up hardening, proposed)
-
-The promotion flow uses the exact observed `updatedAt` as its revision token
-because `projects` has no version column. Concurrency is still exact (row
-lock + compare-and-swap). When the shared API lane adds revisions to projects,
-these are the exact hunks:
+The promotion decision uses the exact observed `updatedAt` under a row lock
+and a compare-and-swap because `projects` has no version column. When that
+column lands, these are the exact hunks, and `expectedUpdatedAt` becomes
+`expectedVersion` in the plan, operation and API input:
 
 ```diff
 --- a/packages/db/src/schema/projects.ts
@@ -318,15 +105,12 @@ these are the exact hunks:
 +    check('projects_version_positive', sql`${table.version} > 0`),
 ```
 
-Then `promoteProjectState` swaps `expectedUpdatedAt: string` for
-`expectedVersion: number` and CASes on `version` instead of `updatedAt`; the
-`ProjectStatePromotionPlan` already exposes `expectedUpdatedAt`, so the rename
-is mechanical.
+### `dev.cleanupPolicy.createDraft` body/guard mismatch
 
-## Validation in the #1218 lane
-
-- `bun test apps/desktop/tests/{memory-provenance,workspace-memory-store,workspace-local-data,worktree-cleanup-preview,workspace-cleanup}.test.ts`
-- `bun test packages/db/tests/unit`
-- `bun --conditions=react-server test packages/db/tests/integration/{project-state-promotion,projects,agents}.test.ts`
-- `bunx turbo run typecheck --filter=@adea-ai/db --filter=@adea-ai/desktop`
-- `bunx turbo run lint --filter=@adea-ai/db --filter=@adea-ai/desktop`
+The operation's DSL body declares `expiresAt?: timestamp`, but the shared
+command decoder rejects `expiresAt` as an authority field before body
+validation (`assertNoAuthorityFields`), so the field cannot be sent through
+the command surface today. This predates this lane; malformed values already
+stored fail closed at evaluation, and `createDraft`/`approve` validate a
+directly supplied expiry. The fix belongs in the types contract (allow a
+declared body field or rename it), not in the cleanup authority.

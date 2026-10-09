@@ -226,9 +226,13 @@ export {
   updateProject,
 } from './projects'
 export {
+  archiveProjectChannels,
   decideProjectStatePromotion,
+  lockProjectForStateChange,
   promoteProjectState,
+  ProjectStateConflictError,
   ProjectStatePromotionError,
+  restoreProjectChannels,
   type ProjectStatePromotionDecision,
   type ProjectStatePromotionObservation,
   type ProjectStatePromotionPlan,

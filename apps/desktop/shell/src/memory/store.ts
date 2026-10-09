@@ -29,11 +29,7 @@ import {
   type WorkspaceMemorySnapshot,
 } from '../../../../../packages/types/src/index'
 import { compileMemoryPreamble, type MemoryPreamble } from './preamble'
-import {
-  memoryProvenanceRecord,
-  requireMemoryPromotion,
-  type MemoryProvenanceRefusal,
-} from './provenance'
+import { decideMemoryPromotion, memoryProvenanceRecord } from './provenance'
 
 export const MEMORY_CONTENT_TYPE = 'memory_entry'
 const SCHEMA_VERSION = 1
@@ -171,30 +167,6 @@ function newestFirst(left: WorkspaceMemoryEntry, right: WorkspaceMemoryEntry): n
 function requireRevision(record: StoredRecord, expected: unknown): void {
   if (record.revision !== revisionOf(expected)) {
     throw new MemoryStoreError('memory_stale_revision')
-  }
-}
-
-/** Applies the provenance/audience guard, mapping its typed refusal onto the
- *  store's stable codes. A foreign audience is indistinguishable from an
- *  absent entry, and a presented provenance change is invalid input. */
-function promoteWithMemoryGuard(
-  record: StoredRecord,
-  authorizedWorkspaceId: string,
-  expectedRevision: unknown
-): Readonly<{ to: 'active'; nextRevision: number }> {
-  try {
-    const plan = requireMemoryPromotion({
-      entry: memoryProvenanceRecord(record),
-      authorizedWorkspaceId,
-      expectedRevision: revisionOf(expectedRevision),
-    })
-    return { to: plan.to, nextRevision: plan.nextRevision }
-  } catch (error) {
-    const reason = (error as { reason?: MemoryProvenanceRefusal }).reason
-    if (reason === 'memory_audience_mismatch') throw new MemoryStoreError('memory_not_found')
-    if (reason === 'memory_provenance_mismatch') throw new MemoryStoreError('memory_invalid_input')
-    if (reason === 'memory_stale_revision') throw new MemoryStoreError('memory_stale_revision')
-    throw new MemoryStoreError('memory_invalid_state')
   }
 }
 
@@ -431,19 +403,34 @@ export function createMemoryStore(options: {
     accept(workspaceId, input) {
       const id = assertMemoryWorkspaceId(workspaceId)
       const record = requireRecord(id, input.entryId)
-      // Promotion is explicit and carries the record's own provenance and
-      // audience through unchanged; the typed plan pins the revision that
-      // becomes active, so a concurrent edit refuses instead of being
-      // overwritten.
-      const promotion = promoteWithMemoryGuard(record, id, input.expectedRevision)
+      // The canonical provenance/audience guard: promotion carries the
+      // record's own provenance and audience through unchanged and pins the
+      // revision that becomes active, so a concurrent edit refuses instead
+      // of being overwritten.
+      const decision = decideMemoryPromotion({
+        entry: memoryProvenanceRecord(record),
+        authorizedWorkspaceId: id,
+        expectedRevision: revisionOf(input.expectedRevision),
+      })
+      if (!decision.allowed) {
+        // A foreign audience is indistinguishable from an absent entry; a
+        // presented provenance change is invalid input.
+        if (decision.reason === 'memory_audience_mismatch')
+          throw new MemoryStoreError('memory_not_found')
+        if (decision.reason === 'memory_provenance_mismatch')
+          throw new MemoryStoreError('memory_invalid_input')
+        if (decision.reason === 'memory_stale_revision')
+          throw new MemoryStoreError('memory_stale_revision')
+        throw new MemoryStoreError('memory_invalid_state')
+      }
       // The text must still authenticate under this workspace before the
       // proposal becomes memory; a tampered record never gets promoted.
       const text = open(record, id)
       const next: StoredRecord = {
         ...record,
-        status: promotion.to,
+        status: decision.plan.to,
         updatedAt: iso(),
-        revision: promotion.nextRevision,
+        revision: decision.plan.nextRevision,
       }
       writeAtomic(recordFile(record.id), next)
       return toEntry(next, text)

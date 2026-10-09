@@ -42,6 +42,7 @@ const LEAD_TOOL_METHODS = {
   projectArchive: 'project.archive',
   projectCreate: 'project.create',
   projectDelete: 'project.delete',
+  projectPromote: 'project.promote',
   projectMemberRemove: 'project.member.remove',
   projectMemberSet: 'project.member.set',
   projectReorder: 'project.reorder',
@@ -139,6 +140,8 @@ function invoke(
       return operations.projectCreate({ ...inputOf(call), principal })
     case 'project.delete':
       return operations.projectDelete({ ...inputOf(call), principal })
+    case 'project.promote':
+      return operations.projectPromote({ ...inputOf(call), principal })
     case 'project.member.remove':
       return operations.projectMemberRemove({ ...inputOf(call), principal })
     case 'project.member.set':
