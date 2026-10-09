@@ -1,16 +1,19 @@
 // Direct-session handoff mounted interactions (#1177).
 //
-// Mounted Playwright proof for the paths unit tests cannot reach: lead-turn
-// facts drive the coordinating modes (nothing is invented from the bound
-// run), stopping the LEAD goes through the canonical lead-turn cancel
-// handler while stopping the SESSION run goes through the bound harness
-// cancel, busy/single-flight/error behavior is reactive in the live
-// surface, late completions cannot leak across sessions, replacement runs
-// never inherit stale candidates, and the controls meet keyboard/focus/
-// zoom/reduced-motion acceptance in a real browser. The harness serves a
-// scripted ChatView with lead-turn facts plus deferred lead/session
-// cancels; no backend, database, or shared service is touched. The vite
-// server binds an ephemeral loopback port and closes after the file.
+// Mounted Playwright proof for the paths unit tests cannot reach: the
+// production resolver composes canonical roster, channel, and turn reads
+// into the handoff supply; lead-turn facts drive the coordinating modes
+// (nothing is invented from the bound run); stopping the LEAD goes
+// through the canonical lead-turn cancel handler while stopping the
+// SESSION run goes through the bound harness cancel; busy/single-flight/
+// error behavior is reactive in the live surface; late completions cannot
+// leak across sessions; replacement runs never inherit stale candidates;
+// unlinked sessions ignore workspace turns; ambiguous links fail closed;
+// and the controls meet keyboard/focus/zoom/reduced-motion acceptance in
+// a real browser. The harness serves the production ChatView against the
+// REAL resolver fed by a scripted port backend; no backend, database, or
+// shared service is touched. The vite server binds an ephemeral loopback
+// port and closes after the file.
 import { expect, test, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
@@ -112,16 +115,41 @@ test('an observed live turn coordinates with distinct lead and session stops', a
   expectNoErrors(errors)
 })
 
-test('a turn from another agent never coordinates the session', async ({ page }) => {
+test('an unlinked session ignores the workspace turn', async ({ page }) => {
   const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Observe foreign turn' }).click()
-  // The turn names an agent other than the observed workspace lead: the
-  // session stays attached with the mismatch named, and no lead control
-  // or coordination badge is projected.
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+
+  // Session 2 carries no task: the same workspace turn must not appear as
+  // its coordination.
+  await page.getByRole('button', { name: 'Show session 2' }).click()
   await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
-  await expect(section(page).getByText(/not bound to the active workspace lead/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
-  await expect(page.getByLabel('Lead turn state')).toHaveText('running')
+
+  await page.getByRole('button', { name: 'Show session 1' }).click()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  expectNoErrors(errors)
+})
+
+test('an ambiguous task link fails closed instead of picking a channel', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Add ambiguous channel' }).click()
+  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  expectNoErrors(errors)
+})
+
+test('an unrelated channel never disables the linked handoff', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  await page.getByRole('button', { name: 'Observe unrelated channel' }).click()
+  // Other lead conversations are irrelevant: the explicitly linked handoff
+  // keeps working.
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeEnabled()
   expectNoErrors(errors)
 })
 
@@ -150,9 +178,8 @@ test('a replaced register run retargets session-stop instead of applying stale f
 }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  // The register now binds run-2 while supplied facts still name run-1: the
-  // supplier resolves by the current binding, so the stale object can never
-  // be applied — and the stop names the new run explicitly.
+  // The register now binds run-2 with no run objects supplied: the stop
+  // resolves by the current binding and names the new run explicitly.
   await page.getByRole('button', { name: 'Replace bound run' }).click()
   const sessionStop = page.getByRole('button', { name: 'Stop session run', exact: true })
   await expect(sessionStop).toBeEnabled()
@@ -176,14 +203,12 @@ test('a late completion cannot mark the newly selected session coordinated', asy
   await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
 
   // The superseded completion commits nothing on the new session: no error,
-  // no mode change attributable to it.
+  // and session 2 (unlinked) stays attached.
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(page.getByLabel('Lead cancel calls')).toHaveText('1')
+  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
 
   await page.getByRole('button', { name: 'Show session 1' }).click()
-  // The dropped completion contributed nothing: session 1 shows the
-  // terminal turn from re-read facts (returned) — the mode comes from
-  // stored facts, never stale local state.
   await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
   expectNoErrors(errors)
 })

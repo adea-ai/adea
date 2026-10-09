@@ -209,6 +209,7 @@ export function projectChatConversations(
       ...(session.activeHarnessRunId !== undefined
         ? { activeHarnessRunId: session.activeHarnessRunId }
         : {}),
+      ...(session.taskId !== undefined ? { taskId: session.taskId } : {}),
       draft: draft.text,
       draftBlocks: draft.blocks,
       events,
