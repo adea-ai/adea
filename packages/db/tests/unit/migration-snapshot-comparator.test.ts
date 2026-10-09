@@ -196,6 +196,24 @@ const fullDocument = (
   return doc(sections, snapshotId)
 }
 
+/**
+ * A document with every family present — the given records under
+ * `memberships`, everything else empty — so a clean compare is `identical`.
+ */
+const documentWithMemberships = (
+  memberships: MigrationSnapshotRecord[],
+  snapshotId: string
+): MigrationSnapshotDocument => {
+  const sections: MigrationSnapshotSections = {}
+  for (const family of migrationSnapshotFamilies) {
+    sections[family] = family === 'memberships' ? section(memberships) : section([])
+  }
+  return doc(sections, snapshotId)
+}
+
+/** Serialized byte length of a printable-ASCII fixture (see the types suite). */
+const serializedBytes = (value: unknown): number => JSON.stringify(value).length
+
 describe('migration snapshot comparator review repairs', () => {
   test('a workspace-only change on a channel participant is a typed remap, never identical', () => {
     const comparison = compare(
@@ -1051,6 +1069,37 @@ describe('migration snapshot composite-key and input-bound repairs', () => {
     expect(missing).toHaveLength(1)
     expect(missing[0]?.stableId).toBe('wsp-1:user-1:ch-1:0:')
     expect(findingsFor(comparison, 'readState', 'unexpected_record')).toHaveLength(1)
+  })
+
+  test('a record whose complete serialization sits exactly on the byte bound compares normally', () => {
+    // Structural bytes are part of the bound: a record sized — quotes,
+    // delimiters, separators included — to exactly 8,192 serialized bytes is
+    // AT the bound, so it is a valid row that matches, never a quarantine.
+    // This pins the comparator against over-charging the structural bytes.
+    const base = membership('user-1') as unknown as Record<string, unknown>
+    // The pad is fixed from the 8,000-character host so growing that host by
+    // one byte moves the record over the bound instead of resizing onto it.
+    const pad = 8_192 - serializedBytes({ ...base, host: 'x'.repeat(8_000) }) - 9 // `,` + `"pad":` + quotes
+    const sized = (extra: string): MigrationSnapshotRecord =>
+      ({ ...base, host: extra, pad: 'x'.repeat(pad) }) as MigrationSnapshotRecord
+    const atBound = sized('x'.repeat(8_000))
+    expect(serializedBytes(atBound)).toBe(8_192)
+    const comparison = compareMigrationSnapshots({
+      before: documentWithMemberships([atBound], 'snapshot-before'),
+      after: documentWithMemberships([atBound], 'snapshot-after'),
+    })
+    expect(comparison.verdict).toBe('identical')
+    expect(findingsFor(comparison, 'memberships', 'quarantined_record')).toHaveLength(0)
+    // One more byte in the same slot crosses the bound and is quarantined.
+    const overBound = sized(`${'x'.repeat(8_000)}x`)
+    expect(serializedBytes(overBound)).toBe(8_193)
+    const divergent = compareMigrationSnapshots({
+      before: documentWithMemberships([overBound], 'snapshot-before'),
+      after: documentWithMemberships([overBound], 'snapshot-after'),
+    })
+    const quarantined = findingsFor(divergent, 'memberships', 'quarantined_record')
+    expect(quarantined).toHaveLength(2)
+    for (const finding of quarantined) expect(finding.detail.reason).toBe('limit')
   })
 
   test('an oversized record is quarantined by limit before canonicalization and never echoed', () => {
