@@ -8,6 +8,7 @@ let url = ''
 test.beforeAll(async () => {
   const root = resolve(process.cwd(), 'apps/web')
   const harness = '/@fs' + resolve(root, 'e2e/helpers/lead-role-choices-harness-app.tsx')
+  const swapHarness = '/@fs' + resolve(root, 'e2e/helpers/lead-role-client-swap-harness-app.tsx')
   server = await createServer({
     configFile: false,
     root,
@@ -21,12 +22,16 @@ test.beforeAll(async () => {
       {
         name: 'lead-payer-mounted-fixture',
         configureServer(fixture) {
-          fixture.middlewares.use('/__lead-roles', (_request, response) => {
-            response.setHeader('Content-Type', 'text/html')
-            response.end(
-              `<html><body><div id="harness-root"></div><script type="module" src="${harness}"></script></body></html>`
-            )
-          })
+          for (const [path, script] of [
+            ['/__lead-roles', harness],
+            ['/__lead-client-swap', swapHarness],
+          ])
+            fixture.middlewares.use(path, (_request, response) => {
+              response.setHeader('Content-Type', 'text/html')
+              response.end(
+                `<html><body><div id="harness-root"></div><script type="module" src="${script}"></script></body></html>`
+              )
+            })
         },
       },
     ],
@@ -111,4 +116,73 @@ test('child-only override stays separate and audience invalidation resets choice
     page.getByRole('button', { name: 'Use child workspace default', exact: true })
   ).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('textbox')).toHaveValue('Unsent lead question')
+})
+
+test('explicit lead choice shows account, auth and recorded payer before the start request', async ({
+  page,
+}) => {
+  await page.goto(url)
+  await page
+    .getByLabel('Lead model choice', { exact: true })
+    .getByRole('button', { name: 'scripted / model-a (account-a)', exact: true })
+    .click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
+  await expect(page.getByLabel('Saved choices')).toContainText(`msel_${'a'.repeat(32)}`)
+  await page.getByRole('button', { name: 'Review model and payer', exact: true }).click()
+  const disclosure = page.getByLabel('Current model and payer')
+  await expect(disclosure).toContainText('Provider: scripted · Model: model-a')
+  await expect(disclosure).toContainText('Account: account-a · Authentication: api_key')
+  await expect(disclosure).toContainText(
+    'Funding: byo_api · Payer: Recorded workspace payer (workspace_account, payer:workspace)'
+  )
+  await expect(page.getByLabel('Lead starts')).toHaveText('0')
+  await expect(page.getByRole('button', { name: 'Start lead turn', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: 'Confirm this model and payer', exact: true }).click()
+  await page.getByRole('button', { name: 'Start lead turn', exact: true }).click()
+  await expect(page.getByLabel('Lead starts')).toHaveText('1')
+  await expect(page.getByLabel('Started selection ref')).toHaveText(`msel_${'a'.repeat(32)}`)
+})
+
+test('client replacement refetches choices and a late old-client response cannot admit a message', async ({
+  page,
+}) => {
+  await page.goto(url.replace('/__lead-roles', '/__lead-client-swap'))
+  await expect(page.getByText('Existing history')).toBeVisible()
+  await expect(page.getByLabel('Old lists')).not.toHaveText('0')
+  await page
+    .getByLabel('Lead model choice', { exact: true })
+    .getByRole('button', { name: 'scripted / model-old (account-old)', exact: true })
+    .click()
+  await expect(
+    page
+      .getByLabel('Lead model choice', { exact: true })
+      .getByRole('button', { name: 'scripted / model-old (account-old)', exact: true })
+  ).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
+  await expect(page.getByLabel('Old resolves')).toHaveText('1')
+  await expect(page.locator('[data-message-id="optimistic-message"]')).toBeVisible()
+  await page.getByRole('button', { name: 'Replace signed client', exact: true }).click()
+  await expect(page.getByLabel('Active client')).toHaveText('replacement')
+  await expect(page.locator('[data-message-id="optimistic-message"]')).toHaveCount(0)
+  await expect(
+    page.getByLabel('Lead model choice', { exact: true }).getByRole('button', {
+      name: 'scripted / model-replacement (account-replacement)',
+      exact: true,
+    })
+  ).toBeVisible()
+  await expect(page.getByLabel('Replacement lists')).not.toHaveText('0')
+  await expect(page.getByText('Requested: model-old')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Release old response', exact: true }).click()
+  await expect(page.getByLabel('Message post clients')).toHaveText('')
+  await expect(page.getByRole('textbox')).toHaveValue('Retained draft')
+  await page
+    .getByLabel('Lead model choice', { exact: true })
+    .getByRole('button', {
+      name: 'scripted / model-replacement (account-replacement)',
+      exact: true,
+    })
+    .click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
+  await expect(page.getByLabel('Replacement resolves')).toHaveText('1')
+  await expect(page.getByLabel('Message post clients')).toHaveText('replacement')
 })

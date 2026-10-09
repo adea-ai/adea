@@ -1210,13 +1210,13 @@ export function usePrefetchThreadMessages(
   }
 }
 export function useCreateMessageMutation(
-  client: AgentHqApiClient,
+  client: MaybeAccessor<AgentHqApiClient>,
   workspaceId: MaybeAccessor<string>,
   channelId: MaybeAccessor<string>
 ) {
   return useMutation(() =>
     messageMutationOptions.create(
-      client,
+      resolveAccessor(client),
       useQueryClient(),
       resolveAccessor(workspaceId),
       resolveAccessor(channelId)
