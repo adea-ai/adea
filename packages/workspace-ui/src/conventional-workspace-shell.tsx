@@ -510,10 +510,16 @@ export function ConventionalWorkspaceShell(props: {
                   </ActionButton>
                 </section>
               </Show>
+              {/* Only a query that failed with no data may replace the
+                  surface. A background refetch that fails keeps its data
+                  (`isRefetchError`) and must leave the rendered board,
+                  conversation and agents in place. */}
               <Show
-                when={!controller.workspaceQueries.find(({ isError }) => isError)}
+                when={!controller.workspaceQueries.find(({ isLoadingError }) => isLoadingError)}
                 fallback={(() => {
-                  const queryError = controller.workspaceQueries.find(({ isError }) => isError)!
+                  const queryError = controller.workspaceQueries.find(
+                    ({ isLoadingError }) => isLoadingError
+                  )!
                   return (
                     <WorkspaceError
                       error={queryError.error}
