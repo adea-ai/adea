@@ -3,6 +3,11 @@ import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import {
+  parseRequestedRoleModelSelections,
+  sameRequestedRoleModelSelections,
+  type RequestedRoleModelSelections,
+} from './lead-model-selections'
 import { createMessage } from './conversations'
 import {
   agents,
@@ -25,7 +30,7 @@ type Input = Omit<
   | 'taskId'
   | 'threadRootMessageId'
   | 'replyToMessageId'
->
+> & { requestedModelSelections?: RequestedRoleModelSelections }
 
 function receipt(intent: Intent) {
   return Object.freeze({
@@ -180,6 +185,7 @@ export async function createLeadTurn(
     'bodyText',
     'idempotencyKey',
     'mentions',
+    'requestedModelSelections',
   ])
   if (
     Object.keys(input).some((key) => !allowed.has(key)) ||
@@ -187,10 +193,12 @@ export async function createLeadTurn(
     input.idempotencyKey.length > 128
   )
     throw new Error('Invalid lead turn')
+  const requestedModelSelections = parseRequestedRoleModelSelections(input.requestedModelSelections)
+  const { requestedModelSelections: _requested, ...messageInput } = input
   return database.transaction(async (tx) => {
     const authority = await lockAuthority(tx, workspaceId, channelId, principal)
     const message = await createMessage(tx, workspaceId, channelId, principal, {
-      ...input,
+      ...messageInput,
       sender: principal,
       leadTurn: true,
     })
@@ -201,6 +209,13 @@ export async function createLeadTurn(
       .where(eq(leadTurnIntents.messageId, message.id))
     if (existing) {
       assertPinned(existing, authority)
+      if (
+        !sameRequestedRoleModelSelections(
+          existing.requestedModelSelections ?? undefined,
+          requestedModelSelections
+        )
+      )
+        throw new Error('Lead turn model selection conflict')
       return { message, leadTurn: receipt(existing) }
     }
     const id = randomUUID()
@@ -210,6 +225,7 @@ export async function createLeadTurn(
         ...authority,
         id,
         dispatchKey: `lead-turn:${id}`,
+        requestedModelSelections: requestedModelSelections ?? null,
         messageId: message.id,
         workspaceId,
         channelId,
