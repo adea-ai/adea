@@ -222,6 +222,17 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await expect(taskSheet).toHaveCount(0)
     await assertAccessibleBoard()
 
+    // Deterministic pin for the demonstrated Kobalte defect: ariaHideOutside
+    // defers its aria-hidden write (setTimeout → requestAnimationFrame) and
+    // does not guard it, so a late write can land after the dialog closed.
+    // The frame guard must clear it while no dialog is open — and must leave
+    // it in place while one is.
+    await page
+      .locator('.workspace-frame')
+      .evaluate((frame) => frame.setAttribute('aria-hidden', 'true'))
+    await expect(page.locator('.workspace-frame')).not.toHaveAttribute('aria-hidden', 'true')
+    await assertAccessibleBoard()
+
     const openFromCard = async (name: string) => {
       await page.getByRole('button', { name }).click()
       await expect(taskSheet).toBeVisible()

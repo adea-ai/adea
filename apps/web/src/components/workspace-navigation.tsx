@@ -1255,8 +1255,39 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     if (!destination) openAppLibrary(true)
     else if (destination.id !== requestedAppId()) changeApp(destination.id, true)
   })
+
+  // Kobalte's ariaHideOutside defers its aria-hidden write with
+  // setTimeout → requestAnimationFrame and never guards that write, so a
+  // pending write can land after a modal's cleanup and stick on the frame —
+  // leaving a visible surface out of the accessibility tree. Whenever no
+  // dialog/alertdialog is present, clear any such leftover; while a modal is
+  // open the frame stays hidden exactly as the dialog intends.
+  const [frameElement, setFrameElement] = createSignal<HTMLDivElement>()
+  createEffect(() => {
+    const frame = frameElement()
+    if (!frame) return
+    const restore = () => {
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return
+      if (frame.getAttribute('aria-hidden') === 'true') frame.removeAttribute('aria-hidden')
+      if (frame.hasAttribute('inert')) frame.removeAttribute('inert')
+      if (document.body.style.pointerEvents === 'none') document.body.style.pointerEvents = ''
+    }
+    const frameObserver = new MutationObserver(restore)
+    frameObserver.observe(frame, { attributes: true, attributeFilter: ['aria-hidden', 'inert'] })
+    const portalObserver = new MutationObserver(restore)
+    portalObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['style'],
+      childList: true,
+    })
+    onCleanup(() => {
+      frameObserver.disconnect()
+      portalObserver.disconnect()
+    })
+  })
   return (
     <div
+      ref={setFrameElement}
       class={`workspace-frame workspace-frame--${view()}`}
       data-designer-mode={designerActive() ? 'true' : undefined}
     >
