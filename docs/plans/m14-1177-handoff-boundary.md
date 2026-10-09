@@ -253,6 +253,9 @@ reviewed, not unit-proven; the DB rule is proven.
 OPERATIONAL (proven by the suites named in Traceability):
 attachment and planning views; requested-reference tracking with
 receipt verification, server recovery, and Check-by-receipt;
+stale-claim display naming both generations with re-request;
+own-session lead-stop (intent-scoped, actor-gated, never session
+runs or descendants) with terminal history and re-engage;
 explicit unavailability states naming the missing proof
 (execution elsewhere vs no explicit observation vs stale claim);
 own-intent cancellation through the canonical actor-gated path
@@ -260,6 +263,11 @@ own-intent cancellation through the canonical actor-gated path
 fail-closed admission (validation, task visibility, mediation,
 complete-target and selection identity); latest-retained
 request reads (ordering among retained requests confers nothing).
+CP935 status: target observation shapes merged (requestedTarget
+untrusted routing annotation + observedTarget session/task from
+verified records, no generation field by design); the Adea
+surface consumes the doctrine, not the data — no CP receipt is
+wired or labeled trusted, and Adea sends no target at dispatch.
 AWAITING canonical CP935 control integration (issue stays OPEN;
 nothing here claims complete while coordination is unavailable):
 control-plane#935 (M13.02, open, 0xPlayerOne-filed, unassigned,

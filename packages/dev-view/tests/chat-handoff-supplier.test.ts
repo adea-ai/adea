@@ -351,7 +351,10 @@ describe('deriveHandoffInputFromConversation', () => {
     expect(view.mode).toBe('attached')
     expect(view.coordination).toBeUndefined()
     expect(view.controls.handoff_to_lead.available).toBe(false)
-    expect(view.controls.lead_stop.available).toBe(false)
+    // Stopping is intent-scoped and actor-gated server-side, not a
+    // coordination claim: the session's own live claim may be stopped
+    // even though it coordinates nothing.
+    expect(view.controls.lead_stop.available).toBe(true)
   })
 
   test('a runtime binding to another session never coordinates this one', () => {

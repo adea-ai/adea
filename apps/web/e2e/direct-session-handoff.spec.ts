@@ -89,7 +89,7 @@ test('a direct session attaches read-only: nothing is invented from the bound ru
   const leadStop = page.getByRole('button', { name: 'Stop lead', exact: true })
   await expect(leadStop).toBeDisabled()
   await expect(page.locator(`#${await leadStop.getAttribute('aria-describedby')}`)).toContainText(
-    'No lead turn is bound'
+    'No lead turn is claimed'
   )
   await expect(page.getByRole('button', { name: 'Stop session run', exact: true })).toBeEnabled()
   expectNoErrors(errors)
@@ -103,7 +103,7 @@ test('an effect-shaped live turn stays unavailable; stops stay distinct', async 
   await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
   await expect(page.getByLabel('Lead turn state')).toHaveText('running')
 
-  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeEnabled()
   const sessionStop = page.getByRole('button', { name: 'Stop session run', exact: true })
   await expect(sessionStop).toBeEnabled()
   await sessionStop.click()
@@ -152,7 +152,7 @@ test('an unrelated channel never disables the linked handoff', async ({ page }) 
   // Other lead conversations are irrelevant: the tracked request stays put
   // and neither stop changes meaning. The session run stop is unaffected.
   await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Stop session run', exact: true })).toBeEnabled()
   expectNoErrors(errors)
 })
@@ -191,14 +191,36 @@ test('explicit handoff admits through the canonical path with server-side recove
   await page.getByRole('button', { name: 'Check lead status', exact: true }).click()
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
   // Live and effect-shaped, yet still no coordination: no explicit
-  // target-bound observation exists. The outstanding claim holds the
-  // request slot; the session run stays independently stoppable.
+  // target-bound observation exists. The session's own live claim may
+  // still be stopped — intent-scoped, actor-gated, claiming nothing.
   await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
-  await page.getByRole('button', { name: 'Stop session run', exact: true }).click()
-  await page.getByRole('button', { name: 'Resolve session cancel' }).click()
-  await expect(page.getByLabel('Cancelled run ids')).toHaveText('run-1')
-  await expect(page.getByLabel('Lead cancel calls')).toHaveText('0')
+  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Stopping lead…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
+  // The turn ended terminally with no coordination ever claimed; the
+  // session run, draft, and descendants are untouched, and re-engaging
+  // is offered.
+  await expect(page.getByLabel('Lead cancel calls')).toHaveText('1')
+  await expect(page.getByLabel('Session cancel calls')).toHaveText('0')
+  await expect(page.getByLabel('Cancelled run ids')).toHaveText('')
+  await expect(page.getByLabel('Active draft')).toHaveText('unsent coordination note')
+  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
+  expectNoErrors(errors)
+})
+
+test('a stale request names both generations and re-requests cleanly', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve admission' }).click()
+  await expect(section(page).getByText(/requested for this session/)).toBeVisible()
+  // The session advances behind the request: the old context goes stale
+  // by name, and a fresh request binds current generation.
+  await page.getByRole('button', { name: 'Advance session generation' }).click()
+  await expect(section(page).getByText(/generation 3.*generation 5/)).toBeVisible()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByLabel('Admission posts')).toHaveText('2')
+  await page.getByRole('button', { name: 'Resolve admission' }).click()
+  await expect(section(page).getByText(/requested for this session/)).toBeVisible()
   expectNoErrors(errors)
 })
 
@@ -251,6 +273,12 @@ test('revoked session control and phantom sessions refuse before any post', asyn
 
 test('a runtime binding to another session never coordinates', async ({ page }) => {
   const errors = await openHarness(page)
+  // First a clean own-session claim tracks as requested...
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve admission' }).click()
+  await expect(section(page).getByText(/requested for this session/)).toBeVisible()
+  // ...then the runtime reports the execution elsewhere: the binding
+  // mismatch is named instead, and nothing coordinates.
   await page.getByRole('button', { name: 'Observe mismatched binding' }).click()
   // Claimed for this session but observed elsewhere: the binding
   // mismatch is named, nothing coordinates. The live claim still holds
@@ -310,9 +338,9 @@ test('a replaced register run retargets session-stop instead of applying stale f
   await sessionStop.click()
   await page.getByRole('button', { name: 'Resolve session cancel' }).click()
   await expect(page.getByLabel('Cancelled run ids')).toHaveText('run-2')
-  // The unbound lead turn stays unavailable throughout: stopping the
-  // session run never implies lead control.
-  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  // The claimed live turn stays stoppable throughout: stopping the
+  // session run never implies lead control, and vice versa.
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeEnabled()
 
   // Supplying the fresh run object validates the binding the same way.
   await page.getByRole('button', { name: 'Supply replacement run facts' }).click()

@@ -644,6 +644,32 @@ function Harness() {
         </Button>
         <Button
           type="button"
+          onClick={() => {
+            // The session genuinely advances: transcript and authority
+            // record move together, stranding the old request's context.
+            updateBackend((previous) => ({
+              ...previous,
+              sessions: {
+                ...previous.sessions,
+                'session-1': {
+                  ...previous.sessions['session-1']!,
+                  generation: previous.sessions['session-1']!.generation + 2,
+                },
+              },
+            }))
+            setAuthoritySessions((records) => ({
+              ...records,
+              'session-1': {
+                ...records['session-1'],
+                generation: (records['session-1']?.generation ?? 3) + 2,
+              } as never,
+            }))
+          }}
+        >
+          Advance session generation
+        </Button>
+        <Button
+          type="button"
           onClick={() =>
             setAuthoritySessions((records) => ({
               ...records,

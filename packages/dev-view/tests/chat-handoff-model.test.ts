@@ -144,7 +144,7 @@ describe('direct-session handoff modes', () => {
   test('attachment without lead facts grants no lead control and names the gap', () => {
     const view = deriveDirectSessionHandoff(input({ mode: 'attached' }))
     expect(view.controls.lead_stop.available).toBe(false)
-    expect(view.controls.lead_stop.reason).toMatch(/no lead turn is bound/i)
+    expect(view.controls.lead_stop.reason).toMatch(/no lead turn is claimed/i)
     expect(view.controls.lead_stop.remediation).toMatch(/control-plane#933/i)
     expect(view.controls.job_cancel.available).toBe(false)
     expect(view.controls.descendant_cancel.available).toBe(false)
@@ -773,6 +773,64 @@ describe('lead-agent binding', () => {
     expect(
       resolveLeadCoordination(leadTurn(), leadAgent({ lifecycleState: 'archived' })).bound
     ).toBe(false)
+  })
+
+  test('lead stop follows claimed live turns, never foreign ones', () => {
+    // A directly supplied coherent turn stops (builder would bind it).
+    expect(
+      deriveDirectSessionHandoff(
+        input({
+          mode: 'attached',
+          leadTurn: leadTurn(),
+          leadAgent: leadAgent(),
+          leadChannelId: 'c',
+        })
+      ).controls.lead_stop.available
+    ).toBe(true)
+    const supplied = {
+      mode: 'attached' as const,
+      leadTurn: undefined,
+      claimedTurn: leadTurn(),
+      leadAgent: leadAgent(),
+      leadChannelId: 'c',
+      leadMismatch: true,
+      leadMismatchReason: 'no explicit target-bound execution observation exists',
+    }
+    expect(deriveDirectSessionHandoff(input(supplied)).controls.lead_stop.available).toBe(true)
+    expect(
+      deriveDirectSessionHandoff(
+        input({ ...supplied, claimedTurn: leadTurn({ state: 'blocked', canCancel: false }) })
+      ).controls.lead_stop.available
+    ).toBe(false)
+  })
+
+  test('a stale claim names both generations and stays re-requestable', () => {
+    // Supplier-faithful shape: unbound claims arrive stripped (no leadTurn)
+    // with the mismatch named.
+    const stale = leadTurn({
+      state: 'blocked',
+      canCancel: false,
+      handoffTarget: {
+        runtimeSessionId: 'session-1',
+        taskId: '00000000-0000-4000-8000-0000000000f1',
+        observedGeneration: 3,
+      },
+    })
+    const view = deriveDirectSessionHandoff(
+      input({
+        mode: 'attached',
+        claimedTurn: stale,
+        leadAgent: leadAgent(),
+        leadChannelId: 'c',
+        leadMismatch: true,
+        leadMismatchReason: 'no explicit target-bound execution observation exists',
+        session: session({ generation: 5 }),
+      })
+    )
+    expect(view.mode).toBe('attached')
+    expect(view.notice).toMatch(/generation 3.*generation 5/)
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+    expect(view.awaitingTurn).toBe(true)
   })
 
   test('a missing turn or agent binds nothing without failing', () => {

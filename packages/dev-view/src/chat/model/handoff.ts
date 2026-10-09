@@ -401,8 +401,11 @@ export function deriveDirectSessionHandoff(
     input.claimedTurn !== undefined &&
     (input.claimedTurn.state === 'blocked' || input.claimedTurn.state === 'unknown')
   ) {
+    const claimedGeneration = input.claimedTurn.handoffTarget?.observedGeneration
     notice =
-      'Lead coordination requested for this session. The request is retained but unvalidated: coordination establishes only when the runtime observes execution bound to this session.'
+      claimedGeneration !== undefined && claimedGeneration !== input.session.generation
+        ? `Lead coordination requested for this session at generation ${claimedGeneration}, but the session is at generation ${input.session.generation}. The request is stale: re-request to bind current context, or check its status below.`
+        : 'Lead coordination requested for this session. The request is retained but unvalidated: coordination establishes only when the runtime observes execution bound to this session.'
   } else if (input.leadMismatch) {
     notice =
       input.leadMismatchReason !== undefined
@@ -410,30 +413,36 @@ export function deriveDirectSessionHandoff(
         : 'The supplied turn is not bound to the active workspace lead, so it grants no coordination. The session stays read-only.'
   }
 
-  // Stopping the LEAD cancels the canonical lead turn through the
-  // caller-supplied handler — never the session's harness run. Available
-  // only inside an explicitly observed live turn whose caller reports it
-  // cancellable. Every other case names its reason instead of failing
-  // silently, and a missing turn fails closed with the integration gap.
+  // Stopping the LEAD cancels the caller's own admitted turn through the
+  // caller-supplied handler — never the session's harness run, never
+  // descendants. Available for a live turn claimed by this exact session
+  // whose caller reports it cancellable; the cancel is intent-scoped and
+  // actor-gated server-side, so it claims no coordination and needs no
+  // runtime binding. Foreign or targetless turns stay blocked, and a
+  // missing turn fails closed with the integration gap.
   const leadStop = ((): HandoffControlState => {
-    if (!input.leadTurn || input.leadMismatch)
+    // Own-session claims stop here. A mismatched turn never authorizes
+    // control even when a caller supplies it directly: only the
+    // claim-matched turn counts, never a bare supplied turn.
+    const stopTurn = input.leadMismatch ? input.claimedTurn : (input.leadTurn ?? input.claimedTurn)
+    if (!stopTurn)
       return blocked(
-        'No lead turn is bound to this session.',
+        'No lead turn is claimed by this session.',
         `Lead cancellation lives with the workspace lead. ${LEAD_INTEGRATION_GAP}`
       )
-    if (input.mode !== 'coordination_handoff')
+    if (input.mode === 'one_time_review')
       return blocked(
-        'Lead control is not granted in this state.',
-        'Coordinate the session under a live lead turn to enable lead controls.'
+        'Lead control is not granted in this read-only state.',
+        'Reopen the session to enable lead controls.'
       )
     const guard = transportGuard(input, 'Lead stop')
     if (guard) return guard
-    if (!LIVE_LEAD_TURN_STATES.includes(input.leadTurn.state))
+    if (!LIVE_LEAD_TURN_STATES.includes(stopTurn.state))
       return blocked(
-        `The lead turn is ${input.leadTurn.state}; there is no live lead execution to stop.`,
+        `The lead turn is ${stopTurn.state}; there is no live lead execution to stop.`,
         'Resolve the lead turn state before stopping.'
       )
-    if (!input.leadTurn.canCancel)
+    if (!stopTurn.canCancel)
       return blocked(
         'The lead turn cannot accept cancellation in its current state.',
         'Wait for dispatch or resolve the turn first.'
