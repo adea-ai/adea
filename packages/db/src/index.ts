@@ -226,6 +226,15 @@ export {
   updateProject,
 } from './projects'
 export {
+  decideProjectStatePromotion,
+  promoteProjectState,
+  ProjectStatePromotionError,
+  type ProjectStatePromotionDecision,
+  type ProjectStatePromotionObservation,
+  type ProjectStatePromotionPlan,
+  type ProjectStatePromotionRefusal,
+} from './project-state-policy'
+export {
   archiveAgent,
   assignAgentToProject,
   changeAgentProfile,
@@ -237,6 +246,16 @@ export {
   listAgentsForUser,
   updateAgentPresentation,
 } from './agents'
+export {
+  AGENT_AUTHORITY_FIELDS,
+  AgentPersonaPolicyError,
+  decideAgentPersonaChange,
+  type AgentAuthoritySnapshot,
+  type AgentPersonaChange,
+  type AgentPersonaDecision,
+  type AgentPersonaPlan,
+  type AgentPersonaRefusalReason,
+} from './agent-persona-policy'
 export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
 export {
   readCurrentLeadTurnProduct,
