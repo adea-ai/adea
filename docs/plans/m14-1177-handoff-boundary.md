@@ -191,15 +191,13 @@ main's own 0045 is untouched.
 Journal timestamp (incremental blocker fix): the generated 0051 entry
 carried an older `when` than the authoritative 0050 entry, which
 Drizzle's PostgreSQL migrator reads as already-superseded and silently
-skips on upgrade. Only the 0051 `when` was changed (to predecessor-max
-
-- 1000; one-line journal diff, history otherwise byte-identical).
-  Guarded twice: `migration-journal.test.ts` (static monotonicity,
-  contiguity, tag/file correspondence) and
-  `migration-journal-order.test.ts` (real-Postgres upgrade replay:
-  migrate through 0050, close/reopen, apply the complete chain,
-  columns/check/index present, journal row exactly once). Both guards
-  were proven to fire on the broken timestamp before the fix landed.
+skips on upgrade. Only the 0051 `when` was changed (to predecessor-max plus 1000; one-line journal diff, history otherwise byte-identical).
+Guarded twice: `migration-journal.test.ts` (static monotonicity,
+contiguity, tag/file correspondence) and
+`migration-journal-order.test.ts` (real-Postgres upgrade replay:
+migrate through 0050, close/reopen, apply the complete chain,
+columns/check/index present, journal row exactly once). Both guards
+were proven to fire on the broken timestamp before the fix landed.
 
 ## Session authority (defect-1 fix)
 
