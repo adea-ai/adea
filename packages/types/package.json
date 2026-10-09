@@ -65,6 +65,11 @@
       "types": "./dist/dev-runtime-errors.d.ts",
       "development": "./src/dev-runtime-errors.ts",
       "import": "./dist/dev-runtime-errors.js"
+    },
+    "./management": {
+      "types": "./dist/management.d.ts",
+      "development": "./src/management.ts",
+      "import": "./dist/management.js"
     }
   },
   "scripts": {
