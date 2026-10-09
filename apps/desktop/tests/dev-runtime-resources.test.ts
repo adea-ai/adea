@@ -1232,4 +1232,144 @@ describe('cleanup policies', () => {
     expect(evaluated.blockers[0]).toMatchObject({ code: 'capability_unavailable' })
     expect(evaluated.blockers[0]?.message).toContain('lifetime is malformed')
   })
+
+  test('a policy disabled while facts are parked cannot produce a matching evaluation', async () => {
+    const approvalVerifier = {
+      recordIssuance: () => undefined,
+      consume: () => undefined,
+      consumeByReference: () => undefined,
+    }
+    let releaseFacts!: () => void
+    const parked = new Promise<void>((resolve) => {
+      releaseFacts = resolve
+    })
+    const { authority } = boot({
+      approvalVerifier,
+      worktreeFacts: async () => {
+        await parked
+        return { clean: 'true', pushed: 'true', active_leases: '0' }
+      },
+    })
+    const policy = authority.providers['dev.cleanupPolicy.createDraft']!(
+      command('dev.cleanupPolicy.createDraft', {
+        projectId: 'proj-1',
+        name: 'auto-clean merged',
+        predicates: [...PREDICATES],
+        allowedSteps: ['prune_retained_data'],
+      })
+    ) as { id: string; version: number }
+    authority.providers['dev.cleanupPolicy.approve']!(
+      command(
+        'dev.cleanupPolicy.approve',
+        { cleanupPolicyId: policy.id, expectedVersion: 1, approvalId: 'approval-1' },
+        { kind: 'cleanup_policy', id: policy.id, generation: 1 }
+      )
+    )
+    const evaluating = authority.providers['dev.cleanupPolicy.evaluate']!(
+      command(
+        'dev.cleanupPolicy.evaluate',
+        {
+          cleanupPolicyId: policy.id,
+          expectedVersion: 2,
+          worktreeId: 'wt-clean',
+          expectedGeneration: 1,
+        },
+        { kind: 'cleanup_policy', id: policy.id, generation: 2 }
+      )
+    ) as Promise<{
+      executesNothing: boolean
+      matched: boolean
+      blockers: Array<{ code: string; message: string }>
+    }>
+    // Revoke after the evaluation captured the policy but before its parked
+    // facts are delivered.
+    const disabled = authority.providers['dev.cleanupPolicy.disable']!(
+      command(
+        'dev.cleanupPolicy.disable',
+        { cleanupPolicyId: policy.id, expectedVersion: 2 },
+        { kind: 'cleanup_policy', id: policy.id, generation: 2 }
+      )
+    ) as { state: string; version: number }
+    expect(disabled).toMatchObject({ state: 'disabled', version: 3 })
+    releaseFacts()
+    const settled = await evaluating
+    expect(settled.matched).toBe(false)
+    expect(settled.executesNothing).toBe(true)
+    expect(settled.blockers[0]).toMatchObject({ code: 'capability_unavailable' })
+    expect(settled.blockers[0]?.message).toContain('changed while worktree facts were being read')
+  })
+
+  test('a policy that expires while facts are parked cannot produce a matching evaluation', async () => {
+    let nowMs = Date.parse('2026-10-09T00:00:00.000Z')
+    const approvalVerifier = {
+      recordIssuance: () => undefined,
+      consume: () => undefined,
+      consumeByReference: () => undefined,
+    }
+    const first = boot({
+      approvalVerifier,
+      worktreeFacts: () => ({ clean: 'true', pushed: 'true', active_leases: '0' }),
+    })
+    const policy = first.authority.providers['dev.cleanupPolicy.createDraft']!(
+      command('dev.cleanupPolicy.createDraft', {
+        projectId: 'proj-1',
+        name: 'auto-clean merged',
+        predicates: [...PREDICATES],
+        allowedSteps: ['prune_retained_data'],
+      })
+    ) as { id: string; version: number }
+    first.authority.providers['dev.cleanupPolicy.approve']!(
+      command(
+        'dev.cleanupPolicy.approve',
+        { cleanupPolicyId: policy.id, expectedVersion: 1, approvalId: 'approval-1' },
+        { kind: 'cleanup_policy', id: policy.id, generation: 1 }
+      )
+    )
+    // Seed a valid future expiry on the stored record; the command decoder
+    // treats a body `expiresAt` as an authority field.
+    const file = join(first.dataDir, 'dev-runtime', 'resources', 'cleanup-policies.json')
+    const envelope = JSON.parse(readFileSync(file, 'utf8')) as {
+      records: Array<Record<string, unknown>>
+    }
+    envelope.records = envelope.records.map((record) =>
+      record.id === policy.id ? { ...record, expiresAt: '2026-10-09T00:01:00.000Z' } : record
+    )
+    writeFileSync(file, JSON.stringify(envelope))
+    let releaseFacts!: () => void
+    const parked = new Promise<void>((resolve) => {
+      releaseFacts = resolve
+    })
+    const second = boot({
+      dataDir: first.dataDir,
+      now: () => nowMs,
+      worktreeFacts: async () => {
+        await parked
+        return { clean: 'true', pushed: 'true', active_leases: '0' }
+      },
+    })
+    const evaluating = second.authority.providers['dev.cleanupPolicy.evaluate']!(
+      command(
+        'dev.cleanupPolicy.evaluate',
+        {
+          cleanupPolicyId: policy.id,
+          expectedVersion: 2,
+          worktreeId: 'wt-clean',
+          expectedGeneration: 1,
+        },
+        { kind: 'cleanup_policy', id: policy.id, generation: 2 }
+      )
+    ) as Promise<{
+      executesNothing: boolean
+      matched: boolean
+      blockers: Array<{ code: string; message: string }>
+    }>
+    // Cross the expiry while the facts are parked.
+    nowMs = Date.parse('2026-10-09T00:02:00.000Z')
+    releaseFacts()
+    const settled = await evaluating
+    expect(settled.matched).toBe(false)
+    expect(settled.executesNothing).toBe(true)
+    expect(settled.blockers[0]).toMatchObject({ code: 'capability_unavailable' })
+    expect(settled.blockers[0]?.message).toContain('expired while worktree facts were being read')
+  })
 })
