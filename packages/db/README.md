@@ -142,3 +142,24 @@ never inherits the lead choice. Child overrides require CP-owned canonical child
 Migration 0045 adds only the nullable requested-choices column and its strict check. Its
 snapshot preserves every other table from staged 0044, including Home/deletion expansion;
 the older runtime workspace declaration must never generate a destructive rollback.
+
+## Project-state promotion and channel provenance
+
+`promoteProjectState()` is the one explicit archived → active transition. It
+requires the caller's confirmation and the exact observed `updatedAt`, holds
+the project row lock, wakes only the channels the project-archive cascade
+slept, and appends `project.restored` / `channel.restored`. The pure
+`decideProjectStatePromotion` refuses missing, foreign, soft-deleted,
+already-active, stale and unconfirmed calls with typed reasons; visibility is
+carried through unchanged.
+
+Channel archive provenance is explicit in `channels.archive_source`:
+`project_cascade` marks the channels a project archive slept, `individual`
+marks an explicit channel archive (and the default for historical rows).
+Promotion restores exactly the cascade set; a channel archived on its own is
+never revived. `archiveProject`, `softDeleteProject` and
+`promoteProjectState` share `archiveProjectChannels`/`restoreProjectChannels`,
+which lock the project row first and the project's channels in id order, then
+compare-and-swap each channel `version`, so a concurrent write rolls the whole
+transaction back instead of losing an update. Migration 0045 adds the enum and
+column and is expand-only.

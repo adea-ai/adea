@@ -10,6 +10,7 @@
 import {
   archiveProject,
   createProject,
+  promoteProjectState,
   recordWorkspaceAuthorizationDecision,
   removeProjectMember,
   reopenWorkspace,
@@ -95,6 +96,7 @@ export function applicationManagementOperations(
     executors: {
       archiveProject,
       createProject,
+      promoteProjectState,
       removeProjectMember,
       reopenWorkspace,
       reorderProjects,

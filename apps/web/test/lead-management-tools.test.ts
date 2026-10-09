@@ -71,6 +71,7 @@ function harness(options: { resolved?: unknown; resolver?: Resolver; operationsT
     projectArchive: respond('projectArchive', null),
     projectCreate: respond('projectCreate', project),
     projectDelete: respond('projectDelete', null),
+    projectPromote: respond('projectPromote', project),
     projectMemberRemove: respond('projectMemberRemove', true),
     projectMemberSet: respond('projectMemberSet', {}),
     projectReorder: respond('projectReorder', [project]),
