@@ -320,8 +320,15 @@
     {
       "idx": 45,
       "version": "7",
-      "when": 1791505711374,
-      "tag": "0045_requested_role_model_selections",
+      "when": 1791500260752,
+      "tag": "0045_artifact_reference_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791516843304,
+      "tag": "0046_requested_role_model_selections",
       "breakpoints": true
     }
   ]

@@ -45,7 +45,11 @@ export type ControlPlaneServiceScope =
   | 'profile:resolve'
   | 'system:authenticate'
 
-export type ControlPlaneScopeIds = Readonly<{ workspaceId: string; projectId?: string }>
+export type ControlPlaneScopeIds = Readonly<{
+  workspaceId: string
+  projectId?: string
+  beforeMutation?: () => Promise<void>
+}>
 
 export type ControlPlaneCredential = Readonly<{
   /** The bearer value for the `Authorization` header. */
@@ -114,6 +118,19 @@ export async function controlPlaneCredential(
   } catch {
     throw new ControlPlaneCredentialError('misconfigured')
   }
+  if (
+    request.scopes.some((requestedScope) =>
+      [
+        'catalog:manage',
+        'catalog:publish',
+        'credential:write',
+        'marketplace:install',
+        'marketplace:uninstall',
+        'project-state:initialize',
+      ].includes(requestedScope)
+    )
+  )
+    await scope.beforeMutation?.()
   const token = await mintControlPlaneServiceJwt({
     issuer,
     keyId,

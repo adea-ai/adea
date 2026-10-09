@@ -35,6 +35,20 @@ export {
   readArtifactReferenceEvidence,
 } from './artifact-reference-policy'
 export {
+  readCurrentArtifactReferenceGrant,
+  registerArtifactReferenceGrant,
+  regrantArtifactReferenceGrant,
+  revokeArtifactReferenceGrant,
+  withArtifactReferenceGrantLocks,
+  ArtifactReferenceGrantError,
+  artifactReferenceGrantRejectionCodes,
+  type ArtifactReferenceGrantLockScope,
+  type ArtifactReferenceGrantPresentation,
+  type ArtifactReferenceGrantRejectionCode,
+  type ArtifactReferenceGrantRegistrationInput,
+  type ArtifactReferenceGrantRegistrationResult,
+} from './artifact-reference-grants'
+export {
   createDatabase,
   type AgentHqDatabase,
   type AgentHqTransaction,
@@ -44,6 +58,7 @@ export { readDatabaseUrl, type DatabaseEnvironment } from './config'
 export {
   CONTROL_PLANE_IDENTIFIER_PATTERN,
   controlPlaneScopeIds,
+  markWorkspaceControlPlaneUsed,
   isControlPlaneIdentifier,
   mintControlPlaneIdentifier,
   type ControlPlaneIdentifierPrefix,
@@ -194,11 +209,17 @@ export { classifyWorkspaceEventsForUser, type WorkspaceEventDelivery } from './e
 export {
   addWorkspaceMembership,
   archiveWorkspace,
+  deleteWorkspace,
+  beginWorkspaceDeletion,
+  WorkspaceCleanupRequiredError,
+  WorkspacePersonalProtectedError,
+  workspaceDeletionState,
   createWorkspaceWithOwner,
   ensureBootstrapWorkspaces,
   findWorkspaceMembership,
   getWorkspaceForUser,
   listWorkspacesForUser,
+  reorderWorkspaces,
   recordWorkspaceAuthorizationDecision,
   removeWorkspaceMembership,
   reopenWorkspace,

@@ -997,3 +997,35 @@ describe('project/session authority store', () => {
     }
   })
 })
+
+describe('workspace deletion session detachment', () => {
+  test('blocks live sessions without mutating state; archives idle history and removes project bindings durably', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-delete-sessions-'))
+    try {
+      const runtime = seedRuntime(dataDir)
+      expect(runtime.workspaceDeletionBlockers()).toEqual([session.id])
+      expectCode(() => runtime.archiveWorkspaceForDeletion(), 'invalid_state')
+      expect(runtime.getSession(session.id)?.archived).toBe(false)
+      runtime.upsertSession({ ...session, lifecycle: 'completed', version: 2 })
+      expect(runtime.workspaceDeletionBlockers()).toEqual([])
+      expect(runtime.archiveWorkspaceForDeletion()).toBe(1)
+      expect(runtime.getSession(session.id)).toMatchObject({
+        archived: true,
+        lifecycle: 'completed',
+        version: 3,
+      })
+      expect(runtime.archiveRecords()).toHaveLength(1)
+      expect(runtime.findRepoBindings(project.repoIds[0]!)).toEqual([])
+      expect(runtime.archiveWorkspaceForDeletion()).toBe(0)
+      const restarted = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      expect(restarted.getSession(session.id)?.archived).toBe(true)
+      expect(restarted.archiveRecords()).toHaveLength(1)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+})

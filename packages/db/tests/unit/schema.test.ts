@@ -5,6 +5,7 @@ import * as schemaIndex from '../../src/schema'
 
 import {
   agents,
+  artifactReferenceGrants,
   artifacts,
   authorizationAuditRecords,
   commandOutbox,
@@ -111,6 +112,51 @@ describe('persistence schema', () => {
       true
     )
     expect(config.indexes).toHaveLength(4)
+  })
+
+  test('keeps artifact-reference grant identity complete, positive and tenancy scoped (#1180)', () => {
+    const config = getTableConfig(artifactReferenceGrants)
+    const columns = config.columns.map(({ name }) => name)
+
+    // The complete presented grant identity must survive end to end.
+    for (const column of [
+      'grant_id',
+      'source_workspace_id',
+      'audience_workspace_id',
+      'artifact_id',
+      'version',
+      'checksum_sha256',
+      'expires_at',
+      'revision',
+      'revoked_at',
+    ])
+      expect(columns).toContain(column)
+
+    // One durable row per grant id; positive store-owned revisions.
+    expect(
+      config.uniqueConstraints.some((constraint) =>
+        constraint.columns.some((column) => column.name === 'grant_id')
+      )
+    ).toBe(true)
+    expect(
+      config.checks.some(({ name }) => name === 'artifact_reference_grants_revision_positive')
+    ).toBe(true)
+    expect(
+      config.checks.some(({ name }) => name === 'artifact_reference_grants_version_positive')
+    ).toBe(true)
+    expect(
+      config.checks.some(({ name }) => name === 'artifact_reference_grants_checksum_sha256')
+    ).toBe(true)
+    expect(
+      config.checks.some(({ name }) => name === 'artifact_reference_grants_grant_id_nonempty')
+    ).toBe(true)
+    expect(
+      config.checks.some(({ name }) => name === 'artifact_reference_grants_workspaces_distinct')
+    ).toBe(true)
+    expect(config.foreignKeys.map((key) => key.reference().foreignTable)).toEqual([
+      workspaces,
+      workspaces,
+    ])
   })
 
   test('represents constraints and indexes in schema metadata', () => {

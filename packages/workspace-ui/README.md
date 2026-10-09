@@ -148,3 +148,21 @@ The designated lead conversation exposes independent lead and delegated-agent ch
 At save, each explicit choice resolves through the authenticated metadata API to an immutable reference and revision. Only those references enter the canonical intent, never credentials, account snapshots, or accepted execution pins. An ambiguous message retry retains the original resolved refs and key. A changed choice creates a distinct save identity. Topic/workspace/audience changes invalidate outstanding resolution. Unready choices prevent admission without clearing the draft.
 
 The mounted role-choice fixture uses scripted metadata/message HTTP; it is distinct from actual CP provider/funding/child-allocation qualification. Actual connected explicit-role acceptance requires the CP #931 candidate’s production host/artifact and canonical child allocator.
+
+Workspace General distinguishes the caller's stable personal root from additional
+workspaces. The root keeps editable identity controls and explains persistence;
+it never renders Delete workspace, even with a stale `canDelete` capability.
+Home defaults to a home icon; additional workspace marks default to a box. Emoji
+marks and workspace ordering remain user choices. The shared sidebar's existing
+inline New workspace field creates additional workspaces without account bindings.
+
+Workspace General includes Move up/Move down controls for every workspace,
+including the personal root. Ordering persists for the current member and never
+changes another member's list. Failures keep the prior position and show retry
+guidance. The active workspace stays selected after an order change.
+
+Active permanent workspace deletion is explicitly unavailable until a server-owned
+cleanup-completion verifier exists. General shows its availability notice and a
+disabled owner action; desktop headers or prepare intent cannot authorize it. Pending/restarted retries keep cloud
+and remaining local data. Blank additional workspaces have no seeded bindings;
+**Use device default** can still use existing device CLI authentication.

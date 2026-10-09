@@ -2,7 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { QueryClient } from '@tanstack/solid-query'
 
-import { workspaceMutationOptions, workspaceQueryKeys, workspaceQueryOptions } from '../../src'
+import {
+  workspaceMutationOptions,
+  workspaceDeleteMutationOptions,
+  workspaceQueryKeys,
+  workspaceQueryOptions,
+} from '../../src'
 
 const workspace = {
   accent: null,
@@ -101,6 +106,116 @@ function bootstrap(workspaces: readonly (typeof workspace)[]) {
 }
 
 describe('workspace identity mutations', () => {
+  test('deletion removes every workspace cache and selects a remaining workspace; the last deletion stays empty', async () => {
+    const queryClient = new QueryClient()
+    const next = { ...workspace, id: 'workspace-next', name: 'Next' }
+    queryClient.setQueryData(workspaceQueryKeys.bootstrap, bootstrap([workspace, next]))
+    queryClient.setQueryData(workspaceQueryKeys.detail(workspace.id), { workspace })
+    queryClient.setQueryData(['workspaces', workspace.id, 'messages', 'list'], ['private content'])
+    queryClient.setQueryData(['workspaces', next.id, 'projects', 'list'], ['keep'])
+    queryClient.setQueryData(
+      ['dev-runtime', 'account', workspace.id, 'node', 'sessions'],
+      ['private runtime']
+    )
+    queryClient.setQueryData(
+      ['dev-runtime', 'account', next.id, 'node', 'sessions'],
+      ['keep runtime']
+    )
+    const options = workspaceDeleteMutationOptions({} as AgentHqApiClient, queryClient)
+    await options.onSuccess({ deleted: true, workspaceId: workspace.id, workspaces: [next] })
+    expect(queryClient.getQueryData(workspaceQueryKeys.detail(workspace.id))).toBeUndefined()
+    expect(
+      queryClient.getQueryData(['workspaces', workspace.id, 'messages', 'list'])
+    ).toBeUndefined()
+    expect(queryClient.getQueryData(['workspaces', next.id, 'projects', 'list'])).toEqual(['keep'])
+    expect(
+      queryClient.getQueryData(['dev-runtime', 'account', workspace.id, 'node', 'sessions'])
+    ).toBeUndefined()
+    expect(
+      queryClient.getQueryData(['dev-runtime', 'account', next.id, 'node', 'sessions'])
+    ).toEqual(['keep runtime'])
+    expect(queryClient.getQueryData(workspaceQueryKeys.bootstrap)).toMatchObject({
+      activeWorkspace: next,
+      workspaces: [next],
+    })
+    await options.onSuccess({ deleted: true, workspaceId: next.id, workspaces: [] })
+    expect(queryClient.getQueryData(workspaceQueryKeys.bootstrap)).toMatchObject({
+      activeWorkspace: null,
+      workspaces: [],
+    })
+  })
+  test('cancels an in-flight private read so its late response cannot restore deleted data', async () => {
+    const queryClient = new QueryClient()
+    const queryKey = ['workspaces', workspace.id, 'messages', 'pending']
+    let finish: ((value: string) => void) | undefined
+    const read = queryClient
+      .fetchQuery({
+        queryKey,
+        queryFn: () =>
+          new Promise<string>((resolve) => {
+            finish = resolve
+          }),
+      })
+      .catch(() => undefined)
+    const options = workspaceDeleteMutationOptions({} as AgentHqApiClient, queryClient)
+    await options.onSuccess({ deleted: true, workspaceId: workspace.id, workspaces: [] })
+    finish!('private')
+    await read
+    expect(queryClient.getQueryData(queryKey)).toBeUndefined()
+  })
+  test('an older bootstrap response cannot put a deleted workspace back in the picker', async () => {
+    const queryClient = new QueryClient()
+    const next = { ...workspace, id: 'next' }
+    queryClient.setQueryData(workspaceQueryKeys.bootstrap, bootstrap([workspace, next]))
+    let finish: ((value: ReturnType<typeof bootstrap>) => void) | undefined
+    const read = queryClient
+      .fetchQuery({
+        queryKey: workspaceQueryKeys.bootstrap,
+        queryFn: () =>
+          new Promise<ReturnType<typeof bootstrap>>((resolve) => {
+            finish = resolve
+          }),
+      })
+      .catch(() => undefined)
+    const options = workspaceDeleteMutationOptions({} as AgentHqApiClient, queryClient)
+    await options.onSuccess({ deleted: true, workspaceId: workspace.id, workspaces: [next] })
+    finish!(bootstrap([workspace, next]))
+    await read
+    expect(queryClient.getQueryData(workspaceQueryKeys.bootstrap)).toMatchObject({
+      activeWorkspace: next,
+      workspaces: [next],
+    })
+  })
+  test('deletion errors refresh the authoritative workspace confirmation and picker state', async () => {
+    const queryClient = new QueryClient()
+    for (const queryKey of [
+      workspaceQueryKeys.bootstrap,
+      workspaceQueryKeys.list,
+      workspaceQueryKeys.detail(workspace.id),
+    ])
+      queryClient.setQueryData(queryKey, {})
+    const options = workspaceDeleteMutationOptions({} as AgentHqApiClient, queryClient)
+    await options.onError(new Error('Workspace version conflict'), { workspaceId: workspace.id })
+    for (const queryKey of [
+      workspaceQueryKeys.bootstrap,
+      workspaceQueryKeys.list,
+      workspaceQueryKeys.detail(workspace.id),
+    ])
+      expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
+  })
+  test('creating from an empty bootstrap selects the new workspace', async () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(workspaceQueryKeys.bootstrap, {
+      ...bootstrap([]),
+      activeWorkspace: null,
+    })
+    const options = workspaceMutationOptions.create(client(), queryClient)
+    await options.onSuccess({ created: true, workspace })
+    expect(queryClient.getQueryData(workspaceQueryKeys.bootstrap)).toMatchObject({
+      activeWorkspace: workspace,
+      workspaces: [workspace],
+    })
+  })
   test('appends a created workspace to the bootstrap list without refetching it', async () => {
     const created = { ...workspace, id: 'workspace-2', name: 'Pink Binder', sortOrder: 1 }
     const queryClient = new QueryClient()
@@ -146,5 +261,29 @@ describe('workspace identity mutations', () => {
     )
     expect(data?.activeWorkspace).toEqual(renamed)
     expect(data?.workspaces).toEqual([renamed])
+  })
+})
+
+test('workspace reorder updates both list caches without changing the explicit active workspace', async () => {
+  const queryClient = new QueryClient()
+  const home = { ...workspace, id: 'home', isPersonal: true, canDelete: false }
+  const secondary = { ...workspace, id: 'secondary', sortOrder: 1 }
+  queryClient.setQueryData(workspaceQueryKeys.bootstrap, {
+    ...bootstrap([home, secondary]),
+    activeWorkspace: secondary,
+  })
+  const reordered = [
+    { ...secondary, sortOrder: 0 },
+    { ...home, sortOrder: 1 },
+  ]
+  const options = workspaceMutationOptions.reorder(
+    client({ reorderWorkspaces: async () => reordered }),
+    queryClient
+  )
+  await options.onSuccess(await options.mutationFn(['secondary', 'home']))
+  expect(queryClient.getQueryData(workspaceQueryKeys.list)).toEqual(reordered)
+  expect(queryClient.getQueryData(workspaceQueryKeys.bootstrap)).toMatchObject({
+    workspaces: reordered,
+    activeWorkspace: reordered[0],
   })
 })

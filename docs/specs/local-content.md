@@ -228,3 +228,24 @@ they do not establish the missing SQLite, workspace, health, or rotation behavio
   command.
 - `apps/desktop/tests/workspace-memory-launch.test.ts`: launch injection and
   `dev.memory.propose` over the real channel gate (see dev-runtime.md).
+
+### Workspace deletion cleanup
+
+The shell's `workspace-local-data.ts` verifies ownership before deleting indexed
+`local-content/<id>.sealed` ciphertext and workspace memory records. Memory
+records authenticate their workspace-bound AES-GCM associated data before purge;
+malformed ownership, symlinks, an unreadable record or another device/account scope
+for the same workspace refuses cleanup. The memory injection override is removed.
+Ciphertext is unlinked before its index entry so interrupted cleanup can retry.
+The signed-window cleanup protocol persists completed phases and never reports an
+unknown filesystem state as complete. Deletion fences also check the stored owner
+of legacy content read/update/delete commands, so a forged renderer workspace ID
+cannot bypass a pending or completed deletion fence. Account-wide keys and other
+workspace content are retained.
+
+The persistent personal workspace is excluded from deletion proof and preparation; its memory and local content remain after renaming or changing settings. Additional-workspace cleanup preserves all personal and sibling scope data.
+
+Active permanent workspace deletion is blocked until the server can verify native
+cleanup completion. A prepare/pending timestamp never authorizes local ciphertext
+or memory removal. Native recovery cleanup requires fresh proof that a historical
+cloud root is already deleted; interrupted pending/restart/retry retains local data.

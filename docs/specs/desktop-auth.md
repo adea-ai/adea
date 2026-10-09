@@ -293,3 +293,24 @@ boundary test bundles the real shell notification entry to check that graph.
 - `apps/desktop/tests/shell-channel.test.ts`: the invoke path authenticates
   the shell channel (bootstrap handshake, per-request HMAC, replay and
   origin refusals) before a handler runs.
+
+### Workspace deletion lifecycle commands
+
+The trusted signed-window identity command family includes
+`desktop_identity_workspace_cleanup_prepare`, `_commit`, `_cancel`, and `_pending`
+(with the complete shared prefix). Prepare accepts a workspace ID and the existing
+desktop/temporary membership credential; the shell requires a fresh owner-only
+`GET /api/workspaces/<id>/delete` proof, exact current scope and idle resources. The persistent personal root never supplies deletion proof, even after renaming or changing its mark.
+Its durable operation UUID binds the scope; Commit/Cancel never accept a renderer
+scope assertion. Commit requires fresh cloud `deleted` owner proof and can
+resume the shell-owned saved scope after restart; the active host must be idle
+before temporary cleanup composition. Cancel requires fresh `active` proof and a
+prepared operation. Cloud uncertainty stays paused. Receipt responses are
+`Cache-Control: no-store`; neither offline membership nor client cache is deletion
+proof. Completion removes persisted membership entries, binding and selection for
+that workspace, retains sibling proofs, and permanently refuses stale native
+writes. The desktop root displays durable pending cleanup with **Retry cleanup**
+across workspace unmounts. Active prepare/final requests are refused until a server-owned native completion verifier exists. Desktop headers and prepare timestamps are not completion proof. A `cleanup_pending` receipt authorizes no archival, local purge or identity removal; interrupted/restarted retries preserve all remaining data. Used/unverified Control
+Plane scopes and registered devices stay blocked until their external/all-device
+cleanup contract exists. Browser deletion refuses because it cannot verify
+device-local resources. Shared host authentication is intentionally preserved.

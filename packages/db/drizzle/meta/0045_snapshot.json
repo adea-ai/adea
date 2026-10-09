@@ -1,5 +1,5 @@
 {
-  "id": "a76e0b1b-311f-459a-862a-4e6f296f0816",
+  "id": "e143add1-65c4-4a37-9797-88ed56aec91f",
   "prevId": "c943ea33-bb4b-43d6-b9c7-a0f384c615fb",
   "version": "7",
   "dialect": "postgresql",
@@ -275,6 +275,170 @@
         "agents_profile_revision_nonnegative": {
           "name": "agents_profile_revision_nonnegative",
           "value": "\"app\".\"agents\".\"profile_revision\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.artifact_reference_grants": {
+      "name": "artifact_reference_grants",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "grant_id": {
+          "name": "grant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_workspace_id": {
+          "name": "source_workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "audience_workspace_id": {
+          "name": "audience_workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checksum_sha256": {
+          "name": "checksum_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "artifact_reference_grants_source_artifact_idx": {
+          "name": "artifact_reference_grants_source_artifact_idx",
+          "columns": [
+            {
+              "expression": "source_workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "artifact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "audience_workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "artifact_reference_grants_source_workspace_fk": {
+          "name": "artifact_reference_grants_source_workspace_fk",
+          "tableFrom": "artifact_reference_grants",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": ["source_workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "artifact_reference_grants_audience_workspace_fk": {
+          "name": "artifact_reference_grants_audience_workspace_fk",
+          "tableFrom": "artifact_reference_grants",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": ["audience_workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "artifact_reference_grants_grant_id_unique": {
+          "name": "artifact_reference_grants_grant_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["grant_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "artifact_reference_grants_revision_positive": {
+          "name": "artifact_reference_grants_revision_positive",
+          "value": "\"app\".\"artifact_reference_grants\".\"revision\" > 0"
+        },
+        "artifact_reference_grants_version_positive": {
+          "name": "artifact_reference_grants_version_positive",
+          "value": "\"app\".\"artifact_reference_grants\".\"version\" > 0"
+        },
+        "artifact_reference_grants_checksum_sha256": {
+          "name": "artifact_reference_grants_checksum_sha256",
+          "value": "\"app\".\"artifact_reference_grants\".\"checksum_sha256\" ~ '^[0-9a-f]{64}$'"
+        },
+        "artifact_reference_grants_grant_id_nonempty": {
+          "name": "artifact_reference_grants_grant_id_nonempty",
+          "value": "length(btrim(\"app\".\"artifact_reference_grants\".\"grant_id\")) > 0"
+        },
+        "artifact_reference_grants_workspaces_distinct": {
+          "name": "artifact_reference_grants_workspaces_distinct",
+          "value": "\"app\".\"artifact_reference_grants\".\"source_workspace_id\" <> \"app\".\"artifact_reference_grants\".\"audience_workspace_id\""
         }
       },
       "isRLSEnabled": false
@@ -2676,12 +2840,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "requested_model_selections": {
-          "name": "requested_model_selections",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "dispatch_key": {
           "name": "dispatch_key",
           "type": "text",
@@ -2830,10 +2988,6 @@
         "lead_turn_intents_blocked_only": {
           "name": "lead_turn_intents_blocked_only",
           "value": "\"app\".\"lead_turn_intents\".\"state\" = 'blocked' and \"app\".\"lead_turn_intents\".\"reason_code\" = 'ADMISSION_SERVICE_UNAVAILABLE'"
-        },
-        "lead_turn_intents_requested_models_valid": {
-          "name": "lead_turn_intents_requested_models_valid",
-          "value": "\"app\".\"lead_turn_intents\".\"requested_model_selections\" is null or (\n        jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\") = 'object'\n        and \"app\".\"lead_turn_intents\".\"requested_model_selections\" <> '{}'::jsonb\n        and (\"app\".\"lead_turn_intents\".\"requested_model_selections\" - 'lead' - 'child') = '{}'::jsonb\n        and (not (\"app\".\"lead_turn_intents\".\"requested_model_selections\" ? 'lead') or (\n            jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead') = 'object'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead' ? 'selectionRef' and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead' ? 'selectionRevision'\n            and ((\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead') - 'selectionRef' - 'selectionRevision') = '{}'::jsonb\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->'selectionRef') = 'string'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->>'selectionRef' ~ '^msel_[a-f0-9]{32}$'\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->'selectionRevision') = 'number'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->>'selectionRevision' ~ '^[0-9]+$'\n            and (\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->>'selectionRevision')::numeric between 1 and 9007199254740991\n          )) and (not (\"app\".\"lead_turn_intents\".\"requested_model_selections\" ? 'child') or (\n            jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child') = 'object'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child' ? 'selectionRef' and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child' ? 'selectionRevision'\n            and ((\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child') - 'selectionRef' - 'selectionRevision') = '{}'::jsonb\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->'selectionRef') = 'string'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->>'selectionRef' ~ '^msel_[a-f0-9]{32}$'\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->'selectionRevision') = 'number'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->>'selectionRevision' ~ '^[0-9]+$'\n            and (\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->>'selectionRevision')::numeric between 1 and 9007199254740991\n          ))\n      )"
         }
       },
       "isRLSEnabled": false
@@ -6285,6 +6439,71 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "app.workspace_deletions": {
+      "name": "workspace_deletions",
+      "schema": "app",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workspace_deletions_owner_idx": {
+          "name": "workspace_deletions_owner_idx",
+          "columns": [
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workspace_deletions_owner_user_id_users_id_fk": {
+          "name": "workspace_deletions_owner_user_id_users_id_fk",
+          "tableFrom": "workspace_deletions",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "app.workspace_event_dispatches": {
       "name": "workspace_event_dispatches",
       "schema": "app",
@@ -7219,10 +7438,6 @@
           "name": "workspaces_control_plane_workspace_id_valid",
           "value": "\"app\".\"workspaces\".\"control_plane_workspace_id\" ~ '^wsp_[0-9A-HJKMNP-TV-Z]{26}$'"
         },
-        "workspaces_personal_active": {
-          "name": "workspaces_personal_active",
-          "value": "not \"app\".\"workspaces\".\"is_personal\" or (\"app\".\"workspaces\".\"deleted_at\" is null and \"app\".\"workspaces\".\"deletion_requested_at\" is null)"
-        },
         "workspaces_name_nonempty": {
           "name": "workspaces_name_nonempty",
           "value": "length(btrim(\"app\".\"workspaces\".\"name\")) > 0"
@@ -7243,76 +7458,15 @@
           "name": "workspaces_logo_valid",
           "value": "(\"app\".\"workspaces\".\"logo_kind\" in ('monogram', 'home', 'box') and \"app\".\"workspaces\".\"logo_value\" is null) or (\"app\".\"workspaces\".\"logo_kind\" = 'emoji' and length(\"app\".\"workspaces\".\"logo_value\") between 1 and 16)"
         },
+        "workspaces_personal_active": {
+          "name": "workspaces_personal_active",
+          "value": "not \"app\".\"workspaces\".\"is_personal\" or (\"app\".\"workspaces\".\"deleted_at\" is null and \"app\".\"workspaces\".\"deletion_requested_at\" is null)"
+        },
         "workspaces_version_positive": {
           "name": "workspaces_version_positive",
           "value": "\"app\".\"workspaces\".\"version\" > 0"
         }
       },
-      "isRLSEnabled": false
-    },
-    "app.workspace_deletions": {
-      "name": "workspace_deletions",
-      "schema": "app",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "owner_user_id": {
-          "name": "owner_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "workspace_deletions_owner_idx": {
-          "name": "workspace_deletions_owner_idx",
-          "columns": [
-            {
-              "expression": "owner_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "workspace_deletions_owner_user_id_users_id_fk": {
-          "name": "workspace_deletions_owner_user_id_users_id_fk",
-          "tableFrom": "workspace_deletions",
-          "tableTo": "users",
-          "schemaTo": "app",
-          "columnsFrom": ["owner_user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     }
   },

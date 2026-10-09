@@ -103,7 +103,7 @@ function WebNavigationEntry(props: {
         onSignIn: () => services.account?.onSignIn(),
         onSignOut: () => services.account?.onSignOut(),
       }}
-      activeWorkspace={activeWorkspace()}
+      activeWorkspace={activeWorkspace() ?? undefined}
       client={client}
       platform="web"
       characterDesigner={props.characterDesigner ?? false}

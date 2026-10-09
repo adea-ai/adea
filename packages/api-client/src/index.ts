@@ -281,7 +281,7 @@ export type ApiWorkspaceResponse = {
 }
 
 export type ApiWorkspaceBootstrapResponse = {
-  activeWorkspace: WorkspaceSummary
+  activeWorkspace: WorkspaceSummary | null
   principal: Readonly<{ displayName?: string; temporary: boolean; userId?: string }>
   sessionRotated: boolean
   temporaryCredential?: string
@@ -296,6 +296,11 @@ export type ApiWorkspaceCreateResponse = {
 export type ApiWorkspaceClaimResponse = Readonly<{ claimed: true }>
 
 export type ApiWorkspaceReopenResponse = Readonly<{ workspace: WorkspaceSummary }>
+export type ApiWorkspaceDeleteResponse = Readonly<{
+  deleted: true
+  workspaceId: string
+  workspaces: readonly WorkspaceSummary[]
+}>
 
 export type ApiWorkspaceUpdateResponse = Readonly<{ workspace: WorkspaceSummary }>
 
@@ -575,6 +580,10 @@ export class AgentHqApiClient {
     return this.request<readonly WorkspaceSummary[]>('/workspaces')
   }
 
+  async reorderWorkspaces(workspaceIds: readonly string[]): Promise<readonly WorkspaceSummary[]> {
+    return this.postJson<readonly WorkspaceSummary[]>('/workspaces/reorder', { workspaceIds })
+  }
+
   async createWorkspace(
     input: Readonly<{
       idempotencyKey: string
@@ -611,6 +620,26 @@ export class AgentHqApiClient {
     return this.request<ApiWorkspaceReopenResponse>(
       `/workspaces/${encodeURIComponent(workspaceId)}/reopen`,
       { method: 'POST' }
+    )
+  }
+
+  async prepareWorkspaceDeletion(
+    workspaceId: string,
+    confirmation: Readonly<{ confirmationName: string; expectedVersion: number }>
+  ): Promise<Readonly<{ workspaceId: string; cleanupPending: true }>> {
+    return this.postJson(`/workspaces/${encodeURIComponent(workspaceId)}/delete`, {
+      ...confirmation,
+      phase: 'prepare',
+    })
+  }
+
+  async deleteWorkspace(
+    workspaceId: string,
+    confirmation: Readonly<{ confirmationName: string; expectedVersion: number }>
+  ): Promise<ApiWorkspaceDeleteResponse> {
+    return this.postJson<ApiWorkspaceDeleteResponse>(
+      `/workspaces/${encodeURIComponent(workspaceId)}/delete`,
+      confirmation
     )
   }
 

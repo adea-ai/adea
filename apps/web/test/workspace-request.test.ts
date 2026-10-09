@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { parseWorkspaceUpdate } from '../src/server/workspace-request'
+import { parseWorkspaceUpdate, parseWorkspaceOrder } from '../src/server/workspace-request'
 
 describe('workspace update requests', () => {
   test('decodes each field and trims the name', () => {
@@ -31,6 +31,14 @@ describe('workspace update requests', () => {
     })
   })
 
+  test('home and box icons can change without carrying personal identity metadata', () => {
+    for (const kind of ['home', 'box'])
+      expect(parseWorkspaceUpdate({ expectedVersion: 1, logo: { kind } })).toEqual({
+        expectedVersion: 1,
+        update: { logo: { kind } },
+      })
+  })
+
   test('accepts a multi-codepoint emoji as one grapheme', () => {
     expect(
       parseWorkspaceUpdate({ expectedVersion: 1, logo: { kind: 'emoji', value: '👩🏽‍💻' } })
@@ -45,6 +53,11 @@ describe('workspace update requests', () => {
     ['a zero version', { expectedVersion: 0, name: 'Adea' }],
     ['a fractional version', { expectedVersion: 1.5, name: 'Adea' }],
     ['an empty update', { expectedVersion: 1 }],
+    ['an attempted personal-identity change', { expectedVersion: 1, isPersonal: false }],
+    [
+      'an icon with extra identity metadata',
+      { expectedVersion: 1, logo: { kind: 'home', isPersonal: false } },
+    ],
     ['an unknown key', { expectedVersion: 1, name: 'Adea', ownerUserId: 'x' }],
     ['a blank name', { expectedVersion: 1, name: '   ' }],
     ['a long name', { expectedVersion: 1, name: 'x'.repeat(81) }],
@@ -58,4 +71,17 @@ describe('workspace update requests', () => {
   ])('rejects %s', (_label, body) => {
     expect(parseWorkspaceUpdate(body)).toBeNull()
   })
+})
+
+test('workspace ordering rejects duplicates, foreign-shaped IDs and extra identity fields', () => {
+  const ids = ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002']
+  expect(parseWorkspaceOrder({ workspaceIds: ids })).toEqual(ids)
+  for (const body of [
+    null,
+    [],
+    { workspaceIds: [ids[0], ids[0]] },
+    { workspaceIds: ['other'] },
+    { workspaceIds: ids, isPersonal: false },
+  ])
+    expect(parseWorkspaceOrder(body)).toBeNull()
 })

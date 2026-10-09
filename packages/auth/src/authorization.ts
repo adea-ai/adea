@@ -7,6 +7,7 @@ export const workspaceRolePermissions = Object.freeze({
     'workspace.read',
     'workspace.update',
     'workspace.archive',
+    'workspace.delete',
     'workspace.events.read',
     'membership.read',
     'membership.manage',
@@ -53,7 +54,7 @@ export type WorkspaceAuthorizationDependencies = Readonly<{
       principal: Extract<PrincipalRef, { kind: 'user' }>
       workspaceId: string
     }>
-  ): Promise<Readonly<{ role: WorkspaceRole }> | null>
+  ): Promise<Readonly<{ role: WorkspaceRole; deletionPending?: boolean }> | null>
 }>
 
 const privilegedPermissions = new Set<WorkspacePermission>([
@@ -61,6 +62,7 @@ const privilegedPermissions = new Set<WorkspacePermission>([
   'membership.manage',
   'runtime.invoke',
   'workspace.archive',
+  'workspace.delete',
 ])
 
 export async function authorizeWorkspaceAction(
@@ -84,6 +86,10 @@ export async function authorizeWorkspaceAction(
   })
   const allowed = Boolean(
     membership &&
+    (!membership.deletionPending ||
+      ['workspace.read', 'workspace.events.read', 'membership.read', 'workspace.delete'].includes(
+        request.permission
+      )) &&
     new Set<WorkspacePermission>(workspaceRolePermissions[membership.role]).has(request.permission)
   )
 

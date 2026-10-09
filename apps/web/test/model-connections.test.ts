@@ -232,7 +232,7 @@ describe('model metadata product boundary', () => {
       expect(JSON.stringify(await response.json())).not.toContain('test-account')
     }
   })
-  test('missing host target and currently unsupported public release stay inactive without a signed hop', async () => {
+  test('missing host target stays inactive without a signed hop even though the installed SDK exports the operations', async () => {
     let resolved = 0
     const adapter = createWorkspaceModelMetadataAdapter(WORKSPACE, false, CORRELATION, {
       resolveControlPlaneScope: async () => {
@@ -255,7 +255,9 @@ describe('model metadata product boundary', () => {
       code: 'READINESS_UNAVAILABLE',
     })
     expect(resolved).toBe(0)
-    expect(installedModelMetadataPort.supported).toBeFalse()
+    // SDK 1.15 exports every model-metadata operation, so the installed port
+    // is supported; the adapter still must not reach it without readiness.
+    expect(installedModelMetadataPort.supported).toBeTrue()
   })
 
   test('defaults retain distinct roles and CAS identity under the existing write scope', async () => {

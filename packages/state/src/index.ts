@@ -34,7 +34,10 @@ export type WorkspaceState = {
   globalPanel: 'about' | 'help' | 'plugins' | 'search' | 'settings' | 'workspace-settings' | null
   setCameraViewMode: (mode: WorkspaceViewMode) => void
   setSelectedWorkspaceId: (workspaceId: string | null) => void
-  switchWorkspace: (workspaceId: string, options?: { preserveDevSelection?: boolean }) => void
+  switchWorkspace: (
+    workspaceId: string | null,
+    options?: { preserveDevSelection?: boolean }
+  ) => void
   setSelectedProjectId: (projectId: string | null) => void
   setSelectedChannelId: (channelId: string | null) => void
   setSelectedTaskId: (taskId: string | null) => void

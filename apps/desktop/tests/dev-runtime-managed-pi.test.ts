@@ -784,13 +784,13 @@ describe('managed Pi manifest component registration (#185 follow-up)', () => {
 })
 
 // The composition-level zero-config boot warm is an explicit opt-in
-// (`managedPiAutoInstall: true` in the createDevRuntimeHost call). The
+// (`managedPiAutoInstall` enabled except during workspace cleanup). The
 // packaged composition lives in the shell entry, so the production wiring is
 // pinned by source: without this line the zero-config flow silently degrades
 // to the explicit dev.harness.managedPiInstall command.
 test('the packaged shell composition opts into the managed Pi boot warm', () => {
   const entry = readFileSync(join(import.meta.dir, '../shell/src/bun/index.ts'), 'utf8')
-  expect(entry).toContain('managedPiAutoInstall: true')
+  expect(entry).toContain('managedPiAutoInstall: !workspaceCleanup?.isPaused(scope)')
 })
 
 // #185 acceptance: "Clean install, existing install, upgrade, downgrade/

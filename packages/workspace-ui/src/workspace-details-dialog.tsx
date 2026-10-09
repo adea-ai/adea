@@ -1,11 +1,15 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/types'
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
+import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { SettingsNavigation } from '@adea-ai/ui/components/composites/settings'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
 import { Brain, LockKeyhole, Settings2, Sparkles } from 'lucide-solid'
-import { createEffect, createSignal, lazy, Show, Suspense, type Accessor } from 'solid-js'
+import { createEffect, createSignal, For, lazy, Show, Suspense, type Accessor } from 'solid-js'
+import { Dynamic } from 'solid-js/web'
 
 import type { WorkspacePlatformServices } from './platform'
 import {
@@ -39,11 +43,11 @@ const SkillsPane = lazy(() =>
 const CloudConnectionsPane = lazy(() =>
   import('./control-plane-settings').then((module) => ({ default: module.CloudConnectionsPane }))
 )
-const LeadModelPane = lazy(() =>
-  import('./control-plane-settings').then((module) => ({ default: module.LeadModelPane }))
-)
 const RuntimeNodesPane = lazy(() =>
   import('./control-plane-settings').then((module) => ({ default: module.RuntimeNodesPane }))
+)
+const LeadModelPane = lazy(() =>
+  import('./control-plane-settings').then((module) => ({ default: module.LeadModelPane }))
 )
 
 /**
@@ -61,10 +65,15 @@ export function WorkspaceDetailsDialog(props: {
    */
   client?: AgentHqApiClient
   onClose: () => void
+  onDeleteWorkspace?: (
+    confirmation: Readonly<{ confirmationName: string; expectedVersion: number }>
+  ) => Promise<void>
   /** Saves a versioned workspace identity change; omitted renders read-only. */
   onUpdateWorkspace?: (
     update: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
   ) => Promise<void>
+  onReorderWorkspaces?: (workspaceIds: readonly string[]) => Promise<void>
+  workspaceOrder?: readonly WorkspaceSummary[]
   open: boolean
   /** The control to restore focus to on close; the shared dialog otherwise
    * restores the element focused before it opened. */
@@ -74,7 +83,35 @@ export function WorkspaceDetailsDialog(props: {
 }) {
   const apiClient = () => props.client ?? props.services?.client
   const [section, setSection] = createSignal<WorkspaceSettingsSection>('general')
-
+  const sectionDescription = () =>
+    ({
+      general: 'How this workspace looks and where it opens.',
+      memory: `Notes for agents working in ${props.workspace.name}. Agents can propose notes; they become memory only when you accept them.`,
+      skills: `Skills and agent profiles ${props.workspace.name} uses for cloud runs, from the Control Plane catalog.`,
+      connections:
+        'Devices and self-hosted runtimes registered to this workspace, git hosting and harness accounts on this device, and connector credentials for cloud agents. Device secrets stay in the device vault.',
+    })[section()]
+  const [moving, setMoving] = createSignal(false)
+  const [orderError, setOrderError] = createSignal('')
+  const workspacePosition = () =>
+    props.workspaceOrder?.findIndex((workspace) => workspace.id === props.workspace.id) ?? -1
+  const moveWorkspace = async (direction: -1 | 1) => {
+    if (moving() || !props.onReorderWorkspaces || !props.workspaceOrder) return
+    const ids = props.workspaceOrder.map((workspace) => workspace.id)
+    const position = workspacePosition()
+    const next = position + direction
+    if (position < 0 || next < 0 || next >= ids.length) return
+    ;[ids[position], ids[next]] = [ids[next]!, ids[position]!]
+    setMoving(true)
+    setOrderError('')
+    try {
+      await props.onReorderWorkspaces(ids)
+    } catch {
+      setOrderError('Workspace order could not be saved. Try again.')
+    } finally {
+      setMoving(false)
+    }
+  }
   createEffect(() => {
     if (!props.open) return
     const requested = workspaceSettingsSectionFromHash(window.location.hash) ?? 'general'
@@ -143,88 +180,99 @@ export function WorkspaceDetailsDialog(props: {
             },
           ]}
         />
-        <TabsContent value="general" id="workspace-settings-panel-general" class="min-h-0 min-w-0">
-          <div class="conventional-settings-panel">
-            <header>
-              <Settings2 aria-hidden="true" />
-              <div>
-                <h3>{workspaceSettingsSectionLabels.general}</h3>
-                <p>How this workspace looks and where it opens.</p>
+        <For each={workspaceSettingsSections}>
+          {(panelSection) => (
+            <TabsContent
+              value={panelSection}
+              id={`workspace-settings-panel-${panelSection}`}
+              class="min-h-0 min-w-0"
+            >
+              <div class="conventional-settings-panel">
+                <header>
+                  <Dynamic component={sectionIcons[panelSection]} aria-hidden="true" />
+                  <div>
+                    <h3>{workspaceSettingsSectionLabels[panelSection]}</h3>
+                    <p>{sectionDescription()}</p>
+                  </div>
+                </header>
+                <Show when={panelSection === 'general'}>
+                  <WorkspaceIdentitySettings
+                    workspace={props.workspace}
+                    {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
+                  />
+                  <Show when={props.onReorderWorkspaces && workspacePosition() >= 0}>
+                    <SettingsRow label="Workspace order">
+                      <div class="flex flex-col gap-2">
+                        <p role="status" aria-label="Workspace order position">
+                          Position {workspacePosition() + 1} of {props.workspaceOrder?.length ?? 0}
+                        </p>
+                        <div class="flex items-center gap-2">
+                          <For each={[-1, 1] as const}>
+                            {(direction) => (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={
+                                  moving() ||
+                                  workspacePosition() + direction < 0 ||
+                                  workspacePosition() + direction >=
+                                    (props.workspaceOrder?.length ?? 0)
+                                }
+                                onClick={() => void moveWorkspace(direction)}
+                              >
+                                Move {direction === -1 ? 'up' : 'down'}
+                              </Button>
+                            )}
+                          </For>
+                        </div>
+                        <Show when={orderError()}>
+                          <Alert variant="destructive">
+                            <AlertDescription>{orderError()}</AlertDescription>
+                          </Alert>
+                        </Show>
+                      </div>
+                    </SettingsRow>
+                  </Show>
+                  <Show when={props.workspace.isPersonal}>
+                    <p class="conventional-settings-note">
+                      Your personal workspace stays with your account.
+                    </p>
+                  </Show>
+                  <Show when={!props.workspace.isPersonal && props.workspace.canDelete}>
+                    <SettingsRow
+                      label="Delete workspace"
+                      description={`${props.workspace.deletionPending ? 'Deletion is pending. ' : ''}Permanent deletion is currently unavailable until cleanup is verified. Your workspace and its data will be kept.`}
+                    >
+                      <Button variant="destructive" disabled>
+                        Delete workspace
+                      </Button>
+                    </SettingsRow>
+                  </Show>
+                </Show>
+                <Show when={panelSection === 'memory'}>
+                  <MemoryPane service={props.services?.memory} workspaceId={props.workspace.id} />
+                </Show>
+                <Show when={panelSection === 'skills'}>
+                  <SkillsPane client={apiClient()} workspaceId={props.workspace.id} />
+                </Show>
+                <Show when={props.open && panelSection === 'connections'}>
+                  <Suspense fallback={<p role="status">Loading device connections…</p>}>
+                    <ConnectionsPane service={props.services?.connections} />
+                  </Suspense>
+                  <Suspense fallback={<p role="status">Loading execution hosts…</p>}>
+                    <RuntimeNodesPane client={apiClient()} workspaceId={props.workspace.id} />
+                  </Suspense>
+                  <Suspense fallback={<p role="status">Loading agent models…</p>}>
+                    <LeadModelPane client={apiClient()} workspaceId={props.workspace.id} />
+                  </Suspense>
+                  <Suspense fallback={<p role="status">Loading cloud connections…</p>}>
+                    <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />
+                  </Suspense>
+                </Show>
               </div>
-            </header>
-            <WorkspaceIdentitySettings
-              workspace={props.workspace}
-              {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
-            />
-          </div>
-        </TabsContent>
-        <TabsContent value="memory" id="workspace-settings-panel-memory" class="min-h-0 min-w-0">
-          <div class="conventional-settings-panel">
-            <header>
-              <Brain aria-hidden="true" />
-              <div>
-                <h3>{workspaceSettingsSectionLabels.memory}</h3>
-                <p>
-                  Notes for agents working in {props.workspace.name}. Agents can propose notes; they
-                  become memory only when you accept them.
-                </p>
-              </div>
-            </header>
-            <Show when={section() === 'memory'}>
-              <MemoryPane service={props.services?.memory} workspaceId={props.workspace.id} />
-            </Show>
-          </div>
-        </TabsContent>
-        <TabsContent value="skills" id="workspace-settings-panel-skills" class="min-h-0 min-w-0">
-          <div class="conventional-settings-panel">
-            <header>
-              <Sparkles aria-hidden="true" />
-              <div>
-                <h3>{workspaceSettingsSectionLabels.skills}</h3>
-                <p>
-                  Skills and agent profiles {props.workspace.name} uses for cloud runs, from the
-                  Control Plane catalog.
-                </p>
-              </div>
-            </header>
-            <Show when={section() === 'skills'}>
-              <SkillsPane client={apiClient()} workspaceId={props.workspace.id} />
-            </Show>
-          </div>
-        </TabsContent>
-        <TabsContent
-          value="connections"
-          id="workspace-settings-panel-connections"
-          class="min-h-0 min-w-0"
-        >
-          <div class="conventional-settings-panel">
-            <header>
-              <LockKeyhole aria-hidden="true" />
-              <div>
-                <h3>{workspaceSettingsSectionLabels.connections}</h3>
-                <p>
-                  Devices and self-hosted runtimes registered to this workspace, git hosting and
-                  harness accounts on this device, and connector credentials for cloud agents.
-                  Device secrets stay in the device vault.
-                </p>
-              </div>
-            </header>
-            <Show when={props.open && section() === 'connections'}>
-              <Suspense fallback={<p role="status">Loading device connections…</p>}>
-                <ConnectionsPane service={props.services?.connections} />
-              </Suspense>
-              <Suspense fallback={<p role="status">Loading execution hosts…</p>}>
-                <RuntimeNodesPane client={apiClient()} workspaceId={props.workspace.id} />
-              </Suspense>
-              <Suspense fallback={<p role="status">Loading agent models…</p>}>
-                <LeadModelPane client={apiClient()} workspaceId={props.workspace.id} />
-              </Suspense>
-              <Suspense fallback={<p role="status">Loading cloud connections…</p>}>
-                <CloudConnectionsPane client={apiClient()} workspaceId={props.workspace.id} />
-              </Suspense>
-            </Show>
-          </div>
-        </TabsContent>
+            </TabsContent>
+          )}
+        </For>
       </Tabs>
     </ModalDialog>
   )
