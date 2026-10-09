@@ -74,7 +74,7 @@ function leadTurn(overrides: Partial<HandoffLeadTurn> = {}): HandoffLeadTurn {
       taskId: '00000000-0000-4000-8000-0000000000f1',
       observedGeneration: 3,
     },
-    observedRuntimeSessionId: 'session-1',
+    executionRuntimeSessionId: 'session-1',
     ...overrides,
   }
 }
@@ -161,21 +161,29 @@ describe('deriveHandoffInputFromConversation', () => {
     expect(supplied.leadTurn).toBeUndefined()
   })
 
-  test('supplied lead-turn facts drive the coordinating modes', () => {
+  test('supplied lead-turn facts track requests; coordination stays unavailable', () => {
+    // Even a fully effect-shaped turn (claim + execution location +
+    // current generation) does NOT coordinate: execution location is not
+    // target authority, and no explicit target-bound observation exists.
+    // The request is tracked (claimedTurn) with the missing proof named.
     const handedOff = deriveHandoffInputFromConversation({
       conversation: conversation(),
       connected: true,
       ...boundTurn(),
     })
-    expect(handedOff.mode).toBe('coordination_handoff')
-    expect(handedOff.leadTurn?.intentId).toBe('00000000-0000-4000-8000-0000000000a1')
+    expect(handedOff.mode).toBe('attached')
+    expect(handedOff.leadTurn).toBeUndefined()
+    expect(handedOff.claimedTurn?.intentId).toBe('00000000-0000-4000-8000-0000000000a1')
+    expect(handedOff.leadMismatch).toBe(true)
+    expect(handedOff.leadMismatchReason).toMatch(/no explicit target-bound execution observation/)
 
     const returned = deriveHandoffInputFromConversation({
       conversation: conversation(),
       connected: true,
       ...boundTurn({ state: 'completed' }),
     })
-    expect(returned.mode).toBe('returned_to_user')
+    expect(returned.mode).toBe('attached')
+    expect(returned.leadTurn).toBeUndefined()
   })
 
   test('resolves the run candidate by register binding and never guesses', () => {
@@ -310,7 +318,7 @@ describe('deriveHandoffInputFromConversation', () => {
           taskId: '00000000-0000-4000-8000-0000000000f1',
           observedGeneration: 9999,
         },
-        observedRuntimeSessionId: undefined,
+        executionRuntimeSessionId: undefined,
       }),
       leadAgent: leadAgent(),
       leadChannelId: 'channel-1',
@@ -334,7 +342,7 @@ describe('deriveHandoffInputFromConversation', () => {
           taskId: '00000000-0000-4000-8000-0000000000f1',
           observedGeneration: 9999,
         },
-        observedRuntimeSessionId: undefined,
+        executionRuntimeSessionId: undefined,
       }),
       leadAgent: leadAgent(),
       leadChannelId: 'channel-1',
@@ -353,7 +361,7 @@ describe('deriveHandoffInputFromConversation', () => {
       leadTurn: leadTurn({
         state: 'blocked',
         canCancel: false,
-        observedRuntimeSessionId: 'session-other',
+        executionRuntimeSessionId: 'session-other',
       }),
       leadAgent: leadAgent(),
       leadChannelId: 'channel-1',

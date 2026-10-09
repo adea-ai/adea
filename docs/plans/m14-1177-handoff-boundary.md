@@ -241,10 +241,9 @@ depth — the messages route 400s unmediated targets early and
 `createLeadTurn` enforces mediation for every caller; the
 group-lane caller is targetless and unaffected), but a mediated
 forgery IS retained as a request. What forgery cannot do is
-coordinate: retained order is admission sequence (never untrusted
-generation) and coordination needs the effect binding, so even a
-fully retained forged future only ever reads as one more tracked
-request. The route handler has no test seam by repo practice —
+coordinate: coordination needs the effect binding, so even a fully
+retained forged future only ever reads as one more tracked request.
+The route handler has no test seam by repo practice —
 reviewed, not unit-proven; the DB rule is proven.
 
 ## Operational today vs awaiting CP935 control integration
@@ -252,26 +251,42 @@ reviewed, not unit-proven; the DB rule is proven.
 OPERATIONAL (proven by the suites named in Traceability):
 attachment and planning views; requested-reference tracking with
 receipt verification, server recovery, and Check-by-receipt;
-explicit unavailability states naming the missing proof;
-own-intent cancellation through the canonical actor-gated path;
+explicit unavailability states naming the missing proof
+(execution elsewhere vs no explicit observation vs stale claim);
+own-intent cancellation through the canonical actor-gated path
+(via the lead surface, independent of coordination);
 fail-closed admission (validation, task visibility, mediation,
-complete-target and selection identity).
+complete-target and selection identity); latest-retained
+request reads (ordering among retained requests confers nothing).
 AWAITING canonical CP935 control integration (issue stays OPEN;
 nothing here claims complete while coordination is unavailable):
-target-aware execution such that the control plane observes
-execution bound to the exact session — today the dispatch
-authority and binding carry no session (`LeadRuntimeAuthority`
-and `LeadRuntimeBinding` have intent/dispatch/execution/attempt
-but no target; the adapter reports whatever session CP
-associates, which the claim cannot direct). Until that
-integration lands, session coordination shows explicitly
-unavailable; the effect-binding check is implemented and will
-light up with zero further changes when CP reports the session.
-Explicit choices are identity too: the retained-target return
-applies 1215's `sameRequestedRoleModelSelections` check first, so
-a changed choice replays as `model selection conflict` exactly
-like the message-idempotency path — never a silent old receipt
-(proven by focused replay).
+control-plane#935 (M13.02, open, 0xPlayerOne-filed, unassigned,
+no implementing PR; sibling #937 budgets/progress; our #1177
+linked from its timeline) must carry the target end to end before
+any native coordination claim is honest. Missing fields, exact:
+
+- REQUEST: target session id, task id, expected generation on
+  prepare (`pi-durable.lead.prepare`, today `{intentId}` only),
+  dispatch (`pi-durable.lead.dispatch`, today
+  `{intentId, preparationRef}` only), and the composed
+  `LeadRuntimeAuthority`/`LeadPreparedSelection` inputs that feed
+  them (`apps/web/src/server/lead-turn-{runtime,composition}.ts`).
+- RECEIPT: the claimed triple echoed beside intent/attempt in
+  lookup (`pi-durable.lead.lookup`), status, observation
+  (`LeadRuntimeBinding`), and the DB `binding_valid`-style check
+  (`packages/db/src/schema/lead-turn-runtime.ts`), verified
+  TOGETHER at the effect boundary.
+- AUTHORITY: who reports the target session's CURRENT generation
+  at effect time (no such read exists for these sessions).
+  No zero-change promises: landing the above is real CP + Adea
+  surface work for root to assign (task/ownership discovery
+  complete; not delegated). Until then the derivation's binding
+  gate stays closed and the UI states it plainly.
+  Explicit choices are identity too: the retained-target return
+  applies 1215's `sameRequestedRoleModelSelections` check first, so
+  a changed choice replays as `model selection conflict` exactly
+  like the message-idempotency path — never a silent old receipt
+  (proven by focused replay).
 
 ## Effect-boundary path (actual E2E, existing infrastructure)
 

@@ -6,7 +6,7 @@
 // observed facts onto the handoff supply.
 //
 // Binding is exact, never task-wide: admission opens on the lead's direct
-// channel and retains the structured target (session, server-verified task,
+// channel and retains the structured target (session, server-checked task visibility,
 // observed generation) on the intent. Reads are target-scoped, so another
 // session sharing the task — or a newer turn for it — can never display as
 // this session's coordinator. A session without a task id costs zero reads
@@ -175,8 +175,11 @@ export async function resolveLeadHandoffSupply(
       ...(turn.dispatchId !== undefined ? { dispatchId: turn.dispatchId } : {}),
       state: turn.state as HandoffLeadTurn['state'],
       canCancel: leadTurnCanCancel(turn.state),
+      // Execution location, never authority: mapped through so the
+      // derivation can name where the lead runs while refusing
+      // coordination without an explicit target-bound observation.
       ...(turn.runtimeSessionId !== undefined
-        ? { observedRuntimeSessionId: turn.runtimeSessionId }
+        ? { executionRuntimeSessionId: turn.runtimeSessionId }
         : {}),
       handoffTarget: {
         runtimeSessionId: turn.handoffTarget.runtimeSessionId,
@@ -214,7 +217,7 @@ export type LeadHandoffRequest = Readonly<{
  * message with `leadTurn: true` plus the structured handoff target on the
  * linked direct channel, fenced by the server's channel-write, lead-turn,
  * and task-visibility authorization. The response receipt carries the
- * admitted intent with its retained target, and the target is verified to
+ * admitted intent with its retained target, and the target is checked to
  * match the request — a missing or mistargeted receipt is a failed
  * admission, never a silent success.
  *

@@ -80,7 +80,7 @@ function leadTurn(overrides: Partial<HandoffLeadTurn> = {}): HandoffLeadTurn {
       taskId: '00000000-0000-4000-8000-0000000000f1',
       observedGeneration: 3,
     },
-    observedRuntimeSessionId: 'session-1',
+    executionRuntimeSessionId: 'session-1',
     ...overrides,
   }
 }
@@ -780,7 +780,28 @@ describe('lead-agent binding', () => {
     expect(resolveLeadCoordination(leadTurn(), undefined)).toEqual({ bound: false })
     expect(
       resolveLeadCoordination(leadTurn(), leadAgent(), { id: 'session-1', generation: 3 })
-    ).toEqual({ bound: true })
+    ).toEqual({
+      bound: false,
+      reason:
+        'no explicit target-bound execution observation exists for this session (session, task, generation, and owning intent verified together)',
+    })
+    expect(
+      resolveLeadCoordination(leadTurn({ executionRuntimeSessionId: 'session-1' }), leadAgent(), {
+        id: 'session-1',
+        generation: 3,
+      })
+    ).toEqual({
+      bound: false,
+      reason:
+        'no explicit target-bound execution observation exists for this session (session, task, generation, and owning intent verified together)',
+    })
+    expect(
+      resolveLeadCoordination(
+        leadTurn({ executionRuntimeSessionId: 'session-other' }),
+        leadAgent(),
+        { id: 'session-1', generation: 3 }
+      )
+    ).toEqual({ bound: false, reason: 'the lead executes in another session' })
     expect(
       resolveLeadCoordination(
         leadTurn({
@@ -801,15 +822,21 @@ describe('lead-agent binding', () => {
       bound: false,
       reason: 'the observed turn names no handoff target',
     })
-    expect(
-      resolveLeadCoordination(leadTurn({ observedRuntimeSessionId: undefined }), leadAgent(), {
-        id: 'session-1',
-        generation: 3,
+    // Execution location is reported, never authority: even a matching
+    // execution session leaves coordination unavailable until an
+    // explicit target-bound observation exists.
+    for (const executionRuntimeSessionId of [undefined, 'session-1'] as const) {
+      expect(
+        resolveLeadCoordination(leadTurn({ executionRuntimeSessionId }), leadAgent(), {
+          id: 'session-1',
+          generation: 3,
+        })
+      ).toEqual({
+        bound: false,
+        reason:
+          'no explicit target-bound execution observation exists for this session (session, task, generation, and owning intent verified together)',
       })
-    ).toEqual({
-      bound: false,
-      reason: 'the observed turn has no runtime-validated execution binding',
-    })
+    }
     expect(resolveLeadClaim(leadTurn(), leadAgent(), 'session-1')).toEqual({ bound: true })
     expect(resolveLeadClaim(leadTurn(), leadAgent(), 'session-other')).toEqual({
       bound: false,
@@ -822,13 +849,13 @@ describe('lead-agent binding', () => {
     })
     expect(
       resolveLeadCoordination(
-        leadTurn({ observedRuntimeSessionId: 'session-other' }),
+        leadTurn({ executionRuntimeSessionId: 'session-other' }),
         leadAgent(),
         { id: 'session-1', generation: 3 }
       )
     ).toEqual({
       bound: false,
-      reason: 'the observed turn executes in another session',
+      reason: 'the lead executes in another session',
     })
     expect(
       resolveLeadCoordination(
@@ -838,13 +865,15 @@ describe('lead-agent binding', () => {
       )
     ).toEqual({
       bound: false,
-      reason: 'the observed turn targets generation 9999 but the session is at generation 3',
+      reason:
+        'the retained request targets generation 9999 but the session is at generation 3; no explicit target-bound execution observation exists',
     })
     expect(
       resolveLeadCoordination(leadTurn(), leadAgent(), { id: 'session-1', generation: 5 })
     ).toEqual({
       bound: false,
-      reason: 'the observed turn targets generation 3 but the session is at generation 5',
+      reason:
+        'the retained request targets generation 3 but the session is at generation 5; no explicit target-bound execution observation exists',
     })
   })
 })

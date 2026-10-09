@@ -19,7 +19,9 @@ import { executeChatCommand } from './commands'
  * Impure by necessity (it reads the host); the derivation in handoff.ts
  * stays pure. The generation returned is the host record's ACTUAL
  * current generation — callers must use it for the request, never a
- * possibly-stale transcript copy.
+ * possibly-stale transcript copy. This gate vets honest requests only: a
+ * desktop-credentialed caller can bypass it, so the server treats every
+ * retained claim as a request and coordination needs the effect boundary.
  */
 export type HandoffSessionAuthorityPort = DevRuntimeService
 

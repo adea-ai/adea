@@ -96,10 +96,11 @@ export type HandoffLeadTurn = Readonly<{
   canCancel: boolean
   /** Admission refusal code when state is blocked. */
   reasonCode?: string
-  /** Runtime-validated execution binding: the session the control plane
-   *  observed this turn executing in. Absent means never observed — a
-   *  retained request alone, however live it looks, is not authority. */
-  observedRuntimeSessionId?: string
+  /** Where the lead executes, per control-plane observation: the runtime
+   *  session the turn's execution was observed in. This is execution
+   *  location, NOT authority over any target session — it never
+   *  establishes coordination alone. Absent means never observed. */
+  executionRuntimeSessionId?: string
 }>
 
 const LIVE_LEAD_TURN_STATES: readonly HandoffLeadTurnState[] = [
@@ -211,30 +212,43 @@ export function resolveLeadCoordination(
   session?: Readonly<{ id: string; generation: number }>
 ): { bound: boolean; reason?: string } {
   if (!leadTurn || !leadAgent) return { bound: false }
-  // Coordination needs the claim first, then the effect boundary: only a
-  // runtime-validated execution binding observed in THIS session, at the
-  // generation the session currently shows, establishes coordination. A
-  // retained request — or even a running lead — alone never coordinates,
-  // no matter how live it looks: ordering among requests is recency, and
-  // recency of caller claims proves nothing about control.
+  // Coordination needs the claim first, then an EXPLICIT target-bound
+  // execution observation — session, task, observed generation, and owning
+  // intent/attempt verified TOGETHER by the runtime. No existing runtime
+  // surface emits that observation for handoff targets (the generic
+  // execution session identifies where the lead runs, never authority
+  // over a target session; the claimed generation is caller-observed,
+  // never independently re-observed). Until the control integration
+  // carries the target, coordination stays unavailable by construction:
+  // a retained request — or even a running lead — alone never
+  // coordinates, no matter how live it looks.
   const claim =
     session === undefined
       ? resolveLeadClaim(leadTurn, leadAgent)
       : resolveLeadClaim(leadTurn, leadAgent, session.id)
   if (!claim.bound) return claim
   if (session === undefined) return { bound: true }
-  const observed = leadTurn.observedRuntimeSessionId
-  if (observed === undefined)
-    return { bound: false, reason: 'the observed turn has no runtime-validated execution binding' }
-  if (observed !== session.id)
-    return { bound: false, reason: 'the observed turn executes in another session' }
+  // Execution location is reported when known (useful, never authority):
+  // a lead executing elsewhere is named as such, but even a same-session
+  // execution location does not establish coordination without the
+  // explicit target-bound observation (which no existing surface emits).
+  const execution = leadTurn.executionRuntimeSessionId
+  if (execution !== undefined && execution !== session.id)
+    return { bound: false, reason: 'the lead executes in another session' }
+  // Generation currency is still named distinctly: a stale or fabricated
+  // claim reads differently from a current claim awaiting proof. Neither
+  // coordinates — but the surface tells the user which one it sees.
   const target = leadTurn.handoffTarget
   if (target !== undefined && target.observedGeneration !== session.generation)
     return {
       bound: false,
-      reason: `the observed turn targets generation ${target.observedGeneration} but the session is at generation ${session.generation}`,
+      reason: `the retained request targets generation ${target.observedGeneration} but the session is at generation ${session.generation}; no explicit target-bound execution observation exists`,
     }
-  return { bound: true }
+  return {
+    bound: false,
+    reason:
+      'no explicit target-bound execution observation exists for this session (session, task, generation, and owning intent verified together)',
+  }
 }
 
 export type DirectSessionHandoffInput = Readonly<{

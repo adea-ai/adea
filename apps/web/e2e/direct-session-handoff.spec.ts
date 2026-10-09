@@ -95,22 +95,25 @@ test('a direct session attaches read-only: nothing is invented from the bound ru
   expectNoErrors(errors)
 })
 
-test('an observed live turn coordinates with distinct lead and session stops', async ({ page }) => {
+test('an effect-shaped live turn stays unavailable; stops stay distinct', async ({ page }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  // Requested reference only: no explicit target-bound observation exists,
+  // so nothing coordinates — but the lead and session stops stay distinct.
+  await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
   await expect(page.getByLabel('Lead turn state')).toHaveText('running')
 
-  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Stopping lead…', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Stop session run', exact: true })).toBeDisabled()
-  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  const sessionStop = page.getByRole('button', { name: 'Stop session run', exact: true })
+  await expect(sessionStop).toBeEnabled()
+  await sessionStop.click()
+  await page.getByRole('button', { name: 'Resolve session cancel' }).click()
 
-  // The canonical cancel completed the turn: the session returned with its
-  // run, draft, and generation intact, and the session run was never touched.
-  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Lead cancel calls')).toHaveText('1')
-  await expect(page.getByLabel('Session cancel calls')).toHaveText('0')
+  // The session run cancelled with draft and generation intact, and the
+  // lead turn was never touched: distinct authorities, one surface.
+  await expect(page.getByLabel('Cancelled run ids')).toHaveText('run-1')
+  await expect(page.getByLabel('Lead cancel calls')).toHaveText('0')
+  await expect(page.getByLabel('Session cancel calls')).toHaveText('1')
   await expect(page.getByLabel('Active draft')).toHaveText('unsent coordination note')
   expectNoErrors(errors)
 })
@@ -118,7 +121,7 @@ test('an observed live turn coordinates with distinct lead and session stops', a
 test('an unlinked session ignores the workspace turn', async ({ page }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
 
   // Session 2 carries no task: the same workspace turn must not appear as
   // its coordination.
@@ -127,14 +130,14 @@ test('an unlinked session ignores the workspace turn', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
 
   await page.getByRole('button', { name: 'Show session 1' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
   expectNoErrors(errors)
 })
 
 test('an ambiguous task link fails closed instead of picking a channel', async ({ page }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
 
   await page.getByRole('button', { name: 'Add ambiguous channel' }).click()
   await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
@@ -146,10 +149,11 @@ test('an unrelated channel never disables the linked handoff', async ({ page }) 
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
   await page.getByRole('button', { name: 'Observe unrelated channel' }).click()
-  // Other lead conversations are irrelevant: the explicitly linked handoff
-  // keeps working.
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeEnabled()
+  // Other lead conversations are irrelevant: the tracked request stays put
+  // and neither stop changes meaning. The session run stop is unaffected.
+  await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Stop session run', exact: true })).toBeEnabled()
   expectNoErrors(errors)
 })
 
@@ -186,10 +190,15 @@ test('explicit handoff admits through the canonical path with server-side recove
   await expect(section(page).getByText(/requested for this session/)).toBeVisible()
   await page.getByRole('button', { name: 'Check lead status', exact: true }).click()
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
-  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
-  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  // Live and effect-shaped, yet still no coordination: no explicit
+  // target-bound observation exists. The outstanding claim holds the
+  // request slot; the session run stays independently stoppable.
+  await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: 'Stop session run', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve session cancel' }).click()
+  await expect(page.getByLabel('Cancelled run ids')).toHaveText('run-1')
+  await expect(page.getByLabel('Lead cancel calls')).toHaveText('0')
   expectNoErrors(errors)
 })
 
@@ -259,11 +268,11 @@ test('a runtime binding to another session never coordinates', async ({ page }) 
 test('a live observed turn blocks a second admission', async ({ page }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
   const handoff = page.getByRole('button', { name: 'Hand off to lead', exact: true })
   await expect(handoff).toBeDisabled()
   await expect(page.locator(`#${await handoff.getAttribute('aria-describedby')}`)).toContainText(
-    'already handed off'
+    'already outstanding'
   )
   await expect(page.getByLabel('Admission posts')).toHaveText('0')
   expectNoErrors(errors)
@@ -273,19 +282,18 @@ test('concurrent starts admit once: double activation never duplicates the cance
   page,
 }) => {
   const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Stopping lead…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
 
   // Disabled rows swallow activation: force-clicking the busy row and the
   // paused sibling dispatches nothing.
-  await page.getByRole('button', { name: 'Stopping lead…', exact: true }).click({ force: true })
+  await page.getByRole('button', { name: 'Handing off…', exact: true }).click({ force: true })
   await page.getByRole('button', { name: 'Stop session run', exact: true }).click({ force: true })
-  await expect(page.getByLabel('Lead cancel calls')).toHaveText('1')
+  await expect(page.getByLabel('Admission posts')).toHaveText('1')
   await expect(page.getByLabel('Session cancel calls')).toHaveText('0')
 
-  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
-  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Reject admission' }).click()
+  await expect(page.getByRole('alert').getByText(/transport lost/)).toBeVisible()
   expectNoErrors(errors)
 })
 
@@ -302,8 +310,9 @@ test('a replaced register run retargets session-stop instead of applying stale f
   await sessionStop.click()
   await page.getByRole('button', { name: 'Resolve session cancel' }).click()
   await expect(page.getByLabel('Cancelled run ids')).toHaveText('run-2')
-  // Lead coordination (bound to the turn, not the run) is unaffected.
-  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeEnabled()
+  // The unbound lead turn stays unavailable throughout: stopping the
+  // session run never implies lead control.
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
 
   // Supplying the fresh run object validates the binding the same way.
   await page.getByRole('button', { name: 'Supply replacement run facts' }).click()
@@ -313,27 +322,26 @@ test('a replaced register run retargets session-stop instead of applying stale f
 
 test('a late completion cannot mark the newly selected session coordinated', async ({ page }) => {
   const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Show session 2' }).click()
-  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
+  await page.getByRole('button', { name: 'Resolve admission' }).click()
 
-  // The superseded completion commits nothing on the new session: no error,
+  // The superseded admission commits nothing on the new session: no error,
   // and session 2 (unlinked) stays attached.
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await expect(page.getByLabel('Lead cancel calls')).toHaveText('1')
+  await expect(page.getByLabel('Admission posts')).toHaveText('1')
   await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
 
   await page.getByRole('button', { name: 'Show session 1' }).click()
-  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  await expect(section(page).getByText(/requested for this session/)).toBeVisible()
   expectNoErrors(errors)
 })
 
 test('ABA: an old completion cannot clear a new action’s busy state', async ({ page }) => {
   const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Stopping lead…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Show session 2' }).click()
   await page.getByRole('button', { name: 'Show session 1' }).click()
   await page.getByRole('button', { name: 'Stop session run', exact: true }).click()
@@ -343,12 +351,15 @@ test('ABA: an old completion cannot clear a new action’s busy state', async ({
 
   // The oldest intent (from before navigation) resolves first: the epoch
   // fence drops it, and the new action stays busy with no error parked.
-  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
+  await page.getByRole('button', { name: 'Resolve admission' }).click()
   await expect(
     page.getByRole('button', { name: 'Stopping session run…', exact: true })
   ).toBeVisible()
-  await expect(page.getByRole('alert')).toHaveCount(0)
-  await expect(page.getByLabel('Lead cancel calls')).toHaveText('1')
+  // The dropped admission parks no error: the only alert is the expected
+  // requested-tracking notice for the newly observed turn.
+  await expect(page.getByRole('alert')).toHaveCount(1)
+  await expect(page.getByRole('alert')).toContainText(/requested for this session/)
+  await expect(page.getByLabel('Admission posts')).toHaveText('1')
   await expect(page.getByLabel('Session cancel calls')).toHaveText('1')
 
   await page.getByRole('button', { name: 'Resolve session cancel' }).click()
@@ -359,16 +370,18 @@ test('ABA: an old completion cannot clear a new action’s busy state', async ({
 test('out-of-order resolutions apply newest-first: stale reads never win', async ({ page }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
 
   await page.getByRole('button', { name: 'Defer reads' }).click()
   await page.getByRole('button', { name: 'Refresh lead resolution' }).click()
   // A newer observation commits while the older read is still queued.
   await page.getByRole('button', { name: 'Observe lead turn completed' }).click()
   // LIFO release completes the newer resolution first; the older one is
-  // dropped by the epoch even though it resolves last.
+  // dropped by the epoch even though it resolves last. The completed
+  // claim tracks as a re-engageable request, never a return.
   await page.getByRole('button', { name: 'Release reads LIFO' }).click()
-  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
   expectNoErrors(errors)
 })
@@ -376,15 +389,16 @@ test('out-of-order resolutions apply newest-first: stale reads never win', async
 test('browser reload retains the re-read lead-turn facts', async ({ page }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText(/no explicit target-bound/)).toBeVisible()
 
-  // A fresh mount holds no UI state: coordination must come from the
-  // re-read facts alone, with run, draft, and generation intact.
+  // A fresh mount holds no UI state: the tracked request must come from
+  // the re-read facts alone, with run, draft, and generation intact —
+  // and still coordinate nothing without an explicit observation.
   await page.reload()
   await expect(
-    page.getByRole('region', { name: 'Direct session handoff' }).getByText('Coordination handoff', {
-      exact: true,
-    })
+    page
+      .getByRole('region', { name: 'Direct session handoff' })
+      .getByText(/no explicit target-bound/)
   ).toBeVisible()
   await expect(section(page).getByText('gen 3', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Active draft')).toHaveText('unsent coordination note')
@@ -408,18 +422,20 @@ test('keyboard reachability, visible focus, and keyboard activation', async ({ p
         focusVisible: active instanceof HTMLElement && active.matches(':focus-visible'),
       }
     })
-    if (stop?.name === 'Stop lead') {
+    if (stop?.name === 'Stop session run') {
       focusedName = stop.name
       expect(stop.focusVisible).toBe(true)
       break
     }
   }
-  expect(focusedName).toBe('Stop lead')
+  expect(focusedName).toBe('Stop session run')
 
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('button', { name: 'Stopping lead…', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
-  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Stopping session run…', exact: true })
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Resolve session cancel' }).click()
+  await expect(page.getByLabel('Cancelled run ids')).toHaveText('run-1')
   expectNoErrors(errors)
 })
 
@@ -477,7 +493,7 @@ test.describe('reduced motion', () => {
     })
     expect(motion).toEqual({ transitionDuration: '0s', animationName: 'none' })
     await page.getByRole('button', { name: 'Observe live lead turn' }).click()
-    await expect(handoff.getByText('Coordination handoff', { exact: true })).toBeVisible()
+    await expect(handoff.getByText(/no explicit target-bound/, { exact: true })).toBeVisible()
     expectNoErrors(errors)
   })
 })

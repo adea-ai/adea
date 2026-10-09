@@ -289,7 +289,9 @@ describe('effect-boundary mapping', () => {
   test('a runtime-observed session maps onto the turn for binding', async () => {
     const resolution = await resolveLeadHandoffSupply(
       port({
-        getChannelLeadTurn: (async () => ({ leadTurn: observedTurn() })) as never,
+        getChannelLeadTurn: (async () => ({
+          leadTurn: observedTurn({ state: 'blocked', canCancel: false }),
+        })) as never,
       }),
       'workspace-1',
       'task-1',
@@ -297,24 +299,26 @@ describe('effect-boundary mapping', () => {
     )
     expect(resolution.status).toBe('resolved')
     if (resolution.status !== 'resolved') return
-    expect(resolution.leadTurn?.observedRuntimeSessionId).toBe('session-1')
+    expect(resolution.leadTurn?.executionRuntimeSessionId).toBe('session-1')
   })
 
   test('an unobserved turn still maps; binding is decided downstream', async () => {
     const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', 'task-1', SESSION)
     expect(resolution.status).toBe('resolved')
     if (resolution.status !== 'resolved') return
-    expect(resolution.leadTurn?.observedRuntimeSessionId).toBeUndefined()
+    expect(resolution.leadTurn?.executionRuntimeSessionId).toBeUndefined()
   })
 })
 
 describe('composed with the handoff derivation', () => {
-  test('effect-bound facts drive a coordinating view end to end', async () => {
+  test('effect-shaped facts track the request without coordinating', async () => {
     const { deriveDirectSessionHandoff, deriveHandoffInputFromConversation } =
       await import('@adea-ai/dev-view/chat/model')
     const resolution = await resolveLeadHandoffSupply(
       port({
-        getChannelLeadTurn: (async () => ({ leadTurn: observedTurn() })) as never,
+        getChannelLeadTurn: (async () => ({
+          leadTurn: observedTurn({ state: 'blocked', canCancel: false }),
+        })) as never,
       }),
       'workspace-1',
       'task-1',
@@ -348,11 +352,14 @@ describe('composed with the handoff derivation', () => {
         connected: true,
         leadTurn: resolution.leadTurn,
         leadAgent: resolution.leadAgent,
+        leadChannelId: resolution.channelId,
       })
     )
-    expect(view.mode).toBe('coordination_handoff')
-    expect(view.controls.lead_stop.available).toBe(true)
-    expect(view.coordination?.intentId).toBe('00000000-0000-4000-8000-0000000000a1')
+    expect(view.mode).toBe('attached')
+    expect(view.coordination).toBeUndefined()
+    expect(view.controls.lead_stop.available).toBe(false)
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+    expect(view.awaitingTurn).toBe(true)
   })
 
   test('an unresolved roster falls back to attachment without inventing', async () => {

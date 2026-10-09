@@ -596,7 +596,9 @@ function Harness() {
             // The admitted turn starts blocked with the posted exact target,
             // mirroring server retention; the surface re-resolves it.
             const posted = admissionPosts()[admissionPosts().length - 1]
-            const channelId = supply().channelId
+            // The posted channel, not the current selection's: admission
+            // commits where it was requested even if the view moved on.
+            const channelId = posted?.channelId
             if (channelId && posted) {
               updateBackend((previous) => ({
                 ...previous,

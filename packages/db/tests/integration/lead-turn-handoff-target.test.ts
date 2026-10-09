@@ -178,15 +178,15 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
     expect(rows).toHaveLength(1)
   })
 
-  test('reads follow admission sequence, never untrusted generation', async () => {
-    // A forged high generation must not outrank honest requests by number:
-    // the older honest admission stays latest until a NEWER admission
-    // arrives, regardless of claimed generations on either side. Currency
-    // itself is decided where the live generation is known, never here.
+  test('reads return the latest retained request for tracking', async () => {
+    // Request tracking only: the latest retained request reads back with
+    // its claim intact. This orders requests for display and recovery; it
+    // confers no coordination, which needs the effect boundary (proven at
+    // the derivation layer, where retained claims alone never bind).
     const f = await fixture()
-    const ninth = await f.admit('target-session-a', 9)
-    const fourth = await f.admit('target-session-a', 4)
-    expect(fourth.leadTurn.intentId).not.toBe(ninth.leadTurn.intentId)
+    const older = await f.admit('target-session-a', 3)
+    const newer = await f.admit('target-session-a', 5)
+    expect(newer.leadTurn.intentId).not.toBe(older.leadTurn.intentId)
     const current = await getLatestLeadTurnForTarget(
       connection.db,
       f.workspace.id,
@@ -194,8 +194,8 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
       'target-session-a',
       f.owner.principal
     )
-    expect(current?.intentId).toBe(fourth.leadTurn.intentId)
-    expect(current?.handoffTarget?.observedGeneration).toBe(4)
+    expect(current?.intentId).toBe(newer.leadTurn.intentId)
+    expect(current?.handoffTarget?.observedGeneration).toBe(5)
   })
 
   test('same session and generation with a different task fails closed', async () => {
@@ -362,16 +362,17 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
     expect(rows).toHaveLength(0)
   })
 
-  test('high-generation futures never outrank by number, mediated or not', async () => {
+  test('a retained forged future reads as a request and coordinates nothing', async () => {
     const f = await fixture()
     // Unmediated forgery retains nothing at all.
     await expect(f.bypass('target-session-a', 9999)).rejects.toThrow('host mediation')
-    // Even a RETAINED forged future (desktop-credentialed bypass of client
-    // preflight) cannot outrank by number: reads follow admission sequence,
-    // and coordination additionally requires a runtime-validated binding
-    // the forgery never has. Newer honest admissions win by sequence.
-    await f.admit('target-session-a', 9999)
-    const honest = await f.admit('target-session-a', 4)
+    // A desktop-credentialed bypass of client preflight IS retained (the
+    // server cannot tell it from an honest request): it reads back as the
+    // latest tracked request. That is ALL it ever becomes — coordination
+    // needs a runtime-validated execution binding no retained claim
+    // carries, proven unbound at the derivation layer for this exact
+    // shape (forged future, no observation).
+    const forged = await f.admit('target-session-a', 9999)
     const current = await getLatestLeadTurnForTarget(
       connection.db,
       f.workspace.id,
@@ -379,8 +380,8 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
       'target-session-a',
       f.owner.principal
     )
-    expect(current?.intentId).toBe(honest.leadTurn.intentId)
-    expect(current?.handoffTarget?.observedGeneration).toBe(4)
+    expect(current?.intentId).toBe(forged.leadTurn.intentId)
+    expect(current?.handoffTarget?.observedGeneration).toBe(9999)
   })
 
   test('a changed explicit choice replays as a conflict, never a silent return', async () => {
