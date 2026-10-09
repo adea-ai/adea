@@ -1,26 +1,25 @@
 /*
  * Job outbound result policy (M15 #1217).
  *
- * Pure gate composition for one job's outbound result. Authority is the job's
- * original authorized actor, who must hold current owner or admin access to the
- * job's source workspace, and the job must be a completed Task. Group membership
- * is never source authority. Group membership only decides who the destination
- * audience is.
+ * Pure gate composition over one job's canonical publication. Authority is the
+ * job's original authorized actor, who must hold current owner or admin access
+ * to the source workspace, over a completed Task. Group membership is never
+ * source authority. It only decides who the destination audience is.
  *
- * The destination is one exact group channel in one destination workspace.
- * A recipient is released to only when they are a participant of that exact
- * channel, so a participation in some other group cannot stand in for it. An
- * artifact claim must pass the registration-backed artifact gates (#1207)
- * against current evidence, bound to the destination workspace as audience.
+ * The publication is the existing channel message, written through the existing
+ * message flow with the job id as its execution reference, the original
+ * actor as sender, and any artifact as a linked attachment. Delivery never takes
+ * a destination, a summary, or a clock from the caller. It reads the canonical
+ * publication and checks that it still belongs to this job, is unedited and
+ * undeleted, sits in the channel the recipient is audience of, and was published
+ * after the recipient joined. The released text is the approved body, not
+ * caller text.
  *
- * Release is an audience-authorized projection. The released object is built
- * field by field from the authorized facts, never copied from the stored
- * record. A claimed artifact is included only when the destination is
- * authorized to retrieve it, and a result whose artifact is not authorized is
- * not released at all.
+ * Time is injected by the service and sampled inside the authorization scope,
+ * after the awaited reads, so waiting for a lock cannot carry a grant past its
+ * expiry.
  *
  * No I/O. The service reads state through injected ports and persists nothing.
- * A hold or denial never cancels, reassigns or mutates the job.
  */
 import {
   isArtifactReferenceTarget,
@@ -42,13 +41,13 @@ import {
 /** Summaries are refused above this size; they are never silently truncated. */
 export const JOB_OUTBOUND_SUMMARY_MAX_BYTES = 8_192
 
-/** Identifiers are bounded visible ASCII; the bound is checked by code point, not by pattern. */
+/** Identifiers are bounded visible ASCII; checked code point by code point, not by pattern. */
 const JOB_ID_MAX_LENGTH = 128
 
 /** Work bound: the raw string is refused before normalization when it is far larger than the limit. */
 const RAW_SUMMARY_MAX_UNITS = JOB_OUTBOUND_SUMMARY_MAX_BYTES * 4
 
-/** The released object. Built only by `projectJobOutboundRelease`. */
+/** The released object, built only by `projectJobOutboundRelease`. */
 export type SanitizedJobOutboundResult = Readonly<{
   /** The exact artifact locator, present only when the destination may retrieve it. */
   artifact: ArtifactReferenceTarget | null
@@ -72,8 +71,8 @@ export type JobOutboundDestination = Readonly<{ channelId: string; workspaceId: 
 
 /**
  * A job as the source workspace records it: the owning workspace, the original
- * authorized actor and the completion instant. `completedAt` is null while the
- * Task has not completed, so the gate can name that state.
+ * authorized actor, and the completion instant. `completedAt`
+ * is null while the Task has not completed.
  */
 export type JobOutboundJobSource = Readonly<{
   completedAt: string | null
@@ -89,25 +88,47 @@ export type JobOutboundAccess = Readonly<{
 }>
 
 /**
- * A recipient's standing in the exact channel the destination names. `channelId`
- * is the channel the read was bound to, so a standing read for another channel
- * can never be substituted into this decision.
+ * A recipient's standing in the exact channel the publication names. `joinedAt`
+ * is when the recipient became a participant of that channel, or null when they
+ * are not one. It is the accepted audience revision the publication must follow.
  */
 export type JobOutboundAudience = Readonly<{
   channelId: string | null
   channelIsGroup: boolean
   channelLive: boolean
+  joinedAt: string | null
   participant: boolean
   workspaceLive: boolean
 }>
 
-/** The authority an outbound artifact claims, as the producer presented it. */
+/**
+ * The canonical publication: the channel message that was written for this job.
+ * `artifact` is the linked artifact resolved from its current row, and is null
+ * when no artifact is attached. `artifactLinkCount` lets the gate refuse more
+ * than one attachment, which the locator cannot represent.
+ */
+export type JobOutboundPublication = Readonly<{
+  artifact: ArtifactReferenceTarget | null
+  artifactLinkCount: number
+  bodyText: string | null
+  channelId: string
+  createdAt: string
+  deleted: boolean
+  edited: boolean
+  executionRef: string | null
+  messageId: string
+  senderUserId: string | null
+  senderKind: 'agent' | 'system' | 'user'
+  taskId: string | null
+  workspaceId: string
+}>
+
+/** The authority an outbound artifact claims: the registration, with its current facts. */
 export type JobOutboundArtifactClaim = Readonly<{
   authority: ArtifactReferenceAuthority
   grant: ArtifactReferenceGrant | null
 }>
 
-/** Current artifact facts, read by the caller at decision time. */
 export type JobOutboundArtifactCurrent = Readonly<{
   evidence: ArtifactReferenceEvidence | null
   grantState: ArtifactReferenceGrantState | null
@@ -119,7 +140,7 @@ export type JobOutboundPublicationInput = Readonly<{
   job: JobOutboundJobSource | null
   jobId: string
   now: string
-  /** The original actor's current access to the job's source workspace; null when unreadable. */
+  /** The original actor's current access to the job's source workspace. */
   sourceAccess: JobOutboundAccess | null
   result: unknown
 }>
@@ -158,31 +179,44 @@ export type JobOutboundPublicationDecision =
 
 export type JobOutboundDeliveryInput = Readonly<{
   artifact: (JobOutboundArtifactClaim & JobOutboundArtifactCurrent) | null
-  /** The destination recorded at publication; never taken from the request. */
-  destination: JobOutboundDestination
-  /** The recipient's standing in the destination channel, read at delivery. */
-  recipientAudience: JobOutboundAudience | null
-  /** The job as read at delivery. */
+  /** The job as read inside the scope. */
   job: JobOutboundJobSource | null
   jobId: string
+  /** The trusted instant, sampled inside the scope after the reads. */
   now: string
-  /** The published record; it is re-sanitized before any byte is released. */
-  published: unknown
-  /** The original actor's current access to the job's source workspace. */
+  /** The canonical publication as read inside the scope; null when it cannot be found. */
+  publication: JobOutboundPublication | null
+  /** The recipient's standing in the publication's channel, read inside the scope. */
+  recipientAudience: JobOutboundAudience | null
   sourceAccess: JobOutboundAccess | null
 }>
 
-export type JobOutboundDeliveryDenialGate = 'artifact' | 'audience' | 'job' | 'result' | 'source'
+export type JobOutboundDeliveryDenialGate =
+  | 'artifact'
+  | 'audience'
+  | 'job'
+  | 'publication'
+  | 'result'
+  | 'source'
+
+export type JobOutboundPublicationDenialReason =
+  | 'publication_altered'
+  | 'publication_actor_mismatch'
+  | 'publication_job_mismatch'
+  | 'publication_unavailable'
+  | 'destination_not_outbound'
 
 export type JobOutboundAudienceDenial =
   | 'destination_channel_mismatch'
   | 'destination_channel_unavailable'
   | 'destination_workspace_unavailable'
+  | 'recipient_joined_after_publication'
   | 'recipient_not_destination_participant'
 
 export type JobOutboundDeliveryDenialReason =
   | ArtifactReferenceRefusalReason
   | JobOutboundAudienceDenial
+  | JobOutboundPublicationDenialReason
   | JobOutboundResultRejection
   | 'job_not_completed'
   | 'job_source_mismatch'
@@ -194,6 +228,7 @@ export type JobOutboundDeliveryDecision =
       action: 'deliver'
       destination: JobOutboundDestination
       jobId: string
+      messageId: string
       result: SanitizedJobOutboundResult
     }>
   | Readonly<{
@@ -259,8 +294,8 @@ function refused(reason: JobOutboundResultRejection): JobOutboundSanitization {
 }
 
 /**
- * Reads a published or submitted result into the only released shape. Unlisted
- * top-level fields are dropped; the artifact locator must be exact.
+ * Reads a candidate result into the only released shape. Unlisted top-level
+ * fields are dropped; the artifact locator must be exact.
  */
 export function sanitizeJobOutboundResult(value: unknown): JobOutboundSanitization {
   if (!isPlainObject(value)) return refused('result_malformed')
@@ -288,8 +323,7 @@ export function sanitizeJobOutboundResult(value: unknown): JobOutboundSanitizati
 
 /**
  * Builds the released object from authorized facts only. The artifact field is
- * included only when `artifactAuthorized` is true, which the caller sets from
- * the retrieval gate. Nothing else from the stored record is carried over.
+ * included only when `artifactAuthorized` is true. Nothing else is carried over.
  */
 export function projectJobOutboundRelease(
   result: SanitizedJobOutboundResult,
@@ -310,8 +344,8 @@ function claimMatches(
 }
 
 /**
- * The original actor's source-workspace access is current when the workspace is
- * live and the actor is an owner or admin. Group membership never enters here.
+ * The original actor's source access is current when the workspace is live and
+ * the actor is an owner or admin. Group membership never enters here.
  */
 export function sourceAccessCurrent(access: JobOutboundAccess | null): boolean {
   return (
@@ -334,25 +368,9 @@ function jobDenial(
 }
 
 /**
- * Whether the recipient's standing is for the exact destination channel and is
- * in force. A standing read for any other channel is refused as a mismatch.
- */
-function audienceDenial(
-  audience: JobOutboundAudience | null,
-  destination: JobOutboundDestination
-): JobOutboundAudienceDenial | null {
-  if (!audience) return 'destination_workspace_unavailable'
-  if (audience.channelId !== destination.channelId) return 'destination_channel_mismatch'
-  if (!audience.workspaceLive) return 'destination_workspace_unavailable'
-  if (!audience.channelIsGroup || !audience.channelLive) return 'destination_channel_unavailable'
-  if (!audience.participant) return 'recipient_not_destination_participant'
-  return null
-}
-
-/**
  * Publication gate, in order: result, job identity and completion, the original
  * actor's source access, the destination (outbound only), and the artifact claim.
- * An artifact must be bound to the destination workspace as audience.
+ * An artifact is bound to the destination workspace as audience.
  */
 export function decideJobOutboundPublication(
   input: JobOutboundPublicationInput
@@ -405,47 +423,86 @@ export function decideJobOutboundPublication(
     if (artifact.action === 'hold') return hold('artifact', artifact.reason)
   }
 
-  return {
-    action: 'publish',
-    basis: 'source_owner_actor',
-    destination,
-    jobId,
-    result,
-  }
+  return { action: 'publish', basis: 'source_owner_actor', destination, jobId, result }
+}
+
+function publicationDenial(
+  publication: JobOutboundPublication | null,
+  job: JobOutboundJobSource
+): JobOutboundPublicationDenialReason | null {
+  if (!publication) return 'publication_unavailable'
+  if (publication.deleted || publication.edited) return 'publication_altered'
+  if (publication.workspaceId === job.sourceWorkspaceId) return 'destination_not_outbound'
+  if (publication.taskId !== null || publication.executionRef !== job.jobId)
+    return 'publication_job_mismatch'
+  if (publication.senderKind !== 'user' || publication.senderUserId !== job.originalActorUserId)
+    return 'publication_actor_mismatch'
+  return null
 }
 
 /**
- * Delivery gate, in order: re-sanitize the published record, re-check the job,
- * the original actor's source access, the recipient's standing in the exact
- * destination channel, and — for an artifact — the retrieval gate with the
- * destination workspace as the requesting audience. The release is projected
- * from these facts only.
+ * Whether the recipient's standing is for the publication's exact channel, is in
+ * force, and began before the publication. A standing for any other channel is a
+ * mismatch.
+ */
+function audienceDenial(
+  audience: JobOutboundAudience | null,
+  publication: JobOutboundPublication
+): JobOutboundAudienceDenial | null {
+  if (!audience || !audience.workspaceLive) return 'destination_workspace_unavailable'
+  if (audience.channelId !== publication.channelId) return 'destination_channel_mismatch'
+  if (!audience.channelIsGroup || !audience.channelLive) return 'destination_channel_unavailable'
+  if (!audience.participant || audience.joinedAt === null)
+    return 'recipient_not_destination_participant'
+  const joined = Date.parse(audience.joinedAt)
+  const published = Date.parse(publication.createdAt)
+  if (!Number.isFinite(joined) || !Number.isFinite(published) || joined > published)
+    return 'recipient_joined_after_publication'
+  return null
+}
+
+/**
+ * Delivery gate, in order: the canonical publication (its job, actor, channel,
+ * and unaltered state), the job and the original actor's current source access,
+ * the recipient's standing in the publication's channel, and the artifact, when
+ * one is linked, under the retrieval gate with the publication's workspace as
+ * audience. The released text is the publication's approved body.
  */
 export function decideJobOutboundDelivery(
   input: JobOutboundDeliveryInput
 ): JobOutboundDeliveryDecision {
-  const { jobId, destination } = input
-  const sanitized = sanitizeJobOutboundResult(input.published)
-  if (!sanitized.ok) return { action: 'deny', gate: 'result', reason: sanitized.reason }
-  const { result } = sanitized
-  if (result.jobId !== jobId)
-    return { action: 'deny', gate: 'result', reason: 'result_job_mismatch' }
-  const claimReason = claimMatches(result, input.artifact !== null)
-  if (claimReason) return { action: 'deny', gate: 'result', reason: claimReason }
+  const { jobId, publication } = input
+  if (!publication)
+    return { action: 'deny', gate: 'publication', reason: 'publication_unavailable' }
 
-  const jobReason = jobDenial(input.job, jobId, input.now)
-  if (jobReason || !input.job)
+  const job = input.job
+  const jobReason = jobDenial(job, jobId, input.now)
+  if (jobReason || !job)
     return { action: 'deny', gate: 'job', reason: jobReason ?? 'job_unavailable' }
+
+  const publicationReason = publicationDenial(publication, job)
+  if (publicationReason) return { action: 'deny', gate: 'publication', reason: publicationReason }
 
   if (!sourceAccessCurrent(input.sourceAccess))
     return { action: 'deny', gate: 'source', reason: 'source_access_lost' }
 
-  const audience = audienceDenial(input.recipientAudience, destination)
+  const audience = audienceDenial(input.recipientAudience, publication)
   if (audience) return { action: 'deny', gate: 'audience', reason: audience }
+
+  const sanitized = sanitizeJobOutboundResult({
+    artifact: publication.artifact,
+    jobId,
+    summary: publication.bodyText ?? '',
+  })
+  if (!sanitized.ok) return { action: 'deny', gate: 'result', reason: sanitized.reason }
+  const { result } = sanitized
+
+  if (publication.artifactLinkCount > 1 || (result.artifact !== null) !== (input.artifact !== null))
+    return { action: 'deny', gate: 'result', reason: 'artifact_claim_mismatch' }
 
   let artifactAuthorized = false
   if (result.artifact !== null && input.artifact) {
-    if (result.artifact.sourceWorkspaceId !== input.job.sourceWorkspaceId)
+    if (result.artifact.sourceWorkspaceId !== job.sourceWorkspaceId)
       return { action: 'deny', gate: 'job', reason: 'job_source_mismatch' }
     const retrieval: ArtifactReferenceRetrievalDecision = authorizeArtifactReferenceRetrieval({
       authority: input.artifact.authority,
@@ -453,7 +510,7 @@ export function decideJobOutboundDelivery(
       grant: input.artifact.grant,
       grantState: input.artifact.grantState,
       now: input.now,
-      requestingWorkspaceId: destination.workspaceId,
+      requestingWorkspaceId: publication.workspaceId,
       target: result.artifact,
     })
     if (retrieval.action === 'deny')
@@ -463,8 +520,9 @@ export function decideJobOutboundDelivery(
 
   return {
     action: 'deliver',
-    destination,
+    destination: { channelId: publication.channelId, workspaceId: publication.workspaceId },
     jobId,
+    messageId: publication.messageId,
     result: projectJobOutboundRelease(result, artifactAuthorized),
   }
 }
