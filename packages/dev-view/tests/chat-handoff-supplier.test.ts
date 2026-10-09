@@ -8,6 +8,8 @@ import type { HarnessRun, RuntimeSession, Scope } from '@adea-ai/types/dev-runti
 import {
   deriveHandoffInputFromConversation,
   deriveHandoffModeForSurface,
+  resolveLeadCoordination,
+  type HandoffLeadAgent,
   type HandoffLeadTurn,
 } from '../src/chat/model/handoff'
 import type { ChatConversation } from '../src/chat/model/types'
@@ -62,11 +64,28 @@ function run(overrides: Partial<HarnessRun> = {}): HarnessRun {
 function leadTurn(overrides: Partial<HandoffLeadTurn> = {}): HandoffLeadTurn {
   return {
     intentId: '00000000-0000-4000-8000-0000000000a1',
+    agentId: '00000000-0000-4000-8000-0000000000b2',
     dispatchId: 'dispatch_11111111111111111111111111111111',
     state: 'running',
     canCancel: true,
     ...overrides,
   }
+}
+
+function leadAgent(overrides: Partial<HandoffLeadAgent> = {}): HandoffLeadAgent {
+  return {
+    id: '00000000-0000-4000-8000-0000000000b2',
+    isWorkspaceLead: true,
+    lifecycleState: 'active',
+    ...overrides,
+  }
+}
+
+function boundTurn(overrides: Partial<HandoffLeadTurn> = {}): {
+  leadTurn: HandoffLeadTurn
+  leadAgent: HandoffLeadAgent
+} {
+  return { leadTurn: leadTurn(overrides), leadAgent: leadAgent() }
 }
 
 describe('deriveHandoffModeForSurface', () => {
@@ -83,41 +102,37 @@ describe('deriveHandoffModeForSurface', () => {
         'one_time_review'
       )
     }
-    expect(deriveHandoffModeForSurface({ ...live, archived: true, leadTurn: leadTurn() })).toBe(
-      'one_time_review'
-    )
+    expect(deriveHandoffModeForSurface({ ...live, archived: true })).toBe('one_time_review')
   })
 
   test('a stale or offline view attaches read-only until resync', () => {
-    expect(deriveHandoffModeForSurface({ ...live, connected: false, leadTurn: leadTurn() })).toBe(
-      'attached'
-    )
-    expect(
-      deriveHandoffModeForSurface({
-        ...live,
-        generationCurrent: false,
-        leadTurn: leadTurn(),
-      })
-    ).toBe('attached')
+    expect(deriveHandoffModeForSurface({ ...live, connected: false })).toBe('attached')
+    expect(deriveHandoffModeForSurface({ ...live, generationCurrent: false })).toBe('attached')
   })
 
   test('without lead-turn facts the session attaches even with a run bound', () => {
     expect(deriveHandoffModeForSurface({ ...live })).toBe('attached')
   })
 
-  test('an observed turn decides between handoff and returned', () => {
-    expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn() })).toBe(
+  test('retained coordination decides the mode; nothing asserted attaches', () => {
+    expect(deriveHandoffModeForSurface({ ...live, coordination: 'lead' })).toBe(
       'coordination_handoff'
     )
+    expect(deriveHandoffModeForSurface({ ...live, coordination: 'user' })).toBe('returned_to_user')
+    expect(deriveHandoffModeForSurface({ ...live, coordination: undefined })).toBe('attached')
+  })
+
+  test('agent binding gates the turn before modes are derived', () => {
+    expect(resolveLeadCoordination(leadTurn(), leadAgent())).toEqual({ bound: true })
+    expect(resolveLeadCoordination(leadTurn({ agentId: 'other' }), leadAgent()).bound).toBe(false)
+    expect(resolveLeadCoordination(leadTurn(), leadAgent({ isWorkspaceLead: false })).bound).toBe(
+      false
+    )
     expect(
-      deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state: 'cancelled' }) })
-    ).toBe('returned_to_user')
-    expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state: 'blocked' }) })).toBe(
-      'attached'
-    )
-    expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state: 'unknown' }) })).toBe(
-      'attached'
-    )
+      resolveLeadCoordination(leadTurn(), leadAgent({ lifecycleState: 'archived' })).bound
+    ).toBe(false)
+    expect(resolveLeadCoordination(undefined, leadAgent())).toEqual({ bound: false })
+    expect(resolveLeadCoordination(leadTurn(), undefined)).toEqual({ bound: false })
   })
 })
 
@@ -143,7 +158,7 @@ describe('deriveHandoffInputFromConversation', () => {
     const handedOff = deriveHandoffInputFromConversation({
       conversation: conversation(),
       connected: true,
-      leadTurn: leadTurn(),
+      ...boundTurn(),
     })
     expect(handedOff.mode).toBe('coordination_handoff')
     expect(handedOff.leadTurn?.intentId).toBe('00000000-0000-4000-8000-0000000000a1')
@@ -151,7 +166,7 @@ describe('deriveHandoffInputFromConversation', () => {
     const returned = deriveHandoffInputFromConversation({
       conversation: conversation(),
       connected: true,
-      leadTurn: leadTurn({ state: 'completed' }),
+      ...boundTurn({ state: 'completed' }),
     })
     expect(returned.mode).toBe('returned_to_user')
   })
@@ -198,7 +213,7 @@ describe('deriveHandoffInputFromConversation', () => {
     const stale = deriveHandoffInputFromConversation({
       conversation: conversation({ status: 'stale_generation' }),
       connected: true,
-      leadTurn: leadTurn(),
+      ...boundTurn(),
     })
     expect(stale.mode).toBe('attached')
     expect(stale.generationCurrent).toBe(false)

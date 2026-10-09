@@ -8,8 +8,10 @@ import type { HarnessRun, RuntimeSession, Scope } from '@adea-ai/types/dev-runti
 import {
   deriveDirectSessionHandoff,
   deriveHandoffModeForSurface,
+  resolveLeadCoordination,
   handoffActionReducer,
   handoffControlReasonId,
+  leadTurnCoordination,
   HANDOFF_MODE_LABELS,
   initialHandoffActionState,
   resolveHarnessRunBinding,
@@ -18,6 +20,7 @@ import {
   type HandoffActionKind,
   type HandoffActionState,
   type HandoffControlKind,
+  type HandoffLeadAgent,
   type HandoffLeadTurn,
 } from '../src/chat/model/handoff'
 
@@ -66,9 +69,19 @@ function run(overrides: Partial<HarnessRun> = {}): HarnessRun {
 function leadTurn(overrides: Partial<HandoffLeadTurn> = {}): HandoffLeadTurn {
   return {
     intentId: '00000000-0000-4000-8000-0000000000a1',
+    agentId: '00000000-0000-4000-8000-0000000000b2',
     dispatchId: 'dispatch_11111111111111111111111111111111',
     state: 'running',
     canCancel: true,
+    ...overrides,
+  }
+}
+
+function leadAgent(overrides: Partial<HandoffLeadAgent> = {}): HandoffLeadAgent {
+  return {
+    id: '00000000-0000-4000-8000-0000000000b2',
+    isWorkspaceLead: true,
+    lifecycleState: 'active',
     ...overrides,
   }
 }
@@ -90,7 +103,13 @@ function input(overrides: Partial<DirectSessionHandoffInput> = {}): DirectSessio
 function coordinated(
   overrides: Partial<DirectSessionHandoffInput> = {}
 ): DirectSessionHandoffInput {
-  return input({ mode: 'coordination_handoff', leadTurn: leadTurn(), ...overrides })
+  return input({
+    mode: 'coordination_handoff',
+    leadTurn: leadTurn(),
+    leadAgent: leadAgent(),
+    leadMismatch: false,
+    ...overrides,
+  })
 }
 
 describe('direct-session handoff modes', () => {
@@ -189,7 +208,15 @@ describe('lead-turn mode derivation', () => {
     generationCurrent: true,
   } as const
 
-  test('live observed turns coordinate; terminal turns return; blocked stays attached', () => {
+  test('retained coordination decides the mode; nothing asserted attaches', () => {
+    expect(deriveHandoffModeForSurface({ ...live, coordination: 'lead' })).toBe(
+      'coordination_handoff'
+    )
+    expect(deriveHandoffModeForSurface({ ...live, coordination: 'user' })).toBe('returned_to_user')
+    expect(deriveHandoffModeForSurface({ ...live, coordination: undefined })).toBe('attached')
+  })
+
+  test('leadTurnCoordination maps bound states; blocked and unknown assert nothing', () => {
     for (const state of [
       'prepared',
       'dispatch_pending',
@@ -198,22 +225,13 @@ describe('lead-turn mode derivation', () => {
       'awaiting_input',
       'cancelling',
     ] as const) {
-      expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state }) })).toBe(
-        'coordination_handoff'
-      )
+      expect(leadTurnCoordination(leadTurn({ state }))).toBe('lead')
     }
     for (const state of ['completed', 'failed', 'cancelled', 'timed_out'] as const) {
-      expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state }) })).toBe(
-        'returned_to_user'
-      )
+      expect(leadTurnCoordination(leadTurn({ state }))).toBe('user')
     }
-    expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state: 'blocked' }) })).toBe(
-      'attached'
-    )
-    expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state: 'unknown' }) })).toBe(
-      'attached'
-    )
-    expect(deriveHandoffModeForSurface({ ...live })).toBe('attached')
+    expect(leadTurnCoordination(leadTurn({ state: 'blocked' }))).toBeUndefined()
+    expect(leadTurnCoordination(leadTurn({ state: 'unknown' }))).toBeUndefined()
   })
 
   test('a blocked turn names its refusal instead of coordinating silently', () => {
@@ -221,6 +239,8 @@ describe('lead-turn mode derivation', () => {
       input({
         mode: 'attached',
         leadTurn: leadTurn({ state: 'blocked', reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE' }),
+        leadAgent: leadAgent(),
+        leadMismatch: false,
       })
     )
     expect(view.mode).toBe('attached')
@@ -671,5 +691,51 @@ describe('view/action epoch', () => {
     await expect(pending).resolves.toBe('superseded')
     // Only the admission committed; the late completion committed nothing.
     expect(harness.committed).toEqual([{ status: 'busy', action: 'lead_stop' }])
+  })
+})
+
+describe('lead-agent binding', () => {
+  test('a turn bound to the active workspace lead coordinates', () => {
+    expect(resolveLeadCoordination(leadTurn(), leadAgent())).toEqual({ bound: true })
+    const view = deriveDirectSessionHandoff(coordinated())
+    expect(view.mode).toBe('coordination_handoff')
+    expect(view.controls.lead_stop.available).toBe(true)
+    expect(view.coordination).toMatchObject({
+      intentId: '00000000-0000-4000-8000-0000000000a1',
+      state: 'running',
+    })
+  })
+
+  test('a turn owned by another agent never authorizes lead control', () => {
+    const turn = leadTurn({ agentId: '00000000-0000-4000-8000-0000000000c3' })
+    expect(resolveLeadCoordination(turn, leadAgent()).bound).toBe(false)
+    const view = deriveDirectSessionHandoff(
+      coordinated({ leadTurn: turn, leadAgent: leadAgent(), leadMismatch: true })
+    )
+    expect(view.controls.lead_stop.available).toBe(false)
+    expect(view.coordination).toBeUndefined()
+    expect(view.notice).toMatch(/not bound to the active workspace lead/i)
+  })
+
+  test('a non-lead designation never authorizes lead control', () => {
+    const agent = leadAgent({ isWorkspaceLead: false })
+    expect(resolveLeadCoordination(leadTurn(), agent).bound).toBe(false)
+    const view = deriveDirectSessionHandoff(
+      coordinated({ leadTurn: leadTurn(), leadAgent: agent, leadMismatch: true })
+    )
+    expect(view.controls.lead_stop.available).toBe(false)
+    expect(view.coordination).toBeUndefined()
+    expect(view.notice).toMatch(/not bound to the active workspace lead/i)
+  })
+
+  test('an inactive lead designation fails closed', () => {
+    expect(
+      resolveLeadCoordination(leadTurn(), leadAgent({ lifecycleState: 'archived' })).bound
+    ).toBe(false)
+  })
+
+  test('a missing turn or agent binds nothing without failing', () => {
+    expect(resolveLeadCoordination(undefined, leadAgent())).toEqual({ bound: false })
+    expect(resolveLeadCoordination(leadTurn(), undefined)).toEqual({ bound: false })
   })
 })
