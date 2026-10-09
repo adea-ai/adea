@@ -2,6 +2,10 @@ import type { AgentSummary, ProjectSummary, TaskSummary } from '@adea-ai/types'
 
 import { describeExecutionAttempt } from './execution-location-copy'
 import {
+  captureDialogBackgroundState,
+  restoreDialogBackgroundState,
+} from './dialog-background-state'
+import {
   Archive,
   Bot,
   Check,
@@ -13,7 +17,7 @@ import {
   Send,
   Square,
 } from 'lucide-solid'
-import { createMemo, createSignal, createUniqueId, For, type JSX, Show } from 'solid-js'
+import { createMemo, createSignal, createUniqueId, For, onCleanup, type JSX, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
 import {
@@ -193,6 +197,8 @@ const priorityPickerOptions = priorityOptions.map((option) =>
  * actions (Start, Complete…) apply immediately because they are moves, not
  * edits.
  */
+let activeBackgroundLease: (() => void) | undefined
+
 export function TaskPanel(props: CreateProps | EditProps) {
   const editing = () => (props.mode === 'edit' ? props : undefined)
   const initial = props.mode === 'edit' ? props.task : undefined
@@ -225,6 +231,77 @@ export function TaskPanel(props: CreateProps | EditProps) {
     setClosePending(true)
     setSheetOpen(false)
   }
+  // Capture the frame state this panel found before its modal hid it, and
+  // restore exactly that state once the modal is gone. Kobalte defers its
+  // aria-hidden write with setTimeout → requestAnimationFrame and never guards
+  // that write against disposal, so a write scheduled before close can land
+  // afterwards; this panel-owned repair re-checks on the same deferral window
+  // and on frame attribute mutations, restoring only the state it captured.
+  const capturedBackground = captureDialogBackgroundState(
+    typeof document === 'undefined' ? undefined : document.querySelector('.workspace-frame'),
+    typeof document === 'undefined' ? { style: { pointerEvents: '' } } : document.body
+  )
+  // Capture the opener synchronously at panel setup: the dialog's own
+  // auto-focus can otherwise win the race and make the shared restoration
+  // target an element inside the closing content.
+  const restoreFocusTarget =
+    typeof document === 'undefined' || typeof HTMLElement === 'undefined'
+      ? undefined
+      : document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined
+  // A newer panel owns the background from the moment it mounts: cancel the
+  // previous panel's post-close repair so it can never touch this modal's state.
+  activeBackgroundLease?.()
+  activeBackgroundLease = undefined
+  onCleanup(() => {
+    if (typeof document === 'undefined' || !capturedBackground) return
+    let cancelled = false
+    let idle = 0
+    let rafId: number | undefined
+    const restore = () =>
+      restoreDialogBackgroundState({
+        element: document.querySelector('.workspace-frame'),
+        body: document.body,
+        captured: capturedBackground,
+        hasOtherModal: () =>
+          Boolean(document.querySelector('[role="dialog"], [role="alertdialog"]')),
+      })
+    let observer: MutationObserver | undefined
+    const cancel = () => {
+      cancelled = true
+      observer?.disconnect()
+      if (rafId !== undefined && typeof cancelAnimationFrame !== 'undefined') {
+        cancelAnimationFrame(rafId)
+      }
+      if (activeBackgroundLease === cancel) activeBackgroundLease = undefined
+    }
+    const step = () => {
+      if (cancelled) return
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
+        idle = 0
+      } else {
+        restore()
+        idle += 1
+      }
+      if (idle < 15) rafId = requestAnimationFrame(step)
+      else cancel()
+    }
+    if (typeof MutationObserver !== 'undefined') {
+      observer = new MutationObserver(() => {
+        if (!cancelled) restore()
+      })
+      const frame = document.querySelector('.workspace-frame')
+      if (frame) {
+        observer.observe(frame, { attributes: true, attributeFilter: ['aria-hidden', 'inert'] })
+      }
+      observer.observe(document.body, { childList: true })
+    }
+    activeBackgroundLease = cancel
+    setTimeout(() => {
+      if (!cancelled) rafId = requestAnimationFrame(step)
+    })
+  })
 
   const trimmedTitle = () => title().trim()
   const trimmedObjective = () => objective().trim()
@@ -408,10 +485,24 @@ export function TaskPanel(props: CreateProps | EditProps) {
       <SheetContent
         side="end"
         closeLabel={props.mode === 'create' ? 'Close new task' : 'Close task'}
+        restoreFocusRef={() => (restoreFocusTarget?.isConnected ? restoreFocusTarget : undefined)}
         onCloseAutoFocus={() => {
           // Kobalte has finished closing the dialog and restored the background.
           if (!closePending()) return
           setClosePending(false)
+          // Release the captured background before the shared focus
+          // restoration reads it: a lingering aria-hidden would suppress focus
+          // return. This panel is the only modal in this close path, so the
+          // other-modal guard is deliberately false here; the post-close lease
+          // below keeps any later deferred write off the frame.
+          if (typeof document !== 'undefined') {
+            restoreDialogBackgroundState({
+              element: document.querySelector('.workspace-frame'),
+              body: document.body,
+              captured: capturedBackground,
+              hasOtherModal: () => false,
+            })
+          }
           props.onClose()
         }}
       >

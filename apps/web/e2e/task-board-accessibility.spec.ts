@@ -222,11 +222,9 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await expect(taskSheet).toHaveCount(0)
     await assertAccessibleBoard()
 
-    // Deterministic pin for the demonstrated Kobalte defect: ariaHideOutside
-    // defers its aria-hidden write (setTimeout → requestAnimationFrame) and
-    // does not guard it, so a late write can land after the dialog closed.
-    // The frame guard must clear it while no dialog is open — and must leave
-    // it in place while one is.
+    // A write scheduled before the dialog closed can land after it. The panel
+    // restores the state it captured, so a late aria-hidden write while no
+    // dialog is open must not stick.
     await page
       .locator('.workspace-frame')
       .evaluate((frame) => frame.setAttribute('aria-hidden', 'true'))
@@ -276,11 +274,25 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await expect(page.getByRole('button', { name: CREATED_TITLE })).toBeVisible()
     await expect(page.getByRole('button', { name: 'New task' })).toBeFocused()
 
-    // Archive confirmation: the nested alert must close and the sheet must
-    // still restore the frame before its task card disappears.
+    // Archive confirmation: a second simultaneous overlay (the nested alert)
+    // must not disturb the sheet or the frame's restoration once the sheet
+    // itself closes. (Overlay ownership is pinned deterministically in the
+    // dialog-background-state unit regression.)
     await openFromCard(SAVED_TITLE)
     await taskSheet.getByRole('button', { name: 'Archive', exact: true }).click()
     const archiveConfirm = page.getByRole('alertdialog', { name: 'Archive this task?' })
+    await expect(archiveConfirm).toBeVisible()
+    await archiveConfirm.getByRole('button', { name: 'Keep task', exact: true }).click()
+    await expect(archiveConfirm).toHaveCount(0)
+    await expect(taskSheet).toBeVisible()
+
+    await taskSheet.getByRole('button', { name: 'Close task' }).click()
+    await expect(taskSheet).toHaveCount(0)
+    await assertAccessibleBoard()
+
+    // Finish the archive through the nested confirmation.
+    await openFromCard(SAVED_TITLE)
+    await taskSheet.getByRole('button', { name: 'Archive', exact: true }).click()
     await expect(archiveConfirm).toBeVisible()
     await archiveConfirm.getByRole('button', { name: 'Archive', exact: true }).click()
     await expect(archiveConfirm).toHaveCount(0)
