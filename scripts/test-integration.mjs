@@ -78,6 +78,8 @@ function runningComposeServices() {
 // widening an application role to make room for a test would not be.
 const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'
 const captureProvisioningImage = 'postgres:18-alpine'
+// CI never skips the capture proofs or the cutover rehearsal for lack of Docker: the lane fails.
+const ciEnvironment = process.env.CI === 'true' || process.env.CI === '1'
 
 function dockerDaemonAvailable() {
   const result = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], {
@@ -240,6 +242,10 @@ try {
   captureProvisioning = startCaptureProvisioning()
   if (captureProvisioning) {
     environment[captureProvisioningDatabaseUrlVariable] = captureProvisioning.databaseUrl
+  } else if (ciEnvironment) {
+    throw new Error(
+      `Docker is unavailable in CI; ${captureProvisioningDatabaseUrlVariable} cannot be provisioned, so the migration-snapshot capture proofs and the cutover rehearsal would be skipped. Failing the lane instead.`
+    )
   } else {
     console.warn(
       `Docker is unavailable; ${captureProvisioningDatabaseUrlVariable} is not provisioned and the migration-snapshot capture proofs will skip`

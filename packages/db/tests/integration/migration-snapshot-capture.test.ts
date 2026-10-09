@@ -40,8 +40,8 @@ import { migrationSnapshotFamilies } from '@adea-ai/types'
 // Capture proofs against a disposable PostgreSQL instance dedicated to this
 // run: scripts/test-integration.mjs provisions a throwaway postgres container
 // and exports its admin URL as MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL. The
-// proofs skip cleanly when that variable is absent and never fall back to the
-// shared DATABASE_URL target. Every proof drives real rows through the domain
+// proofs skip cleanly when that variable is absent outside CI, fail in CI, and never
+// fall back to the shared DATABASE_URL target. Every proof drives real rows through the domain
 // helpers, captures, and — where a diff is expected — runs the comparator on
 // the two frozen documents. Capture is read-only: the only writes in this
 // file are the fixtures themselves and their cleanup.
@@ -64,6 +64,9 @@ import { migrationSnapshotFamilies } from '@adea-ai/types'
 const DISPOSABLE_SCRATCH_PREFIX = 'capture_test_'
 
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
+// In CI a missing provisioning URL fails the proofs instead of skipping them, matching the
+// cutover rehearsal (#1222). Outside CI they skip without the URL.
+const inCi = process.env.CI === 'true' || process.env.CI === '1'
 
 let scratchDatabase: string | null = null
 
@@ -269,7 +272,7 @@ async function dropScratchDatabase(): Promise<void> {
   }
 }
 
-describe.skipIf(!provisioningUrl)('migration snapshot capture', () => {
+describe.skipIf(!provisioningUrl && !inCi)('migration snapshot capture', () => {
   let connection: DatabaseConnection
 
   beforeAll(async () => {
