@@ -42,7 +42,10 @@ export type JobOutboundPorts = Readonly<{
   readArtifactEvidence: (
     input: Readonly<{ artifactId: string; workspaceId: string }>
   ) => Promise<ArtifactReferenceEvidence | null>
-  readArtifactGrantState: (grantId: string) => Promise<ArtifactReferenceGrantState | null>
+  /** Resolves the registration only while the presented revision is current; a stale revision reads null. */
+  readArtifactGrantState: (
+    presentation: Readonly<{ grantId: string; revision: number }>
+  ) => Promise<ArtifactReferenceGrantState | null>
   readCompletedJob: (jobId: string) => Promise<GroupCompletedJob | null>
   readGroupAdmission: (
     input: Readonly<{ groupId: string; participant: ConversationParticipantRef }>
@@ -97,7 +100,12 @@ export function createJobOutboundResultService(ports: JobOutboundPorts): JobOutb
           workspaceId: target.sourceWorkspaceId,
         })
       : null
-    const grantState = claim.grant ? await ports.readArtifactGrantState(claim.grant.grantId) : null
+    const grantState = claim.grant
+      ? await ports.readArtifactGrantState({
+          grantId: claim.grant.grantId,
+          revision: claim.grant.revision,
+        })
+      : null
     return { authority: claim.authority, evidence, grant: claim.grant, grantState }
   }
 

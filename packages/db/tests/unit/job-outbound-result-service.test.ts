@@ -38,6 +38,7 @@ const target: ArtifactReferenceTarget = {
 function makeStore() {
   const reads = { admission: 0, evidence: 0, grantState: 0, job: 0 }
   const evidenceCalls: Array<{ artifactId: string; workspaceId: string }> = []
+  const grantStateCalls: Array<{ grantId: string; revision: number }> = []
   const store = {
     admissions: new Map<string, GroupAdmission>(),
     evidence: new Map<string, ArtifactReferenceEvidence>(),
@@ -45,6 +46,7 @@ function makeStore() {
     jobs: new Map<string, GroupCompletedJob>(),
     reads,
     evidenceCalls,
+    grantStateCalls,
   }
   const ports: JobOutboundPorts = {
     async readArtifactEvidence(input) {
@@ -52,7 +54,8 @@ function makeStore() {
       evidenceCalls.push(input)
       return store.evidence.get(input.artifactId) ?? null
     },
-    async readArtifactGrantState(grantId) {
+    async readArtifactGrantState({ grantId, revision }) {
+      grantStateCalls.push({ grantId, revision })
       reads.grantState += 1
       return store.grantStates.get(grantId) ?? null
     },
@@ -225,7 +228,7 @@ describe('job outbound result service', () => {
       result: { artifact: target, jobId: 'job-1', summary: 'Report attached.' },
     })
     expect(store.evidenceCalls).toEqual([{ artifactId: 'artifact-1', workspaceId: SOURCE }])
-    expect(store.reads.grantState).toBe(1)
+    expect(store.grantStateCalls).toEqual([{ grantId: 'artifact-grant-1', revision: 1 }])
   })
 
   test('holds a job that is missing or whose identity does not match the request', async () => {
