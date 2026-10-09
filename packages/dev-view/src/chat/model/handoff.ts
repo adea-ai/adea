@@ -5,6 +5,15 @@
 // review, explicit coordination handoff, and return-to-user. The model is pure
 // and component-free so tests pin it without DOM.
 //
+// Coordination semantics: while a harness run is bound, the lead holds
+// session coordination and this surface coordinates (`coordination_handoff`);
+// the confirmed `dev.session.transferInput` receipt moves coordination to
+// the user (`returned_to_user`). Composer input authority (who may type in a
+// box) is a different dimension and is deliberately not consulted here:
+// conflating the two made the production return transition unreachable.
+// With no run bound there is nothing to coordinate, so a live session
+// attaches read-only until a run exists.
+//
 // Authority boundary: Adea owns these presentation states, derived from
 // existing `RuntimeSession`/`HarnessRun` facts and the existing
 // `dev.session.*` operations. The persisted authoritative transition is
@@ -38,6 +47,11 @@ export type HandoffControlState = Readonly<{
   reason?: string
   remediation?: string
 }>
+
+/** Who holds session coordination. `lead` while a harness run is bound (the
+ *  durable proof of lead-side execution); `user` only after a confirmed
+ *  transfer receipt or an explicit caller override — never by default. */
+export type HandoffCoordination = 'lead' | 'user'
 
 /**
  * How the supplied harness-run candidate relates to the register binding.
@@ -94,8 +108,7 @@ export type DirectSessionHandoffInput = Readonly<{
   connected: boolean
   generationCurrent: boolean
   scopeAuthorized: boolean
-  /** True when this surface holds input authority (chat surface + authority). */
-  inputOwnedHere: boolean
+  coordination: HandoffCoordination
   hasUnsentDraft: boolean
   controlConflict: boolean
   awaitingApproval: boolean
@@ -163,8 +176,8 @@ function blocked(reason: string, remediation?: string): HandoffControlState {
  * generation, harness run, worktree, and project cross every mode — the
  * function mints no IDs and switches no location. A run object newer or
  * older than the session generation still binds: input transfers bump the
- * session generation without replacing the run, so run/session generation
- * equality is never required.
+ * session generation without replacing the run (accepted host contract), so
+ * run/session generation equality is never required.
  */
 export function deriveDirectSessionHandoff(
   input: DirectSessionHandoffInput
@@ -255,10 +268,11 @@ export function deriveDirectSessionHandoff(
 
   // Return-to-user executes the persisted `dev.session.transferInput` to this
   // surface. It is guarded exactly like lead-stop, and additionally requires
-  // the coordinating mode with input held elsewhere: returning what is
-  // already held here would bump the generation for no effect.
+  // the coordinating mode with the lead still holding coordination: the only
+  // path to user-held coordination is a confirmed transfer receipt, so an
+  // already-user-held session needs no transfer.
   const returnToUser = ((): HandoffControlState => {
-    if (input.mode === 'returned_to_user')
+    if (input.mode === 'returned_to_user' || input.coordination === 'user')
       return blocked('Coordination is already user-held.', 'No transfer is needed.')
     if (input.mode !== 'coordination_handoff')
       return blocked(
@@ -290,8 +304,6 @@ export function deriveDirectSessionHandoff(
         'Return to user unavailable for an archived session.',
         'Unarchive the session to coordinate it.'
       )
-    if (input.inputOwnedHere)
-      return blocked('Input is already held here.', 'No transfer is needed.')
     return { available: true }
   })()
 
@@ -333,11 +345,6 @@ export function deriveDirectSessionHandoff(
   }
 }
 
-/** Input authority from the composing surface's perspective. Mirrors
- *  `ChatInputAuthority` without importing the composer (this module stays
- *  dependency-free). */
-export type HandoffSurfaceAuthority = 'chat' | 'dev' | 'none'
-
 /** Terminal session lifecycles: the transcript is final, so the surface is a
  *  review pass, never a coordination grant. `disconnected` is transient, not
  *  terminal — a reconnect may resume coordination. */
@@ -345,28 +352,33 @@ const TERMINAL_SESSION_LIFECYCLES: readonly string[] = ['completed', 'failed', '
 
 /**
  * Derives the handoff mode from durable surface facts. No new persisted
- * field: archived/terminal sessions review; a stale view attaches read-only
- * until resync; otherwise the input owner decides — this surface coordinates,
- * any other surface attaches.
+ * field: archived/terminal sessions review; a stale or offline view attaches
+ * read-only until resync; a live session with no bound run has nothing to
+ * coordinate and attaches; otherwise the coordination holder decides — the
+ * lead's bound run means an active handoff, the user's confirmed receipt
+ * means returned.
  */
 export function deriveHandoffModeForSurface(
   input: Readonly<{
-    authority: HandoffSurfaceAuthority
     lifecycle: RuntimeSession['lifecycle']
     archived: boolean
     connected: boolean
     generationCurrent: boolean
+    runBound: boolean
+    coordination: HandoffCoordination
   }>
 ): DirectSessionHandoffMode {
   if (input.archived || TERMINAL_SESSION_LIFECYCLES.includes(input.lifecycle))
     return 'one_time_review'
   if (!input.connected || !input.generationCurrent) return 'attached'
-  return input.authority === 'chat' ? 'coordination_handoff' : 'attached'
+  if (!input.runBound) return 'attached'
+  return input.coordination === 'user' ? 'returned_to_user' : 'coordination_handoff'
 }
 
 export type DirectSessionHandoffSupply = Readonly<{
   harnessRuns?: readonly HarnessRun[]
   mode?: DirectSessionHandoffMode
+  coordination?: HandoffCoordination
   controlConflict?: boolean
 }>
 
@@ -375,18 +387,19 @@ export type DirectSessionHandoffSupply = Readonly<{
  * `ChatConversation` plus surface facts. The run candidate is resolved by
  * the register binding (`activeHarnessRunId`) and never guessed; the draft
  * flag reads the live conversation draft; an explicit mode (e.g. the
- * confirmed post-transfer `returned_to_user`) overrides derivation.
+ * confirmed post-transfer `returned_to_user`) overrides derivation, and an
+ * explicit coordination marks user-held ownership the same way.
  */
 export function deriveHandoffInputFromConversation(
   input: Readonly<{
     conversation: ChatConversation
-    authority: HandoffSurfaceAuthority
     connected: boolean
     generationCurrent?: boolean
     scopeAuthorized?: boolean
     harnessRuns?: readonly HarnessRun[]
     awaitingApproval?: boolean
     mode?: DirectSessionHandoffMode
+    coordination?: HandoffCoordination
     controlConflict?: boolean
   }>
 ): DirectSessionHandoffInput {
@@ -410,17 +423,20 @@ export function deriveHandoffInputFromConversation(
       ? {}
       : { activeHarnessRunId: input.conversation.activeHarnessRunId }),
   }
+  const coordination = input.coordination ?? 'lead'
   const staleView = input.conversation.status === 'stale_generation'
+  const runBound = input.conversation.activeHarnessRunId !== undefined
   const mode =
     input.mode ??
     (staleView || !generationCurrent
       ? 'attached'
       : deriveHandoffModeForSurface({
-          authority: input.authority,
           lifecycle,
           archived: input.conversation.archived,
           connected: input.connected,
           generationCurrent,
+          runBound,
+          coordination,
         }))
   return {
     session,
@@ -436,7 +452,7 @@ export function deriveHandoffInputFromConversation(
     connected: input.connected,
     generationCurrent: staleView ? false : generationCurrent,
     scopeAuthorized: input.scopeAuthorized ?? true,
-    inputOwnedHere: input.authority === 'chat',
+    coordination,
     hasUnsentDraft:
       input.conversation.draft.trim().length > 0 || input.conversation.draftBlocks.length > 0,
     controlConflict: input.controlConflict ?? false,
@@ -496,4 +512,45 @@ export function handoffActionReducer(
         ? state
         : { status: 'error', action: event.action, message: event.message }
   }
+}
+
+export type HandoffActionOutcome = 'completed' | 'rejected' | 'superseded'
+
+/**
+ * The exact production admission path (`ChatView` delegates to it): admit
+ * through the reducer first and invoke work only when admitted, so a second
+ * start can never cause a second effect — the reducer tests alone cannot
+ * prove this because they never gate an invocation. Late completions are
+ * fenced by `isCurrent` (captured session identity): a superseded result
+ * commits nothing, leaving cleanup to the session-switch reset.
+ */
+export async function runHandoffActionOnce(
+  input: Readonly<{
+    current: () => HandoffActionState
+    commit: (state: HandoffActionState) => void
+    action: HandoffActionKind
+    work: () => void | Promise<void>
+    isCurrent?: () => boolean
+    isConflict?: (error: unknown) => boolean
+    onConflict?: () => void
+    onSuccess?: () => void
+  }>
+): Promise<HandoffActionOutcome> {
+  const before = input.current()
+  const started = handoffActionReducer(before, { type: 'start', action: input.action })
+  if (started === before) return 'rejected'
+  input.commit(started)
+  try {
+    await input.work()
+  } catch (error) {
+    if (input.isCurrent && !input.isCurrent()) return 'superseded'
+    const message = error instanceof Error ? error.message : 'Handoff action failed.'
+    input.commit(handoffActionReducer(started, { type: 'fail', action: input.action, message }))
+    if (input.isConflict?.(error)) input.onConflict?.()
+    return 'completed'
+  }
+  if (input.isCurrent && !input.isCurrent()) return 'superseded'
+  input.commit(handoffActionReducer(started, { type: 'succeed' }))
+  input.onSuccess?.()
+  return 'completed'
 }
