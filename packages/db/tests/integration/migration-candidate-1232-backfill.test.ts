@@ -25,9 +25,9 @@ import { workspaceMemberships } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import {
   DRIZZLE_DIR,
-  disposeRehearsal,
-  type RehearsalResources,
   readJournal,
+  type RehearsalResources,
+  settleAndDispose,
   view,
 } from '../fixtures/cutover-rehearsal'
 
@@ -297,10 +297,7 @@ describe.skipIf(!provisioningUrl && !inCi)('candidate #1232 group backfill rehea
   afterAll(async () => {
     const pending = scenario
     scenario = undefined
-    const owned = { ...resources }
-    for (const key of Object.keys(resources) as (keyof RehearsalResources)[]) delete resources[key]
-    if (pending) await pending.catch(() => undefined)
-    await disposeRehearsal(owned, async (database) => {
+    await settleAndDispose(resources, pending, async (database) => {
       if (!database.startsWith(SCRATCH_PREFIX)) throw new Error(`refusing to drop ${database}`)
       await adminExecute(`drop database if exists "${database}" with (force)`)
     })

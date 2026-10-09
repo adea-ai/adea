@@ -101,3 +101,21 @@ export async function disposeRehearsal(
     throw new AggregateError(failures, `rehearsal cleanup failed in ${failures.length} step(s)`)
   }
 }
+
+/**
+ * Teardown for a memoized scenario. The scenario can outlive the test that started it (a test
+ * timeout does not stop it), so its resources are read only after it has settled. Snapshotting
+ * first would miss a scratch database or connection it creates later, and nothing would
+ * drop or close them. A scenario failure is reported by the tests that read it, so it is
+ * not rethrown here.
+ */
+export async function settleAndDispose(
+  resources: RehearsalResources,
+  pending: Promise<unknown> | undefined,
+  dropScratch: (database: string) => Promise<void>
+): Promise<void> {
+  if (pending) await pending.catch(() => undefined)
+  const owned = { ...resources }
+  for (const key of Object.keys(resources) as (keyof RehearsalResources)[]) delete resources[key]
+  await disposeRehearsal(owned, dropScratch)
+}

@@ -44,8 +44,9 @@ import {
   disposeRehearsal,
   isProductDenial,
   migrationsFolderBefore,
-  type RehearsalResources,
   readJournal,
+  type RehearsalResources,
+  settleAndDispose,
   view,
 } from '../fixtures/cutover-rehearsal'
 
@@ -477,10 +478,7 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
   afterAll(async () => {
     const pending = scenario
     scenario = undefined
-    const owned = { ...resources }
-    for (const key of Object.keys(resources) as (keyof RehearsalResources)[]) delete resources[key]
-    if (pending) await pending.catch(() => undefined)
-    await disposeRehearsal(owned, async (database) => {
+    await settleAndDispose(resources, pending, async (database) => {
       assertScratch(database)
       await adminExecute(`drop database if exists "${database}" with (force)`)
     })
@@ -632,6 +630,28 @@ describe('product denial classification (no database)', () => {
 })
 
 describe('cleanup disposal (no database)', () => {
+  test('a scenario still running at teardown has its late resources released', async () => {
+    const late: RehearsalResources = {}
+    const dropped: string[] = []
+    let closed = false
+    const pending = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      late.scratch = 'rehearsal_1222_late'
+      late.connection = {
+        close: async () => {
+          closed = true
+        },
+      }
+      return 'settled'
+    })()
+    await settleAndDispose(late, pending, async (database) => {
+      dropped.push(database)
+    })
+    expect(dropped).toEqual(['rehearsal_1222_late'])
+    expect(closed).toBe(true)
+    expect(late).toEqual({})
+  })
+
   test('every step is attempted, failures surface together, and the folder is removed', async () => {
     const folder = mkdtempSync(join(tmpdir(), 'rehearsal-1222-dispose-'))
     writeFileSync(join(folder, 'marker.sql'), '-- marker')
