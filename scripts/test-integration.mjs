@@ -106,12 +106,28 @@ function startCaptureProvisioning() {
   // Random hex doubles as URL-safe: no percent-encoding concerns in the URL.
   const password = randomBytes(24).toString('hex')
   const name = `adea-capture-prov-${randomBytes(6).toString('hex')}`
+  // Register the removal handle BEFORE the container exists: a timeout or
+  // crash anywhere after `docker run` must still reach the lane's cleanup,
+  // so a slow or failed start can never leak the container. The stop is
+  // best-effort (rm -f of an absent container is a no-op) so a failed removal
+  // during cleanup can never mask the lane's real failure.
+  const handle = {
+    databaseUrl: null,
+    stop() {
+      spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore', timeout: 60_000 })
+    },
+  }
+  captureProvisioning = handle
   dockerCaptureRun(
     [
       'run',
       '-d',
       '--rm',
-      '-P',
+      // Loopback-only ephemeral host port: a plain `-P` publishes the port on
+      // every host interface, which would put the throwaway instance on the
+      // LAN. The mapping is read back below instead of guessing a port.
+      '-p',
+      '127.0.0.1::5432',
       '--name',
       name,
       '-e',
@@ -122,9 +138,9 @@ function startCaptureProvisioning() {
     120_000
   )
   try {
-    // `-P` published 5432 on an ephemeral host port; read the mapping back
-    // instead of guessing one. The image's default POSTGRES_USER (postgres,
-    // superuser) owns the default `postgres` admin database.
+    // Read the loopback ephemeral host port mapping back instead of guessing
+    // one. The image's default POSTGRES_USER (postgres, superuser) owns the
+    // default `postgres` admin database.
     const mapping = dockerCaptureRun(
       ['port', name, '5432/tcp'],
       'reading the provisioning port mapping'
@@ -149,18 +165,12 @@ function startCaptureProvisioning() {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_000)
     }
     if (!ready) throw new Error('the throwaway capture provisioning instance never became ready')
-    return {
-      databaseUrl: `postgresql://postgres:${password}@127.0.0.1:${port}/postgres?sslmode=disable`,
-      stop() {
-        dockerCaptureRun(
-          ['rm', '-f', name],
-          'removing the throwaway capture provisioning container'
-        )
-      },
-    }
+    handle.databaseUrl = `postgresql://postgres:${password}@127.0.0.1:${port}/postgres?sslmode=disable`
+    return handle
   } catch (error) {
-    // A container that started but never became healthy must not leak.
-    spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' })
+    // A container that started but never became healthy must not leak; the
+    // pre-registered handle above already covers mid-startup termination.
+    handle.stop()
     throw error
   }
 }
