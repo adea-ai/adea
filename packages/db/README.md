@@ -70,3 +70,12 @@ Migration 0042 adds the [workspace lead and direct-topic foundations](../../docs
 It preserves the staged 0041 schema and all legacy identities, history and audiences.
 Apply it before the new lead/topic API callers; a designation or canonical message
 is not model readiness or execution acceptance.
+
+Requested lead/child selection references are stored separately on the immutable lead intent.
+Omission retains workspace role defaults; a changed choice on the same message/idempotency
+key conflicts. The locked private reader exposes only these requested references; CP validates
+workspace/target/readiness and retains accepted runtime selections. A parent child choice
+never inherits the lead choice. Child overrides require CP-owned canonical child admission.
+Migration 0045 adds only the nullable requested-choices column and its strict check. Its
+snapshot preserves every other table from staged 0044, including Home/deletion expansion;
+the older runtime workspace declaration must never generate a destructive rollback.
