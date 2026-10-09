@@ -162,12 +162,25 @@ one-word `requireVisibleTask`/`messageSummary` exports. Untouched:
 new coverage lives in new files). `lockAuthority`'s task-channel refusal
 is load-bearing for the direct-channel admission rule and was not relaxed.
 
-Migration: `0045_minor_pepper_potts` (three nullable target columns,
-validity check, partial unique target index) is generated canonically on
-this lane's chain and is additive/nullable-only. The number is valid on
-this chain only and MUST be renumbered onto the actual artifact →
-requested-role predecessor stack at integration (1215/ZCode tip moves
-independently); replaying the SQL under the assigned number is safe.
+Migration: `0051_lead_handoff_target` (three nullable target columns,
+validity check, partial unique target index) sits AFTER the authoritative
+combined stack — main `0045_agent-edit-revisions` → artifact1207 exact
+`39d412f6` (`0046_artifact_reference_grants`) → combined1230 head
+`3e1dcfa1` (`0047_huge_hitman`, `0048_graceful_prima`) → group1232 head
+`2e26c30` (`0049_group_participation_grants`, `0050_group_legacy_backfill`).
+The lane's provisional `0045_minor_pepper_potts` was reverted, never
+merged: main's own 0045 is untouched and no predecessor index was
+claimed independently. The 0051 snapshot is the authoritative 0050
+snapshot plus exactly the handoff table additions (verified by
+JSON-semantic diff both ways); the 0051 SQL replays the same additive
+statements. Proven by migrating the full 0000→0051 chain from zero on
+disposable Postgres plus `db:verify` (52 applied) and the 8 target
+tests against that chain DB. The 0045–0050 SQL/snapshot files on this
+branch are byte-identical copies of the authoritative stack objects, so
+at merge they resolve cleanly and only the 0051 hunk plus the journal
+append need root sequencing. Do NOT run `db:generate` on this lane
+until merged: the lane schema TS deliberately lacks predecessor-only
+columns, so generation would propose spurious drops.
 
 ## Traceability
 
