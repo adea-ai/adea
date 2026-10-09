@@ -3,6 +3,7 @@ import type { GroupAdmission, UserPrincipalRef } from '@adea-ai/types'
 import { and, eq } from 'drizzle-orm'
 
 import { createAgent, ensureWorkspaceLead } from '../../src/agents'
+import { createArtifact, deleteArtifact } from '../../src/artifacts'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createMessage } from '../../src/conversations'
 import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
@@ -2928,6 +2929,164 @@ describe('durable binding, fences and shared read boundary', () => {
         jobId: 'job_stale',
         reason: 'publication_participation_stale',
       })
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('linked artifacts resolve and a deleted link fails closed, never artifact-free', async () => {
+    const f = await isolatedFixture()
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const artifact = await createArtifact(f.local.db, f.workspace.id, f.owner, {
+        agentId: lead.id,
+        availability: 'available',
+        checksumSha256: 'a'.repeat(64),
+        executionRef: 'execution:report-1',
+        filename: 'report.txt',
+        location: { reference: 'outputs/report-1', runtimeNodeId: 'node-1', type: 'runtime_node' },
+        mediaType: 'text/plain',
+        provenance: { command: 'report' },
+        retentionPolicy: 'standard',
+        sensitivity: 'workspace',
+        sizeBytes: 42,
+        sourceArtifactRef: 'runtime-output:report-1',
+        sourcePrincipal: { agentId: lead.id, kind: 'agent' },
+      })
+      const driveCompleted = async (artifactIds: readonly string[]) => {
+        const posted = await postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.owner,
+          f.owner,
+          {
+            lead: {
+              artifactIds,
+              bodyText: 'run it',
+              idempotencyKey: crypto.randomUUID(),
+              mentions: [],
+            },
+            mode: 'lead',
+          },
+          { now: NOW }
+        )
+        const intentId = posted.leadTurn.intentId
+        const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
+        const selection = {
+          attemptId,
+          executionId,
+          expiresAt: '2027-01-01T00:00:00.000Z',
+          intentId,
+          preparationRef: `prep_${'e'.repeat(32)}`,
+          selectionRef: `msel_${'e'.repeat(32)}`,
+          selectionRevision: 1,
+          workspaceId: (
+            await resolveLeadTurnAuthority(f.local.db, f.workspace.id, intentId, f.owner)
+          ).controlPlaneWorkspaceId,
+        }
+        await prepareLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, selection)
+        await markLeadTurnDispatchPending(f.local.db, f.workspace.id, intentId, f.owner, selection)
+        const binding = { attemptId, dispatchId, executionId, intentId, runtimeSessionId }
+        await observeLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, {
+          ...binding,
+          observedAt: NOW,
+          state: 'completed',
+        })
+        return { binding, intentId }
+      }
+      // Linked and readable: publishes with the link intact.
+      const linked = await driveCompleted([artifact.id])
+      const messageId = await publishGroupLeadResult(
+        f.local.db,
+        f.workspace.id,
+        f.owner,
+        { binding: linked.binding, bodyText: 'result text', channelId, intentId: linked.intentId },
+        { now: NOW }
+      )
+      const [result] = await f.local.db
+        .select()
+        .from(schema.messages)
+        .where(eq(schema.messages.id, messageId))
+      expect(result?.bodyText).toBe('result text')
+      // Soft-deleted link: one linked row with no readable artifact must hold
+      // as unresolved — never pass as artifact-free. The already-completed
+      // job is published again; nothing new may appear.
+      const deleted = await deleteArtifact(
+        f.local.db,
+        f.workspace.id,
+        artifact.id,
+        f.owner,
+        artifact.version
+      )
+      expect(deleted.deletionState).not.toBe('active')
+      const baseline = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      const failure = await publishGroupLeadResult(
+        f.local.db,
+        f.workspace.id,
+        f.owner,
+        {
+          binding: linked.binding,
+          bodyText: 'result text',
+          channelId,
+          intentId: linked.intentId,
+        },
+        { now: NOW }
+      ).then(
+        () => {
+          throw new Error('unresolved artifact must hold')
+        },
+        (error: unknown) => error
+      )
+      expect(failure).toBeInstanceOf(Error)
+      expect((failure as Error).message).toBe('Group publication artifact unresolved')
+      const after = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      expect(after.map((row) => row.id)).toEqual(baseline.map((row) => row.id))
     } finally {
       await f.local.close()
     }

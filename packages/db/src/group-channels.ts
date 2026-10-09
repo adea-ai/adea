@@ -98,12 +98,14 @@ export {
 } from './group-participation-store'
 import {
   agents,
+  artifacts,
   channelParticipants,
   channels,
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
   groupSharingGrants,
+  messageArtifactReferences,
   workspaceMemberships,
 } from './schema'
 import { leadTurnIntents } from './schema/lead-turns'
@@ -1310,6 +1312,33 @@ export type GroupLeadPublicationInput = Readonly<{
 }>
 
 /**
+ * Result/artifact projection gate: every artifact linked to the job's
+ * source message must resolve to a live, workspace-bound row. A claimed link
+ * with no readable row fails closed — it never passes as artifact-free.
+ * Workspace-scoped like the group audience itself; project-scoped artifact
+ * authorization stays with the artifact lanes.
+ */
+async function requireGroupResultArtifacts(
+  database: Database,
+  workspaceId: string,
+  messageId: string
+): Promise<void> {
+  const links = await database
+    .select({ artifactId: messageArtifactReferences.artifactId })
+    .from(messageArtifactReferences)
+    .where(eq(messageArtifactReferences.messageId, messageId))
+  for (const link of links) {
+    const [row] = await database
+      .select({ deletionState: artifacts.deletionState })
+      .from(artifacts)
+      .where(and(eq(artifacts.id, link.artifactId), eq(artifacts.workspaceId, workspaceId)))
+      .limit(1)
+    if (!row || row.deletionState !== 'active')
+      throw new Error('Group publication artifact unresolved')
+  }
+}
+
+/**
  * Publish a completed group lead job through the existing job-outbound
  * service (`publishLeadTurnResult`, owned with #1217) — no competing store
  * or outbox. Before invoking, this caller binds, from canonical rows: the
@@ -1366,6 +1395,7 @@ export async function publishGroupLeadResult(
       publisher,
     })
     if (decision.action !== 'publish') throw new GroupPublicationHoldError(decision.reason)
+    await requireGroupResultArtifacts(transaction, workspaceId, intent.messageId)
     return job
   })
   await options.beforeService?.()
@@ -1386,6 +1416,7 @@ export async function publishGroupLeadResult(
         options.clock ? { clock: options.clock } : { now }
       )
       if (decision.action !== 'publish') throw new GroupPublicationHoldError(decision.reason)
+      await requireGroupResultArtifacts(database, workspaceId, intent.messageId)
     }
   )
 }
