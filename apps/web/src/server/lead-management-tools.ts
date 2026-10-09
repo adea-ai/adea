@@ -263,7 +263,8 @@ function invoke(
 
 export async function executeLeadManagementTool(
   dependencies: LeadManagementToolsDependencies,
-  call: LeadManagementToolCall
+  call: LeadManagementToolCall,
+  canonicalRequest?: unknown
 ): Promise<ManagementOutcome<unknown>> {
   if (!isPlainRecord(call) || !isManagementOperationId(call.operation))
     return authorityFailure('project.update', 'authority_malformed')
@@ -300,7 +301,12 @@ export async function executeLeadManagementTool(
 
   let operations: ManagementOperations
   try {
-    operations = dependencies.operationsFor({ decision, kind: 'lead', reference: authority })
+    operations = dependencies.operationsFor({
+      decision,
+      kind: 'lead',
+      reference: authority,
+      ...(canonicalRequest !== undefined ? { canonicalRequest } : {}),
+    })
   } catch {
     return unavailableFailure(operation, 'Management operations are unavailable')
   }

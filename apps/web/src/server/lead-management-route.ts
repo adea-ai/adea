@@ -29,6 +29,7 @@ import {
   type LeadManagementAuthority,
   type LeadManagementToolCall,
 } from './lead-management-tools'
+import type { LeadManagementServiceVerification } from './lead-management-service-auth'
 import type {
   ManagementCaller,
   ManagementFailure,
@@ -44,7 +45,7 @@ const RESULT_SCHEMA_VERSION = 'adea-management-result/v1'
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export type LeadManagementRouteDependencies = Readonly<{
-  verify(request: Request): Promise<ManagementAuthorityDecision | null>
+  verify(request: Request): Promise<LeadManagementServiceVerification | null>
   /**
    * Per-delivery CP current-authority/consumption assertion. Required: this
    * endpoint refuses a lead effect unless an actual current-authority owner is
@@ -136,8 +137,19 @@ export function parseLeadManagementCall(
   authority: LeadManagementAuthority
 ): LeadManagementToolCall | null {
   const body = record(value)
-  if (!body || !exactKeys(body, ['input', 'operation', 'schemaVersion', 'targetId', 'workspaceId']))
+  if (
+    !body ||
+    !exactKeys(body, [
+      'canonicalRequest',
+      'input',
+      'operation',
+      'schemaVersion',
+      'targetId',
+      'workspaceId',
+    ])
+  )
     return null
+  if (!record(body.canonicalRequest)) return null
   if (body.schemaVersion !== managementCallSchemaVersion) return null
   if (!isManagementOperationId(body.operation)) return null
   const operation = body.operation
@@ -258,8 +270,9 @@ export function createLeadManagementHandler(dependencies: LeadManagementRouteDep
       if (request.method !== 'POST') return unavailable()
       const body = await readBody(request)
       if (body === undefined) return unavailable()
-      const decision = await dependencies.verify(request)
-      if (!decision) return unavailable()
+      const verification = await dependencies.verify(request)
+      if (!verification) return unavailable()
+      const decision = verification.decision
       const authority: LeadManagementAuthority = {
         authorityRef: decision.authorityRef,
         intentId: decision.intentId,
@@ -269,6 +282,10 @@ export function createLeadManagementHandler(dependencies: LeadManagementRouteDep
       if (!call) return unavailable()
       const binding = await leadManagementToolBinding(call)
       if (!binding) return unavailable()
+      const canonicalRequest = record(body)?.canonicalRequest
+      const canonicalRequestDigest = await managementInputDigest(canonicalRequest)
+      if (!canonicalRequestDigest || canonicalRequestDigest !== verification.canonicalRequestDigest)
+        return refusal(call.operation, 'authority_binding_mismatch')
 
       const now = dependencies.now?.() ?? Date.now()
       const invalid = validateManagementAuthorityDecision(decision, {
@@ -286,6 +303,7 @@ export function createLeadManagementHandler(dependencies: LeadManagementRouteDep
           {
             approval: decision.approval,
             audienceRef: decision.audienceRef,
+            canonicalRequest,
             authorityRef: decision.authorityRef,
             authorityRevision: decision.authorityRevision,
             binding,
@@ -325,7 +343,8 @@ export function createLeadManagementHandler(dependencies: LeadManagementRouteDep
           resolveAuthority: async () => decision,
           ...(dependencies.now ? { now: dependencies.now } : {}),
         },
-        call
+        call,
+        canonicalRequest
       )
 
       const completed = await completeClaim(dependencies, decision, outcome)

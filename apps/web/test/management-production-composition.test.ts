@@ -1,38 +1,42 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { ManagementAuthorityError } from '@adea-ai/types/management'
 
 /**
  * Production-composed host proof (#1215). Uses the real
  * `applicationManagementOperations` composition, the real signed-decision
- * verifier, the real durable claim functions and the real database executors —
- * no injected fake operations. It runs only with an isolated DATABASE_URL and
- * the react-server condition so the server-only composition loads:
+ * verifier, the real Control API current-authority client (against a loopback
+ * CP route contract), the real durable claim functions and the real database
+ * executors — no injected fake operations. It runs only with an isolated
+ * DATABASE_URL and the react-server condition so the server-only composition
+ * loads:
  *
  *   DATABASE_URL=... bun test --conditions=react-server \
  *     apps/web/test/management-production-composition.test.ts
  */
 const connectionUrl = process.env.DATABASE_URL
+const CANONICAL_REQUEST = {
+  attemptId: 'att_01JABCDEF0123456789ABCDEFG',
+  executionId: 'exe_01JABCDEF0123456789ABCDEFG',
+  toolCallId: 'tlc_01JABCDEF0123456789ABCDEFG',
+}
+const CP_WORKSPACE = 'wsp_01JABCDEF0123456789ABCDEFG'
 
-let mode: 'ok' | 'revoked' = 'ok'
-const boundaries: string[] = []
+let cpMode: 'ok' | 'revoked' = 'ok'
+const cpSeen: Array<{ boundary: string; request: unknown }> = []
 
 function base64url(value: string | Uint8Array) {
   return Buffer.from(value).toString('base64url')
 }
 
-const current = async (_request: unknown, boundary: string): Promise<void> => {
-  boundaries.push(boundary)
-  if (mode === 'revoked') throw new ManagementAuthorityError('authority_unavailable')
-}
-
 describe.skipIf(!connectionUrl)('production-composed lead management route (#1215)', () => {
   let authModule: typeof import('../src/server/lead-management-service-auth')
+  let clientModule: typeof import('../src/server/management-authority-current')
   let composition: typeof import('../src/server/management-composition')
   let dbModule: typeof import('@adea-ai/db')
   let routeModule: typeof import('../src/server/lead-management-route')
   let scopeModule: typeof import('../src/server/request-scope')
   let typesModule: typeof import('@adea-ai/types/management')
   let connection: import('@adea-ai/db').DatabaseConnection
+  let cpServer: ReturnType<typeof Bun.serve>
 
   let workspaceId = ''
   let projectId = ''
@@ -55,6 +59,7 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       audience: 'adea-lead-management',
       audienceRef: 'audience:fixture',
       authorityRevision: 7,
+      canonicalRequestDigest: await typesModule.managementInputDigest(CANONICAL_REQUEST),
       credentialId: `credential-${decisionId}`,
       credentialKind: 'service',
       decision: 'allowed',
@@ -89,6 +94,7 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
   function requestFor(input: { name: string }, binding: { [key: string]: unknown }, token: string) {
     return new Request('https://adea-fixture.invalid/api/internal/pi-durable/management', {
       body: JSON.stringify({
+        canonicalRequest: CANONICAL_REQUEST,
         input,
         operation: binding.operation,
         schemaVersion: 'adea-management-call/v1',
@@ -101,7 +107,25 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
   }
 
   beforeAll(async () => {
+    cpServer = Bun.serve({
+      fetch: async (incoming) => {
+        const body = (await incoming.json()) as Record<string, unknown>
+        const parameters = (body.parameters ?? {}) as Record<string, unknown>
+        cpSeen.push({
+          boundary: String(parameters.boundary ?? ''),
+          request: parameters.request,
+        })
+        if (cpMode === 'revoked') return new Response('{"code":"NOPE"}', { status: 503 })
+        return Response.json({
+          correlation: body.correlation,
+          data: { asserted: true },
+          requestId: body.requestId,
+        })
+      },
+      port: 0,
+    })
     authModule = await import('../src/server/lead-management-service-auth')
+    clientModule = await import('../src/server/management-authority-current')
     composition = await import('../src/server/management-composition')
     dbModule = await import('@adea-ai/db')
     routeModule = await import('../src/server/lead-management-route')
@@ -142,12 +166,20 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
   })
 
   afterAll(async () => {
+    cpServer?.stop(true)
     await connection?.close()
   })
 
   function handler() {
+    // Real Adea client against the loopback CP route; the same instance flows
+    // into createManagementGateway through the composition, not a bypass.
+    const assertCurrent = clientModule.createControlPlaneManagementCurrentAuthority({
+      credential: async () => ({ token: 'fixture-cp-token', workspaceId: CP_WORKSPACE }),
+      environment: { CONTROL_PLANE_ORIGIN: `http://127.0.0.1:${cpServer.port}` },
+      now: () => now,
+    })
     return routeModule.createLeadManagementHandler({
-      assertCurrent: current,
+      assertCurrent,
       claim: (decision) =>
         dbModule.claimManagementAuthorityDecision(connection.db, {
           actionDigest: decision.binding.actionDigest,
@@ -166,11 +198,9 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
           decision.decisionId,
           completion
         ),
-      // The real production composition; the same current-owner instance flows
-      // into createManagementGateway through the composition, not a bypass.
       operationsFor: (caller) =>
         composition.applicationManagementOperations(caller, {
-          assertCurrent: current,
+          assertCurrent,
           now: () => now,
         }),
       now: () => now,
@@ -200,6 +230,8 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
     const binding = await bindingFor('Composed rename')
     const decisionId = `decision-${crypto.randomUUID()}`
     const token = await signedDecision(binding, decisionId)
+    cpSeen.length = 0
+    cpMode = 'ok'
     const response = await scopeModule.withRequestScope(() =>
       handler()(requestFor({ name: 'Composed rename' }, binding, token))
     )
@@ -211,33 +243,40 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       principal
     )
     expect(project?.name).toBe('Composed rename')
-    expect(boundaries).toEqual(['admission', 'effect'])
+    expect(cpSeen).toEqual([
+      { boundary: 'admission', request: CANONICAL_REQUEST },
+      { boundary: 'effect', request: CANONICAL_REQUEST },
+    ])
   })
 
   test('a replayed decision is refused by the durable claim with no second effect', async () => {
     const binding = await bindingFor('Composed rename')
     const decisionId = `decision-${crypto.randomUUID()}`
     const token = await signedDecision(binding, decisionId)
+    cpSeen.length = 0
+    cpMode = 'ok'
     const first = await scopeModule.withRequestScope(() =>
       handler()(requestFor({ name: 'Composed rename' }, binding, token))
     )
     expect(first.status).toBe(200)
-    const afterFirst = boundaries.length
-    mode = 'ok'
+    const afterFirst = cpSeen.length
     const replay = await scopeModule.withRequestScope(() =>
       handler()(requestFor({ name: 'Composed rename' }, binding, token))
     )
     expect(replay.status).toBe(403)
     expect(await replay.json()).toMatchObject({ reason: 'authority_replay' })
     // The replay never reaches the effect boundary.
-    expect(boundaries.slice(afterFirst)).toEqual(['admission'])
+    expect(cpSeen.slice(afterFirst)).toEqual([
+      { boundary: 'admission', request: CANONICAL_REQUEST },
+    ])
   })
 
   test('revocation refuses a fresh decision with zero effect and no burned claim', async () => {
     const binding = await bindingFor('Composed denied')
     const decisionId = `decision-${crypto.randomUUID()}`
     const token = await signedDecision(binding, decisionId)
-    mode = 'revoked'
+    const before = cpSeen.length
+    cpMode = 'revoked'
     const denied = await scopeModule.withRequestScope(() =>
       handler()(requestFor({ name: 'Composed denied' }, binding, token))
     )
@@ -250,7 +289,7 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       principal
     )
     expect(project?.name).toBe('Composed rename')
-    expect(boundaries.at(-1)).toBe('admission')
+    expect(cpSeen.slice(before)).toEqual([{ boundary: 'admission', request: CANONICAL_REQUEST }])
     // The admission assertion precedes the claim, so no row was burned: a
     // later claim of the same decision id still starts fresh.
     const probe = await dbModule.claimManagementAuthorityDecision(connection.db, {
@@ -265,6 +304,6 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       workspaceId,
     })
     expect(probe).toEqual({ state: 'claimed' })
-    mode = 'ok'
+    cpMode = 'ok'
   })
 })

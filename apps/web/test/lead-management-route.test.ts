@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import type {
-  ManagementAuthorityBoundary,
-  ManagementAuthorityClaim,
-  ManagementAuthorityCompletion,
-  ManagementAuthorityDecision,
-  ManagementCurrentAuthorityRequest,
+import {
+  managementInputDigest,
+  type ManagementAuthorityBoundary,
+  type ManagementAuthorityClaim,
+  type ManagementAuthorityCompletion,
+  type ManagementAuthorityDecision,
+  type ManagementCurrentAuthorityRequest,
 } from '@adea-ai/types/management'
 
 import {
@@ -27,6 +28,11 @@ const AUTHORITY = {
   intentId: 'intent-1',
   leadAgentId: 'agent-lead-1',
 }
+const CANONICAL_REQUEST = {
+  attemptId: 'att_01JABCDEF0123456789ABCDEFG',
+  executionId: 'exe_01JABCDEF0123456789ABCDEFG',
+  toolCallId: 'tlc_01JABCDEF0123456789ABCDEFG',
+}
 
 type Recorded = Readonly<{ binding: unknown; method: string }>
 
@@ -40,6 +46,7 @@ function harness(
       request: ManagementCurrentAuthorityRequest,
       boundary: ManagementAuthorityBoundary
     ) => Promise<void>
+    canonicalRequestDigest?: string
     claim?: (decision: ManagementAuthorityDecision) => Promise<ManagementAuthorityClaim>
     complete?: (
       decision: ManagementAuthorityDecision,
@@ -116,7 +123,13 @@ function harness(
       callers.push(caller)
       return operations
     },
-    verify: async () => options.decision ?? null,
+    verify: async () => {
+      if (!options.decision) return null
+      const canonicalRequestDigest =
+        options.canonicalRequestDigest ?? (await managementInputDigest(CANONICAL_REQUEST))
+      if (!canonicalRequestDigest) throw new Error('test canonical request invalid')
+      return { canonicalRequestDigest, decision: options.decision }
+    },
   }
   return { assertCurrentCalls, calls, callers, completions, dependencies }
 }
@@ -130,6 +143,7 @@ function callRequest(call: unknown, token = 'signed-token') {
 }
 
 const updateCall = {
+  canonicalRequest: CANONICAL_REQUEST,
   input: { name: 'Renamed' },
   operation: 'project.update',
   schemaVersion: 'adea-management-call/v1',
@@ -161,6 +175,7 @@ describe('lead management host endpoint (#1215)', () => {
     expect(run.calls).toEqual([{ binding: decision.binding, method: 'projectUpdate' }])
     expect(run.callers).toEqual([
       {
+        canonicalRequest: CANONICAL_REQUEST,
         decision,
         kind: 'lead',
         reference: {
@@ -361,10 +376,27 @@ describe('lead management host endpoint (#1215)', () => {
   })
 })
 
+test('a canonical request that does not match the signed digest performs zero operations', async () => {
+  const decision = await updateDecision()
+  const mismatchedDigest = await managementInputDigest({ different: true })
+  if (!mismatchedDigest) throw new Error('unreachable')
+  const run = harness({ canonicalRequestDigest: mismatchedDigest, decision })
+  const response = await createLeadManagementHandler(run.dependencies)(callRequest(updateCall))
+  expect(response.status).toBe(403)
+  expect(await response.json()).toEqual({
+    code: 'LEAD_MANAGEMENT_REFUSED',
+    operation: 'project.update',
+    reason: 'authority_binding_mismatch',
+  })
+  expect(run.assertCurrentCalls).toEqual([])
+  expect(run.calls).toEqual([])
+})
+
 describe('lead management call parsing (#1215)', () => {
   test('parses every supported operation with exact fields and targets', () => {
     const workspaceUpdate = parseLeadManagementCall(
       {
+        canonicalRequest: CANONICAL_REQUEST,
         input: { expectedVersion: 3, name: 'Renamed', scene: 'home' },
         operation: 'config.workspace.update',
         schemaVersion: 'adea-management-call/v1',
@@ -383,6 +415,7 @@ describe('lead management call parsing (#1215)', () => {
 
     const member = parseLeadManagementCall(
       {
+        canonicalRequest: CANONICAL_REQUEST,
         input: { projectId: MANAGEMENT_PROJECT, role: 'editor' },
         operation: 'project.member.set',
         schemaVersion: 'adea-management-call/v1',
@@ -408,6 +441,7 @@ describe('lead management call parsing (#1215)', () => {
       { ...updateCall, input: { name: '' } },
       { ...updateCall, input: { unknown: true } },
       {
+        canonicalRequest: CANONICAL_REQUEST,
         input: {},
         operation: 'project.reorder',
         schemaVersion: 'adea-management-call/v1',
@@ -415,6 +449,7 @@ describe('lead management call parsing (#1215)', () => {
         workspaceId: MANAGEMENT_WORKSPACE,
       },
       {
+        canonicalRequest: CANONICAL_REQUEST,
         input: { projectIds: ['not-a-uuid'] },
         operation: 'project.reorder',
         schemaVersion: 'adea-management-call/v1',
@@ -422,6 +457,7 @@ describe('lead management call parsing (#1215)', () => {
         workspaceId: MANAGEMENT_WORKSPACE,
       },
       {
+        canonicalRequest: CANONICAL_REQUEST,
         input: { expectedVersion: 0 },
         operation: 'config.workspace.update',
         schemaVersion: 'adea-management-call/v1',
@@ -429,6 +465,7 @@ describe('lead management call parsing (#1215)', () => {
         workspaceId: MANAGEMENT_WORKSPACE,
       },
       {
+        canonicalRequest: CANONICAL_REQUEST,
         input: { iconKey: 'box', id: MANAGEMENT_PROJECT, name: 'X' },
         operation: 'project.create',
         schemaVersion: 'adea-management-call/v1',
