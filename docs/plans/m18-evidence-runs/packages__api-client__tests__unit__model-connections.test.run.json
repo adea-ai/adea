@@ -1,0 +1,15 @@
+{
+  "repository": "adea",
+  "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
+  "executedAtHead": "291bc6c4cbdaccc3946a0da62a05315427f6475a",
+  "file": "packages/api-client/tests/unit/model-connections.test.ts",
+  "command": "bun test packages/api-client/tests/unit/model-connections.test.ts",
+  "exitCode": 0,
+  "status": "passed",
+  "summary": {
+    "pass": 2,
+    "fail": 0
+  },
+  "ids": ["A39", "REQ-118"],
+  "treeNote": "executedAtHead differs from sourceSha only by evidence-manifest files, one package.json script line, and docs/plans; none is imported by the file under test"
+}

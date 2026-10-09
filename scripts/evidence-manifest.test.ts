@@ -77,7 +77,7 @@ function manifest(entries = [], overrides = {}) {
     parent: 1183,
     repositories: { adea: ADEA },
     compatibility: { contractVersions: [CONTRACT] },
-    entries,
+    entries: entries.map((entry) => ({ coverage: 'complete', ...entry })),
     ...overrides,
   }
 }
@@ -145,8 +145,62 @@ describe('evidence manifest id universe', () => {
   })
 })
 
+describe('partial coverage', () => {
+  test('a partial entry with a resolving execution reference is pending, names its gaps, and stays ok', () => {
+    const { io, entry } = completeFixture()
+    const partial = {
+      ...entry,
+      coverage: 'partial',
+      gaps: ['no candidate for direct sessions'],
+      candidateEvidence: [],
+    }
+    const report = validateEvidenceManifest(manifest([partial]), io)
+    expect(statusOf(report, 'A01')).toMatchObject({
+      status: STATUS.pending,
+      reasons: ['execution-reference resolves', 'gap: no candidate for direct sessions'],
+    })
+    expect(report.ok).toBe(true)
+  })
+
+  test('a partial entry still validates its references: a broken reference is invalid', () => {
+    const { io, entry } = completeFixture()
+    const broken = {
+      ...entry,
+      coverage: 'partial',
+      gaps: ['x'],
+      repoEvidence: [{ ...testRef, name: 'no such title' }, entry.repoEvidence[1]],
+    }
+    const report = validateEvidenceManifest(manifest([broken]), io)
+    expect(statusOf(report, 'A01').status).toBe(STATUS.invalid)
+    expect(report.ok).toBe(false)
+  })
+
+  test('a partial entry cannot carry candidate evidence', () => {
+    const { io, entry } = completeFixture()
+    const bad = { ...entry, coverage: 'partial', gaps: ['x'] }
+    const report = validateEvidenceManifest(manifest([bad]), io)
+    expect(statusOf(report, 'A01').reasons).toEqual([
+      'partial coverage cannot carry candidate evidence',
+    ])
+    expect(report.ok).toBe(false)
+  })
+
+  test('coverage must be explicit, and partial coverage must list gaps', () => {
+    const { io, entry } = completeFixture()
+    const { coverage: _omitted, ...withoutCoverage } = entry
+    const raw = { ...manifest(), entries: [withoutCoverage] }
+    expect(validateEvidenceManifest(raw, io).schemaErrors).toEqual([
+      'A01 coverage must be complete or partial',
+    ])
+    const noGaps = { ...manifest(), entries: [{ ...entry, coverage: 'partial', gaps: [] }] }
+    expect(validateEvidenceManifest(noGaps, io).schemaErrors).toEqual([
+      'A01 partial coverage must list gaps',
+    ])
+  })
+})
+
 describe('committed evidence manifest', () => {
-  test('pins the canonical base repository and maps nothing, so every id stays pending', () => {
+  test('pins the canonical base repository; every mapping is partial, so every id stays pending', () => {
     const committed = JSON.parse(
       readFileSync(resolve(root, 'docs/plans/m18-evidence-manifest.json'), 'utf8')
     )
@@ -154,7 +208,8 @@ describe('committed evidence manifest', () => {
     expect(committed.issue).toBe(1225)
     expect(adea.name).toBe('adea-ai/adea')
     expect(adea.sourceSha).toBe('34e173df7bf4654d53e2b4daed5ff41239cafd8b')
-    expect(committed.entries).toEqual([])
+    expect(committed.entries.length).toBeGreaterThan(0)
+    expect(committed.entries.every((entry) => entry.coverage === 'partial')).toBe(true)
     expect(committed.compatibility.contractVersions).toEqual([])
 
     const io = fixtureIo({
@@ -165,12 +220,32 @@ describe('committed evidence manifest', () => {
         }),
       },
     })
-    const report = validateEvidenceManifest(committed, io)
-    expect(report.schemaErrors).toEqual([])
-    expect(report.ok).toBe(true)
-    expect(report.counts[STATUS.pending]).toBe(64)
-    expect(validateEvidenceManifest(committed, io, { strict: true }).ok).toBe(false)
+    expect(validateEvidenceManifest(committed, io).schemaErrors).toEqual([])
+    expect(committed.entries.map((entry) => entry.id)).toEqual([
+      ...new Set(committed.entries.map((entry) => entry.id)),
+    ])
   })
+
+  const pinned =
+    spawnSync('git', ['cat-file', '-e', '34e173df7bf4654d53e2b4daed5ff41239cafd8b^{commit}'], {
+      cwd: root,
+    }).status === 0
+  test.skipIf(!pinned)(
+    'against the pinned commit in this checkout, every mapping is partial and pending',
+    () => {
+      const committed = JSON.parse(
+        readFileSync(resolve(root, 'docs/plans/m18-evidence-manifest.json'), 'utf8')
+      )
+      const io = repositoryIo({ adea: root })
+      const report = validateEvidenceManifest(committed, io)
+      expect(report.schemaErrors).toEqual([])
+      expect(report.ok).toBe(true)
+      expect(report.counts[STATUS.pending]).toBe(64)
+      expect(report.counts[STATUS.repoVerified] + report.counts[STATUS.candidateCompatible]).toBe(0)
+      expect(validateEvidenceManifest(committed, io, { strict: true }).ok).toBe(false)
+    },
+    120_000
+  )
 })
 
 describe('evidence manifest validation', () => {

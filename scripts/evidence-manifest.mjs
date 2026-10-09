@@ -295,6 +295,22 @@ function evaluate(id, entry, io, manifest) {
   }
   if (reasons.length > 0) return { status: STATUS.invalid, reasons }
 
+  if (entry.coverage === 'partial') {
+    if (entry.candidateEvidence.length > 0) {
+      return {
+        status: STATUS.invalid,
+        reasons: ['partial coverage cannot carry candidate evidence'],
+      }
+    }
+    return {
+      status: STATUS.pending,
+      reasons: [
+        executions > 0 ? 'execution-reference resolves' : 'declaration only',
+        ...entry.gaps.map((gap) => `gap: ${gap}`),
+      ],
+    }
+  }
+
   if (executions === 0) {
     if (entry.candidateEvidence.length > 0) {
       return {
@@ -386,6 +402,17 @@ function manifestErrors(manifest, io) {
     if (!Array.isArray(entry.repoEvidence) || !Array.isArray(entry.candidateEvidence)) {
       errors.push(`${entry.id} must list repoEvidence and candidateEvidence arrays`)
       continue
+    }
+    if (entry.coverage !== 'complete' && entry.coverage !== 'partial') {
+      errors.push(`${entry.id} coverage must be complete or partial`)
+    } else if (entry.coverage === 'partial') {
+      if (
+        !Array.isArray(entry.gaps) ||
+        entry.gaps.length === 0 ||
+        entry.gaps.some((g) => typeof g !== 'string' || !g)
+      ) {
+        errors.push(`${entry.id} partial coverage must list gaps`)
+      }
     }
     for (const item of entry.repoEvidence) {
       if (

@@ -13,5 +13,603 @@
   "compatibility": {
     "contractVersions": []
   },
-  "entries": []
+  "entries": [
+    {
+      "id": "REQ-108",
+      "coverage": "partial",
+      "gaps": [
+        "Pi-usable provider access versus native-only authentication is not distinguished by any test",
+        "Pi Models registry resolution is not exercised",
+        "revalidation is covered only at confirmation time in UI state, not at inference"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-model-state.test.ts",
+          "name": "selection requires a listed active ready model with complete model metadata"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-model-state.test.ts",
+          "name": "ambiguous duplicate connection or model identity cannot be selected"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+          "name": "revoked or expired funding at confirmation time never dispatches"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.run.json",
+          "sha256": "dea34b01542f46d9717759e03106f2af11122ddd0f44c29c104f96c5cbc37ec4"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
+          "sha256": "bb5a264a95af9461d194cab0431dc1a8846f8f395187a617101a34eee9b5d4f1"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "REQ-118",
+      "coverage": "partial",
+      "gaps": [
+        "cross-workspace account reuse and Home credential reuse are not exercised",
+        "native child subscription non-funding is asserted only at view-model level",
+        "no admission-time quota or budget check is tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-model-state.test.ts",
+          "name": "lead, child and direct defaults remain independent, and malformed overrides never fall back"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-model-state.test.ts",
+          "name": "missing explicit funding ownership is never inferred from provider account metadata"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-model-state.test.ts",
+          "name": "ready funding displays exact authenticated provider identity and explicit funder separately"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/api-client/tests/unit/model-connections.test.ts",
+          "name": "model metadata methods reuse canonical auth and encode workspace without provider secrets"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.run.json",
+          "sha256": "dea34b01542f46d9717759e03106f2af11122ddd0f44c29c104f96c5cbc37ec4"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__model-connections.test.run.json",
+          "sha256": "3295a0c164effcdeae3e8c8142f37a8afb301f1685b368c63917a05e7ce2389f"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "REQ-119",
+      "coverage": "partial",
+      "gaps": [
+        "specific remedy wording and draft or conversation preservation are not asserted",
+        "direct native session availability is not tested",
+        "quota and budget remedies are not tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "apps/web/test/agent-profile-availability.test.ts",
+          "name": "structural lead remains setup-blocked without catalog or model calls"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+          "name": "revoked or expired funding at confirmation time never dispatches"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__agent-profile-availability.test.run.json",
+          "sha256": "68facf97e03cc32c7de2418b446b8c86a4e7e814e89a8fcaaa4c4236d3f84712"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
+          "sha256": "bb5a264a95af9461d194cab0431dc1a8846f8f395187a617101a34eee9b5d4f1"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "REQ-130",
+      "coverage": "partial",
+      "gaps": [
+        "loading, empty, denied, offline and failed are not distinguished by a test",
+        "denied title and participant masking is not tested",
+        "empty-workspace creation actions are not tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-presentation.test.ts",
+          "name": "unavailable reads preserve a last report without presenting setup or a new action"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-presentation.test.run.json",
+          "sha256": "cfd0c6eb8fc20f7cae2734a8106add5ba7e2d54e9aa15ec1eb01888294841a55"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "REQ-131",
+      "coverage": "partial",
+      "gaps": [
+        "locally unsent, queued and offline-draft states are not tested",
+        "job-level duplicate suppression on retry is not tested",
+        "reconnect never auto-sending drafts is not tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/composer-submission-identity.test.ts",
+          "name": "a changed topic, body, attachment or mention is a distinct submission"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/api-client/tests/unit/lead-turns.test.ts",
+          "name": "explicit lead-turn message retains its blocked receipt and retry key"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__composer-submission-identity.test.run.json",
+          "sha256": "e9ca0df47ebbc9c3d976eddb9e7b78fee3f508884b44eaf31f7dee19a4bd3d78"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__lead-turns.test.run.json",
+          "sha256": "3694fa1b39a4dbd8f512f17565d80f18b2dfdf41c8dcdee59c221c3b66355480"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "REQ-132",
+      "coverage": "partial",
+      "gaps": [
+        "separate stop-response, cancel-job and cancel-all controls are not tested",
+        "descendant and external-effect explanation is not tested",
+        "noncooperative-tool escalation is not tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+          "name": "cancel keeps the acknowledged cancelling state until observed termination"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+          "name": "failed cancellation preserves observed runtime state and cannot claim completion"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
+          "sha256": "bb5a264a95af9461d194cab0431dc1a8846f8f395187a617101a34eee9b5d4f1"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "REQ-134",
+      "coverage": "partial",
+      "gaps": [
+        "multiple tabs and slow-client convergence are not tested",
+        "reconnect restoring pending approvals is not tested",
+        "absence of side-effect replay on reconnect is not tested end to end"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+          "name": "an older progress cursor cannot rewind or replace the committed turn"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+          "name": "late progress, start and cancel acknowledgements cannot repopulate a reset audience"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "apps/web/test/lead-turn-runtime.test.ts",
+          "name": "progress validates cursor ordering and projects no raw data or provider errors"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
+          "sha256": "bb5a264a95af9461d194cab0431dc1a8846f8f395187a617101a34eee9b5d4f1"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.run.json",
+          "sha256": "9f5fe147db1a11beef62ef824cea1e98bfbc9301dbdc26d949898d2ec825f257"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "REQ-174",
+      "coverage": "partial",
+      "gaps": [
+        "comparator-level only; no migration report over real before and after data",
+        "active attempts and unresolved records are not compared",
+        "previously-unauthorized negative tests exist only as comparator findings"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/db/tests/unit/migration-snapshot-comparator.test.ts",
+          "name": "a record present before and absent after is a missing record"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/db/tests/unit/migration-snapshot-comparator.test.ts",
+          "name": "an auth identity resolving to a different user is a remapped record"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/db/tests/unit/migration-snapshot-comparator.test.ts",
+          "name": "a channel widened from participants to workspace visibility is widened access"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__migration-snapshot-comparator.test.run.json",
+          "sha256": "ed6b8cb816094d45ed1ab7c5d5a199b17ea0eca7c470630b29cc5ac539a14f8e"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "A01",
+      "coverage": "partial",
+      "gaps": [
+        "exactly-one-lead invariant at workspace creation is not tested",
+        "identity and history survival through lead designation is not tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-conversation-model.test.ts",
+          "name": "only the designated same-workspace direct Agent uses explicit lead admission"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-conversation-model.test.run.json",
+          "sha256": "8b00d566fc178cb4e1c908d8ff31b962b4e3fc7582360633779d06844e3b61de"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "A04",
+      "coverage": "partial",
+      "gaps": [
+        "global inbox counts not leaking across switches are not asserted",
+        "authorized-conversation stability under focus is not tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/data/tests/unit/account-directory-keys.test.ts",
+          "name": "a workspace switch keeps cached directory and inbox pages"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/data/tests/unit/account-directory-keys.test.ts",
+          "name": "directory and inbox keys sit outside the per-workspace prefix"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__account-directory-keys.test.run.json",
+          "sha256": "51ae8cfda3d5674a9f29a2905879a7861ed60955141290e99a0bfbb986523884"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "A07",
+      "coverage": "partial",
+      "gaps": [
+        "participant add and remove and history policy are not tested",
+        "late publication redirect is not tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/data/tests/unit/events-audience.test.ts",
+          "name": "an audience change erases active observers, selection and resident bodies before denied refetch and late responses"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__events-audience.test.run.json",
+          "sha256": "582431f16873a51f707a875c4c4d23e3e0863bf3220043cf0ab45476140eb558"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "A18",
+      "coverage": "partial",
+      "gaps": ["new-attempt fencing against a late old-attempt event is not tested"],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "apps/web/test/lead-turn-runtime.test.ts",
+          "name": "unknown transport outcome stays pending and cancel acknowledgement is not cancellation"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+          "name": "cancel keeps the acknowledged cancelling state until observed termination"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.run.json",
+          "sha256": "9f5fe147db1a11beef62ef824cea1e98bfbc9301dbdc26d949898d2ec825f257"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
+          "sha256": "bb5a264a95af9461d194cab0431dc1a8846f8f395187a617101a34eee9b5d4f1"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "A30",
+      "coverage": "partial",
+      "gaps": [
+        "no archived or participant-only channel fixture",
+        "read-state and link preservation are not compared",
+        "legacy-user denial exists only as comparator findings"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/db/tests/unit/migration-snapshot-comparator.test.ts",
+          "name": "a record present before and absent after is a missing record"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/db/tests/unit/migration-snapshot-comparator.test.ts",
+          "name": "an auth identity resolving to a different user is a remapped record"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/db/tests/unit/migration-snapshot-comparator.test.ts",
+          "name": "a channel widened from participants to workspace visibility is widened access"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__migration-snapshot-comparator.test.run.json",
+          "sha256": "ed6b8cb816094d45ed1ab7c5d5a199b17ea0eca7c470630b29cc5ac539a14f8e"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "A34",
+      "coverage": "partial",
+      "gaps": [
+        "direct native work remaining available is not tested",
+        "no native child signed-in fixture"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "apps/web/test/agent-profile-availability.test.ts",
+          "name": "structural lead remains setup-blocked without catalog or model calls"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-model-state.test.ts",
+          "name": "missing explicit funding ownership is never inferred from provider account metadata"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+          "name": "revoked or expired funding at confirmation time never dispatches"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__agent-profile-availability.test.run.json",
+          "sha256": "68facf97e03cc32c7de2418b446b8c86a4e7e814e89a8fcaaa4c4236d3f84712"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.run.json",
+          "sha256": "dea34b01542f46d9717759e03106f2af11122ddd0f44c29c104f96c5cbc37ec4"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
+          "sha256": "bb5a264a95af9461d194cab0431dc1a8846f8f395187a617101a34eee9b5d4f1"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "A35",
+      "coverage": "partial",
+      "gaps": [
+        "human and lead permanent-deletion paths are not both tested to fail closed",
+        "trusted cleanup verification prerequisite is not directly tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "apps/web/test/desktop-workspace-deletion.test.ts",
+          "name": "unsupported external cleanup preserves the root and asks the shell to cancel only after cloud proof"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "apps/web/test/desktop-workspace-deletion.test.ts",
+          "name": "restart retry preserves unverified pending receipts and never asks cloud to finalize"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__desktop-workspace-deletion.test.run.json",
+          "sha256": "ca4e2d6842bf5802dba5856215a473ac46a47fe9de0de513bb0729b27c990746"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "A39",
+      "coverage": "partial",
+      "gaps": [
+        "harness and location eligibility with workspace grants is not tested in the rendered picker",
+        "resolved model and funding display is not verified in rendered UI",
+        "the connect-provider flow is not tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-model-state.test.ts",
+          "name": "selection requires a listed active ready model with complete model metadata"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-model-state.test.ts",
+          "name": "ready funding displays exact authenticated provider identity and explicit funder separately"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/api-client/tests/unit/model-connections.test.ts",
+          "name": "model metadata methods reuse canonical auth and encode workspace without provider secrets"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.run.json",
+          "sha256": "dea34b01542f46d9717759e03106f2af11122ddd0f44c29c104f96c5cbc37ec4"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__model-connections.test.run.json",
+          "sha256": "3295a0c164effcdeae3e8c8142f37a8afb301f1685b368c63917a05e7ce2389f"
+        }
+      ],
+      "candidateEvidence": []
+    },
+    {
+      "id": "A40",
+      "coverage": "partial",
+      "gaps": [
+        "quota exhaustion after selection is not tested",
+        "absence of silent provider or account fallback is asserted only indirectly",
+        "reconnect remedy presentation is not tested"
+      ],
+      "repoEvidence": [
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+          "name": "revoked or expired funding at confirmation time never dispatches"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+          "name": "preparation expiring during the funding recheck cannot start an accepted attempt"
+        },
+        {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "apps/web/test/lead-turn-runtime.test.ts",
+          "name": "missing or expired preparation never persists a start or reaches inference"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
+          "sha256": "bb5a264a95af9461d194cab0431dc1a8846f8f395187a617101a34eee9b5d4f1"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.run.json",
+          "sha256": "9f5fe147db1a11beef62ef824cea1e98bfbc9301dbdc26d949898d2ec825f257"
+        }
+      ],
+      "candidateEvidence": []
+    }
+  ]
 }

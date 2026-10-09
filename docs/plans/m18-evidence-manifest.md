@@ -26,7 +26,10 @@ The committed manifest declares one repository, `adea`, pinned to canonical `mai
 
 ## Entries and references
 
-`entries[]` is `{ id, repoEvidence[], candidateEvidence[] }`. `id` must be a known
+`entries[]` is `{ id, coverage, gaps?, repoEvidence[], candidateEvidence[] }`.
+`coverage` is required: `complete` or `partial`. A `partial` entry must list `gaps` and cannot carry
+candidate evidence; its references are still checked, but its status stays `pending`.
+Current mappings are all `partial`: the cited tests exercise part of each criterion. `id` must be a known
 requirement or A-id. Every `repoEvidence` item must name a declared `repository`.
 
 - `{ kind: "test-reference", repository, path, name }` proves that a test title is
