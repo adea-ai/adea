@@ -330,6 +330,13 @@
       "when": 1791526300162,
       "tag": "0046_artifact_reference_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791529797353,
+      "tag": "0047_huge_hitman",
+      "breakpoints": true
     }
   ]
 }
