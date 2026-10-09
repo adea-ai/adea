@@ -10,6 +10,17 @@ import {
 } from './lead-role-choices-connected-preflight.mjs'
 
 const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+const databaseClientEnvironmentKeys = [
+  'ADEA_PUBLIC_DATABASE_URL',
+  'ADEA_PUBLIC_DATABASE_URL_UNPOOLED',
+  'ADEA_PUBLIC_DATABASE_MIGRATION_URL',
+  'NEXT_PUBLIC_DATABASE_URL',
+  'NEXT_PUBLIC_DATABASE_URL_UNPOOLED',
+  'NEXT_PUBLIC_DATABASE_MIGRATION_URL',
+  'VITE_DATABASE_URL',
+  'VITE_DATABASE_URL_UNPOOLED',
+  'VITE_DATABASE_MIGRATION_URL',
+]
 const safeHostFailures = new Set([
   'HOST_BINARY_MISSING',
   'HOST_BINARY_NOT_EXECUTABLE',
@@ -23,6 +34,22 @@ const safeHostFailures = new Set([
   'HOST_REAP_TIMEOUT',
 ])
 const safeStartupReason = (error) => {
+  const message = typeof error?.message === 'string' ? error.message : undefined
+  const databaseConfigurationMessages = new Map([
+    ['DATABASE_URL is required', 'DATABASE_URL_REQUIRED'],
+    ['DATABASE_URL must be a valid PostgreSQL URL', 'DATABASE_URL_INVALID'],
+    ['DATABASE_URL must use the PostgreSQL protocol', 'DATABASE_URL_PROTOCOL_INVALID'],
+    ['DATABASE_URL must include role, password, host, and database', 'DATABASE_URL_INCOMPLETE'],
+  ])
+  if (message && databaseConfigurationMessages.has(message))
+    return databaseConfigurationMessages.get(message)
+  if (
+    message &&
+    databaseClientEnvironmentKeys.some(
+      (key) => message === `Database credentials must never be client-exposed through ${key}`
+    )
+  )
+    return 'DATABASE_CLIENT_URL_ENV_PRESENT'
   if (error?.code === 'ERR_ASSERTION') return 'FIXTURE_ASSERTION_FAILED'
   if (safeHostFailures.has(error?.code)) return error.code
   if (error?.code === 'ERR_MODULE_NOT_FOUND' || error?.code === 'MODULE_NOT_FOUND')
@@ -35,12 +62,24 @@ const safeFailureClass = (error) =>
   /^[A-Za-z][A-Za-z0-9]{0,48}$/u.test(error?.name ?? '') ? error.name : 'Error'
 const safeDiagnosticField = (value, pattern) =>
   typeof value === 'string' && pattern.test(value) ? value : undefined
-const safePublicationReasons = new Set([
-  'RUNTIME_RESPONSE_INVALID',
-  'RUNTIME_UNAVAILABLE',
-  'PI_LEAD_PUBLICATION_UNAVAILABLE',
-  'CONTROL_PLANE_UNAVAILABLE',
-  'CONTROL_PLANE_REQUEST_REJECTED',
+const controlPlaneOperations = new Set([
+  'model-connections.list',
+  'model-defaults.get',
+  'model-defaults.set',
+  'model-selection.resolve',
+  'model-selection.funding.get',
+  'pi-durable.lead.prepare',
+  'pi-durable.lead.lookup',
+  'pi-durable.lead.dispatch',
+  'pi-durable.lead.status',
+  'pi-durable.lead.progress',
+  'pi-durable.lead.cancel',
+  'pi-durable.lead.publication.current',
+])
+const controlPlaneSchemaVersions = new Set([
+  'pi-lead-dispatch/v1',
+  'pi-lead-publication/v1',
+  'model-funding-display/v1',
 ])
 const safeMissingPackage = (error) => {
   const candidates = []
@@ -84,6 +123,7 @@ export async function startLeadRoleChoicesConnectedFixture() {
   let databaseUrl
   let manifest
   let source
+  let inheritedClientDatabaseAliases = 0
   try {
     assert.equal(typeof Bun, 'object', 'BUN_TEST_RUNTIME_REQUIRED')
     cpRoot = process.env.PI_FACTORY_CP_ROOT
@@ -126,6 +166,7 @@ export async function startLeadRoleChoicesConnectedFixture() {
   let statusProjection
   let progressProjection
   const runtimeReadCounts = { latest: 0, status: 0, progress: 0 }
+  const controlPlaneWire = []
   const publicationGate = {
     calls: 0,
     successes: 0,
@@ -136,10 +177,12 @@ export async function startLeadRoleChoicesConnectedFixture() {
   }
   const fundingBindings = []
   const previousEnvironment = new Map()
+  let previousFetch
   const managedEnvironment = [
     'NODE_ENV',
     'DATABASE_URL',
     'DATABASE_URL_UNPOOLED',
+    ...databaseClientEnvironmentKeys,
     'ADEA_ALLOWED_EMAILS',
     'PI_DURABLE_LEAD_ENABLED',
     'PI_DURABLE_LEAD_TARGET',
@@ -152,6 +195,10 @@ export async function startLeadRoleChoicesConnectedFixture() {
   ]
   for (const key of managedEnvironment) previousEnvironment.set(key, process.env[key])
   const restoreEnvironment = () => {
+    if (previousFetch) {
+      globalThis.fetch = previousFetch
+      previousFetch = undefined
+    }
     for (const [key, value] of previousEnvironment) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
@@ -163,6 +210,10 @@ export async function startLeadRoleChoicesConnectedFixture() {
     process.env.NODE_ENV = 'test'
     process.env.DATABASE_URL = databaseUrl
     process.env.DATABASE_URL_UNPOOLED = process.env.DATABASE_URL_UNPOOLED || databaseUrl
+    for (const key of databaseClientEnvironmentKeys) {
+      if (process.env[key] !== undefined) inheritedClientDatabaseAliases++
+      delete process.env[key]
+    }
     delete process.env.ADEA_ALLOWED_EMAILS
 
     phase = 'db-package-import'
@@ -359,6 +410,96 @@ export async function startLeadRoleChoicesConnectedFixture() {
     process.env.CONTROL_PLANE_SIGNING_KEY = JSON.stringify(privateJwk)
     process.env.CONTROL_PLANE_SIGNING_KEY_ID = keyId
     process.env.CONTROL_PLANE_SIGNING_ISSUER = issuer
+    previousFetch = globalThis.fetch
+    const controlPlaneOrigin = new URL(metadata.baseUrl).origin
+    globalThis.fetch = async (input, init) => {
+      let url
+      try {
+        url = new URL(
+          typeof input === 'string' || input instanceof URL ? input : input.url,
+          controlPlaneOrigin
+        )
+      } catch {
+        return previousFetch(input, init)
+      }
+      if (url.origin !== controlPlaneOrigin) return previousFetch(input, init)
+
+      let sent
+      try {
+        if (typeof init?.body === 'string') sent = JSON.parse(init.body)
+      } catch {}
+      const operation = controlPlaneOperations.has(sent?.operation) ? sent.operation : 'unknown'
+      const sentRequestId = typeof sent?.requestId === 'string' ? sent.requestId : undefined
+      const sentTraceId =
+        typeof sent?.correlation?.traceId === 'string' ? sent.correlation.traceId : undefined
+      const recordResponse = async (status, response) => {
+        let received
+        try {
+          received = await response.clone().json()
+        } catch {}
+        const schemaVersion = controlPlaneSchemaVersions.has(received?.data?.schemaVersion)
+          ? received.data.schemaVersion
+          : undefined
+        const code = safeDiagnosticField(
+          received?.code ?? received?.data?.reasonCode,
+          /^[A-Z][A-Z0-9_]{1,63}$/u
+        )
+        controlPlaneWire.push({
+          operation,
+          status,
+          requestIdMatches: Boolean(sentRequestId && received?.requestId === sentRequestId),
+          traceIdMatches: Boolean(sentTraceId && received?.correlation?.traceId === sentTraceId),
+          ...(schemaVersion ? { schemaVersion } : {}),
+          ...(code ? { responseCode: code } : {}),
+        })
+        if (operation === 'pi-durable.lead.publication.current') {
+          const actual = received?.data?.publication
+          const expected = publicationGate.expected
+          const fields = [
+            'intentId',
+            'dispatchId',
+            'preparationRef',
+            'executionId',
+            'attemptId',
+            'runtimeSessionId',
+            'selectionRef',
+            'selectionRevision',
+            'resultContentDigest',
+          ]
+          publicationGate.responses.push({
+            schemaVersion: actual?.schemaVersion === 'pi-lead-publication/v1',
+            mismatchedFields:
+              actual && expected
+                ? fields.filter((field) => actual[field] !== expected[field])
+                : fields,
+            workspaceMatches: actual?.workspaceId === sent?.workspaceId,
+            actorMatches: actual?.canonicalActorPrincipalId === expected?.originalActorRef,
+            authorityRevisionValid:
+              Number.isSafeInteger(actual?.authorityRevision) && actual.authorityRevision > 0,
+            expiryValid:
+              typeof actual?.expiresAt === 'string' &&
+              Number.isFinite(Date.parse(actual.expiresAt)) &&
+              Date.parse(actual.expiresAt) > Date.now(),
+          })
+        }
+        return response
+      }
+      try {
+        const response = await previousFetch(input, init)
+        return await recordResponse(response.status, response)
+      } catch {
+        controlPlaneWire.push({
+          operation,
+          status: 0,
+          requestIdMatches: false,
+          traceIdMatches: false,
+          responseCode: 'CONTROL_PLANE_TRANSPORT_FAILED',
+        })
+        if (operation === 'pi-durable.lead.publication.current')
+          publicationGate.transportFailures.push({ reason: 'CONTROL_PLANE_TRANSPORT_FAILED' })
+        throw new Error('CONTROL_PLANE_TRANSPORT_FAILED')
+      }
+    }
     const fixtureResolution = async (request) => {
       const supplied = readTemporaryCredential(request)
       if (!supplied) return null
@@ -456,67 +597,10 @@ export async function startLeadRoleChoicesConnectedFixture() {
     phase = 'application-database'
     const applicationDb = applicationDatabase()
     phase = 'lead-product-dependencies'
-    const observedLeadSdkPort = {
-      ...installedLeadSdkPort,
-      async invoke(method, sdkCredential, body, dependencies) {
-        try {
-          const response = await installedLeadSdkPort.invoke(
-            method,
-            sdkCredential,
-            body,
-            dependencies
-          )
-          if (method === 'getPiDurableLeadPublication') {
-            const actual = response?.data?.publication
-            const expected = publicationGate.expected
-            const fields = [
-              'intentId',
-              'dispatchId',
-              'preparationRef',
-              'executionId',
-              'attemptId',
-              'runtimeSessionId',
-              'selectionRef',
-              'selectionRevision',
-              'resultContentDigest',
-            ]
-            publicationGate.responses.push({
-              schemaVersion: actual?.schemaVersion === 'pi-lead-publication/v1',
-              mismatchedFields:
-                actual && expected
-                  ? fields.filter((field) => actual[field] !== expected[field])
-                  : fields,
-              workspaceMatches: actual?.workspaceId === body.workspaceId,
-              actorMatches: actual?.canonicalActorPrincipalId === expected?.originalActorRef,
-              authorityRevisionValid:
-                Number.isSafeInteger(actual?.authorityRevision) && actual.authorityRevision > 0,
-              expiryValid:
-                typeof actual?.expiresAt === 'string' &&
-                Number.isFinite(Date.parse(actual.expiresAt)) &&
-                Date.parse(actual.expiresAt) > Date.now(),
-            })
-          }
-          return response
-        } catch (error) {
-          if (method === 'getPiDurableLeadPublication') {
-            const code = safeDiagnosticField(error?.code, /^[A-Z][A-Z0-9_]{1,63}$/u)
-            const reason = safeDiagnosticField(error?.message, /^[A-Z][A-Z0-9_]{1,63}$/u)
-            const status = Number.isSafeInteger(error?.status) ? error.status : undefined
-            publicationGate.transportFailures.push({
-              ...(code ? { code } : {}),
-              ...(safePublicationReasons.has(reason) ? { reason } : {}),
-              ...(status ? { status } : {}),
-            })
-          }
-          throw error
-        }
-      },
-    }
     const leadProductDependencies = await configuredLeadTurnProductDependencies(
       applicationDb,
       workspace.id,
-      undefined,
-      observedLeadSdkPort
+      undefined
     )
     const assertPublicationCurrent = leadProductDependencies.adapter?.assertPublicationCurrent
     if (assertPublicationCurrent) {
@@ -834,9 +918,13 @@ export async function startLeadRoleChoicesConnectedFixture() {
             responses: [...publicationGate.responses],
             transportFailures: [...publicationGate.transportFailures],
           },
+          controlPlaneWire: [...controlPlaneWire],
           runtimeRow: runtimeRow ?? null,
           fundingBindings: [...fundingBindings],
           readerRequests,
+          databaseEnvironment: {
+            inheritedClientAliasesRemoved: inheritedClientDatabaseAliases,
+          },
           drainFailure,
           modelMetadataFailures: [...modelMetadataFailures],
         }
