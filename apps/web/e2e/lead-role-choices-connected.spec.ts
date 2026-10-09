@@ -236,6 +236,24 @@ test('mounted lead choice is disclosed before inference and matches the real adm
       'Actual production factory answer\\n',
       { timeout: 45_000 }
     )
+    const postDispatchSnapshot = await connected.snapshot(intentId!)
+    const dispatchOperation = postDispatchSnapshot.productOperationDiagnostics?.find(
+      (entry: { operation?: string }) => entry.operation === 'dispatch'
+    )
+    console.log(
+      `CONNECTED_DISPATCH_TIMING:${JSON.stringify({
+        dispatch: dispatchOperation ?? null,
+        productOperationDiagnostics: postDispatchSnapshot.productOperationDiagnostics ?? null,
+        drainDiagnostics: postDispatchSnapshot.drainDiagnostics ?? null,
+        slowWire: (postDispatchSnapshot.controlPlaneWire ?? []).filter(
+          (entry: { elapsedMs?: number }) => (entry.elapsedMs ?? 0) > 1_000
+        ),
+      })}`
+    )
+    // A later terminal publication must never mask a dispatch that hit the
+    // client deadline: the mounted flow has to observe the dispatch return.
+    expect(dispatchOperation?.outcome).toBe('returned')
+    expect(dispatchOperation?.elapsedMs).toBeLessThan(5_000)
   } catch {
     const runtimeEvidence = await connected.evidence()
     const dispatchSnapshot = await connected.snapshot(intentId!)
