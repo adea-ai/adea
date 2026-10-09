@@ -174,7 +174,7 @@ export function resolveHarnessRunBinding(
 export function resolveLeadCoordination(
   leadTurn: HandoffLeadTurn | undefined,
   leadAgent: HandoffLeadAgent | undefined,
-  runtimeSessionId?: string
+  session?: Readonly<{ id: string; generation: number }>
 ): { bound: boolean; reason?: string } {
   if (!leadTurn || !leadAgent) return { bound: false }
   if (leadTurn.agentId !== leadAgent.id)
@@ -187,14 +187,24 @@ export function resolveLeadCoordination(
       reason: `the workspace lead is ${leadAgent.lifecycleState}, not active`,
     }
   // Exact-session binding: the turn coordinates only the session its
-  // retained target names. A targetless turn, or one retained for another
-  // session, grants nothing here no matter how live it is.
-  if (runtimeSessionId !== undefined) {
-    const target = leadTurn.handoffTarget?.runtimeSessionId
+  // retained target names, at the generation the session currently shows.
+  // A targetless turn, one retained for another session, or one retained
+  // for an older or newer generation grants nothing here no matter how
+  // live it is: the live generation is known on this surface, so currency
+  // is decided here instead of trusting retained ordering. A fabricated
+  // future generation therefore displays nothing, and an advanced session
+  // re-requests instead of acting on stale context.
+  if (session !== undefined) {
+    const target = leadTurn.handoffTarget
     if (target === undefined)
       return { bound: false, reason: 'the observed turn names no handoff target' }
-    if (target !== runtimeSessionId)
+    if (target.runtimeSessionId !== session.id)
       return { bound: false, reason: 'the observed turn targets another session' }
+    if (target.observedGeneration !== session.generation)
+      return {
+        bound: false,
+        reason: `the observed turn targets generation ${target.observedGeneration} but the session is at generation ${session.generation}`,
+      }
   }
   return { bound: true }
 }
@@ -636,11 +646,10 @@ export function deriveHandoffInputFromConversation(
   // The turn counts only when bound to the observed workspace lead. An
   // unbound turn is stripped before derivation so it can neither drive a
   // mode nor authorize lead-stop; the mismatch flag names it instead.
-  const coordination = resolveLeadCoordination(
-    input.leadTurn,
-    input.leadAgent,
-    input.conversation.runtimeSessionId
-  )
+  const coordination = resolveLeadCoordination(input.leadTurn, input.leadAgent, {
+    id: input.conversation.runtimeSessionId,
+    generation: input.conversation.generation,
+  })
   const boundTurn = coordination.bound ? input.leadTurn : undefined
   const mode =
     input.mode ??

@@ -20,6 +20,8 @@ import {
   type HandoffLeadTurn,
 } from '@adea-ai/dev-view/chat'
 import type { HarnessRun } from '@adea-ai/types/dev-runtime'
+import { resolveHandoffSessionAuthority } from '@adea-ai/dev-view/chat'
+import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
 import {
   createOrderedScope,
   requestLeadHandoff,
@@ -303,20 +305,97 @@ function Harness() {
   // key across unknown-outcome retries, admission deferred for busy/error
   // coverage, and the admitted turn recorded as blocked like a real
   // admission receipt.
-  // The REAL production request path (fresh key, structured target,
-  // receipt verification inside); only the transport below is deferred.
+  // Fixture session authority: the same rules as the desktop host
+  // (existence, scope, task binding, liveness, ACTUAL current generation,
+  // control permission), over records the fixture buttons can advance
+  // behind the view's back. The view's transcript generation is only the
+  // claim; the authority record is the ground truth.
+  type AuthorityRecord = {
+    generation: number
+    taskId?: string
+    archived: boolean
+    lifecycle: string
+  }
+  const [authoritySessions, setAuthoritySessions] = createSignal<
+    Record<string, AuthorityRecord | undefined>
+  >({
+    'session-1': { generation: 3, taskId: TASK_ID, archived: false, lifecycle: 'active' },
+    'session-2': { generation: 2, archived: false, lifecycle: 'active' },
+  })
+  const [authorityManage, setAuthorityManage] = createSignal(true)
+  const harnessRuntime = {
+    state: () => ({ status: 'ready' }),
+    capabilitySnapshot: async (scope: typeof SCOPE) => ({
+      scope,
+      granted: authorityManage() ? ['dev.session.manage', 'dev.session.read'] : [],
+      unavailable: [],
+      channelGeneration: 0,
+      observedAt: new Date().toISOString(),
+    }),
+    execute: async (command: { operation: string; requestId: string; body: unknown }) => {
+      if (command.operation !== 'dev.session.get') throw new Error('unexpected operation')
+      const sessionId = (command.body as { runtimeSessionId?: string }).runtimeSessionId
+      const stored = sessionId ? authoritySessions()[sessionId] : undefined
+      if (!stored)
+        return {
+          schemaVersion: 1 as const,
+          operation: command.operation,
+          requestId: command.requestId,
+          ok: false as const,
+          error: {
+            code: 'not_found',
+            retryable: false,
+            message: 'runtime session not found',
+            observedAt: new Date().toISOString(),
+          },
+        }
+      return {
+        schemaVersion: 1 as const,
+        operation: command.operation,
+        requestId: command.requestId,
+        ok: true as const,
+        value: {
+          id: sessionId,
+          scope: { ...SCOPE },
+          projectId: '00000000-0000-4000-8000-000000000005',
+          repoId: '00000000-0000-4000-8000-000000000006',
+          worktreeId: '00000000-0000-4000-8000-000000000007',
+          ...(stored.taskId === undefined ? {} : { taskId: stored.taskId }),
+          lifecycle: stored.lifecycle,
+          archived: stored.archived,
+          projection: 'structured',
+          generation: stored.generation,
+          version: 4,
+        },
+        observedAt: new Date().toISOString(),
+      }
+    },
+  } as unknown as DevRuntimeService
+
+  // The REAL production request path: session-authority gate first (actual
+  // record, never claimed facts), then admission with the returned triple
+  // and receipt verification. Only the transports are deferred fakes.
   const requestHandoff = async (): Promise<void> => {
     const current = supply()
     const activeConversation = active()
     const channelId = current.channelId
     const taskId = activeConversation.taskId
     if (!channelId || !taskId) throw new Error('Handoff request unavailable.')
+    const authority = await resolveHandoffSessionAuthority(
+      harnessRuntime,
+      { ...SCOPE },
+      {
+        runtimeSessionId: activeConversation.runtimeSessionId,
+        taskId,
+        observedGeneration: activeConversation.generation,
+      }
+    )
     await requestLeadHandoff(port, {
       workspaceId: SCOPE.workspaceId,
       channelId,
-      runtimeSessionId: activeConversation.runtimeSessionId,
-      taskId,
-      expectedGeneration: activeConversation.generation,
+      runtimeSessionId: authority.runtimeSessionId,
+      taskId: authority.taskId,
+      expectedGeneration: authority.generation,
     })
   }
 
@@ -539,6 +618,39 @@ function Harness() {
           }}
         >
           Reject admission
+        </Button>
+        <Button
+          type="button"
+          onClick={() =>
+            setAuthoritySessions((records) => ({
+              ...records,
+              'session-1': { ...records['session-1'], generation: 5 } as never,
+            }))
+          }
+        >
+          Advance authority generation
+        </Button>
+        <Button
+          type="button"
+          onClick={() =>
+            setAuthoritySessions((records) => ({
+              ...records,
+              'session-1': { ...records['session-1'], taskId: 'task-other' } as never,
+            }))
+          }
+        >
+          Retarget authority task
+        </Button>
+        <Button type="button" onClick={() => setAuthorityManage((value) => !value)}>
+          Toggle session control
+        </Button>
+        <Button
+          type="button"
+          onClick={() =>
+            setAuthoritySessions((records) => ({ ...records, 'session-1': undefined }))
+          }
+        >
+          Remove authority session
         </Button>
         <Button type="button" onClick={() => resolveSessionCancel()}>
           Resolve session cancel

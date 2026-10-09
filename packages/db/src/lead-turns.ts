@@ -259,27 +259,32 @@ export async function createLeadTurn(
     if (handoffTarget) await requireVisibleTask(tx, workspaceId, handoffTarget.taskId, principal)
     // Canonical recovery before another admission: a retained intent for the
     // exact target context dedupes reload/eviction retries without any
-    // client-held request identity. Same generation recovers, a retained
-    // newer generation rejects the stale request, an older one is superseded.
+    // client-held request identity. The COMPLETE retained target must match:
+    // same session and generation but a different task is a contradictory
+    // claim about one context and fails closed. A different generation
+    // mints anew (ordering, never ground truth: the session host alone
+    // knows current generation, and display currency is decided where the
+    // live generation is known). Serialization note: createLeadTurn is the
+    // sole inserter and holds the channel FOR UPDATE lock (lockAuthority)
+    // before any insert, so concurrent same-target admissions serialize and
+    // the loser always finds the winner here; the partial unique target
+    // index below is the backstop, not a path with its own recovery.
     if (handoffTarget) {
-      const retained = await findRetainedTargetIntent(
+      const retained = await findTargetIntent(
         tx,
         workspaceId,
         channelId,
-        handoffTarget.runtimeSessionId
+        handoffTarget.runtimeSessionId,
+        handoffTarget.expectedGeneration
       )
       if (retained) {
         assertPinned(retained, authority)
-        if (retained.handoffTargetGeneration === handoffTarget.expectedGeneration)
-          return {
-            message: await requireIntentMessage(tx, workspaceId, retained),
-            leadTurn: receipt(retained),
-          }
-        if (
-          retained.handoffTargetGeneration !== null &&
-          retained.handoffTargetGeneration > handoffTarget.expectedGeneration
-        )
-          throw new Error('Lead turn target superseded')
+        if (retained.handoffTargetTaskId !== handoffTarget.taskId)
+          throw new Error('Lead turn target mismatch')
+        return {
+          message: await requireIntentMessage(tx, workspaceId, retained),
+          leadTurn: receipt(retained),
+        }
       }
     }
     const message = await createMessage(tx, workspaceId, channelId, principal, {
@@ -304,60 +309,59 @@ export async function createLeadTurn(
       return { message, leadTurn: receipt(existing) }
     }
     const id = randomUUID()
-    let inserted: Intent | undefined
-    try {
-      const [intent] = await tx
-        .insert(leadTurnIntents)
-        .values({
-          ...authority,
-          id,
-          dispatchKey: `lead-turn:${id}`,
-          requestedModelSelections: requestedModelSelections ?? null,
-          ...(handoffTarget
-            ? {
-                handoffTargetSessionId: handoffTarget.runtimeSessionId,
-                handoffTargetGeneration: handoffTarget.expectedGeneration,
-                handoffTargetTaskId: handoffTarget.taskId,
-              }
-            : {}),
-          messageId: message.id,
-          workspaceId,
-          channelId,
-        })
-        .returning()
-      inserted = intent
-    } catch (error) {
-      // Race backstop for the recovery above: a concurrent same-target
-      // admission won the unique target context. Recover the winner instead
-      // of surfacing a duplicate or a constraint error.
-      if (
-        handoffTarget &&
-        error instanceof Error &&
-        error.message.includes('lead_turn_intents_target_unique')
-      ) {
-        const winner = await findRetainedTargetIntent(
-          tx,
-          workspaceId,
-          channelId,
-          handoffTarget.runtimeSessionId
-        )
-        if (winner && winner.handoffTargetGeneration === handoffTarget.expectedGeneration) {
-          assertPinned(winner, authority)
-          return {
-            message: await requireIntentMessage(tx, workspaceId, winner),
-            leadTurn: receipt(winner),
-          }
-        }
-      }
-      throw error
-    }
+    const [inserted] = await tx
+      .insert(leadTurnIntents)
+      .values({
+        ...authority,
+        id,
+        dispatchKey: `lead-turn:${id}`,
+        requestedModelSelections: requestedModelSelections ?? null,
+        ...(handoffTarget
+          ? {
+              handoffTargetSessionId: handoffTarget.runtimeSessionId,
+              handoffTargetGeneration: handoffTarget.expectedGeneration,
+              handoffTargetTaskId: handoffTarget.taskId,
+            }
+          : {}),
+        messageId: message.id,
+        workspaceId,
+        channelId,
+      })
+      .returning()
     if (!inserted) throw new Error('Lead turn unavailable')
     return { message, leadTurn: receipt(inserted) }
   })
 }
 
+/** Retained intent for one complete target context, if any. At most one row
+ *  can match: the partial unique target index enforces a single intent per
+ *  (workspace, channel, session, generation). */
+async function findTargetIntent(
+  tx: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  targetSessionId: string,
+  targetGeneration: number
+): Promise<Intent | undefined> {
+  const [retained] = await tx
+    .select({ intent: leadTurnIntents })
+    .from(leadTurnIntents)
+    .innerJoin(messages, eq(messages.id, leadTurnIntents.messageId))
+    .where(
+      and(
+        eq(leadTurnIntents.workspaceId, workspaceId),
+        eq(leadTurnIntents.channelId, channelId),
+        eq(leadTurnIntents.handoffTargetSessionId, targetSessionId),
+        eq(leadTurnIntents.handoffTargetGeneration, targetGeneration),
+        isNull(messages.deletedAt)
+      )
+    )
+    .limit(1)
+  return retained?.intent
+}
+
 /** Latest retained intent for one exact target session, newest generation first. */
-async function findRetainedTargetIntent(
+async function findLatestTargetIntent(
   tx: AgentHqTransaction,
   workspaceId: string,
   channelId: string,
@@ -488,7 +492,7 @@ export async function getLatestLeadTurnForTarget(
 ) {
   return database.transaction(async (tx) => {
     await lockAuthority(tx, workspaceId, channelId, principal, false)
-    const retained = await findRetainedTargetIntent(tx, workspaceId, channelId, targetSessionId)
+    const retained = await findLatestTargetIntent(tx, workspaceId, channelId, targetSessionId)
     if (!retained) return null
     return withAuthorizedLeadTurn(
       tx,
