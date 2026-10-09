@@ -78,25 +78,47 @@ names:
 
 ### Required thin host mapping (reported to root; not edited here)
 
-PR #1038's helper is not yet composed into the production host. The exact
-mapping needed, for the CP owner:
+Upstream context: control-plane `0f380a3c` (the published #1018/#1041 wiring
+that merges PR #1038) already imports
+`createPiDurableCurrentToolAuthority`, but builds it and passes
+`tools: { service, assertAuthority: currentToolAuthority.assertCurrent }`
+**only when `options.children` exists**; a standalone workspace lead still has
+no canonical tool authority. Also absent at `0f380a3c`: any
+`lead-management` / `pi-durable/management` / `adea-management-authority`
+reference, so the management tool effect and decision issuer do not exist yet.
+The exact mapping needed, for the CP owner:
 
-1. `apps/control-api/src/models/production-model-composition.ts` — the
-   `createNodePiDurableLeadComposition({...})` call (currently around line 158)
-   passes no `tools`. Add
-   `tools: { service, assertAuthority: currentToolAuthority.assertCurrent }`
-   where `currentToolAuthority = createPiDurableCurrentToolAuthority({...})` is
-   built (from `apps/control-api/src/pi-durable/current-tool-authority.ts`) from
-   the same `canonical.executionAuthority`, `intents`, `executions`, `plans`,
-   `service` and `interactions` the host already owns.
+1. `apps/control-api/src/models/production-model-composition.ts`:
+   - hoist the governed tools
+     (`Pick<CreatePiDurableCurrentToolAuthorityOptions, 'service' | 'interactions'>`)
+     from `options.children.tools` to a top-level optional option;
+   - construct
+     `createPiDurableCurrentToolAuthority({ currentExecutionAuthority: canonical.executionAuthority, intents, executions, plans, service, interactions })`
+     whenever `tools` is present, independent of `children`;
+   - pass `tools: { service, assertAuthority: currentToolAuthority.assertCurrent }`
+     to `createNodePiDurableLeadComposition` for the standalone lead as well as
+     the children path;
+   - extend the `PI_PRODUCTION_BINDING_REQUIRED` validation with the
+     `service.execute` / `interactions.get` checks;
+   - the launcher that builds `ProductionPiLeadCompositionOptions` must supply
+     the top-level `tools`; the hosted graph lane builds the same kind of
+     governed service in
+     `apps/hosted-control-plane/src/hosted-graph-tool-operations.ts`;
+   - merge conflict with this branch's clock fix (CP `493d5ddc`): `0f380a3c`
+     still passes `options.admission.now` to `PiLeadPublicationService`; the
+     merged result must keep `options.publicationNow` (live publication clock)
+     from the clock fix.
 2. `packages/pi-durable-adapter/src/composition.ts` (`tools.assertAuthority`)
    and `packages/pi-durable-adapter/src/effect-gate.ts` consume that port at the
    canonical boundaries; `apps/control-api/src/pi-durable/node-composition.ts`
    already forwards `options.tools`.
-3. The Adea management HTTP effect must be a governed tool effect inside that
-   service/effect gate so `assertCurrent(request, 'effect')` runs before the
-   HTTP call. Adea then receives the signed exact-call decision and does not
-   call back into CP.
+3. Register the management tool effect through that same governed service: the
+   effect gate must call `assertCurrent(request, 'effect')` immediately before
+   the HTTP call, then issue the signed `adea-management-authority/v1` decision
+   bound to the exact call (action/input/target digests, original actor,
+   workspace, current audience, revision, approval interaction/audience/expiry)
+   and post it to Adea. Adea verifies it, claims the durable effect once, and
+   does not call back into CP.
 
 Until this mapping is installed, the Adea production port is fail-closed
 (`applicationManagementCurrentAuthority` throws `authority_unavailable`) and no
