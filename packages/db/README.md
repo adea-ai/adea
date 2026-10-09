@@ -134,3 +134,11 @@ identity decisions. No migration or onboarding operation connects an account.
 with no duplicates or foreign IDs, and updates only that member's positions. It
 shares the creation/claim lock, and neither modifies workspace versions nor
 changes another user's membership order.
+Requested lead/child selection references are stored separately on the immutable lead intent.
+Omission retains workspace role defaults; a changed choice on the same message/idempotency
+key conflicts. The locked private reader exposes only these requested references; CP validates
+workspace/target/readiness and retains accepted runtime selections. A parent child choice
+never inherits the lead choice. Child overrides require CP-owned canonical child admission.
+Migration 0045 adds only the nullable requested-choices column and its strict check. Its
+snapshot preserves every other table from staged 0044, including Home/deletion expansion;
+the older runtime workspace declaration must never generate a destructive rollback.

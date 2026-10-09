@@ -1,5 +1,9 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import {
+  parseRequestedRoleModelSelections,
+  type RequestedRoleModelSelections,
+} from './lead-model-selections'
 import { withAuthorizedLeadTurn } from './lead-turns'
 import { isLeadTurnProductSelector } from './lead-turn-product-selectors'
 import { leadTurnIntents } from './schema/lead-turns'
@@ -24,6 +28,7 @@ export type CurrentLeadTurnProduct = Readonly<{
   profileVersion: string
   profileRevision: number
   prompt: string
+  requestedModelSelections?: RequestedRoleModelSelections
 }>
 
 /**
@@ -102,6 +107,13 @@ export async function withCurrentLeadTurnProduct<T>(
             profileVersion: intent.profileVersion,
             profileRevision: intent.profileRevision,
             prompt: message.bodyText,
+            ...(intent.requestedModelSelections === null
+              ? {}
+              : {
+                  requestedModelSelections: parseRequestedRoleModelSelections(
+                    intent.requestedModelSelections
+                  ),
+                }),
           })
         )
       }
