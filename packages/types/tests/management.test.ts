@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   isManagementOperationId,
+  assertManagementAuthorityCurrent,
+  ManagementAuthorityError,
   managementAuthorityReasonCodes,
   managementBindingsEqual,
   managementCallBinding,
@@ -146,16 +148,24 @@ describe('management operation inventory (#1215)', () => {
 })
 
 const NOW = Date.parse('2026-10-09T00:00:00.000Z')
+const TARGET = '0f3a2e1c-0000-4000-8000-000000000002'
+const WORKSPACE = '0f3a2e1c-0000-4000-8000-000000000001'
 
 async function decisionFor(overrides: Partial<Record<string, unknown>> = {}) {
   const binding = await managementCallBinding({
     input: { name: 'Renamed' },
     operation: 'project.update',
-    targetId: '0f3a2e1c-0000-4000-8000-000000000002',
-    workspaceId: '0f3a2e1c-0000-4000-8000-000000000001',
+    targetId: TARGET,
+    workspaceId: WORKSPACE,
   })
   if (!binding) throw new Error('unreachable')
   return {
+    approval: {
+      audienceRef: 'audience:fixture',
+      expiresAt: new Date(NOW + 120_000).toISOString(),
+      interactionId: 'interaction-1',
+    },
+    audienceRef: 'audience:fixture',
     authorityRef: 'authority-1',
     authorityRevision: 7,
     binding,
@@ -165,6 +175,8 @@ async function decisionFor(overrides: Partial<Record<string, unknown>> = {}) {
     intentId: 'intent-1',
     issuedAt: new Date(NOW - 1_000).toISOString(),
     leadAgentId: 'agent-lead-1',
+    planRef: 'plan:fixture',
+    planRevision: 3,
     principal: { kind: 'user' as const, userId: 'user-1' },
     schemaVersion: 'adea-management-authority/v1' as const,
     ...overrides,
@@ -197,28 +209,38 @@ describe('management authority binding (#1215)', () => {
     expect(await managementInputDigest({ a: 1, b: [2, 4] })).not.toBe(first)
   })
 
-  test('call bindings bind workspace, operation, target and input exactly', async () => {
+  test('call bindings carry canonical action, input and target digests plus cleartext', async () => {
     const binding = await managementCallBinding({
       input: { name: 'Renamed' },
       operation: 'project.update',
-      targetId: '0f3a2e1c-0000-4000-8000-000000000002',
-      workspaceId: '0f3a2e1c-0000-4000-8000-000000000001',
+      targetId: TARGET,
+      workspaceId: WORKSPACE,
     })
     expect(binding).not.toBeNull()
     if (!binding) throw new Error('unreachable')
+    expect(binding.actionDigest).toBe(await managementInputDigest({ operation: 'project.update' }))
+    expect(binding.inputDigest).toBe(await managementInputDigest({ name: 'Renamed' }))
+    expect(binding.targetDigest).toBe(await managementInputDigest({ targetId: TARGET }))
+    expect(binding).toMatchObject({
+      operation: 'project.update',
+      targetId: TARGET,
+      workspaceId: WORKSPACE,
+    })
     expect(managementBindingsEqual(binding, { ...binding })).toBe(true)
     for (const changed of [
       { ...binding, workspaceId: '0f3a2e1c-0000-4000-8000-00000000aaaa' },
       { ...binding, operation: 'project.delete' as const },
       { ...binding, targetId: null },
+      { ...binding, actionDigest: `sha256:${'0'.repeat(64)}` as const },
       { ...binding, inputDigest: `sha256:${'0'.repeat(64)}` as const },
+      { ...binding, targetDigest: `sha256:${'0'.repeat(64)}` as const },
     ])
       expect(managementBindingsEqual(binding, changed)).toBe(false)
     expect(
       await managementCallBinding({
         input: { name: 'Renamed' },
         operation: 'project.update',
-        targetId: '0f3a2e1c-0000-4000-8000-000000000002',
+        targetId: TARGET,
         workspaceId: '',
       })
     ).toBeNull()
@@ -235,7 +257,16 @@ describe('management authority binding (#1215)', () => {
       { ...valid, authorityRef: '' },
       { ...valid, decision: 'maybe' },
       { ...valid, authorityRevision: 0 },
+      { ...valid, planRef: '' },
+      { ...valid, planRevision: 0 },
+      { ...valid, audienceRef: '' },
+      { ...valid, approval: { ...valid.approval, interactionId: '' } },
+      { ...valid, approval: { ...valid.approval, audienceRef: '' } },
+      { ...valid, approval: { ...valid.approval, expiresAt: '' } },
+      { ...valid, approval: { ...valid.approval, extra: true } },
       { ...valid, binding: { ...valid.binding, inputDigest: 'sha256:abc' } },
+      { ...valid, binding: { ...valid.binding, actionDigest: 'not-a-digest' } },
+      { ...valid, binding: { ...valid.binding, targetDigest: 'not-a-digest' } },
       { ...valid, binding: { ...valid.binding, operation: 'project.unknown' } },
       { ...valid, principal: { kind: 'service', serviceId: 'svc-1' } },
       { ...valid, issuedAt: 1 },
@@ -254,12 +285,15 @@ describe('management authority binding (#1215)', () => {
       now: NOW,
     }
     expect(validateManagementAuthorityDecision(decision, expected)).toBeNull()
-    expect(
-      validateManagementAuthorityDecision(decision, {
-        ...expected,
-        binding: { ...decision.binding, targetId: 'other' },
-      })
-    ).toBe('authority_binding_mismatch')
+    for (const changed of [
+      { ...decision.binding, actionDigest: `sha256:${'0'.repeat(64)}` as const },
+      { ...decision.binding, inputDigest: `sha256:${'0'.repeat(64)}` as const },
+      { ...decision.binding, targetDigest: `sha256:${'0'.repeat(64)}` as const },
+      { ...decision.binding, targetId: 'other' },
+    ])
+      expect(validateManagementAuthorityDecision(decision, { ...expected, binding: changed })).toBe(
+        'authority_binding_mismatch'
+      )
     expect(validateManagementAuthorityDecision(decision, { ...expected, intentId: 'other' })).toBe(
       'authority_binding_mismatch'
     )
@@ -272,6 +306,41 @@ describe('management authority binding (#1215)', () => {
     expect(validateManagementAuthorityDecision(decision, { ...expected, now: NOW - 2_000 })).toBe(
       'authority_not_yet_valid'
     )
+    expect(
+      validateManagementAuthorityDecision(
+        {
+          ...decision,
+          approval: { ...decision.approval, expiresAt: new Date(NOW - 1).toISOString() },
+        },
+        expected
+      )
+    ).toBe('authority_approval_expired')
+  })
+
+  test('the server-only assertCurrent equivalent throws typed refusals and returns void on success', async () => {
+    const decision = parseManagementAuthorityDecision(await decisionFor())
+    if (!decision) throw new Error('unreachable')
+    const expected = {
+      authorityRef: decision.authorityRef,
+      binding: decision.binding,
+      intentId: decision.intentId,
+      leadAgentId: decision.leadAgentId,
+      now: NOW,
+    }
+    expect(assertManagementAuthorityCurrent(decision, expected)).toBeUndefined()
+    expect(() =>
+      assertManagementAuthorityCurrent(decision, {
+        ...expected,
+        binding: { ...decision.binding, targetId: 'other' },
+      })
+    ).toThrow(ManagementAuthorityError)
+    try {
+      assertManagementAuthorityCurrent(decision, { ...expected, now: NOW + 60_000 })
+      throw new Error('unreachable')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ManagementAuthorityError)
+      expect((error as ManagementAuthorityError).reason).toBe('authority_expired')
+    }
   })
 
   test('the authority reason vocabulary is closed', () => {
@@ -282,6 +351,7 @@ describe('management authority binding (#1215)', () => {
       'authority_denied',
       'authority_expired',
       'authority_not_yet_valid',
+      'authority_approval_expired',
       'authority_replay',
     ])
     expect(Object.isFrozen(managementAuthorityReasonCodes)).toBe(true)

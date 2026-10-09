@@ -26,8 +26,13 @@ const lifetimeMs = 300_000
 const maxTokenLength = 8_192
 
 const claimKeys = [
+  'actionDigest',
   'actorUserId',
+  'approvalAudienceRef',
+  'approvalExpiresAt',
+  'approvalInteractionId',
   'audience',
+  'audienceRef',
   'authorityRevision',
   'credentialId',
   'credentialKind',
@@ -41,9 +46,12 @@ const claimKeys = [
   'keyId',
   'leadAgentId',
   'operation',
+  'planRef',
+  'planRevision',
   'principalId',
   'projectIds',
   'scopes',
+  'targetDigest',
   'targetId',
   'workspaceIds',
 ] as const
@@ -174,31 +182,51 @@ function decisionFromClaims(
     claims.authorityRevision < 1 ||
     typeof claims.operation !== 'string' ||
     (claims.targetId !== null && typeof claims.targetId !== 'string') ||
-    typeof claims.inputDigest !== 'string' ||
-    !/^sha256:[a-f0-9]{64}$/.test(claims.inputDigest) ||
+    !digestValue(claims.actionDigest) ||
+    !digestValue(claims.inputDigest) ||
+    !digestValue(claims.targetDigest) ||
     typeof claims.actorUserId !== 'string' ||
     !uuidPattern.test(claims.actorUserId) ||
+    typeof claims.planRef !== 'string' ||
+    typeof claims.planRevision !== 'number' ||
+    !Number.isSafeInteger(claims.planRevision) ||
+    claims.planRevision < 1 ||
+    typeof claims.audienceRef !== 'string' ||
+    typeof claims.approvalInteractionId !== 'string' ||
+    typeof claims.approvalAudienceRef !== 'string' ||
+    typeof claims.approvalExpiresAt !== 'string' ||
     typeof claims.issuedAt !== 'string' ||
     typeof claims.expiresAt !== 'string'
   )
     return null
   const issued = Date.parse(claims.issuedAt)
   const expires = Date.parse(claims.expiresAt)
+  const approvalExpires = Date.parse(claims.approvalExpiresAt)
   if (
     !Number.isFinite(issued) ||
     !Number.isFinite(expires) ||
+    !Number.isFinite(approvalExpires) ||
     issued > at ||
     expires <= at ||
     expires <= issued ||
-    expires - issued > lifetimeMs
+    expires - issued > lifetimeMs ||
+    approvalExpires <= at
   )
     return null
   return parseManagementAuthorityDecision({
+    approval: {
+      audienceRef: claims.approvalAudienceRef,
+      expiresAt: claims.approvalExpiresAt,
+      interactionId: claims.approvalInteractionId,
+    },
+    audienceRef: claims.audienceRef,
     authorityRef: claims.credentialId,
     authorityRevision: claims.authorityRevision,
     binding: {
+      actionDigest: claims.actionDigest,
       inputDigest: claims.inputDigest,
       operation: claims.operation as ManagementOperationId,
+      targetDigest: claims.targetDigest,
       targetId: claims.targetId as string | null,
       workspaceId,
     },
@@ -208,6 +236,8 @@ function decisionFromClaims(
     intentId: claims.intentId,
     issuedAt: claims.issuedAt,
     leadAgentId: claims.leadAgentId,
+    planRef: claims.planRef,
+    planRevision: claims.planRevision,
     principal: { kind: 'user', userId: claims.actorUserId },
     schemaVersion: managementAuthoritySchemaVersion,
   })
@@ -287,6 +317,10 @@ function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
+}
+
+function digestValue(value: unknown): value is `sha256:${string}` {
+  return typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value)
 }
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {

@@ -35,8 +35,13 @@ async function fixture() {
     workspaceIds: [workspaceId],
   }
   const claims = {
+    actionDigest: digest,
     actorUserId,
+    approvalAudienceRef: 'audience:fixture',
+    approvalExpiresAt: new Date(at + 120_000).toISOString(),
+    approvalInteractionId: 'interaction-1',
     audience: 'adea-lead-management',
+    audienceRef: 'audience:fixture',
     authorityRevision: 7,
     credentialId: 'synthetic-management-credential',
     credentialKind: 'service',
@@ -50,9 +55,12 @@ async function fixture() {
     keyId,
     leadAgentId: 'agent-lead-1',
     operation: 'project.update',
+    planRef: 'plan:fixture',
+    planRevision: 3,
     principalId,
     projectIds: [] as string[],
     scopes: ['management:execute'],
+    targetDigest: digest,
     targetId: projectId,
     workspaceIds: [workspaceId],
   }
@@ -79,11 +87,19 @@ test('accepts a signed exact-call decision and returns the immutable binding', a
   const f = await fixture()
   const decision = await f.verify(request(await f.signed()))
   expect(decision).toEqual({
+    approval: {
+      audienceRef: 'audience:fixture',
+      expiresAt: f.claims.approvalExpiresAt,
+      interactionId: 'interaction-1',
+    },
+    audienceRef: 'audience:fixture',
     authorityRef: f.claims.credentialId,
     authorityRevision: 7,
     binding: {
+      actionDigest: digest,
       inputDigest: digest,
       operation: 'project.update',
+      targetDigest: digest,
       targetId: projectId,
       workspaceId,
     },
@@ -93,6 +109,8 @@ test('accepts a signed exact-call decision and returns the immutable binding', a
     intentId: 'intent-1',
     issuedAt: f.claims.issuedAt,
     leadAgentId: 'agent-lead-1',
+    planRef: 'plan:fixture',
+    planRevision: 3,
     principal: { kind: 'user', userId: actorUserId },
     schemaVersion: 'adea-management-authority/v1',
   })
@@ -179,8 +197,10 @@ test('expired, future, overlong or reversed lifetimes are denied', async () => {
     { issuedAt: new Date(at + 1_000).toISOString() },
     { expiresAt: new Date(at + 300_001).toISOString() },
     { expiresAt: new Date(at).toISOString() },
+    { approvalExpiresAt: new Date(at - 1).toISOString() },
     { issuedAt: 'not-a-time' },
     { expiresAt: 'not-a-time' },
+    { approvalExpiresAt: 'not-a-time' },
   ])
     expect(await f.verify(request(await f.signed({ ...f.claims, ...change })))).toBeNull()
 })
@@ -195,6 +215,14 @@ test('malformed binding and identity claims are denied', async () => {
     { inputDigest: `sha256:${'A'.repeat(64)}` },
     { authorityRevision: 0 },
     { authorityRevision: 1.5 },
+    { actionDigest: 'sha256:abc' },
+    { targetDigest: 'not-a-digest' },
+    { planRef: '' },
+    { planRevision: 0 },
+    { audienceRef: '' },
+    { approvalInteractionId: '' },
+    { approvalAudienceRef: '' },
+    { approvalExpiresAt: 'not-a-time' },
     { actorUserId: 'not-a-uuid' },
     { actorUserId: 'user-1' },
     { decisionId: '' },

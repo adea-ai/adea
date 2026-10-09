@@ -701,6 +701,14 @@ export function managementOperationLanes(id: ManagementOperationId): readonly Ma
 // ---------------------------------------------------------------------------
 // Exact-call bound lead authority (CP932 coordination contract)
 // ---------------------------------------------------------------------------
+//
+// Aligned with the adea-ai/control-plane#932 owner's proposed server-only
+// `assertCurrent` port: exact accepted-plan pin, original actor, workspace,
+// current audience, revision and expiry, canonical tool-call action/input/
+// target digests, and approval interaction/audience/expiry. Adea recomputes
+// the three digests from the exact call and refuses any mismatch; plan,
+// audience and approval interaction currentness remain CP-asserted, never
+// caller-provided truthy authorization.
 
 /** Version of the immutable CP-issued lead management decision. */
 export const managementAuthoritySchemaVersion = 'adea-management-authority/v1' as const
@@ -710,25 +718,32 @@ export const managementCallSchemaVersion = 'adea-management-call/v1' as const
 export const managementAuthorityMaxLifetimeMs = 300_000
 
 /**
- * The exact-call identity a lead management decision is bound to. A decision
- * for one operation, workspace, target or input can never authorize another.
- *
- * `inputDigest` is `sha256:` over the UTF-8 bytes of the canonical JSON of the
- * operation input (see `managementCanonicalInput`): plain objects with keys
- * sorted by code point, arrays in order, and only JSON-safe scalar values.
+ * The canonical tool-call identity a decision is bound to. The three digests
+ * are `sha256:` over the UTF-8 bytes of canonical JSON of `{operation}`,
+ * the canonical operation input and `{targetId}` respectively; the cleartext
+ * operation/target/workspace let Adea recompute and compare them.
  */
 export type ManagementCallBinding = Readonly<{
-  workspaceId: string
-  operation: ManagementOperationId
-  /** Canonical primary target (project id, member id, workspace id) or null. */
-  targetId: string | null
+  actionDigest: `sha256:${string}`
   inputDigest: `sha256:${string}`
+  targetDigest: `sha256:${string}`
+  operation: ManagementOperationId
+  targetId: string | null
+  workspaceId: string
+}>
+
+/** Durable approval interaction identity, audience and expiry. */
+export type ManagementAuthorityApproval = Readonly<{
+  interactionId: string
+  audienceRef: string
+  expiresAt: string
 }>
 
 /**
  * An immutable, current, exact-call bound authorization/approval decision.
- * The CP authority (CP932) persists and re-reads it; Adea only revalidates the
- * returned decision against the call it is about to execute.
+ * The CP authority (CP932) persists and re-reads it; Adea revalidates the
+ * returned decision against the call it is about to execute and never treats
+ * any caller-supplied field as a grant.
  */
 export type ManagementAuthorityDecision = Readonly<{
   schemaVersion: typeof managementAuthoritySchemaVersion
@@ -741,13 +756,22 @@ export type ManagementAuthorityDecision = Readonly<{
   /** The original user principal whose current workspace permission applies. */
   principal: UserPrincipalRef
   binding: ManagementCallBinding
-  /** Current CP authority/config revision the decision was issued against. */
+  /** Exact accepted-plan pin the approval was issued against. */
+  planRef: string
+  planRevision: number
+  /** Current CP authority/config revision and current audience. */
   authorityRevision: number
+  audienceRef: string
+  approval: ManagementAuthorityApproval
   issuedAt: string
   expiresAt: string
 }>
 
-/** Typed reasons a lead management decision is refused. */
+/**
+ * Typed reasons a lead management decision is refused. Plan, audience and
+ * approval-interaction currentness are CP-asserted; the local reasons below
+ * cover every check Adea can make without re-reading CP authority.
+ */
 export const managementAuthorityReasonCodes = Object.freeze([
   /** The upstream authority port is absent, threw or returned nothing. */
   'authority_unavailable',
@@ -761,6 +785,8 @@ export const managementAuthorityReasonCodes = Object.freeze([
   'authority_expired',
   /** The decision is not yet valid or its lifetime is unusable. */
   'authority_not_yet_valid',
+  /** The durable approval interaction expired before this execution. */
+  'authority_approval_expired',
   /** The single-use approval was already consumed. */
   'authority_replay',
 ] as const)
@@ -770,7 +796,17 @@ export type ManagementAuthorityValidation =
   | Readonly<{ state: 'valid'; decision: ManagementAuthorityDecision }>
   | Readonly<{ state: 'invalid'; reason: ManagementAuthorityReasonCode }>
 
+/** A thrown, typed refusal from `assertManagementAuthorityCurrent`. */
+export class ManagementAuthorityError extends Error {
+  constructor(readonly reason: ManagementAuthorityReasonCode) {
+    super('Lead management authority is not current for this call')
+    this.name = 'ManagementAuthorityError'
+  }
+}
+
 const authorityKeys = [
+  'approval',
+  'audienceRef',
   'authorityRef',
   'authorityRevision',
   'binding',
@@ -780,11 +816,22 @@ const authorityKeys = [
   'intentId',
   'issuedAt',
   'leadAgentId',
+  'planRef',
+  'planRevision',
   'principal',
   'schemaVersion',
 ] as const
 
-const bindingKeys = ['inputDigest', 'operation', 'targetId', 'workspaceId'] as const
+const bindingKeys = [
+  'actionDigest',
+  'inputDigest',
+  'operation',
+  'targetDigest',
+  'targetId',
+  'workspaceId',
+] as const
+
+const approvalKeys = ['audienceRef', 'expiresAt', 'interactionId'] as const
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
@@ -799,6 +846,10 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
 
 function boundedString(value: unknown, maxLength: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength
+}
+
+function digestValue(value: unknown): value is `sha256:${string}` {
+  return typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value)
 }
 
 function canonicalValue(value: unknown, depth: number): string | undefined {
@@ -825,9 +876,9 @@ function canonicalValue(value: unknown, depth: number): string | undefined {
 }
 
 /**
- * Canonical JSON for the exact-call input digest. Returns null for any value
- * that is not JSON-safe (undefined, bigint, functions, non-finite numbers,
- * class instances) so the caller fails closed instead of hashing a guess.
+ * Canonical JSON for the exact-call digests. Returns null for any value that
+ * is not JSON-safe (undefined, bigint, functions, non-finite numbers, class
+ * instances) so the caller fails closed instead of hashing a guess.
  */
 export function managementCanonicalInput(input: unknown): string | null {
   return canonicalValue(input, 0) ?? null
@@ -856,11 +907,17 @@ export async function managementCallBinding(input: {
     (input.targetId !== null && !boundedString(input.targetId, 128))
   )
     return null
-  const inputDigest = await managementInputDigest(input.input)
-  if (!inputDigest) return null
+  const [actionDigest, inputDigest, targetDigest] = await Promise.all([
+    managementInputDigest({ operation: input.operation }),
+    managementInputDigest(input.input),
+    managementInputDigest({ targetId: input.targetId }),
+  ])
+  if (!actionDigest || !inputDigest || !targetDigest) return null
   return Object.freeze({
+    actionDigest,
     inputDigest,
     operation: input.operation,
+    targetDigest,
     targetId: input.targetId,
     workspaceId: input.workspaceId,
   })
@@ -871,10 +928,12 @@ export function managementBindingsEqual(
   right: ManagementCallBinding
 ): boolean {
   return (
-    left.workspaceId === right.workspaceId &&
+    left.actionDigest === right.actionDigest &&
+    left.inputDigest === right.inputDigest &&
+    left.targetDigest === right.targetDigest &&
     left.operation === right.operation &&
     left.targetId === right.targetId &&
-    left.inputDigest === right.inputDigest
+    left.workspaceId === right.workspaceId
   )
 }
 
@@ -889,6 +948,8 @@ export function parseManagementAuthorityDecision(
   if (!boundedString(value.decisionId, 128)) return null
   if (!boundedString(value.leadAgentId, 128)) return null
   if (!boundedString(value.intentId, 128)) return null
+  if (!boundedString(value.planRef, 128)) return null
+  if (!Number.isSafeInteger(value.planRevision) || (value.planRevision as number) < 1) return null
   const principal = value.principal
   if (
     !isPlainRecord(principal) ||
@@ -904,19 +965,38 @@ export function parseManagementAuthorityDecision(
     !boundedString(binding.workspaceId, 128) ||
     !isManagementOperationId(binding.operation) ||
     (binding.targetId !== null && !boundedString(binding.targetId, 128)) ||
-    typeof binding.inputDigest !== 'string' ||
-    !/^sha256:[a-f0-9]{64}$/.test(binding.inputDigest)
+    !digestValue(binding.actionDigest) ||
+    !digestValue(binding.inputDigest) ||
+    !digestValue(binding.targetDigest)
   )
     return null
   if (!Number.isSafeInteger(value.authorityRevision) || (value.authorityRevision as number) < 1)
     return null
+  if (!boundedString(value.audienceRef, 256)) return null
+  const approval = value.approval
+  if (
+    !isPlainRecord(approval) ||
+    !hasExactKeys(approval, approvalKeys) ||
+    !boundedString(approval.interactionId, 128) ||
+    !boundedString(approval.audienceRef, 256) ||
+    !boundedString(approval.expiresAt, 64)
+  )
+    return null
   if (!boundedString(value.issuedAt, 64) || !boundedString(value.expiresAt, 64)) return null
   return Object.freeze({
+    approval: Object.freeze({
+      audienceRef: approval.audienceRef,
+      expiresAt: approval.expiresAt,
+      interactionId: approval.interactionId,
+    }),
+    audienceRef: value.audienceRef,
     authorityRef: value.authorityRef,
     authorityRevision: value.authorityRevision as number,
     binding: Object.freeze({
-      inputDigest: binding.inputDigest as `sha256:${string}`,
+      actionDigest: binding.actionDigest,
+      inputDigest: binding.inputDigest,
       operation: binding.operation,
+      targetDigest: binding.targetDigest,
       targetId: binding.targetId as string | null,
       workspaceId: binding.workspaceId,
     }),
@@ -926,6 +1006,8 @@ export function parseManagementAuthorityDecision(
     intentId: value.intentId,
     issuedAt: value.issuedAt,
     leadAgentId: value.leadAgentId,
+    planRef: value.planRef,
+    planRevision: value.planRevision as number,
     principal: Object.freeze({ kind: 'user' as const, userId: principal.userId }),
     schemaVersion: managementAuthoritySchemaVersion,
   })
@@ -934,6 +1016,8 @@ export function parseManagementAuthorityDecision(
 /**
  * Revalidates a parsed decision against the exact call about to execute.
  * Returns a typed reason, or null when the decision authorizes this call now.
+ * Plan/audience currentness is CP-asserted; this checks every fact Adea can
+ * recompute or read from the signed envelope.
  */
 export function validateManagementAuthorityDecision(
   decision: ManagementAuthorityDecision,
@@ -956,15 +1040,37 @@ export function validateManagementAuthorityDecision(
   if (decision.decision !== 'allowed') return 'authority_denied'
   const issued = Date.parse(decision.issuedAt)
   const expires = Date.parse(decision.expiresAt)
+  const approvalExpires = Date.parse(decision.approval.expiresAt)
   const now = expected.now
   if (
     !Number.isFinite(issued) ||
     !Number.isFinite(expires) ||
+    !Number.isFinite(approvalExpires) ||
     !Number.isSafeInteger(now) ||
     issued > now
   )
     return 'authority_not_yet_valid'
   if (expires <= now || expires <= issued || expires - issued > managementAuthorityMaxLifetimeMs)
     return 'authority_expired'
+  if (approvalExpires <= now) return 'authority_approval_expired'
   return null
+}
+
+/**
+ * Server-only fail-closed assertion matching the CP932 `assertCurrent` port:
+ * returns void when the exact call is currently authorized, throws a typed
+ * `ManagementAuthorityError` otherwise. Never returns a truthy grant.
+ */
+export function assertManagementAuthorityCurrent(
+  decision: ManagementAuthorityDecision,
+  expected: Readonly<{
+    binding: ManagementCallBinding
+    authorityRef: string
+    intentId: string
+    leadAgentId: string
+    now: number
+  }>
+): void {
+  const reason = validateManagementAuthorityDecision(decision, expected)
+  if (reason) throw new ManagementAuthorityError(reason)
 }

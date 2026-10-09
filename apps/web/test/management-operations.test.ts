@@ -201,6 +201,34 @@ describe('shared management operations (#1215)', () => {
     expect(run.calls).toEqual([])
   })
 
+  test('a lead audit record carries IDs and digests only, never raw input or secrets', async () => {
+    const canary = 'canary-secret-7f3d9a1c-do-not-echo'
+    const decision = await managementAuthorityDecision({
+      input: { name: canary },
+      operation: 'project.update',
+      targetId: PROJECT,
+      workspaceId: WORKSPACE,
+    })
+    const run = harness(leadCaller(decision))
+    run.setResult('updateProject', { ...project, name: canary })
+    await run.operations.projectUpdate(
+      {
+        name: canary,
+        principal: PRINCIPAL,
+        projectId: PROJECT,
+        workspaceId: WORKSPACE,
+      },
+      decision.binding
+    )
+    const serialized = JSON.stringify(run.audited)
+    expect(serialized).not.toContain(canary)
+    expect(serialized).not.toContain('7f3d9a1c')
+    expect(run.audited[0]?.decisionId).toBe(decision.decisionId)
+    expect(run.audited[0]?.binding?.actionDigest).toBe(decision.binding.actionDigest)
+    expect(run.audited[0]?.binding?.inputDigest).toBe(decision.binding.inputDigest)
+    expect(run.audited[0]?.binding?.targetDigest).toBe(decision.binding.targetDigest)
+  })
+
   test('maps a stale workspace revision to a typed failure without leaking detail', async () => {
     const run = harness({ kind: 'human' })
     run.setExecutor('updateWorkspace', async () => {
