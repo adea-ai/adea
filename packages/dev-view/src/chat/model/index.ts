@@ -42,6 +42,7 @@ import type {
 import { normalizeChatDraft } from '../draft'
 
 export * from './commands'
+export * from './handoff'
 export * from './transcript'
 export * from './types'
 
