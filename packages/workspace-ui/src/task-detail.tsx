@@ -212,6 +212,19 @@ export function TaskPanel(props: CreateProps | EditProps) {
   const [status, setStatus] = createSignal<string | null>(null)
   const [titleError, setTitleError] = createSignal<string | undefined>()
   const [saving, setSaving] = createSignal(false)
+  // The sheet must close through Kobalte's own lifecycle: the dialog restores
+  // the background's aria-hidden/pointer-events state while it closes, and the
+  // parent unmounts this panel in response to onClose. Unmounting first (the
+  // previous `open` constant + immediate onClose) raced that restoration and
+  // could leave the workspace frame aria-hidden, hiding the board from role
+  // queries while it stayed visually rendered.
+  const [sheetOpen, setSheetOpen] = createSignal(true)
+  const [closePending, setClosePending] = createSignal(false)
+  const requestClose = () => {
+    if (saving()) return
+    setClosePending(true)
+    setSheetOpen(false)
+  }
 
   const trimmedTitle = () => title().trim()
   const trimmedObjective = () => objective().trim()
@@ -380,14 +393,20 @@ export function TaskPanel(props: CreateProps | EditProps) {
 
   return (
     <Sheet
-      open
+      open={sheetOpen()}
       onOpenChange={(open) => {
-        if (!open && !saving()) props.onClose()
+        if (!open) requestClose()
       }}
     >
       <SheetContent
         side="end"
         closeLabel={props.mode === 'create' ? 'Close new task' : 'Close task'}
+        onCloseAutoFocus={() => {
+          // Kobalte has finished closing the dialog and restored the background.
+          if (!closePending()) return
+          setClosePending(false)
+          props.onClose()
+        }}
       >
         <SheetHeader>
           <SheetTitle>{props.mode === 'create' ? 'New task' : 'Edit task'}</SheetTitle>
@@ -654,7 +673,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
                       type="button"
                       variant="destructive"
                       onClick={() =>
-                        void runLifecycle(edit().onArchive).then((done) => done && props.onClose())
+                        void runLifecycle(edit().onArchive).then((done) => done && requestClose())
                       }
                     >
                       Archive
@@ -674,7 +693,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
             variant="outline"
             size="sm"
             disabled={saving()}
-            onClick={props.onClose}
+            onClick={requestClose}
           >
             Cancel
           </Button>
