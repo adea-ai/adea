@@ -108,30 +108,58 @@ it through the same seam; it refuses when `CONTROL_PLANE_ORIGIN`/signing is
 unconfigured, when the credential is unmapped, or when the request carries no
 `canonicalRequest`.
 
-Remaining CP-host mapping (reported to root; not edited in another owner's
-files):
+CP production pieces now landed (control-plane
+`feat/issue-932-management-current-authority`, commits `ec46d2fb` and
+`b841bb10`):
 
-1. The launcher that builds `ProductionPiLeadCompositionOptions` must supply the
-   top-level `managementAuthority` (the same governed
-   `PolicyControlledToolExecutionService` and interaction repository); the
-   hosted graph lane shows the construction pattern in
+- `apps/control-api/src/pi-durable/management-decision-issuer.ts` is the
+  canonical `adea-management-authority/v1` issuer. It emits exactly the claim
+  grammar this verifier requires, signs `canonicalRequestDigest` over the same
+  canonical JSON Adea forwards, uses an existing host signer and fails closed
+  before signing on malformed, unhashable, oversized, stale or unbounded
+  requests.
+- `apps/control-api/src/models/production-management-http.ts` is the governed
+  CP-to-Adea transport. It validates the exact HTTPS origin/path, sends the
+  exact `adea-management-call/v1` body with the opaque canonical request and
+  the decision bearer, bounds timeout/response size, and parses the strict
+  `adea-management-result/v1`/refusal shapes. It creates no credentials.
+- `createProductionPiLeadComposition` now forwards the launcher-supplied
+  `managementAuthority` and the real production factory fixture composes the
+  canonical helper from real execution authority, intents, executions and
+  plans (`tests/pi-production-management-authority.test.mjs`); non-canonical
+  requests fail closed with zero provider/product/journal/service activity.
+
+Remaining CP-host mapping (reported to root; awaiting a design/ownership
+decision before editing shared files):
+
+1. The deployment launcher must still pass the top-level `managementAuthority`
+   (the same governed `PolicyControlledToolExecutionService` and interaction
+   repository); the hosted graph lane shows the construction pattern in
    `apps/hosted-control-plane/src/hosted-graph-tool-operations.ts`.
-2. The CP host must include the canonical tool-call request in the management
-   call and sign a `canonicalRequestDigest` claim covering the exact object
-   Adea forwards. The Adea seam now implements that binding: the verifier
-   requires the `sha256:` digest claim, the route recomputes it over the body's
-   `canonicalRequest` and refuses a mismatch with
-   `authority_binding_mismatch`, then forwards the same opaque request to the
-   admission assertion and the effect assertion. Adea never constructs or
-   interprets the request. The CP decision issuer that emits the claim and the
-   management tool effect that posts to Adea remain CP-host work; the
-   production-composed Adea test proves the seam against a loopback CP route.
+2. The governed tool-to-Adea caller that executes a management tool effect is
+   not yet wired. The canonical CP authority (control-plane PR #1038) validates
+   a full `DurableToolCallRequest` (`toolCallId`, `requestedAt`,
+   `idempotencyKey`, `policySnapshotRef`, `approval`, `grant`, `audit`), but
+   `ToolExecutor.execute(request: ToolExecutionRequest, version, signal)` only
+   receives the gateway projection (no `toolCallId`/`approval`/`requestedAt`),
+   so a registered executor cannot supply the exact canonical request the
+   decision binds and Adea forwards. Choices to decide:
+   (a) extend the governed execution path so the full durable request reaches
+   the transport (for example an optional execution context on `ToolExecutor`,
+   or a per-call effect transport in `PiDurableEffectGate`), or
+   (b) add a management tool port to the Pi engine/adapter analogous to
+   `governedDelegateChild`, building the durable request in the adapter and
+   calling the issuer/transport there.
+   Both touch `packages/pi-durable-adapter` and/or `packages/tool-execution`
+   and `packages/tool-sdk`, which other open lanes also edit
+   (`production-model-composition.ts`, `node-composition.ts`); coordinate the
+   owner and merge window before implementing.
 
 `packages/pi-durable-adapter/src/composition.ts` (`tools.assertAuthority`) and
 `packages/pi-durable-adapter/src/effect-gate.ts` consume the authority at the
 canonical boundaries; `node-composition.ts` forwards `options.tools`. The
-management tool effect itself (a governed tool whose effect posts to Adea) and
-the `adea-management-authority/v1` decision issuer remain CP-host work.
+single durable effect claim remains Adea's `management_authority_consumptions`
+owner; CP keeps repeatable admission/approval/effect/publication checks.
 
 ## Durable effect claim
 
