@@ -113,6 +113,11 @@ try {
         'HOST_CONTROL_TIMEOUT',
         'HOST_CLOSE_TIMEOUT',
         'HOST_REAP_TIMEOUT',
+        'DATABASE_URL_REQUIRED',
+        'DATABASE_URL_INVALID',
+        'DATABASE_URL_PROTOCOL_INVALID',
+        'DATABASE_URL_INCOMPLETE',
+        'DATABASE_CLIENT_URL_ENV_PRESENT',
       ].includes(match[2])
     )
       reason = match[2]

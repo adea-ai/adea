@@ -174,7 +174,32 @@ test('mounted lead choice is disclosed before inference and matches the real adm
 
   await page.getByRole('button', { name: 'Review model and payer', exact: true }).click()
   const disclosure = page.getByLabel('Current model and payer')
-  await expect(disclosure).toContainText('Provider: openai · Model: gpt-5-mini')
+  try {
+    await expect(disclosure).toContainText('Provider: openai · Model: gpt-5-mini', {
+      timeout: 10_000,
+    })
+  } catch {
+    const preparationSnapshot = await connected.snapshot(intentId!)
+    throw new Error(
+      `CONNECTED_PREPARATION_NOT_READY:${JSON.stringify({
+        preparation: preparationSnapshot.preparationProjection
+          ? {
+              state: preparationSnapshot.preparationProjection.state,
+              availability: preparationSnapshot.preparationProjection.availability,
+              reasonCode: preparationSnapshot.preparationProjection.reasonCode,
+              selectedLeadMatches:
+                preparationSnapshot.preparationProjection.selectionRef ===
+                  requested.lead.selectionRef &&
+                preparationSnapshot.preparationProjection.selectionRevision ===
+                  requested.lead.selectionRevision,
+            }
+          : null,
+        controlPlaneWire: preparationSnapshot.controlPlaneWire,
+        productReaderRequests: preparationSnapshot.readerRequests,
+        databaseEnvironment: preparationSnapshot.databaseEnvironment,
+      })}`
+    )
+  }
   await expect(disclosure).toContainText(
     'Account: account:production-factory · Authentication: api_key'
   )
@@ -218,6 +243,8 @@ test('mounted lead choice is disclosed before inference and matches the real adm
         readerRequests: dispatchSnapshot.readerRequests,
         runtimeReadCounts: dispatchSnapshot.runtimeReadCounts,
         publicationGate: dispatchSnapshot.publicationGate,
+        controlPlaneWire: dispatchSnapshot.controlPlaneWire,
+        databaseEnvironment: dispatchSnapshot.databaseEnvironment,
         statusState: dispatchSnapshot.statusProjection?.state ?? null,
         statusReason: dispatchSnapshot.statusProjection?.reasonCode ?? null,
         progress: dispatchSnapshot.progressProjection,
@@ -246,6 +273,35 @@ test('mounted lead choice is disclosed before inference and matches the real adm
   expect(finalSnapshot.publicationGate.calls).toBeGreaterThan(0)
   expect(finalSnapshot.publicationGate.successes).toBe(finalSnapshot.publicationGate.calls)
   expect(finalSnapshot.publicationGate.failures).toEqual([])
+  const publicationWire = finalSnapshot.controlPlaneWire.filter(
+    (entry: { operation: string }) => entry.operation === 'pi-durable.lead.publication.current'
+  )
+  expect(publicationWire.length).toBeGreaterThan(0)
+  expect(
+    publicationWire.every(
+      (entry: { requestIdMatches: boolean; traceIdMatches: boolean }) =>
+        entry.requestIdMatches && entry.traceIdMatches
+    )
+  ).toBe(true)
+  expect(finalSnapshot.publicationGate.responses.length).toBe(publicationWire.length)
+  expect(
+    finalSnapshot.publicationGate.responses.every(
+      (entry: {
+        schemaVersion: boolean
+        mismatchedFields: string[]
+        workspaceMatches: boolean
+        actorMatches: boolean
+        authorityRevisionValid: boolean
+        expiryValid: boolean
+      }) =>
+        entry.schemaVersion &&
+        entry.mismatchedFields.length === 0 &&
+        entry.workspaceMatches &&
+        entry.actorMatches &&
+        entry.authorityRevisionValid &&
+        entry.expiryValid
+    )
+  ).toBe(true)
   expect(afterInference.productReads).toBe(finalSnapshot.readerRequests)
   const preparation = finalSnapshot.preparationProjection
   const dispatch = finalSnapshot.dispatchProjection
