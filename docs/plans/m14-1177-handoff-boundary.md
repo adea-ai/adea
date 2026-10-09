@@ -101,18 +101,26 @@ their owners and are not preconditions for this presentation slice beyond
 the disabled states above.
 
 Production wiring (`apps/web/src/lib/lead-handoff-supply.ts`,
-`desktop-first-run-chat.tsx`): the chat host resolves the designated lead
-(`getWorkspaceLead`), its active direct channel (`listChannels` filtered
-by lead agent), and the channel turn (`getChannelLeadTurn`), then maps
-the observed facts onto the handoff supply and binds lead-stop to
-`cancelLeadTurn`, refreshing local facts from the cancel receipt. No
-channel, an ambiguous channel roster, a missing turn, or any transport
-failure resolves to an explicit `unresolved` reason and the surface
-attaches with the gap rows; resolution re-runs per selected session
-under the existing lifecycle fence. A lead-aware host (Dev entry or a
-channel-bound surface) can supply the same facts plus the canonical
-cancel handler through the existing `handoff` config; until then the gap
-rows state exactly this.
+`desktop-first-run-chat.tsx`): for the selected session's cloud task id,
+the chat host resolves the designated lead (`getWorkspaceLead`), the one
+active direct channel referencing both that lead and that task
+(`listChannels` filtered by lead agent plus task id), and that channel's
+turn (`getChannelLeadTurn`), then maps the observed facts onto the
+handoff supply and binds lead-stop to `cancelLeadTurn`, refreshing local
+facts from the cancel receipt. The shared task id is the retained
+session↔lead relationship both sides already persist (task-scoped dev
+sessions carry it; task-scoped lead channels carry it); channels for
+other tasks are irrelevant, so several lead conversations elsewhere
+never disable an explicitly linked handoff. A session without a task
+costs zero reads; a missing link, an ambiguous task link, a missing
+turn, or any transport failure resolves to an explicit `unresolved`
+reason and the surface attaches with the gap rows. Resolution re-runs
+per selected session/task key under a monotonic epoch plus the existing
+lifecycle fence, so overlapping resolutions and post-cancel reads apply
+in order and a late response can never overwrite newer facts. A
+lead-aware host (Dev entry or a channel-bound surface) can supply the
+same facts plus the canonical cancel handler through the existing
+`handoff` config; until then the gap rows state exactly this.
 
 ## Coordination
 

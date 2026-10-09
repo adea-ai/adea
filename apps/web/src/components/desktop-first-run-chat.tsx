@@ -270,22 +270,37 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   // Workspace-lead handoff supply (#1177): resolved from canonical
   // services for the active conversation's workspace — the designated
   // lead agent, its direct channel turn, and the canonical cancel path.
-  // Keyed on session identity (not object identity) so draft edits and
-  // same-session refreshes never refetch; a late resolution for a
-  // superseded selection is dropped by the lifecycle fence.
+  // Keyed on workspace+session+task identity (not object identity) so
+  // draft edits and same-session refreshes never refetch; the monotonic
+  // epoch orders overlapping resolutions and cancels so an older response
+  // can never overwrite newer facts for the same session. A late
+  // resolution for a superseded selection is dropped by the lifecycle
+  // fence first.
   const [leadSupply, setLeadSupply] = createSignal<{
     turn?: HandoffLeadTurn
     agent?: HandoffLeadAgent
   }>({})
+  let leadResolution = 0
+  let lastLeadKey = ''
+  const advanceLeadEpoch = (): number => {
+    leadResolution += 1
+    return leadResolution
+  }
   createEffect(() => {
     const activeConversation = conversation()
     if (!activeConversation) return
     const workspaceId = activeConversation.scope.workspaceId
     const sessionId = activeConversation.runtimeSessionId
+    const taskId = activeConversation.taskId
+    const key = `${workspaceId}${sessionId}${taskId ?? ''}`
+    if (key === lastLeadKey) return
+    lastLeadKey = key
     const request = lifecycle.current()
+    const epoch = advanceLeadEpoch()
     setLeadSupply({})
-    void resolveLeadHandoffSupply(props.client, workspaceId).then((resolution) => {
+    void resolveLeadHandoffSupply(props.client, workspaceId, taskId).then((resolution) => {
       if (!lifecycle.isCurrent(request)) return
+      if (leadResolution !== epoch) return
       if (conversation()?.runtimeSessionId !== sessionId) return
       if (resolution.status !== 'resolved') {
         setLeadSupply(resolution.leadAgent ? { agent: resolution.leadAgent } : {})
@@ -302,8 +317,12 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     if (!turn || !activeConversation) return
     const workspaceId = activeConversation.scope.workspaceId
     const request = lifecycle.current()
+    // The cancel is newer than any in-flight read: advance the epoch so a
+    // late resolution cannot overwrite the receipt applied below.
+    const epoch = advanceLeadEpoch()
     const response = await props.client.cancelLeadTurn(workspaceId, turn.intentId)
     if (!lifecycle.isCurrent(request)) return
+    if (leadResolution !== epoch) return
     if (conversation()?.runtimeSessionId !== activeConversation.runtimeSessionId) return
     // Refresh local facts from the canonical cancel receipt instead of
     // refetching: the response carries the turn's terminal state.

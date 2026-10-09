@@ -16,6 +16,7 @@ const CHANNEL = {
   id: '00000000-0000-4000-8000-0000000000c3',
   kind: 'direct_agent',
   agentId: LEAD.id,
+  taskId: 'task-1',
   lifecycleState: 'active',
 }
 
@@ -31,12 +32,26 @@ function turn(overrides: Record<string, unknown> = {}) {
   }
 }
 
+const calls = { lead: 0, channels: 0, turn: 0, cancel: 0 }
+
 function port(overrides: Partial<LeadHandoffPort> = {}): LeadHandoffPort {
   return {
-    getWorkspaceLead: async () => ({ lead: LEAD }) as never,
-    listChannels: async () => [CHANNEL] as never,
-    getChannelLeadTurn: async () => ({ leadTurn: turn() }) as never,
-    cancelLeadTurn: async () => ({ leadTurn: turn() }) as never,
+    getWorkspaceLead: async () => {
+      calls.lead += 1
+      return { lead: LEAD } as never
+    },
+    listChannels: async () => {
+      calls.channels += 1
+      return [CHANNEL] as never
+    },
+    getChannelLeadTurn: async () => {
+      calls.turn += 1
+      return { leadTurn: turn() } as never
+    },
+    cancelLeadTurn: async () => {
+      calls.cancel += 1
+      return { leadTurn: turn() } as never
+    },
     ...overrides,
   }
 }
@@ -47,7 +62,7 @@ function offline(): Promise<never> {
 
 describe('resolveLeadHandoffSupply', () => {
   test('resolves agent, channel turn, and cancellability from canonical reads', async () => {
-    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1')
+    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', 'task-1')
     expect(resolution.status).toBe('resolved')
     if (resolution.status !== 'resolved') return
     expect(resolution.leadAgent).toMatchObject({ id: LEAD.id, isWorkspaceLead: true })
@@ -65,7 +80,8 @@ describe('resolveLeadHandoffSupply', () => {
       port({
         getChannelLeadTurn: async () => ({ leadTurn: turn({ state: 'completed' }) }) as never,
       }),
-      'workspace-1'
+      'workspace-1',
+      'task-1'
     )
     expect(resolution.status).toBe('resolved')
     if (resolution.status !== 'resolved') return
@@ -75,7 +91,8 @@ describe('resolveLeadHandoffSupply', () => {
   test('a missing lead resolves to no-lead without guessing', async () => {
     const resolution: LeadHandoffResolution = await resolveLeadHandoffSupply(
       port({ getWorkspaceLead: async () => ({ lead: null }) as never }),
-      'workspace-1'
+      'workspace-1',
+      'task-1'
     )
     expect(resolution).toEqual({ status: 'unresolved', reason: 'no-lead' })
   })
@@ -87,7 +104,8 @@ describe('resolveLeadHandoffSupply', () => {
     ]) {
       const resolution = await resolveLeadHandoffSupply(
         port({ getWorkspaceLead: async () => ({ lead }) as never }),
-        'workspace-1'
+        'workspace-1',
+        'task-1'
       )
       expect(resolution).toMatchObject({ status: 'unresolved', reason: 'lead-unavailable' })
     }
@@ -96,7 +114,8 @@ describe('resolveLeadHandoffSupply', () => {
   test('no lead channel resolves to no-channel with the agent retained', async () => {
     const resolution = await resolveLeadHandoffSupply(
       port({ listChannels: async () => [] }),
-      'workspace-1'
+      'workspace-1',
+      'task-1'
     )
     expect(resolution.status).toBe('unresolved')
     if (resolution.status !== 'unresolved') return
@@ -104,19 +123,11 @@ describe('resolveLeadHandoffSupply', () => {
     expect(resolution.leadAgent?.id).toBe(LEAD.id)
   })
 
-  test('several lead channels fail closed as ambiguous instead of picking one', async () => {
-    const second = { ...CHANNEL, id: '00000000-0000-4000-8000-0000000000e5' }
-    const resolution = await resolveLeadHandoffSupply(
-      port({ listChannels: async () => [CHANNEL, second] as never }),
-      'workspace-1'
-    )
-    expect(resolution).toMatchObject({ status: 'unresolved', reason: 'ambiguous-channels' })
-  })
-
   test('a channel without a turn resolves to no-turn', async () => {
     const resolution = await resolveLeadHandoffSupply(
       port({ getChannelLeadTurn: async () => ({ leadTurn: null }) as never }),
-      'workspace-1'
+      'workspace-1',
+      'task-1'
     )
     expect(resolution).toMatchObject({ status: 'unresolved', reason: 'no-turn' })
   })
@@ -128,9 +139,60 @@ describe('resolveLeadHandoffSupply', () => {
       turn: port({ getChannelLeadTurn: offline }),
     }
     for (const step of ['lead', 'channels', 'turn'] as const) {
-      const resolution = await resolveLeadHandoffSupply(failing[step], 'workspace-1')
+      const resolution = await resolveLeadHandoffSupply(failing[step], 'workspace-1', 'task-1')
       expect(resolution).toMatchObject({ status: 'unresolved', reason: 'request-failed' })
     }
+  })
+})
+
+describe('task linkage', () => {
+  test('a session without a task costs zero reads and attaches', async () => {
+    calls.lead = 0
+    calls.channels = 0
+    calls.turn = 0
+    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', undefined)
+    expect(resolution).toEqual({ status: 'unresolved', reason: 'no-link' })
+    expect([calls.lead, calls.channels, calls.turn]).toEqual([0, 0, 0])
+  })
+
+  test('channels for other tasks are irrelevant, never disabling', async () => {
+    const other = {
+      ...CHANNEL,
+      id: '00000000-0000-4000-8000-0000000000e5',
+      taskId: 'task-other',
+    }
+    const resolution = await resolveLeadHandoffSupply(
+      port({ listChannels: async () => [other, CHANNEL] as never }),
+      'workspace-1',
+      'task-1'
+    )
+    expect(resolution.status).toBe('resolved')
+    if (resolution.status !== 'resolved') return
+    expect(resolution.leadTurn?.intentId).toBe('00000000-0000-4000-8000-0000000000a1')
+  })
+
+  test('channels of other agents for the same task do not coordinate', async () => {
+    const foreign = {
+      ...CHANNEL,
+      id: '00000000-0000-4000-8000-0000000000e5',
+      agentId: '00000000-0000-4000-8000-0000000000f6',
+    }
+    const resolution = await resolveLeadHandoffSupply(
+      port({ listChannels: async () => [foreign] as never }),
+      'workspace-1',
+      'task-1'
+    )
+    expect(resolution).toMatchObject({ status: 'unresolved', reason: 'no-channel' })
+  })
+
+  test('several channels sharing one task fail closed as ambiguous', async () => {
+    const second = { ...CHANNEL, id: '00000000-0000-4000-8000-0000000000e5' }
+    const resolution = await resolveLeadHandoffSupply(
+      port({ listChannels: async () => [CHANNEL, second] as never }),
+      'workspace-1',
+      'task-1'
+    )
+    expect(resolution).toMatchObject({ status: 'unresolved', reason: 'ambiguous-channels' })
   })
 })
 
@@ -138,7 +200,7 @@ describe('composed with the handoff derivation', () => {
   test('resolved facts drive a coordinating view end to end', async () => {
     const { deriveDirectSessionHandoff, deriveHandoffInputFromConversation } =
       await import('@adea-ai/dev-view/chat/model')
-    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1')
+    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', 'task-1')
     expect(resolution.status).toBe('resolved')
     if (resolution.status !== 'resolved') return
     const view = deriveDirectSessionHandoff(
@@ -179,7 +241,8 @@ describe('composed with the handoff derivation', () => {
       await import('@adea-ai/dev-view/chat/model')
     const resolution = await resolveLeadHandoffSupply(
       port({ getWorkspaceLead: async () => ({ lead: null }) as never }),
-      'workspace-1'
+      'workspace-1',
+      'task-1'
     )
     expect(resolution.status).toBe('unresolved')
     const view = deriveDirectSessionHandoff(
