@@ -16,6 +16,7 @@ import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { createMemo, createSignal, For, Show } from 'solid-js'
 import { createClientRequestId } from './request-id'
 import { projectModelReadiness } from './lead-model-state'
+import { WorkspaceLeadStatus } from './workspace-lead-status'
 
 const roles: readonly { role: ApiModelRole; label: string }[] = [
   { role: 'lead', label: 'Workspace lead' },
@@ -137,6 +138,7 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
       description="Set separate defaults for the workspace lead, delegated agents and direct sessions. Credentials are managed in Connections; connector credentials alone do not establish model readiness."
       bodyLayout="content"
     >
+      <WorkspaceLeadStatus client={props.client} workspaceId={props.workspaceId} />
       <div class="flex flex-wrap items-center gap-2">
         <Button
           size="sm"

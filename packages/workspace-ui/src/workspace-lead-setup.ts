@@ -6,11 +6,15 @@ import { projectRoleModel, type SelectableModel } from './lead-model-state'
  * Lead-specific setup state for the canonical workspace entry. It reads only the
  * structural lead record, its profile availability, and the existing lead role
  * model projection (#1211 eligibility). It never selects another roster agent,
- * never infers funding from account presence, and fails closed to a blocked
- * state whenever the eligibility projection yields no ready model. setup_ready is
- * a UI projection only: execution still requires CP prepare and funding evidence.
+ * never infers funding from account presence, and fails closed to funding_blocked
+ * whenever the eligibility projection yields no ready model.
+ *
+ * setup_ready is a UI projection only: execution still requires CP prepare and
+ * funding evidence.
  */
 export type WorkspaceLeadSetup =
+  | Readonly<{ state: 'auth_required'; detail: string }>
+  | Readonly<{ state: 'unavailable'; detail: string }>
   | Readonly<{ state: 'missing'; detail: string }>
   | Readonly<{ state: 'provisioning_failed'; detail: string }>
   | Readonly<{ state: 'inactive'; detail: string }>
@@ -20,11 +24,17 @@ export type WorkspaceLeadSetup =
 
 export function projectWorkspaceLeadSetup(input: {
   lead: AgentSummary | null | undefined
+  /** A read or session failure; never reads as a lead. */
+  failure?: 'auth_required' | 'unavailable'
   /** Provisioning outcome from the protected lead route; `failed` never reads as a lead. */
   provisioning?: 'failed'
   connections: unknown
   defaults: ApiWorkspaceModelDefaults | null | undefined
 }): WorkspaceLeadSetup {
+  if (input.failure === 'auth_required')
+    return { state: 'auth_required', detail: 'Sign in to set up the workspace lead.' }
+  if (input.failure === 'unavailable')
+    return { state: 'unavailable', detail: 'Lead status could not be read. Try again.' }
   const lead = input.lead
   if (!lead || lead.isWorkspaceLead !== true) {
     return input.provisioning === 'failed'
