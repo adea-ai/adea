@@ -820,6 +820,12 @@ export type ManagementAuthorityBoundary = (typeof managementAuthorityBoundaries)
  * into this shape; it is deliberately not a wire protocol.
  */
 export type ManagementCurrentAuthorityRequest = Readonly<{
+  /**
+   * Opaque canonical CP tool-call request supplied by the CP host mapping and
+   * forwarded verbatim to the Control API current-authority route. Adea never
+   * constructs or interprets it; absent, the client fails closed.
+   */
+  canonicalRequest?: unknown
   decisionId: string
   authorityRef: string
   authorityRevision: number

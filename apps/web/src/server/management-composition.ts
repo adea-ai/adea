@@ -21,12 +21,12 @@ import {
   updateWorkspace,
 } from '@adea-ai/db'
 
-import {
-  ManagementAuthorityError,
-  type ManagementCurrentAuthority,
-} from '@adea-ai/types/management'
+import type { ManagementCurrentAuthority } from '@adea-ai/types/management'
 
+import { scopedAdminCredential } from './control-plane-client'
+import { controlPlaneScopeResolver } from './control-plane-scope'
 import { applicationDatabase } from './database'
+import { createControlPlaneManagementCurrentAuthority } from './management-authority-current'
 import { createManagementGateway, type ManagementCaller } from './management-gateway'
 import { createManagementOperations, type ManagementOperations } from './management-operations'
 import { authorizeWorkspace } from './workspace-authorization'
@@ -43,14 +43,18 @@ export type ApplicationManagementComposition = Readonly<{
 }>
 
 /**
- * Fail-closed until the CP host mapping is installed. The canonical owner is
- * the Control Plane's `createPiDurableCurrentToolAuthority(...).assertCurrent`
- * (PR #1038, ed942840); Adea never substitutes a local truthy grant.
+ * The real authenticated Control API hop for the canonical current authority
+ * (PR #1038 helper exposed by the `feat/issue-932-management-current-authority`
+ * route). It fails closed when the Control Plane origin/signing is unconfigured
+ * or the request carries no canonical request from the CP host mapping.
  */
 export function applicationManagementCurrentAuthority(): ManagementCurrentAuthority {
-  return async () => {
-    throw new ManagementAuthorityError('authority_unavailable')
-  }
+  return createControlPlaneManagementCurrentAuthority({
+    credential: (request) =>
+      scopedAdminCredential(['execution:read'], {
+        resolveControlPlaneScope: controlPlaneScopeResolver(request.binding.workspaceId),
+      }),
+  })
 }
 
 export function applicationManagementOperations(
