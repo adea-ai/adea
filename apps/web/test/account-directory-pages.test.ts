@@ -19,7 +19,7 @@ import type {
 import { accountQueryKeys, releaseWorkspaceCache } from '@adea-ai/data'
 import { workspaceStore, type WorkspaceState } from '@adea-ai/state'
 import { QueryClient } from '@tanstack/solid-query'
-import { createRoot } from 'solid-js'
+import { createRoot, createSignal } from 'solid-js'
 import { isServer as isServerSolid } from 'solid-js/web'
 
 import { createAccountDirectoryPages } from '../src/lib/account-directory'
@@ -55,13 +55,19 @@ function pagedDirectoryClient(pages: AccountDirectoryAgent[][]) {
   return { client, calls }
 }
 
-function mountPages(client: AccountDirectoryApiClient) {
+function mountPages(
+  client: AccountDirectoryApiClient,
+  baseInput?: () => AccountDirectoryPageInput
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   const mounted = createRoot((rootDispose) => ({
     rootDispose,
-    pages: createAccountDirectoryPages(client, queryClient),
+    pages: createAccountDirectoryPages(client, {
+      ...(baseInput ? { baseInput } : {}),
+      queryClient,
+    }),
   }))
   return { queryClient, dispose: mounted.rootDispose, pages: mounted.pages }
 }
@@ -123,6 +129,58 @@ if (isServer) {
       await tick()
       await tick()
       expect(calls).toEqual([{ limit: 25 }, { limit: 25, after: '1' }])
+    } finally {
+      mounted.dispose()
+      mounted.queryClient.clear()
+    }
+  })
+
+  test('changing the walk input restarts from the first page under the new key', async () => {
+    // The authoritative search term and the archive flag are part of every
+    // cache key, so a walk built before the change cannot leak rows into the
+    // walk after it: the surface drops back to one page carrying the new input.
+    const seed = [[agent('a1'), agent('a2')], [agent('a3')]]
+    const { client, calls } = pagedDirectoryClient(seed)
+    const [term, setTerm] = createSignal('')
+    const mounted = mountPages(client, () => (term() ? { q: term() } : {}))
+    try {
+      await tick()
+      await tick()
+      expect(mounted.pages.rows().map(({ id }) => id)).toEqual(['a1', 'a2'])
+      mounted.pages.loadMore()
+      await tick()
+      await tick()
+      await tick()
+      expect(mounted.pages.rows().map(({ id }) => id)).toEqual(['a1', 'a2', 'a3'])
+      expect(calls).toEqual([{ limit: 25 }, { limit: 25, after: '1' }])
+
+      setTerm('studio')
+      await tick()
+      await tick()
+      await tick()
+      // The cursor walk is over: the first page of the new term, no stale
+      // `after` from the previous walk, and the old walk's rows gone.
+      expect(calls.at(-1)).toEqual({ limit: 25, q: 'studio' })
+      expect(mounted.pages.rows().map(({ id }) => id)).toEqual(['a1', 'a2'])
+      expect(mounted.pages.canLoadMore()).toBe(true)
+      expect(mounted.pages.exhausted()).toBe(false)
+
+      // Load-more continues the NEW walk, carrying the term on every page.
+      mounted.pages.loadMore()
+      await tick()
+      await tick()
+      await tick()
+      expect(calls.at(-1)).toEqual({ limit: 25, q: 'studio', after: '1' })
+      expect(mounted.pages.rows().map(({ id }) => id)).toEqual(['a1', 'a2', 'a3'])
+
+      // Clearing the term restarts the walk again — and re-keys it, so the
+      // termless first page is the cached one from the start of the session.
+      setTerm('')
+      await tick()
+      await tick()
+      await tick()
+      expect(calls.at(-1)).toEqual({ limit: 25 })
+      expect(mounted.pages.exhausted()).toBe(false)
     } finally {
       mounted.dispose()
       mounted.queryClient.clear()

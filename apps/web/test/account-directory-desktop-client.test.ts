@@ -125,7 +125,7 @@ const mountDirectoryPages = (client: AccountDirectoryApiClient) => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const mounted = createRoot((rootDispose) => ({
     rootDispose,
-    pages: createAccountDirectoryPages(client, queryClient),
+    pages: createAccountDirectoryPages(client, { queryClient }),
   }))
   return { queryClient, dispose: mounted.rootDispose, pages: mounted.pages }
 }
@@ -134,7 +134,7 @@ const mountInboxPages = (client: AccountDirectoryApiClient) => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const mounted = createRoot((rootDispose) => ({
     rootDispose,
-    pages: createAccountInboxPages(client, queryClient),
+    pages: createAccountInboxPages(client, { queryClient }),
   }))
   return { queryClient, dispose: mounted.rootDispose, pages: mounted.pages }
 }

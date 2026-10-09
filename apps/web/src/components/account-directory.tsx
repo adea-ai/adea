@@ -5,12 +5,13 @@
 // workspace never scopes its results: agents and conversations from every
 // workspace the account can reach stay listed across workspace switches. The
 // host (workspace-navigation) owns navigation; rows hand their entries back.
-import { AlertTriangle, Bot, Inbox as InboxIcon, RefreshCw, Users } from 'lucide-solid'
-import { For, Show } from 'solid-js'
+import { AlertTriangle, Bot, Inbox as InboxIcon, RefreshCw, Search, Users } from 'lucide-solid'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 import type { AccountDirectoryApiClient } from '@adea-ai/api-client/account-directory'
 import type {
   AccountConversationInboxEntry,
   AccountDirectoryAgent,
+  AccountDirectoryPageInput,
 } from '@adea-ai/types/account-directory'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -31,6 +32,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@adea-ai/ui/components/ui/empty'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import {
@@ -46,6 +48,15 @@ import {
   unreadBadgeText,
   type AccountDirectorySection,
 } from '../lib/account-directory'
+
+/**
+ * How long the search box sits still before its term becomes a server query.
+ * The list's search is authoritative — every answer comes from the database
+ * inside the caller's own authorization, never from whatever pages the client
+ * happens to hold — so one query per keystroke would be one authorized walk
+ * per character.
+ */
+const SEARCH_DEBOUNCE_MS = 200
 
 export type AccountDirectorySurfaceProps = Readonly<{
   client: AccountDirectoryApiClient
@@ -66,6 +77,23 @@ export type AccountDirectorySurfaceProps = Readonly<{
  * switching sections never holds the other's pages open.
  */
 export function AccountDirectorySurface(props: AccountDirectorySurfaceProps) {
+  // Connection state is surface-wide: the offline answer is one visible line
+  // above whichever section is open, and it clears itself the moment the
+  // browser reports the connection back — the queries it guards then refetch
+  // and the rows converge without a reload.
+  const [online, setOnline] = createSignal(true)
+  createEffect(() => {
+    // Captures setOnline from the component scope.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
+    const updateOnlineStatus = () => setOnline(navigator.onLine)
+    updateOnlineStatus()
+    window.addEventListener('online', updateOnlineStatus)
+    window.addEventListener('offline', updateOnlineStatus)
+    onCleanup(() => {
+      window.removeEventListener('online', updateOnlineStatus)
+      window.removeEventListener('offline', updateOnlineStatus)
+    })
+  })
   return (
     <main class="conventional-directory" aria-labelledby="account-directory-title">
       <header class="conventional-surface-header">
@@ -98,6 +126,11 @@ export function AccountDirectorySurface(props: AccountDirectorySurfaceProps) {
           </Button>
         </div>
       </header>
+      <Show when={!online()}>
+        <p class="text-muted-foreground text-sm" role="status">
+          You are offline. The directory reconnects and refreshes when the connection returns.
+        </p>
+      </Show>
       <Show
         when={props.section === 'inbox'}
         fallback={
@@ -115,6 +148,67 @@ export function AccountDirectorySurface(props: AccountDirectorySurfaceProps) {
         />
       </Show>
     </main>
+  )
+}
+
+/**
+ * The controls row both sections share: the authoritative search box, the
+ * archive scope toggle, the refresh action, and the visible in-flight status
+ * that tells a reconnect's refetch apart from a quiet one.
+ */
+function DirectoryControls(props: {
+  includeArchived: boolean
+  isFetching: boolean
+  onIncludeArchived: (next: boolean) => void
+  onRefresh: () => void
+  onSearch: (value: string) => void
+  placeholder: string
+  refreshLabel: string
+  searchLabel: string
+  searchValue: string
+}) {
+  return (
+    <div class="mb-4 flex items-center justify-between gap-2">
+      <InputGroup class="w-64 max-w-full flex-1 basis-48">
+        <InputGroupAddon>
+          <Search aria-hidden="true" />
+        </InputGroupAddon>
+        <InputGroupInput
+          aria-label={props.searchLabel}
+          type="search"
+          placeholder={props.placeholder}
+          value={props.searchValue}
+          onInput={(event) => props.onSearch(event.currentTarget.value)}
+        />
+      </InputGroup>
+      <div class="flex shrink-0 items-center gap-2">
+        <ActionButton
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-pressed={props.includeArchived}
+          tooltip={props.includeArchived ? 'Hide archived rows' : 'Also list archived rows'}
+          onClick={() => props.onIncludeArchived(!props.includeArchived)}
+        >
+          Include archived
+        </ActionButton>
+        <ActionButton
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          tooltip={props.refreshLabel}
+          aria-label={props.refreshLabel}
+          onClick={() => props.onRefresh()}
+        >
+          <RefreshCw aria-hidden="true" />
+        </ActionButton>
+        <Show when={props.isFetching}>
+          <span class="text-muted-foreground text-sm" role="status">
+            Updating…
+          </span>
+        </Show>
+      </div>
+    </div>
   )
 }
 
@@ -182,21 +276,35 @@ function AgentsSection(props: {
   workspaces: readonly WorkspaceSummary[]
   onOpenAgent: (agent: AccountDirectoryAgent) => void
 }) {
-  const pages = createAccountDirectoryPages(props.client)
+  const [term, setTerm] = createSignal('')
+  const [search, setSearch] = createSignal('')
+  const [includeArchived, setIncludeArchived] = createSignal(false)
+  createEffect(() => {
+    const value = term()
+    const timeout = window.setTimeout(() => setSearch(value.trim()), SEARCH_DEBOUNCE_MS)
+    onCleanup(() => window.clearTimeout(timeout))
+  })
+  // The walk's constant part: a search term and the archive scope. The pages
+  // key every cache entry on it, so one search's pages can never appear under
+  // another, and changing it starts a fresh walk from the first page.
+  const baseInput = createMemo<AccountDirectoryPageInput>(() => ({
+    ...(search() ? { q: search() } : {}),
+    ...(includeArchived() ? { includeArchived: true } : {}),
+  }))
+  const pages = createAccountDirectoryPages(props.client, { baseInput })
   return (
     <section aria-label="Agents directory">
-      <div class="mb-4 flex justify-end">
-        <ActionButton
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          tooltip="Refresh the Agents directory"
-          aria-label="Refresh the Agents directory"
-          onClick={() => pages.refresh()}
-        >
-          <RefreshCw aria-hidden="true" />
-        </ActionButton>
-      </div>
+      <DirectoryControls
+        includeArchived={includeArchived()}
+        isFetching={pages.isFetching()}
+        onIncludeArchived={setIncludeArchived}
+        onRefresh={() => pages.refresh()}
+        onSearch={setTerm}
+        placeholder="Search agents"
+        refreshLabel="Refresh the Agents directory"
+        searchLabel="Search agents"
+        searchValue={term()}
+      />
       <Show
         when={!pages.isLoading()}
         fallback={<DirectorySkeleton label="Loading the Agents directory" />}
@@ -209,9 +317,13 @@ function AgentsSection(props: {
             when={pages.rows().length > 0}
             fallback={
               <DirectoryEmpty
-                detail="Agents from every workspace you belong to appear here once they exist. Create one inside a workspace to start."
+                detail={
+                  baseInput().q
+                    ? 'No authorized Agent name matches this search. Clear the search to list the full directory.'
+                    : 'Agents from every workspace you belong to appear here once they exist. Create one inside a workspace to start.'
+                }
                 icon={Bot}
-                title="No Agents are visible yet"
+                title={baseInput().q ? 'No Agents match this search' : 'No Agents are visible yet'}
               />
             }
           >
@@ -285,21 +397,35 @@ function InboxSection(props: {
   workspaces: readonly WorkspaceSummary[]
   onOpenConversation: (entry: AccountConversationInboxEntry) => void
 }) {
-  const pages = createAccountInboxPages(props.client)
+  const [term, setTerm] = createSignal('')
+  const [search, setSearch] = createSignal('')
+  const [includeArchived, setIncludeArchived] = createSignal(false)
+  createEffect(() => {
+    const value = term()
+    const timeout = window.setTimeout(() => setSearch(value.trim()), SEARCH_DEBOUNCE_MS)
+    onCleanup(() => window.clearTimeout(timeout))
+  })
+  // Same walk contract as the Agents section: the search term and archive
+  // scope ride every page's key, so the inbox's cached pages are scoped to the
+  // search that produced them.
+  const baseInput = createMemo<AccountDirectoryPageInput>(() => ({
+    ...(search() ? { q: search() } : {}),
+    ...(includeArchived() ? { includeArchived: true } : {}),
+  }))
+  const pages = createAccountInboxPages(props.client, { baseInput })
   return (
     <section aria-label="Conversation inbox">
-      <div class="mb-4 flex justify-end">
-        <ActionButton
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          tooltip="Refresh the conversation inbox"
-          aria-label="Refresh the conversation inbox"
-          onClick={() => pages.refresh()}
-        >
-          <RefreshCw aria-hidden="true" />
-        </ActionButton>
-      </div>
+      <DirectoryControls
+        includeArchived={includeArchived()}
+        isFetching={pages.isFetching()}
+        onIncludeArchived={setIncludeArchived}
+        onRefresh={() => pages.refresh()}
+        onSearch={setTerm}
+        placeholder="Search conversations"
+        refreshLabel="Refresh the conversation inbox"
+        searchLabel="Search conversations"
+        searchValue={term()}
+      />
       <Show
         when={!pages.isLoading()}
         fallback={<DirectorySkeleton label="Loading the conversation inbox" />}
@@ -312,9 +438,17 @@ function InboxSection(props: {
             when={pages.rows().length > 0}
             fallback={
               <DirectoryEmpty
-                detail="Conversations from every workspace you belong to appear here as they arrive. Unread counts follow your own read state."
+                detail={
+                  baseInput().q
+                    ? 'No authorized conversation title matches this search. Clear the search to list the whole inbox.'
+                    : 'Conversations from every workspace you belong to appear here as they arrive. Unread counts follow your own read state.'
+                }
                 icon={InboxIcon}
-                title="No conversations are visible yet"
+                title={
+                  baseInput().q
+                    ? 'No conversations match this search'
+                    : 'No conversations are visible yet'
+                }
               />
             }
           >
@@ -361,6 +495,11 @@ function InboxRow(props: {
           <Badge aria-hidden="true" size="sm" variant="secondary">
             {inboxKindLabel(props.entry)}
           </Badge>
+          <Show when={props.entry.lifecycleState !== 'active'}>
+            <Badge aria-hidden="true" size="sm" variant="outline">
+              Archived
+            </Badge>
+          </Show>
           <span class="text-muted-foreground text-xs">{props.workspaceName}</span>
         </span>
         <span class="flex shrink-0 items-center gap-1">

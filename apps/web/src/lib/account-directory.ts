@@ -15,7 +15,7 @@ import type {
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { accountQueryKeys, accountQueryOptions } from '@adea-ai/data'
 import { QueryClient, createQueries, useQueryClient } from '@tanstack/solid-query'
-import { createEffect, createMemo, createSignal, onCleanup, type Accessor } from 'solid-js'
+import { createEffect, createMemo, createSignal, on, onCleanup, type Accessor } from 'solid-js'
 import { ApiClientError } from '@adea-ai/api-client'
 
 /** The two account-wide sections the directory surface can show. */
@@ -109,8 +109,9 @@ export function inboxKindLabel(entry: AccountConversationInboxEntry): string {
 }
 
 /**
- * The row's accessible name: visible title first (WCAG 2.5.3), then the unread
- * facts and the workspace, so a screen reader hears what the badges show.
+ * The row's accessible name: visible title first (WCAG 2.5.3), then the
+ * lifecycle, unread facts and the workspace, so a screen reader hears what the
+ * badges show.
  */
 export function inboxEntryLabel(
   entry: AccountConversationInboxEntry,
@@ -118,6 +119,7 @@ export function inboxEntryLabel(
 ): string {
   const unread = inboxUnreadModel(entry)
   const parts = [entry.title]
+  if (entry.lifecycleState !== 'active') parts.push('archived')
   if (unread.mentions > 0)
     parts.push(`${unread.mentions} ${unread.mentions === 1 ? 'mention' : 'mentions'}`)
   if (unread.count > 0) parts.push(`${unread.count} unread`)
@@ -187,6 +189,8 @@ export type AccountListPages<Row> = Readonly<{
   rows: Accessor<readonly Row[]>
   /** True while the first page has not settled. */
   isLoading: Accessor<boolean>
+  /** True while any page of the current walk is in flight (refresh, resume). */
+  isFetching: Accessor<boolean>
   /** The first page error in page order, when any loaded page failed. */
   error: Accessor<unknown>
   /** True once the last loaded page ends without a continuation cursor. */
@@ -210,17 +214,27 @@ export type AccountListPages<Row> = Readonly<{
  * switch never touches them, and no code path can fetch without bound — a page
  * is only ever requested on an explicit load-more of the cursor the previous
  * page returned.
+ *
+ * `baseInput` is the walk's constant part — the authoritative search term and
+ * the archive scope. Because it participates in every page's key, cached pages
+ * are scoped to the search that produced them; changing it starts a NEW walk
+ * from the first page, so rows from the previous term can never sit under the
+ * new one, and load-more can never continue a cursor minted under another
+ * term. The comparison is by value (serialized), not by object identity.
  */
 function createAccountPages<
   Row extends Readonly<{ id: string }>,
   Page extends { nextCursor?: string },
 >(
   keyPrefix: readonly [string, string],
+  baseInput: Accessor<AccountDirectoryPageInput>,
   optionsFor: (input: AccountDirectoryPageInput) => PageOptions<Page>,
   rowsOf: (page: Page) => readonly Row[],
   queryClient: QueryClient
 ): AccountListPages<Row> {
-  const [pageInputs, setPageInputs] = createSignal<readonly AccountDirectoryPageInput[]>([{}])
+  const [pageInputs, setPageInputs] = createSignal<readonly AccountDirectoryPageInput[]>([
+    baseInput(),
+  ])
   // An account change (or any cache clear) removes the account-scoped page
   // entries while this surface still observes them. A removed query keeps
   // feeding its observer the pre-clear rows, and a refresh — which
@@ -233,10 +247,23 @@ function createAccountPages<
   const unsubscribeCache = queryClient.getQueryCache().subscribe((event) => {
     if (event.type !== 'removed') return
     if (event.query.queryKey[0] === keyPrefix[0] && event.query.queryKey[1] === keyPrefix[1]) {
-      setPageInputs(() => [{}])
+      setPageInputs([baseInput()])
     }
   })
   onCleanup(unsubscribeCache)
+  const baseKey = createMemo(() => JSON.stringify(baseInput()))
+  // `defer` alone skips the mount run — Solid passes `previous === undefined`
+  // on the FIRST change too, so guarding on it would swallow the very first
+  // restart (the search term's initial typing) instead of only the mount.
+  createEffect(
+    on(
+      baseKey,
+      () => {
+        setPageInputs([baseInput()])
+      },
+      { defer: true }
+    )
+  )
   const queries = createQueries(
     () => ({
       queries: pageInputs().map((input) => optionsFor(input)),
@@ -270,6 +297,7 @@ function createAccountPages<
   return {
     rows,
     isLoading: createMemo(() => Boolean(queries[0]?.isPending)),
+    isFetching: createMemo(() => queries.some((query) => Boolean(query.isFetching))),
     error,
     exhausted,
     canLoadMore: createMemo(() => {
@@ -282,9 +310,12 @@ function createAccountPages<
       const last = lastQuery()
       if (error() !== undefined || !last?.isSuccess || !last.data?.nextCursor) return
       const cursor = last.data.nextCursor
-      // One page per cursor: a doubled click cannot append the same page twice.
+      // One page per cursor: a doubled click cannot append the same page twice,
+      // and the continuation always rides the CURRENT walk's constant part.
       setPageInputs((inputs) =>
-        inputs.some((input) => input.after === cursor) ? inputs : [...inputs, { after: cursor }]
+        inputs.some((input) => input.after === cursor)
+          ? inputs
+          : [...inputs, { ...baseInput(), after: cursor }]
       )
     },
     refresh: () => {
@@ -293,33 +324,49 @@ function createAccountPages<
   }
 }
 
+/** Construction options shared by both account-wide list factories. */
+export type AccountListPagesOptions = Readonly<{
+  /**
+   * The walk's constant part (authoritative search term, archive scope).
+   * Changing it by value restarts the walk from the first page. Defaults to an
+   * unfiltered walk.
+   */
+  baseInput?: Accessor<AccountDirectoryPageInput>
+  /** QueryClient to observe; defaults to the mounted context's client. */
+  queryClient?: QueryClient
+}>
+
 /** The account-wide Agents directory, cursor-paged. */
 export function createAccountDirectoryPages(
   client: AccountDirectoryApiClient,
-  queryClient?: QueryClient
+  options: AccountListPagesOptions = {}
 ): AccountListPages<AccountDirectoryAgent> {
+  const baseInput = options.baseInput ?? (() => ({}))
   return createAccountPages(
     DIRECTORY_KEY_PREFIX,
+    baseInput,
     (input) =>
       accountQueryOptions.directory(client, { limit: ACCOUNT_DIRECTORY_PAGE_SIZE, ...input }),
     (page) => page.agents,
-    queryClient ?? useQueryClient()
+    options.queryClient ?? useQueryClient()
   )
 }
 
 /** The account-wide conversation inbox, cursor-paged, polled while open. */
 export function createAccountInboxPages(
   client: AccountDirectoryApiClient,
-  queryClient?: QueryClient
+  options: AccountListPagesOptions = {}
 ): AccountListPages<AccountConversationInboxEntry> {
+  const baseInput = options.baseInput ?? (() => ({}))
   return createAccountPages(
     INBOX_KEY_PREFIX,
+    baseInput,
     (input) => ({
       ...accountQueryOptions.inbox(client, { limit: ACCOUNT_DIRECTORY_PAGE_SIZE, ...input }),
       refetchInterval: ACCOUNT_INBOX_REFETCH_INTERVAL_MS,
     }),
     (page) => page.conversations,
-    queryClient ?? useQueryClient()
+    options.queryClient ?? useQueryClient()
   )
 }
 

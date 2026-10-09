@@ -144,8 +144,8 @@ const mountNavigation = (
     watchAccountIdentity(queryClient, principalId)
     const pages =
       surface === 'directory'
-        ? createAccountDirectoryPages(client, queryClient)
-        : createAccountInboxPages(client, queryClient)
+        ? createAccountDirectoryPages(client, { queryClient })
+        : createAccountInboxPages(client, { queryClient })
     return { dispose: rootDispose, pages }
   })
 

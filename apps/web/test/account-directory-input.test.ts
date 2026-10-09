@@ -19,10 +19,24 @@ describe('account directory request boundary', () => {
       limit: 1,
     })
     expect(query('?includeArchived=false')).toEqual({ includeArchived: false })
+    expect(query('?q=inbox')).toEqual({ q: 'inbox' })
+    expect(query('?limit=25&q=studio&includeArchived=true')).toEqual({
+      includeArchived: true,
+      limit: 25,
+      q: 'studio',
+    })
+    // Surrounding whitespace is not part of the term.
+    expect(query('?q=%20trimmed%20')).toEqual({ q: 'trimmed' })
+    expect(query(`?q=${'a'.repeat(200)}`)).toEqual({ q: 'a'.repeat(200) })
   })
 
   test('rejects out-of-range limits, hostile cursors, and ambiguous markers', () => {
     expect(query('?limit=0')).toBeNull()
+    // A present-but-blank search term never reaches the database: the client
+    // omits empty values, and the boundary rejects what still arrives.
+    expect(query('?q=')).toBeNull()
+    expect(query('?q=%20%20')).toBeNull()
+    expect(query(`?q=${'a'.repeat(201)}`)).toBeNull()
     expect(query('?limit=101')).toBeNull()
     expect(query('?limit=-1')).toBeNull()
     expect(query('?limit=50.5')).toBeNull()

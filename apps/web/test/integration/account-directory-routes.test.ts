@@ -360,6 +360,79 @@ describe('account directory and inbox routes', () => {
     expect(seen.toSorted()).toEqual(lanes.toSorted())
   })
 
+  test('the search term travels client to route to query, and hostile terms stop at the boundary', async () => {
+    const owner = await user('search-owner')
+    const outsider = await user('search-outsider')
+    const workspaceId = await workspace(owner, 'Route Search HQ')
+    await createAgent(connection.db, workspaceId, owner, {
+      name: 'Route Studio Agent',
+      profileId: `prf_${'0'.repeat(25)}1`,
+      profileVersion: `pfv_${'0'.repeat(25)}1`,
+    })
+    await createAgent(connection.db, workspaceId, owner, {
+      name: 'Route Garden Agent',
+      profileId: `prf_${'0'.repeat(25)}1`,
+      profileVersion: `pfv_${'0'.repeat(25)}1`,
+    })
+    const lane = await groupConversation(workspaceId, owner, 'Route Studio Lane')
+    await post(workspaceId, lane.id, owner)
+    const other = await groupConversation(workspaceId, owner, 'Route Garden Lane')
+    await post(workspaceId, other.id, owner)
+
+    caller = resolutionFor(owner)
+    const client = routeClient()
+
+    // The client ships the term; the route parses it; the query filters.
+    const agentPage = await client.accountAgentDirectory({ q: 'STUDIO' })
+    expect(agentPage.agents.map(({ name }) => name)).toEqual(['Route Studio Agent'])
+    const inbox = await client.accountConversationInbox({ q: 'studio' })
+    expect(inbox.conversations.map(({ id }) => id)).toEqual([lane.id])
+    expect(new URL(sentRequests[0]!.url).search).toBe('?q=STUDIO')
+
+    // The same term across a cursor walk keeps filtering; the cursor and the
+    // term ride together on the continuation request.
+    const firstPage = await client.accountAgentDirectory({ limit: 1, q: 'route' })
+    expect(firstPage.agents).toHaveLength(1)
+    expect(firstPage.nextCursor).toBeDefined()
+    const secondPage = await client.accountAgentDirectory({
+      after: firstPage.nextCursor!,
+      limit: 1,
+      q: 'route',
+    })
+    expect(secondPage.agents).toHaveLength(1)
+    expect(secondPage.agents[0]!.id).not.toBe(firstPage.agents[0]!.id)
+    expect(new URL(sentRequests.at(-1)!.url).searchParams.get('q')).toBe('route')
+    expect(new URL(sentRequests.at(-1)!.url).searchParams.get('after')).toBe(firstPage.nextCursor!)
+
+    // An outsider's search is empty rather than denied: the filter runs inside
+    // the authorization, so a title they cannot read never matches.
+    caller = resolutionFor(outsider)
+    const outsiderClient = routeClient()
+    expect((await outsiderClient.accountConversationInbox({ q: 'studio' })).conversations).toEqual(
+      []
+    )
+    expect((await outsiderClient.accountAgentDirectory({ q: 'studio' })).agents).toEqual([])
+
+    // The boundary rejects what the client promises never to send: a blank
+    // term and an oversized term are 400s, not silent empty pages.
+    caller = resolutionFor(owner)
+    const boundaryClient = routeClient()
+    const oversized = await boundaryClient
+      .accountAgentDirectory({ q: 'a'.repeat(201) })
+      .catch((e) => e)
+    expect(oversized).toBeInstanceOf(ApiClientError)
+    expect(oversized.status).toBe(400)
+
+    // Clearing the search box is a normal interaction: the client omits the
+    // blank term rather than asking the server to reject it…
+    await boundaryClient.accountAgentDirectory({ q: '   ' })
+    expect(new URL(sentRequests.at(-1)!.url).searchParams.has('q')).toBe(false)
+    // …and a blank term that arrives anyway (the client's own trim failed)
+    // still never reaches the database.
+    const rawBlank = await dispatch(new Request('https://adea.test/api/v1/account/agents?q=%20%20'))
+    expect(rawBlank.status).toBe(400)
+  })
+
   test('a private conversation is readable for participants and absent for everyone else', async () => {
     const owner = await user('private-owner')
     const member = await user('private-member')

@@ -45,6 +45,10 @@ const specs = [
   // routes: real HTTP against the app server and the real database, no route
   // mocks. See the spec header for the coverage-class split it complements.
   'apps/web/e2e/account-directory-auth.spec.ts',
+  // The UI-operating sibling: search, the archive scope, the linked-job round
+  // trip and reconnect convergence, driven through the real directory and
+  // inbox surfaces instead of fetching their APIs from the page.
+  'apps/web/e2e/account-directory-ui.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)
