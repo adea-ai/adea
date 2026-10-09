@@ -131,11 +131,49 @@ describe('management operation inventory (#1215)', () => {
       permission: 'workspace.update',
       revision: 'none',
     })
+    expect(managementOperation('project.promote')).toMatchObject({
+      api: { api: 'promoteProjectState', kind: 'web' },
+      audit: 'workspace_event',
+      capability: null,
+      confirmation: 'explicit',
+      domain: 'project',
+      permission: 'workspace.update',
+      recovery: 'version_conflict',
+      revision: 'project_revision',
+      surface: 'cloud',
+    })
     expect(managementOperation('config.workspace.update')).toMatchObject({
       permission: 'workspace.update',
       revision: 'workspace_version',
       recovery: 'version_conflict',
     })
+  })
+
+  test('binds project promotion to the integer ProjectSummary.version, never a timestamp', async () => {
+    const workspaceId = '0f3a2e1c-0000-4000-8000-000000000001'
+    const projectId = '0f3a2e1c-0000-4000-8000-000000000002'
+    const atVersion = await managementCallBinding({
+      input: { confirmed: true, expectedVersion: 7 },
+      operation: 'project.promote',
+      targetId: projectId,
+      workspaceId,
+    })
+    const afterMutation = await managementCallBinding({
+      input: { confirmed: true, expectedVersion: 8 },
+      operation: 'project.promote',
+      targetId: projectId,
+      workspaceId,
+    })
+    expect(atVersion).not.toBeNull()
+    expect(afterMutation).not.toBeNull()
+    expect(atVersion!.operation).toBe('project.promote')
+    expect(atVersion!.inputDigest).toBe(
+      await managementInputDigest({ confirmed: true, expectedVersion: 7 })
+    )
+    // Every project-row mutation increments the integer revision, so the same
+    // observed value is stale after a later write even in the same millisecond.
+    // Timestamps remain display data and are never the CAS token.
+    expect(afterMutation!.inputDigest).not.toBe(atVersion!.inputDigest)
   })
 
   test('only accepts known operation ids and freezes the catalog', () => {
