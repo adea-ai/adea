@@ -53,6 +53,12 @@ export const managementRevisionKinds = [
   'workspace_order',
   'memory_revision',
   'project_order',
+  /**
+   * The integer `ProjectSummary.version` published by #1218: every project-row
+   * mutation increments it atomically (reorder included), and promotion/restore
+   * compare-and-swap on it. It is never the display `updatedAt` timestamp.
+   */
+  'project_revision',
   'connection_version',
   'worktree_generation',
   'session_generation',
@@ -129,6 +135,7 @@ export const managementOperationIds = [
   'project.create',
   'project.update',
   'project.archive',
+  'project.promote',
   'project.delete',
   'project.reorder',
   'project.visibility.set',
@@ -400,6 +407,21 @@ export const managementOperations: Readonly<
     permission: 'workspace.update',
     recovery: 'idempotent',
     revision: 'none',
+    surface: 'cloud',
+  },
+  'project.promote': {
+    api: { api: 'promoteProjectState', kind: 'web' },
+    audit: 'workspace_event',
+    capability: null,
+    confirmation: 'explicit',
+    domain: 'project',
+    // #1218 owns the executor, restore route and lead tool that flip these lanes
+    // to `cloudLanes`; the catalog shape (api/revision/confirmation/audit/
+    // recovery) is the canonical exact-call contract from here on.
+    lanes: { desktop: notImplemented, lead: notImplemented, web: notImplemented },
+    permission: 'workspace.update',
+    recovery: 'version_conflict',
+    revision: 'project_revision',
     surface: 'cloud',
   },
   'project.delete': {

@@ -108,6 +108,27 @@ it through the same seam; it refuses when `CONTROL_PLANE_ORIGIN`/signing is
 unconfigured, when the credential is unmapped, or when the request carries no
 `canonicalRequest`.
 
+## Canonical project revision (#1218 coordination)
+
+The 1218 owner published the canonical revision contract (branch checkpoint
+`c96c6d479`, core commit `769dfc90a`): additive integer `projects.version`
+`DEFAULT 1 NOT NULL CHECK (version > 0)`, `ProjectSummary.version: number` on
+every read, an atomic `version = version + 1` on every project-row mutation
+including reorder, and promotion/restore requiring a positive safe-integer
+`expectedVersion` plus `confirmed: boolean`. Timestamps remain display data and
+are never the CAS token.
+
+The shared catalog hunk in `packages/types/src/management.ts` is owned by this
+lane and now carries the published additions: the `project_revision` revision
+kind documented as that integer version (not `updatedAt`), the
+`project.promote` operation id, and its catalog spec (`promoteProjectState`,
+`explicit` confirmation, `version_conflict` recovery, `workspace.update`
+permission). The executor, restore route and lead tool live in the 1218 lane,
+so every lane for `project.promote` is declared `not_implemented` here until
+that hunk lands and flips them to `cloudLanes`; the catalog shape and integer
+semantics are authoritative from now on. `packages/db/src/projects.ts` is
+1218-owned and was not edited.
+
 CP production pieces now landed (control-plane
 `feat/issue-932-management-current-authority`, commits `ec46d2fb` and
 `b841bb10`):
