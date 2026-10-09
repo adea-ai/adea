@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.86.0",
+  "version": "0.87.0",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -17,7 +17,7 @@
     "lint": "turbo run lint && oxlint --deny-warnings",
     "test": "bun run test:unit",
     "test:unit": "turbo run test && bun run test:coverage",
-    "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit packages/types/tests/execution-location.test.ts scripts/*.test.ts --coverage",
+    "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit packages/types/tests/execution-location.test.ts packages/types/tests/migration-snapshot.test.ts scripts/*.test.ts --coverage",
     "test:bundle:dev-view": "bun run --cwd apps/web build && node scripts/check-dev-view-bundle.mjs",
     "test:integration": "bun scripts/test-integration.mjs",
     "typecheck": "turbo run typecheck",
@@ -44,7 +44,7 @@
     "test:browser:desktop-client": "bunx playwright install --with-deps chromium && bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
   },
   "devDependencies": {
-    "@adea-ai/ui": "0.122.2",
+    "@adea-ai/ui": "0.122.3",
     "@playwright/test": "^1.63.0",
     "@shadcn/lint": "^0.2.0",
     "@tailwindcss/postcss": "^4.3.3",
