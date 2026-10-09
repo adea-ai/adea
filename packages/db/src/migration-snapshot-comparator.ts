@@ -17,10 +17,11 @@
 // than guessed at, and conflicting duplicate records are quarantined
 // deterministically — reordering input records or object keys cannot change
 // the outcome, because quarantine identities and opaque references are
-// derived from canonical (key-sorted) encodings. Every record is bounded on
-// total bytes, property slots and array width BEFORE canonicalization —
-// bounds cover extra properties too, apply ahead of every quarantine path,
-// and an oversized record's quarantine identity is a bounded descriptor, so
+// derived from canonical (key-sorted) encodings. Every input record — of any
+// shape, primitives and top-level arrays included — is bounded on total
+// bytes, property slots and array width BEFORE canonicalization — bounds
+// cover extra properties too, apply ahead of every quarantine path, and an
+// oversized value's quarantine identity is a bounded descriptor, so
 // oversized content is never canonicalized, hashed or echoed. Composite
 // identities (record stable ids and finding ids) are built with a
 // collision-safe tuple encoding, so distinct part tuples can never join to
@@ -353,8 +354,9 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
  * real stable id cannot be trusted. The fingerprint is taken over the
  * canonical encoding, so reordering an object's keys cannot change it, and
  * hashing keeps the finding referable without echoing whatever the malformed
- * field held. Only records that already passed the size bounds reach this
- * function, so the canonical encoding is bounded by construction.
+ * field held. Only values that already passed the size bounds reach this
+ * function — of any shape, objects and primitives alike — so the canonical
+ * encoding is bounded by construction.
  */
 function quarantinedId(record: unknown): string {
   const digest = createHash('sha256').update(canonicalJson(record), 'utf8').digest('hex')
@@ -604,26 +606,28 @@ function intakeSection(
   let quarantined = 0
 
   for (const record of section.records) {
-    if (typeof record !== 'object' || record === null) {
-      quarantined += 1
-      collector.add('quarantined_record', family, side, quarantinedId(record), {
-        field: 'record',
-        reason: 'malformed',
-      })
-      continue
-    }
-    // Size bounds run BEFORE anything else — before the family check, before
-    // validation, before the ignore decision on extra properties, and before
-    // any canonicalization. A record over the byte, property-slot or
-    // array-width bound is quarantined by limit with a bounded descriptor as
-    // its only identity: its content is never canonicalized, hashed or
-    // echoed, even when it was already headed for another quarantine path.
+    // Size bounds run BEFORE anything else, on input of ANY shape — before
+    // the object check, before the family check, before validation, before
+    // the ignore decision on extra properties, and before any
+    // canonicalization. A value over the byte, property-slot or array-width
+    // bound — an oversized object, primitive or top-level array alike — is
+    // quarantined by limit with a bounded descriptor as its only identity:
+    // its content is never canonicalized, hashed or echoed, even when it was
+    // already headed for another quarantine path.
     const shapeIssue = migrationSnapshotRecordShapeIssue(record)
     if (shapeIssue) {
       quarantined += 1
       collector.add('quarantined_record', family, side, oversizedRecordId(), {
         field: 'record',
         reason: 'limit',
+      })
+      continue
+    }
+    if (typeof record !== 'object' || record === null) {
+      quarantined += 1
+      collector.add('quarantined_record', family, side, quarantinedId(record), {
+        field: 'record',
+        reason: 'malformed',
       })
       continue
     }

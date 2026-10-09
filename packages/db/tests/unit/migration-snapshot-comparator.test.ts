@@ -1198,6 +1198,158 @@ describe('migration snapshot composite-key and input-bound repairs', () => {
   })
 })
 
+/**
+ * The quarantine identity every over-bound record must share: the
+ * bound-descriptor fingerprint, proven here via an oversized object (the
+ * already-bounded path). Any oversized input whose quarantine id differs
+ * from this one has been content-hashed, which is the bug.
+ */
+function oversizedObjectQuarantineStableId(): string {
+  const bloated = {
+    family: 'memberships',
+    host: 'x'.repeat(9_000),
+    role: 'member',
+    userId: 'user-object',
+    workspaceId: 'wsp-1',
+  } as unknown as MigrationSnapshotRecord
+  const comparison = compare(
+    { memberships: section([bloated]) },
+    { memberships: section([bloated]) }
+  )
+  const quarantined = findingsFor(comparison, 'memberships', 'quarantined_record')
+  expect(quarantined).toHaveLength(2)
+  return quarantined[0]?.stableId ?? ''
+}
+
+describe('migration snapshot primitive and top-level array intake bounds', () => {
+  test('an oversized top-level string record is quarantined by limit, bound-derived only, never echoed', () => {
+    const marker = 'SECRET-TOP-LEVEL-STRING-MARKER'
+    const boundDerived = oversizedObjectQuarantineStableId()
+    const forward = compare(
+      {
+        memberships: section([
+          membership('user-1'),
+          marker.repeat(4_096) as unknown as MigrationSnapshotRecord,
+        ]),
+      },
+      {
+        memberships: section([
+          membership('user-1'),
+          marker.repeat(4_096) as unknown as MigrationSnapshotRecord,
+        ]),
+      }
+    )
+    // Supplied content cannot influence the quarantine identity: a different
+    // huge string must produce byte-identical output.
+    const otherMarker = 'SECRET-DIFFERENT-HUGE-CONTENT-MARKER'
+    const other = compare(
+      {
+        memberships: section([
+          membership('user-1'),
+          otherMarker.repeat(4_096) as unknown as MigrationSnapshotRecord,
+        ]),
+      },
+      {
+        memberships: section([
+          membership('user-1'),
+          otherMarker.repeat(4_096) as unknown as MigrationSnapshotRecord,
+        ]),
+      }
+    )
+    expect(JSON.stringify(other)).toBe(JSON.stringify(forward))
+    const quarantined = findingsFor(forward, 'memberships', 'quarantined_record')
+    expect(quarantined).toHaveLength(2)
+    expect(quarantined.map((finding) => finding.side).toSorted()).toEqual(['after', 'before'])
+    for (const finding of quarantined) {
+      expect(finding.detail.reason).toBe('limit')
+      expect(finding.detail.field).toBe('record')
+      // Bound-derived only: the same id every oversized record shares, never
+      // a hash over the supplied string.
+      expect(finding.stableId).toBe(boundDerived)
+    }
+    // The valid row still matches; nothing is reported missing or remapped.
+    expect(findingsFor(forward, 'memberships', 'missing_record')).toHaveLength(0)
+    expect(findingsFor(forward, 'memberships', 'remapped_record')).toHaveLength(0)
+    // The marker text is absent from the entire serialized output, and the
+    // output stays bounded no matter how large the supplied string was.
+    const serialized = JSON.stringify(forward)
+    expect(serialized.includes(marker)).toBe(false)
+    expect(serialized.length).toBeLessThan(8_192)
+    expect(forward.verdict).toBe('inconclusive')
+  })
+
+  test('an oversized primitive on one side only is quarantined there and never compared', () => {
+    const marker = 'SECRET-ONE-SIDED-STRING-MARKER'
+    const comparison = compare(
+      { memberships: section([membership('user-1')]) },
+      { memberships: section([marker.repeat(4_096) as unknown as MigrationSnapshotRecord]) }
+    )
+    const quarantined = findingsFor(comparison, 'memberships', 'quarantined_record')
+    expect(quarantined).toHaveLength(1)
+    expect(quarantined[0]?.side).toBe('after')
+    expect(quarantined[0]?.detail.reason).toBe('limit')
+    expect(quarantined[0]?.detail.field).toBe('record')
+    // The valid before-side row is genuinely missing after: a determinate
+    // diff, not a silent pass.
+    expect(findingsFor(comparison, 'memberships', 'missing_record')).toHaveLength(1)
+    const serialized = JSON.stringify(comparison)
+    expect(serialized.includes(marker)).toBe(false)
+    expect(serialized.length).toBeLessThan(8_192)
+    expect(comparison.verdict).toBe('divergent')
+  })
+
+  test('oversized top-level array records get the same bounded treatment', () => {
+    const marker = 'SECRET-TOP-LEVEL-ARRAY-MARKER'
+    const boundDerived = oversizedObjectQuarantineStableId()
+    const cases: MigrationSnapshotRecord[] = [
+      // Over the array-width bound.
+      Array.from({ length: 65 }, () => marker) as unknown as MigrationSnapshotRecord,
+      // Within the width bound but over the byte bound.
+      Array.from({ length: 64 }, () => marker.repeat(8)) as unknown as MigrationSnapshotRecord,
+    ]
+    for (const oversizedArray of cases) {
+      const comparison = compare(
+        { memberships: section([membership('user-1'), oversizedArray]) },
+        { memberships: section([membership('user-1'), oversizedArray]) }
+      )
+      const quarantined = findingsFor(comparison, 'memberships', 'quarantined_record')
+      expect(quarantined).toHaveLength(2)
+      for (const finding of quarantined) {
+        expect(finding.detail.reason).toBe('limit')
+        expect(finding.detail.field).toBe('record')
+        expect(finding.stableId).toBe(boundDerived)
+      }
+      expect(findingsFor(comparison, 'memberships', 'missing_record')).toHaveLength(0)
+      const serialized = JSON.stringify(comparison)
+      expect(serialized.includes(marker)).toBe(false)
+      expect(serialized.length).toBeLessThan(8_192)
+      expect(comparison.verdict).toBe('inconclusive')
+    }
+  })
+
+  test('an oversized bigint record is over-bound outright and never content-hashed', () => {
+    // A bigint's serialization length is unbounded, so its digits are the
+    // content that must never be canonicalized or hashed.
+    const digits = '9'.repeat(10_000)
+    const huge = BigInt(digits) as unknown as MigrationSnapshotRecord
+    const comparison = compare(
+      { memberships: section([membership('user-1'), huge]) },
+      { memberships: section([membership('user-1'), huge]) }
+    )
+    const quarantined = findingsFor(comparison, 'memberships', 'quarantined_record')
+    expect(quarantined).toHaveLength(2)
+    for (const finding of quarantined) {
+      expect(finding.detail.reason).toBe('limit')
+      expect(finding.detail.field).toBe('record')
+      expect(finding.stableId).toBe(oversizedObjectQuarantineStableId())
+    }
+    const serialized = JSON.stringify(comparison)
+    expect(serialized.includes('9'.repeat(200))).toBe(false)
+    expect(serialized.length).toBeLessThan(8_192)
+    expect(comparison.verdict).toBe('inconclusive')
+  })
+})
+
 function findingOfEveryUnknownFamily(comparison: MigrationSnapshotComparison): string[] {
   return comparison.findings
     .filter((finding) => finding.findingClass === 'unknown_domain')

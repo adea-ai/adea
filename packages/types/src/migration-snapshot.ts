@@ -23,7 +23,8 @@
 // malformed, over a documented bound, or whose audience/ownership
 // classification is ambiguous, is `quarantined` and excluded from matching.
 // Identifier and digest fields are format- and length-bounded, and every
-// record is bounded on total bytes, property slots and array width BEFORE any
+// record — of any shape, primitives and top-level arrays included — is
+// bounded on total bytes, property slots and array width BEFORE any
 // canonicalization — including fields destined to be ignored as extra
 // properties and records already headed for a quarantine path — so a hostile
 // or corrupt value can never be canonicalized first, and can never travel
@@ -648,16 +649,21 @@ function recordShapeViolation(value: unknown, budget: ShapeBudget): ShapeViolati
 }
 
 /**
- * Check one record against the documented size bounds — total UTF-8 bytes,
- * property slots and array width — BEFORE any canonicalization. Returns a
- * typed `limit` issue on the first bound crossed, or null when the record
+ * Check any intake value — of any shape — against the documented size bounds
+ * — total UTF-8 bytes, property slots and array width — BEFORE any
+ * canonicalization. The walk measures non-object input directly: a string by
+ * its capped UTF-8 length, a `bigint` over-bound outright (its serialization
+ * length is unbounded), and other primitives or null by fixed upper bounds;
+ * a top-level array is width- and slot-bounded like any nested one. Returns
+ * a typed `limit` issue on the first bound crossed, or null when the value
  * fits. The issue never names or echoes supplied content: the field is the
- * contract literal `record`. Exported so consumers can quarantine an
- * oversized record without canonicalizing it (bounded descriptor instead of
- * a content fingerprint).
+ * contract literal `record`. Accepts `unknown` because real snapshot intake
+ * is untrusted — no value may bypass the bounds by not being an object.
+ * Exported so consumers can quarantine an oversized value without
+ * canonicalizing it (bounded descriptor instead of a content fingerprint).
  */
 export function migrationSnapshotRecordShapeIssue(
-  record: object
+  record: unknown
 ): MigrationSnapshotRecordIssue | null {
   const violation = recordShapeViolation(record, {
     bytes: MIGRATION_SNAPSHOT_MAX_RECORD_BYTES,

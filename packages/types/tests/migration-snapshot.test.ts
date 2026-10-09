@@ -19,6 +19,7 @@ import {
   migrationSnapshotFindingClasses,
   migrationSnapshotFindingDetailKeys,
   migrationSnapshotRecordIssue,
+  migrationSnapshotRecordShapeIssue,
   migrationTaskLifecycleStates,
   migrationWorkspaceRoles,
   type MigrationSnapshotRecord,
@@ -452,5 +453,43 @@ describe('migration snapshot record input bounds', () => {
     const issue = migrationSnapshotRecordIssue(nested)
     expect(issue).toEqual({ field: 'record', kind: 'limit' })
     expect(JSON.stringify(issue)).not.toContain(marker)
+  })
+
+  test('an oversized top-level string is a typed limit issue, decided before canonicalization', () => {
+    const marker = 'SECRET-TOP-STRING-MARKER'
+    const issue = migrationSnapshotRecordShapeIssue(marker.repeat(4_096))
+    expect(issue).toEqual({ field: 'record', kind: 'limit' })
+    // The issue names no supplied content.
+    expect(JSON.stringify(issue)).not.toContain(marker)
+    // A string well within the byte bound is not a size issue.
+    expect(migrationSnapshotRecordShapeIssue('x'.repeat(64))).toBeNull()
+  })
+
+  test('an oversized top-level array is a typed limit issue, by width or by bytes', () => {
+    const marker = 'SECRET-TOP-ARRAY-MARKER'
+    // Over the array-width bound.
+    expect(migrationSnapshotRecordShapeIssue(Array.from({ length: 65 }, () => 'x'))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    // Within the width bound but over the byte bound.
+    const wide = Array.from({ length: 64 }, () => marker.repeat(8))
+    expect(migrationSnapshotRecordShapeIssue(wide)).toEqual({ field: 'record', kind: 'limit' })
+    expect(JSON.stringify(migrationSnapshotRecordShapeIssue(wide))).not.toContain(marker)
+  })
+
+  test('a bigint is over-bound outright and bounded primitive shapes fit the byte bound', () => {
+    // A bigint's serialization length is unbounded: rejected without scanning.
+    expect(migrationSnapshotRecordShapeIssue(BigInt('9'.repeat(10_000)))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    // Fixed-cost primitives and null fit the byte bound: the walk reports no
+    // size issue for them (malformed-shape handling belongs to the record
+    // validation and the comparator's intake, not to the size walk).
+    expect(migrationSnapshotRecordShapeIssue(42)).toBeNull()
+    expect(migrationSnapshotRecordShapeIssue(true)).toBeNull()
+    expect(migrationSnapshotRecordShapeIssue(null)).toBeNull()
+    expect(migrationSnapshotRecordShapeIssue(undefined)).toBeNull()
   })
 })
