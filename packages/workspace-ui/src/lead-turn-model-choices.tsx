@@ -14,6 +14,19 @@ export function LeadTurnModelChoices(props: {
   choices: LeadRequestedChoices
   onChange: (choices: LeadRequestedChoices) => void
 }) {
+  return (
+    <Show when={props.client} keyed>
+      {(client) => <LeadTurnModelChoicesForClient {...props} client={client} />}
+    </Show>
+  )
+}
+
+function LeadTurnModelChoicesForClient(props: {
+  client: AgentHqApiClient
+  workspaceId: string
+  choices: LeadRequestedChoices
+  onChange: (choices: LeadRequestedChoices) => void
+}) {
   const inventory = useModelConnectionsQuery(props.client, () => props.workspaceId)
   const currentInventory = () => (inventory.isFetching ? undefined : settledData(inventory))
   const models = () => projectSelectableModels(currentInventory())
