@@ -1296,6 +1296,12 @@
       "body": "{ runtimeSessionId: string; expectedGeneration: integer; harnessRunId: string }",
       "reply": "HarnessRun"
     },
+    "dev.session.transferCoordination": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; toHolder: 'lead'|'user'; harnessRunId?: string; expectedOwnerVersion: integer }",
+      "reply": "RuntimeSession"
+    },
     "dev.session.transferInput": {
       "capabilities": ["dev.session.manage"],
       "resource": "runtime_session:required",

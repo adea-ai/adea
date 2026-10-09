@@ -245,6 +245,11 @@ function validateStoredRecord(record: AuthorityRecord): void {
       !SESSION_PROJECTIONS.has(session.projection) ||
       (session.coordinationOwner !== undefined &&
         !COORDINATION_OWNERS.has(session.coordinationOwner)) ||
+      (session.coordinationHarnessRunId !== undefined &&
+        typeof session.coordinationHarnessRunId !== 'string') ||
+      (session.coordinationOwner === 'lead' &&
+        typeof session.coordinationHarnessRunId !== 'string') ||
+      (session.coordinationOwner !== 'lead' && session.coordinationHarnessRunId !== undefined) ||
       !positive(session.version) ||
       !positive(session.generation) ||
       !inScope(session.scope)
@@ -1139,13 +1144,11 @@ export function registerProjectSessionRuntime(input: {
       }
       // Ownership transfer is the one input-authority operation: it bumps
       // the generation, so input granted under the old generation is inert.
-      // It also records the retained coordination holder (#1177) from the
-      // explicit direction: handing input to the dev view hands
-      // coordination to the lead, returning it hands coordination to the
-      // user. The transient input-view routing itself is not stored.
+      // It moves only the transient input-view routing and records no
+      // coordination: ordinary chat<->Dev View switches never hand off
+      // (#1177 — explicit coordination lives in transferCoordination).
       const next: RuntimeSession = {
         ...session,
-        coordinationOwner: body.toView === 'dev' ? 'lead' : 'user',
         generation: session.generation + 1,
         version: session.version + 1,
         lifecycle: session.lifecycle === 'ready' ? 'active' : session.lifecycle,
@@ -1156,6 +1159,65 @@ export function registerProjectSessionRuntime(input: {
       }
       save()
       publishSession(next, 'session.input_transferred')
+      return next
+    },
+    'dev.session.transferCoordination': (command) => {
+      requireScope(command, input.scope)
+      const body = devOperationDecoders['dev.session.transferCoordination'].request(command.body)
+      const session = record.sessions.find(
+        (entry) => entry.id === (body.runtimeSessionId as string)
+      )
+      if (!session) throw devError('not_found', 'runtime session not found')
+      requireSessionResource(command, session)
+      if (session.generation !== (body.expectedGeneration as number)) {
+        throw devError('stale_generation', 'runtime session generation conflict')
+      }
+      if (session.version !== (body.expectedOwnerVersion as number)) {
+        throw devError('stale_version', 'coordination owner version conflict')
+      }
+      if (session.archived) {
+        throw devError('invalid_state', 'an archived session grants no coordination')
+      }
+      // Explicit coordination transfer (#1177): the sole writer of the
+      // retained coordination holder. Handing coordination to the lead
+      // binds it to the exact register-bound run — an explicit act naming
+      // a real execution, never an inferred view label. Returning it
+      // releases coordination back to the user and drops the run binding.
+      // Like input transfer it bumps generation and version together, so
+      // coordination granted under the old generation is inert.
+      const toHolder = body.toHolder as string
+      if (toHolder !== 'lead' && toHolder !== 'user') {
+        throw devError('invalid_state', 'coordination holder must be lead or user')
+      }
+      if (toHolder === 'lead') {
+        const runId = body.harnessRunId as string | undefined
+        if (!runId) {
+          throw devError(
+            'invalid_state',
+            'handing coordination to the lead requires the bound harness run'
+          )
+        }
+        if (runId !== session.activeHarnessRunId) {
+          throw devError('invalid_state', 'the named harness run is not the session-bound run')
+        }
+      } else if (session.coordinationOwner !== 'lead') {
+        throw devError('invalid_state', 'no lead coordination to return')
+      }
+      const { coordinationHarnessRunId: _droppedRun, ...unbound } = session
+      void _droppedRun
+      const next: RuntimeSession = {
+        ...unbound,
+        coordinationOwner: toHolder,
+        ...(toHolder === 'lead' ? { coordinationHarnessRunId: body.harnessRunId as string } : {}),
+        generation: session.generation + 1,
+        version: session.version + 1,
+      }
+      record = {
+        ...record,
+        sessions: record.sessions.map((entry) => (entry.id === session.id ? next : entry)),
+      }
+      save()
+      publishSession(next, 'session.coordination_changed')
       return next
     },
   }

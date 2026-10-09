@@ -9,7 +9,7 @@
 // authority: a user-created direct run is not proof of an explicit
 // chief-of-staff handoff, and who may type in a box is a different dimension
 // from who holds session coordination. The only path into a coordinating
-// mode is a confirmed `dev.session.transferInput` receipt (or an explicit
+// mode is a confirmed `dev.session.transferCoordination` receipt (or an explicit
 // caller override): attached --handoff(chat→dev)--> coordination_handoff
 // --return(dev→chat)--> returned_to_user, and back again. A live session
 // with no receipt attaches read-only, even with a run bound.
@@ -17,9 +17,9 @@
 // Authority boundary: Adea owns these presentation states, derived from
 // existing `RuntimeSession`/`HarnessRun` facts and the existing
 // `dev.session.*` operations. The persisted authoritative transition is
-// `dev.session.transferInput` (generation- and owner-version-fenced,
-// durable host snapshot, `session.input_transferred` event); the model never
-// invents ownership. Currency is receipt-gated: a receipt applies only to
+// `dev.session.transferCoordination` (generation- and owner-version-fenced,
+// durable host snapshot, `session.coordination_changed` event); the model
+// never invents ownership. Currency is receipt-gated: a receipt applies only to
 // the session and generation it names, so a stale local receipt can never
 // overwrite newer canonical ownership. Lead-turn/job/descendant
 // cancellation beyond the bound harness run requires the Control Plane J2
@@ -63,8 +63,7 @@ export type HandoffControlState = Readonly<{
  */
 export type HandoffReceipt = Readonly<{
   sessionId: string
-  fromView: 'chat' | 'dev'
-  toView: 'chat' | 'dev'
+  holder: 'lead' | 'user'
   generation: number
 }>
 
@@ -218,9 +217,9 @@ function transportGuard(
  * Derives the handoff view for one preserved session. The same session,
  * generation, harness run, worktree, and project cross every mode — the
  * function mints no IDs and switches no location. A run object newer or
- * older than the session generation still binds: input transfers bump the
- * session generation without replacing the run (accepted host contract), so
- * run/session generation equality is never required.
+ * older than the session generation still binds: coordination transfers bump
+ * the session generation without replacing the run (accepted host contract),
+ * so run/session generation equality is never required.
  */
 export function deriveDirectSessionHandoff(
   input: DirectSessionHandoffInput
@@ -252,12 +251,39 @@ export function deriveDirectSessionHandoff(
       'Coordination changed since the confirmed transfer; the receipt names older ownership. Refresh to coordinate from the current generation.'
   }
 
+  // The register run binding shared by the run-scoped controls: only a
+  // current, session-bound, non-terminal run authorizes lead-stop, and only
+  // such a run (or its register id) can receive a handoff. The host
+  // re-validates the exact id at commit, so a superseded binding fails
+  // rather than misbinding.
+  const boundRunBlock = (): HandoffControlState | undefined => {
+    if (binding.status === 'stale')
+      return blocked(
+        'A newer harness run superseded this one; acting on it would miss the live run.',
+        'Refresh the session to resolve the current run.'
+      )
+    if (binding.status === 'mismatch')
+      return blocked(
+        'The supplied harness run belongs to another session or scope.',
+        'Resolve the session-bound run first.'
+      )
+    if (binding.status === 'terminal')
+      return blocked(
+        `Harness run ${binding.run?.state ?? 'ended'}; there is no live run to coordinate.`,
+        'Resume the session to start a new harness generation.'
+      )
+    if (binding.status === 'absent')
+      return blocked(
+        'No harness run is bound to this session.',
+        'Launch a harness to enable lead coordination.'
+      )
+    return undefined
+  }
+
   // Lead-stop maps to the existing bound-harness control
   // (`dev.session.cancelHarness` on the register-bound run). It is available
-  // only in the coordinating modes, while connected, on the current
-  // generation, in an authorized scope, without a control conflict, and while
-  // the register binds a run that is not superseded, foreign, or terminal.
-  // Every other case names its reason instead of failing silently.
+  // only in the coordinating modes with a bindable run. Every other case
+  // names its reason instead of failing silently.
   const leadStop = ((): HandoffControlState => {
     if (input.mode !== 'coordination_handoff' && input.mode !== 'returned_to_user')
       return blocked(
@@ -266,33 +292,13 @@ export function deriveDirectSessionHandoff(
       )
     const guard = transportGuard(input, 'Lead stop')
     if (guard) return guard
-    if (binding.status === 'stale')
-      return blocked(
-        'A newer harness run superseded this one; stopping it would miss the live run.',
-        'Refresh the session to resolve the current run.'
-      )
-    if (binding.status === 'mismatch')
-      return blocked(
-        'The supplied harness run belongs to another session or scope.',
-        'Resolve the session-bound run before stopping.'
-      )
-    if (binding.status === 'terminal')
-      return blocked(
-        `Harness run ${binding.run?.state ?? 'ended'}; there is no live run to stop.`,
-        'Resume the session to start a new harness generation.'
-      )
-    if (binding.status === 'absent')
-      return blocked(
-        'No harness run is bound to this session.',
-        'Launch a harness to enable lead controls.'
-      )
-    return { available: true }
+    return boundRunBlock() ?? { available: true }
   })()
 
-  // Hand-off to the lead executes the persisted `dev.session.transferInput`
-  // toward the dev view. Offered from attachment (establishing coordination)
-  // and after a return (re-establishing it): the handoff cycle is explicit
-  // in both directions, never inferred.
+  // Hand-off to the lead executes the persisted `dev.session.transferCoordination`
+  // binding the exact register-bound run. Offered from attachment (establishing
+  // coordination) and after a return (re-establishing it): the handoff cycle is
+  // explicit in both directions, never inferred.
   const handoffToLead = ((): HandoffControlState => {
     if (input.mode === 'coordination_handoff')
       return blocked(
@@ -306,11 +312,11 @@ export function deriveDirectSessionHandoff(
       )
     const guard = transportGuard(input, 'Hand-off to lead')
     if (guard) return guard
-    return { available: true }
+    return boundRunBlock() ?? { available: true }
   })()
 
-  // Return-to-user executes the persisted `dev.session.transferInput` to this
-  // surface. Available only inside an explicit coordination handoff: the
+  // Return-to-user executes the persisted `dev.session.transferCoordination`
+  // releasing coordination. Available only inside an explicit coordination handoff: the
   // only path to user-held coordination is a confirmed transfer, so an
   // already-returned session needs no transfer.
   const returnToUser = ((): HandoffControlState => {
@@ -466,7 +472,7 @@ export function deriveHandoffInputFromConversation(
   // otherwise nothing is asserted and the session attaches.
   const coordination =
     currency === 'current' && input.receipt
-      ? ((input.receipt.toView === 'chat' ? 'user' : 'lead') as 'lead' | 'user')
+      ? input.receipt.holder
       : input.conversation.coordinationOwner
   const mode =
     input.mode ??
@@ -567,7 +573,7 @@ export type HandoffActionOutcome = 'completed' | 'rejected' | 'superseded'
  * prove this because they never gate an invocation. Late completions are
  * fenced by `isCurrent` (captured session identity): a superseded result
  * commits nothing, leaving cleanup to the session-switch reset. Success
- * carries work's result to `onSuccess` (transfers pass their refreshed
+ * carries work's result to `onSuccess` (coordination calls pass their refreshed
  * conversation so the caller can record the receipt).
  */
 export async function runHandoffActionOnce(

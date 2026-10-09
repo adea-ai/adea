@@ -136,7 +136,7 @@ describe('deriveHandoffInputFromConversation', () => {
     const supplied = deriveHandoffInputFromConversation({
       conversation: conversation({ generation: 4, coordinationOwner: 'lead' }),
       connected: true,
-      receipt: { sessionId: 'session-1', fromView: 'dev', toView: 'chat', generation: 5 },
+      receipt: { sessionId: 'session-1', holder: 'user', generation: 5 },
     })
     expect(supplied.mode).toBe('returned_to_user')
     expect(supplied.supersededReceipt).toBe(false)
@@ -146,7 +146,7 @@ describe('deriveHandoffInputFromConversation', () => {
     const supplied = deriveHandoffInputFromConversation({
       conversation: conversation({ generation: 6, coordinationOwner: 'lead' }),
       connected: true,
-      receipt: { sessionId: 'session-1', fromView: 'dev', toView: 'chat', generation: 4 },
+      receipt: { sessionId: 'session-1', holder: 'user', generation: 4 },
     })
     expect(supplied.mode).toBe('coordination_handoff')
     expect(supplied.supersededReceipt).toBe(true)
@@ -156,7 +156,7 @@ describe('deriveHandoffInputFromConversation', () => {
     const supplied = deriveHandoffInputFromConversation({
       conversation: conversation(),
       connected: true,
-      receipt: { sessionId: 'session-2', fromView: 'dev', toView: 'chat', generation: 3 },
+      receipt: { sessionId: 'session-2', holder: 'user', generation: 3 },
     })
     expect(supplied.mode).toBe('attached')
     expect(supplied.supersededReceipt).toBe(false)

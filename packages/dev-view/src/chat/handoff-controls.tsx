@@ -7,7 +7,7 @@
 // disabled with the missing Control Plane J2/J4 contract named (see
 // docs/plans/m14-1177-handoff-boundary.md), never silently mapped onto the
 // bound harness control. Return-to-user executes the persisted
-// `dev.session.transferInput` through the caller's handler and is guarded by
+// `dev.session.transferCoordination` through the caller's handler and guarded by
 // the same offline/stale/conflict/scope/archived gates as lead-stop, with
 // single-flight busy handling and an explicit error-and-retry state. All copy
 // uses shared primitives so keyboard, focus, screen-reader, zoom, and
