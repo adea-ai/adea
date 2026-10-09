@@ -17,101 +17,57 @@ transcript, its bound harness run, and its accepted execution location:
 
 - `attached` — read-only session reference; grants no control.
 - `one_time_review` — a single review pass; takes no control, starts no work.
-- `coordination_handoff` — explicit generation-bound coordination transfer.
-- `returned_to_user` — the lead relinquishes; the user owns the session.
+- `coordination_handoff` — an explicitly observed live lead turn coordinates.
+- `returned_to_user` — the observed lead turn ended; the user owns the session.
 
 Implementation: `packages/dev-view/src/chat/model/handoff.ts`
-(`deriveDirectSessionHandoff`, strict run binding, handoff/return guards,
+(`deriveDirectSessionHandoff`, strict run binding, lead/session guards,
 `deriveHandoffModeForSurface` / `deriveHandoffInputFromConversation`
 production supplier, single-flight admission with a monotonic view/action
 epoch), `packages/dev-view/src/chat/handoff-controls.tsx`, default supplier
 plus model-backed actions in `ChatView` (`handoff` config; full `handoffView`
-override still wins), `coordinate` on `ChatConversationModel`, the explicit
-`dev.session.transferCoordination` host operation (registered in
-`docs/specs/dev-runtime-operations.json` with generated metadata/registry),
-and the production enablement in
+override still wins), and the production enablement in
 `apps/web/src/components/desktop-first-run-chat.tsx`.
 
-Coordination semantics: nothing is inferred from a bound run, from composer
-input authority, or from input-view routing — a user-created direct run is
-not proof of an explicit handoff, who may type in a box is a different
-dimension, and an ordinary chat<->Dev View input switch records nothing.
-Coordination moves only through the explicit authorized operation
-`dev.session.transferCoordination` (`dev.session.manage`, generation- and
-owner-version-fenced, resource-bound): handing coordination to the lead
-names the exact register-bound harness run receiving it (anything but the
-current `activeHarnessRunId` is refused, so no view label can invent a
-lead), and returning it releases coordination back to the user. The
-binding is retained as `coordinationOwner` (`'lead'` with its
-`coordinationHarnessRunId`, or `'user'` with no run) on every later
-`get`/`list` reply and across restarts; absent means no explicit
-coordination was ever recorded. The only paths into a coordinating mode
-are the host-projected owner, our unobserved commit (current receipt), or
-an explicit caller override — never a default.
-The view mints no session, run, or location IDs and switches no worktree,
-project, or execution location. Offline, stale generation, control conflicts,
-scope mismatch, archived sessions, superseded/foreign/terminal runs, and
-missing bound runs each render a named reason with a remediation — never a
-silent fallback. Unsent drafts are preserved through transfer, lead-stop,
-and failed transfers (pinned against the live model maps, not a flag).
+Coordination semantics: coordination comes only from supplied canonical
+lead-turn facts — the workspace lead's admitted intent identity plus its
+observed live execution — and never from a bound run, composer authority,
+or view routing. A user-created direct run is execution, not delegation:
+launching or running never establishes lead coordination, and an ordinary
+chat<->Dev View input switch (`dev.session.transferInput`, which keeps its
+exact prior semantics and records nothing) never hands off. Stopping the
+LEAD cancels the canonical lead turn through the caller-supplied handler;
+stopping the SESSION run cancels the bound harness run; job and descendant
+cancellation stay disabled pending their Control Plane contracts. No
+dev-side coordination is invented, stored, or inferred anywhere: a live
+session without explicitly observed lead-turn facts attaches read-only
+even with a run bound.
 
-Persisted authoritative transition: `dev.session.transferCoordination`
-(generation- and owner-version-fenced, durable host snapshot,
-`session.coordination_changed` event, retained holder plus bound run).
-Handoff and return execute it for real via
-`ChatConversationModel.coordinate` (exact fenced command naming the bound
-run for handoffs, refresh from the canonical register, drafts untouched); a stale receipt parks an explicit
-control conflict scoped to the parked generation (it clears when the
-conversation moves past it via refresh, never by blind retry at the same
-generation). Late completions are fenced by session identity plus a
-monotonic view/action epoch: every session switch and every admitted
-start advances it, and a completion applies only while the epoch still
-reads its admitted value — so an old A completion can neither mark a
-newly selected session nor clear a newer A action's busy state (A-B-A
-safe). The ChatView reset fires only on an actual session change, never
-on a same-session refresh, which preserves receipts and in-flight
-actions. Lead-stop maps to the bound
-`cancelHarness` control. Run binding is strict where run objects exist
-(same session, register-bound id, same scope, non-terminal) and falls back
-to the register id exactly as `cancelHarness` does where they do not — a
-run older than the session generation still binds, because transfers bump
-the session without replacing the run.
+## What Adea does NOT own (Control Plane and lead admission)
 
-Contract surface (`docs/specs/dev-runtime-operations.json`, generated
-metadata/registry refreshed in the same commit):
-`dev.session.get`, `dev.session.list`, `dev.session.events`,
-`dev.session.transferInput` (input-view routing only — records no
-coordination), `dev.session.transferCoordination` (new in this slice: the
-explicit authorized coordination operation above),
-`dev.session.cancelHarness` (bound harness run only),
-`dev.session.resumeHarness`, `dev.session.archive/unarchive`. Lead-stop
-maps to the bound `cancelHarness` control; nothing else is mapped onto
-it.
-
-## What Adea does NOT own (Control Plane)
-
-Lead-turn/job/descendant cancellation beyond the bound harness run, plus
-native-bridge qualification and budget/progress delivery, remain Control Plane
-products. No Control Plane code was edited. One new `dev.*` operation
-was added in this slice with boundary coordination (allowed scope: extend
-the relevant existing session projection/host contract within #1177):
-`dev.session.transferCoordination` plus the optional retained
-`coordinationOwner`/`coordinationHarnessRunId` on `RuntimeSession`
-(written only by the new operation, projected by the existing
-`get`/`list`, validated on stored records with foreign bindings failing
-closed as corrupt), specified in `docs/specs/dev-runtime.md` in the same
-commit as the behavior.
+Lead-turn admission, dispatch, execution, and cancellation live with the
+workspace lead and the Control Plane lead-turn domain (intents keyed
+`lead-turn:<id>`, dispatch/execution/attempt identity, cancellable versus
+terminal states per the canonical contract). Session-side handoff and
+return have no authorized coordination path from the dev surface, so both
+rows fail closed with this gap named instead of performing a view
+relabel. No new `dev.*` operation was added in this slice and no Control
+Plane code was edited; the earlier slice's `transferCoordination`
+experiment and its retained fields were fully reverted (operations
+registry, generated metadata, host handler, session DTO, spec text) once
+review established that the desktop host cannot resolve lead identity or
+lead acceptance.
 
 ## Exact contract status with the CP #935 owner (verified 2026-10-09)
 
 Control-plane#935 is still open and `docs/specs/dev-runtime-operations.json`
-still carries no durable job-cancel intent, generation-bound retry, or effect
-receipt operations — only the pre-existing `dev.session.*` family including
-`dev.session.transferInput`. Coordination outcome: Adea implements against
-the confirmed existing contract (transfer for ownership, `cancelHarness` for
-the bound run) and keeps job and descendant controls disabled with the exact
-missing J2/J4 contract named. No `dev.*` operation was invented and no
-Control Plane code was edited.
+carries no durable job-cancel intent, generation-bound retry, or effect
+receipt operations. Coordination outcome: Adea implements against
+confirmed existing contracts only (`transferInput` for view routing,
+`cancelHarness` for the bound run, lead-turn reads/cancel owned by their
+canonical paths) and keeps job and descendant controls disabled with the
+exact missing J2/J4 contract named. No `dev.*` operation was invented and
+no Control Plane code was edited.
 
 The following must still be supplied (versioned, generation-bound,
 idempotent) before Adea can enable the currently-disabled job and descendant
@@ -120,7 +76,7 @@ replace — Adea implements against the confirmed contract, not this draft:
 
 1. **Durable job-cancel intent** — persist cancel intent against the exact
    job attempt/generation; report `pending` until the executor confirms;
-   lead-stop must not cancel children. Required fields: job id, attempt,
+   lead-stop does not cancel children. Required fields: job id, attempt,
    generation, idempotency key, actor, reason; reply: intent receipt with
    `pending`/`confirmed` state.
 2. **Generation-bound retry** — reconcile uncertain effects before retry;
@@ -136,6 +92,11 @@ fencing, transactional child budgets, coalesced progress) are tracked by
 their owners and are not preconditions for this presentation slice beyond
 the disabled states above.
 
+A lead-aware host (Dev entry or a channel-bound surface that can observe
+lead turns) can supply `{ intentId, dispatchId, state, canCancel }` plus
+the canonical cancel handler through the existing `handoff` config to
+enable the full path; until then the gap rows state exactly this.
+
 ## Coordination
 
 API boundaries are coordinated with the CP #935 owner through the linked
@@ -145,37 +106,26 @@ disabled states; integration lands when the CP contract is confirmed.
 ## Traceability
 
 REQ 032, 080–088, 095, 096, 104, 110, 130–136. Tests A12–A14, A18, A21,
-A23–A25, A33 (this slice: `chat-handoff-model.test.ts` binding/guard/a11y
-contract/action-machine/epoch-admission tests,
-`chat-handoff-coordinate.test.ts` exact-command (holder plus bound run)
-and live-draft-preservation tests against the real conversation model,
-`chat-handoff-supplier.test.ts` retained-owner/receipt/run/draft
-derivation tests, `project-session-handoff-journey.test.ts` joined
-real-register journey (direct-user → explicit handoff bound to the exact
-run → return → restart with one retained session/run/location at
-gen3/ver3, ordinary view transfer provably recording no coordination,
-generation/version fencing, foreign-run and unbound-handoff refusal,
-return-with-nothing-held refusal, corrupt-binding fail-closed),
-plus mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts`
-over `e2e/helpers/direct-session-handoff-harness-app.tsx`: read-only
-attach default, joined handoff→return with direction proof, single-flight
-under force activation, stale/conflict with resolve-then-retry through
-re-handoff, newer-ownership takeover, late-completion and ABA busy-state
-fences, browser-reload retained coordination, keyboard/focus activation,
-assistive-technology tree, narrow/200% text, and reduced motion — the
-mounted file on an ephemeral loopback harness server, no backend or
-database; no duplicate execution, no silent fallback, preserved authority).
+A23–A25, A33 (this slice: `chat-handoff-model.test.ts` lead-turn modes,
+binding/replacement matrix, gap rows, a11y contract, action-machine and
+epoch admission; `chat-handoff-supplier.test.ts` lead-fact derivation;
+`chat-conversation-model.test.ts` session-cancel targeting plus live
+draft preservation; `project-session-handoff-journey.test.ts` joined
+real-register view-routing journey with reload persistence and fencing;
+mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts` over
+`e2e/helpers/direct-session-handoff-harness-app.tsx`: read-only attach
+default, observed-turn journey with distinct lead/session stops,
+single-flight, replacement retargeting, late-completion and ABA busy
+fences, reload of re-read facts, keyboard/focus, AT tree, narrow/200%
+text, reduced motion — the mounted file on an ephemeral loopback
+harness server, no backend or database; no duplicate execution, no
+silent fallback, preserved authority).
 
-Currency rule (operation/view epoch): coordination comes from our
-unobserved commit first, then the host-projected retained owner, then
-nothing asserted. A receipt carries its session and committed generation
-and applies only while the canonical conversation shows it; an older
-receipt against a newer conversation falls back to attachment with a
-newer-ownership notice instead of overwriting. Completions additionally
-carry the view/action epoch captured at admission: any navigation or
-newer admitted start invalidates them. A same-session refresh preserves
-receipts and in-flight actions; only an actual session switch resets
-them.
+Currency rule (operation/view epoch): completions carry the view/action
+epoch captured at admission — every session switch and every admitted
+start advances it, so late completions commit nothing once replaced
+(A-B-A safe). A same-session refresh preserves facts and in-flight
+actions; only an actual session switch resets them.
 Related gates: [#40](https://github.com/adea-ai/adea/issues/40),
 [#43](https://github.com/adea-ai/adea/issues/43),
 [#811](https://github.com/adea-ai/adea/issues/811).

@@ -124,9 +124,7 @@ describe('Dev Runtime operation registry', () => {
     // GitHub" import source): the registry ratchet moves only when an
     // operation is deliberately added, and the decoder-key check below is
     // what keeps the list and the decoders in step.
-    // 235 with dev.session.transferCoordination (#1177: explicit
-    // authorized coordination bound to the register-bound run).
-    expect(devOperations).toHaveLength(235)
+    expect(devOperations).toHaveLength(234)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
@@ -198,48 +196,6 @@ describe('Dev Runtime operation registry', () => {
       streamAttach: 'dev.runtime.stream.attach.v1',
     })
     expect(Object.keys(devOperationDecoders)).toEqual([...devOperations])
-  })
-
-  test('transferCoordination decodes the explicit holder and its bound run', () => {
-    const request = devOperationDecoders['dev.session.transferCoordination'].request
-    expect(
-      request({
-        runtimeSessionId: 'session-1',
-        expectedGeneration: 3,
-        toHolder: 'lead',
-        harnessRunId: 'run-1',
-        expectedOwnerVersion: 7,
-      })
-    ).toEqual({
-      runtimeSessionId: 'session-1',
-      expectedGeneration: 3,
-      toHolder: 'lead',
-      harnessRunId: 'run-1',
-      expectedOwnerVersion: 7,
-    })
-    expect(
-      request({
-        runtimeSessionId: 'session-1',
-        expectedGeneration: 3,
-        toHolder: 'user',
-        expectedOwnerVersion: 7,
-      })
-    ).toEqual({
-      runtimeSessionId: 'session-1',
-      expectedGeneration: 3,
-      toHolder: 'user',
-      expectedOwnerVersion: 7,
-    })
-    // The holder is a closed pair, never a view name: ordinary view labels
-    // cannot smuggle coordination through the decoder.
-    expect(() =>
-      request({
-        runtimeSessionId: 'session-1',
-        expectedGeneration: 3,
-        toHolder: 'dev',
-        expectedOwnerVersion: 7,
-      })
-    ).toThrow()
   })
 
   test('strictly decodes every empty or representative request body', () => {

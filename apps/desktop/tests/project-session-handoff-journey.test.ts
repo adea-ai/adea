@@ -1,14 +1,15 @@
-// Direct-session handoff host journey (#1177): the joined authoritative path
-// for direct-user session -> explicit coordination handoff -> return ->
-// reload, executed against the real project-session register (durable
-// SQLite in a disposable temp dir, no fixtures standing in for the host).
+// Direct-session input routing (#1177): the joined authoritative path for
+// ordinary chat<->Dev View view transfer, executed against the real
+// project-session register (durable SQLite in a disposable temp dir, no
+// fixtures standing in for the host).
 //
 // This proves what the UI fixture cannot: the actual host decoder and
-// handler accept the explicit coordination operation, fence generation and
-// owner version, bind the exact run, retain one session/run transcript
-// identity across a process restart — without duplicating execution —
-// while ordinary input-view transfer (`dev.session.transferInput`) moves
-// only transient routing and records no coordination at all.
+// handler move only transient input-view routing, fence generation and
+// owner version, and retain one session/run transcript identity across a
+// process restart — without duplicating execution — while recording no
+// coordination of any kind. Lead coordination lives exclusively with
+// lead-turn admission and its canonical records; the dev register neither
+// stores nor consults it.
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -40,8 +41,8 @@ const project: Project = {
   version: 1,
 }
 
-// A direct-user session with a user-launched bound run and no prior handoff
-// facts: generation 1, owner version 1, no retained coordination.
+// A direct-user session with a user-launched bound run: generation 1,
+// owner version 1, no coordination fields whatsoever.
 const session: RuntimeSession = {
   id: '00000000-0000-4000-8000-000000000040',
   scope,
@@ -97,25 +98,25 @@ function sessionResource(generation: number): DevCommand['resource'] {
   return { kind: 'runtime_session', id: session.id, generation }
 }
 
-function coordinate(
+function transferInput(
   runtime: ProjectSessionRuntime,
   args: {
     expectedGeneration: number
-    toHolder: 'lead' | 'user'
-    harnessRunId?: string
+    fromView: 'chat' | 'dev'
+    toView: 'chat' | 'dev'
     expectedOwnerVersion: number
   }
 ): RuntimeSession {
-  const handler = runtime.providers['dev.session.transferCoordination']
-  if (!handler) throw new Error('provider missing for dev.session.transferCoordination')
+  const handler = runtime.providers['dev.session.transferInput']
+  if (!handler) throw new Error('provider missing for dev.session.transferInput')
   return handler(
     command(
-      'dev.session.transferCoordination',
+      'dev.session.transferInput',
       {
         runtimeSessionId: session.id,
         expectedGeneration: args.expectedGeneration,
-        toHolder: args.toHolder,
-        ...(args.harnessRunId !== undefined ? { harnessRunId: args.harnessRunId } : {}),
+        fromView: args.fromView,
+        toView: args.toView,
         expectedOwnerVersion: args.expectedOwnerVersion,
       },
       sessionResource(args.expectedGeneration)
@@ -138,52 +139,41 @@ function expectCode(run: () => unknown, code: DevAuthorityError['code']) {
   throw new Error(`expected DevAuthorityError ${code}`)
 }
 
-describe('direct-session handoff host journey', () => {
-  test('direct-user -> handoff -> return -> reload retains one run and transcript identity', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-handoff-'))
+describe('direct-session input routing', () => {
+  test('view transfer moves routing only and retains one run across reload', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-routing-'))
     const published: Array<{ event: string; kind: string }> = []
     try {
       const runtime = seedRuntime(dataDir, published)
       expect('coordinationOwner' in session).toBe(false)
+      expect('coordinationHarnessRunId' in session).toBe(false)
 
-      // Explicit handoff: coordination binds to the exact register-bound run.
-      const handedOff = coordinate(runtime, {
+      const moved = transferInput(runtime, {
         expectedGeneration: 1,
-        toHolder: 'lead',
-        harnessRunId: session.activeHarnessRunId,
+        fromView: 'chat',
+        toView: 'dev',
         expectedOwnerVersion: 1,
       })
-      expect(handedOff.id).toBe(session.id)
-      expect(handedOff.generation).toBe(2)
-      expect(handedOff.version).toBe(2)
-      expect(handedOff.coordinationOwner).toBe('lead')
-      expect(handedOff.coordinationHarnessRunId).toBe(session.activeHarnessRunId)
-      expect(handedOff.activeHarnessRunId).toBe(session.activeHarnessRunId)
-      expect(handedOff.worktreeId).toBe(session.worktreeId)
-      expect(handedOff.projectId).toBe(session.projectId)
-      expect(handedOff.lifecycle).toBe('active')
-
-      // Return: coordination releases back to the user and drops the binding.
-      const returned = coordinate(runtime, {
-        expectedGeneration: 2,
-        toHolder: 'user',
-        expectedOwnerVersion: 2,
-      })
-      expect(returned.id).toBe(session.id)
-      expect(returned.generation).toBe(3)
-      expect(returned.version).toBe(3)
-      expect(returned.coordinationOwner).toBe('user')
-      expect('coordinationHarnessRunId' in returned).toBe(false)
-      expect(returned.activeHarnessRunId).toBe(session.activeHarnessRunId)
-      expect(returned.worktreeId).toBe(session.worktreeId)
-      expect(returned.projectId).toBe(session.projectId)
-
-      // Both coordination transfers published; nothing duplicated.
+      expect(moved.id).toBe(session.id)
+      expect(moved.generation).toBe(2)
+      expect(moved.version).toBe(2)
+      expect(moved.activeHarnessRunId).toBe(session.activeHarnessRunId)
+      expect(moved.worktreeId).toBe(session.worktreeId)
+      expect(moved.projectId).toBe(session.projectId)
+      // View routing moved, but nothing was coordinated: no retained
+      // coordination keys exist on the reply, and no coordination event
+      // was published — only the input transfer itself.
+      expect('coordinationOwner' in moved).toBe(false)
+      expect('coordinationHarnessRunId' in moved).toBe(false)
       const transfers = published.filter(
         (entry) =>
-          entry.event === 'dev.session.updated' && entry.kind === 'session.coordination_changed'
+          entry.event === 'dev.session.updated' && entry.kind === 'session.input_transferred'
       )
-      expect(transfers).toHaveLength(2)
+      expect(transfers).toHaveLength(1)
+      expect(
+        published.filter((entry) => entry.kind === 'session.coordination_changed')
+      ).toHaveLength(0)
+
       const listed = (
         runtime.providers['dev.session.list']!(command('dev.session.list', {})) as {
           items: RuntimeSession[]
@@ -192,8 +182,8 @@ describe('direct-session handoff host journey', () => {
       expect(listed.map((entry) => entry.id)).toEqual([session.id])
 
       // Reload persistence: a brand-new register over the same directory
-      // retains the journey — one session, advanced generation and version,
-      // user-held coordination, same bound run and location.
+      // retains the session — same run and location, advanced generation
+      // and version, still no coordination residue.
       const restarted = registerProjectSessionRuntime({
         authority: { registerCommandProvider() {} },
         dataDir,
@@ -203,103 +193,55 @@ describe('direct-session handoff host journey', () => {
         command('dev.session.get', { runtimeSessionId: session.id })
       ) as RuntimeSession
       expect(reloaded.id).toBe(session.id)
-      expect(reloaded.generation).toBe(3)
-      expect(reloaded.version).toBe(3)
-      expect(reloaded.coordinationOwner).toBe('user')
-      expect('coordinationHarnessRunId' in reloaded).toBe(false)
+      expect(reloaded.generation).toBe(2)
+      expect(reloaded.version).toBe(2)
       expect(reloaded.activeHarnessRunId).toBe(session.activeHarnessRunId)
       expect(reloaded.worktreeId).toBe(session.worktreeId)
       expect(reloaded.projectId).toBe(session.projectId)
       expect(reloaded.archived).toBe(false)
+      expect('coordinationOwner' in reloaded).toBe(false)
+      expect('coordinationHarnessRunId' in reloaded).toBe(false)
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }
   })
 
-  test('ordinary input-view transfer records no coordination', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-handoff-'))
+  test('stale generations, versions, and foreign bindings are fenced, not applied', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-routing-'))
     const published: Array<{ event: string; kind: string }> = []
     try {
       const runtime = seedRuntime(dataDir, published)
-      const handler = runtime.providers['dev.session.transferInput']
-      if (!handler) throw new Error('provider missing for dev.session.transferInput')
-      const moved = handler(
-        command(
-          'dev.session.transferInput',
-          {
-            runtimeSessionId: session.id,
-            expectedGeneration: 1,
-            fromView: 'chat',
-            toView: 'dev',
-            expectedOwnerVersion: 1,
-          },
-          sessionResource(1)
-        )
-      ) as RuntimeSession
-      // View routing moved (generation bumped) but no coordination was
-      // recorded: a plain chat<->Dev View switch never hands off.
-      expect(moved.generation).toBe(2)
-      expect('coordinationOwner' in moved).toBe(false)
-      expect(
-        published.filter((entry) => entry.kind === 'session.coordination_changed')
-      ).toHaveLength(0)
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  test('coordination fencing refuses stale, foreign, and unbound handoffs', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-handoff-'))
-    const published: Array<{ event: string; kind: string }> = []
-    try {
-      const runtime = seedRuntime(dataDir, published)
-      // A handoff without naming the bound run binds nothing.
+      const transfer = {
+        runtimeSessionId: session.id,
+        fromView: 'chat',
+        toView: 'dev',
+        expectedOwnerVersion: 1,
+      } as const
       expectCode(
-        () =>
-          coordinate(runtime, {
-            expectedGeneration: 1,
-            toHolder: 'lead',
-            expectedOwnerVersion: 1,
-          }),
-        'invalid_state'
-      )
-      // A handoff naming any other run is refused, not misbound.
-      expectCode(
-        () =>
-          coordinate(runtime, {
-            expectedGeneration: 1,
-            toHolder: 'lead',
-            harnessRunId: '00000000-0000-4000-8000-000000000099',
-            expectedOwnerVersion: 1,
-          }),
-        'invalid_state'
-      )
-      // A return with nothing lead-held to return is refused.
-      expectCode(
-        () =>
-          coordinate(runtime, { expectedGeneration: 1, toHolder: 'user', expectedOwnerVersion: 1 }),
-        'invalid_state'
-      )
-      // Stale generation and owner version fail closed.
-      expectCode(
-        () =>
-          coordinate(runtime, {
-            expectedGeneration: 999,
-            toHolder: 'lead',
-            harnessRunId: session.activeHarnessRunId,
-            expectedOwnerVersion: 1,
-          }),
+        () => transferInput(runtime, { ...transfer, expectedGeneration: 999 }),
         'stale_generation'
       )
       expectCode(
         () =>
-          coordinate(runtime, {
+          transferInput(runtime, {
+            ...transfer,
             expectedGeneration: 1,
-            toHolder: 'lead',
-            harnessRunId: session.activeHarnessRunId,
             expectedOwnerVersion: 999,
           }),
         'stale_version'
+      )
+      const handler = runtime.providers['dev.session.transferInput']
+      if (!handler) throw new Error('provider missing for dev.session.transferInput')
+      expectCode(
+        () =>
+          handler(
+            command(
+              'dev.session.transferInput',
+              { ...transfer, expectedGeneration: 1 },
+              { kind: 'runtime_session', id: 'other-session', generation: 1 }
+            )
+          ),
+        'identity_mismatch'
       )
       // Nothing moved: the record still stands at its genesis.
       const current = runtime.providers['dev.session.get']!(
@@ -307,32 +249,9 @@ describe('direct-session handoff host journey', () => {
       ) as RuntimeSession
       expect(current.generation).toBe(1)
       expect(current.version).toBe(1)
-      expect('coordinationOwner' in current).toBe(false)
-      expect(
-        published.filter((entry) => entry.kind === 'session.coordination_changed')
-      ).toHaveLength(0)
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  })
-
-  test('a foreign coordination binding fails closed as corrupt on reload', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-handoff-'))
-    const published: Array<{ event: string; kind: string }> = []
-    try {
-      const runtime = seedRuntime(dataDir, published)
-      runtime.upsertSession({
-        ...session,
-        version: session.version + 1,
-        coordinationOwner: 'nobody' as never,
-      })
-      expect(() =>
-        registerProjectSessionRuntime({
-          authority: { registerCommandProvider() {} },
-          dataDir,
-          scope,
-        })
-      ).toThrow(/failed to decode/)
+      expect(published.filter((entry) => entry.kind === 'session.input_transferred')).toHaveLength(
+        0
+      )
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }
