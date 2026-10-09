@@ -1306,48 +1306,39 @@ describe('cleanup policies', () => {
       consume: () => undefined,
       consumeByReference: () => undefined,
     }
-    const first = boot({
-      approvalVerifier,
-      worktreeFacts: () => ({ clean: 'true', pushed: 'true', active_leases: '0' }),
-    })
-    const policy = first.authority.providers['dev.cleanupPolicy.createDraft']!(
-      command('dev.cleanupPolicy.createDraft', {
-        projectId: 'proj-1',
-        name: 'auto-clean merged',
-        predicates: [...PREDICATES],
-        allowedSteps: ['prune_retained_data'],
-      })
-    ) as { id: string; version: number }
-    first.authority.providers['dev.cleanupPolicy.approve']!(
-      command(
-        'dev.cleanupPolicy.approve',
-        { cleanupPolicyId: policy.id, expectedVersion: 1, approvalId: 'approval-1' },
-        { kind: 'cleanup_policy', id: policy.id, generation: 1 }
-      )
-    )
-    // Seed a valid future expiry on the stored record; the command decoder
-    // treats a body `expiresAt` as an authority field.
-    const file = join(first.dataDir, 'dev-runtime', 'resources', 'cleanup-policies.json')
-    const envelope = JSON.parse(readFileSync(file, 'utf8')) as {
-      records: Array<Record<string, unknown>>
-    }
-    envelope.records = envelope.records.map((record) =>
-      record.id === policy.id ? { ...record, expiresAt: '2026-10-09T00:01:00.000Z' } : record
-    )
-    writeFileSync(file, JSON.stringify(envelope))
     let releaseFacts!: () => void
     const parked = new Promise<void>((resolve) => {
       releaseFacts = resolve
     })
-    const second = boot({
-      dataDir: first.dataDir,
+    const { authority } = boot({
+      approvalVerifier,
       now: () => nowMs,
       worktreeFacts: async () => {
         await parked
         return { clean: 'true', pushed: 'true', active_leases: '0' }
       },
     })
-    const evaluating = second.authority.providers['dev.cleanupPolicy.evaluate']!(
+    // The user-requested lifetime enters through the dedicated
+    // `policyExpiresAt` body field on the real command surface.
+    const policy = authority.providers['dev.cleanupPolicy.createDraft']!(
+      command('dev.cleanupPolicy.createDraft', {
+        projectId: 'proj-1',
+        name: 'auto-clean merged',
+        predicates: [...PREDICATES],
+        allowedSteps: ['prune_retained_data'],
+        policyExpiresAt: '2026-10-09T00:01:00.000Z',
+      })
+    ) as { expiresAt?: string; id: string; version: number }
+    // The trusted stored/reply record keeps the established `expiresAt` shape.
+    expect(policy.expiresAt).toBe('2026-10-09T00:01:00.000Z')
+    authority.providers['dev.cleanupPolicy.approve']!(
+      command(
+        'dev.cleanupPolicy.approve',
+        { cleanupPolicyId: policy.id, expectedVersion: 1, approvalId: 'approval-1' },
+        { kind: 'cleanup_policy', id: policy.id, generation: 1 }
+      )
+    )
+    const evaluating = authority.providers['dev.cleanupPolicy.evaluate']!(
       command(
         'dev.cleanupPolicy.evaluate',
         {
@@ -1371,5 +1362,43 @@ describe('cleanup policies', () => {
     expect(settled.executesNothing).toBe(true)
     expect(settled.blockers[0]).toMatchObject({ code: 'capability_unavailable' })
     expect(settled.blockers[0]?.message).toContain('expired while worktree facts were being read')
+  })
+
+  test('createDraft takes the dedicated policyExpiresAt field and rejects the authority field', async () => {
+    const approvalVerifier = {
+      recordIssuance: () => undefined,
+      consume: () => undefined,
+      consumeByReference: () => undefined,
+    }
+    const { authority } = boot({
+      approvalVerifier,
+      now: () => Date.parse('2026-10-09T00:00:00.000Z'),
+      worktreeFacts: () => ({ clean: 'true', pushed: 'true', active_leases: '0' }),
+    })
+    const draft = (body: Readonly<Record<string, unknown>>) =>
+      authority.providers['dev.cleanupPolicy.createDraft']!(
+        command('dev.cleanupPolicy.createDraft', {
+          projectId: 'proj-1',
+          name: 'auto-clean merged',
+          predicates: [...PREDICATES],
+          allowedSteps: ['prune_retained_data'],
+          ...body,
+        })
+      )
+    const created = draft({ policyExpiresAt: '2026-10-10T00:00:00.000Z' }) as {
+      expiresAt?: string
+    }
+    expect(created.expiresAt).toBe('2026-10-10T00:00:00.000Z')
+    // A malformed format is refused by the request decoder before the handler.
+    const malformed = await errorOf(() => draft({ policyExpiresAt: 'not-a-date' }))
+    expect(malformed.message).toContain('expected UTC timestamp')
+    // A well-formed but non-future lifetime reaches the handler and refuses.
+    await expect(
+      errorOf(() => draft({ policyExpiresAt: '2026-10-08T00:00:00.000Z' }))
+    ).resolves.toMatchObject({ code: 'invalid_state' })
+    // The transport authority field stays forbidden in every body; a forged
+    // `expiresAt` never reaches the handler.
+    const forged = await errorOf(() => draft({ expiresAt: '2026-10-10T00:00:00.000Z' }))
+    expect(forged.message).toContain('authority field is forbidden in body')
   })
 })

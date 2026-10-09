@@ -147,14 +147,31 @@ Permanent regressions:
   increments the revision (update → visibility → reorder → archive → soft
   delete), and the summary key set includes `version`.
 
-## Follow-up (not in this lane)
+## Implemented: dedicated policy expiry request field
 
-### `dev.cleanupPolicy.createDraft` body/guard mismatch
+`dev.cleanupPolicy.createDraft` originally declared `expiresAt?: timestamp`
+in its body while the shared decoder rejects `expiresAt` as a transport
+authority field before body validation, making the declared field unusable.
+The fix keeps that prohibition global and renames only the policy request
+field:
 
-The operation's DSL body declares `expiresAt?: timestamp`, but the shared
-command decoder rejects `expiresAt` as an authority field before body
-validation (`assertNoAuthorityFields`), so the field cannot be sent through
-the command surface today. This predates this lane; malformed values already
-stored fail closed at evaluation, and `createDraft`/`approve` validate a
-directly supplied expiry. The fix belongs in the types contract (allow a
-declared body field or rename it), not in the cleanup authority.
+- `docs/specs/dev-runtime-operations.json` and the regenerated
+  `packages/types/src/dev-runtime-registry.ts` declare
+  `policyExpiresAt?: timestamp`; `scripts/generate-dev-runtime-contract.mjs
+--check` passes.
+- `apps/desktop/shell/src/dev-runtime/resources/policy.ts` reads the
+  dedicated field, validates it with `cleanupPolicyExpiry` against the live
+  clock, and stores the trusted record under the established `expiresAt`
+  reply shape.
+- No stored-record migration is required: the persisted/reply
+  `CleanupPolicy`, `cleanupPolicyStanding` and every stored record are
+  unchanged, and no policy with an expiry could ever be created through the
+  old body field because the decoder rejected it.
+- Tests through the real command surface: a valid future `policyExpiresAt`
+  is accepted and stored as `expiresAt`; a well-formed non-future value
+  refuses `invalid_state`; a malformed value is refused by the request
+  decoder; a forged body `expiresAt` still fails with `authority field is
+forbidden in body`; the parked-facts expiry regression now creates its
+  policy through the surface. The stored malformed-record fail-closed
+  regression stays, and `packages/types/tests/dev-runtime.test.ts` pins the
+  request decoder contract.
