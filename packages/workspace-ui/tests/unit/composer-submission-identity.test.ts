@@ -32,3 +32,18 @@ test('a changed topic, body, attachment or mention is a distinct submission', ()
   expect(identity.key({ ...input, artifactIds: [] })).toBe('key-4')
   expect(identity.key({ ...input, mentions: [{ kind: 'agent', id: 'lead' }] })).toBe('key-5')
 })
+
+test('changed requested-role choice creates a new save key while unchanged choice retries', () => {
+  let generated = 0
+  const identity = createComposerSubmissionIdentity(() => `key-${++generated}`)
+  const input = {
+    channelId: 'lead-topic',
+    bodyText: 'Question',
+    artifactIds: [],
+    mentions: [],
+    submissionContext: 'lead-a-child-b',
+  }
+  expect(identity.key(input)).toBe('key-1')
+  expect(identity.key({ ...input })).toBe('key-1')
+  expect(identity.key({ ...input, submissionContext: 'lead-c-child-b' })).toBe('key-2')
+})

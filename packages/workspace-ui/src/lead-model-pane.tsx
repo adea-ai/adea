@@ -224,7 +224,7 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
               return (
                 <SettingsRow
                   label={`${connection.provider} · ${model.providerModel}`}
-                  description={`Account: ${connection.accountRef} · Authentication: ${connection.authKind} · Funding: ${connection.fundingSource}`}
+                  description={`Account: ${connection.accountRef} · Authentication: ${connection.authKind} · Funding: ${connection.fundingSource} · Location: ${inventory()?.target?.location ?? 'unavailable'}`}
                 >
                   <div class="flex flex-col gap-2">
                     <Badge

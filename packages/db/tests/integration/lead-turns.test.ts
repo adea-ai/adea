@@ -114,6 +114,37 @@ describe.skipIf(!connectionUrl)('canonical lead-turn intent', () => {
     ).toHaveLength(1)
   })
 
+  test('requested role column rejects snapshots, empty choices and unsafe revisions', async () => {
+    const f = await fixture()
+    const first = await f.admit()
+    const valid = { child: { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 1 } }
+    await connection.db
+      .update(leadTurnIntents)
+      .set({ requestedModelSelections: valid })
+      .where(eq(leadTurnIntents.id, first.leadTurn.intentId))
+    for (const invalid of [
+      {},
+      { direct: valid.child },
+      { lead: { ...valid.child, credentialRef: 'caller-credential' } },
+      { lead: { ...valid.child, selectionRevision: 0 } },
+      { lead: { ...valid.child, selectionRevision: 9007199254740992 } },
+      { lead: null },
+    ]) {
+      await expect(
+        Promise.resolve(
+          connection.db.execute(
+            sql`update app.lead_turn_intents set requested_model_selections = ${JSON.stringify(invalid)}::jsonb where id = ${first.leadTurn.intentId}`
+          )
+        )
+      ).rejects.toMatchObject({ cause: { code: '23514' } })
+    }
+    const [stored] = await connection.db
+      .select()
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.id, first.leadTurn.intentId))
+    expect(stored?.requestedModelSelections).toEqual(valid)
+  })
+
   test('concurrent retry commits one canonical message, one blocked intent and one event', async () => {
     const f = await fixture()
     const results = await Promise.all(Array.from({ length: 4 }, f.admit))

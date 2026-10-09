@@ -6,3 +6,5 @@ export { default as RuntimeNodesPane } from './runtime-nodes-pane'
 export { default as SkillsPane } from './skills-pane'
 export { default as LeadModelPane } from './lead-model-pane'
 export { LeadTurnControls } from './lead-turn-controls'
+
+export { createLeadModelRequestResolver } from './lead-model-request'

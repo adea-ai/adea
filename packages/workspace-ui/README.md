@@ -140,3 +140,11 @@ stay separate. Observations age without network polling; refresh and committed
 node events reconcile them. Inspecting a host changes no execution selection or
 history authority. Scope changes/close cancel unused queries and discard pages;
 failed refreshes do not retain a previous eligible presentation.
+
+## Requested models for lead turns
+
+The designated lead conversation exposes independent lead and delegated-agent choices for the next saved message. Eligible options and bounded setup remedies come from the workspace model metadata API; account/authentication/funding/location are metadata, and payer authority is separately reviewed before start. Selecting “workspace default” omits only that role. Child choice never inherits the lead choice. Direct sessions keep their independent role default/setup and native session authority.
+
+At save, each explicit choice resolves through the authenticated metadata API to an immutable reference and revision. Only those references enter the canonical intent, never credentials, account snapshots, or accepted execution pins. An ambiguous message retry retains the original resolved refs and key. A changed choice creates a distinct save identity. Topic/workspace/audience changes invalidate outstanding resolution. Unready choices prevent admission without clearing the draft.
+
+The mounted role-choice fixture uses scripted metadata/message HTTP; it is distinct from actual CP provider/funding/child-allocation qualification. Actual connected explicit-role acceptance requires the CP #931 candidate’s production host/artifact and canonical child allocator.
