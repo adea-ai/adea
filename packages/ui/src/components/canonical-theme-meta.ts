@@ -1,4 +1,4 @@
-/** Generated from the isolated @adea-ai/themes 0.10.1 records. */
+/** Generated from the isolated @adea-ai/themes 0.9.10 records. */
 export const CANONICAL_THEME_META = {
   'adea-light': {
     label: 'Light',
