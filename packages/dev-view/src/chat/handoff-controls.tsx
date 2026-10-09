@@ -1,17 +1,16 @@
 // Direct-session handoff controls (#1177): the four distinct handoff states
-// over one preserved RuntimeSession/transcript/harness/execution location,
-// with truthful separate lead/job/descendant/return cancellation.
+// over one preserved RuntimeSession/transcript/harness/execution location.
 //
 // The surface owns no authority: every control reflects the pure
-// `deriveDirectSessionHandoff` view. Job and descendant cancellation stay
-// disabled with the missing Control Plane J2/J4 contract named (see
-// docs/plans/m14-1177-handoff-boundary.md), never silently mapped onto the
-// bound harness control. Return-to-user executes the persisted
-// `dev.session.transferCoordination` through the caller's handler and guarded by
-// the same offline/stale/conflict/scope/archived gates as lead-stop, with
-// single-flight busy handling and an explicit error-and-retry state. All copy
-// uses shared primitives so keyboard, focus, screen-reader, zoom, and
-// reduced-motion behavior comes from the design system, not local markup.
+// `deriveDirectSessionHandoff` view built from observed canonical lead-turn
+// facts plus register run facts. Stopping the LEAD runs only the
+// caller-supplied canonical lead-turn cancel handler; stopping the SESSION
+// run is a separate control on the bound harness run; job and descendant
+// cancellation stay disabled with the missing Control Plane J2/J4 contract
+// named; session-side handoff/return have no authorized path and fail
+// closed with the integration gap. All copy uses shared primitives so
+// keyboard, focus, screen-reader, zoom, and reduced-motion behavior comes
+// from the design system, not local markup.
 import { For, Show, createUniqueId, type JSX } from 'solid-js'
 
 import { Badge } from '@adea-ai/ui/components/ui/badge'
@@ -35,41 +34,44 @@ const MODE_TONES: Record<DirectSessionHandoffView['mode'], StatusTone> = {
 
 const CONTROL_LABELS: Record<HandoffControlKind, string> = {
   lead_stop: 'Lead stop',
+  session_stop: 'Session stop',
+  handoff_to_lead: 'Handoff to lead',
+  return_to_user: 'Return to user',
   job_cancel: 'Job cancel',
   descendant_cancel: 'Descendant cancel',
-  return_to_user: 'Return to user',
-  handoff_to_lead: 'Handoff to lead',
 }
 
 const CONTROL_ACTIONS: Record<HandoffControlKind, string> = {
   lead_stop: 'Stop lead',
+  session_stop: 'Stop session run',
+  handoff_to_lead: 'Hand off to lead',
+  return_to_user: 'Return to user',
   job_cancel: 'Cancel job',
   descendant_cancel: 'Cancel descendants',
-  return_to_user: 'Return to user',
-  handoff_to_lead: 'Hand off to lead',
 }
 
 const BUSY_LABELS: Record<HandoffActionKind, string> = {
-  lead_stop: 'Stopping…',
-  return_to_user: 'Returning…',
-  handoff_to_lead: 'Handing off…',
+  lead_stop: 'Stopping lead…',
+  session_stop: 'Stopping session run…',
 }
 
 const ROW_KINDS: readonly HandoffControlKind[] = [
   'lead_stop',
+  'session_stop',
   'handoff_to_lead',
+  'return_to_user',
   'job_cancel',
   'descendant_cancel',
-  'return_to_user',
 ]
 
 export type DirectSessionHandoffControlsProps = Readonly<{
   view: DirectSessionHandoffView
   onLeadStop?: () => void | Promise<void>
+  onSessionStop?: () => void | Promise<void>
   onReconnect?: () => void | Promise<void>
-  onReturnToUser?: () => void | Promise<void>
-  onHandoffToLead?: () => void | Promise<void>
-  /** The in-flight coordination action, if any; lead and return rows pause while set. */
+  /** Row-specific reason when a control is available but unwired. */
+  leadUnwiredReason?: string
+  /** The in-flight coordination action, if any; executable rows pause while set. */
   busyAction?: HandoffActionKind
   /** The failed action's message, if any; the rows re-enable for an explicit retry. */
   actionError?: string
@@ -83,6 +85,7 @@ function ControlRow(
     reason?: string
     remediation?: string
     onAction?: () => void | Promise<void>
+    unwiredReason?: string
     busy: boolean
     busyLabel?: string
   }>
@@ -91,7 +94,10 @@ function ControlRow(
   const wired = () => props.onAction !== undefined
   const effective = () => props.available && wired() && !props.busy
   const showReason = () => !props.available || !wired()
-  const reason = () => (!props.available ? props.reason : 'This action is not wired in this host.')
+  const reason = () =>
+    !props.available
+      ? props.reason
+      : (props.unwiredReason ?? 'This action is not wired in this host.')
   return (
     <div class="dev-handoff__control">
       <div class="dev-handoff__control-row">
@@ -125,18 +131,17 @@ export function DirectSessionHandoffControls(
   const baseId = createUniqueId()
   const noticeId = handoffControlReasonId(baseId, 'notice')
   const busyRow = (kind: HandoffControlKind): boolean =>
-    (kind === 'lead_stop' || kind === 'return_to_user' || kind === 'handoff_to_lead') &&
-    props.busyAction !== undefined
+    (kind === 'lead_stop' || kind === 'session_stop') && props.busyAction !== undefined
   const busyLabel = (kind: HandoffControlKind): string | undefined =>
     kind === props.busyAction ? BUSY_LABELS[kind] : undefined
   const handlerFor = (kind: HandoffControlKind): (() => void | Promise<void>) | undefined =>
     kind === 'lead_stop'
       ? props.onLeadStop
-      : kind === 'return_to_user'
-        ? props.onReturnToUser
-        : kind === 'handoff_to_lead'
-          ? props.onHandoffToLead
-          : undefined
+      : kind === 'session_stop'
+        ? props.onSessionStop
+        : undefined
+  const unwiredFor = (kind: HandoffControlKind): string | undefined =>
+    kind === 'lead_stop' ? props.leadUnwiredReason : undefined
   return (
     <section aria-label="Direct session handoff" class="dev-handoff">
       <div class="dev-handoff__header">
@@ -146,6 +151,13 @@ export function DirectSessionHandoffControls(
         </Badge>
         <Show when={props.view.awaitingApproval}>
           <Badge variant="secondary">awaiting approval</Badge>
+        </Show>
+        <Show when={props.view.coordination}>
+          {(coordination) => (
+            <Badge variant="outline" title={`Coordinating lead turn ${coordination().intentId}`}>
+              lead {coordination().state.replaceAll('_', ' ')}
+            </Badge>
+          )}
         </Show>
       </div>
       <p class="dev-handoff__description">{props.view.description}</p>
@@ -179,6 +191,7 @@ export function DirectSessionHandoffControls(
               reason={props.view.controls[kind].reason}
               remediation={props.view.controls[kind].remediation}
               onAction={handlerFor(kind)}
+              unwiredReason={unwiredFor(kind)}
               busy={busyRow(kind)}
               busyLabel={busyLabel(kind)}
             />

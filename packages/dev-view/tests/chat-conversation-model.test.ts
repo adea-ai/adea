@@ -1136,6 +1136,50 @@ describe('runtime-events-v1 transcript projection', () => {
   })
 })
 
+describe('session-run cancellation preserves drafts', () => {
+  test('cancel targets the register-bound run and keeps the live draft', async () => {
+    const seen: string[] = []
+    let stored = session({ activeHarnessRunId: 'run-1' })
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.list')
+        return ok(command.operation, { items: [stored], observedAt: '2026-09-22T10:00:00Z' })
+      if (command.operation === 'dev.session.cancelHarness') {
+        seen.push((command.body as { harnessRunId: string }).harnessRunId)
+        return ok(command.operation, {
+          id: 'run-1',
+          scope: SCOPE,
+          runtimeSessionId: stored.id,
+          installationId: 'inst-1',
+          agentProfile: {
+            id: 'profile-1',
+            version: 1,
+            displayName: 'profile-1',
+            capabilityPolicyVersion: 1,
+          },
+          state: 'cancelled',
+          generation: stored.generation,
+          version: 2,
+        })
+      }
+      if (command.operation === 'dev.session.get') return ok(command.operation, stored)
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+    const attached = await model.attach(stored.id)
+    model.setDraft(attached.runtimeSessionId, 'do not lose this')
+    const revisionBefore = model.draftRevision(attached.runtimeSessionId)
+
+    // Cancelling stops the SESSION run only: the lead turn is untouched,
+    // and the draft survives with its revision.
+    const afterCancel = await model.cancel(attached.runtimeSessionId)
+    expect(seen).toEqual(['run-1'])
+    expect(afterCancel.draft).toBe('do not lose this')
+    expect(model.draftRevision(attached.runtimeSessionId)).toBe(revisionBefore)
+  })
+})
+
 function fakeService(execute: DevRuntimeService['execute']): DevRuntimeService {
   return {
     state: () => ({ status: 'ready' }),

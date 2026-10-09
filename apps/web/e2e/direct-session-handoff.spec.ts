@@ -1,15 +1,16 @@
 // Direct-session handoff mounted interactions (#1177).
 //
-// Mounted Playwright proof for the joined journey the unit tests cannot
-// reach: a direct-user session attaches read-only, an explicit handoff
-// coordination establishes holder binding, a return releases it, and
-// late or superseded completions can never overwrite canonical ownership.
-// Busy/single-flight/error behavior is reactive in the live surface, and the
-// controls meet keyboard/focus/zoom/reduced-motion acceptance in a real
-// browser. The harness serves a scripted ChatView (pending coordination/cancel
-// intents resolve from fixture buttons, with exact directions recorded); no
-// backend, database, or shared service is touched. The vite server binds an
-// ephemeral loopback port and closes after the file.
+// Mounted Playwright proof for the paths unit tests cannot reach: lead-turn
+// facts drive the coordinating modes (nothing is invented from the bound
+// run), stopping the LEAD goes through the canonical lead-turn cancel
+// handler while stopping the SESSION run goes through the bound harness
+// cancel, busy/single-flight/error behavior is reactive in the live
+// surface, late completions cannot leak across sessions, replacement runs
+// never inherit stale candidates, and the controls meet keyboard/focus/
+// zoom/reduced-motion acceptance in a real browser. The harness serves a
+// scripted ChatView with lead-turn facts plus deferred lead/session
+// cancels; no backend, database, or shared service is touched. The vite
+// server binds an ephemeral loopback port and closes after the file.
 import { expect, test, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
@@ -79,180 +80,150 @@ test('a direct session attaches read-only: nothing is invented from the bound ru
 }) => {
   const errors = await openHarness(page)
   await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
-  // The bound run proves execution, not a handoff: coordination controls
-  // stay blocked while the explicit handoff is offered.
-  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  // The bound run proves execution, not a chief-of-staff handoff: the lead
+  // row fails closed naming the missing turn, while the session run it does
+  // own stays stoppable and the unowned rows name their gaps.
+  const leadStop = page.getByRole('button', { name: 'Stop lead', exact: true })
+  await expect(leadStop).toBeDisabled()
+  await expect(page.locator(`#${await leadStop.getAttribute('aria-describedby')}`)).toContainText(
+    'No lead turn is bound'
+  )
+  await expect(page.getByRole('button', { name: 'Stop session run', exact: true })).toBeEnabled()
   expectNoErrors(errors)
 })
 
-test('explicit handoff then return complete the joined journey with one receipt each', async ({
-  page,
-}) => {
+test('an observed live turn coordinates with distinct lead and session stops', async ({ page }) => {
   const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
-
-  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
   await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
-  await expect(section(page).getByText('gen 4', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Coordinate calls')).toHaveText('1')
-  await expect(page.getByLabel('Last coordination holder')).toHaveText('lead')
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeEnabled()
+  await expect(page.getByLabel('Lead turn state')).toHaveText('running')
 
-  await page.getByRole('button', { name: 'Return to user', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Returning…', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
+  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Stopping lead…', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop session run', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
 
+  // The canonical cancel completed the turn: the session returned with its
+  // run, draft, and generation intact, and the session run was never touched.
   await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
-  await expect(section(page).getByText('gen 5', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Coordinate calls')).toHaveText('2')
-  await expect(page.getByLabel('Last coordination holder')).toHaveText('user')
-  // The confirmed receipts preserve the unsent draft through the live surface.
+  await expect(page.getByLabel('Lead cancel calls')).toHaveText('1')
+  await expect(page.getByLabel('Session cancel calls')).toHaveText('0')
   await expect(page.getByLabel('Active draft')).toHaveText('unsent coordination note')
   expectNoErrors(errors)
 })
 
-test('concurrent starts admit once: double activation never duplicates the coordination', async ({
+test('concurrent starts admit once: double activation never duplicates the cancel', async ({
   page,
 }) => {
   const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Stopping lead…', exact: true })).toBeVisible()
 
   // Disabled rows swallow activation: force-clicking the busy row and the
   // paused sibling dispatches nothing.
-  await page.getByRole('button', { name: 'Handing off…', exact: true }).click({ force: true })
-  await page.getByRole('button', { name: 'Return to user', exact: true }).click({ force: true })
-  await expect(page.getByLabel('Coordinate calls')).toHaveText('1')
-  await expect(page.getByLabel('Cancel calls')).toHaveText('0')
+  await page.getByRole('button', { name: 'Stopping lead…', exact: true }).click({ force: true })
+  await page.getByRole('button', { name: 'Stop session run', exact: true }).click({ force: true })
+  await expect(page.getByLabel('Lead cancel calls')).toHaveText('1')
+  await expect(page.getByLabel('Session cancel calls')).toHaveText('0')
 
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Coordinate calls')).toHaveText('1')
+  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
+  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
   expectNoErrors(errors)
 })
 
-test('a stale rejection surfaces conflict truthfully and resolve-then-retry succeeds', async ({
+test('a replaced register run retargets session-stop instead of applying stale facts', async ({
   page,
 }) => {
   const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-  await page.getByRole('button', { name: 'Return to user', exact: true }).click()
-  await page.getByRole('button', { name: 'Reject pending coordination stale' }).click()
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  // The register now binds run-2 while supplied facts still name run-1: the
+  // supplier resolves by the current binding, so the stale object can never
+  // be applied — and the stop names the new run explicitly.
+  await page.getByRole('button', { name: 'Replace bound run' }).click()
+  const sessionStop = page.getByRole('button', { name: 'Stop session run', exact: true })
+  await expect(sessionStop).toBeEnabled()
+  await sessionStop.click()
+  await page.getByRole('button', { name: 'Resolve session cancel' }).click()
+  await expect(page.getByLabel('Cancelled run ids')).toHaveText('run-2')
+  // Lead coordination (bound to the turn, not the run) is unaffected.
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeEnabled()
 
-  await expect(
-    page.getByRole('alert').getByText(/coordination owner version conflict/)
-  ).toBeVisible()
-  await expect(page.getByRole('alert').getByText(/Another coordinator holds control/)).toBeVisible()
-  // The conflict parks at this generation: retry stays blocked until the
-  // concurrent commit is observed.
-  await expect(page.getByLabel('Coordinate calls')).toHaveText('2')
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeDisabled()
-
-  await page.getByRole('button', { name: 'Observe concurrent generation' }).click()
-  // The concurrent commit is observed as newer canonical ownership held by
-  // the lead: coordination resumes from the projected fact, and the retry
-  // coordinates from the fresh generation.
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeEnabled()
-  await page.getByRole('button', { name: 'Return to user', exact: true }).click()
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Coordinate calls')).toHaveText('3')
-  expectNoErrors(errors)
-})
-
-test('newer canonical ownership is never overwritten by a stale local receipt', async ({
-  page,
-}) => {
-  const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-  await page.getByRole('button', { name: 'Return to user', exact: true }).click()
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
-
-  // Ownership moves on underneath the receipt: the projected lead owner
-  // takes over instead of the stale local receipt clinging to returned.
-  await page.getByRole('button', { name: 'Observe concurrent generation' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
-  await expect(section(page).getByText('Returned to user', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeEnabled()
+  // Supplying the fresh run object validates the binding the same way.
+  await page.getByRole('button', { name: 'Supply replacement run facts' }).click()
+  await expect(sessionStop).toBeEnabled()
   expectNoErrors(errors)
 })
 
 test('a late completion cannot mark the newly selected session coordinated', async ({ page }) => {
   const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
   await page.getByRole('button', { name: 'Show session 2' }).click()
+  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
 
-  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-
-  // The superseded receipt commits nothing: no coordinating label, no alert.
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toHaveCount(0)
+  // The superseded completion commits nothing on the new session: no error,
+  // no mode change attributable to it.
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await expect(page.getByLabel('Coordinate calls')).toHaveText('1')
+  await expect(page.getByLabel('Lead cancel calls')).toHaveText('1')
 
-  // The first session shows owner-projected coordination (the resolve
-  // committed gen 4 held by the lead): the dropped receipt contributed
-  // nothing, and the stored facts did everything.
   await page.getByRole('button', { name: 'Show session 1' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
-  await expect(section(page).getByText('gen 4', { exact: true })).toBeVisible()
+  // The dropped completion contributed nothing: session 1 shows the
+  // terminal turn from re-read facts (returned), not from the superseded
+  // receipt — the mode comes from stored facts, never stale local state.
+  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
   expectNoErrors(errors)
 })
 
-test('ABA: an old completion cannot clear a new action\u2019s busy state', async ({ page }) => {
+test('ABA: an old completion cannot clear a new action’s busy state', async ({ page }) => {
   const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Stopping lead…', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Show session 2' }).click()
   await page.getByRole('button', { name: 'Show session 1' }).click()
-  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Stop session run', exact: true }).click()
+  await expect(
+    page.getByRole('button', { name: 'Stopping session run…', exact: true })
+  ).toBeVisible()
 
   // The oldest intent (from before navigation) resolves first: the epoch
   // fence drops it, and the new action stays busy with no error parked.
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
+  await expect(
+    page.getByRole('button', { name: 'Stopping session run…', exact: true })
+  ).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await expect(page.getByLabel('Coordinate calls')).toHaveText('2')
+  await expect(page.getByLabel('Lead cancel calls')).toHaveText('1')
+  await expect(page.getByLabel('Session cancel calls')).toHaveText('1')
 
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Resolve session cancel' }).click()
+  await expect(page.getByLabel('Cancelled run ids')).toHaveText('run-1')
   expectNoErrors(errors)
 })
 
-test('browser reload retains the projected coordination', async ({ page }) => {
+test('browser reload retains the re-read lead-turn facts', async ({ page }) => {
   const errors = await openHarness(page)
-  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-  await page.getByRole('button', { name: 'Return to user', exact: true }).click()
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
 
-  // A fresh mount holds no receipt: the returned state must come from the
-  // retained host-projected owner alone, with run, draft, and generation.
+  // A fresh mount holds no UI state: coordination must come from the
+  // re-read facts alone, with run, draft, and generation intact.
   await page.reload()
   await expect(
-    page.getByRole('region', { name: 'Direct session handoff' }).getByText('Returned to user', {
+    page.getByRole('region', { name: 'Direct session handoff' }).getByText('Coordination handoff', {
       exact: true,
     })
   ).toBeVisible()
-  await expect(section(page).getByText('gen 5', { exact: true })).toBeVisible()
+  await expect(section(page).getByText('gen 3', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Active draft')).toHaveText('unsent coordination note')
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeDisabled()
+  await expect(page.getByLabel('Lead turn state')).toHaveText('running')
   expectNoErrors(errors)
 })
 
 test('keyboard reachability, visible focus, and keyboard activation', async ({ page }) => {
   const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
   let focusedName: string | undefined
   for (let tab = 0; tab < 40; tab += 1) {
     await page.keyboard.press('Tab')
@@ -266,18 +237,18 @@ test('keyboard reachability, visible focus, and keyboard activation', async ({ p
         focusVisible: active instanceof HTMLElement && active.matches(':focus-visible'),
       }
     })
-    if (stop?.name === 'Hand off to lead') {
+    if (stop?.name === 'Stop lead') {
       focusedName = stop.name
       expect(stop.focusVisible).toBe(true)
       break
     }
   }
-  expect(focusedName).toBe('Hand off to lead')
+  expect(focusedName).toBe('Stop lead')
 
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
-  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stopping lead…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
+  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
   expectNoErrors(errors)
 })
 
@@ -299,9 +270,9 @@ test('assistive-technology tree: names, disabled states, and reason linkage', as
       .getByRole('alert')
       .getByText(/Runtime offline/)
   ).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Stop session run', exact: true })).toBeDisabled()
   await page.getByRole('button', { name: 'Go online' }).click()
-  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Stop session run', exact: true })).toBeEnabled()
   expectNoErrors(errors)
 })
 
@@ -315,8 +286,8 @@ test('narrow viewport and 200% text keep every control reachable', async ({ page
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth
   )
   expect(overflow).toBeLessThanOrEqual(1)
-  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop session run', exact: true })).toBeVisible()
   expectNoErrors(errors)
 })
 
@@ -334,8 +305,7 @@ test.describe('reduced motion', () => {
       }
     })
     expect(motion).toEqual({ transitionDuration: '0s', animationName: 'none' })
-    await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
-    await page.getByRole('button', { name: 'Resolve pending coordination' }).click()
+    await page.getByRole('button', { name: 'Observe live lead turn' }).click()
     await expect(handoff.getByText('Coordination handoff', { exact: true })).toBeVisible()
     expectNoErrors(errors)
   })

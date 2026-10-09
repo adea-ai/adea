@@ -1,7 +1,7 @@
 import { createEffect, For, on, onCleanup, onMount, Show, createSignal, type JSX } from 'solid-js'
 
 import type { ChatConversation, ChatConversationModel, TranscriptAccumulator } from './model'
-import { ChatRuntimeError, createTranscriptAccumulator, transcriptWindow } from './model'
+import { createTranscriptAccumulator, transcriptWindow } from './model'
 import {
   ChatComposer,
   type ChatComposerProps,
@@ -19,7 +19,6 @@ import {
   type DirectSessionHandoffView,
   type HandoffActionKind,
   type HandoffActionState,
-  type HandoffReceipt,
 } from './model/handoff'
 import { statusLabel } from './presentation'
 import './chat.css'
@@ -32,9 +31,9 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 function HandoffLiveSection(props: {
   view: DirectSessionHandoffView
   onLeadStop?: () => void | Promise<void>
+  onSessionStop?: () => void | Promise<void>
   onReconnect?: () => void | Promise<void>
-  onReturnToUser?: () => void | Promise<void>
-  onHandoffToLead?: () => void | Promise<void>
+  leadUnwiredReason?: string
   actionState: () => HandoffActionState
 }): JSX.Element {
   const busy = (): HandoffActionKind | undefined => {
@@ -49,9 +48,9 @@ function HandoffLiveSection(props: {
     <DirectSessionHandoffControls
       view={props.view}
       onLeadStop={props.onLeadStop}
+      onSessionStop={props.onSessionStop}
       onReconnect={props.onReconnect}
-      onReturnToUser={props.onReturnToUser}
-      onHandoffToLead={props.onHandoffToLead}
+      leadUnwiredReason={props.leadUnwiredReason}
       busyAction={busy()}
       actionError={error()}
     />
@@ -62,10 +61,7 @@ export type ChatViewProps = Readonly<{
   conversation: ChatConversation
   model?: Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> &
     Partial<
-      Pick<
-        ChatConversationModel,
-        'coordinate' | 'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId'
-      >
+      Pick<ChatConversationModel, 'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId'>
     >
   authority?: ChatInputAuthority
   connected?: boolean
@@ -87,9 +83,8 @@ export type ChatViewProps = Readonly<{
    *  Omit entirely and no handoff section renders (fixture-safe). */
   handoff?: DirectSessionHandoffSupply
   onLeadStop?: () => void | Promise<void>
+  onSessionStop?: () => void | Promise<void>
   onReconnectHandoff?: () => void | Promise<void>
-  onReturnToUser?: () => void | Promise<void>
-  onHandoffToLead?: () => void | Promise<void>
   readingPosition?: ChatTranscriptProps['readingPosition']
   onReadingPositionChange?: (
     identity: Readonly<{ runtimeSessionId: string; generation: number }>,
@@ -123,24 +118,15 @@ export function ChatView(props: ChatViewProps): JSX.Element {
   )
   const [streamError, setStreamError] = createSignal<string | undefined>()
   const [mounted, setMounted] = createSignal(false)
-  // Handoff coordination state (#1177): the latest confirmed transfer
-  // receipt (operation epoch), a control conflict observed from a stale
-  // transfer receipt, and the single-flight action machine. Receipts carry
-  // their session and generation and apply only to matching canonical
-  // state, so stale local receipts can never overwrite newer ownership.
-  // All reset when the selected session changes so one session's
-  // coordination never leaks into another's.
-  const [handoffReceipt, setHandoffReceipt] = createSignal<HandoffReceipt | undefined>(undefined)
-  // Monotonic view/action epoch (#1177): every session switch and every
-  // admitted action start advances it; late completions apply only while
-  // it still reads the value captured at their admission. Session identity
-  // alone cannot fence A -> B -> A, where an old A completion would
-  // otherwise clear a new A action's busy state.
+  // Handoff action state (#1177): the single-flight action machine plus
+  // the monotonic view/action epoch. Every session switch and every
+  // admitted action start advances the epoch; late completions apply only
+  // while it still reads the value captured at their admission. Session
+  // identity alone cannot fence A -> B -> A, where an old A completion
+  // would otherwise clear a new A action's busy state. All reset when the
+  // selected session changes so one session's actions never leak into
+  // another's.
   const [handoffEpoch, setHandoffEpoch] = createSignal(0)
-  // The generation a stale receipt parked a conflict against. The conflict
-  // clears when the conversation moves past it (the concurrent commit was
-  // observed via refresh), never by retrying blindly at the same generation.
-  const [handoffConflictGen, setHandoffConflictGen] = createSignal<number | undefined>(undefined)
   const [handoffAction, setHandoffAction] = createSignal(initialHandoffActionState)
   let closeStream: (() => void) | undefined
   let attachment = 0
@@ -252,8 +238,6 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     const sessionId = props.conversation.runtimeSessionId
     if (sessionId === lastHandoffSessionId) return
     lastHandoffSessionId = sessionId
-    setHandoffReceipt(undefined)
-    setHandoffConflictGen(undefined)
     setHandoffAction(initialHandoffActionState)
     setHandoffEpoch((epoch) => epoch + 1)
   })
@@ -263,11 +247,10 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     work: () => unknown | Promise<unknown>,
     onSuccess?: (result: unknown) => void
   ): Promise<'completed' | 'rejected' | 'superseded'> => {
-    // Fence on session identity plus the monotonic view/action epoch: a fast
-    // parent refresh may already show the post-transfer generation (apply:
-    // it is our receipt), but a session switch or a newer admitted action
-    // invalidates this invocation's epoch, so its late completion commits
-    // nothing (this is what closes A -> B -> A).
+    // Fence on session identity plus the monotonic view/action epoch: a
+    // session switch or a newer admitted action invalidates this
+    // invocation's epoch, so its late completion commits nothing (this is
+    // what closes A -> B -> A).
     const fenceId = props.conversation.runtimeSessionId
     let admittedEpoch = -1
     return runHandoffActionOnce({
@@ -283,60 +266,23 @@ export function ChatView(props: ChatViewProps): JSX.Element {
       },
       isCurrent: () =>
         props.conversation.runtimeSessionId === fenceId && handoffEpoch() === admittedEpoch,
-      isConflict: (error) =>
-        error instanceof ChatRuntimeError &&
-        (error.code === 'stale_generation' || error.code === 'stale_version'),
-      onConflict: () => setHandoffConflictGen(props.conversation.generation),
       ...(onSuccess ? { onSuccess } : {}),
     })
   }
 
-  const leadStopAction = (): void | Promise<void> => {
-    if (props.onLeadStop) return props.onLeadStop()
+  // Stopping the LEAD runs only a caller-supplied canonical lead-turn
+  // cancel: the bound harness stop below must never masquerade as it.
+  const leadStopAction = (): void | Promise<void> | undefined => {
+    if (!props.onLeadStop) return undefined
+    return void runHandoffAction('lead_stop', () => props.onLeadStop?.())
+  }
+
+  // Stopping the SESSION run cancels the bound harness run. This is
+  // session authority, visibly distinct from lead-turn cancellation.
+  const sessionStopAction = (): void | Promise<void> => {
+    if (props.onSessionStop) return props.onSessionStop()
     if (!props.model) return undefined
-    return void runHandoffAction('lead_stop', stop)
-  }
-
-  const recordTransferReceipt = (holder: 'lead' | 'user') => (result: unknown) => {
-    // The confirmed receipt carries the refreshed canonical generation:
-    // it applies exactly while the conversation shows it, and goes
-    // superseded (never overwriting) once canonical ownership moves on.
-    const generation = (result as ChatConversation | undefined)?.generation
-    if (typeof generation !== 'number') return
-    setHandoffReceipt({
-      sessionId: props.conversation.runtimeSessionId,
-      holder,
-      generation,
-    })
-  }
-
-  const coordinateThrough = (
-    action: 'return_to_user' | 'handoff_to_lead',
-    direction: { toHolder: 'lead' | 'user'; harnessRunId?: string }
-  ): Promise<'completed' | 'rejected' | 'superseded'> => {
-    const coordinate = props.model?.coordinate
-    if (!coordinate) return Promise.resolve('rejected')
-    return runHandoffAction(
-      action,
-      () => coordinate(props.conversation.runtimeSessionId, direction),
-      recordTransferReceipt(direction.toHolder)
-    )
-  }
-
-  const returnToUserAction = (): void | Promise<void> => {
-    if (props.onReturnToUser) return props.onReturnToUser()
-    if (!props.model?.coordinate) return undefined
-    return void coordinateThrough('return_to_user', { toHolder: 'user' })
-  }
-
-  const handoffToLeadAction = (): void | Promise<void> => {
-    if (props.onHandoffToLead) return props.onHandoffToLead()
-    if (!props.model?.coordinate) return undefined
-    // The handoff names the exact register-bound run receiving coordination;
-    // the host refuses anything but the current binding.
-    const harnessRunId = props.conversation.activeHarnessRunId
-    if (!harnessRunId) return undefined
-    return void coordinateThrough('handoff_to_lead', { toHolder: 'lead', harnessRunId })
+    return void runHandoffAction('session_stop', stop)
   }
 
   const reconnectHandoffAction = (): void | Promise<void> => {
@@ -359,9 +305,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         harnessRuns: supply.harnessRuns,
         awaitingApproval: props.awaitingApproval,
         mode: supply.mode,
-        receipt: supply.receipt ?? handoffReceipt(),
-        controlConflict:
-          supply.controlConflict ?? handoffConflictGen() === props.conversation.generation,
+        leadTurn: supply.leadTurn,
       })
     )
   }
@@ -414,16 +358,12 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         {(view) => (
           <HandoffLiveSection
             view={view()}
-            onLeadStop={props.onLeadStop ?? (props.model ? leadStopAction : undefined)}
+            onLeadStop={props.onLeadStop ? leadStopAction : undefined}
+            onSessionStop={props.onSessionStop ?? (props.model ? sessionStopAction : undefined)}
             onReconnect={
               props.onReconnectHandoff ?? (props.model ? reconnectHandoffAction : undefined)
             }
-            onReturnToUser={
-              props.onReturnToUser ?? (props.model?.coordinate ? returnToUserAction : undefined)
-            }
-            onHandoffToLead={
-              props.onHandoffToLead ?? (props.model?.coordinate ? handoffToLeadAction : undefined)
-            }
+            leadUnwiredReason="Lead cancellation is not connected in this host: wire onLeadStop to the canonical lead-turn cancel path."
             actionState={handoffAction}
           />
         )}

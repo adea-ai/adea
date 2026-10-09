@@ -1,23 +1,26 @@
 // Mounted harness for direct-session handoff interactions (#1177).
 //
-// Renders the production ChatView with handoff={{}} (the production supply
-// path) against a scripted conversation model whose transfer/cancel intents
-// stay pending until the fixture resolves them — so busy, single-flight,
-// error/retry, and late-completion fences are all drivable from Playwright.
+// Renders the production ChatView with handoff supply against scripted
+// conversation, run, and lead-turn facts. Lead cancellation and session-run
+// cancellation stay pending until the fixture resolves them — so busy,
+// single-flight, error/retry, replacement, and late-completion fences are
+// all drivable from Playwright. Lead-turn facts persist in localStorage so
+// a reload re-reads them like a canonical source would; each Playwright
+// test runs in a fresh browser context, so fixtures start clean per test.
 // No backend, database, or shared service is touched.
-// No app-shell stylesheet: the ad-hoc fixture server has no theme-cache
-// generator, and these interactions assert roles, names, states, and
-// behavior — never theme pixels.
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { createMemo, createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
-import { ChatRuntimeError, ChatView, type ChatConversation } from '@adea-ai/dev-view/chat'
+import { ChatView, type ChatConversation, type HandoffLeadTurn } from '@adea-ai/dev-view/chat'
+import type { HarnessRun } from '@adea-ai/types/dev-runtime'
 
 const SCOPE = {
   accountId: '00000000-0000-4000-8000-000000000001',
   workspaceId: '00000000-0000-4000-8000-000000000002',
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 } as const
+
+const STORAGE_KEY = 'direct-handoff-fixture-v2'
 
 function conversation(
   id: string,
@@ -45,55 +48,108 @@ function conversation(
   }
 }
 
-type PendingCoordination = {
-  resolve: (next: ChatConversation) => void
-  reject: (error: Error) => void
-  base: ChatConversation
-  direction: { toHolder: 'lead' | 'user'; harnessRunId?: string }
+function harnessRun(id: string, sessionId: string): HarnessRun {
+  return {
+    id,
+    scope: { ...SCOPE },
+    runtimeSessionId: sessionId,
+    installationId: 'inst-1',
+    agentProfile: {
+      id: 'profile-1',
+      version: 1,
+      displayName: 'profile-1',
+      capabilityPolicyVersion: 1,
+    },
+    state: 'working',
+    generation: 3,
+    version: 1,
+  }
 }
 
-const STORAGE_KEY = 'direct-handoff-fixture-sessions-v1'
+type FixtureState = {
+  sessions: Record<string, ChatConversation>
+  leadTurns: Record<string, HandoffLeadTurn | undefined>
+}
 
-function initialSessions(): Record<string, ChatConversation> {
-  // The host-double's durable store: a reload must observe the retained
-  // coordination owner, never an in-memory receipt. Each Playwright test
-  // runs in a fresh browser context, so fixtures start clean per test.
+function initialState(): FixtureState {
+  // The durable side of the host-double: a reload must observe the same
+  // lead-turn facts and sessions, never in-memory UI state.
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      const parsed = JSON.parse(raw) as Record<string, ChatConversation>
-      if (parsed && parsed['session-1'] && parsed['session-2']) return parsed
+      const parsed = JSON.parse(raw) as FixtureState
+      if (parsed && parsed.sessions?.['session-1'] && parsed.sessions?.['session-2'])
+        return { sessions: parsed.sessions, leadTurns: parsed.leadTurns ?? {} }
     }
   } catch {
-    // Disposable fixture: fall through to the canned sessions.
+    // Disposable fixture: fall through to the canned state.
   }
   return {
-    'session-1': conversation('session-1', 'run-1', 3, 'unsent coordination note'),
-    'session-2': conversation('session-2', 'run-2', 2, ''),
+    sessions: {
+      'session-1': conversation('session-1', 'run-1', 3, 'unsent coordination note'),
+      'session-2': conversation('session-2', 'run-2', 2, ''),
+    },
+    leadTurns: {},
+  }
+}
+
+type PendingLeadCancel = {
+  resolve: () => void
+  reject: (error: Error) => void
+  sessionId: string
+}
+type PendingIntent = {
+  resolve: (value: ChatConversation) => void
+  reject: (error: Error) => void
+  sessionId: string
+}
+
+function persistFixture(
+  nextSessions: Record<string, ChatConversation>,
+  nextLeads: Record<string, HandoffLeadTurn | undefined>
+): void {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ sessions: nextSessions, leadTurns: nextLeads })
+    )
+  } catch {
+    // Disposable fixture: persistence is best-effort.
   }
 }
 
 function Harness() {
-  const [sessions, setSessions] = createSignal<Record<string, ChatConversation>>(initialSessions())
+  const [sessions, setSessions] = createSignal(initialState().sessions)
+  const [leadTurns, setLeadTurns] = createSignal<Record<string, HandoffLeadTurn | undefined>>(
+    initialState().leadTurns
+  )
+  const [activeId, setActiveId] = createSignal('session-1')
+  const leadTurn = createMemo(() => leadTurns()[activeId()])
+  const [runs, setRuns] = createSignal<readonly HarnessRun[]>([])
+  const [connected, setConnected] = createSignal(true)
+  const [leadCancelCalls, setLeadCancelCalls] = createSignal(0)
+  const [sessionCancelCalls, setSessionCancelCalls] = createSignal(0)
+  const [cancelledRunIds, setCancelledRunIds] = createSignal<readonly string[]>([])
+  const pendingLeadCancels: PendingLeadCancel[] = []
+  const pendingSessionCancels: PendingIntent[] = []
+
   const updateSessions = (
     update: (previous: Record<string, ChatConversation>) => Record<string, ChatConversation>
   ): void => {
     setSessions((previous) => {
       const next = update(previous)
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-      } catch {
-        // Disposable fixture: persistence is best-effort.
-      }
+      persistFixture(next, leadTurns())
       return next
     })
   }
-  const [activeId, setActiveId] = createSignal('session-1')
-  const [connected, setConnected] = createSignal(true)
-  const [coordinateCalls, setCoordinateCalls] = createSignal(0)
-  const [cancelCalls, setCancelCalls] = createSignal(0)
-  const [lastHolder, setLastHolder] = createSignal('')
-  const pendingCoordinations: PendingCoordination[] = []
+  const updateLeadTurn = (next: HandoffLeadTurn | undefined): void => {
+    const id = activeId()
+    setLeadTurns((previous) => {
+      const turns = { ...previous, [id]: next }
+      persistFixture(sessions(), turns)
+      return turns
+    })
+  }
 
   const active = createMemo(() => sessions()[activeId()]!)
 
@@ -111,55 +167,49 @@ function Harness() {
       close: () => {},
     }),
     send: async () => {},
-    cancel: async () => {
-      setCancelCalls((count) => count + 1)
-      return active()
-    },
-    coordinate: async (
-      runtimeSessionId: string,
-      direction: { toHolder: 'lead' | 'user'; harnessRunId?: string }
-    ) => {
-      setCoordinateCalls((count) => count + 1)
-      const base = sessions()[runtimeSessionId]!
-      setLastHolder(direction.toHolder)
+    cancel: async (runtimeSessionId: string, harnessRunId?: string) => {
+      setSessionCancelCalls((count) => count + 1)
+      const current = sessions()[runtimeSessionId]!
+      const runId = harnessRunId ?? current.activeHarnessRunId ?? 'run-missing'
+      setCancelledRunIds((ids) => [...ids, runId])
       return new Promise<ChatConversation>((resolve, reject) => {
-        pendingCoordinations.push({ resolve, reject, base, direction })
+        pendingSessionCancels.push({ resolve, reject, sessionId: runtimeSessionId })
       })
     },
   }
 
-  const resolveCoordination = () => {
-    // FIFO: the oldest pending intent commits first, like the host log.
-    const pending = pendingCoordinations.shift()
-    if (!pending) return
-    const { coordinationHarnessRunId: _dropped, ...unbound } = pending.base
-    void _dropped
-    const next: ChatConversation = {
-      ...unbound,
-      generation: pending.base.generation + 1,
-      version: pending.base.version + 1,
-      // The host-double retains coordination exactly like
-      // dev.session.transferCoordination does: the holder plus, for the
-      // lead, the exact bound run — never a view label.
-      coordinationOwner: pending.direction.toHolder,
-      ...(pending.direction.toHolder === 'lead' && pending.direction.harnessRunId !== undefined
-        ? { coordinationHarnessRunId: pending.direction.harnessRunId }
-        : {}),
-    }
-    updateSessions((previous) => ({ ...previous, [pending.base.runtimeSessionId]: next }))
-    pending.resolve(next)
+  // The canonical lead-turn cancel path, standing in for cancelLeadTurn:
+  // deferred so busy/error/retry and late completion are drivable.
+  const cancelLeadTurn = async () => {
+    setLeadCancelCalls((count) => count + 1)
+    const sessionId = activeId()
+    return new Promise<void>((resolve, reject) => {
+      pendingLeadCancels.push({ resolve, reject, sessionId })
+    })
   }
 
-  const rejectCoordinationStale = () => {
-    const pending = pendingCoordinations.shift()
+  const resolveLeadCancel = () => {
+    const pending = pendingLeadCancels.shift()
     if (!pending) return
-    pending.reject(
-      new ChatRuntimeError({
-        code: 'stale_version',
-        retryable: false,
-        message: 'coordination owner version conflict',
-      })
-    )
+    // The terminal state lands on the intent's owning session, never
+    // whatever happens to be active when the fixture resolves.
+    const owner = pending.sessionId
+    setLeadTurns((previous) => {
+      const current = previous[owner]
+      const turns = {
+        ...previous,
+        [owner]: current ? { ...current, state: 'cancelled', canCancel: false } : undefined,
+      }
+      persistFixture(sessions(), turns)
+      return turns
+    })
+    pending.resolve()
+  }
+
+  const resolveSessionCancel = () => {
+    const pending = pendingSessionCancels.shift()
+    if (!pending) return
+    pending.resolve(sessions()[pending.sessionId]!)
   }
 
   return (
@@ -174,42 +224,69 @@ function Harness() {
         <Button type="button" onClick={() => setConnected((value) => !value)}>
           {connected() ? 'Go offline' : 'Go online'}
         </Button>
-        <Button type="button" onClick={resolveCoordination}>
-          Resolve pending coordination
-        </Button>
-        <Button type="button" onClick={rejectCoordinationStale}>
-          Reject pending coordination stale
+        <Button
+          type="button"
+          onClick={() =>
+            updateLeadTurn({
+              intentId: '00000000-0000-4000-8000-0000000000a1',
+              dispatchId: 'dispatch_11111111111111111111111111111111',
+              state: 'running',
+              canCancel: true,
+            })
+          }
+        >
+          Observe live lead turn
         </Button>
         <Button
           type="button"
           onClick={() =>
-            // A concurrent handoff commit observed via refresh: newer
-            // canonical ownership held by the lead.
+            updateLeadTurn(
+              leadTurn() ? { ...leadTurn()!, state: 'completed', canCancel: false } : undefined
+            )
+          }
+        >
+          Observe lead turn completed
+        </Button>
+        <Button type="button" onClick={() => updateLeadTurn(undefined)}>
+          Clear lead turn
+        </Button>
+        <Button type="button" onClick={() => resolveLeadCancel('cancelled')}>
+          Resolve lead cancel
+        </Button>
+        <Button type="button" onClick={() => resolveSessionCancel()}>
+          Resolve session cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={() =>
             updateSessions((previous) => ({
               ...previous,
               'session-1': {
                 ...previous['session-1']!,
-                generation: previous['session-1']!.generation + 1,
-                version: previous['session-1']!.version + 1,
-                coordinationOwner: 'lead',
+                activeHarnessRunId: 'run-2',
               },
             }))
           }
         >
-          Observe concurrent generation
+          Replace bound run
         </Button>
-        <output aria-label="Coordinate calls">{coordinateCalls()}</output>
-        <output aria-label="Cancel calls">{cancelCalls()}</output>
-        <output aria-label="Last coordination holder">{lastHolder()}</output>
+        <Button type="button" onClick={() => setRuns([harnessRun('run-2', 'session-1')])}>
+          Supply replacement run facts
+        </Button>
+        <output aria-label="Lead cancel calls">{leadCancelCalls()}</output>
+        <output aria-label="Session cancel calls">{sessionCancelCalls()}</output>
+        <output aria-label="Cancelled run ids">{cancelledRunIds().join(',')}</output>
         <output aria-label="Active draft">{active().draft}</output>
         <output aria-label="Active generation">{active().generation}</output>
+        <output aria-label="Lead turn state">{leadTurn()?.state ?? 'none'}</output>
       </div>
       <ChatView
         conversation={active()}
         model={model}
         autoAttach={false}
         connected={connected()}
-        handoff={{}}
+        handoff={{ harnessRuns: runs(), leadTurn: leadTurn() }}
+        onLeadStop={cancelLeadTurn}
       />
     </main>
   )

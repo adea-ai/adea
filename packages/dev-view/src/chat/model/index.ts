@@ -209,9 +209,6 @@ export function projectChatConversations(
       ...(session.activeHarnessRunId !== undefined
         ? { activeHarnessRunId: session.activeHarnessRunId }
         : {}),
-      ...(session.coordinationOwner !== undefined
-        ? { coordinationOwner: session.coordinationOwner }
-        : {}),
       draft: draft.text,
       draftBlocks: draft.blocks,
       events,
@@ -267,10 +264,6 @@ export type ChatConversationModel = Readonly<{
   switchTo(runtimeSessionId: string): ChatConversation
   resume(runtimeSessionId: string, harnessRunId?: string): Promise<ChatConversation>
   cancel(runtimeSessionId: string, harnessRunId?: string): Promise<ChatConversation>
-  coordinate(
-    runtimeSessionId: string,
-    direction: SessionCoordinationDirection
-  ): Promise<ChatConversation>
   archive(runtimeSessionId: string, reason?: string): Promise<ChatConversation>
   unarchive(runtimeSessionId: string): Promise<ChatConversation>
   send(runtimeSessionId: string, text: string): Promise<void>
@@ -288,11 +281,6 @@ export type ChatConversationModel = Readonly<{
     subscribe: (listener: (state: TranscriptAccumulator) => void) => () => void
     close: () => void
   }>
-}>
-
-export type SessionCoordinationDirection = Readonly<{
-  toHolder: 'lead' | 'user'
-  harnessRunId?: string
 }>
 
 export function createChatConversationModel(
@@ -560,41 +548,6 @@ export function createChatConversationModel(
     await executeChatCommand(service, command)
     return refresh(runtimeSessionId)
   }
-  const transferCoordination = async (
-    runtimeSessionId: string,
-    direction: SessionCoordinationDirection
-  ): Promise<ChatConversation> => {
-    const current = sessions.get(runtimeSessionId)
-      ? requireConversation(runtimeSessionId)
-      : await attach(runtimeSessionId)
-    const stored = sessions.get(runtimeSessionId)
-    if (!stored)
-      throw new ChatRuntimeError({
-        code: 'not_found',
-        retryable: false,
-        message: `Runtime session ${runtimeSessionId} was not found.`,
-      })
-    // The persisted authoritative coordination transfer (#1177): the host
-    // fences it on the exact generation and owner version, binds or releases
-    // the retained holder, bumps both, and publishes
-    // `session.coordination_changed`. Coordination granted under the old
-    // generation is inert afterwards, so a transport loss after commit is
-    // recovered by refreshing — never by replaying blindly.
-    const command = buildDevCommand({
-      operation: 'dev.session.transferCoordination',
-      scope,
-      body: {
-        runtimeSessionId,
-        expectedGeneration: current.generation,
-        toHolder: direction.toHolder,
-        ...(direction.harnessRunId !== undefined ? { harnessRunId: direction.harnessRunId } : {}),
-        expectedOwnerVersion: stored.version,
-      },
-      resource: sessionResource(stored),
-    })
-    await executeChatCommand(service, command)
-    return refresh(runtimeSessionId)
-  }
   const archive = async (runtimeSessionId: string, reason?: string): Promise<ChatConversation> => {
     const current = sessions.get(runtimeSessionId)
       ? requireConversation(runtimeSessionId)
@@ -846,7 +799,7 @@ export function createChatConversationModel(
       mutateSession(runtimeSessionId, 'dev.session.resumeHarness', harnessRunId),
     cancel: (runtimeSessionId, harnessRunId) =>
       mutateSession(runtimeSessionId, 'dev.session.cancelHarness', harnessRunId),
-    coordinate: (runtimeSessionId, direction) => transferCoordination(runtimeSessionId, direction),
+
     archive,
     unarchive,
     send,

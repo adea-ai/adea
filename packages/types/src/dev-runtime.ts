@@ -770,25 +770,6 @@ export type RuntimeSession = Readonly<{
   agentProfileVersion?: number
   harnessInstallationId?: string
   activeHarnessRunId?: string
-  /**
-   * Retained coordination holder (#1177), written only by
-   * `dev.session.transferCoordination` from its explicit holder: handing
-   * coordination names the bound harness run receiving it, returning it
-   * releases coordination back to the user. Absent means no explicit
-   * coordination was ever recorded — an ordinary direct session. This is
-   * a separate retained projection from the transient input-view routing
-   * (`dev.session.transferInput`'s `fromView`/`toView`, never stored):
-   * the routing says where input goes next, the owner says who
-   * coordinates until the next explicit coordination transfer.
-   */
-  coordinationOwner?: 'lead' | 'user'
-  /**
-   * The exact register-bound harness run holding lead coordination
-   * (#1177). Present only while `coordinationOwner` is `'lead'`; set from
-   * the transfer's explicit `harnessRunId`, which must equal the session's
-   * `activeHarnessRunId` or the transfer is refused.
-   */
-  coordinationHarnessRunId?: string
   lifecycle:
     | 'preparing'
     | 'ready'

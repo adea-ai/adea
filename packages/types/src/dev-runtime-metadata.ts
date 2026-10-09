@@ -542,9 +542,6 @@ export const devOperationMetadata = {
   'dev.session.resumeHarness': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_session_resumeHarness
   ),
-  'dev.session.transferCoordination': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_session_transferCoordination
-  ),
   'dev.session.transferInput': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_session_transferInput
   ),

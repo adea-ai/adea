@@ -1,6 +1,7 @@
 // Direct-session handoff model (#1177): distinct attachment, one-time review,
 // explicit coordination handoff, and return-to-user states over one preserved
-// RuntimeSession/transcript/harness/execution location.
+// RuntimeSession/transcript/harness/execution location, driven only by
+// observed canonical lead-turn facts — never invented.
 import { describe, expect, test } from 'bun:test'
 
 import type { HarnessRun, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
@@ -17,6 +18,7 @@ import {
   type HandoffActionKind,
   type HandoffActionState,
   type HandoffControlKind,
+  type HandoffLeadTurn,
 } from '../src/chat/model/handoff'
 
 const SCOPE: Scope = {
@@ -61,6 +63,16 @@ function run(overrides: Partial<HarnessRun> = {}): HarnessRun {
   }
 }
 
+function leadTurn(overrides: Partial<HandoffLeadTurn> = {}): HandoffLeadTurn {
+  return {
+    intentId: '00000000-0000-4000-8000-0000000000a1',
+    dispatchId: 'dispatch_11111111111111111111111111111111',
+    state: 'running',
+    canCancel: true,
+    ...overrides,
+  }
+}
+
 function input(overrides: Partial<DirectSessionHandoffInput> = {}): DirectSessionHandoffInput {
   return {
     session: session(),
@@ -70,11 +82,15 @@ function input(overrides: Partial<DirectSessionHandoffInput> = {}): DirectSessio
     generationCurrent: true,
     scopeAuthorized: true,
     hasUnsentDraft: false,
-    controlConflict: false,
     awaitingApproval: false,
-    supersededReceipt: false,
     ...overrides,
   }
+}
+
+function coordinated(
+  overrides: Partial<DirectSessionHandoffInput> = {}
+): DirectSessionHandoffInput {
+  return input({ mode: 'coordination_handoff', leadTurn: leadTurn(), ...overrides })
 }
 
 describe('direct-session handoff modes', () => {
@@ -98,53 +114,59 @@ describe('direct-session handoff modes', () => {
     }
   })
 
-  test('read-only attachment grants no control', () => {
+  test('attachment without lead facts grants no lead control and names the gap', () => {
     const view = deriveDirectSessionHandoff(input({ mode: 'attached' }))
     expect(view.controls.lead_stop.available).toBe(false)
+    expect(view.controls.lead_stop.reason).toMatch(/no lead turn is bound/i)
+    expect(view.controls.lead_stop.remediation).toMatch(/control-plane#933/i)
     expect(view.controls.job_cancel.available).toBe(false)
     expect(view.controls.descendant_cancel.available).toBe(false)
+    expect(view.coordination).toBeUndefined()
   })
 
-  test('coordination handoff keeps truthful lead/job/descendant separation', () => {
-    const view = deriveDirectSessionHandoff(input({ mode: 'coordination_handoff' }))
-    // Lead-stop maps to the existing bound harness control; job and
-    // descendant cancellation require the absent Control Plane contract.
+  test('an observed live turn coordinates and authorizes lead-stop, never session-stop', () => {
+    const view = deriveDirectSessionHandoff(coordinated())
+    expect(view.mode).toBe('coordination_handoff')
     expect(view.controls.lead_stop.available).toBe(true)
+    expect(view.controls.session_stop.available).toBe(true)
+    expect(view.coordination).toMatchObject({
+      intentId: '00000000-0000-4000-8000-0000000000a1',
+      state: 'running',
+    })
+    // Lead and session cancellation stay distinct authorities.
     expect(view.controls.job_cancel.available).toBe(false)
     expect(view.controls.job_cancel.reason).toMatch(/control-plane/i)
     expect(view.controls.descendant_cancel.available).toBe(false)
-    expect(view.controls.descendant_cancel.reason).toMatch(/control-plane/i)
+  })
+
+  test('a turn that cannot cancel blocks lead-stop without touching session-stop', () => {
+    const view = deriveDirectSessionHandoff(
+      coordinated({ leadTurn: leadTurn({ canCancel: false }) })
+    )
+    expect(view.controls.lead_stop.available).toBe(false)
+    expect(view.controls.lead_stop.reason).toMatch(/cannot accept cancellation/i)
+    expect(view.controls.session_stop.available).toBe(true)
   })
 
   test('offline disables controls without silent fallback and preserves the draft', () => {
-    const view = deriveDirectSessionHandoff(
-      input({ mode: 'coordination_handoff', connected: false, hasUnsentDraft: true })
-    )
+    const view = deriveDirectSessionHandoff(coordinated({ connected: false, hasUnsentDraft: true }))
     expect(view.reconnectRequired).toBe(true)
     expect(view.draftPreserved).toBe(true)
     expect(view.controls.lead_stop.available).toBe(false)
     expect(view.controls.lead_stop.reason).toMatch(/offline|reconnect/i)
+    expect(view.controls.session_stop.available).toBe(false)
     expect(view.notice).toMatch(/reconnect/i)
   })
 
-  test('stale generation and control conflicts block without fallback', () => {
-    const stale = deriveDirectSessionHandoff(
-      input({ mode: 'coordination_handoff', generationCurrent: false })
-    )
+  test('stale generation blocks without fallback', () => {
+    const stale = deriveDirectSessionHandoff(coordinated({ generationCurrent: false }))
     expect(stale.controls.lead_stop.available).toBe(false)
     expect(stale.controls.lead_stop.reason).toMatch(/generation|resync/i)
-
-    const conflict = deriveDirectSessionHandoff(
-      input({ mode: 'coordination_handoff', controlConflict: true })
-    )
-    expect(conflict.controls.lead_stop.available).toBe(false)
-    expect(conflict.controls.lead_stop.reason).toMatch(/conflict/i)
+    expect(stale.controls.session_stop.available).toBe(false)
   })
 
   test('scope mismatch preserves worktree/project authority', () => {
-    const view = deriveDirectSessionHandoff(
-      input({ mode: 'coordination_handoff', scopeAuthorized: false })
-    )
+    const view = deriveDirectSessionHandoff(coordinated({ scopeAuthorized: false }))
     expect(view.controls.lead_stop.available).toBe(false)
     expect(view.preserves.worktreeId).toBe('worktree-1')
     expect(view.preserves.projectId).toBe('project-1')
@@ -159,31 +181,73 @@ describe('direct-session handoff modes', () => {
   })
 })
 
-function coordinated(
-  overrides: Partial<DirectSessionHandoffInput> = {}
-): DirectSessionHandoffInput {
-  return input({ mode: 'coordination_handoff', ...overrides })
-}
+describe('lead-turn mode derivation', () => {
+  const live = {
+    lifecycle: 'active',
+    archived: false,
+    connected: true,
+    generationCurrent: true,
+  } as const
+
+  test('live observed turns coordinate; terminal turns return; blocked stays attached', () => {
+    for (const state of [
+      'prepared',
+      'dispatch_pending',
+      'starting',
+      'running',
+      'awaiting_input',
+      'cancelling',
+    ] as const) {
+      expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state }) })).toBe(
+        'coordination_handoff'
+      )
+    }
+    for (const state of ['completed', 'failed', 'cancelled', 'timed_out'] as const) {
+      expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state }) })).toBe(
+        'returned_to_user'
+      )
+    }
+    expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state: 'blocked' }) })).toBe(
+      'attached'
+    )
+    expect(deriveHandoffModeForSurface({ ...live, leadTurn: leadTurn({ state: 'unknown' }) })).toBe(
+      'attached'
+    )
+    expect(deriveHandoffModeForSurface({ ...live })).toBe('attached')
+  })
+
+  test('a blocked turn names its refusal instead of coordinating silently', () => {
+    const view = deriveDirectSessionHandoff(
+      input({
+        mode: 'attached',
+        leadTurn: leadTurn({ state: 'blocked', reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE' }),
+      })
+    )
+    expect(view.mode).toBe('attached')
+    expect(view.notice).toMatch(/ADMISSION_SERVICE_UNAVAILABLE/)
+    expect(view.controls.lead_stop.available).toBe(false)
+  })
+})
 
 describe('harness-run binding', () => {
-  test('a run bound by register id, session, and scope authorizes lead-stop', () => {
-    const view = deriveDirectSessionHandoff(input({ mode: 'coordination_handoff' }))
+  test('a run bound by register id, session, and scope authorizes session-stop', () => {
+    const view = deriveDirectSessionHandoff(coordinated())
     expect(view.binding).toBe('bound')
-    expect(view.controls.lead_stop.available).toBe(true)
+    expect(view.controls.session_stop.available).toBe(true)
     expect(view.preserves.harnessRunId).toBe('run-1')
   })
 
   test('a run from another session is a mismatch and never steals control', () => {
     const foreign = run({ runtimeSessionId: 'session-2' })
     expect(resolveHarnessRunBinding(session(), foreign).status).toBe('mismatch')
-    const view = deriveDirectSessionHandoff(
-      input({ mode: 'coordination_handoff', activeHarnessRun: foreign })
-    )
+    const view = deriveDirectSessionHandoff(coordinated({ activeHarnessRun: foreign }))
     expect(view.binding).toBe('mismatch')
-    expect(view.controls.lead_stop.available).toBe(false)
-    expect(view.controls.lead_stop.reason).toMatch(/another session or scope/i)
+    expect(view.controls.session_stop.available).toBe(false)
+    expect(view.controls.session_stop.reason).toMatch(/another session or scope/i)
     // The register binding is still preserved, not replaced by the foreign run.
     expect(view.preserves.harnessRunId).toBe('run-1')
+    // Lead-stop (bound to the observed turn, not the run) is unaffected.
+    expect(view.controls.lead_stop.available).toBe(true)
   })
 
   test('a run from another scope is a mismatch', () => {
@@ -197,102 +261,74 @@ describe('harness-run binding', () => {
     expect(resolveHarnessRunBinding(session(), otherScope).status).toBe('mismatch')
   })
 
-  test('a superseded run id is stale', () => {
+  test('a superseded run id is stale: replacement never inherits the old candidate', () => {
     const old = run({ id: 'run-0' })
     expect(resolveHarnessRunBinding(session(), old).status).toBe('stale')
-    const view = deriveDirectSessionHandoff(
-      input({ mode: 'coordination_handoff', activeHarnessRun: old })
-    )
+    const view = deriveDirectSessionHandoff(coordinated({ activeHarnessRun: old }))
     expect(view.binding).toBe('stale')
-    expect(view.controls.lead_stop.available).toBe(false)
-    expect(view.controls.lead_stop.reason).toMatch(/superseded/i)
+    expect(view.controls.session_stop.available).toBe(false)
+    expect(view.controls.session_stop.reason).toMatch(/superseded/i)
     expect(view.preserves.harnessRunId).toBe('run-1')
   })
 
   test.each(['completed', 'failed', 'cancelled', 'disconnected'] as const)(
     'a %s run names its terminal state instead of offering a stop',
     (state) => {
-      const view = deriveDirectSessionHandoff(
-        input({ mode: 'coordination_handoff', activeHarnessRun: run({ state }) })
-      )
+      const view = deriveDirectSessionHandoff(coordinated({ activeHarnessRun: run({ state }) }))
       expect(view.binding).toBe('terminal')
-      expect(view.controls.lead_stop.available).toBe(false)
-      expect(view.controls.lead_stop.reason).toMatch(new RegExp(state))
-      expect(view.controls.lead_stop.remediation).toMatch(/resume/i)
+      expect(view.controls.session_stop.available).toBe(false)
+      expect(view.controls.session_stop.reason).toMatch(new RegExp(state))
+      expect(view.controls.session_stop.remediation).toMatch(/resume/i)
     }
   )
 
-  test('a run from an older session generation still binds: transfers do not replace runs', () => {
-    // transferInput bumps the session generation without touching the run.
+  test('a run from an older session generation still binds: coordination transfers bump the session without replacing the run', () => {
     const view = deriveDirectSessionHandoff(
-      input({
-        mode: 'coordination_handoff',
+      coordinated({
         session: session({ generation: 5 }),
         activeHarnessRun: run({ generation: 3 }),
       })
     )
     expect(view.binding).toBe('bound')
-    expect(view.controls.lead_stop.available).toBe(true)
+    expect(view.controls.session_stop.available).toBe(true)
   })
 
   test('register id without run facts authorizes like cancelHarness; nothing authorizes nothing', () => {
-    const registered = deriveDirectSessionHandoff(
-      input({ mode: 'coordination_handoff', activeHarnessRun: undefined })
-    )
+    const registered = deriveDirectSessionHandoff(coordinated({ activeHarnessRun: undefined }))
     expect(registered.binding).toBe('registered')
-    expect(registered.controls.lead_stop.available).toBe(true)
+    expect(registered.controls.session_stop.available).toBe(true)
 
     const absent = deriveDirectSessionHandoff(
-      input({
-        mode: 'coordination_handoff',
+      coordinated({
         session: session({ activeHarnessRunId: undefined }),
         activeHarnessRun: undefined,
       })
     )
     expect(absent.binding).toBe('absent')
     expect(absent.preserves.harnessRunId).toBeUndefined()
-    expect(absent.controls.lead_stop.available).toBe(false)
-    expect(absent.controls.lead_stop.remediation).toMatch(/launch/i)
+    expect(absent.controls.session_stop.available).toBe(false)
+    expect(absent.controls.session_stop.remediation).toMatch(/launch/i)
   })
 })
 
-describe('return-to-user guards', () => {
-  test('available only while coordinating with input held elsewhere', () => {
-    const view = deriveDirectSessionHandoff(coordinated())
-    expect(view.controls.return_to_user.available).toBe(true)
-  })
-
-  test('read-only modes and already-returned states stay unavailable', () => {
-    for (const mode of ['attached', 'one_time_review'] as const) {
-      const view = deriveDirectSessionHandoff(input({ mode }))
-      expect(view.controls.return_to_user.available).toBe(false)
-    }
-    const returned = deriveDirectSessionHandoff(input({ mode: 'returned_to_user' }))
-    expect(returned.controls.return_to_user.available).toBe(false)
-    expect(returned.controls.return_to_user.reason).toMatch(/already/i)
-  })
-
-  test('an already-returned session needs no transfer', () => {
-    const view = deriveDirectSessionHandoff(input({ mode: 'returned_to_user' }))
-    expect(view.controls.return_to_user.available).toBe(false)
-    expect(view.controls.return_to_user.reason).toMatch(/already user-held/i)
-  })
-
-  test('offline, stale, conflict, scope, and archived each block with a remedy', () => {
-    const cases = [
-      coordinated({ connected: false }),
-      coordinated({ generationCurrent: false }),
-      coordinated({ controlConflict: true }),
-      coordinated({ scopeAuthorized: false }),
-      coordinated({ session: session({ archived: true }) }),
-    ] as const
-    for (const candidate of cases) {
-      const view = deriveDirectSessionHandoff(candidate)
-      const control = view.controls.return_to_user
-      expect(control.available).toBe(false)
-      expect(typeof control.reason === 'string' && control.reason.length > 0).toBe(true)
-      expect(typeof control.remediation === 'string' && control.remediation.length > 0).toBe(true)
-      expect(typeof view.notice === 'string' && view.notice.length > 0).toBe(true)
+describe('unavailable session-side handoff and return', () => {
+  test('both rows fail closed with the integration gap in every mode', () => {
+    for (const mode of [
+      'attached',
+      'one_time_review',
+      'coordination_handoff',
+      'returned_to_user',
+    ] as const) {
+      const view = deriveDirectSessionHandoff(
+        mode === 'attached' || mode === 'one_time_review'
+          ? input({ mode })
+          : coordinated(mode === 'returned_to_user' ? { mode } : {})
+      )
+      for (const kind of ['handoff_to_lead', 'return_to_user'] as const) {
+        const control = view.controls[kind]
+        expect(control.available).toBe(false)
+        expect(control.reason ?? '').toMatch(/lead-turn admission/i)
+      }
     }
   })
 })
@@ -311,30 +347,28 @@ describe('assistive-technology content contract', () => {
     const blockedInputs: readonly DirectSessionHandoffInput[] = [
       input({ mode: 'attached' }),
       input({ mode: 'one_time_review' }),
-      input({ mode: 'coordination_handoff', connected: false }),
-      input({ mode: 'coordination_handoff', generationCurrent: false }),
-      input({ mode: 'coordination_handoff', controlConflict: true }),
-      input({ mode: 'coordination_handoff', scopeAuthorized: false }),
-      input({
-        mode: 'coordination_handoff',
+      coordinated({ connected: false }),
+      coordinated({ generationCurrent: false }),
+      coordinated({ scopeAuthorized: false }),
+      coordinated({
         session: session({ archived: true }),
       }),
-      input({
-        mode: 'coordination_handoff',
+      coordinated({
         session: session({ activeHarnessRunId: undefined }),
         activeHarnessRun: undefined,
       }),
-      input({
-        mode: 'coordination_handoff',
+      coordinated({
         activeHarnessRun: run({ state: 'completed' }),
       }),
+      coordinated({ leadTurn: leadTurn({ canCancel: false }) }),
     ]
     const kinds: readonly HandoffControlKind[] = [
       'lead_stop',
+      'session_stop',
       'handoff_to_lead',
+      'return_to_user',
       'job_cancel',
       'descendant_cancel',
-      'return_to_user',
     ]
     for (const candidate of blockedInputs) {
       const view = deriveDirectSessionHandoff(candidate)
@@ -352,10 +386,13 @@ describe('assistive-technology content contract', () => {
 
   test('a notice accompanies every transport or authority block', () => {
     const blockedInputs = [
-      input({ mode: 'coordination_handoff', connected: false }),
-      input({ mode: 'coordination_handoff', generationCurrent: false }),
-      input({ mode: 'coordination_handoff', controlConflict: true }),
-      input({ mode: 'coordination_handoff', scopeAuthorized: false }),
+      coordinated({ connected: false }),
+      coordinated({ generationCurrent: false }),
+      coordinated({ scopeAuthorized: false }),
+      input({
+        mode: 'attached',
+        leadTurn: leadTurn({ state: 'blocked', reasonCode: 'FUNDING_CONFIRMATION_REQUIRED' }),
+      }),
     ]
     for (const candidate of blockedInputs) {
       expect(deriveDirectSessionHandoff(candidate).notice?.length ?? 0).toBeGreaterThan(0)
@@ -365,16 +402,17 @@ describe('assistive-technology content contract', () => {
   test('reason-element ids are deterministic and unique per row', () => {
     const kinds: readonly HandoffControlKind[] = [
       'lead_stop',
+      'session_stop',
       'handoff_to_lead',
+      'return_to_user',
       'job_cancel',
       'descendant_cancel',
-      'return_to_user',
     ]
     const ids = new Set([
       ...kinds.map((kind) => handoffControlReasonId('handoff-1', kind)),
       handoffControlReasonId('handoff-1', 'notice'),
     ])
-    expect(ids.size).toBe(6)
+    expect(ids.size).toBe(7)
     for (const id of ids) expect(id.startsWith('handoff-1-')).toBe(true)
     expect(handoffControlReasonId('handoff-2', 'lead_stop')).not.toBe(
       handoffControlReasonId('handoff-1', 'lead_stop')
@@ -386,9 +424,9 @@ describe('coordination-action machine', () => {
   test('busy runs to idle on success', () => {
     const busy = handoffActionReducer(initialHandoffActionState, {
       type: 'start',
-      action: 'return_to_user',
+      action: 'session_stop',
     })
-    expect(busy).toEqual({ status: 'busy', action: 'return_to_user' })
+    expect(busy).toEqual({ status: 'busy', action: 'session_stop' })
     expect(handoffActionReducer(busy, { type: 'succeed' })).toEqual({ status: 'idle' })
   })
 
@@ -397,22 +435,22 @@ describe('coordination-action machine', () => {
       type: 'start',
       action: 'lead_stop',
     })
-    expect(handoffActionReducer(busy, { type: 'start', action: 'return_to_user' })).toBe(busy)
+    expect(handoffActionReducer(busy, { type: 'start', action: 'session_stop' })).toBe(busy)
   })
 
   test('failure parks the message for an explicit retry', () => {
     const busy = handoffActionReducer(initialHandoffActionState, {
       type: 'start',
-      action: 'return_to_user',
+      action: 'lead_stop',
     })
     const failed = handoffActionReducer(busy, {
       type: 'fail',
-      action: 'return_to_user',
-      message: 'stale_version: input owner version conflict',
+      action: 'lead_stop',
+      message: 'stale_version: coordination owner version conflict',
     })
     expect(failed.status).toBe('error')
-    const retried = handoffActionReducer(failed, { type: 'start', action: 'return_to_user' })
-    expect(retried).toEqual({ status: 'busy', action: 'return_to_user' })
+    const retried = handoffActionReducer(failed, { type: 'start', action: 'lead_stop' })
+    expect(retried).toEqual({ status: 'busy', action: 'lead_stop' })
     expect(handoffActionReducer(retried, { type: 'succeed' })).toEqual({ status: 'idle' })
   })
 
@@ -421,9 +459,9 @@ describe('coordination-action machine', () => {
       type: 'start',
       action: 'lead_stop',
     })
-    expect(
-      handoffActionReducer(busy, { type: 'fail', action: 'return_to_user', message: 'x' })
-    ).toBe(busy)
+    expect(handoffActionReducer(busy, { type: 'fail', action: 'session_stop', message: 'x' })).toBe(
+      busy
+    )
   })
 })
 
@@ -457,28 +495,24 @@ describe('production action admission', () => {
     const gate = deferredGate()
     const first = runHandoffActionOnce({
       ...harness,
-      action: 'return_to_user',
+      action: 'lead_stop',
       work: () => {
         workCalls += 1
         return gate.promise
       },
     })
+    void first
     const second = runHandoffActionOnce({
       ...harness,
-      action: 'return_to_user',
+      action: 'session_stop',
       work: () => {
         workCalls += 1
         return Promise.resolve()
       },
     })
     gate.resolve()
-    await expect(first).resolves.toBe('completed')
     await expect(second).resolves.toBe('rejected')
     expect(workCalls).toBe(1)
-    expect(harness.committed).toEqual([
-      { status: 'busy', action: 'return_to_user' },
-      { status: 'idle' },
-    ])
   })
 
   test('failure parks the message and reports conflicts', async () => {
@@ -487,8 +521,8 @@ describe('production action admission', () => {
     let succeeded = 0
     const outcome = await runHandoffActionOnce({
       ...harness,
-      action: 'return_to_user',
-      work: () => Promise.reject(new Error('stale_version: input owner version conflict')),
+      action: 'lead_stop',
+      work: () => Promise.reject(new Error('stale_version: coordination owner version conflict')),
       isConflict: (error) => error instanceof Error && error.message.startsWith('stale_version'),
       onConflict: () => {
         conflicted += 1
@@ -502,8 +536,8 @@ describe('production action admission', () => {
     expect(succeeded).toBe(0)
     expect(harness.current()).toEqual({
       status: 'error',
-      action: 'return_to_user',
-      message: 'stale_version: input owner version conflict',
+      action: 'lead_stop',
+      message: 'stale_version: coordination owner version conflict',
     })
   })
 
@@ -514,7 +548,7 @@ describe('production action admission', () => {
     const gate = deferredGate()
     const pending = runHandoffActionOnce({
       ...harness,
-      action: 'return_to_user',
+      action: 'lead_stop',
       work: () => gate.promise,
       isCurrent: () => currentSession === 'session-1',
       onSuccess: () => {
@@ -525,7 +559,7 @@ describe('production action admission', () => {
     gate.resolve()
     await expect(pending).resolves.toBe('superseded')
     expect(succeeded).toBe(0)
-    expect(harness.committed).toEqual([{ status: 'busy', action: 'return_to_user' }])
+    expect(harness.committed).toEqual([{ status: 'busy', action: 'lead_stop' }])
   })
 
   test('a late failure after navigation commits nothing', async () => {
@@ -535,7 +569,7 @@ describe('production action admission', () => {
     const gate = deferredGate()
     const pending = runHandoffActionOnce({
       ...harness,
-      action: 'lead_stop',
+      action: 'session_stop',
       work: () => gate.promise,
       isCurrent: () => currentSession === 'session-1',
       isConflict: () => true,
@@ -547,12 +581,12 @@ describe('production action admission', () => {
     gate.reject(new Error('stale_generation: runtime session generation conflict'))
     await expect(pending).resolves.toBe('superseded')
     expect(conflicted).toBe(0)
-    expect(harness.committed).toEqual([{ status: 'busy', action: 'lead_stop' }])
+    expect(harness.committed).toEqual([{ status: 'busy', action: 'session_stop' }])
   })
 
   test('non-error rejections surface a stable message', async () => {
     const harness = handoffMachine()
-    const action: HandoffActionKind = 'lead_stop'
+    const action: HandoffActionKind = 'session_stop'
     const outcome = await runHandoffActionOnce({
       ...harness,
       action,
@@ -564,67 +598,6 @@ describe('production action admission', () => {
       action,
       message: 'Handoff action failed.',
     })
-  })
-})
-
-describe('handoff-to-lead action', () => {
-  test('attached sessions offer an explicit handoff establishing coordination', () => {
-    const view = deriveDirectSessionHandoff(input({ mode: 'attached' }))
-    expect(view.controls.handoff_to_lead.available).toBe(true)
-    expect(view.controls.return_to_user.available).toBe(false)
-    expect(view.controls.lead_stop.available).toBe(false)
-  })
-
-  test('an active handoff needs no second handoff; a return may re-hand off', () => {
-    const active = deriveDirectSessionHandoff(input({ mode: 'coordination_handoff' }))
-    expect(active.controls.handoff_to_lead.available).toBe(false)
-    expect(active.controls.handoff_to_lead.reason).toMatch(/already handed off/i)
-    const returned = deriveDirectSessionHandoff(input({ mode: 'returned_to_user' }))
-    expect(returned.controls.handoff_to_lead.available).toBe(true)
-  })
-
-  test('read-only review never offers handoff, and transport gates apply', () => {
-    const review = deriveDirectSessionHandoff(input({ mode: 'one_time_review' }))
-    expect(review.controls.handoff_to_lead.available).toBe(false)
-    for (const candidate of [
-      input({ mode: 'attached', connected: false }),
-      input({ mode: 'attached', generationCurrent: false }),
-      input({ mode: 'attached', controlConflict: true }),
-      input({ mode: 'attached', scopeAuthorized: false }),
-      input({ mode: 'attached', session: session({ archived: true }) }),
-    ]) {
-      const view = deriveDirectSessionHandoff(candidate)
-      const control = view.controls.handoff_to_lead
-      expect(control.available).toBe(false)
-      expect(typeof control.reason === 'string' && control.reason.length > 0).toBe(true)
-      expect(typeof control.remediation === 'string' && control.remediation.length > 0).toBe(true)
-    }
-  })
-})
-
-describe('receipt currency', () => {
-  const base = {
-    lifecycle: 'active',
-    archived: false,
-    connected: true,
-    generationCurrent: true,
-  } as const
-
-  test('retained coordination enters the mode of its holder', () => {
-    expect(deriveHandoffModeForSurface({ ...base, coordination: 'lead' })).toBe(
-      'coordination_handoff'
-    )
-    expect(deriveHandoffModeForSurface({ ...base, coordination: 'user' })).toBe('returned_to_user')
-  })
-
-  test('no coordination signal means attachment even with a bound run', () => {
-    expect(deriveHandoffModeForSurface({ ...base, coordination: undefined })).toBe('attached')
-  })
-
-  test('a superseded receipt sets the flag for the newer-ownership notice', () => {
-    const view = deriveDirectSessionHandoff(input({ mode: 'attached', supersededReceipt: true }))
-    expect(view.mode).toBe('attached')
-    expect(view.notice).toMatch(/changed since the confirmed transfer/i)
   })
 })
 
@@ -650,11 +623,11 @@ describe('view/action epoch', () => {
   test('admission advances the epoch exactly once; rejection never does', async () => {
     const harness = epochHarness()
     let admitted = 0
-    const gate = new Promise<void>(() => {})
+    const gate = deferredGate()
     const first = runHandoffActionOnce({
       ...harness,
-      action: 'handoff_to_lead',
-      work: () => gate,
+      action: 'lead_stop',
+      work: () => gate.promise,
       onAdmitted: () => {
         admitted += 1
         harness.advance()
@@ -663,7 +636,7 @@ describe('view/action epoch', () => {
     void first
     const second = runHandoffActionOnce({
       ...harness,
-      action: 'return_to_user',
+      action: 'session_stop',
       work: () => Promise.resolve(),
       onAdmitted: () => {
         admitted += 1
@@ -673,7 +646,7 @@ describe('view/action epoch', () => {
     await expect(second).resolves.toBe('rejected')
     expect(admitted).toBe(1)
     expect(harness.epoch()).toBe(1)
-    expect(harness.committed).toEqual([{ status: 'busy', action: 'handoff_to_lead' }])
+    expect(harness.committed).toEqual([{ status: 'busy', action: 'lead_stop' }])
   })
 
   test('a replaced invocation fails currency even when the session matches', async () => {
@@ -685,7 +658,7 @@ describe('view/action epoch', () => {
     const captured: number[] = []
     const pending = runHandoffActionOnce({
       ...harness,
-      action: 'handoff_to_lead',
+      action: 'lead_stop',
       work: () => gate,
       onAdmitted: () => harness.advance(),
       isCurrent: () => harness.epoch() === captured[0],
@@ -697,6 +670,6 @@ describe('view/action epoch', () => {
     resolveWork()
     await expect(pending).resolves.toBe('superseded')
     // Only the admission committed; the late completion committed nothing.
-    expect(harness.committed).toEqual([{ status: 'busy', action: 'handoff_to_lead' }])
+    expect(harness.committed).toEqual([{ status: 'busy', action: 'lead_stop' }])
   })
 })

@@ -30,9 +30,6 @@ export type ChatConversation = Readonly<{
   generation: number
   version: number
   activeHarnessRunId?: string
-  /** Retained coordination holder projected from the host (#1177); absent
-   *  means no explicit coordination was ever recorded for this session. */
-  coordinationOwner?: RuntimeSession['coordinationOwner']
   draft: string
   draftBlocks: readonly PasteBlock[]
   events: readonly RuntimeEvent[]
