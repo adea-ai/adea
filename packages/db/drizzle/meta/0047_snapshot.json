@@ -1,6 +1,6 @@
 {
-  "id": "e143add1-65c4-4a37-9797-88ed56aec91f",
-  "prevId": "6356002a-d70c-401e-a365-8861f440cce7",
+  "id": "4603996b-7bd8-4ec4-8ca8-174fae4f7204",
+  "prevId": "e143add1-65c4-4a37-9797-88ed56aec91f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2851,6 +2851,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "requested_model_selections": {
+          "name": "requested_model_selections",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "dispatch_key": {
           "name": "dispatch_key",
           "type": "text",
@@ -2999,6 +3005,10 @@
         "lead_turn_intents_blocked_only": {
           "name": "lead_turn_intents_blocked_only",
           "value": "\"app\".\"lead_turn_intents\".\"state\" = 'blocked' and \"app\".\"lead_turn_intents\".\"reason_code\" = 'ADMISSION_SERVICE_UNAVAILABLE'"
+        },
+        "lead_turn_intents_requested_models_valid": {
+          "name": "lead_turn_intents_requested_models_valid",
+          "value": "\"app\".\"lead_turn_intents\".\"requested_model_selections\" is null or (\n        jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\") = 'object'\n        and \"app\".\"lead_turn_intents\".\"requested_model_selections\" <> '{}'::jsonb\n        and (\"app\".\"lead_turn_intents\".\"requested_model_selections\" - 'lead' - 'child') = '{}'::jsonb\n        and (not (\"app\".\"lead_turn_intents\".\"requested_model_selections\" ? 'lead') or (\n            jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead') = 'object'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead' ? 'selectionRef' and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead' ? 'selectionRevision'\n            and ((\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead') - 'selectionRef' - 'selectionRevision') = '{}'::jsonb\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->'selectionRef') = 'string'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->>'selectionRef' ~ '^msel_[a-f0-9]{32}$'\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->'selectionRevision') = 'number'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->>'selectionRevision' ~ '^[0-9]+$'\n            and (\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->>'selectionRevision')::numeric between 1 and 9007199254740991\n          )) and (not (\"app\".\"lead_turn_intents\".\"requested_model_selections\" ? 'child') or (\n            jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child') = 'object'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child' ? 'selectionRef' and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child' ? 'selectionRevision'\n            and ((\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child') - 'selectionRef' - 'selectionRevision') = '{}'::jsonb\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->'selectionRef') = 'string'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->>'selectionRef' ~ '^msel_[a-f0-9]{32}$'\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->'selectionRevision') = 'number'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->>'selectionRevision' ~ '^[0-9]+$'\n            and (\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->>'selectionRevision')::numeric between 1 and 9007199254740991\n          ))\n      )"
         }
       },
       "isRLSEnabled": false

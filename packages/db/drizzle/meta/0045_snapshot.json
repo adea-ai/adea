@@ -1,5 +1,5 @@
 {
-  "id": "e143add1-65c4-4a37-9797-88ed56aec91f",
+  "id": "6356002a-d70c-401e-a365-8861f440cce7",
   "prevId": "c943ea33-bb4b-43d6-b9c7-a0f384c615fb",
   "version": "7",
   "dialect": "postgresql",
@@ -102,6 +102,13 @@
         },
         "profile_revision": {
           "name": "profile_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "revision": {
+          "name": "revision",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -275,170 +282,10 @@
         "agents_profile_revision_nonnegative": {
           "name": "agents_profile_revision_nonnegative",
           "value": "\"app\".\"agents\".\"profile_revision\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "app.artifact_reference_grants": {
-      "name": "artifact_reference_grants",
-      "schema": "app",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
         },
-        "grant_id": {
-          "name": "grant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_workspace_id": {
-          "name": "source_workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "audience_workspace_id": {
-          "name": "audience_workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "artifact_id": {
-          "name": "artifact_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "checksum_sha256": {
-          "name": "checksum_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "artifact_reference_grants_source_artifact_idx": {
-          "name": "artifact_reference_grants_source_artifact_idx",
-          "columns": [
-            {
-              "expression": "source_workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "artifact_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "audience_workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "artifact_reference_grants_source_workspace_fk": {
-          "name": "artifact_reference_grants_source_workspace_fk",
-          "tableFrom": "artifact_reference_grants",
-          "tableTo": "workspaces",
-          "schemaTo": "app",
-          "columnsFrom": ["source_workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "artifact_reference_grants_audience_workspace_fk": {
-          "name": "artifact_reference_grants_audience_workspace_fk",
-          "tableFrom": "artifact_reference_grants",
-          "tableTo": "workspaces",
-          "schemaTo": "app",
-          "columnsFrom": ["audience_workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "artifact_reference_grants_grant_id_unique": {
-          "name": "artifact_reference_grants_grant_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["grant_id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "artifact_reference_grants_revision_positive": {
-          "name": "artifact_reference_grants_revision_positive",
-          "value": "\"app\".\"artifact_reference_grants\".\"revision\" > 0"
-        },
-        "artifact_reference_grants_version_positive": {
-          "name": "artifact_reference_grants_version_positive",
-          "value": "\"app\".\"artifact_reference_grants\".\"version\" > 0"
-        },
-        "artifact_reference_grants_checksum_sha256": {
-          "name": "artifact_reference_grants_checksum_sha256",
-          "value": "\"app\".\"artifact_reference_grants\".\"checksum_sha256\" ~ '^[0-9a-f]{64}$'"
-        },
-        "artifact_reference_grants_grant_id_nonempty": {
-          "name": "artifact_reference_grants_grant_id_nonempty",
-          "value": "length(btrim(\"app\".\"artifact_reference_grants\".\"grant_id\")) > 0"
-        },
-        "artifact_reference_grants_workspaces_distinct": {
-          "name": "artifact_reference_grants_workspaces_distinct",
-          "value": "\"app\".\"artifact_reference_grants\".\"source_workspace_id\" <> \"app\".\"artifact_reference_grants\".\"audience_workspace_id\""
+        "agents_revision_nonnegative": {
+          "name": "agents_revision_nonnegative",
+          "value": "\"app\".\"agents\".\"revision\" >= 0"
         }
       },
       "isRLSEnabled": false
@@ -7438,6 +7285,10 @@
           "name": "workspaces_control_plane_workspace_id_valid",
           "value": "\"app\".\"workspaces\".\"control_plane_workspace_id\" ~ '^wsp_[0-9A-HJKMNP-TV-Z]{26}$'"
         },
+        "workspaces_personal_active": {
+          "name": "workspaces_personal_active",
+          "value": "not \"app\".\"workspaces\".\"is_personal\" or (\"app\".\"workspaces\".\"deleted_at\" is null and \"app\".\"workspaces\".\"deletion_requested_at\" is null)"
+        },
         "workspaces_name_nonempty": {
           "name": "workspaces_name_nonempty",
           "value": "length(btrim(\"app\".\"workspaces\".\"name\")) > 0"
@@ -7457,10 +7308,6 @@
         "workspaces_logo_valid": {
           "name": "workspaces_logo_valid",
           "value": "(\"app\".\"workspaces\".\"logo_kind\" in ('monogram', 'home', 'box') and \"app\".\"workspaces\".\"logo_value\" is null) or (\"app\".\"workspaces\".\"logo_kind\" = 'emoji' and length(\"app\".\"workspaces\".\"logo_value\") between 1 and 16)"
-        },
-        "workspaces_personal_active": {
-          "name": "workspaces_personal_active",
-          "value": "not \"app\".\"workspaces\".\"is_personal\" or (\"app\".\"workspaces\".\"deleted_at\" is null and \"app\".\"workspaces\".\"deletion_requested_at\" is null)"
         },
         "workspaces_version_positive": {
           "name": "workspaces_version_positive",

@@ -22,6 +22,7 @@ export type LeadTurnReasonCode =
   | 'RUNTIME_RESPONSE_INVALID'
   | 'PUBLICATION_WITHHELD'
   | 'FUNDING_CONFIRMATION_REQUIRED'
+  | 'REQUESTED_MODEL_MISMATCH'
 export type ApiLeadTurnStatus = Readonly<{
   schemaVersion: 'adea-lead-turn/v1'
   intentId: string

@@ -1,5 +1,5 @@
-import 'server-only'
-
+// No `server-only` marker: Bun-run unit tests import this module directly (same pattern as
+// marketplace-installation-request); the client-boundary guard keeps `src/server` out of browsers.
 import type { ConversationParticipantRef } from '@adea-ai/types'
 
 import type { WorkspacePrincipalResolution } from './workspace-principal'
