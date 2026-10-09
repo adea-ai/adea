@@ -100,10 +100,19 @@ fencing, transactional child budgets, coalesced progress) are tracked by
 their owners and are not preconditions for this presentation slice beyond
 the disabled states above.
 
-A lead-aware host (Dev entry or a channel-bound surface that can observe
-lead turns) can supply `{ intentId, dispatchId, state, canCancel }` plus
-the canonical cancel handler through the existing `handoff` config to
-enable the full path; until then the gap rows state exactly this.
+Production wiring (`apps/web/src/lib/lead-handoff-supply.ts`,
+`desktop-first-run-chat.tsx`): the chat host resolves the designated lead
+(`getWorkspaceLead`), its active direct channel (`listChannels` filtered
+by lead agent), and the channel turn (`getChannelLeadTurn`), then maps
+the observed facts onto the handoff supply and binds lead-stop to
+`cancelLeadTurn`, refreshing local facts from the cancel receipt. No
+channel, an ambiguous channel roster, a missing turn, or any transport
+failure resolves to an explicit `unresolved` reason and the surface
+attaches with the gap rows; resolution re-runs per selected session
+under the existing lifecycle fence. A lead-aware host (Dev entry or a
+channel-bound surface) can supply the same facts plus the canonical
+cancel handler through the existing `handoff` config; until then the gap
+rows state exactly this.
 
 ## Coordination
 
