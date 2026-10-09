@@ -1321,18 +1321,20 @@ export type GroupLeadPublicationInput = Readonly<{
 async function requireGroupResultArtifacts(
   database: Database,
   workspaceId: string,
-  messageId: string
+  messageId: string,
+  options: Readonly<{ forUpdate?: boolean }> = {}
 ): Promise<void> {
   const links = await database
     .select({ artifactId: messageArtifactReferences.artifactId })
     .from(messageArtifactReferences)
     .where(eq(messageArtifactReferences.messageId, messageId))
   for (const link of links) {
-    const [row] = await database
+    const query = database
       .select({ deletionState: artifacts.deletionState })
       .from(artifacts)
       .where(and(eq(artifacts.id, link.artifactId), eq(artifacts.workspaceId, workspaceId)))
       .limit(1)
+    const [row] = options.forUpdate ? await query.for('update') : await query
     if (!row || row.deletionState !== 'active')
       throw new Error('Group publication artifact unresolved')
   }
@@ -1373,8 +1375,12 @@ export async function publishGroupLeadResult(
   if (intent.actorUserId !== principal.userId)
     throw new GroupPublicationHoldError('publication_authority_mismatch')
   const bound = await inTransaction(database, async (transaction) => {
-    const gate = await loadChannelGate(transaction, workspaceId, input.channelId)
-    const roster = await loadGroupRoster(transaction, workspaceId, input.channelId)
+    const gate = await loadChannelGate(transaction, workspaceId, input.channelId, {
+      forUpdate: true,
+    })
+    const roster = await loadGroupRoster(transaction, workspaceId, input.channelId, {
+      forUpdate: true,
+    })
     const admission = admissionForParticipant(roster, publisher)
     if (!admission) throw new GroupPublicationHoldError('publication_unauthorized_at_completion')
     const [runtime] = await transaction
@@ -1407,16 +1413,24 @@ export async function publishGroupLeadResult(
     input.binding,
     input.bodyText,
     async () => {
-      const decision = await decideGroupChannelPublicationNow(
-        database,
-        workspaceId,
-        input.channelId,
-        bound,
+      // Plain reads by design: the service transaction already holds the
+      // admission/grant locks through its own authority check, so
+      // re-locking them here deadlocked this check against the service. A
+      // concurrent revocation still orders outside the service transaction,
+      // and expiry is covered by the fresh trusted instant below.
+      const freshNow = options.clock?.() ?? options.now ?? liveGroupClock()
+      const gate = await loadChannelGate(database, workspaceId, input.channelId)
+      const roster = await loadGroupRoster(database, workspaceId, input.channelId)
+      const decision = authorizeGroupChannelPublication(gate, {
+        admission: admissionForParticipant(roster, publisher),
+        job: bound,
+        now: freshNow,
         publisher,
-        options.clock ? { clock: options.clock } : { now }
-      )
+      })
       if (decision.action !== 'publish') throw new GroupPublicationHoldError(decision.reason)
-      await requireGroupResultArtifacts(database, workspaceId, intent.messageId)
+      await requireGroupResultArtifacts(database, workspaceId, intent.messageId, {
+        forUpdate: true,
+      })
     }
   )
 }
