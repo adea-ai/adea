@@ -13,8 +13,8 @@ import {
   MigrationSnapshotCaptureInputError,
   MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES,
   MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG,
-  PAYLOAD_CANONICAL_DEEP_MAX_BYTES,
-  PAYLOAD_CANONICAL_DEEP_MAX_WORK,
+  PAYLOAD_CANONICAL_MAX_BYTES,
+  PAYLOAD_CANONICAL_MAX_WORK,
   PAYLOAD_CANONICAL_MAX_DEPTH,
   resolveMigrationSnapshotCaptureDomains,
   type MigrationSnapshotRecord,
@@ -365,12 +365,79 @@ describe('migrationSnapshotEventPayloadDigest deep-fold bounds', () => {
     expect(again.digest).toBe(result.digest)
   })
 
-  test('the byte budget is exact: one byte under digests, one byte over trips', () => {
-    const fits = PAYLOAD_CANONICAL_DEEP_MAX_BYTES - 2 // the fold adds the two quotes
-    const within = migrationSnapshotEventPayloadDigest(foldedSubtreePayload('u'.repeat(fits)))
+  test('every valid non-surrogate BMP code unit encodes exactly like JSON.stringify, shallow and deep', () => {
+    // The classes JSON.stringify distinguishes, swept where the escaper can
+    // go wrong: U+E000–U+FFFF must be RAW (never their \uXXXX spelling),
+    // controls and lone surrogates must escape, pairs must survive. Each
+    // probe digests a folded subtree whose reference bytes are computed with
+    // plain JSON.stringify semantics.
+    const leaves = [
+      'private use \uE000 here',
+      '\uE000\uF8FF\uFFFD\uFFFF ends',
+      'plane marks \u2028\u2029 kept raw',
+      'c1 \u0080\u009F and DEL \u007F raw',
+      'lone \uD800 and \uDFFF surrogates',
+      'pair \uD83D\uDE00 and quote " backslash \\ control \u0001\t',
+    ]
+    for (const leaf of leaves) {
+      const result = migrationSnapshotEventPayloadDigest(foldedSubtreePayload({ hidden: leaf }))
+      expect(result.ok).toBe(true)
+      if (!result.ok) continue
+      const canonical = referenceCanonicalJson({ hidden: leaf })
+      const foldHex = createHash('sha256').update(canonical, 'utf8').digest('hex')
+      let whole = `"~deep:${Buffer.byteLength(canonical, 'utf8')}:${foldHex}"`
+      for (let depth = 0; depth < PAYLOAD_CANONICAL_MAX_DEPTH + 1; depth += 1) {
+        whole = `{"layer":${whole}}`
+      }
+      expect(result.digest).toBe(createHash('sha256').update(whole, 'utf8').digest('hex'))
+      // The same leaf in the SHALLOW path (no fold) must agree with plain
+      // JSON.stringify bytes too.
+      const shallow = migrationSnapshotEventPayloadDigest({ hidden: leaf })
+      expect(shallow.ok).toBe(true)
+      if (!shallow.ok) continue
+      expect(shallow.digest).toBe(
+        createHash('sha256')
+          .update(JSON.stringify({ hidden: leaf }), 'utf8')
+          .digest('hex')
+      )
+    }
+  })
+
+  test('the total byte budget is exact: one byte under digests, one byte over trips', () => {
+    // The budget covers the WHOLE encoding, shallow included: a bare string
+    // pays only its two quotes.
+    const fits = PAYLOAD_CANONICAL_MAX_BYTES - 2
+    const within = migrationSnapshotEventPayloadDigest('u'.repeat(fits))
     expect(within.ok).toBe(true)
-    const over = migrationSnapshotEventPayloadDigest(foldedSubtreePayload('u'.repeat(fits + 1)))
+    const over = migrationSnapshotEventPayloadDigest('u'.repeat(fits + 1))
     expect(over).toEqual({
+      marker: MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
+      ok: false,
+      reason: 'payload_too_large_to_digest',
+    })
+  })
+
+  test('deep folds draw from the same total budget as shallow values', () => {
+    // One fold comfortably inside the budget still digests…
+    const single = migrationSnapshotEventPayloadDigest(
+      foldedSubtreePayload({ hidden: 'x'.repeat(PAYLOAD_CANONICAL_MAX_BYTES - 4_096) })
+    )
+    expect(single.ok).toBe(true)
+    // …but two branches that fit individually overspend the shared budget.
+    const branch = { deep: foldedSubtreePayload({ hidden: 'x'.repeat(600_000) }) }
+    const both = migrationSnapshotEventPayloadDigest({ a: branch, b: branch })
+    expect(both).toEqual({
+      marker: MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
+      ok: false,
+      reason: 'payload_too_large_to_digest',
+    })
+  })
+
+  test('a wide shallow object overspends the total work budget and is refused', () => {
+    const wide: Record<string, number> = {}
+    for (let index = 0; index < PAYLOAD_CANONICAL_MAX_WORK + 1; index += 1) wide[`k${index}`] = 1
+    const result = migrationSnapshotEventPayloadDigest(wide)
+    expect(result).toEqual({
       marker: MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
       ok: false,
       reason: 'payload_too_large_to_digest',
@@ -379,10 +446,10 @@ describe('migrationSnapshotEventPayloadDigest deep-fold bounds', () => {
 
   test('two different oversized payloads share only the explicit inconclusive identity', () => {
     const left = migrationSnapshotEventPayloadDigest(
-      foldedSubtreePayload({ hidden: 'l'.repeat(PAYLOAD_CANONICAL_DEEP_MAX_BYTES) })
+      foldedSubtreePayload({ hidden: 'l'.repeat(PAYLOAD_CANONICAL_MAX_BYTES) })
     )
     const right = migrationSnapshotEventPayloadDigest(
-      foldedSubtreePayload({ hidden: 'r'.repeat(PAYLOAD_CANONICAL_DEEP_MAX_BYTES) })
+      foldedSubtreePayload({ hidden: 'r'.repeat(PAYLOAD_CANONICAL_MAX_BYTES) })
     )
     // Deterministic: the same input always yields the same typed outcome, and
     // over-limit payloads yield the one explicitly-inconclusive outcome.
@@ -396,7 +463,7 @@ describe('migrationSnapshotEventPayloadDigest deep-fold bounds', () => {
 
   test('a subtree nested past the deep work bound trips the typed limit, fast', () => {
     const result = migrationSnapshotEventPayloadDigest(
-      nestArraysAtDepth('leaf', PAYLOAD_CANONICAL_DEEP_MAX_WORK * 2)
+      nestArraysAtDepth('leaf', PAYLOAD_CANONICAL_MAX_WORK * 2)
     )
     expect(result).toEqual({
       marker: MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
@@ -413,7 +480,7 @@ describe('migrationSnapshotEventPayloadDigestField', () => {
 
   test('an oversized payload yields the inconclusive marker, never a digest', () => {
     const field = migrationSnapshotEventPayloadDigestField(
-      foldedSubtreePayload('x'.repeat(PAYLOAD_CANONICAL_DEEP_MAX_BYTES + 1))
+      foldedSubtreePayload('x'.repeat(PAYLOAD_CANONICAL_MAX_BYTES + 1))
     )
     expect(field).toBe(MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER)
     expect(field).not.toMatch(/^[0-9a-f]{64}$/)

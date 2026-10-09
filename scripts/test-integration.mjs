@@ -108,13 +108,13 @@ function startCaptureProvisioning() {
   const name = `adea-capture-prov-${randomBytes(6).toString('hex')}`
   // Register the removal handle BEFORE the container exists: a timeout or
   // crash anywhere after `docker run` must still reach the lane's cleanup,
-  // so a slow or failed start can never leak the container. The stop is
-  // best-effort (rm -f of an absent container is a no-op) so a failed removal
-  // during cleanup can never mask the lane's real failure.
+  // so a slow or failed start can never leak the container. The stop THROWS
+  // on failure so the lane's cleanup can report it — a leaked container must
+  // fail a green run instead of being ignored.
   const handle = {
     databaseUrl: null,
     stop() {
-      spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore', timeout: 60_000 })
+      dockerCaptureRun(['rm', '-f', name], 'removing the throwaway capture provisioning container')
     },
   }
   captureProvisioning = handle
@@ -168,9 +168,14 @@ function startCaptureProvisioning() {
     handle.databaseUrl = `postgresql://postgres:${password}@127.0.0.1:${port}/postgres?sslmode=disable`
     return handle
   } catch (error) {
-    // A container that started but never became healthy must not leak; the
-    // pre-registered handle above already covers mid-startup termination.
-    handle.stop()
+    // A container that started but never became healthy must not leak. The
+    // removal failure is surfaced on stderr but never replaces the original
+    // error — the lane's cleanup would report it again anyway.
+    try {
+      handle.stop()
+    } catch (cleanupError) {
+      console.error(`capture provisioning cleanup failed: ${cleanupError.message}`)
+    }
     throw error
   }
 }

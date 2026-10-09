@@ -259,27 +259,31 @@ export function resolveMigrationSnapshotCaptureDomains(
 // ─── Deterministic encodings ─────────────────────────────────────────────────
 
 /**
- * How deep the recursive canonical walk descends before handing the rest of
- * the subtree to the streaming deep fold. Exported so the tests can pin
- * the exact boundary the fold guarantees.
+ * How deep the canonical walk descends before folding the rest of the subtree
+ * into a bounded digest marker. Exported so the tests can pin the exact
+ * boundary the fold guarantees.
  */
 export const PAYLOAD_CANONICAL_MAX_DEPTH = 64
 
 /**
- * Emitted-bytes bound for one over-limit subtree's streamed canonical form:
- * the deep fold feeds the hash at most this many UTF-8 bytes before it gives
- * up. Small on purpose — a hostile payload must not be able to buy more than
- * a constant amount of hashing, buffering, or traversal per folded subtree.
+ * TOTAL emitted-bytes budget for one payload's whole canonical encoding:
+ * shallow values, wide containers and every folded deep branch draw from this
+ * one budget, so no combination of branches can buy more than a constant
+ * amount of hashing, buffering or traversal. Exceeding it refuses the digest.
  */
-export const PAYLOAD_CANONICAL_DEEP_MAX_BYTES = 1_048_576
+export const PAYLOAD_CANONICAL_MAX_BYTES = 1_048_576
 
 /**
- * Work bound for the deep fold's explicit stack: the maximum number of
- * containers that may be open along one path at once. Bounds the traversal
- * itself, independently of the byte budget, so even a payload that emits
- * almost nothing cannot make the walk grow without end.
+ * TOTAL work budget for one payload's canonical encoding: the maximum number
+ * of containers the walk may open across the whole payload — shallow, wide
+ * and folded alike. Bounds the traversal independently of the byte budget, so
+ * even a payload that emits almost nothing cannot make the walk grow without
+ * end. Exceeding it refuses the digest.
  */
-export const PAYLOAD_CANONICAL_DEEP_MAX_WORK = 262_144
+export const PAYLOAD_CANONICAL_MAX_WORK = 262_144
+
+/** Shared, decreasing budgets for one digest operation. */
+type CanonicalBudget = { bytesLeft: number; workLeft: number }
 
 /** Why a deep fold produced no digest. */
 export type MigrationSnapshotPayloadDigestInconclusiveReason = 'payload_too_large_to_digest'
@@ -296,8 +300,8 @@ export const MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER =
   '~inconclusive:payload_too_large_to_digest'
 
 /**
- * Scalar half of the canonical encoding, shared by the bounded recursive walk
- * and the deep iterative one so the two encodings can never drift apart.
+ * Non-string scalar half of the canonical encoding, emitted verbatim by the
+ * streaming walk so its bytes can never drift from the documented markers.
  */
 function canonicalScalar(value: unknown): string {
   if (value === null) return 'null'
@@ -313,33 +317,27 @@ function canonicalScalar(value: unknown): string {
   }
 }
 
-/** One container open along the deep fold's current path, with its cursor. */
-type DeepFoldFrame =
-  | { readonly kind: 'array'; readonly source: readonly unknown[]; index: number }
+/** One container open along the canonical walk, with its cursor. */
+type CanonicalFrame =
+  | { depth: number; index: number; kind: 'array'; source: readonly unknown[] }
   | {
-      readonly kind: 'object'
-      readonly source: Record<string, unknown>
-      readonly keys: readonly string[]
+      depth: number
       index: number
+      kind: 'object'
+      keys: readonly string[]
+      source: Record<string, unknown>
     }
 
-/** Result of streaming one over-limit subtree into the fold hash. */
-type StreamedDeepCanonicalDigest =
-  | Readonly<{ byteLength: number; digest: string; ok: true }>
-  | Readonly<{ ok: false; reason: MigrationSnapshotPayloadDigestInconclusiveReason }>
-
-const DEEP_DIGEST_OVERSIZED: StreamedDeepCanonicalDigest = Object.freeze({
-  ok: false,
-  reason: 'payload_too_large_to_digest',
-})
-
 /**
- * Stream `JSON.stringify(value)`'s bytes into the fold without ever
+ * Stream `JSON.stringify(value)`'s bytes into the sink without ever
  * materializing the escaped whole: code units are escaped one at a time into
  * a small chunk buffer flushed through `emit`, so a leaf string or object key
  * of any length costs O(chunk) memory and O(min(bytes, budget)) work.
- * Byte-for-byte identical to JSON.stringify, including control-character and
- * lone-surrogate escapes — the test suite pins that equivalence.
+ * Byte-for-byte identical to JSON.stringify — control characters and lone
+ * surrogates escape, every valid non-surrogate code unit (the printable-ASCII
+ * range, U+0080–U+D7FF and U+E000–U+FFFF alike) is emitted raw — and the
+ * test suite pins that equivalence across all of those classes, shallow and
+ * deep.
  */
 function emitQuotedJsonString(emit: (text: string) => boolean, value: string): boolean {
   if (!emit('"')) return false
@@ -347,8 +345,10 @@ function emitQuotedJsonString(emit: (text: string) => boolean, value: string): b
   for (let index = 0; index < value.length; index += 1) {
     const unit = value.charCodeAt(index)
     let piece: string
-    if (unit > 0x1f && unit < 0xd800 && unit !== 0x22 && unit !== 0x5c) {
-      piece = value[index]
+    if (unit === 0x22) {
+      piece = '\\"'
+    } else if (unit === 0x5c) {
+      piece = '\\\\'
     } else if (unit >= 0xd800 && unit <= 0xdbff) {
       const next = index + 1 < value.length ? value.charCodeAt(index + 1) : -1
       if (next >= 0xdc00 && next <= 0xdfff) {
@@ -359,6 +359,12 @@ function emitQuotedJsonString(emit: (text: string) => boolean, value: string): b
       }
     } else if (unit >= 0xdc00 && unit <= 0xdfff) {
       piece = `\\u${unit.toString(16).padStart(4, '0')}`
+    } else if (unit >= 0x20) {
+      // Every remaining valid code unit — the printable-ASCII range,
+      // U+0080–U+D7FF and U+E000–U+FFFF alike — is emitted raw, exactly as
+      // JSON.stringify does. Escaping any of them (e.g. reading U+E000 as
+      // its \uXXXX spelling) would diverge from the canonical encoding.
+      piece = value[index]
     } else {
       switch (unit) {
         case 0x08:
@@ -376,12 +382,6 @@ function emitQuotedJsonString(emit: (text: string) => boolean, value: string): b
         case 0x0d:
           piece = '\\r'
           break
-        case 0x22:
-          piece = '\\"'
-          break
-        case 0x5c:
-          piece = '\\\\'
-          break
         default:
           piece = `\\u${unit.toString(16).padStart(4, '0')}`
           break
@@ -397,74 +397,76 @@ function emitQuotedJsonString(emit: (text: string) => boolean, value: string): b
 }
 
 /**
- * Canonical encoding of a subtree handed over at the depth cap, streamed
- * STRAIGHT INTO a SHA-256 hash — nothing like the full encoded subtree is
- * ever materialized. Containers are walked with an explicit cursor stack, so
- * depth lives on the heap and width never enlarges the stack; strings are
- * escaped chunk-by-chunk on their way into the hash. The emitted bytes are
- * exactly what an uncapped recursive walk would produce (keys sorted, arrays
- * positional, the same scalar markers), so the digest matches the encoding
- * the shallow walk defines. Two documented bounds keep a hostile subtree
- * finite — the emitted-byte budget and the open-container work limit — and
- * tripping either stops the walk immediately with a typed inconclusive.
+ * Canonical encoding of a subtree, streamed STRAIGHT INTO a sink — nothing
+ * like the full encoded subtree is ever materialized. Containers are walked
+ * with an explicit cursor stack, so depth lives on the heap and width never
+ * enlarges the stack; strings and object keys are escaped chunk-by-chunk on
+ * their way out. The emitted bytes are exactly what a plain recursive walk
+ * would produce (keys sorted, arrays positional, the same scalar markers).
+ * Values deeper than `PAYLOAD_CANONICAL_MAX_DEPTH` (when `allowFolds`) fold
+ * into a bounded `"~deep:len:hex"` marker whose hex is the SHA-256 of the
+ * subtree's own streamed canonical form. EVERY byte emitted and EVERY
+ * container opened — shallow or folded, whatever the branch — charges the
+ * one shared payload budget; tripping either bound stops the walk
+ * immediately with `false`, and the caller refuses the digest.
  */
-function streamDeepCanonicalDigest(root: unknown): StreamedDeepCanonicalDigest {
-  const hash = createHash('sha256')
-  let bytes = 0
-  const emit = (text: string): boolean => {
-    const emitted = Buffer.byteLength(text, 'utf8')
-    if (bytes + emitted > PAYLOAD_CANONICAL_DEEP_MAX_BYTES) return false
-    bytes += emitted
-    hash.update(text, 'utf8')
-    return true
-  }
-  const frames: DeepFoldFrame[] = []
+function walkCanonical(
+  root: unknown,
+  startDepth: number,
+  allowFolds: boolean,
+  budget: CanonicalBudget,
+  emit: (text: string) => boolean
+): boolean {
+  const frames: CanonicalFrame[] = []
   let current: unknown = root
+  let depth = startDepth
+  let foldNext = false
   for (;;) {
-    // Open `current` — or emit it, when it is a scalar.
-    if (Array.isArray(current)) {
-      if (frames.length >= PAYLOAD_CANONICAL_DEEP_MAX_WORK || !emit('[')) {
-        return DEEP_DIGEST_OVERSIZED
-      }
-      frames.push({ index: 0, kind: 'array', source: current })
+    if (foldNext) {
+      if (!emitFoldMarker(current, budget, emit)) return false
+    } else if (Array.isArray(current)) {
+      budget.workLeft -= 1
+      if (budget.workLeft < 0 || !emit('[')) return false
+      frames.push({ depth, index: 0, kind: 'array', source: current })
     } else if (current !== null && typeof current === 'object') {
-      if (frames.length >= PAYLOAD_CANONICAL_DEEP_MAX_WORK || !emit('{')) {
-        return DEEP_DIGEST_OVERSIZED
-      }
+      budget.workLeft -= 1
+      if (budget.workLeft < 0 || !emit('{')) return false
       const source = current as Record<string, unknown>
-      frames.push({ index: 0, keys: Object.keys(source).toSorted(), kind: 'object', source })
+      frames.push({ depth, index: 0, keys: Object.keys(source).toSorted(), kind: 'object', source })
     } else if (typeof current === 'string') {
-      if (!emitQuotedJsonString(emit, current)) return DEEP_DIGEST_OVERSIZED
+      if (!emitQuotedJsonString(emit, current)) return false
     } else if (!emit(canonicalScalar(current))) {
-      return DEEP_DIGEST_OVERSIZED
+      return false
     }
     // Advance: finish every exhausted container (emitting its closer), then
     // step the deepest open one to its next element — or finish the walk.
     for (;;) {
       const frame = frames.at(-1)
-      if (frame === undefined) {
-        return { byteLength: bytes, digest: hash.digest('hex'), ok: true }
-      }
+      if (frame === undefined) return true
       if (frame.kind === 'array') {
         if (frame.index >= frame.source.length) {
           frames.pop()
-          if (!emit(']')) return DEEP_DIGEST_OVERSIZED
+          if (!emit(']')) return false
           continue
         }
-        if (frame.index > 0 && !emit(',')) return DEEP_DIGEST_OVERSIZED
+        if (frame.index > 0 && !emit(',')) return false
         current = frame.source[frame.index]
+        depth = frame.depth + 1
+        foldNext = allowFolds && depth > PAYLOAD_CANONICAL_MAX_DEPTH
         frame.index += 1
         break
       }
       if (frame.index >= frame.keys.length) {
         frames.pop()
-        if (!emit('}')) return DEEP_DIGEST_OVERSIZED
+        if (!emit('}')) return false
         continue
       }
-      if (frame.index > 0 && !emit(',')) return DEEP_DIGEST_OVERSIZED
+      if (frame.index > 0 && !emit(',')) return false
       const key = frame.keys[frame.index]
-      if (!emitQuotedJsonString(emit, key) || !emit(':')) return DEEP_DIGEST_OVERSIZED
+      if (!emitQuotedJsonString(emit, key) || !emit(':')) return false
       current = frame.source[key]
+      depth = frame.depth + 1
+      foldNext = allowFolds && depth > PAYLOAD_CANONICAL_MAX_DEPTH
       frame.index += 1
       break
     }
@@ -472,57 +474,31 @@ function streamDeepCanonicalDigest(root: unknown): StreamedDeepCanonicalDigest {
 }
 
 /**
- * Internal sentinel: the deep fold hit a documented bound, so the payload has
- * no canonical encoding and no digest may ever be derived from it. A unique
- * symbol, so the encoding's union narrows cleanly on `===`.
+ * Fold a subtree that starts deeper than the depth cap: its canonical form is
+ * streamed into a SHA-256 of its own — charging the SAME shared budget, so
+ * two deep branches cannot double-spend it — and the parent receives only the
+ * bounded `"~deep:len:hex"` marker. The hex is the digest of the subtree's
+ * exact canonical bytes, so two payloads identical above the cap but
+ * different below it can never share a marker. Returns false when the
+ * subtree trips the shared budget.
  */
-const DEEP_FOLD_INCONCLUSIVE = Symbol('migration-snapshot deep fold inconclusive')
-
-/**
- * The depth-cap fold: the over-limit subtree's canonical form, streamed into
- * a SHA-256 and folded into the parent as one bounded, length-prefixed
- * marker. Content past `PAYLOAD_CANONICAL_MAX_DEPTH` never collapses into a
- * constant, so two payloads identical above the cap but different below it
- * can never share a digest; the parent's encoding still costs O(1) per
- * folded subtree. Returns the inconclusive sentinel when the subtree trips a
- * fold bound — the parent gets no marker at all, and neither does the
- * payload.
- */
-function deepFoldMarker(value: unknown): string | typeof DEEP_FOLD_INCONCLUSIVE {
-  const streamed = streamDeepCanonicalDigest(value)
-  if (!streamed.ok) return DEEP_FOLD_INCONCLUSIVE
-  return `"~deep:${streamed.byteLength}:${streamed.digest}"`
-}
-
-/**
- * Deterministic JSON encoding for event payload digests: object keys sorted,
- * arrays positional, recursion depth-capped, with content past the cap folded
- * in as a bounded digest of its full canonical form. The same payload always
- * encodes the same, whatever key order the driver handed back — and no depth
- * limit can hide a difference from the digest. A payload whose deep content
- * trips a fold bound has no encoding at all: the inconclusive sentinel
- * propagates out unchanged and the digest is refused.
- */
-function canonicalJson(value: unknown, depth = 0): string | typeof DEEP_FOLD_INCONCLUSIVE {
-  if (depth > PAYLOAD_CANONICAL_MAX_DEPTH) return deepFoldMarker(value)
-  if (value === null || typeof value !== 'object') return canonicalScalar(value)
-  if (Array.isArray(value)) {
-    const parts: string[] = []
-    for (const item of value) {
-      const encoded = canonicalJson(item, depth + 1)
-      if (encoded === DEEP_FOLD_INCONCLUSIVE) return encoded
-      parts.push(encoded)
-    }
-    return `[${parts.join(',')}]`
-  }
-  const source = value as Record<string, unknown>
-  const parts: string[] = []
-  for (const key of Object.keys(source).toSorted()) {
-    const encoded = canonicalJson(source[key], depth + 1)
-    if (encoded === DEEP_FOLD_INCONCLUSIVE) return encoded
-    parts.push(`${JSON.stringify(key)}:${encoded}`)
-  }
-  return `{${parts.join(',')}}`
+function emitFoldMarker(
+  value: unknown,
+  budget: CanonicalBudget,
+  emit: (text: string) => boolean
+): boolean {
+  const fold = createHash('sha256')
+  let foldBytes = 0
+  const ok = walkCanonical(value, PAYLOAD_CANONICAL_MAX_DEPTH + 1, false, budget, (text) => {
+    const emitted = Buffer.byteLength(text, 'utf8')
+    if (emitted > budget.bytesLeft) return false
+    budget.bytesLeft -= emitted
+    foldBytes += emitted
+    fold.update(text, 'utf8')
+    return true
+  })
+  if (!ok) return false
+  return emit(`"~deep:${foldBytes}:${fold.digest('hex')}"`)
 }
 
 /**
@@ -530,11 +506,13 @@ function canonicalJson(value: unknown, depth = 0): string | typeof DEEP_FOLD_INC
  *
  * - `ok: true`: `digest` is the SHA-256 of the payload's canonical encoding —
  *   64 lowercase hex, deterministic for the payload.
- * - `ok: false`: the payload's deep content tripped a documented fold bound
- *   (see `PAYLOAD_CANONICAL_DEEP_MAX_BYTES` and
- *   `PAYLOAD_CANONICAL_DEEP_MAX_WORK`). Nothing about the content is claimed
- *   or hashed; `marker` is the fixed, clearly-marked non-digest the record
- *   carries instead, and the comparator quarantines it before comparing.
+ * - `ok: false`: the payload tripped a documented encoding bound — the total
+ *   emitted-byte budget or the total container-work budget, shared across
+ *   shallow values, wide containers and every folded deep branch (see
+ *   `PAYLOAD_CANONICAL_MAX_BYTES` and `PAYLOAD_CANONICAL_MAX_WORK`). Nothing
+ *   about the content is claimed or hashed; `marker` is the fixed,
+ *   clearly-marked non-digest the record carries instead, and the comparator
+ *   quarantines it before comparing.
  */
 export type MigrationSnapshotEventPayloadDigestResult = Readonly<
   | { digest: string; ok: true }
@@ -547,23 +525,35 @@ export type MigrationSnapshotEventPayloadDigestResult = Readonly<
 
 /**
  * Caller-computed payload digest for one durable event: SHA-256 over the
- * canonical encoding of the event payload. The payload itself never travels —
- * this digest is what drift detection compares. A payload whose deep content
- * trips a fold bound gets a typed inconclusive result instead of a digest;
- * callers must never synthesize one for it.
+ * canonical encoding of the event payload, streamed under one total
+ * byte/work budget. The payload itself never travels — this digest is what
+ * drift detection compares. A payload over the budget gets a typed
+ * inconclusive result instead of a digest; callers must never synthesize one
+ * for it.
  */
 export function migrationSnapshotEventPayloadDigest(
   payload: unknown
 ): MigrationSnapshotEventPayloadDigestResult {
-  const encoded = canonicalJson(payload)
-  if (encoded === DEEP_FOLD_INCONCLUSIVE) {
+  const hash = createHash('sha256')
+  const budget: CanonicalBudget = {
+    bytesLeft: PAYLOAD_CANONICAL_MAX_BYTES,
+    workLeft: PAYLOAD_CANONICAL_MAX_WORK,
+  }
+  const encoded = walkCanonical(payload, 0, true, budget, (text) => {
+    const emitted = Buffer.byteLength(text, 'utf8')
+    if (emitted > budget.bytesLeft) return false
+    budget.bytesLeft -= emitted
+    hash.update(text, 'utf8')
+    return true
+  })
+  if (!encoded) {
     return {
       marker: MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
       ok: false,
       reason: 'payload_too_large_to_digest',
     }
   }
-  return { digest: createHash('sha256').update(encoded, 'utf8').digest('hex'), ok: true }
+  return { digest: hash.digest('hex'), ok: true }
 }
 
 /**
