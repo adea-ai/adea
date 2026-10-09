@@ -1,8 +1,8 @@
 // Direct-session handoff supplier (#1177): the production derivation of the
-// handoff input from one canonical ChatConversation plus surface facts —
-// modes from durable facts plus the latest transfer receipt, run candidates
-// by register binding, drafts live. No receipt, no coordination: a bound run
-// alone never invents a handoff.
+// handoff input from one canonical ChatConversation plus surface facts.
+// Coordination comes from the host-projected retained owner first, then our
+// unobserved commit (current receipt); a bound run alone never invents a
+// handoff. Drafts read live.
 import { describe, expect, test } from 'bun:test'
 
 import type { HarnessRun, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
@@ -65,56 +65,38 @@ describe('deriveHandoffModeForSurface', () => {
     archived: false,
     connected: true,
     generationCurrent: true,
-    sessionId: 'session-1',
-    sessionGeneration: 3,
   } as const
 
   test('archived and terminal sessions review; nothing coordinates them', () => {
     for (const lifecycle of ['completed', 'failed', 'cancelled'] as const) {
-      expect(deriveHandoffModeForSurface({ ...live, lifecycle, receipt: undefined })).toBe(
+      expect(deriveHandoffModeForSurface({ ...live, lifecycle, coordination: 'lead' })).toBe(
         'one_time_review'
       )
     }
-    expect(deriveHandoffModeForSurface({ ...live, archived: true, receipt: undefined })).toBe(
+    expect(deriveHandoffModeForSurface({ ...live, archived: true, coordination: 'lead' })).toBe(
       'one_time_review'
     )
   })
 
   test('a stale or offline view attaches read-only until resync', () => {
-    expect(deriveHandoffModeForSurface({ ...live, connected: false, receipt: undefined })).toBe(
+    expect(deriveHandoffModeForSurface({ ...live, connected: false, coordination: 'lead' })).toBe(
       'attached'
     )
     expect(
       deriveHandoffModeForSurface({
         ...live,
         generationCurrent: false,
-        receipt: {
-          sessionId: 'session-1',
-          fromView: 'chat',
-          toView: 'dev',
-          generation: 3,
-        },
+        coordination: 'lead',
       })
     ).toBe('attached')
   })
 
-  test('a live session without a receipt attaches even with a run bound', () => {
-    expect(deriveHandoffModeForSurface({ ...live, receipt: undefined })).toBe('attached')
-  })
-
-  test('a current receipt enters the coordinating mode of its direction', () => {
-    expect(
-      deriveHandoffModeForSurface({
-        ...live,
-        receipt: { sessionId: 'session-1', fromView: 'chat', toView: 'dev', generation: 3 },
-      })
-    ).toBe('coordination_handoff')
-    expect(
-      deriveHandoffModeForSurface({
-        ...live,
-        receipt: { sessionId: 'session-1', fromView: 'dev', toView: 'chat', generation: 3 },
-      })
-    ).toBe('returned_to_user')
+  test('the retained coordination holder decides the mode', () => {
+    expect(deriveHandoffModeForSurface({ ...live, coordination: 'lead' })).toBe(
+      'coordination_handoff'
+    )
+    expect(deriveHandoffModeForSurface({ ...live, coordination: 'user' })).toBe('returned_to_user')
+    expect(deriveHandoffModeForSurface({ ...live, coordination: undefined })).toBe('attached')
   })
 })
 
@@ -136,30 +118,37 @@ describe('deriveHandoffInputFromConversation', () => {
     expect(supplied.supersededReceipt).toBe(false)
   })
 
-  test('a matching receipt drives the coordinating mode', () => {
+  test('the projected retained owner drives the mode across reloads', () => {
     const handedOff = deriveHandoffInputFromConversation({
-      conversation: conversation({ generation: 4 }),
+      conversation: conversation({ generation: 4, coordinationOwner: 'lead' }),
       connected: true,
-      receipt: { sessionId: 'session-1', fromView: 'chat', toView: 'dev', generation: 4 },
     })
     expect(handedOff.mode).toBe('coordination_handoff')
-    expect(handedOff.supersededReceipt).toBe(false)
 
     const returned = deriveHandoffInputFromConversation({
-      conversation: conversation({ generation: 5 }),
+      conversation: conversation({ generation: 5, coordinationOwner: 'user' }),
       connected: true,
-      receipt: { sessionId: 'session-1', fromView: 'dev', toView: 'chat', generation: 5 },
     })
     expect(returned.mode).toBe('returned_to_user')
   })
 
+  test('our unobserved commit wins before the refresh lands', () => {
+    const supplied = deriveHandoffInputFromConversation({
+      conversation: conversation({ generation: 4, coordinationOwner: 'lead' }),
+      connected: true,
+      receipt: { sessionId: 'session-1', fromView: 'dev', toView: 'chat', generation: 5 },
+    })
+    expect(supplied.mode).toBe('returned_to_user')
+    expect(supplied.supersededReceipt).toBe(false)
+  })
+
   test('a superseded receipt falls back to attachment with its flag set', () => {
     const supplied = deriveHandoffInputFromConversation({
-      conversation: conversation({ generation: 6 }),
+      conversation: conversation({ generation: 6, coordinationOwner: 'lead' }),
       connected: true,
       receipt: { sessionId: 'session-1', fromView: 'dev', toView: 'chat', generation: 4 },
     })
-    expect(supplied.mode).toBe('attached')
+    expect(supplied.mode).toBe('coordination_handoff')
     expect(supplied.supersededReceipt).toBe(true)
   })
 

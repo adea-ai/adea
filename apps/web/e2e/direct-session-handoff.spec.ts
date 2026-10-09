@@ -153,16 +153,15 @@ test('a stale rejection surfaces conflict truthfully and resolve-then-retry succ
   await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeDisabled()
 
   await page.getByRole('button', { name: 'Observe concurrent generation' }).click()
-  // The concurrent commit superseded our handoff receipt too: coordination
-  // restarts from an explicit handoff, never from a stale assumption.
-  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
-  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
-  await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
+  // The concurrent commit is observed as newer canonical ownership held by
+  // the lead: coordination resumes from the projected fact, and the retry
+  // transfers from the fresh generation.
   await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: 'Return to user', exact: true }).click()
   await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
   await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Transfer calls')).toHaveText('4')
+  await expect(page.getByLabel('Transfer calls')).toHaveText('3')
   expectNoErrors(errors)
 })
 
@@ -176,14 +175,12 @@ test('newer canonical ownership is never overwritten by a stale local receipt', 
   await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
   await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
 
-  // Ownership moves on underneath the receipt: the surface falls back to
-  // attachment with the newer-ownership notice instead of clinging to it.
+  // Ownership moves on underneath the receipt: the projected lead owner
+  // takes over instead of the stale local receipt clinging to returned.
   await page.getByRole('button', { name: 'Observe concurrent generation' }).click()
-  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
-  await expect(
-    section(page).getByText(/Coordination changed since the confirmed transfer/)
-  ).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeDisabled()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText('Returned to user', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeEnabled()
   expectNoErrors(errors)
 })
 
@@ -200,9 +197,55 @@ test('a late completion cannot mark the newly selected session coordinated', asy
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(page.getByLabel('Transfer calls')).toHaveText('1')
 
-  // The first session is untouched too: its late completion was dropped.
+  // The first session shows owner-projected coordination (the resolve
+  // committed gen 4 held by the lead): the dropped receipt contributed
+  // nothing, and the stored facts did everything.
   await page.getByRole('button', { name: 'Show session 1' }).click()
-  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText('gen 4', { exact: true })).toBeVisible()
+  expectNoErrors(errors)
+})
+
+test('ABA: an old completion cannot clear a new action\u2019s busy state', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Show session 2' }).click()
+  await page.getByRole('button', { name: 'Show session 1' }).click()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
+
+  // The oldest intent (from before navigation) resolves first: the epoch
+  // fence drops it, and the new action stays busy with no error parked.
+  await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
+  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByLabel('Transfer calls')).toHaveText('2')
+
+  await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  expectNoErrors(errors)
+})
+
+test('browser reload retains the projected coordination', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
+  await page.getByRole('button', { name: 'Return to user', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
+  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+
+  // A fresh mount holds no receipt: the returned state must come from the
+  // retained host-projected owner alone, with run, draft, and generation.
+  await page.reload()
+  await expect(
+    page.getByRole('region', { name: 'Direct session handoff' }).getByText('Returned to user', {
+      exact: true,
+    })
+  ).toBeVisible()
+  await expect(section(page).getByText('gen 5', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Active draft')).toHaveText('unsent coordination note')
+  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeDisabled()
   expectNoErrors(errors)
 })
 

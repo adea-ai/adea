@@ -21,23 +21,31 @@ transcript, its bound harness run, and its accepted execution location:
 - `returned_to_user` — the lead relinquishes; the user owns the session.
 
 Implementation: `packages/dev-view/src/chat/model/handoff.ts`
-(`deriveDirectSessionHandoff`, strict run binding, return-to-user guards,
+(`deriveDirectSessionHandoff`, strict run binding, handoff/return guards,
 `deriveHandoffModeForSurface` / `deriveHandoffInputFromConversation`
-production supplier, single-flight admission, session-identity late fence),
-`packages/dev-view/src/chat/handoff-controls.tsx`, default supplier plus
-model-backed actions in `ChatView` (`handoff` config; full `handoffView`
-override still wins), `transfer` on `ChatConversationModel`, and the
-production enablement in `apps/web/src/components/desktop-first-run-chat.tsx`.
+production supplier, single-flight admission with a monotonic view/action
+epoch), `packages/dev-view/src/chat/handoff-controls.tsx`, default supplier
+plus model-backed actions in `ChatView` (`handoff` config; full `handoffView`
+override still wins), `transfer` on `ChatConversationModel`, retained
+`coordinationOwner` on `RuntimeSession` written only by the host
+`transferInput` handler, and the production enablement in
+`apps/web/src/components/desktop-first-run-chat.tsx`.
 
-Coordination semantics: while a harness run is bound, the lead holds session
-coordination and this surface coordinates (`coordination_handoff`); the
-confirmed `dev.session.transferInput` receipt moves coordination to the user
-(`returned_to_user`). Composer input authority (who may type in a box) is a
-different dimension and is deliberately not consulted: conflating the two
-made the production return transition unreachable. With no run bound there
-is nothing to coordinate, so a live session attaches read-only until a run
-exists. The only path to user-held coordination is a confirmed transfer
-receipt or an explicit caller override — never a default.
+Coordination semantics: nothing is inferred from a bound run or from
+composer input authority — a user-created direct run is not proof of an
+explicit handoff, and who may type in a box is a different dimension from
+who holds session coordination. The retained coordination holder lives on
+the session record itself: `dev.session.transferInput` writes
+`coordinationOwner` (`toView` `'dev'` hands coordination to the lead,
+`'chat'` returns it to the user) alongside the generation/version bump,
+and every later `get`/`list` reply and restart projects it. Absent means
+no explicit coordination was ever recorded, and a live session without one
+attaches read-only even with a run bound. The transient input-view
+routing (`fromView`/`toView`) stays a distinct, unstored concept: the
+routing says where input goes next, the owner says who coordinates until
+the next explicit transfer. The only paths into a coordinating mode are
+the host-projected owner, our unobserved commit (current receipt), or an
+explicit caller override — never a default.
 The view mints no session, run, or location IDs and switches no worktree,
 project, or execution location. Offline, stale generation, control conflicts,
 scope mismatch, archived sessions, superseded/foreign/terminal runs, and
@@ -47,15 +55,20 @@ and failed transfers (pinned against the live model maps, not a flag).
 
 Persisted authoritative transition: `dev.session.transferInput`
 (generation- and owner-version-fenced, durable host snapshot,
-`session.input_transferred` event). Return-to-user executes it for real via
+`session.input_transferred` event, retained `coordinationOwner`).
+Handoff and return execute it for real via
 `ChatConversationModel.transfer` (exact fenced command, refresh from the
 canonical register, drafts untouched); a stale receipt parks an explicit
 control conflict scoped to the parked generation (it clears when the
 conversation moves past it via refresh, never by blind retry at the same
-generation), and a late completion after a session switch commits nothing
-(session-identity fence plus a reset that fires only on an actual session
-change — never on a same-session refresh, which must preserve receipts and
-in-flight actions). Lead-stop maps to the bound
+generation). Late completions are fenced by session identity plus a
+monotonic view/action epoch: every session switch and every admitted
+start advances it, and a completion applies only while the epoch still
+reads its admitted value — so an old A completion can neither mark a
+newly selected session nor clear a newer A action's busy state (A-B-A
+safe). The ChatView reset fires only on an actual session change, never
+on a same-session refresh, which preserves receipts and in-flight
+actions. Lead-stop maps to the bound
 `cancelHarness` control. Run binding is strict where run objects exist
 (same session, register-bound id, same scope, non-terminal) and falls back
 to the register id exactly as `cancelHarness` does where they do not — a
@@ -74,7 +87,12 @@ control; nothing else is mapped onto it.
 Lead-turn/job/descendant cancellation beyond the bound harness run, plus
 native-bridge qualification and budget/progress delivery, remain Control Plane
 products. No new `dev.*` operation was added in this slice and no
-Control Plane code was edited.
+Control Plane code was edited. The session contract was extended within
+#1177 with boundary coordination instead: the optional retained
+`coordinationOwner` on `RuntimeSession` (written only by the existing
+`transferInput`, projected by the existing `get`/`list`, validated on
+stored records), specified in `docs/specs/dev-runtime.md` in the same
+commit as the behavior.
 
 ## Exact contract status with the CP #935 owner (verified 2026-10-09)
 
@@ -120,23 +138,33 @@ disabled states; integration lands when the CP contract is confirmed.
 
 REQ 032, 080–088, 095, 096, 104, 110, 130–136. Tests A12–A14, A18, A21,
 A23–A25, A33 (this slice: `chat-handoff-model.test.ts` binding/guard/a11y
-contract/action-machine/production-admission tests,
+contract/action-machine/epoch-admission tests,
 `chat-handoff-transfer.test.ts` exact-command and live-draft-preservation
 tests against the real conversation model,
-`chat-handoff-supplier.test.ts` mode/run/draft derivation tests, plus
-mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts` over
-`e2e/helpers/direct-session-handoff-harness-app.tsx`: reachable production
-return, single-flight, stale/conflict/retry, late-completion fence,
-keyboard/focus activation, assistive-technology tree, narrow/200% text, and
-reduced motion — all on an ephemeral loopback harness server, no backend or
+`chat-handoff-supplier.test.ts` retained-owner/receipt/run/draft
+derivation tests, `project-session-handoff-journey.test.ts` joined
+real-register journey (direct-user → handoff → return → restart with one
+retained run/location, generation fencing, corrupt-owner fail-closed),
+plus mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts`
+over `e2e/helpers/direct-session-handoff-harness-app.tsx`: read-only
+attach default, joined handoff→return with direction proof, single-flight
+under force activation, stale/conflict with resolve-then-retry through
+re-handoff, newer-ownership takeover, late-completion and ABA busy-state
+fences, browser-reload retained coordination, keyboard/focus activation,
+assistive-technology tree, narrow/200% text, and reduced motion — the
+mounted file on an ephemeral loopback harness server, no backend or
 database; no duplicate execution, no silent fallback, preserved authority).
 
-Currency rule (operation/view epoch): a receipt carries its session and
-committed generation and applies only while the canonical conversation
-shows it; an older receipt against a newer conversation falls back to
-attachment with a newer-ownership notice instead of overwriting. A same-
-session refresh preserves receipts and in-flight actions; only an actual
-session switch resets them.
+Currency rule (operation/view epoch): coordination comes from our
+unobserved commit first, then the host-projected retained owner, then
+nothing asserted. A receipt carries its session and committed generation
+and applies only while the canonical conversation shows it; an older
+receipt against a newer conversation falls back to attachment with a
+newer-ownership notice instead of overwriting. Completions additionally
+carry the view/action epoch captured at admission: any navigation or
+newer admitted start invalidates them. A same-session refresh preserves
+receipts and in-flight actions; only an actual session switch resets
+them.
 Related gates: [#40](https://github.com/adea-ai/adea/issues/40),
 [#43](https://github.com/adea-ai/adea/issues/43),
 [#811](https://github.com/adea-ai/adea/issues/811).

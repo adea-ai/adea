@@ -383,14 +383,14 @@ function receiptCurrency(
 }
 
 /**
- * Derives the handoff mode from durable surface facts plus the latest
- * transfer receipt. No receipt, no coordination: archived/terminal sessions
- * review; a stale or offline view attaches read-only until resync; a live
- * session without a current receipt attaches — even with a run bound, since
- * a bound run alone proves execution, not an explicit handoff. Only a
- * current receipt (or an explicit caller override) enters a coordinating
- * mode, so newer canonical ownership can never be overwritten by stale
- * local state.
+ * Derives the handoff mode from durable surface facts. No coordination
+ * signal, no coordination: archived/terminal sessions review; a stale or
+ * offline view attaches read-only until resync; a live session without a
+ * retained owner or a current receipt attaches — even with a run bound,
+ * since a bound run alone proves execution, not an explicit handoff. Only
+ * the host-projected retained owner or a current receipt (our unobserved
+ * commit) enters a coordinating mode, so newer canonical ownership can
+ * never be overwritten by stale local state.
  */
 export function deriveHandoffModeForSurface(
   input: Readonly<{
@@ -398,21 +398,14 @@ export function deriveHandoffModeForSurface(
     archived: boolean
     connected: boolean
     generationCurrent: boolean
-    receipt: HandoffReceipt | undefined
-    sessionId: string
-    sessionGeneration: number
+    coordination: 'lead' | 'user' | undefined
   }>
 ): DirectSessionHandoffMode {
   if (input.archived || TERMINAL_SESSION_LIFECYCLES.includes(input.lifecycle))
     return 'one_time_review'
   if (!input.connected || !input.generationCurrent) return 'attached'
-  if (
-    input.receipt &&
-    input.receipt.sessionId === input.sessionId &&
-    input.receipt.generation >= input.sessionGeneration
-  ) {
-    return input.receipt.toView === 'chat' ? 'returned_to_user' : 'coordination_handoff'
-  }
+  if (input.coordination === 'lead') return 'coordination_handoff'
+  if (input.coordination === 'user') return 'returned_to_user'
   return 'attached'
 }
 
@@ -427,12 +420,11 @@ export type DirectSessionHandoffSupply = Readonly<{
  * Production supplier: builds the handoff input from one canonical
  * `ChatConversation` plus surface facts. The run candidate is resolved by
  * the register binding (`activeHarnessRunId`) and never guessed; the draft
- * flag reads the live conversation draft; an explicit mode overrides
- * derivation, otherwise the latest transfer receipt decides currency — a
- * superseded receipt falls back to attachment with a notice naming the
- * newer ownership, and a retained transfer event at the current generation
- * (e.g. after reload, when in-memory receipts are gone) explains the
- * attachment instead of leaving it silent.
+ * flag reads the live conversation draft; coordination comes from our
+ * unobserved commit first, then the host-projected retained owner, then
+ * nothing asserted. An explicit mode overrides derivation; a superseded
+ * receipt falls back to attachment with a notice naming the newer
+ * ownership.
  */
 export function deriveHandoffInputFromConversation(
   input: Readonly<{
@@ -469,6 +461,13 @@ export function deriveHandoffInputFromConversation(
   }
   const staleView = input.conversation.status === 'stale_generation'
   const currency = receiptCurrency(input.receipt, session)
+  // Coordination holder, newest knowledge first: our unobserved commit
+  // (current receipt) wins; otherwise the host-projected retained owner;
+  // otherwise nothing is asserted and the session attaches.
+  const coordination =
+    currency === 'current' && input.receipt
+      ? ((input.receipt.toView === 'chat' ? 'user' : 'lead') as 'lead' | 'user')
+      : input.conversation.coordinationOwner
   const mode =
     input.mode ??
     (staleView || !generationCurrent
@@ -478,17 +477,7 @@ export function deriveHandoffInputFromConversation(
           archived: input.conversation.archived,
           connected: input.connected,
           generationCurrent,
-          receipt:
-            currency === 'current' && input.receipt
-              ? {
-                  sessionId: input.receipt.sessionId,
-                  fromView: input.receipt.fromView,
-                  toView: input.receipt.toView,
-                  generation: input.receipt.generation,
-                }
-              : undefined,
-          sessionId: session.id,
-          sessionGeneration: session.generation,
+          coordination,
         }))
   const base: DirectSessionHandoffInput = {
     session,
@@ -591,12 +580,17 @@ export async function runHandoffActionOnce(
     isConflict?: (error: unknown) => boolean
     onConflict?: () => void
     onSuccess?: (result: unknown) => void
+    /** Invoked synchronously exactly when the start is admitted (never on
+     *  rejection): the caller advances its view/action epoch here so late
+     *  completions from replaced invocations fail the currency check. */
+    onAdmitted?: () => void
   }>
 ): Promise<HandoffActionOutcome> {
   const before = input.current()
   const started = handoffActionReducer(before, { type: 'start', action: input.action })
   if (started === before) return 'rejected'
   input.commit(started)
+  input.onAdmitted?.()
   let result: unknown
   try {
     result = await input.work()
